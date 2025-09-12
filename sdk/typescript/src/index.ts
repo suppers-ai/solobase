@@ -6,6 +6,7 @@ export { SolobaseClient, createSolobaseClient } from './client';
 export { AuthService } from './services/auth.service';
 export { StorageService } from './services/storage.service';
 export { DatabaseService } from './services/database.service';
+export { IAMService } from './services/iam.service';
 export {
   ExtensionsService,
   CloudStorageExtension,

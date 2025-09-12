@@ -142,6 +142,44 @@ await solobase.database.update({
 await solobase.database.delete('products', product.id);
 ```
 
+### IAM (Identity & Access Management)
+
+```typescript
+// Get all roles
+const roles = await solobase.iam.getRoles();
+
+// Create a custom role
+const role = await solobase.iam.createRole({
+  name: 'editor',
+  display_name: 'Content Editor',
+  description: 'Can edit content',
+  metadata: {
+    allowed_ips: ['192.168.1.0/24'],
+    disabled_features: ['delete'],
+  },
+});
+
+// Assign role to user
+await solobase.iam.assignRoleToUser(userId, 'editor');
+
+// Check user roles
+const userRoles = await solobase.iam.getUserRoles(userId);
+
+// Test permissions
+const result = await solobase.iam.testPermission(userId, 'content', 'edit');
+
+// Create policy
+await solobase.iam.createPolicy({
+  subject: 'editor',
+  resource: 'content',
+  action: 'edit',
+  effect: 'allow',
+});
+
+// Get audit logs
+const logs = await solobase.iam.getAuditLogs({ limit: 10 });
+```
+
 ### Extensions
 
 ```typescript

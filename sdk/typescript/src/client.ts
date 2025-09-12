@@ -2,12 +2,14 @@ import { SolobaseConfig } from './types';
 import { AuthService } from './services/auth.service';
 import { StorageService } from './services/storage.service';
 import { DatabaseService } from './services/database.service';
+import { IAMService } from './services/iam.service';
 import { ExtensionsService, CloudStorageExtension, ProductsExtension } from './services/extensions.service';
 
 export class SolobaseClient {
   public auth: AuthService;
   public storage: StorageService;
   public database: DatabaseService;
+  public iam: IAMService;
   public extensions: ExtensionsService;
   
   // Extension-specific services
@@ -31,6 +33,7 @@ export class SolobaseClient {
     this.auth = new AuthService(this.config);
     this.storage = new StorageService(this.config);
     this.database = new DatabaseService(this.config);
+    this.iam = new IAMService(this.config);
     this.extensions = new ExtensionsService(this.config);
     
     // Initialize extension-specific services
@@ -87,6 +90,7 @@ export class SolobaseClient {
     const services = [
       this.storage,
       this.database,
+      this.iam,
       this.extensions,
       this.cloudStorage,
       this.products,

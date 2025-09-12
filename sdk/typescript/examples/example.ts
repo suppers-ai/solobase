@@ -113,6 +113,60 @@ async function main() {
     console.log('Product updated:', updatedProduct);
 
     // ========================================
+    // IAM (Identity & Access Management) Examples
+    // ========================================
+    
+    // Get all roles
+    const roles = await solobase.iam.getRoles();
+    console.log('Available roles:', roles);
+    
+    // Create a custom role
+    const customRole = await solobase.iam.createRole({
+      name: 'editor',
+      display_name: 'Content Editor',
+      description: 'Can edit content but not delete',
+      metadata: {
+        allowed_ips: ['192.168.1.0/24'],
+        disabled_features: ['delete', 'admin'],
+      },
+    });
+    console.log('Custom role created:', customRole);
+    
+    // Assign role to user
+    if (currentUser) {
+      await solobase.iam.assignRoleToUser(currentUser.id, 'editor');
+      console.log('Role assigned to user');
+      
+      // Check user's roles
+      const userRoles = await solobase.iam.getUserRoles(currentUser.id);
+      console.log('User roles:', userRoles);
+      
+      // Test permission
+      const permissionTest = await solobase.iam.testPermission(
+        currentUser.id,
+        'content',
+        'edit'
+      );
+      console.log('Permission test result:', permissionTest);
+    }
+    
+    // Create a policy
+    await solobase.iam.createPolicy({
+      subject: 'editor',
+      resource: 'content',
+      action: 'edit',
+      effect: 'allow',
+    });
+    console.log('Policy created');
+    
+    // Get audit logs
+    const auditLogs = await solobase.iam.getAuditLogs({
+      limit: 10,
+      type: 'permission_check',
+    });
+    console.log('Audit logs:', auditLogs);
+
+    // ========================================
     // Extensions Examples
     // ========================================
     

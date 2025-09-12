@@ -10,7 +10,7 @@ export interface SolobaseConfig {
 export interface User {
   id: string;
   email: string;
-  role: 'user' | 'admin' | 'manager';
+  roles?: string[];  // Array of role names from IAM system
   confirmed: boolean;
   created_at: string;
   updated_at: string;
@@ -92,6 +92,39 @@ export interface ApiResponse<T = any> {
     message: string;
     details?: any;
   };
+}
+
+// IAM Types
+export interface IAMRole {
+  id?: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  is_system?: boolean;
+  metadata?: {
+    allowed_ips?: string[];
+    disabled_features?: string[];
+  };
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface IAMPolicy {
+  id?: string;
+  subject: string;  // Role or user
+  resource: string;
+  action: string;
+  effect: 'allow' | 'deny';
+}
+
+export interface IAMAuditLog {
+  id: string;
+  user_id: string;
+  action: string;
+  resource: string;
+  result: 'allowed' | 'denied';
+  metadata?: Record<string, any>;
+  created_at: string;
 }
 
 export interface UploadOptions {
