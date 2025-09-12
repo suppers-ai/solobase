@@ -1,0 +1,552 @@
+/* ========================= */
+/* Modern Table Styles       */
+/* ========================= */
+
+/* Base Table Styles - Transparent & Compact */
+.data-table,
+.logs-table,
+.table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-family: 'Itim', cursive;
+    background: transparent;
+    position: relative;
+}
+
+/* Transparent table wrapper with subtle glass effect */
+.table-wrapper {
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+    box-shadow: 
+        0 4px 6px rgba(0, 0, 0, 0.05),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Compact Table Header */
+.data-table thead,
+.logs-table thead,
+.table thead {
+    background: linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0.05),
+        rgba(255, 255, 255, 0.02)
+    );
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.data-table th,
+.logs-table th,
+.table th {
+    padding: 10px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    user-select: none;
+    position: relative;
+    background: transparent;
+}
+
+/* Add subtle separator between header columns */
+.data-table th:not(:last-child)::after,
+.logs-table th:not(:last-child)::after,
+.table th:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 25%;
+    height: 50%;
+    width: 1px;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* Sortable headers */
+.data-table th.sortable,
+.logs-table th.sortable,
+.table th.sortable {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.data-table th.sortable:hover,
+.logs-table th.sortable:hover,
+.table th.sortable:hover {
+    color: var(--primary-color);
+    background: rgba(79, 70, 229, 0.05);
+}
+
+/* Sort indicators */
+.data-table th.sortable::before,
+.logs-table th.sortable::before,
+.table th.sortable::before {
+    content: '⇅';
+    margin-right: 4px;
+    opacity: 0.3;
+    font-size: 10px;
+}
+
+.data-table th.sorted-asc::before,
+.logs-table th.sorted-asc::before,
+.table th.sorted-asc::before {
+    content: '↑';
+    opacity: 1;
+    color: var(--primary-color);
+}
+
+.data-table th.sorted-desc::before,
+.logs-table th.sorted-desc::before,
+.table th.sorted-desc::before {
+    content: '↓';
+    opacity: 1;
+    color: var(--primary-color);
+}
+
+/* Compact Table Body */
+.data-table tbody,
+.logs-table tbody,
+.table tbody {
+    background: transparent;
+}
+
+.data-table tbody tr,
+.logs-table tbody tr,
+.table tbody tr {
+    transition: all 0.2s ease;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    background: transparent;
+}
+
+/* Alternating row colors (very subtle) */
+.data-table tbody tr:nth-child(even),
+.logs-table tbody tr:nth-child(even),
+.table tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.01);
+}
+
+/* Hover effect */
+.data-table tbody tr:hover,
+.logs-table tbody tr:hover,
+.table tbody tr:hover {
+    background: rgba(79, 70, 229, 0.08);
+    transform: translateX(2px);
+    box-shadow: 
+        inset 3px 0 0 var(--primary-color),
+        0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Selected row */
+.data-table tbody tr.selected,
+.logs-table tbody tr.selected,
+.table tbody tr.selected {
+    background: rgba(79, 70, 229, 0.15);
+    box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+/* Compact Table Cells */
+.data-table td,
+.logs-table td,
+.table td {
+    padding: 8px 16px;
+    font-size: 13px;
+    color: var(--text-primary);
+    vertical-align: middle;
+    background: transparent;
+}
+
+/* Cell content truncation */
+.data-table td.truncate,
+.logs-table td.truncate,
+.table td.truncate {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Clickable cells */
+.data-table td.clickable,
+.logs-table td.clickable,
+.table td.clickable {
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.data-table td.clickable:hover,
+.logs-table td.clickable:hover,
+.table td.clickable:hover {
+    color: var(--primary-color);
+    text-decoration: underline;
+}
+
+/* Status badges in tables */
+.table-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+
+.table-badge.success {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.table-badge.warning {
+    background: rgba(251, 146, 60, 0.1);
+    color: #fb923c;
+    border: 1px solid rgba(251, 146, 60, 0.2);
+}
+
+.table-badge.error {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.table-badge.info {
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.table-badge.default {
+    background: rgba(148, 163, 184, 0.1);
+    color: #94a3b8;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+/* Action buttons in tables */
+.table-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.table-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.table-action-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+}
+
+.table-action-btn.edit:hover {
+    color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.2);
+}
+
+.table-action-btn.delete:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.2);
+}
+
+.table-action-btn.view:hover {
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.1);
+    border-color: rgba(34, 197, 94, 0.2);
+}
+
+.table-action-btn svg,
+.table-action-btn i {
+    width: 14px;
+    height: 14px;
+}
+
+/* Empty state */
+.table-empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-muted);
+}
+
+.table-empty-icon {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 16px;
+    opacity: 0.3;
+}
+
+.table-empty-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+}
+
+.table-empty-message {
+    font-size: 14px;
+    color: var(--text-muted);
+}
+
+/* Table with fixed header */
+.table-fixed-header {
+    position: relative;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.table-fixed-header thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg-card);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Responsive table */
+@media (max-width: 768px) {
+    .data-table,
+    .logs-table,
+    .table {
+        font-size: 12px;
+    }
+    
+    .data-table th,
+    .logs-table th,
+    .table th {
+        padding: 8px 12px;
+        font-size: 10px;
+    }
+    
+    .data-table td,
+    .logs-table td,
+    .table td {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+    
+    .table-action-btn {
+        width: 24px;
+        height: 24px;
+    }
+    
+    .table-action-btn svg,
+    .table-action-btn i {
+        width: 12px;
+        height: 12px;
+    }
+    
+    /* Hide less important columns on mobile */
+    .hide-mobile {
+        display: none;
+    }
+}
+
+/* Table loading state */
+.table-loading {
+    position: relative;
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+.table-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 24px;
+    height: 24px;
+    margin: -12px 0 0 -12px;
+    border: 2px solid var(--primary-color);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+/* Pagination for tables */
+.table-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 13px;
+}
+
+.table-pagination-info {
+    color: var(--text-secondary);
+}
+
+.table-pagination-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.table-pagination-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 32px;
+    padding: 0 8px;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.table-pagination-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: var(--text-primary);
+}
+
+.table-pagination-btn.active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+}
+
+.table-pagination-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* Special styles for logs table */
+.logs-table .log-level {
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.logs-table .log-level.info {
+    color: #3b82f6;
+}
+
+.logs-table .log-level.warn {
+    color: #fb923c;
+}
+
+.logs-table .log-level.error {
+    color: #ef4444;
+}
+
+.logs-table .log-level.debug {
+    color: #94a3b8;
+}
+
+.logs-table .log-message {
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.logs-table .log-timestamp {
+    color: var(--text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+/* Animations */
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Selection checkbox in tables */
+.table-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--primary-color);
+}
+
+.table-checkbox-cell {
+    width: 40px;
+    text-align: center;
+}
+
+/* Expandable rows */
+.table-expandable-trigger {
+    cursor: pointer;
+    user-select: none;
+}
+
+.table-expandable-trigger::before {
+    content: '▶';
+    display: inline-block;
+    margin-right: 8px;
+    transition: transform 0.2s ease;
+    font-size: 10px;
+}
+
+.table-expandable-trigger.expanded::before {
+    transform: rotate(90deg);
+}
+
+.table-expanded-content {
+    background: rgba(255, 255, 255, 0.02);
+    padding: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Highlight animation for new rows */
+@keyframes highlight-new {
+    from {
+        background: rgba(34, 197, 94, 0.2);
+    }
+    to {
+        background: transparent;
+    }
+}
+
+.table-row-new {
+    animation: highlight-new 2s ease;
+}
+
+/* Specific adjustments for database tables */
+.database-table {
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 12px;
+}
+
+.database-table .column-type {
+    color: #3b82f6;
+    font-weight: 600;
+}
+
+.database-table .column-nullable {
+    color: #fb923c;
+    font-size: 11px;
+}
+
+.database-table .column-default {
+    color: #94a3b8;
+    font-style: italic;
+}

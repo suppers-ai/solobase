@@ -1,0 +1,56 @@
+package models
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// DownloadToken represents a temporary token for file downloads
+type DownloadToken struct {
+	ID             string     `gorm:"primaryKey;type:uuid" json:"id"`
+	Token          string     `gorm:"uniqueIndex;not null" json:"token"`
+	FileID         string     `gorm:"not null" json:"file_id"`
+	Bucket         string     `gorm:"not null" json:"bucket"`
+	ParentFolderID *string    `json:"parent_folder_id,omitempty"`  // Parent folder ID (null for root)
+	ObjectName     string     `gorm:"not null" json:"object_name"` // The file name
+	UserID         string     `gorm:"type:uuid" json:"user_id"`
+	FileSize       int64      `json:"file_size"`
+	BytesServed    int64      `gorm:"default:0" json:"bytes_served"`
+	Completed      bool       `gorm:"default:false" json:"completed"`
+	ExpiresAt      time.Time  `gorm:"not null" json:"expires_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	CallbackAt     *time.Time `json:"callback_at,omitempty"`
+	ClientIP       string     `json:"client_ip,omitempty"`
+}
+
+// TableName sets the table name
+func (DownloadToken) TableName() string {
+	return "download_tokens"
+}
+
+// NewDownloadToken creates a new download token
+func NewDownloadToken(fileID, bucket string, parentFolderID *string, objectName, userID string, fileSize int64, duration time.Duration) *DownloadToken {
+	return &DownloadToken{
+		ID:             uuid.New().String(),
+		Token:          uuid.New().String(), // Simple UUID token for now
+		FileID:         fileID,
+		Bucket:         bucket,
+		ParentFolderID: parentFolderID,
+		ObjectName:     objectName,
+		UserID:         userID,
+		FileSize:       fileSize,
+		ExpiresAt:      time.Now().Add(duration),
+		CreatedAt:      time.Now(),
+	}
+}
+
+// IsExpired checks if the token has expired
+func (dt *DownloadToken) IsExpired() bool {
+	return time.Now().After(dt.ExpiresAt)
+}
+
+// IsValid checks if the token is valid for use
+func (dt *DownloadToken) IsValid() bool {
+	return !dt.IsExpired() && !dt.Completed
+}

@@ -1,0 +1,70 @@
+package extensions
+
+import (
+	"fmt"
+	"github.com/suppers-ai/solobase/extensions/core"
+	"github.com/suppers-ai/solobase/extensions/official/analytics"
+	"github.com/suppers-ai/solobase/extensions/official/cloudstorage"
+	// "github.com/suppers-ai/solobase/extensions/official/hugo" // Temporarily disabled - needs API updates
+	"github.com/suppers-ai/solobase/extensions/official/products"
+	"github.com/suppers-ai/solobase/extensions/official/webhooks"
+	"gorm.io/gorm"
+)
+
+// RegisterAllExtensions registers all discovered extensions with the registry
+func RegisterAllExtensions(registry *core.ExtensionRegistry, db *gorm.DB) error {
+	// Register Products extension with database
+	productsExt := products.NewProductsExtensionWithDB(db)
+	if err := registry.Register(productsExt); err != nil {
+		return fmt.Errorf("failed to register products extension: %w", err)
+	}
+	// Set the database to trigger migrations
+	productsExt.SetDatabase(db)
+
+	// Register Hugo extension
+	// Hugo extension temporarily disabled - needs API updates
+	// if err := registry.Register(hugo.NewHugoExtension()); err != nil {
+	// 	return fmt.Errorf("failed to register hugo extension: %w", err)
+	// }
+
+	// Register Analytics extension
+	if err := registry.Register(analytics.NewAnalyticsExtension()); err != nil {
+		return fmt.Errorf("failed to register analytics extension: %w", err)
+	}
+
+	// Register Cloud Storage extension with database
+	cloudStorageExt := cloudstorage.NewCloudStorageExtensionWithDB(db, nil)
+	// Set the database first to trigger migrations before registration
+	cloudStorageExt.SetDatabase(db)
+
+	if err := registry.Register(cloudStorageExt); err != nil {
+		return fmt.Errorf("failed to register cloud storage extension: %w", err)
+	}
+
+	// Enable CloudStorage extension by default for hook functionality
+	fmt.Printf("Enabling CloudStorage extension for hooks...\n")
+	if err := registry.Enable("cloudstorage"); err != nil {
+		// Log but don't fail - extension can still work without being enabled
+		fmt.Printf("Warning: Failed to enable CloudStorage extension: %v\n", err)
+	} else {
+		fmt.Printf("CloudStorage extension enabled successfully\n")
+	}
+
+	// Register Webhooks extension
+	if err := registry.Register(webhooks.NewWebhooksExtension()); err != nil {
+		return fmt.Errorf("failed to register webhooks extension: %w", err)
+	}
+
+	return nil
+}
+
+// GetAvailableExtensions returns a list of all available extensions
+func GetAvailableExtensions() []string {
+	return []string{
+		"products",
+		"hugo",
+		"analytics",
+		"cloudstorage",
+		"webhooks",
+	}
+}
