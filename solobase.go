@@ -111,6 +111,9 @@ var uiFiles embed.FS
 //go:embed all:static/*
 var staticFiles embed.FS
 
+//go:embed config/casbin_model.conf
+var casbinModelConfig []byte
+
 // New creates a new Solobase application instance
 func New() *App {
 	return NewWithOptions(&Options{})
@@ -287,8 +290,8 @@ func (app *App) Initialize() error {
 	// Setup database metrics
 	database.RecordDBQueryFunc = middleware.RecordDBQuery
 
-	// Initialize IAM service with Casbin
-	iamService, err := iam.NewService(db.DB, "./config/casbin_model.conf")
+	// Initialize IAM service with Casbin using embedded config
+	iamService, err := iam.NewServiceWithContent(db.DB, string(casbinModelConfig))
 	if err != nil {
 		return fmt.Errorf("failed to initialize IAM service: %w", err)
 	}
@@ -319,16 +322,6 @@ func (app *App) Initialize() error {
 				if err := iamService.AssignRoleToUser(context.Background(), adminUser.ID.String(), "admin"); err != nil {
 					log.Printf("Warning: Failed to assign admin role to default admin: %v", err)
 				}
-			}
-		}
-		
-		// If this is a demo deployment (demo@solobase.com), set up restricted permissions
-		if app.config.AdminEmail == "demo@solobase.com" {
-			if err := app.services.IAM.SetupDemoUser(app.config.AdminEmail, app.config.AdminPassword); err != nil {
-				log.Printf("Warning: Failed to setup demo user restrictions: %v", err)
-			}
-			if err := app.services.IAM.SetupFlyDemoEnvironment(); err != nil {
-				log.Printf("Warning: Failed to setup demo environment: %v", err)
 			}
 		}
 	}

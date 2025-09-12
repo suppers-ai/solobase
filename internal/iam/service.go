@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/casbin/casbin/v2"
+	"github.com/casbin/casbin/v2/model"
 	gormadapter "github.com/casbin/gorm-adapter/v3"
 	"gorm.io/gorm"
 )
@@ -26,6 +27,52 @@ func NewService(db *gorm.DB, modelPath string) (*Service, error) {
 
 	// Create enforcer with model and adapter
 	enforcer, err := casbin.NewEnforcer(modelPath, adapter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Casbin enforcer: %w", err)
+	}
+
+	// Enable auto-save (automatically save policy changes to database)
+	enforcer.EnableAutoSave(true)
+
+	// Load existing policies from database
+	if err := enforcer.LoadPolicy(); err != nil {
+		return nil, fmt.Errorf("failed to load policies: %w", err)
+	}
+
+	service := &Service{
+		db:       db,
+		enforcer: enforcer,
+	}
+
+	// Run migrations for IAM tables
+	if err := service.Migrate(); err != nil {
+		return nil, fmt.Errorf("failed to run IAM migrations: %w", err)
+	}
+
+	// Initialize default roles and policies if needed
+	if err := service.initializeDefaults(); err != nil {
+		return nil, fmt.Errorf("failed to initialize defaults: %w", err)
+	}
+
+	return service, nil
+}
+
+// NewServiceWithContent creates a new IAM service with model content as string
+func NewServiceWithContent(db *gorm.DB, modelContent string) (*Service, error) {
+	// Create Casbin adapter using existing database connection
+	adapter, err := gormadapter.NewAdapterByDB(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Casbin adapter: %w", err)
+	}
+
+	// Create model from string content
+	m, err := model.NewModelFromString(modelContent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create model from string: %w", err)
+	}
+
+	// Create enforcer with model and adapter
+	enforcer, err := casbin.NewEnforcer(m, adapter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Casbin enforcer: %w", err)
 	}
