@@ -77,6 +77,23 @@ func (e *CloudStorageExtension) Initialize(ctx context.Context, services *core.E
 			// e.shareService = NewShareService(e.db, e.manager)
 		}
 
+		// Initialize quota service
+		if e.config.EnableQuotas {
+			e.quotaService = NewQuotaService(e.db)
+			
+			// Migrate quota tables
+			if err := e.db.AutoMigrate(&RoleQuota{}, &UserQuotaOverride{}, &StorageQuota{}); err != nil {
+				services.Logger().Error(ctx, fmt.Sprintf("Failed to migrate quota tables: %v", err))
+				return err
+			}
+			
+			// Initialize default quotas for system roles
+			if err := e.quotaService.InitializeDefaultQuotas(); err != nil {
+				services.Logger().Error(ctx, fmt.Sprintf("Failed to initialize default quotas: %v", err))
+				// Don't fail initialization, just log the error
+			}
+		}
+
 		// Initialize default settings for this extension
 		// This setting controls whether storage usage is shown in user profile
 		// We set it to true by default when the extension is initialized
@@ -138,6 +155,11 @@ func (e *CloudStorageExtension) RegisterRoutes(router core.ExtensionRouter) erro
 
 	// Quota management routes
 	router.HandleFunc("/api/quota", e.handleQuota)
+	router.HandleFunc("/api/quotas/roles", e.handleRoleQuotas)
+	router.HandleFunc("/api/quotas/roles/*", e.handleUpdateRoleQuota)
+	router.HandleFunc("/api/quotas/overrides", e.handleUserOverrides)
+	router.HandleFunc("/api/quotas/overrides/*", e.handleDeleteUserOverride)
+	router.HandleFunc("/api/quotas/user", e.handleGetUserQuota)
 
 	// Access logging routes
 	router.HandleFunc("/api/access-logs", e.handleAccessLogs)
@@ -220,6 +242,15 @@ func (e *CloudStorageExtension) RegisterHooks() []core.HookRegistration {
 	}
 
 	return hooks
+}
+
+// SyncRoleQuota syncs quota when a role is created or updated in IAM
+func (e *CloudStorageExtension) SyncRoleQuota(ctx context.Context, roleName string, roleID string) error {
+	if e.quotaService == nil {
+		return nil // Quotas not enabled
+	}
+	
+	return e.quotaService.SyncRoleQuotaFromIAM(ctx, roleName, roleID)
 }
 
 // RegisterTemplates returns template registrations
@@ -397,6 +428,6 @@ func (e *CloudStorageExtension) initializeServices() {
 	// Initialize services that depend on the database
 	// Note: ShareService requires a storage manager which we don't have access to yet
 	// This will be properly initialized when the Initialize method is called with services
-	e.quotaService = NewQuotaService(e.db, e.config)
+	e.quotaService = NewQuotaService(e.db)
 	e.accessLogService = NewAccessLogService(e.db)
 }

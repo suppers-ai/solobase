@@ -17,13 +17,15 @@ import (
 	"github.com/gorilla/mux"
 	auth "github.com/suppers-ai/auth"
 	"github.com/suppers-ai/logger"
-	"github.com/suppers-ai/solobase/admin"
-	"github.com/suppers-ai/solobase/api"
-	"github.com/suppers-ai/solobase/config"
 	"github.com/suppers-ai/solobase/database"
 	"github.com/suppers-ai/solobase/extensions"
-	"github.com/suppers-ai/solobase/models"
-	"github.com/suppers-ai/solobase/services"
+	authHandlers "github.com/suppers-ai/solobase/internal/api/handlers/auth"
+	"github.com/suppers-ai/solobase/internal/api/middleware"
+	"github.com/suppers-ai/solobase/internal/api/router"
+	"github.com/suppers-ai/solobase/internal/config"
+	"github.com/suppers-ai/solobase/internal/core/services"
+	"github.com/suppers-ai/solobase/internal/data/models"
+	"github.com/suppers-ai/solobase/internal/iam"
 	storage "github.com/suppers-ai/storage"
 )
 
@@ -54,6 +56,7 @@ type AppServices struct {
 	Settings   *services.SettingsService
 	Logs       *services.LogsService
 	Logger     *services.DBLogger
+	IAM        *iam.Service
 }
 
 // ServeEvent is passed to OnServe hooks
@@ -89,7 +92,7 @@ type Options struct {
 	DefaultAdminPassword string
 	JWTSecret            string
 	Port                 string
-	DisableAdminUI       bool
+	DisableUI            bool
 }
 
 // S3Config for S3 storage
@@ -102,8 +105,8 @@ type S3Config struct {
 	UsePathStyle    bool
 }
 
-//go:embed all:admin/build/*
-var adminFiles embed.FS
+//go:embed all:ui/build/*
+var uiFiles embed.FS
 
 //go:embed all:static/*
 var staticFiles embed.FS
@@ -184,10 +187,10 @@ func NewWithOptions(opts *Options) *App {
 			Type:             opts.StorageType,
 			LocalStoragePath: "./.data/storage", // Default path, AppID will be used for organization
 		},
-		JWTSecret:      opts.JWTSecret,
-		AdminEmail:     opts.DefaultAdminEmail,
-		AdminPassword:  opts.DefaultAdminPassword,
-		DisableAdminUI: opts.DisableAdminUI,
+		JWTSecret:     opts.JWTSecret,
+		AdminEmail:    opts.DefaultAdminEmail,
+		AdminPassword: opts.DefaultAdminPassword,
+		DisableUI:     opts.DisableUI,
 	}
 
 	// Set S3 config if provided
@@ -216,8 +219,11 @@ func NewWithOptions(opts *Options) *App {
 
 // Initialize initializes the app (database, services, etc)
 func (app *App) Initialize() error {
-	// Set JWT secret
-	api.SetJWTSecret(app.config.JWTSecret)
+	// Set JWT secret in both middleware and auth handlers
+	if err := middleware.SetJWTSecret(app.config.JWTSecret); err != nil {
+		return fmt.Errorf("failed to set JWT secret: %w", err)
+	}
+	authHandlers.SetJWTSecret(app.config.JWTSecret)
 
 	// Ensure .data directory exists for SQLite databases
 	// We need to get the database URL from the parsed config or from NewWithOptions
@@ -269,10 +275,23 @@ func (app *App) Initialize() error {
 		&storage.StorageBucket{},
 		&logger.LogModel{},
 		&logger.RequestLogModel{},
+		// IAM models
+		&iam.Role{},
+		&iam.Permission{},
+		&iam.ResourceGroup{},
+		&iam.PolicyTemplate{},
+		&iam.UserRole{},
+		&iam.IAMAuditLog{},
 	)
 
 	// Setup database metrics
-	database.RecordDBQueryFunc = api.RecordDBQuery
+	database.RecordDBQueryFunc = middleware.RecordDBQuery
+
+	// Initialize IAM service with Casbin
+	iamService, err := iam.NewService(db.DB, "./config/casbin_model.conf")
+	if err != nil {
+		return fmt.Errorf("failed to initialize IAM service: %w", err)
+	}
 
 	// Initialize services
 	app.services = &AppServices{
@@ -286,12 +305,31 @@ func (app *App) Initialize() error {
 		Settings:   services.NewSettingsService(db),
 		Logs:       services.NewLogsService(db),
 		Logger:     dbLogger,
+		IAM:        iamService,
 	}
 
 	// Create default admin
 	if app.config.AdminEmail != "" && app.config.AdminPassword != "" {
 		if err := app.services.Auth.CreateDefaultAdmin(app.config.AdminEmail, app.config.AdminPassword); err != nil {
 			log.Printf("Warning: Failed to create default admin: %v", err)
+		} else {
+			// Assign admin role in IAM to the default admin user
+			var adminUser auth.User
+			if err := db.DB.Where("email = ?", app.config.AdminEmail).First(&adminUser).Error; err == nil {
+				if err := iamService.AssignRoleToUser(context.Background(), adminUser.ID.String(), "admin"); err != nil {
+					log.Printf("Warning: Failed to assign admin role to default admin: %v", err)
+				}
+			}
+		}
+		
+		// If this is a demo deployment (demo@solobase.com), set up restricted permissions
+		if app.config.AdminEmail == "demo@solobase.com" {
+			if err := app.services.IAM.SetupDemoUser(app.config.AdminEmail, app.config.AdminPassword); err != nil {
+				log.Printf("Warning: Failed to setup demo user restrictions: %v", err)
+			}
+			if err := app.services.IAM.SetupFlyDemoEnvironment(); err != nil {
+				log.Printf("Warning: Failed to setup demo environment: %v", err)
+			}
 		}
 	}
 
@@ -380,7 +418,13 @@ func (app *App) Start() error {
 
 	// Apply middleware
 	app.router.Use(services.HTTPLoggingMiddleware(app.services.Logger))
-	app.router.Use(api.PrometheusMiddleware)
+	// TODO: Setup Prometheus middleware
+	// app.router.Use(router.PrometheusMiddleware)
+
+	// Apply IAM middleware for authorization
+	iamMiddleware := iam.NewMiddleware(app.services.IAM)
+	app.router.Use(iamMiddleware.EnforceQuota())
+	app.router.Use(iamMiddleware.RateLimit())
 
 	// Apply extension middleware
 	app.router.Use(func(next http.Handler) http.Handler {
@@ -388,7 +432,7 @@ func (app *App) Start() error {
 	})
 
 	// Setup API router
-	apiRouter := api.NewAPI(
+	apiRouter := router.NewAPI(
 		app.db,
 		app.services.Auth,
 		app.services.User,
@@ -397,10 +441,15 @@ func (app *App) Start() error {
 		app.services.Database,
 		app.services.Settings,
 		app.services.Logs,
+		app.services.IAM,
 		app.extensionManager.GetRegistry(),
 	)
 
 	// IMPORTANT: Register more specific routes first
+
+	// Register IAM routes
+	iamHandlers := iam.NewHandlers(app.services.IAM)
+	iamHandlers.RegisterRoutes(app.router)
 
 	// API routes
 	app.router.PathPrefix("/api").Handler(http.StripPrefix("/api", apiRouter))
@@ -408,9 +457,9 @@ func (app *App) Start() error {
 	// Extension routes - MUST be registered before catch-all routes
 	app.extensionManager.RegisterRoutes(app.router)
 
-	// Register admin extension management routes
-	adminExtHandler := admin.NewExtensionsHandler(app.extensionManager, app.services.Logger)
-	adminExtHandler.RegisterRoutes(app.router)
+	// TODO: Register extension management routes
+	// adminExtHandler := admin.NewExtensionsHandler(app.extensionManager, app.services.Logger)
+	// adminExtHandler.RegisterRoutes(app.router)
 
 	// Storage files
 	storageDir := "./.data/storage/"
@@ -423,17 +472,17 @@ func (app *App) Start() error {
 	}
 
 	// Admin UI routes (if not disabled) - These are catch-all routes so must come LAST
-	if !app.config.DisableAdminUI {
+	if !app.config.DisableUI {
 		// Serve auth pages at root level
-		app.router.PathPrefix("/auth/").Handler(app.ServeAdmin())
-		app.router.PathPrefix("/profile").Handler(app.ServeAdmin())
+		app.router.PathPrefix("/auth/").Handler(app.ServeUI())
+		app.router.PathPrefix("/profile").Handler(app.ServeUI())
 
-		// Keep admin pages under /admin for admin-only features
-		app.router.PathPrefix("/admin/").Handler(app.ServeAdmin())
+		// Keep UI pages under /ui
+		app.router.PathPrefix("/ui/").Handler(app.ServeUI())
 
 		// Serve root last as catch-all for the main dashboard
 		// Note: This must come after ALL other routes
-		app.router.PathPrefix("/").Handler(app.ServeAdmin())
+		app.router.PathPrefix("/").Handler(app.ServeUI())
 	}
 
 	// Run OnServe hooks
@@ -492,11 +541,11 @@ func (app *App) GetAppID() string {
 	return app.appID
 }
 
-// ServeAdmin returns the admin UI handler
-func (app *App) ServeAdmin() http.Handler {
+// ServeUI returns the UI handler
+func (app *App) ServeUI() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Try embedded files first
-		adminFS, err := fs.Sub(adminFiles, "admin/build")
+		uiFS, err := fs.Sub(uiFiles, "ui/build")
 		if err != nil {
 			http.Error(w, "Admin interface not available", http.StatusNotFound)
 			return
@@ -508,10 +557,10 @@ func (app *App) ServeAdmin() http.Handler {
 		// Check if it's an asset request (has file extension)
 		if strings.Contains(path, ".") {
 			// Serve the actual file
-			http.FileServer(http.FS(adminFS)).ServeHTTP(w, r)
+			http.FileServer(http.FS(uiFS)).ServeHTTP(w, r)
 		} else {
 			// Serve index.html for all routes (SPA routing)
-			indexData, err := fs.ReadFile(adminFS, "index.html")
+			indexData, err := fs.ReadFile(uiFS, "index.html")
 			if err != nil {
 				http.Error(w, "Admin interface not available", http.StatusNotFound)
 				return

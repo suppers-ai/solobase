@@ -100,15 +100,15 @@ echo "Waiting for API server to start..."
 sleep 3
 
 # Install npm dependencies if needed
-if [ ! -d "admin/node_modules" ]; then
+if [ ! -d "ui/node_modules" ]; then
     echo -e "${YELLOW}Installing npm dependencies...${NC}"
-    cd admin && npm install
+    cd ui && npm install
     cd ..
 fi
 
 # Start frontend dev server with API_PORT environment variable
 echo -e "${YELLOW}Starting frontend dev server (API_PORT=$API_PORT)...${NC}"
-cd admin && API_PORT=$API_PORT npm run dev &
+cd ui && API_PORT=$API_PORT npm run dev &
 FRONTEND_PID=$!
 cd ..
 

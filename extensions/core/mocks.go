@@ -11,8 +11,8 @@ import (
 	"github.com/suppers-ai/auth"
 	"github.com/suppers-ai/database"
 	"github.com/suppers-ai/logger"
-	"github.com/suppers-ai/solobase/config"
-	"github.com/suppers-ai/solobase/services"
+	"github.com/suppers-ai/solobase/internal/config"
+	"github.com/suppers-ai/solobase/internal/core/services"
 )
 
 // MockExtensionServices provides mock services for testing

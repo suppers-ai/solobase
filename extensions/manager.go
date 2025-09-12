@@ -46,6 +46,7 @@ func NewExtensionManager(db *gorm.DB, logger logger.Logger) (*ExtensionManager, 
 		nil, // config
 		nil, // collections
 		nil, // stats
+		nil, // iam
 	)
 
 	// Create extension registry

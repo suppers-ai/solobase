@@ -20,5 +20,5 @@ type ContextKey string
 const (
 	ContextKeyUserID    ContextKey = "user_id"
 	ContextKeyUserEmail ContextKey = "user_email"
-	ContextKeyUserRole  ContextKey = "user_role"
+	ContextKeyUserRoles ContextKey = "user_roles" // Changed from single role to roles array
 )

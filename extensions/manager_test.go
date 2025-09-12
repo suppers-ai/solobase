@@ -50,3 +50,15 @@ func (l *testLogger) Debug(ctx context.Context, msg string, fields ...logger.Fie
 func (l *testLogger) Info(ctx context.Context, msg string, fields ...logger.Field)  {}
 func (l *testLogger) Warn(ctx context.Context, msg string, fields ...logger.Field)  {}
 func (l *testLogger) Error(ctx context.Context, msg string, fields ...logger.Field) {}
+func (l *testLogger) Fatal(ctx context.Context, msg string, fields ...logger.Field) {}
+func (l *testLogger) With(fields ...logger.Field) logger.Logger { return l }
+func (l *testLogger) WithContext(ctx context.Context) logger.Logger { return l }
+func (l *testLogger) LogRequest(ctx context.Context, req *logger.RequestLog) error { return nil }
+func (l *testLogger) GetLogs(ctx context.Context, filter logger.LogFilter) ([]*logger.Log, error) {
+	return nil, nil
+}
+func (l *testLogger) GetRequestLogs(ctx context.Context, filter logger.RequestLogFilter) ([]*logger.RequestLog, error) {
+	return nil, nil
+}
+func (l *testLogger) Flush() error { return nil }
+func (l *testLogger) Close() error { return nil }

@@ -27,9 +27,10 @@ WORKDIR /app
 # Copy the executable binary
 COPY --from=builder --chmod=755 /build/solobase/solobase /app/solobase
 
-# Copy static files
+# Copy static files and config
 COPY --from=builder /build/solobase/static ./static
 COPY --from=builder /build/solobase/admin ./admin
+COPY --from=builder /build/solobase/config ./config
 
 # Verify the binary exists and is executable
 RUN ls -la /app/solobase
@@ -37,8 +38,10 @@ RUN ls -la /app/solobase
 ENV PORT=8080
 ENV DATABASE_TYPE=sqlite
 ENV DATABASE_URL=:memory:
-ENV DEFAULT_ADMIN_EMAIL=admin@example.com
-ENV DEFAULT_ADMIN_PASSWORD=admin123
+ENV DEFAULT_ADMIN_EMAIL=demo@solobase.com
+ENV DEFAULT_ADMIN_PASSWORD=DemoAccess2024!
+ENV RATE_LIMIT_ENABLED=true
+ENV RATE_LIMIT_REQUESTS_PER_MINUTE=30
 
 EXPOSE 8080
 

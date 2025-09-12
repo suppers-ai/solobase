@@ -34,15 +34,19 @@ func HTTPMiddleware(logger Logger, config *MiddlewareConfig) func(http.Handler) 
 				traceID = uuid.New().String()
 			}
 
-			// Get user ID from context or header
-			userID := r.Header.Get("X-User-ID")
-			if userID == "" {
-				if user := r.Context().Value("user"); user != nil {
-					if u, ok := user.(map[string]interface{}); ok {
-						if id, ok := u["id"].(string); ok {
-							userID = id
-						}
+			// Get user ID from context (set by auth middleware)
+			var userID string
+			if user := r.Context().Value("user"); user != nil {
+				// Try to handle different user types
+				switch u := user.(type) {
+				case map[string]interface{}:
+					if id, ok := u["id"].(string); ok {
+						userID = id
 					}
+				case interface{ GetID() string }:
+					userID = u.GetID()
+				case interface{ ID() string }:
+					userID = u.ID()
 				}
 			}
 

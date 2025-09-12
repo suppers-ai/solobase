@@ -176,10 +176,9 @@ func (s *Service) GetAuthboss() *authboss.Authboss {
 // User management methods
 
 // CreateUser creates a new user
-func (s *Service) CreateUser(ctx context.Context, email, password, role string) (*User, error) {
+func (s *Service) CreateUser(ctx context.Context, email, password string) (*User, error) {
 	user := &User{
 		Email:     email,
-		Role:      role,
 		Confirmed: true, // Admin-created users are auto-confirmed
 	}
 

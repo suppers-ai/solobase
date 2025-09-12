@@ -24,7 +24,6 @@ type User struct {
 	Email           string     `gorm:"uniqueIndex;not null;size:255" json:"email"`
 	Password        string     `gorm:"not null" json:"-"` // Never expose in JSON
 	Username        string     `gorm:"size:255" json:"username,omitempty"`
-	Role            string     `gorm:"not null;default:'user';size:50" json:"role"`
 	Confirmed       bool       `gorm:"default:false" json:"confirmed"`
 	FirstName       string     `gorm:"size:100" json:"first_name,omitempty"`
 	LastName        string     `gorm:"size:100" json:"last_name,omitempty"`
@@ -81,10 +80,6 @@ func (u *User) BeforeCreate(tx *gorm.DB) error {
 		u.Password = string(hashed)
 	}
 
-	// Set default role
-	if u.Role == "" {
-		u.Role = string(RoleUser)
-	}
 
 	return nil
 }
@@ -118,15 +113,6 @@ func (u *User) SetPassword(password string) error {
 	return nil
 }
 
-// IsAdmin checks if user has admin role
-func (u *User) IsAdmin() bool {
-	return u.Role == string(RoleAdmin)
-}
-
-// IsManager checks if user has manager role or higher
-func (u *User) IsManager() bool {
-	return u.Role == string(RoleManager) || u.Role == string(RoleAdmin)
-}
 
 // Authboss interface implementations
 func (u *User) GetPID() string { return u.ID.String() }
@@ -288,15 +274,12 @@ func (u *User) PutRecoveryCodes(codes string) {
 // Authboss arbitrary interface
 func (u *User) GetArbitrary() map[string]string {
 	return map[string]string{
-		"role":       u.Role,
 		"created_at": u.CreatedAt.Format(time.RFC3339),
 		"updated_at": u.UpdatedAt.Format(time.RFC3339),
 	}
 }
 func (u *User) PutArbitrary(values map[string]string) {
-	if role, ok := values["role"]; ok {
-		u.Role = role
-	}
+	// No role field to update anymore
 }
 
 // Session represents a user session

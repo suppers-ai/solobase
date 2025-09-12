@@ -7,8 +7,9 @@ import (
 	"github.com/suppers-ai/auth"
 	"github.com/suppers-ai/database"
 	"github.com/suppers-ai/logger"
-	"github.com/suppers-ai/solobase/config"
-	"github.com/suppers-ai/solobase/services"
+	"github.com/suppers-ai/solobase/internal/config"
+	"github.com/suppers-ai/solobase/internal/core/services"
+	"github.com/suppers-ai/solobase/internal/iam"
 )
 
 // ExtensionServices provides controlled access to core application services
@@ -21,6 +22,7 @@ type ExtensionServices struct {
 	config      *config.Config
 	collections *services.CollectionsService
 	stats       *services.StatsService
+	iam         *iam.Service
 
 	// Extension-specific context
 	extensionName string
@@ -36,6 +38,7 @@ func NewExtensionServices(
 	config *config.Config,
 	collections *services.CollectionsService,
 	stats *services.StatsService,
+	iamSvc *iam.Service,
 ) *ExtensionServices {
 	return &ExtensionServices{
 		db:          db,
@@ -45,6 +48,7 @@ func NewExtensionServices(
 		config:      config,
 		collections: collections,
 		stats:       stats,
+		iam:         iamSvc,
 	}
 }
 
@@ -58,6 +62,7 @@ func (s *ExtensionServices) ForExtension(extensionName string) *ExtensionService
 		config:        s.config,
 		collections:   s.collections,
 		stats:         s.stats,
+		iam:           s.iam,
 		extensionName: extensionName,
 		schemaName:    fmt.Sprintf("ext_%s", extensionName),
 	}
@@ -100,6 +105,11 @@ func (s *ExtensionServices) Config() ExtensionConfigInterface {
 		config:    s.config,
 		extension: s.extensionName,
 	}
+}
+
+// IAM returns the IAM service for role checking
+func (s *ExtensionServices) IAM() *iam.Service {
+	return s.iam
 }
 
 // ExtensionDatabase provides schema-isolated database access

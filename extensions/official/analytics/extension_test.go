@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/suppers-ai/solobase/extensions/core"
 )
@@ -192,22 +193,41 @@ func TestAnalyticsExtension_Health(t *testing.T) {
 func TestAnalyticsExtension_HandleDashboard(t *testing.T) {
 	ext := NewAnalyticsExtension()
 
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
+	// Create a test router that captures the dashboard handler
+	var dashboardHandler http.Handler
+	router := &testExtensionRouter{
+		handleFunc: func(path string, handler http.HandlerFunc) core.RouteRegistration {
+			if path == "/" {
+				dashboardHandler = handler
+			}
+			return core.RouteRegistration{Path: path}
+		},
+	}
 
-	ext.handleDashboard(w, req)
+	ext.RegisterRoutes(router)
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "text/html", w.Header().Get("Content-Type"))
-	assert.Contains(t, w.Body.String(), "Analytics Dashboard")
-	assert.Contains(t, w.Body.String(), "<div id=\"analytics-content\">")
-	assert.Contains(t, w.Body.String(), "Page views and analytics data will appear here")
+	// Test the dashboard handler directly
+	if dashboardHandler != nil {
+		req := httptest.NewRequest("GET", "/", nil)
+		w := httptest.NewRecorder()
+		dashboardHandler.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "text/html", w.Header().Get("Content-Type"))
+		assert.Contains(t, w.Body.String(), "Analytics Dashboard")
+		assert.Contains(t, w.Body.String(), "<div id=\"analytics-content\">")
+		assert.Contains(t, w.Body.String(), "Page views and analytics data will appear here")
+	} else {
+		t.Fatal("Dashboard handler not registered")
+	}
 }
 
 func TestAnalyticsExtension_RegisterRoutes(t *testing.T) {
 	ext := NewAnalyticsExtension()
 
-	mockRouter := core.NewMockRouter("analytics")
+	mockRouter := &testExtensionRouter{
+		routes: make(map[string]http.Handler),
+	}
 
 	err := ext.RegisterRoutes(mockRouter)
 	assert.NoError(t, err)
@@ -360,4 +380,47 @@ func BenchmarkAnalyticsExtension_TrackingMiddleware(b *testing.B) {
 		w := httptest.NewRecorder()
 		middleware.ServeHTTP(w, req)
 	}
+}
+
+// testExtensionRouter is a mock implementation of core.ExtensionRouter for testing
+type testExtensionRouter struct {
+	handleFunc func(path string, handler http.HandlerFunc) core.RouteRegistration
+	routes     map[string]http.Handler
+}
+
+func (r *testExtensionRouter) HandleFunc(path string, handler http.HandlerFunc) core.RouteRegistration {
+	if r.handleFunc != nil {
+		return r.handleFunc(path, handler)
+	}
+	if r.routes == nil {
+		r.routes = make(map[string]http.Handler)
+	}
+	r.routes[path] = handler
+	return core.RouteRegistration{Path: path}
+}
+
+func (r *testExtensionRouter) Handle(path string, handler http.Handler) core.RouteRegistration {
+	if r.routes == nil {
+		r.routes = make(map[string]http.Handler)
+	}
+	r.routes[path] = handler
+	return core.RouteRegistration{Path: path}
+}
+
+func (r *testExtensionRouter) PathPrefix(prefix string) core.ExtensionRouter {
+	return r
+}
+
+func (r *testExtensionRouter) Use(middleware ...mux.MiddlewareFunc) {}
+
+func (r *testExtensionRouter) RequireAuth(handler http.Handler) http.Handler {
+	return handler
+}
+
+func (r *testExtensionRouter) RequireRole(role string, handler http.Handler) http.Handler {
+	return handler
+}
+
+func (r *testExtensionRouter) GetRoutes() map[string]http.Handler {
+	return r.routes
 }
