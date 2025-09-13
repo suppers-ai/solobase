@@ -110,7 +110,7 @@
 	async function loadProductTypes() {
 		try {
 			loading = true;
-			const response = await api.get('/products/product-types');
+			const response = await api.get('/ext/products/product-types');
 			productTypes = response || [];
 		} catch (error) {
 			console.error('Failed to load product types:', error);
@@ -122,7 +122,7 @@
 	
 	async function loadPricingTemplates() {
 		try {
-			const response = await api.get('/products/pricing-templates');
+			const response = await api.get('/ext/products/pricing-templates');
 			pricingTemplates = response || [];
 		} catch (error) {
 			console.error('Failed to load pricing templates:', error);
@@ -132,7 +132,7 @@
 	
 	async function loadVariables() {
 		try {
-			const response = await api.get('/products/variables');
+			const response = await api.get('/ext/products/variables');
 			availableVariables = response || [];
 			variables = response || []; // Also set variables for formula editor
 		} catch (error) {
@@ -144,7 +144,7 @@
 	
 	async function createPricingTemplate() {
 		try {
-			const result = await api.post('/products/pricing-templates', newPricingTemplate);
+			const result = await api.post('/ext/products/pricing-templates', newPricingTemplate);
 			await loadPricingTemplates();
 			
 			// Add the new template to the selected product type
@@ -214,7 +214,7 @@
 				newProductType.pricing_templates = [];
 			}
 
-			const result = await api.post('/products/product-types', newProductType);
+			const result = await api.post('/ext/products/product-types', newProductType);
 			if (result) {
 				// Reset form
 				newProductType = {

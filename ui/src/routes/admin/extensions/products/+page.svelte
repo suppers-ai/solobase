@@ -57,9 +57,9 @@
 			
 			// Fetch counts from API
 			const [groupTypesRes, productTypesRes, templatesRes] = await Promise.all([
-				api.get('/products/group-types'),
-				api.get('/products/product-types'),
-				api.get('/products/pricing-templates')
+				api.get('/admin/ext/products/group-types'),
+				api.get('/admin/ext/products/product-types'),
+				api.get('/admin/ext/products/pricing-templates')
 			]);
 			
 			stats = {

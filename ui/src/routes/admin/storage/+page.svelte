@@ -12,6 +12,7 @@
 	import ExportButton from '$lib/components/ExportButton.svelte';
 	import FileExplorer from '$lib/components/FileExplorer.svelte';
 	import { requireAdmin } from '$lib/utils/auth';
+	import type { StorageObject } from '../../../sdk/typescript/src/types';
 	
 	let viewMode = 'grid'; // 'grid', 'list', or 'explorer'
 	let selectedBucket: any = null;
@@ -72,8 +73,8 @@
 	// Filtered files based on search
 	$: filteredFiles = (() => {
 		const filtered = files.filter(file => {
-			if (!file || !file.name) return false;
-			return file.name.toLowerCase().includes(searchQuery.toLowerCase());
+			if (!file || !file.object_name) return false;
+			return file.object_name.toLowerCase().includes(searchQuery.toLowerCase());
 		});
 		console.log('Filtered files:', filtered, 'Search query:', searchQuery);
 		return filtered;
@@ -131,7 +132,8 @@
 			}
 			
 			// Clean up the folder name and fullPath for display
-			let folderName = folder.name;
+			// Use object_name as the primary field name from backend
+			let folderName = folder.object_name || folder.name || 'Untitled';
 			let fullPath = folder.fullPath;
 			
 			// Remove leading and trailing slashes from folder name
@@ -328,7 +330,7 @@
 					// Add the uploaded file to the files list immediately
 					const newFile = {
 						id: response.data?.id || Date.now().toString(),
-						name: file.name,
+						object_name: file.name,
 						size: formatBytes(file.size),
 						type: getFileType(file.name),
 						modified: new Date().toLocaleString(),
@@ -414,42 +416,39 @@
 		closeDropdowns(); // Close the dropdown menu
 		
 		try {
-			// Create download URL
-			const downloadUrl = `/api/storage/buckets/${selectedBucket.name}/objects/${file.id}/download`;
+			// Create download URL with proper backend URL
+			const downloadUrl = `http://localhost:8090/api/storage/buckets/${selectedBucket.name}/objects/${file.id}/download`;
 			
-			// Create a temporary anchor element to trigger download
-			const link = document.createElement('a');
-			link.href = downloadUrl;
-			link.download = file.name;
-			link.style.display = 'none';
-			
-			// Add auth token if available
+			// Get auth token
 			const token = localStorage.getItem('auth_token');
-			if (token) {
-				// For authenticated downloads, we need to fetch the file with the token
-				const response = await fetch(downloadUrl, {
-					headers: {
-						'Authorization': `Bearer ${token}`
-					}
-				});
-				
-				if (!response.ok) {
-					throw new Error('Download failed');
+			
+			// Fetch the file with authentication
+			const response = await fetch(downloadUrl, {
+				headers: {
+					'Authorization': `Bearer ${token}`
 				}
-				
-				const blob = await response.blob();
-				const url = window.URL.createObjectURL(blob);
-				link.href = url;
+			});
+			
+			if (!response.ok) {
+				throw new Error('Download failed');
 			}
 			
+			const blob = await response.blob();
+			const url = window.URL.createObjectURL(blob);
+			
+			// Create and trigger download link
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = file.object_name || 'download';
+			link.style.display = 'none';
 			document.body.appendChild(link);
 			link.click();
-			document.body.removeChild(link);
 			
-			// Clean up the blob URL if we created one
-			if (link.href.startsWith('blob:')) {
-				window.URL.revokeObjectURL(link.href);
-			}
+			// Cleanup
+			setTimeout(() => {
+				document.body.removeChild(link);
+				window.URL.revokeObjectURL(url);
+			}, 100);
 		} catch (error) {
 			console.error('Download failed:', error);
 			alert('Failed to download file');
@@ -473,7 +472,7 @@
 		
 		try {
 			// Check file type to determine preview method
-			const fileExt = file.name.split('.').pop()?.toLowerCase();
+			const fileExt = file.object_name.split('.').pop()?.toLowerCase();
 			const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp'];
 			const textExts = ['txt', 'md', 'json', 'xml', 'csv', 'log', 'yml', 'yaml', 'toml', 'ini'];
 			const codeExts = ['js', 'ts', 'jsx', 'tsx', 'html', 'css', 'scss', 'sass', 'less', 
@@ -481,12 +480,30 @@
 			                  'rs', 'swift', 'kt', 'scala', 'sh', 'bash', 'sql', 'vue', 'svelte'];
 			
 			if (imageExts.includes(fileExt || '')) {
-				// For images, use download URL directly
-				previewImageUrl = `/api/storage/buckets/${selectedBucket.name}/objects/${file.id}/download`;
+				// For images, fetch with authentication and create blob URL
+				const token = localStorage.getItem('auth_token');
+				const response = await fetch(`http://localhost:8090/api/storage/buckets/${selectedBucket.name}/objects/${file.id}/download`, {
+					headers: {
+						'Authorization': `Bearer ${token}`
+					}
+				});
+				
+				if (response.ok) {
+					const blob = await response.blob();
+					previewImageUrl = URL.createObjectURL(blob);
+				} else {
+					console.error('Failed to load image:', response.status);
+					previewContent = 'Failed to load image';
+				}
 				previewLoading = false;
 			} else if (textExts.includes(fileExt || '') || codeExts.includes(fileExt || '')) {
-				// For text/code files, fetch and display content
-				const response = await fetch(`/api/storage/buckets/${selectedBucket.name}/objects/${file.id}/download`);
+				// For text/code files, fetch content with authentication
+				const token = localStorage.getItem('auth_token');
+				const response = await fetch(`http://localhost:8090/api/storage/buckets/${selectedBucket.name}/objects/${file.id}/download`, {
+					headers: {
+						'Authorization': `Bearer ${token}`
+					}
+				});
 				if (response.ok) {
 					previewContent = await response.text();
 				} else {
@@ -684,43 +701,15 @@
 				return;
 			}
 			
-			// Process files - backend now handles path filtering
-			const processedFiles = rawFiles.map((file, index) => {
-				// Use properties directly from backend response
-				const processedFile = {
-					id: file.id || file.ID || `file_${index}`,
-					name: file.name || 'Untitled',
-					fullPath: file.fullPath || file.name,
-					size: file.size || '0 B',
-					type: file.type || 'file',
-					modified: file.modified || new Date().toISOString(),
-					public: file.public || false,
-					isFolder: file.isFolder || file.type === 'folder',
-				};
-				
-				console.log(`Processing ${processedFile.isFolder ? 'folder' : 'file'}:`, {
-					name: processedFile.name,
-					fullPath: processedFile.fullPath,
-					isFolder: processedFile.isFolder,
-					type: processedFile.type,
-				});
-				
-				return processedFile;
-			});
+			// Directly use the raw files from the backend - no processing needed
+			// The backend already provides all the fields we need
+			files = rawFiles;
 			
-			// Assign processed files to the files variable
-			files = processedFiles;
-			
-			console.log('Processed files before assignment:', processedFiles);
-			console.log('Files after assignment:', files);
-			console.log('First file object:', files[0]);
+			console.log('Files from backend:', files);
 			console.log('Files count:', files.length);
-			// Debug: log folder details
-			files.forEach(file => {
-				if (file.type === 'folder') {
-					console.log(`Folder: name="${file.name}", fullPath="${file.fullPath}", type="${file.type}"`);
-				}
-			});
+			if (files.length > 0) {
+				console.log('First file object:', files[0]);
+			}
 		} catch (error) {
 			console.error('Failed to fetch bucket objects:', error);
 			files = [];
@@ -747,12 +736,12 @@
 			if (file.isFolder || file.type === 'folder') {
 				const node = {
 					id: file.id,
-					name: file.name,
-					path: file.fullPath || file.name,
+					name: file.object_name,
+					path: file.fullPath || file.object_name,
 					type: 'directory',
 					children: []
 				};
-				folderMap.set(file.fullPath || file.name, node);
+				folderMap.set(file.fullPath || file.object_name, node);
 				tree.push(node);
 			}
 		});
@@ -762,8 +751,8 @@
 			if (!file.isFolder && file.type !== 'folder') {
 				const node = {
 					id: file.id,
-					name: file.name,
-					path: file.fullPath || file.name,
+					name: file.object_name,
+					path: file.fullPath || file.object_name,
 					type: 'file',
 					size: file.size
 				};
@@ -1056,13 +1045,13 @@
 										/>
 									</div>
 									
-									<div class="file-card-name" title={file.name || 'Untitled'}>
+									<div class="file-card-name" title={file.object_name || 'Untitled'}>
 										{#if file.type === 'folder'}
 											<button class="folder-link" on:click={() => navigateToFolder(file)}>
-												{file.name || 'Untitled'}
+												{file.object_name || 'Untitled'}
 											</button>
 										{:else}
-											{file.name || 'Untitled'}
+											{file.object_name || 'Untitled'}
 										{/if}
 									</div>
 								</div>
@@ -1113,11 +1102,11 @@
 													style="color: {getFileIconColor(file.type)}"
 												/>
 												{#if file.type === 'folder'}
-													<button class="folder-link-inline" on:click={() => navigateToFolder(file)} title={file.name || 'Untitled Folder'}>
-														<span class="file-name-text">{file.name || 'Untitled Folder'}</span>
+													<button class="folder-link-inline" on:click={() => navigateToFolder(file)} title={file.object_name || 'Untitled Folder'}>
+														<span class="file-name-text">{file.object_name || 'Untitled Folder'}</span>
 													</button>
 												{:else}
-													<span class="file-name-text" title={file.name || 'Untitled File'}>{file.name || 'Untitled File'}</span>
+													<span class="file-name-text" title={file.object_name || 'Untitled File'}>{file.object_name || 'Untitled File'}</span>
 												{/if}
 												{#if file.public}
 													<span class="badge badge-success">Public</span>

@@ -310,7 +310,12 @@ func (s *StorageService) GetObjects(bucket string, userID string, parentFolderID
 	log.Printf("GetObjects: bucket=%s, userID=%s, parentFolderID=%v, appID=%s", bucket, userID, parentFolderID, s.appID)
 
 	// Build query for objects
-	query := s.db.Where("bucket_name = ? AND user_id = ?", bucket, userID)
+	query := s.db.Where("bucket_name = ?", bucket)
+	
+	// Only filter by user_id if provided and not empty
+	if userID != "" {
+		query = query.Where("user_id = ?", userID)
+	}
 
 	// Filter by app ID
 	if s.appID != "" {
@@ -343,6 +348,14 @@ func (s *StorageService) GetObjects(bucket string, userID string, parentFolderID
 			continue
 		}
 
+		// Determine the type based on content type
+		fileType := "file"
+		if obj.ContentType == "application/x-directory" {
+			fileType = "folder"
+		} else {
+			fileType = getFileType(obj.ObjectName)
+		}
+
 		// Return the raw StorageObject fields
 		result = append(result, map[string]interface{}{
 			"id":               obj.ID,
@@ -351,6 +364,7 @@ func (s *StorageService) GetObjects(bucket string, userID string, parentFolderID
 			"parent_folder_id": obj.ParentFolderID,
 			"size":             obj.Size,
 			"content_type":     obj.ContentType,
+			"type":             fileType,  // Add type field for frontend
 			"checksum":         obj.Checksum,
 			"metadata":         obj.Metadata,
 			"created_at":       obj.CreatedAt,

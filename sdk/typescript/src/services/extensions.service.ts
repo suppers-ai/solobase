@@ -100,7 +100,7 @@ export class ExtensionsService extends BaseService {
     const queryString = options?.params ? this.buildQueryString(options.params) : '';
     return this.request<T>({
       method: options?.method || 'GET',
-      url: `/extensions/${extension}/${endpoint}${queryString ? `?${queryString}` : ''}`,
+      url: `/ext/${extension}/${endpoint}${queryString ? `?${queryString}` : ''}`,
       data: options?.data,
     });
   }
@@ -118,7 +118,7 @@ export class CloudStorageExtension extends ExtensionsService {
     expiresAt?: string;
     isPublic?: boolean;
   }): Promise<{ share_id: string; share_token?: string; url?: string }> {
-    return this.call('cloudstorage', 'api/shares', {
+    return this.call('cloudstorage', 'shares', {
       method: 'POST',
       data: {
         object_id: objectId,
@@ -140,14 +140,14 @@ export class CloudStorageExtension extends ExtensionsService {
     expires_at?: string;
     share_token?: string;
   }>> {
-    return this.call('cloudstorage', 'api/shares');
+    return this.call('cloudstorage', 'shares');
   }
 
   /**
    * Delete a share
    */
   async deleteShare(shareId: string): Promise<void> {
-    await this.call('cloudstorage', `api/shares/${shareId}`, {
+    await this.call('cloudstorage', `shares/${shareId}`, {
       method: 'DELETE',
     });
   }
@@ -162,7 +162,7 @@ export class CloudStorageExtension extends ExtensionsService {
     bandwidth_used: number;
     reset_bandwidth_at?: string;
   }> {
-    return this.call('cloudstorage', 'api/quota');
+    return this.call('cloudstorage', 'quota');
   }
 
   /**
@@ -177,7 +177,7 @@ export class CloudStorageExtension extends ExtensionsService {
     user_agent?: string;
     created_at: string;
   }>> {
-    return this.call('cloudstorage', 'api/access-logs', {
+    return this.call('cloudstorage', 'access-logs', {
       params: objectId ? { object_id: objectId } : undefined,
     });
   }
@@ -202,7 +202,7 @@ export class ProductsExtension extends ExtensionsService {
    * List products
    */
   async listProducts(groupId?: string): Promise<any[]> {
-    return this.call('products', 'api/products', {
+    return this.call('products', 'products', {
       params: groupId ? { group_id: groupId } : undefined,
     });
   }
@@ -217,7 +217,7 @@ export class ProductsExtension extends ExtensionsService {
     custom_fields?: Record<string, any>;
     pricing_formula?: string;
   }): Promise<any> {
-    return this.call('products', 'api/products', {
+    return this.call('products', 'products', {
       method: 'POST',
       data,
     });
@@ -230,7 +230,7 @@ export class ProductsExtension extends ExtensionsService {
     price: number;
     breakdown: Array<{ component: string; value: number }>;
   }> {
-    return this.call('products', `api/products/${productId}/calculate`, {
+    return this.call('products', `products/${productId}/calculate`, {
       method: 'POST',
       data: { variables },
     });

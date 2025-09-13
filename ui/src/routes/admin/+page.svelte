@@ -392,7 +392,7 @@
 			totalStorage = stats.total_storage_used || 0;
 			
 			// Fetch system metrics
-			const metrics = await api.get('/system/metrics');
+			const metrics = await api.get('/admin/system/metrics');
 			cpuUsage = metrics.cpu_usage || 0;
 			memoryUsage = metrics.memory_usage || 0;
 			diskUsage = metrics.disk_usage || 0;

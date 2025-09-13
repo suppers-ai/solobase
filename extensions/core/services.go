@@ -20,7 +20,6 @@ type ExtensionServices struct {
 	logger      logger.Logger
 	storage     *services.EnhancedStorageService
 	config      *config.Config
-	collections *services.CollectionsService
 	stats       *services.StatsService
 	iam         *iam.Service
 
@@ -36,7 +35,6 @@ func NewExtensionServices(
 	logger logger.Logger,
 	storage *services.EnhancedStorageService,
 	config *config.Config,
-	collections *services.CollectionsService,
 	stats *services.StatsService,
 	iamSvc *iam.Service,
 ) *ExtensionServices {
@@ -46,7 +44,6 @@ func NewExtensionServices(
 		logger:      logger,
 		storage:     storage,
 		config:      config,
-		collections: collections,
 		stats:       stats,
 		iam:         iamSvc,
 	}
@@ -60,7 +57,6 @@ func (s *ExtensionServices) ForExtension(extensionName string) *ExtensionService
 		logger:        s.logger,
 		storage:       s.storage,
 		config:        s.config,
-		collections:   s.collections,
 		stats:         s.stats,
 		iam:           s.iam,
 		extensionName: extensionName,

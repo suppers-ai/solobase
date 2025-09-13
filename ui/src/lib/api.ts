@@ -2,7 +2,6 @@ import type {
 	User, LoginRequest, LoginResponse, SignupRequest,
 	DatabaseTable, DatabaseColumn, QueryResult,
 	StorageObject, StorageBucket,
-	Collection, CollectionSchema,
 	AppSettings, DashboardStats,
 	ApiResponse, PaginatedResponse
 } from './types';
@@ -156,39 +155,39 @@ class ApiClient {
 		return response;
 	}
 
-	// Users methods
+	// Users methods (admin)
 	async getUsers(page = 1, pageSize = 20): Promise<ApiResponse<PaginatedResponse<User>>> {
-		return this.request<PaginatedResponse<User>>(`/users?page=${page}&page_size=${pageSize}`);
+		return this.request<PaginatedResponse<User>>(`/admin/users?page=${page}&page_size=${pageSize}`);
 	}
 
 	async getUser(id: string): Promise<ApiResponse<User>> {
-		return this.request<User>(`/users/${id}`);
+		return this.request<User>(`/admin/users/${id}`);
 	}
 
 	async updateUser(id: string, updates: Partial<User>): Promise<ApiResponse<User>> {
-		return this.request<User>(`/users/${id}`, {
+		return this.request<User>(`/admin/users/${id}`, {
 			method: 'PATCH',
 			body: JSON.stringify(updates)
 		});
 	}
 
 	async deleteUser(id: string): Promise<ApiResponse<void>> {
-		return this.request<void>(`/users/${id}`, {
+		return this.request<void>(`/admin/users/${id}`, {
 			method: 'DELETE'
 		});
 	}
 
-	// Database methods
+	// Database methods (admin)
 	async getDatabaseTables(): Promise<ApiResponse<DatabaseTable[]>> {
-		return this.request<DatabaseTable[]>('/database/tables');
+		return this.request<DatabaseTable[]>('/admin/database/tables');
 	}
 
 	async getTableColumns(table: string): Promise<ApiResponse<DatabaseColumn[]>> {
-		return this.request<DatabaseColumn[]>(`/database/tables/${table}/columns`);
+		return this.request<DatabaseColumn[]>(`/admin/database/tables/${table}/columns`);
 	}
 
 	async executeQuery(query: string): Promise<ApiResponse<QueryResult>> {
-		return this.request<QueryResult>('/database/query', {
+		return this.request<QueryResult>('/admin/database/query', {
 			method: 'POST',
 			body: JSON.stringify({ query })
 		});
@@ -246,34 +245,6 @@ class ApiClient {
 		});
 	}
 
-	// Collections methods
-	async getCollections(): Promise<ApiResponse<Collection[]>> {
-		return this.request<Collection[]>('/collections');
-	}
-
-	async getCollection(id: string): Promise<ApiResponse<Collection>> {
-		return this.request<Collection>(`/collections/${id}`);
-	}
-
-	async createCollection(name: string, schema: CollectionSchema): Promise<ApiResponse<Collection>> {
-		return this.request<Collection>('/collections', {
-			method: 'POST',
-			body: JSON.stringify({ name, schema })
-		});
-	}
-
-	async updateCollection(id: string, updates: Partial<Collection>): Promise<ApiResponse<Collection>> {
-		return this.request<Collection>(`/collections/${id}`, {
-			method: 'PATCH',
-			body: JSON.stringify(updates)
-		});
-	}
-
-	async deleteCollection(id: string): Promise<ApiResponse<void>> {
-		return this.request<void>(`/collections/${id}`, {
-			method: 'DELETE'
-		});
-	}
 
 	// Settings methods
 	async getSettings(): Promise<ApiResponse<AppSettings>> {
@@ -281,7 +252,7 @@ class ApiClient {
 	}
 
 	async updateSettings(settings: Partial<AppSettings>): Promise<ApiResponse<AppSettings>> {
-		return this.request<AppSettings>('/settings', {
+		return this.request<AppSettings>('/admin/settings', {
 			method: 'PATCH',
 			body: JSON.stringify(settings)
 		});
@@ -292,58 +263,75 @@ class ApiClient {
 		return this.request<DashboardStats>('/dashboard/stats');
 	}
 
-	// Extensions methods
+	// Extensions methods (admin)
 	async getExtensions(): Promise<ApiResponse<any[]>> {
-		return this.request<any[]>('/extensions');
+		return this.request<any[]>('/admin/extensions');
 	}
 
 	async toggleExtension(name: string, enabled: boolean): Promise<ApiResponse<any>> {
-		return this.request<any>(`/extensions/${name}/toggle`, {
+		return this.request<any>(`/admin/extensions/${name}/toggle`, {
 			method: 'POST',
 			body: JSON.stringify({ enabled })
 		});
 	}
 
 	async getExtensionStatus(): Promise<ApiResponse<any[]>> {
-		return this.request<any[]>('/extensions/status');
+		return this.request<any[]>('/admin/extensions/status');
 	}
 
 	// Analytics extension methods
 	async getAnalyticsStats(): Promise<ApiResponse<any>> {
-		return this.request<any>('/ext/analytics/api/stats');
+		return this.request<any>('/ext/analytics/stats');
 	}
 
 	async getAnalyticsPageviews(): Promise<ApiResponse<any>> {
-		return this.request<any>('/ext/analytics/api/pageviews');
+		return this.request<any>('/ext/analytics/pageviews');
 	}
 
 	async getAnalyticsDailyStats(days: number = 7): Promise<ApiResponse<any>> {
-		return this.request<any>(`/ext/analytics/api/daily?days=${days}`);
+		return this.request<any>(`/ext/analytics/daily?days=${days}`);
 	}
 
 	async trackAnalyticsEvent(event: any): Promise<ApiResponse<void>> {
-		return this.request<void>('/ext/analytics/api/track', {
+		return this.request<void>('/ext/analytics/track', {
 			method: 'POST',
 			body: JSON.stringify(event)
 		});
 	}
 
+	async exportAnalytics(): Promise<ApiResponse<any>> {
+		return this.request<any>('/admin/analytics/export');
+	}
+
+	async clearAnalytics(): Promise<ApiResponse<void>> {
+		return this.request<void>('/admin/analytics/clear', {
+			method: 'DELETE'
+		});
+	}
+
 	// Webhooks extension methods
 	async getWebhooks(): Promise<ApiResponse<any>> {
-		return this.request<any>('/ext/webhooks/api/webhooks');
+		return this.request<any>('/ext/webhooks/webhooks');
 	}
 
 	async createWebhook(webhook: any): Promise<ApiResponse<any>> {
-		return this.request<any>('/ext/webhooks/api/webhooks/create', {
+		return this.request<any>('/ext/webhooks/webhooks', {
 			method: 'POST',
 			body: JSON.stringify(webhook)
 		});
 	}
 
 	async toggleWebhook(id: string, active: boolean): Promise<ApiResponse<any>> {
-		return this.request<any>(`/ext/webhooks/api/webhooks/${id}/toggle`, {
+		return this.request<any>(`/ext/webhooks/webhooks/${id}/toggle`, {
 			method: 'POST',
 			body: JSON.stringify({ active })
+		});
+	}
+
+	async deleteWebhooks(ids: string[]): Promise<ApiResponse<void>> {
+		return this.request<void>('/admin/webhooks/delete', {
+			method: 'DELETE',
+			body: JSON.stringify({ ids })
 		});
 	}
 

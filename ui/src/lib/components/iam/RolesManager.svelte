@@ -14,11 +14,11 @@
 	
 	async function handleCreateRole(event) {
 		const role = event.detail;
-		const response = await fetch('/api/iam/roles', {
+		const response = await fetch('/api/admin/iam/roles', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('token')}`
+				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 			},
 			body: JSON.stringify(role)
 		});
@@ -37,10 +37,10 @@
 			return;
 		}
 		
-		const response = await fetch(`/api/iam/roles/${role.name}`, {
+		const response = await fetch(`/api/admin/iam/roles/${role.name}`, {
 			method: 'DELETE',
 			headers: {
-				'Authorization': `Bearer ${localStorage.getItem('token')}`
+				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 			}
 		});
 		
@@ -59,11 +59,11 @@
 	
 	async function handleSaveRole(event) {
 		const role = event.detail;
-		const response = await fetch(`/api/iam/roles/${role.name}`, {
+		const response = await fetch(`/api/admin/iam/roles/${role.name}`, {
 			method: 'PUT',
 			headers: {
 				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('token')}`
+				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 			},
 			body: JSON.stringify(role)
 		});

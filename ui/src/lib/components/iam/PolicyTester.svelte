@@ -15,11 +15,11 @@
 	async function handleTest() {
 		testing = true;
 		try {
-			const response = await fetch('/api/iam/test-permission', {
+			const response = await fetch('/api/admin/iam/test-permission', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					'Authorization': `Bearer ${localStorage.getItem('token')}`
+					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 				},
 				body: JSON.stringify(testInput)
 			});

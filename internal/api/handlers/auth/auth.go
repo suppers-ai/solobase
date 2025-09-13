@@ -128,7 +128,7 @@ func HandleLogout() http.HandlerFunc {
 	}
 }
 
-func HandleSignup(authService *services.AuthService) http.HandlerFunc {
+func HandleSignup(authService *services.AuthService, iamService *iam.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req SignupRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -155,6 +155,14 @@ func HandleSignup(authService *services.AuthService) http.HandlerFunc {
 			return
 		}
 
+		// Assign default 'user' role to new signups
+		if iamService != nil {
+			if err := iamService.AssignRoleToUser(context.Background(), user.ID.String(), "user"); err != nil {
+				log.Printf("Warning: Failed to assign default user role to %s: %v", user.Email, err)
+				// Don't fail the signup, just log the warning
+			}
+		}
+
 		utils.JSONResponse(w, http.StatusCreated, user)
 	}
 }
@@ -163,6 +171,49 @@ func HandleGetCurrentUser() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := r.Context().Value("user").(*auth.User)
 		utils.JSONResponse(w, http.StatusOK, user)
+	}
+}
+
+// HandleUpdateCurrentUser handles updating the current user's profile
+func HandleUpdateCurrentUser(userService *services.UserService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get user ID from context (set by auth middleware)
+		userID := r.Context().Value("userID")
+		if userID == nil {
+			utils.JSONError(w, http.StatusUnauthorized, "User not authenticated")
+			return
+		}
+
+		userIDStr, ok := userID.(string)
+		if !ok {
+			utils.JSONError(w, http.StatusUnauthorized, "Invalid user ID")
+			return
+		}
+
+		// Parse request body
+		var updates map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+			utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+
+		// Remove fields that users shouldn't be able to update themselves
+		delete(updates, "id")
+		delete(updates, "password") // Password should be updated via change-password endpoint
+		delete(updates, "role")     // Role changes should go through IAM
+		delete(updates, "confirmed") // Email confirmation status
+		delete(updates, "created_at")
+		delete(updates, "deleted_at")
+
+		// Update user in database
+		updatedUser, err := userService.UpdateUser(userIDStr, updates)
+		if err != nil {
+			log.Printf("Failed to update user profile for %s: %v", userIDStr, err)
+			utils.JSONError(w, http.StatusInternalServerError, "Failed to update profile")
+			return
+		}
+
+		utils.JSONResponse(w, http.StatusOK, updatedUser)
 	}
 }
 

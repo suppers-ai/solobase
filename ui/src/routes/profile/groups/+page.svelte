@@ -70,11 +70,11 @@
 		try {
 			loading = true;
 			// Load group types first
-			const typesRes = await api.get('/products/group-types');
+			const typesRes = await api.get('/ext/products/group-types');
 			groupTypes = typesRes || [];
 			
 			// Load user's groups
-			const groupsRes = await api.get('/user/groups');
+			const groupsRes = await api.get('/ext/products/groups');
 			groups = groupsRes || [];
 		} catch (error) {
 			console.error('Failed to load data:', error);
@@ -121,7 +121,7 @@
 				newGroup.metadata = { ...newGroup.metadata, ...dynamicFields };
 			}
 			
-			const result = await api.post('/user/groups', newGroup);
+			const result = await api.post('/ext/products/groups', newGroup);
 			if (result) {
 				// Reset form
 				newGroup = {

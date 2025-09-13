@@ -104,17 +104,15 @@ func (h *StorageHandlers) HandleGetBucketObjects(w http.ResponseWriter, r *http.
 	}
 
 	// For user files, ensure we have a user ID
+	filterByUser := ""
 	if bucket == "user-files" || bucket == "int_storage" {
 		bucket = "int_storage"
-		if userID == "" {
-			// No user ID means no access to user files
-			utils.JSONResponse(w, http.StatusOK, []interface{}{})
-			return
-		}
+		// For int_storage, only filter by user if we have a userID
+		filterByUser = userID
 	}
 
-	// Get objects filtered by userID, appID, and parentFolderID
-	objects, err := h.storageService.GetObjects(bucket, userID, parentFolderID)
+	// Get objects - only filter by userID for int_storage when user is authenticated
+	objects, err := h.storageService.GetObjects(bucket, filterByUser, parentFolderID)
 	if err != nil {
 		utils.JSONError(w, http.StatusInternalServerError, "Failed to fetch objects")
 		return

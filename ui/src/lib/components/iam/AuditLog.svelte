@@ -27,14 +27,26 @@
 				...(selectedType !== 'all' && { type: selectedType })
 			});
 			
-			const response = await fetch(`/api/iam/audit-logs?${params}`, {
+			const token = localStorage.getItem('auth_token');
+			console.log('AuditLog: Using token:', token ? `${token.substring(0, 20)}...` : 'null');
+			
+			const response = await window.fetch(`/api/admin/iam/audit-logs?${params}`, {
+				method: 'GET',
 				headers: {
-					'Authorization': `Bearer ${localStorage.getItem('token')}`
-				}
+					'Authorization': `Bearer ${token}`,
+					'Content-Type': 'application/json'
+				},
+				credentials: 'same-origin'
 			});
+			
+			console.log('AuditLog: Response status:', response.status);
 			
 			if (response.ok) {
 				logs = await response.json();
+				console.log('AuditLog: Loaded', logs.length, 'logs');
+			} else {
+				const error = await response.text();
+				console.error('AuditLog: Error response:', response.status, error);
 			}
 		} catch (error) {
 			console.error('Failed to load audit logs:', error);

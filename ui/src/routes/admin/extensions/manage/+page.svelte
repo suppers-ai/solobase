@@ -141,9 +141,9 @@
 				8. Generate public links for external sharing
 			`,
 			apiEndpoints: [
-				"POST /ext/cloudstorage/api/shares - Create share link",
-				"GET /ext/cloudstorage/api/shares - List active shares",
-				"DELETE /ext/cloudstorage/api/shares/{id} - Revoke share",
+				"POST /ext/cloudstorage/shares - Create share link",
+				"GET /ext/cloudstorage/shares - List active shares",
+				"DELETE /ext/cloudstorage/shares/{id} - Revoke share",
 				"GET /ext/cloudstorage/api/quota - Get quota information",
 				"PUT /ext/cloudstorage/api/quota - Update user quotas",
 				"GET /ext/cloudstorage/api/access-logs - View access logs",

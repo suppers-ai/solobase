@@ -57,17 +57,6 @@ export interface QueryResult {
 }
 
 // Storage types
-export interface StorageObject {
-	id: string;
-	name: string;
-	bucket: string;
-	size: number;
-	mime_type: string;
-	created_at: Date;
-	updated_at: Date;
-	public_url?: string;
-}
-
 export interface StorageBucket {
 	id: string;
 	name: string;
@@ -77,28 +66,6 @@ export interface StorageBucket {
 	total_size: number;
 }
 
-// Collection types
-export interface Collection {
-	id: string;
-	name: string;
-	schema: CollectionSchema;
-	created_at: Date;
-	updated_at: Date;
-	records_count: number;
-}
-
-export interface CollectionSchema {
-	fields: CollectionField[];
-}
-
-export interface CollectionField {
-	name: string;
-	type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'relation' | 'file' | 'json';
-	required: boolean;
-	unique?: boolean;
-	default?: any;
-	options?: any;
-}
 
 // Settings types
 export interface AppSettings {

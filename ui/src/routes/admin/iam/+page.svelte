@@ -14,7 +14,7 @@
 	
 	async function loadRoles() {
 		try {
-			const response = await fetch('/api/iam/roles', {
+			const response = await fetch('/api/admin/iam/roles', {
 				headers: {
 					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 				}
@@ -34,7 +34,7 @@
 	
 	async function loadPolicies() {
 		try {
-			const response = await fetch('/api/iam/policies', {
+			const response = await fetch('/api/admin/iam/policies', {
 				headers: {
 					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 				}
@@ -55,7 +55,7 @@
 	async function loadUsers() {
 		try {
 			// Use the IAM users endpoint that includes roles
-			const response = await fetch('/api/iam/users', {
+			const response = await fetch('/api/admin/iam/users', {
 				headers: {
 					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 				}
@@ -82,7 +82,7 @@
 	async function handleRoleCreated(event) {
 		const role = event.detail;
 		try {
-			const response = await fetch('/api/iam/roles', {
+			const response = await fetch('/api/admin/iam/roles', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -108,7 +108,7 @@
 			return;
 		}
 		
-		const response = await fetch(`/api/iam/roles/${role.name}`, {
+		const response = await fetch(`/api/admin/iam/roles/${role.name}`, {
 			method: 'DELETE',
 			headers: {
 				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
@@ -124,7 +124,7 @@
 	
 	async function handlePolicyCreated(event) {
 		const policy = event.detail;
-		const response = await fetch('/api/iam/policies', {
+		const response = await fetch('/api/admin/iam/policies', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -146,7 +146,7 @@
 			return;
 		}
 		
-		const response = await fetch(`/api/iam/policies/${policy.id}`, {
+		const response = await fetch(`/api/admin/iam/policies/${policy.id}`, {
 			method: 'DELETE',
 			headers: {
 				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`

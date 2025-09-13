@@ -94,8 +94,8 @@
 			
 			// Load product types and variables
 			const [typesRes, variablesRes] = await Promise.all([
-				api.get('/products/product-types'),
-				api.get('/products/variables')
+				api.get('/ext/products/product-types'),
+				api.get('/ext/products/variables')
 			]);
 			productTypes = typesRes || [];
 			availableVariables = variablesRes || [];
@@ -107,7 +107,7 @@
 			// Calculate prices for each product
 			products = await Promise.all(products.map(async (product) => {
 				try {
-					const priceRes = await api.post('/products/calculate-price', {
+					const priceRes = await api.post('/ext/products/calculate-price', {
 						product_id: product.id,
 						variables: product.variable_values
 					});
@@ -267,7 +267,7 @@
 		if (!selectedProduct) return;
 		
 		try {
-			const result = await api.post('/products/calculate-price', {
+			const result = await api.post('/ext/products/calculate-price', {
 				product_id: selectedProduct.id,
 				variables: variableValues
 			});

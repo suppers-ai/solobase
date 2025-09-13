@@ -44,7 +44,6 @@ func NewExtensionManager(db *gorm.DB, logger logger.Logger) (*ExtensionManager, 
 		logger,
 		nil, // storage
 		nil, // config
-		nil, // collections
 		nil, // stats
 		nil, // iam
 	)

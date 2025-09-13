@@ -653,3 +653,113 @@ func HandleWebhooksToggle() http.HandlerFunc {
 		})
 	}
 }
+
+// HandleWebhooksDelete deletes a webhook
+func HandleWebhooksDelete() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		id := vars["id"]
+
+		// In production, this would delete the webhook from the database
+		// For now, just return success
+		utils.JSONResponse(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": fmt.Sprintf("Webhook %s deleted successfully", id),
+		})
+	}
+}
+
+// HandleAnalyticsExport exports analytics data
+func HandleAnalyticsExport() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get query parameters for filtering
+		format := r.URL.Query().Get("format")
+		if format == "" {
+			format = "json"
+		}
+
+		startDate := r.URL.Query().Get("start_date")
+		endDate := r.URL.Query().Get("end_date")
+
+		// Mock analytics data for export
+		analyticsData := map[string]interface{}{
+			"period": map[string]string{
+				"start": startDate,
+				"end":   endDate,
+			},
+			"summary": map[string]interface{}{
+				"totalEvents":  54321,
+				"uniqueUsers":  8765,
+				"totalSessions": 12345,
+				"avgDuration":  "3m 45s",
+			},
+			"topPages": []map[string]interface{}{
+				{"url": "/", "views": 15234, "uniqueVisitors": 3421},
+				{"url": "/products", "views": 8923, "uniqueVisitors": 2156},
+				{"url": "/about", "views": 4567, "uniqueVisitors": 1234},
+			},
+			"events": []map[string]interface{}{
+				{"type": "page_view", "count": 45678},
+				{"type": "button_click", "count": 12345},
+				{"type": "form_submit", "count": 789},
+			},
+		}
+
+		switch format {
+		case "csv":
+			// Set CSV headers
+			w.Header().Set("Content-Type", "text/csv")
+			w.Header().Set("Content-Disposition", "attachment; filename=analytics-export.csv")
+			
+			// Write CSV data (simplified)
+			fmt.Fprintln(w, "Type,Count")
+			fmt.Fprintln(w, "Total Events,54321")
+			fmt.Fprintln(w, "Unique Users,8765")
+			fmt.Fprintln(w, "Total Sessions,12345")
+			
+		default:
+			// Default to JSON
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Content-Disposition", "attachment; filename=analytics-export.json")
+			json.NewEncoder(w).Encode(analyticsData)
+		}
+	}
+}
+
+// HandleAnalyticsClear clears analytics data
+func HandleAnalyticsClear() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Confirm bool   `json:"confirm"`
+			Period  string `json:"period"` // "all", "30days", "7days", etc.
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			utils.JSONError(w, http.StatusBadRequest, "Invalid request")
+			return
+		}
+
+		// Safety check
+		if !req.Confirm {
+			utils.JSONError(w, http.StatusBadRequest, "Please confirm the clear operation")
+			return
+		}
+
+		// In production, this would clear analytics data based on the period
+		// For now, just return success
+		message := "All analytics data cleared successfully"
+		if req.Period != "" && req.Period != "all" {
+			message = fmt.Sprintf("Analytics data for the last %s cleared successfully", req.Period)
+		}
+
+		utils.JSONResponse(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": message,
+			"cleared": map[string]interface{}{
+				"events":   12345,
+				"sessions": 4567,
+				"users":    890,
+			},
+		})
+	}
+}

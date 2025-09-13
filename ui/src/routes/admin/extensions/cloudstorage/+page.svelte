@@ -23,13 +23,13 @@
 		name?: string;
 	}
 	
-	interface StorageObject {
+	interface FileTreeNode {
 		id: string;
 		name: string;
 		path: string;
 		type: 'file' | 'directory';
 		size?: number;
-		children?: StorageObject[];
+		children?: FileTreeNode[];
 	}
 	
 	interface Share {
@@ -48,7 +48,7 @@
 	let shares: Share[] = [];
 	let quotas: any[] = [];
 	let accessLogs: any[] = [];
-	let storageObjects: StorageObject[] = [];
+	let storageObjects: FileTreeNode[] = [];
 	let roles: any[] = [];
 	
 	// Modals
@@ -112,7 +112,7 @@
 
 	async function loadRoles() {
 		try {
-			const response = await fetch('/api/iam/roles', {
+			const response = await fetch('/api/admin/iam/roles', {
 				headers: {
 					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 				}
@@ -144,7 +144,7 @@
 				);
 				
 				promises.push(
-					api.get('/extensions/cloudstorage/shares')
+					api.get('/ext/cloudstorage/shares')
 						.catch(e => {
 							console.log('Shares endpoint not available');
 							return [];
@@ -198,7 +198,7 @@
 					});
 					
 					const bucketsWithFiles = await Promise.all(bucketPromises);
-					storageObjects = processStorageObjects(bucketsWithFiles);
+					storageObjects = processFileTreeNodes(bucketsWithFiles);
 				} else {
 					storageObjects = [];
 				}
@@ -239,7 +239,7 @@
 		}
 	}
 	
-	function processStorageObjects(buckets: any[]): any[] {
+	function processFileTreeNodes(buckets: any[]): any[] {
 		// Convert bucket and object data to file tree format
 		const tree: any[] = [];
 		
@@ -310,7 +310,7 @@
 				new Date(Date.now() + shareForm.expiresIn * 3600000).toISOString() : 
 				null;
 			
-			const response = await api.post('/ext/cloudstorage/api/shares', {
+			const response = await api.post('/ext/cloudstorage/shares', {
 				object_id: shareForm.objectId,
 				shared_with_email: shareForm.sharedWithEmail || undefined,
 				permission_level: shareForm.permissionLevel,

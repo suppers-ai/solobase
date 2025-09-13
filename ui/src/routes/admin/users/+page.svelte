@@ -12,7 +12,6 @@
 	import { requireAdmin } from '$lib/utils/auth';
 	
 	let searchQuery = '';
-	let selectedRole = 'all';
 	let selectedStatus = 'all';
 	let showAddModal = false;
 	let showEditModal = false;
@@ -41,7 +40,6 @@
 	let newUser = {
 		email: '',
 		password: '',
-		role: 'user',
 		confirmed: true
 	};
 	
@@ -300,14 +298,13 @@
 	}
 	
 	// Stats (computed from users)
-	$: activeUsers = users.filter(u => u.confirmed && u.role !== 'deleted').length;
+	$: activeUsers = users.filter(u => u.confirmed).length;
 	$: unconfirmedUsers = users.filter(u => !u.confirmed).length;
 	
 	function openAddModal() {
 		newUser = {
 			email: '',
 			password: '',
-			role: 'user',
 			confirmed: true
 		};
 		showAddModal = true;
@@ -354,7 +351,6 @@
 			try {
 				await api.patch(`/users/${selectedUser.id}`, {
 					email: selectedUser.email,
-					role: selectedUser.role,
 					confirmed: selectedUser.confirmed,
 				});
 				showNotification(`User ${selectedUser.email} updated successfully`, 'success');
@@ -369,10 +365,8 @@
 	
 	async function deleteUser() {
 		try {
-			// Change user's role to "deleted" instead of actually deleting
-			await api.patch(`/users/${userToDelete.id}`, {
-				role: 'deleted'
-			});
+			// Actually delete the user
+			await api.delete(`/users/${userToDelete.id}`);
 			showNotification(`User ${userToDelete.email} deleted successfully`, 'success');
 			closeDeleteModal();
 			// If we're in the edit modal, close it too
@@ -433,14 +427,6 @@
 		console.log('Sending password reset to:', user.email);
 	}
 	
-	function getRoleBadgeClass(role: string) {
-		switch(role) {
-			case 'admin': return 'badge-danger';
-			case 'manager': return 'badge-warning';
-			case 'deleted': return 'badge-secondary';
-			default: return 'badge-primary';
-		}
-	}
 </script>
 
 <!-- Notification Toast -->
@@ -712,18 +698,10 @@
 					/>
 				</div>
 				
-				<select class="filter-select" bind:value={selectedRole}>
-					<option value="all">All Roles</option>
-					<option value="admin">Admin</option>
-					<option value="manager">Manager</option>
-					<option value="user">User</option>
-				</select>
-				
 				<select class="filter-select" bind:value={selectedStatus}>
 					<option value="all">All Status</option>
 					<option value="active">Active</option>
 					<option value="unconfirmed">Unconfirmed</option>
-					<option value="deleted">Deleted</option>
 				</select>
 			</div>
 			
@@ -745,7 +723,6 @@
 				<thead>
 					<tr>
 						<th>Email</th>
-						<th>Role</th>
 						<th>Status</th>
 						<th>Created</th>
 						<th>Last Login</th>
@@ -759,14 +736,6 @@
 								<div class="user-email">
 									{user.email}
 								</div>
-							</td>
-							<td>
-								<span class="badge {getRoleBadgeClass(user.role)}">
-									{#if user.role === 'admin'}
-										<Shield size={12} />
-									{/if}
-									{user.role}
-								</span>
 							</td>
 							<td>
 								<div class="user-status">
@@ -871,17 +840,6 @@
 						/>
 					</div>
 					
-					<div class="form-group">
-						<label class="form-label">Role</label>
-						<select 
-							class="form-select" 
-							bind:value={newUser.role}
-						>
-							<option value="user">User</option>
-							<option value="manager">Manager</option>
-							<option value="admin">Admin</option>
-						</select>
-					</div>
 					
 					<div class="form-group">
 						<label class="checkbox-label">
@@ -901,18 +859,6 @@
 							bind:value={selectedUser.email}
 							placeholder="user@example.com"
 						/>
-					</div>
-					
-					<div class="form-group">
-						<label class="form-label">Role</label>
-						<select 
-							class="form-select" 
-							bind:value={selectedUser.role}
-						>
-							<option value="user">User</option>
-							<option value="manager">Manager</option>
-							<option value="admin">Admin</option>
-						</select>
 					</div>
 					
 					<div class="form-group">
@@ -963,15 +909,6 @@
 							</div>
 						</div>
 					</div>
-					
-					{#if selectedUser.role === 'deleted'}
-						<div class="form-group">
-							<div class="alert alert-danger">
-								<Trash2 size={16} />
-								<span>This user is marked as deleted and cannot access the system.</span>
-							</div>
-						</div>
-					{/if}
 				{/if}
 			</div>
 			
@@ -1001,7 +938,7 @@
 			<div class="modal-body">
 				<p>Are you sure you want to delete this user?</p>
 				<p class="text-muted">{userToDelete?.email}</p>
-				<p class="text-danger">The user's status will be changed to "deleted" and they will no longer be able to access the system.</p>
+				<p class="text-danger">This action cannot be undone. The user will be permanently deleted from the system.</p>
 			</div>
 			
 			<div class="modal-footer">

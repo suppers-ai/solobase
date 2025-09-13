@@ -13,7 +13,6 @@ type Service struct {
 	auth       *AuthService
 	user       *UserService
 	database   *DatabaseService
-	collection *CollectionService
 	logger     *DBLogger
 	config     *Config
 }
@@ -51,12 +50,11 @@ type simpleUserService struct {
 }
 
 // NewService creates a unified service wrapper
-func NewService(auth *AuthService, user *UserService, database *DatabaseService, collection *CollectionService, logger *DBLogger, config *Config) *Service {
+func NewService(auth *AuthService, user *UserService, database *DatabaseService, logger *DBLogger, config *Config) *Service {
 	return &Service{
 		auth:       auth,
 		user:       user,
 		database:   database,
-		collection: collection,
 		logger:     logger,
 		config:     config,
 	}
@@ -95,11 +93,6 @@ func (s *Service) Config() *Config {
 // Database returns the database service
 func (s *Service) Database() *DatabaseService {
 	return s.database
-}
-
-// Collections returns the collection service
-func (s *Service) Collections() *CollectionService {
-	return s.collection
 }
 
 // GetSession retrieves a session by ID (simplified implementation)

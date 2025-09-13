@@ -48,7 +48,7 @@
 			// Load role quotas
 			const quotaResponse = await fetch('/ext/cloudstorage/api/quotas/roles', {
 				headers: {
-					'Authorization': `Bearer ${localStorage.getItem('token')}`
+					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 				}
 			});
 			
@@ -59,7 +59,7 @@
 			// Load user overrides
 			const overrideResponse = await fetch('/ext/cloudstorage/api/quotas/overrides', {
 				headers: {
-					'Authorization': `Bearer ${localStorage.getItem('token')}`
+					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 				}
 			});
 			
@@ -94,7 +94,7 @@
 				method: 'PUT',
 				headers: {
 					'Content-Type': 'application/json',
-					'Authorization': `Bearer ${localStorage.getItem('token')}`
+					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 				},
 				body: JSON.stringify({
 					max_storage_bytes: quotaForm.maxStorageBytes,
@@ -124,7 +124,7 @@
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					'Authorization': `Bearer ${localStorage.getItem('token')}`
+					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 				},
 				body: JSON.stringify(overrideForm)
 			});
@@ -162,7 +162,7 @@
 			const response = await fetch(`/ext/cloudstorage/api/quotas/overrides/${override.id}`, {
 				method: 'DELETE',
 				headers: {
-					'Authorization': `Bearer ${localStorage.getItem('token')}`
+					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 				}
 			});
 			

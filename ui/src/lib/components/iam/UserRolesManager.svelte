@@ -18,11 +18,11 @@
 	
 	async function handleRoleAssigned(event) {
 		const { userId, roleName } = event.detail;
-		const response = await fetch(`/api/iam/users/${userId}/roles`, {
+		const response = await fetch(`/api/admin/iam/users/${userId}/roles`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('token')}`
+				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 			},
 			body: JSON.stringify({ role: roleName })
 		});
@@ -41,10 +41,10 @@
 			return;
 		}
 		
-		const response = await fetch(`/api/iam/users/${userId}/roles/${roleName}`, {
+		const response = await fetch(`/api/admin/iam/users/${userId}/roles/${roleName}`, {
 			method: 'DELETE',
 			headers: {
-				'Authorization': `Bearer ${localStorage.getItem('token')}`
+				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 			}
 		});
 		

@@ -35,7 +35,7 @@
 		loading = true;
 		error = null;
 		try {
-			const response = await fetch('/api/products/pricing-templates');
+			const response = await fetch('/api/ext/products/pricing-templates');
 			if (!response.ok) throw new Error('Failed to load templates');
 			templates = await response.json();
 		} catch (err) {
@@ -101,7 +101,7 @@
 		try {
 			const url = showEditModal 
 				? `/api/products/pricing-templates/${editingTemplate.id}`
-				: '/api/products/pricing-templates';
+				: '/api/ext/products/pricing-templates';
 			
 			const method = showEditModal ? 'PUT' : 'POST';
 			

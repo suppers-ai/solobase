@@ -14,11 +14,11 @@
 	
 	async function handleCreatePolicy(event) {
 		const policy = event.detail;
-		const response = await fetch('/api/iam/policies', {
+		const response = await fetch('/api/admin/iam/policies', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('token')}`
+				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 			},
 			body: JSON.stringify(policy)
 		});
@@ -37,11 +37,11 @@
 			return;
 		}
 		
-		const response = await fetch('/api/iam/policies', {
+		const response = await fetch('/api/admin/iam/policies', {
 			method: 'DELETE',
 			headers: {
 				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('token')}`
+				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 			},
 			body: JSON.stringify(policy)
 		});
@@ -62,21 +62,21 @@
 		const policy = event.detail;
 		// For policies, we need to delete the old one and create a new one
 		// since Casbin doesn't have a direct update method
-		const deleteResponse = await fetch('/api/iam/policies', {
+		const deleteResponse = await fetch('/api/admin/iam/policies', {
 			method: 'DELETE',
 			headers: {
 				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('token')}`
+				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 			},
 			body: JSON.stringify(selectedPolicy)
 		});
 		
 		if (deleteResponse.ok) {
-			const createResponse = await fetch('/api/iam/policies', {
+			const createResponse = await fetch('/api/admin/iam/policies', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					'Authorization': `Bearer ${localStorage.getItem('token')}`
+					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
 				},
 				body: JSON.stringify(policy)
 			});

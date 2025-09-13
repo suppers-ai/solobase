@@ -75,7 +75,7 @@
 	async function loadEntityTypes() {
 		try {
 			loading = true;
-			const response = await api.get('/products/group-types');
+			const response = await api.get('/admin/ext/products/group-types');
 			groupTypes = response || [];
 		} catch (error) {
 			console.error('Failed to load group types:', error);
@@ -92,7 +92,7 @@
 				newEntityType.fields = [];
 			}
 
-			const result = await api.post('/products/group-types', newEntityType);
+			const result = await api.post('/admin/ext/products/group-types', newEntityType);
 			if (result) {
 				// Reset form
 				newEntityType = {
@@ -127,7 +127,7 @@
 		}));
 		
 		try {
-			const result = await api.put(`/products/group-types/${selectedEntityType.id}`, selectedEntityType);
+			const result = await api.put(`/admin/ext/products/group-types/${selectedEntityType.id}`, selectedEntityType);
 			if (result) {
 				showEditModal = false;
 				selectedEntityType = null;
@@ -145,7 +145,7 @@
 		if (!confirm('Are you sure you want to delete this group type? This will affect all groups of this type.')) return;
 		
 		try {
-			await api.delete(`/products/group-types/${id}`);
+			await api.delete(`/admin/ext/products/group-types/${id}`);
 			// Reload group types
 			await loadEntityTypes();
 		} catch (error) {

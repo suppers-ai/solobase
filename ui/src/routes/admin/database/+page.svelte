@@ -54,7 +54,7 @@
 	async function loadTables() {
 		loading = true;
 		try {
-			const response = await api.get("/database/tables");
+			const response = await api.get("/admin/database/tables");
 			// Ensure tables is always an array
 			if (Array.isArray(response)) {
 				tables = response;
@@ -100,13 +100,13 @@
 		try {
 			// Get table columns
 			const columns = await api.get(
-				`/database/tables/${selectedTable}/columns`,
+				`/admin/database/tables/${selectedTable}/columns`,
 			);
 			tableColumns = columns || [];
 
 			// Get total count of rows
 			const countQuery = `SELECT COUNT(*) as count FROM ${selectedTable}`;
-			const countResult = await api.post("/database/query", {
+			const countResult = await api.post("/admin/database/query", {
 				query: countQuery,
 			});
 			if (countResult.rows && countResult.rows[0]) {
@@ -119,7 +119,7 @@
 
 			// Execute a SELECT query to get data
 			const query = `SELECT * FROM ${selectedTable} LIMIT ${rowsPerPage} OFFSET ${(currentPage - 1) * rowsPerPage}`;
-			const result = await api.post("/database/query", { query });
+			const result = await api.post("/admin/database/query", { query });
 
 			if (result.rows && result.columns) {
 				// Transform rows array to objects
@@ -150,7 +150,7 @@
 
 		try {
 			const startTime = Date.now();
-			const result = await api.post("/database/query", {
+			const result = await api.post("/admin/database/query", {
 				query: sqlQuery,
 			});
 			queryExecutionTime = Date.now() - startTime;
@@ -217,7 +217,7 @@
 
 	async function getDatabaseInfo() {
 		try {
-			const info = await api.get("/database/info");
+			const info = await api.get("/admin/database/info");
 			if (info) {
 				dbType = info.type || "SQLite";
 				dbVersion = info.version || "3.x";

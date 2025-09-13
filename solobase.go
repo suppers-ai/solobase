@@ -51,7 +51,6 @@ type AppServices struct {
 	Auth       *services.AuthService
 	User       *services.UserService
 	Storage    *services.StorageService
-	Collection *services.CollectionService
 	Database   *services.DatabaseService
 	Settings   *services.SettingsService
 	Logs       *services.LogsService
@@ -305,7 +304,6 @@ func (app *App) Initialize() error {
 		Storage: services.NewStorageServiceWithOptions(db, app.config.Storage, &services.StorageOptions{
 			AppID: app.appID,
 		}),
-		Collection: services.NewCollectionService(db),
 		Database:   services.NewDatabaseService(db),
 		Settings:   services.NewSettingsService(db),
 		Logs:       services.NewLogsService(db),
@@ -432,7 +430,6 @@ func (app *App) Start() error {
 		app.services.Auth,
 		app.services.User,
 		app.services.Storage,
-		app.services.Collection,
 		app.services.Database,
 		app.services.Settings,
 		app.services.Logs,

@@ -111,7 +111,7 @@
 			
 			// Load group types
 			try {
-				const typesRes = await api.get('/products/group-types');
+				const typesRes = await api.get('/ext/products/group-types');
 				groupTypes = Array.isArray(typesRes) ? typesRes : [];
 			} catch (err) {
 				console.error('Failed to load group types:', err);
@@ -120,7 +120,7 @@
 			
 			// Load product types
 			try {
-				const prodTypesRes = await api.get('/products/product-types');
+				const prodTypesRes = await api.get('/ext/products/product-types');
 				productTypes = Array.isArray(prodTypesRes) ? prodTypesRes : [];
 			} catch (err) {
 				console.error('Failed to load product types:', err);
@@ -129,7 +129,7 @@
 			
 			// Load groups
 			try {
-				const groupsRes = await api.get('/products/groups');
+				const groupsRes = await api.get('/ext/products/groups');
 				groups = Array.isArray(groupsRes) ? groupsRes : [];
 			} catch (err) {
 				console.error('Failed to load groups:', err);
@@ -138,7 +138,7 @@
 			
 			// Load products
 			try {
-				const productsRes = await api.get('/ext/products/api/products');
+				const productsRes = await api.get('/ext/products/products');
 				products = Array.isArray(productsRes) ? productsRes : [];
 			} catch (err) {
 				console.error('Failed to load products:', err);
@@ -177,7 +177,7 @@
 				custom_fields: newGroup.custom_fields || {}
 			};
 			
-			const group = await api.post('/products/groups', groupData);
+			const group = await api.post('/ext/products/groups', groupData);
 			groups = [...groups, group];
 			await loadData();
 			showCreateGroupModal = false;
@@ -205,7 +205,7 @@
 				custom_fields: newProduct.custom_fields || {}
 			};
 			
-			const product = await api.post('/ext/products/api/products', productData);
+			const product = await api.post('/ext/products/products', productData);
 			products = [...products, product];
 			await loadData();
 			showCreateProductModal = false;

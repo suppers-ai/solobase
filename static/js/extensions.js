@@ -139,7 +139,7 @@
             });
             
             // Make API call
-            const response = await fetch(`/api/extensions/${extensionId}/toggle`, {
+            const response = await fetch(`/api/admin/extensions/${extensionId}/toggle`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -432,7 +432,7 @@
                 { path: '/ext/analytics/track', description: 'Track custom event' },
                 { path: '/ext/analytics/pageview', description: 'Track page view' },
                 { path: '/ext/analytics/report', description: 'Get analytics report' },
-                { path: '/ext/analytics/export', description: 'Export analytics data' },
+                { path: '/api/admin/analytics/export', description: 'Export analytics data' },
                 { path: '/ext/analytics/dashboard', description: 'View dashboard' }
             ],
             'email-smtp': [
@@ -454,7 +454,7 @@
                 { path: '/ext/webhooks/create', description: 'Create new webhook' },
                 { path: '/ext/webhooks/test', description: 'Test webhook delivery' },
                 { path: '/ext/webhooks/logs', description: 'View delivery logs' },
-                { path: '/ext/webhooks/delete', description: 'Delete webhook' }
+                { path: '/api/admin/webhooks/delete', description: 'Delete webhook' }
             ]
         };
         

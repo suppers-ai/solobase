@@ -543,42 +543,18 @@ func (s *Service) initializeDefaults() error {
 			Metadata:    map[string]interface{}{},
 		},
 		{
+			Name:        "admin_viewer",
+			DisplayName: "Admin Viewer",
+			Description: "Read-only administrative access",
+			IsSystem:    true,
+			Metadata:    map[string]interface{}{},
+		},
+		{
 			Name:        "user",
 			DisplayName: "User",
 			Description: "Standard user access",
 			IsSystem:    true,
 			Metadata:    map[string]interface{}{},
-		},
-		{
-			Name:        "manager",
-			DisplayName: "Manager",
-			Description: "User and content management",
-			IsSystem:    true,
-			Metadata:    map[string]interface{}{},
-		},
-		{
-			Name:        "editor",
-			DisplayName: "Editor",
-			Description: "Content creation and editing",
-			IsSystem:    true,
-			Metadata:    map[string]interface{}{},
-		},
-		{
-			Name:        "viewer",
-			DisplayName: "Viewer",
-			Description: "Read-only access",
-			IsSystem:    true,
-			Metadata:    map[string]interface{}{},
-		},
-		{
-			Name:        "restricted",
-			DisplayName: "Restricted",
-			Description: "Limited access for demo or trial users",
-			IsSystem:    true,
-			Metadata: map[string]interface{}{
-				"session_timeout":   1800, // 30 minutes
-				"disabled_features": []string{"webhooks", "external_api", "bulk_operations"},
-			},
 		},
 	}
 
@@ -590,42 +566,38 @@ func (s *Service) initializeDefaults() error {
 
 	// Add default policies
 	defaultPolicies := [][]string{
-		// Admin has full access
+		// Admin has full access to everything
 		{"admin", "*", "*", "allow"},
 		
-		// User permissions (standard users)
-		{"user", "/api/auth/*", "*", "allow"},
-		{"user", "/api/users/me", "*", "allow"},
-		{"user", "/api/storage/*", "read|write", "allow"},
-		{"user", "/api/collections/*", "read", "allow"},
-		{"user", "/api/settings", "read", "allow"},
-		{"user", "/api/dashboard/*", "read", "allow"},
+		// Admin Viewer - read-only access to admin panel
+		{"admin_viewer", "/api/admin/*", "GET", "allow"},               // Read access to admin endpoints
+		{"admin_viewer", "/api/auth/login", "POST", "allow"},           // Allow login
+		{"admin_viewer", "/api/auth/logout", "POST", "allow"},          // Allow logout
+		{"admin_viewer", "/api/auth/me", "GET", "allow"},               // Allow getting own profile
+		{"admin_viewer", "/api/auth/me", "PATCH", "allow"},             // Allow updating own profile
+		{"admin_viewer", "/api/auth/change-password", "POST", "allow"}, // Allow changing own password
 		
-		// Manager permissions
-		{"manager", "/api/users/*", "*", "allow"},
-		{"manager", "/api/storage/*", "*", "allow"},
-		{"manager", "/api/collections/*", "*", "allow"},
-		{"manager", "/api/settings", "read", "allow"},
-		{"manager", "/api/logs/*", "read", "allow"},
-		
-		// Editor permissions
-		{"editor", "/api/storage/*", "*", "allow"},
-		{"editor", "/api/collections/*", "*", "allow"},
-		{"editor", "/api/users/me", "*", "allow"},
-		{"editor", "/api/settings", "read", "allow"},
-		
-		// Viewer permissions
-		{"viewer", "/api/*", "read|list", "allow"},
-		{"viewer", "/api/*/create", "*", "deny"},
-		{"viewer", "/api/*/update", "*", "deny"},
-		{"viewer", "/api/*/delete", "*", "deny"},
-		
-		// Restricted permissions
-		{"restricted", "/api/*", "read|list", "allow"},
-		{"restricted", "/api/storage/upload", "write", "allow"}, // Allow uploads but with limits
-		{"restricted", "/api/webhooks/*", "*", "deny"},
-		{"restricted", "/api/*/delete", "*", "deny"},
-		{"restricted", "/api/*/bulk", "*", "deny"},
+		// User permissions - standard user access
+		{"user", "/api/admin/*", "*", "deny"},                          // Block ALL admin endpoints
+		{"user", "/api/auth/logout", "POST", "allow"},                  // Logout
+		{"user", "/api/auth/me", "GET", "allow"},                       // Get own profile
+		{"user", "/api/auth/me", "PATCH", "allow"},                     // Update own profile
+		{"user", "/api/auth/change-password", "POST", "allow"},         // Change own password
+		{"user", "/api/storage/buckets", "GET|POST", "allow"},          // List and create buckets
+		{"user", "/api/storage/buckets/*", "*", "allow"},               // Full access to storage operations
+		{"user", "/api/storage/search", "GET", "allow"},                // Search storage
+		{"user", "/api/storage/recently-viewed", "*", "allow"},         // Recently viewed items
+		{"user", "/api/storage/quota", "GET", "allow"},                 // View own quota
+		{"user", "/api/storage/stats", "GET", "allow"},                 // View own stats
+		{"user", "/api/settings", "GET", "allow"},                      // View settings only
+		{"user", "/api/dashboard/stats", "GET", "allow"},               // View dashboard
+		// Allow access to user-facing extension endpoints
+		{"user", "/api/ext/analytics/*", "*", "allow"},                 // Analytics tracking
+		{"user", "/api/ext/products/products", "GET", "allow"},         // View products
+		{"user", "/api/ext/products/groups", "*", "allow"},             // Manage own groups
+		{"user", "/api/ext/products/calculate-price", "POST", "allow"}, // Calculate prices
+		{"user", "/api/ext/cloudstorage/shares", "*", "allow"},         // Manage own shares
+		{"user", "/api/ext/webhooks/webhooks", "GET", "allow"},         // View webhooks only
 	}
 
 	for _, policy := range defaultPolicies {

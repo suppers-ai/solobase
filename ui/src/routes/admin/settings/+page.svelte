@@ -56,7 +56,7 @@
 		saving = true;
 		error = '';
 		
-		const response = await api.post('/settings/reset');
+		const response = await api.post('/admin/settings/reset');
 		if (response.data) {
 			settings = response.data;
 			saved = true;
