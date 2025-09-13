@@ -93,12 +93,10 @@ func (m *ExtensionManager) Initialize(ctx context.Context) error {
 
 // RegisterRoutes registers extension routes with the main router
 func (m *ExtensionManager) RegisterRoutes(router *mux.Router) {
-	// Create extension subrouter
-	extRouter := router.PathPrefix("/ext").Subrouter()
-
-	// Register extension routes
-	m.registry.RegisterRoutes(extRouter)
-
+	// Register extension routes directly on the main router
+	// The extension router already adds the /ext/{extension} prefix
+	m.logger.Info(context.Background(), "Starting extension route registration")
+	m.registry.RegisterRoutes(router)
 	m.logger.Info(context.Background(), "Extension routes registered")
 }
 

@@ -280,7 +280,7 @@ func (r *ExtensionRegistry) RegisterRoutes(router *mux.Router) {
 			Methods(route.Methods...).
 			Handler(wrappedHandler)
 
-		r.logger.Debug(context.Background(), "Registered extension route")
+		r.logger.Info(context.Background(), fmt.Sprintf("Registered extension route: %s for extension %s", route.Path, route.Extension))
 	}
 }
 

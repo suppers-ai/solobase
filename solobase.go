@@ -439,11 +439,18 @@ func (app *App) Start() error {
 	iamHandlers := iam.NewHandlers(app.services.IAM)
 	iamHandlers.RegisterRoutes(app.router)
 
-	// API routes
-	app.router.PathPrefix("/api").Handler(http.StripPrefix("/api", apiRouter))
+	// Extension routes - register on apiRouter so they're under /api/ext/
+	log.Println("DEBUG: About to register extension routes")
+	if app.extensionManager != nil {
+		log.Println("Registering extension routes...")
+		app.extensionManager.RegisterRoutes(apiRouter.Router)
+	} else {
+		log.Println("WARNING: Extension manager is nil, cannot register extension routes")
+	}
 
-	// Extension routes - MUST be registered before catch-all routes
-	app.extensionManager.RegisterRoutes(app.router)
+	// API routes
+	log.Println("DEBUG: Setting up API routes")
+	app.router.PathPrefix("/api").Handler(http.StripPrefix("/api", apiRouter))
 
 	// TODO: Register extension management routes
 	// adminExtHandler := admin.NewExtensionsHandler(app.extensionManager, app.services.Logger)

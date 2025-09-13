@@ -7,12 +7,16 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/suppers-ai/solobase/extensions/core"
+	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 // AnalyticsExtension provides page view tracking and analytics
 type AnalyticsExtension struct {
 	services *core.ExtensionServices
+	db       *gorm.DB
 	enabled  bool
 }
 
@@ -43,7 +47,17 @@ func (e *AnalyticsExtension) Initialize(ctx context.Context, services *core.Exte
 	e.services = services
 
 	// Log initialization
+	fmt.Println("Analytics: Initialize called")
 	services.Logger().Info(ctx, "Analytics extension initializing")
+
+	// Initialize database tables if database is available
+	if e.db != nil {
+		if err := e.db.AutoMigrate(&PageView{}, &Event{}); err != nil {
+			services.Logger().Error(ctx, fmt.Sprintf("Failed to migrate analytics tables: %v", err))
+			return err
+		}
+		services.Logger().Info(ctx, "Analytics tables migrated successfully")
+	}
 
 	return nil
 }
@@ -87,13 +101,19 @@ func (e *AnalyticsExtension) Health(ctx context.Context) (*core.HealthStatus, er
 
 // RegisterRoutes registers the extension routes
 func (e *AnalyticsExtension) RegisterRoutes(router core.ExtensionRouter) error {
-	// Dashboard route - main entry point
-	router.HandleFunc("/dashboard", e.DashboardHandler())
+	// Dashboard route - disabled as we use the Svelte dashboard
+	// router.HandleFunc("/dashboard", e.DashboardHandler())
 
-	// API endpoints - will be under /ext/analytics/
-	router.HandleFunc("/api/pageviews", e.handlePageViews)
-	router.HandleFunc("/api/track", e.handleTrack)
-	router.HandleFunc("/api/stats", e.handleStats)
+	// API endpoints - will be under /api/ext/analytics/
+	fmt.Println("Analytics: Registering /pageviews")
+	router.HandleFunc("/pageviews", e.handlePageViews)
+	fmt.Println("Analytics: Registering /track")
+	router.HandleFunc("/track", e.handleTrack)
+	fmt.Println("Analytics: Registering /stats")
+	router.HandleFunc("/stats", e.handleStats)
+	fmt.Println("Analytics: Registering /daily")
+	router.HandleFunc("/daily", e.handleDailyStats)
+	fmt.Println("Analytics: Routes registered")
 
 	return nil
 }
@@ -206,6 +226,11 @@ func (e *AnalyticsExtension) DatabaseSchema() string {
 	return "ext_analytics"
 }
 
+// SetDatabase sets the database instance for the extension
+func (e *AnalyticsExtension) SetDatabase(db *gorm.DB) {
+	e.db = db
+}
+
 // RequiredPermissions returns required permissions
 func (e *AnalyticsExtension) RequiredPermissions() []core.Permission {
 	return []core.Permission{
@@ -293,37 +318,35 @@ func (e *AnalyticsExtension) Documentation() core.ExtensionDocumentation {
 }
 
 func (e *AnalyticsExtension) handlePageViews(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
 	// Start with empty data
 	pageViews := []map[string]interface{}{}
 
 	// If we have database access, use real data
-	if e.services != nil && e.services.Database() != nil {
-		db := e.services.Database()
-		rows, err := db.Query(ctx, `
-			SELECT page_url, COUNT(*) as views
-			FROM ext_analytics.page_views
-			WHERE created_at > NOW() - INTERVAL '7 days'
-			GROUP BY page_url
-			ORDER BY views DESC
-			LIMIT 10
-		`)
-		if err == nil {
-			defer rows.Close()
+	if e.db != nil {
+		sevenDaysAgo := time.Now().AddDate(0, 0, -7)
 
-			pageViews = []map[string]interface{}{}
-			for rows.Next() {
-				var url string
-				var count int
-				if err := rows.Scan(&url, &count); err != nil {
-					continue
-				}
-				pageViews = append(pageViews, map[string]interface{}{
-					"url":   url,
-					"views": count,
-				})
-			}
+		var results []PageViewStats
+		e.db.Model(&PageView{}).
+			Select("page_url, COUNT(*) as views").
+			Where("created_at > ?", sevenDaysAgo).
+			Group("page_url").
+			Order("views DESC").
+			Limit(10).
+			Scan(&results)
+
+		for _, result := range results {
+			pageViews = append(pageViews, map[string]interface{}{
+				"url":   result.PageURL,
+				"views": result.Views,
+			})
+		}
+	}
+
+	// If no data, return some default entries
+	if len(pageViews) == 0 {
+		pageViews = []map[string]interface{}{
+			{"url": "/", "views": 0},
+			{"url": "/dashboard", "views": 0},
 		}
 	}
 
@@ -347,23 +370,81 @@ func (e *AnalyticsExtension) handleTrack(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Record event (mock for now)
 	ctx := r.Context()
 
-	// If we have database access, store the event
-	if e.services != nil && e.services.Database() != nil {
-		db := e.services.Database()
+	// Extract user ID from context if available
+	var userID *string
+	if uid := ctx.Value("user_id"); uid != nil {
+		uidStr := fmt.Sprintf("%v", uid)
+		userID = &uidStr
+	}
 
-		userID := ""
-		if uid := ctx.Value("user_id"); uid != nil {
-			userID = uid.(string)
+	// Check if this is a page view event
+	if eventName, ok := data["event"].(string); ok && eventName == "page_view" {
+		// Track as page view
+		pageURL := "/"
+		if url, ok := data["url"].(string); ok {
+			pageURL = url
 		}
 
-		eventData, _ := json.Marshal(data)
-		db.Exec(ctx, `
-			INSERT INTO ext_analytics.events (user_id, event_name, event_data)
-			VALUES ($1, $2, $3)
-		`, userID, data["event"], eventData)
+		// Get session ID from cookie or generate one
+		sessionID := ""
+		if cookie, err := r.Cookie("session_id"); err == nil {
+			sessionID = cookie.Value
+		} else {
+			sessionID = fmt.Sprintf("session_%d", time.Now().Unix())
+			http.SetCookie(w, &http.Cookie{
+				Name:     "session_id",
+				Value:    sessionID,
+				Path:     "/",
+				HttpOnly: true,
+				MaxAge:   86400, // 1 day
+			})
+		}
+
+		referrer := r.Referer()
+		userAgent := r.UserAgent()
+		ipAddress := r.RemoteAddr
+
+		// Insert page view
+		if e.db != nil {
+			pageView := &PageView{
+				ID:        uuid.New().String(),
+				UserID:    userID,
+				SessionID: sessionID,
+				PageURL:   pageURL,
+				Referrer:  &referrer,
+				UserAgent: &userAgent,
+				IPAddress: &ipAddress,
+				CreatedAt: time.Now(),
+			}
+
+			if err := e.db.Create(pageView).Error; err != nil {
+				fmt.Printf("Failed to track page view: %v\n", err)
+			}
+		}
+	} else {
+		// Store as regular event
+		if e.db != nil {
+			eventName := ""
+			if name, ok := data["event"].(string); ok {
+				eventName = name
+			}
+
+			eventData, _ := json.Marshal(data)
+
+			event := &Event{
+				ID:        uuid.New().String(),
+				UserID:    userID,
+				EventName: eventName,
+				EventData: datatypes.JSON(eventData),
+				CreatedAt: time.Now(),
+			}
+
+			if err := e.db.Create(event).Error; err != nil {
+				fmt.Printf("Failed to track event: %v\n", err)
+			}
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -371,42 +452,82 @@ func (e *AnalyticsExtension) handleTrack(w http.ResponseWriter, r *http.Request)
 
 func (e *AnalyticsExtension) handleStats(w http.ResponseWriter, r *http.Request) {
 	// Start with zero stats
-	stats := map[string]interface{}{
-		"totalViews":  0,
-		"uniqueUsers": 0,
-		"todayViews":  0,
-		"activeNow":   0,
-		"lastUpdated": time.Now(),
+	stats := &AnalyticsStats{
+		TotalViews:  0,
+		UniqueUsers: 0,
+		TodayViews:  0,
+		ActiveNow:   0,
 	}
 
-	// If we have database access, get real stats
-	if e.services != nil && e.services.Database() != nil {
-		ctx := r.Context()
-		db := e.services.Database()
-
+	if e.db != nil {
 		// Get total views
-		var totalViews int
-		rows1, _ := db.Query(ctx, "SELECT COUNT(*) FROM ext_analytics.page_views")
-		if rows1 != nil {
-			rows1.Next()
-			rows1.Scan(&totalViews)
-			rows1.Close()
-			stats["totalViews"] = totalViews
-		}
+		e.db.Model(&PageView{}).Count(&stats.TotalViews)
 
-		// Get unique users
-		var uniqueUsers int
-		rows2, _ := db.Query(ctx, "SELECT COUNT(DISTINCT user_id) FROM ext_analytics.page_views WHERE user_id IS NOT NULL")
-		if rows2 != nil {
-			rows2.Next()
-			rows2.Scan(&uniqueUsers)
-			rows2.Close()
-			stats["uniqueUsers"] = uniqueUsers
-		}
+		// Get unique users (non-null user_id)
+		e.db.Model(&PageView{}).
+			Where("user_id IS NOT NULL").
+			Distinct("user_id").
+			Count(&stats.UniqueUsers)
+
+		// Get today's views
+		today := time.Now().Truncate(24 * time.Hour)
+		e.db.Model(&PageView{}).
+			Where("created_at >= ?", today).
+			Count(&stats.TodayViews)
+
+		// Get active users (last 5 minutes)
+		fiveMinutesAgo := time.Now().Add(-5 * time.Minute)
+		e.db.Model(&PageView{}).
+			Where("created_at > ?", fiveMinutesAgo).
+			Distinct("COALESCE(user_id, session_id)").
+			Count(&stats.ActiveNow)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+func (e *AnalyticsExtension) handleDailyStats(w http.ResponseWriter, r *http.Request) {
+	// Get days parameter from query
+	days := 7
+	if d := r.URL.Query().Get("days"); d != "" {
+		if parsed, err := fmt.Sscanf(d, "%d", &days); err == nil && parsed == 1 {
+			// Limit to reasonable range
+			if days > 90 {
+				days = 90
+			} else if days < 1 {
+				days = 7
+			}
+		}
+	}
+
+	dailyStats := []DailyStats{}
+
+	if e.db != nil {
+		startDate := time.Now().AddDate(0, 0, -days)
+
+		// Get daily stats using GORM
+		e.db.Model(&PageView{}).
+			Select("DATE(created_at) as date, COUNT(*) as page_views, COUNT(DISTINCT user_id) as unique_users").
+			Where("created_at >= ?", startDate).
+			Group("DATE(created_at)").
+			Order("date ASC").
+			Scan(&dailyStats)
+
+		// Also count events for each day
+		for i := range dailyStats {
+			var eventCount int64
+			e.db.Model(&Event{}).
+				Where("DATE(created_at) = ?", dailyStats[i].Date).
+				Count(&eventCount)
+			dailyStats[i].Events = eventCount
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"dailyStats": dailyStats,
+	})
 }
 
 // Middleware
@@ -427,42 +548,79 @@ func (e *AnalyticsExtension) trackingMiddleware(next http.Handler) http.Handler 
 }
 
 func (e *AnalyticsExtension) trackPageView(r *http.Request) {
-	if e.services == nil || e.services.Database() == nil {
+	if e.db == nil {
 		return
 	}
 
-	ctx := context.Background()
-	db := e.services.Database()
+	// Don't track API calls or static assets
+	path := r.URL.Path
+	if len(path) >= 4 && path[:4] == "/api" {
+		return
+	}
+	if len(path) >= 7 && path[:7] == "/static" {
+		return
+	}
+	if len(path) >= 4 && path[:4] == "/ext" {
+		return
+	}
 
-	userID := ""
+	// Extract user ID
+	var userID *string
 	if uid := r.Context().Value("user_id"); uid != nil {
-		userID = uid.(string)
+		uidStr := fmt.Sprintf("%v", uid)
+		userID = &uidStr
 	}
 
 	// Get session ID from cookie
 	sessionID := ""
 	if cookie, err := r.Cookie("session_id"); err == nil {
 		sessionID = cookie.Value
+	} else {
+		sessionID = fmt.Sprintf("session_%d", time.Now().Unix())
 	}
 
+	// Get client IP
+	clientIP := r.RemoteAddr
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		clientIP = forwarded
+	}
+
+	referrer := r.Referer()
+	userAgent := r.UserAgent()
+
 	// Insert page view
-	db.Exec(ctx, `
-		INSERT INTO ext_analytics.page_views (user_id, session_id, page_url, referrer, user_agent, ip_address)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, userID, sessionID, r.URL.Path, r.Referer(), r.UserAgent(), r.RemoteAddr)
+	pageView := &PageView{
+		ID:        uuid.New().String(),
+		UserID:    userID,
+		SessionID: sessionID,
+		PageURL:   r.URL.Path,
+		Referrer:  &referrer,
+		UserAgent: &userAgent,
+		IPAddress: &clientIP,
+		CreatedAt: time.Now(),
+	}
+
+	if err := e.db.Create(pageView).Error; err != nil {
+		// Log error but don't fail the request
+		fmt.Printf("Failed to track page view: %v\n", err)
+	}
 }
 
 // Hooks
 
 func (e *AnalyticsExtension) postAuthHook(ctx context.Context, hookCtx *core.HookContext) error {
 	// Track login event
-	if e.services != nil && e.services.Database() != nil {
+	if e.db != nil {
 		if userID := hookCtx.Request.Context().Value("user_id"); userID != nil {
-			db := e.services.Database()
-			db.Exec(ctx, `
-				INSERT INTO ext_analytics.events (user_id, event_name, event_data)
-				VALUES ($1, 'login', '{}')
-			`, userID)
+			uidStr := fmt.Sprintf("%v", userID)
+			event := &Event{
+				ID:        uuid.New().String(),
+				UserID:    &uidStr,
+				EventName: "login",
+				EventData: datatypes.JSON(`{}`),
+				CreatedAt: time.Now(),
+			}
+			e.db.Create(event)
 		}
 	}
 

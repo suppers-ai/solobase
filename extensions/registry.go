@@ -27,9 +27,23 @@ func RegisterAllExtensions(registry *core.ExtensionRegistry, db *gorm.DB) error 
 	// 	return fmt.Errorf("failed to register hugo extension: %w", err)
 	// }
 
-	// Register Analytics extension
-	if err := registry.Register(analytics.NewAnalyticsExtension()); err != nil {
+	// Register Analytics extension with database
+	analyticsExt := analytics.NewAnalyticsExtension()
+	// Set the database to enable GORM operations
+	analyticsExt.SetDatabase(db)
+	if err := registry.Register(analyticsExt); err != nil {
 		return fmt.Errorf("failed to register analytics extension: %w", err)
+	}
+
+	// Enable Analytics extension by default
+	fmt.Printf("Enabling Analytics extension...\n")
+	if err := registry.Enable("analytics"); err != nil {
+		// Log but don't fail - extension can still work without being enabled
+		fmt.Printf("Warning: Failed to enable Analytics extension: %v\n", err)
+	} else {
+		fmt.Printf("Analytics extension enabled successfully\n")
+		// Debug: check if routes were registered
+		fmt.Printf("DEBUG: Analytics extension should have registered routes\n")
 	}
 
 	// Register Cloud Storage extension with database

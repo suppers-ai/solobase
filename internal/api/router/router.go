@@ -1,13 +1,11 @@
 package router
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
 	"github.com/suppers-ai/solobase/database"
 	"github.com/suppers-ai/solobase/extensions/core"
-	"github.com/suppers-ai/solobase/internal/api/handlers/analytics"
 	"github.com/suppers-ai/solobase/internal/api/handlers/auth"
 	dbhandlers "github.com/suppers-ai/solobase/internal/api/handlers/database"
 	"github.com/suppers-ai/solobase/internal/api/handlers/extensions"
@@ -36,7 +34,6 @@ type API struct {
 	IAMService        *iam.Service
 	storageHandlers   *storage.StorageHandlers
 	sharesHandler     *shares.SharesHandler
-	analyticsHandlers *analytics.AnalyticsHandlers
 	productHandlers   *products.ProductsExtensionHandlers
 	ExtensionRegistry *core.ExtensionRegistry
 }
@@ -201,12 +198,6 @@ func (a *API) setupRoutesWithAdmin() {
 	routes.RegisterIAMRoutes(admin, a.IAMService)
 
 	// Initialize handlers if needed
-	if a.analyticsHandlers == nil {
-		a.analyticsHandlers = analytics.NewAnalyticsHandlers(a.DB)
-		if err := a.analyticsHandlers.InitializeSchema(); err != nil {
-			fmt.Printf("Failed to initialize analytics schema: %v\n", err)
-		}
-	}
 	
 	if a.productHandlers == nil {
 		a.productHandlers = products.NewProductsExtensionHandlersWithDB(a.DB.DB)
@@ -223,17 +214,8 @@ func (a *API) setupRoutesWithAdmin() {
 	admin.HandleFunc("/extensions/status", extensions.HandleExtensionsStatus()).Methods("GET", "OPTIONS")
 	
 	// ---- Analytics Extension ----
-	
-	// User endpoints
-	protected.HandleFunc("/ext/analytics/track", a.analyticsHandlers.HandleTrack()).Methods("POST", "OPTIONS")
-	protected.HandleFunc("/ext/analytics/stats", a.analyticsHandlers.HandleStats()).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/ext/analytics/pageviews", a.analyticsHandlers.HandlePageViews()).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/ext/analytics/daily", a.analyticsHandlers.HandleDailyStats()).Methods("GET", "OPTIONS")
-	
-	// Admin endpoints
-	admin.HandleFunc("/ext/analytics/dashboard", extensions.HandleAnalyticsDashboard()).Methods("GET", "OPTIONS")
-	admin.HandleFunc("/ext/analytics/export", extensions.HandleAnalyticsExport()).Methods("GET", "OPTIONS")
-	admin.HandleFunc("/ext/analytics/clear", extensions.HandleAnalyticsClear()).Methods("POST", "OPTIONS")
+	// Analytics routes are now handled by the analytics extension via the extension registry
+	// The extension automatically registers its routes under /ext/analytics/
 	
 	// ---- Products Extension ----
 	
