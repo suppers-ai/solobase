@@ -2,45 +2,21 @@ package middleware
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	auth "github.com/suppers-ai/auth"
+	commonjwt "github.com/suppers-ai/solobase/internal/common/jwt"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/utils"
 )
 
-var jwtSecret []byte
-
-func init() {
-	// Initialize JWT secret on package load
-	// Don't fail on init, let the application handle it
-	_ = SetJWTSecret("")
-}
-
 // SetJWTSecret sets the JWT secret for authentication
+// Delegates to the common JWT package
 func SetJWTSecret(secret string) error {
-	if secret == "" {
-		// Use environment variable as fallback
-		secret = os.Getenv("JWT_SECRET")
-	}
-	if secret == "" {
-		// Use a default for development only
-		if os.Getenv("ENVIRONMENT") == "development" {
-			secret = "dev-secret-key-do-not-use-in-production"
-			log.Println("WARNING: Using default JWT secret for development. DO NOT use in production!")
-		}
-	}
-	if secret == "" {
-		return fmt.Errorf("JWT secret is required. Set JWT_SECRET environment variable or pass it in configuration")
-	}
-	jwtSecret = []byte(secret)
-	return nil
+	return commonjwt.SetJWTSecret(secret)
 }
 
 func CORSMiddleware(next http.Handler) http.Handler {
@@ -76,7 +52,7 @@ func AuthMiddleware(authService *services.AuthService) func(http.Handler) http.H
 
 			claims := &Claims{}
 			token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-				return jwtSecret, nil
+				return commonjwt.GetJWTSecret(), nil
 			})
 
 			if err != nil || !token.Valid {

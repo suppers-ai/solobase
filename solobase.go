@@ -226,7 +226,9 @@ func (app *App) Initialize() error {
 	if err := middleware.SetJWTSecret(app.config.JWTSecret); err != nil {
 		return fmt.Errorf("failed to set JWT secret: %w", err)
 	}
-	authHandlers.SetJWTSecret(app.config.JWTSecret)
+	if err := authHandlers.SetJWTSecret(app.config.JWTSecret); err != nil {
+		return fmt.Errorf("failed to set JWT secret in auth handlers: %w", err)
+	}
 
 	// Ensure .data directory exists for SQLite databases
 	// We need to get the database URL from the parsed config or from NewWithOptions

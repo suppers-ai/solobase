@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/suppers-ai/solobase/database"
 	"github.com/suppers-ai/solobase/extensions/core"
+	commonjwt "github.com/suppers-ai/solobase/internal/common/jwt"
 	"github.com/suppers-ai/solobase/internal/data/models"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/utils"
@@ -32,7 +32,6 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
 // StorageHandlers contains all storage-related handlers with hook support
 type StorageHandlers struct {
@@ -55,8 +54,8 @@ func extractUserIDFromToken(r *http.Request) string {
 
 	claims := &Claims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		// Use the same secret as in middleware.go
-		return jwtSecret, nil
+		// Use the common JWT secret
+		return commonjwt.GetJWTSecret(), nil
 	})
 
 	if err != nil || !token.Valid {

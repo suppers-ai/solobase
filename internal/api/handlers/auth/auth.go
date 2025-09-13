@@ -10,17 +10,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	auth "github.com/suppers-ai/auth"
 	"github.com/suppers-ai/solobase/extensions/core"
+	commonjwt "github.com/suppers-ai/solobase/internal/common/jwt"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/internal/iam"
 	"github.com/suppers-ai/solobase/utils"
 	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtSecret []byte // Will be set from config
-
-// SetJWTSecret sets the JWT secret from config
-func SetJWTSecret(secret string) {
-	jwtSecret = []byte(secret)
+// SetJWTSecret delegates to the common JWT package to ensure consistency
+func SetJWTSecret(secret string) error {
+	return commonjwt.SetJWTSecret(secret)
 }
 
 type LoginRequest struct {
@@ -243,5 +242,5 @@ func generateToken(user *auth.User, iamService *iam.Service) (string, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtSecret)
+	return token.SignedString(commonjwt.GetJWTSecret())
 }
