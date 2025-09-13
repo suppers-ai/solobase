@@ -107,9 +107,6 @@ type S3Config struct {
 //go:embed all:ui/build/*
 var uiFiles embed.FS
 
-//go:embed all:static/*
-var staticFiles embed.FS
-
 //go:embed config/casbin_model.conf
 var casbinModelConfig []byte
 
@@ -270,8 +267,6 @@ func (app *App) Initialize() error {
 	db.AutoMigrate(
 		&auth.User{},
 		&models.Setting{},
-		&models.Collection{},
-		&models.CollectionRecord{},
 		&models.StorageDownloadToken{},
 		&models.StorageUploadToken{},
 		&storage.StorageObject{},
@@ -460,11 +455,6 @@ func (app *App) Start() error {
 	storageDir := "./.data/storage/"
 	app.router.PathPrefix("/storage/").Handler(http.StripPrefix("/storage/", http.FileServer(http.Dir(storageDir))))
 
-	// Static files
-	staticDir := "./static/"
-	if _, err := os.Stat(staticDir); err == nil {
-		app.router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
-	}
 
 	// Admin UI routes (if not disabled) - These are catch-all routes so must come LAST
 	if !app.config.DisableUI {
