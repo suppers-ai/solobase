@@ -19,8 +19,8 @@ type Service struct {
 
 // NewService creates a new IAM service
 func NewService(db *gorm.DB, modelPath string) (*Service, error) {
-	// Create Casbin adapter using existing database connection
-	adapter, err := gormadapter.NewAdapterByDB(db)
+	// Create Casbin adapter using existing database connection with custom table name
+	adapter, err := gormadapter.NewAdapterByDBWithCustomTable(db, nil, "iam_casbin_rules")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Casbin adapter: %w", err)
 	}
@@ -59,8 +59,8 @@ func NewService(db *gorm.DB, modelPath string) (*Service, error) {
 
 // NewServiceWithContent creates a new IAM service with model content as string
 func NewServiceWithContent(db *gorm.DB, modelContent string) (*Service, error) {
-	// Create Casbin adapter using existing database connection
-	adapter, err := gormadapter.NewAdapterByDB(db)
+	// Create Casbin adapter using existing database connection with custom table name
+	adapter, err := gormadapter.NewAdapterByDBWithCustomTable(db, nil, "iam_casbin_rules")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Casbin adapter: %w", err)
 	}
@@ -107,9 +107,6 @@ func NewServiceWithContent(db *gorm.DB, modelContent string) (*Service, error) {
 func (s *Service) Migrate() error {
 	return s.db.AutoMigrate(
 		&Role{},
-		&Permission{},
-		&ResourceGroup{},
-		&PolicyTemplate{},
 		&UserRole{},
 		&IAMAuditLog{},
 	)
@@ -382,27 +379,6 @@ func (s *Service) GetPoliciesForRole(ctx context.Context, roleName string) ([][]
 		return nil, fmt.Errorf("failed to get policies for role: %w", err)
 	}
 	return policies, nil
-}
-
-// ApplyPolicyTemplate applies a policy template to a role
-func (s *Service) ApplyPolicyTemplate(ctx context.Context, roleName string, templateID string) error {
-	var template PolicyTemplate
-	if err := s.db.Where("id = ?", templateID).First(&template).Error; err != nil {
-		return fmt.Errorf("template not found: %w", err)
-	}
-
-	for _, policy := range template.Policies {
-		subject := policy.Subject
-		if subject == "{role}" {
-			subject = roleName
-		}
-		
-		if err := s.AddPolicy(ctx, subject, policy.Resource, policy.Action, policy.Effect); err != nil {
-			return fmt.Errorf("failed to apply policy: %w", err)
-		}
-	}
-
-	return nil
 }
 
 // GetRoleMetadata gets metadata for a role (quotas, limits, etc.)

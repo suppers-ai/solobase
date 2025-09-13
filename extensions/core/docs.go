@@ -124,16 +124,6 @@ func (dg *DocumentationGenerator) generateExtensionDocs(buf *bytes.Buffer, metad
 	if dbSchema != "" {
 		buf.WriteString("### Database Schema\n\n")
 		buf.WriteString(fmt.Sprintf("Schema name: `%s`\n\n", dbSchema))
-
-		// Migrations
-		migrations := ext.Migrations()
-		if len(migrations) > 0 {
-			buf.WriteString("#### Migrations\n\n")
-			for _, mig := range migrations {
-				buf.WriteString(fmt.Sprintf("- **%s**: %s\n", mig.Version, mig.Description))
-			}
-			buf.WriteString("\n")
-		}
 	}
 
 	// Status information
@@ -158,7 +148,6 @@ func (dg *DocumentationGenerator) generateExtensionDocs(buf *bytes.Buffer, metad
 			buf.WriteString(fmt.Sprintf("- Hooks: %d\n", status.Resources.Hooks))
 			buf.WriteString(fmt.Sprintf("- Templates: %d\n", status.Resources.Templates))
 			buf.WriteString(fmt.Sprintf("- Static Assets: %d\n", status.Resources.Assets))
-			buf.WriteString(fmt.Sprintf("- Migrations: %d\n", status.Resources.Migrations))
 			buf.WriteString("\n")
 		}
 
@@ -194,7 +183,6 @@ func (dg *DocumentationGenerator) GenerateJSON() ([]byte, error) {
 		Status      *ExtensionStatus  `json:"status,omitempty"`
 		Permissions []Permission      `json:"permissions,omitempty"`
 		Schema      string            `json:"database_schema,omitempty"`
-		Migrations  []Migration       `json:"migrations,omitempty"`
 		Config      json.RawMessage   `json:"config_schema,omitempty"`
 	}
 
@@ -210,7 +198,6 @@ func (dg *DocumentationGenerator) GenerateJSON() ([]byte, error) {
 			Metadata:    metadata,
 			Permissions: ext.RequiredPermissions(),
 			Schema:      ext.DatabaseSchema(),
-			Migrations:  ext.Migrations(),
 			Config:      ext.ConfigSchema(),
 		}
 

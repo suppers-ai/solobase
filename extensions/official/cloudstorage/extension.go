@@ -306,11 +306,6 @@ func (e *CloudStorageExtension) DatabaseSchema() string {
 	return "ext_cloudstorage"
 }
 
-// Migrations returns database migrations
-func (e *CloudStorageExtension) Migrations() []core.Migration {
-	return nil // Using GORM auto-migrate
-}
-
 // RequiredPermissions returns required permissions
 func (e *CloudStorageExtension) RequiredPermissions() []core.Permission {
 	return []core.Permission{

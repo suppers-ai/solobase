@@ -6,8 +6,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// UploadToken represents a temporary token for file uploads
-type UploadToken struct {
+// StorageUploadToken represents a temporary token for file uploads
+type StorageUploadToken struct {
 	ID             string     `gorm:"primaryKey;type:uuid" json:"id"`
 	Token          string     `gorm:"uniqueIndex;not null" json:"token"`
 	Bucket         string     `gorm:"not null" json:"bucket"`
@@ -26,13 +26,13 @@ type UploadToken struct {
 }
 
 // TableName sets the table name
-func (UploadToken) TableName() string {
-	return "upload_tokens"
+func (StorageUploadToken) TableName() string {
+	return "storage_upload_tokens"
 }
 
-// NewUploadToken creates a new upload token
-func NewUploadToken(bucket string, parentFolderID *string, objectName, userID, contentType string, maxSize int64, duration time.Duration) *UploadToken {
-	return &UploadToken{
+// NewStorageUploadToken creates a new upload token
+func NewStorageUploadToken(bucket string, parentFolderID *string, objectName, userID, contentType string, maxSize int64, duration time.Duration) *StorageUploadToken {
+	return &StorageUploadToken{
 		ID:             uuid.New().String(),
 		Token:          uuid.New().String(),
 		Bucket:         bucket,
@@ -47,16 +47,16 @@ func NewUploadToken(bucket string, parentFolderID *string, objectName, userID, c
 }
 
 // IsExpired checks if the token has expired
-func (ut *UploadToken) IsExpired() bool {
+func (ut *StorageUploadToken) IsExpired() bool {
 	return time.Now().After(ut.ExpiresAt)
 }
 
 // IsValid checks if the token is valid for use
-func (ut *UploadToken) IsValid() bool {
+func (ut *StorageUploadToken) IsValid() bool {
 	return !ut.IsExpired() && !ut.Completed
 }
 
 // CanAcceptBytes checks if the upload can accept more bytes
-func (ut *UploadToken) CanAcceptBytes(additionalBytes int64) bool {
+func (ut *StorageUploadToken) CanAcceptBytes(additionalBytes int64) bool {
 	return ut.BytesUploaded+additionalBytes <= ut.MaxSize
 }

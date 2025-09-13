@@ -176,25 +176,6 @@ func (e *ComplexMockExtension) DatabaseSchema() string {
 	return "complex_ext"
 }
 
-func (e *ComplexMockExtension) Migrations() []Migration {
-	return []Migration{
-		{
-			Version:     "001",
-			Description: "Initial schema",
-			Extension:   e.name,
-			Up:          "CREATE TABLE test (id INT);",
-			Down:        "DROP TABLE test;",
-		},
-		{
-			Version:     "002",
-			Description: "Add name column",
-			Extension:   e.name,
-			Up:          "ALTER TABLE test ADD COLUMN name VARCHAR(255);",
-			Down:        "ALTER TABLE test DROP COLUMN name;",
-		},
-	}
-}
-
 func (e *ComplexMockExtension) ConfigSchema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",

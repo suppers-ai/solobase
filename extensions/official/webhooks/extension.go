@@ -236,50 +236,6 @@ func (e *WebhooksExtension) DatabaseSchema() string {
 	return "ext_webhooks"
 }
 
-// Migrations returns database migrations
-func (e *WebhooksExtension) Migrations() []core.Migration {
-	return []core.Migration{
-		{
-			Version:     "001",
-			Description: "Create webhooks tables",
-			Extension:   "webhooks",
-			Up: `
-				CREATE SCHEMA IF NOT EXISTS ext_webhooks;
-				
-				CREATE TABLE IF NOT EXISTS ext_webhooks.webhooks (
-					id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-					name VARCHAR(255) NOT NULL,
-					url TEXT NOT NULL,
-					events TEXT[] NOT NULL,
-					headers JSONB DEFAULT '{}',
-					secret VARCHAR(255),
-					active BOOLEAN DEFAULT true,
-					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-				);
-				
-				CREATE TABLE IF NOT EXISTS ext_webhooks.deliveries (
-					id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-					webhook_id UUID REFERENCES ext_webhooks.webhooks(id) ON DELETE CASCADE,
-					event VARCHAR(255) NOT NULL,
-					payload JSONB NOT NULL,
-					status INTEGER,
-					response TEXT,
-					duration_ms INTEGER,
-					delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-				);
-				
-				CREATE INDEX idx_webhooks_active ON ext_webhooks.webhooks(active);
-				CREATE INDEX idx_deliveries_webhook_id ON ext_webhooks.deliveries(webhook_id);
-				CREATE INDEX idx_deliveries_delivered_at ON ext_webhooks.deliveries(delivered_at);
-			`,
-			Down: `
-				DROP SCHEMA IF EXISTS ext_webhooks CASCADE;
-			`,
-		},
-	}
-}
-
 // RequiredPermissions returns required permissions
 func (e *WebhooksExtension) RequiredPermissions() []core.Permission {
 	return []core.Permission{

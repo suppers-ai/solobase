@@ -32,7 +32,6 @@ type Extension interface {
 
 	// Database
 	DatabaseSchema() string // Returns schema name
-	Migrations() []Migration
 
 	// Permissions
 	RequiredPermissions() []Permission
@@ -90,7 +89,6 @@ type ExtensionResources struct {
 	Hooks      int `json:"hooks"`
 	Templates  int `json:"templates"`
 	Assets     int `json:"static_assets"`
-	Migrations int `json:"migrations"`
 }
 
 // EndpointInfo describes an API endpoint registered by an extension
@@ -124,15 +122,6 @@ type ExtensionMetrics struct {
 	LastError           string        `json:"last_error"`
 	LastErrorTime       time.Time     `json:"last_error_time"`
 	StartTime           time.Time     `json:"start_time"`
-}
-
-// Migration represents a database migration
-type Migration struct {
-	Version     string `json:"version"`
-	Description string `json:"description"`
-	Up          string `json:"up"`
-	Down        string `json:"down"`
-	Extension   string `json:"extension"`
 }
 
 // Permission represents a permission required by an extension

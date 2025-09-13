@@ -691,7 +691,7 @@ func (h *StorageHandlers) HandleGenerateDownloadURL(w http.ResponseWriter, r *ht
 		}
 
 		// Create download token for tracking
-		token := &models.DownloadToken{
+		token := &models.StorageDownloadToken{
 			ID:             uuid.New().String(),
 			Token:          uuid.New().String(),
 			FileID:         objectID,
@@ -715,7 +715,7 @@ func (h *StorageHandlers) HandleGenerateDownloadURL(w http.ResponseWriter, r *ht
 		}
 	} else {
 		// Generate token for local storage
-		token := &models.DownloadToken{
+		token := &models.StorageDownloadToken{
 			ID:             uuid.New().String(),
 			Token:          uuid.New().String(),
 			FileID:         objectID,
@@ -816,7 +816,7 @@ func (h *StorageHandlers) HandleGenerateUploadURL(w http.ResponseWriter, r *http
 		// Create upload token for tracking
 		objectName := request.Filename
 
-		token := &models.UploadToken{
+		token := &models.StorageUploadToken{
 			ID:             uuid.New().String(),
 			Token:          uuid.New().String(),
 			Bucket:         bucket,
@@ -842,7 +842,7 @@ func (h *StorageHandlers) HandleGenerateUploadURL(w http.ResponseWriter, r *http
 		// Generate token for local storage
 		objectName := request.Filename
 
-		token := &models.UploadToken{
+		token := &models.StorageUploadToken{
 			ID:             uuid.New().String(),
 			Token:          uuid.New().String(),
 			Bucket:         bucket,
@@ -875,7 +875,7 @@ func (h *StorageHandlers) HandleDirectDownload(w http.ResponseWriter, r *http.Re
 	tokenStr := vars["token"]
 
 	// Get download token
-	var token models.DownloadToken
+	var token models.StorageDownloadToken
 	if err := h.db.Where("token = ?", tokenStr).First(&token).Error; err != nil {
 		utils.JSONError(w, http.StatusNotFound, "Invalid or expired token")
 		return
@@ -923,7 +923,7 @@ func (h *StorageHandlers) HandleDirectUpload(w http.ResponseWriter, r *http.Requ
 	tokenStr := vars["token"]
 
 	// Get upload token
-	var token models.UploadToken
+	var token models.StorageUploadToken
 	if err := h.db.Where("token = ?", tokenStr).First(&token).Error; err != nil {
 		utils.JSONError(w, http.StatusNotFound, "Invalid or expired token")
 		return
@@ -1023,7 +1023,7 @@ func (b *BandwidthTracker) Close() error {
 // DirectDownloadTracker tracks bandwidth for direct downloads
 type DirectDownloadTracker struct {
 	reader    io.ReadCloser
-	token     *models.DownloadToken
+	token     *models.StorageDownloadToken
 	db        *database.DB
 	bytesRead int64
 }

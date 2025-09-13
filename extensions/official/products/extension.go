@@ -163,11 +163,6 @@ func (e *ProductsExtension) DatabaseSchema() string {
 	return "products"
 }
 
-// Migrations returns the database migrations for the extension
-func (e *ProductsExtension) Migrations() []core.Migration {
-	return []core.Migration{}
-}
-
 // RegisterHooks registers the extension's hooks
 func (e *ProductsExtension) RegisterHooks() []core.HookRegistration {
 	// No hooks to register for now

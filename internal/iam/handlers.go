@@ -30,10 +30,6 @@ func (h *Handlers) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/api/iam/roles/{id}", h.UpdateRole).Methods("PUT")
 	router.HandleFunc("/api/iam/roles/{id}", h.DeleteRole).Methods("DELETE")
 	
-	// Permission management
-	router.HandleFunc("/api/iam/permissions", h.GetPermissions).Methods("GET")
-	router.HandleFunc("/api/iam/permissions", h.CreatePermission).Methods("POST")
-	
 	// Policy management
 	router.HandleFunc("/api/iam/policies", h.GetPolicies).Methods("GET")
 	router.HandleFunc("/api/iam/policies", h.CreatePolicy).Methods("POST")
@@ -44,12 +40,7 @@ func (h *Handlers) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/api/iam/users/{userId}/roles", h.GetUserRoles).Methods("GET")
 	router.HandleFunc("/api/iam/users/{userId}/roles", h.AssignRole).Methods("POST")
 	router.HandleFunc("/api/iam/users/{userId}/roles/{role}", h.RemoveRole).Methods("DELETE")
-	
-	// Policy templates
-	router.HandleFunc("/api/iam/templates", h.GetPolicyTemplates).Methods("GET")
-	router.HandleFunc("/api/iam/templates", h.CreatePolicyTemplate).Methods("POST")
-	router.HandleFunc("/api/iam/templates/{id}/apply", h.ApplyPolicyTemplate).Methods("POST")
-	
+
 	// Evaluation and testing
 	router.HandleFunc("/api/iam/evaluate", h.EvaluatePermission).Methods("POST")
 	router.HandleFunc("/api/iam/audit", h.GetAuditLogs).Methods("GET")
@@ -149,36 +140,6 @@ func (h *Handlers) DeleteRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// GetPermissions gets all permissions
-func (h *Handlers) GetPermissions(w http.ResponseWriter, r *http.Request) {
-	var permissions []Permission
-	if err := h.service.db.Find(&permissions).Error; err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to get permissions")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(permissions)
-}
-
-// CreatePermission creates a new permission
-func (h *Handlers) CreatePermission(w http.ResponseWriter, r *http.Request) {
-	var permission Permission
-	if err := json.NewDecoder(r.Body).Decode(&permission); err != nil {
-		WriteError(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	if err := h.service.db.Create(&permission).Error; err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to create permission")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(permission)
 }
 
 // GetPolicies gets all policies
@@ -334,58 +295,6 @@ func (h *Handlers) RemoveRole(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.RemoveRole(r.Context(), userID, roleName); err != nil {
 		WriteError(w, http.StatusInternalServerError, "Failed to remove role")
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// GetPolicyTemplates gets all policy templates
-func (h *Handlers) GetPolicyTemplates(w http.ResponseWriter, r *http.Request) {
-	var templates []PolicyTemplate
-	if err := h.service.db.Find(&templates).Error; err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to get templates")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(templates)
-}
-
-// CreatePolicyTemplate creates a new policy template
-func (h *Handlers) CreatePolicyTemplate(w http.ResponseWriter, r *http.Request) {
-	var template PolicyTemplate
-	if err := json.NewDecoder(r.Body).Decode(&template); err != nil {
-		WriteError(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	if err := h.service.db.Create(&template).Error; err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to create template")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(template)
-}
-
-// ApplyPolicyTemplate applies a policy template to a role
-func (h *Handlers) ApplyPolicyTemplate(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	templateID := vars["id"]
-
-	var req struct {
-		Role string `json:"role"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		WriteError(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	if err := h.service.ApplyPolicyTemplate(r.Context(), req.Role, templateID); err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to apply template")
 		return
 	}
 

@@ -136,10 +136,6 @@ func (e *MockExtension) DatabaseSchema() string {
 	return "ext_mock"
 }
 
-func (e *MockExtension) Migrations() []Migration {
-	return []Migration{}
-}
-
 func (e *MockExtension) RequiredPermissions() []Permission {
 	return []Permission{}
 }

@@ -6,8 +6,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// DownloadToken represents a temporary token for file downloads
-type DownloadToken struct {
+// StorageDownloadToken represents a temporary token for file downloads
+type StorageDownloadToken struct {
 	ID             string     `gorm:"primaryKey;type:uuid" json:"id"`
 	Token          string     `gorm:"uniqueIndex;not null" json:"token"`
 	FileID         string     `gorm:"not null" json:"file_id"`
@@ -25,13 +25,13 @@ type DownloadToken struct {
 }
 
 // TableName sets the table name
-func (DownloadToken) TableName() string {
-	return "download_tokens"
+func (StorageDownloadToken) TableName() string {
+	return "storage_download_tokens"
 }
 
-// NewDownloadToken creates a new download token
-func NewDownloadToken(fileID, bucket string, parentFolderID *string, objectName, userID string, fileSize int64, duration time.Duration) *DownloadToken {
-	return &DownloadToken{
+// NewStorageDownloadToken creates a new download token
+func NewStorageDownloadToken(fileID, bucket string, parentFolderID *string, objectName, userID string, fileSize int64, duration time.Duration) *StorageDownloadToken {
+	return &StorageDownloadToken{
 		ID:             uuid.New().String(),
 		Token:          uuid.New().String(), // Simple UUID token for now
 		FileID:         fileID,
@@ -46,11 +46,11 @@ func NewDownloadToken(fileID, bucket string, parentFolderID *string, objectName,
 }
 
 // IsExpired checks if the token has expired
-func (dt *DownloadToken) IsExpired() bool {
+func (dt *StorageDownloadToken) IsExpired() bool {
 	return time.Now().After(dt.ExpiresAt)
 }
 
 // IsValid checks if the token is valid for use
-func (dt *DownloadToken) IsValid() bool {
+func (dt *StorageDownloadToken) IsValid() bool {
 	return !dt.IsExpired() && !dt.Completed
 }

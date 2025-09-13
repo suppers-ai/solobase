@@ -222,54 +222,6 @@ func TestExtensionSecurity(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestExtensionMigrations tests extension migrations
-// TODO: Implement once MigrationRunner is complete
-/*
-func TestExtensionMigrations(t *testing.T) {
-	suite := NewExtensionTestSuite(t)
-	defer suite.Cleanup()
-
-	// Create extension with migrations
-	mockExt := &MockExtension{
-		name:    "migration-test",
-		version: "1.0.0",
-	}
-
-	// Override Migrations method
-	migrations := []Migration{
-		{
-			Version:     "001",
-			Description: "Create test table",
-			Extension:   "migration-test",
-			Up: `CREATE TABLE IF NOT EXISTS test_table (
-				id INTEGER PRIMARY KEY,
-				name TEXT
-			);`,
-			Down: `DROP TABLE IF EXISTS test_table;`,
-		},
-	}
-
-	runner := NewMigrationRunner(suite.DB, suite.Logger)
-
-	// Run migrations
-	err := runner.RunMigrations(context.Background(), "migration-test", migrations)
-	assert.NoError(t, err)
-
-	// Verify migration was recorded
-	status := runner.GetMigrationStatus("migration-test")
-	assert.NotNil(t, status)
-	assert.Len(t, status.AppliedMigrations, 1)
-	assert.Equal(t, "001", status.AppliedMigrations[0].Version)
-
-	// Test rollback
-	err = runner.RollbackMigration(context.Background(), "migration-test", "001")
-	assert.NoError(t, err)
-
-	status = runner.GetMigrationStatus("migration-test")
-	assert.Len(t, status.AppliedMigrations, 0)
-}
-*/
-
 func TestExtensionMetrics(t *testing.T) {
 	collector := NewMetricsCollector()
 

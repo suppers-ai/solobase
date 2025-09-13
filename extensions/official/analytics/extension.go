@@ -206,47 +206,6 @@ func (e *AnalyticsExtension) DatabaseSchema() string {
 	return "ext_analytics"
 }
 
-// Migrations returns database migrations
-func (e *AnalyticsExtension) Migrations() []core.Migration {
-	return []core.Migration{
-		{
-			Version:     "001",
-			Description: "Create analytics tables",
-			Extension:   "analytics",
-			Up: `
-				CREATE SCHEMA IF NOT EXISTS ext_analytics;
-				
-				CREATE TABLE IF NOT EXISTS ext_analytics.page_views (
-					id SERIAL PRIMARY KEY,
-					user_id VARCHAR(255),
-					session_id VARCHAR(255),
-					page_url TEXT NOT NULL,
-					referrer TEXT,
-					user_agent TEXT,
-					ip_address INET,
-					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-				);
-				
-				CREATE TABLE IF NOT EXISTS ext_analytics.events (
-					id SERIAL PRIMARY KEY,
-					user_id VARCHAR(255),
-					event_name VARCHAR(255) NOT NULL,
-					event_data JSONB,
-					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-				);
-				
-				CREATE INDEX idx_page_views_created_at ON ext_analytics.page_views(created_at);
-				CREATE INDEX idx_page_views_user_id ON ext_analytics.page_views(user_id);
-				CREATE INDEX idx_events_created_at ON ext_analytics.events(created_at);
-				CREATE INDEX idx_events_event_name ON ext_analytics.events(event_name);
-			`,
-			Down: `
-				DROP SCHEMA IF EXISTS ext_analytics CASCADE;
-			`,
-		},
-	}
-}
-
 // RequiredPermissions returns required permissions
 func (e *AnalyticsExtension) RequiredPermissions() []core.Permission {
 	return []core.Permission{

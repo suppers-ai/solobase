@@ -19,75 +19,15 @@ type Role struct {
 	UpdatedAt   time.Time              `json:"updated_at"`
 }
 
+func (r *Role) TableName() string {
+	return "iam_roles"
+}
+
 func (r *Role) BeforeCreate(tx *gorm.DB) error {
 	if r.ID == "" {
 		r.ID = uuid.New().String()
 	}
 	return nil
-}
-
-// Permission represents a permission template
-type Permission struct {
-	ID          string    `gorm:"type:uuid;primaryKey" json:"id"`
-	Name        string    `gorm:"uniqueIndex;not null" json:"name"`
-	Resource    string    `json:"resource"`
-	Action      string    `json:"action"`
-	Description string    `json:"description"`
-	Category    string    `json:"category"` // Group permissions by category
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-func (p *Permission) BeforeCreate(tx *gorm.DB) error {
-	if p.ID == "" {
-		p.ID = uuid.New().String()
-	}
-	return nil
-}
-
-// ResourceGroup represents a group of resources
-type ResourceGroup struct {
-	ID          string    `gorm:"type:uuid;primaryKey" json:"id"`
-	Name        string    `gorm:"uniqueIndex;not null" json:"name"`
-	Pattern     string    `json:"pattern"` // e.g., "/api/storage/*"
-	Description string    `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-func (rg *ResourceGroup) BeforeCreate(tx *gorm.DB) error {
-	if rg.ID == "" {
-		rg.ID = uuid.New().String()
-	}
-	return nil
-}
-
-// PolicyTemplate represents a reusable policy template
-type PolicyTemplate struct {
-	ID          string                 `gorm:"type:uuid;primaryKey" json:"id"`
-	Name        string                 `gorm:"uniqueIndex;not null" json:"name"`
-	Description string                 `json:"description"`
-	Category    string                 `json:"category"`
-	Policies    []PolicyRule           `gorm:"serializer:json" json:"policies"`
-	Metadata    map[string]interface{} `gorm:"serializer:json" json:"metadata"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
-}
-
-func (pt *PolicyTemplate) BeforeCreate(tx *gorm.DB) error {
-	if pt.ID == "" {
-		pt.ID = uuid.New().String()
-	}
-	return nil
-}
-
-// PolicyRule represents a single policy rule
-type PolicyRule struct {
-	Subject  string                 `json:"subject"`
-	Resource string                 `json:"resource"`
-	Action   string                 `json:"action"`
-	Effect   string                 `json:"effect"` // "allow" or "deny"
-	Metadata map[string]interface{} `json:"metadata"`
 }
 
 // UserRole represents the many-to-many relationship between users and roles
@@ -98,6 +38,10 @@ type UserRole struct {
 	GrantedBy string    `gorm:"type:uuid" json:"granted_by"`
 	GrantedAt time.Time `json:"granted_at"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+func (ur *UserRole) TableName() string {
+	return "iam_user_roles"
 }
 
 func (ur *UserRole) BeforeCreate(tx *gorm.DB) error {

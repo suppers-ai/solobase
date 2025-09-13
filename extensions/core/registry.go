@@ -366,7 +366,6 @@ func (r *ExtensionRegistry) initializeExtension(ctx context.Context, ext Extensi
 		Hooks:      len(hooks),
 		Templates:  len(ext.RegisterTemplates()),
 		Assets:     len(ext.RegisterStaticAssets()),
-		Migrations: len(ext.Migrations()),
 	}
 
 	return nil
