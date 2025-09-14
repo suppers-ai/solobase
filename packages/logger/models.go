@@ -21,7 +21,7 @@ type LogModel struct {
 
 // TableName specifies the table name
 func (LogModel) TableName() string {
-	return "logs"
+	return "sys_logs"
 }
 
 // BeforeCreate hook
@@ -54,7 +54,7 @@ type RequestLogModel struct {
 
 // TableName specifies the table name
 func (RequestLogModel) TableName() string {
-	return "request_logs"
+	return "sys_request_logs"
 }
 
 // BeforeCreate hook

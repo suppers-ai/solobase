@@ -37,6 +37,7 @@ type User struct {
 	RecoverSelector *string    `gorm:"size:255;index" json:"-"`
 	AttemptCount    int        `gorm:"default:0" json:"-"`
 	LastAttempt     *time.Time `json:"-"`
+	LastLogin       *time.Time `json:"last_login,omitempty"`
 	Metadata        string     `gorm:"type:text" json:"metadata,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
@@ -62,7 +63,7 @@ type User struct {
 
 // TableName specifies the table name
 func (User) TableName() string {
-	return "users"
+	return "auth_users"
 }
 
 // BeforeCreate hook

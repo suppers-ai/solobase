@@ -15,6 +15,8 @@
 		AlertCircle,
 		CheckCircle,
 		FileText,
+		Folder,
+		FolderOpen,
 	} from "lucide-svelte";
 	import { api } from "$lib/api";
 	import ExportButton from "$lib/components/ExportButton.svelte";
@@ -31,18 +33,78 @@
 	let dbType = "SQLite";
 	let dbVersion = "";
 	let dbSize = "";
+	let dropdownOpen = false;
+	let expandedGroups: Set<string> = new Set();
 
 	// Real data from API
 	let tableData: any[] = [];
 	let tables: any[] = [];
 	let tableColumns: any[] = [];
+	let groupedTables: Map<string, any[]> = new Map();
 
-	let sqlQuery = `SELECT * FROM users ORDER BY created_at DESC LIMIT 10;`;
+	let sqlQuery = `SELECT * FROM auth_users ORDER BY created_at DESC LIMIT 10;`;
 	let sqlResults: any[] = [];
 	let sqlError = "";
 	let sqlExecuting = false;
 	let queryExecutionTime = 0;
 	let affectedRows = 0;
+
+	function groupTablesByPrefix(tableList: any[]) {
+		const groups = new Map<string, any[]>();
+
+		tableList.forEach(table => {
+			const name = table.name || table.value;
+			let groupName = "Other";
+
+			// Check for common prefixes
+			if (name.startsWith("auth_")) {
+				groupName = "Authentication";
+			} else if (name.startsWith("iam_")) {
+				groupName = "IAM (Identity & Access)";
+			} else if (name.startsWith("ext_")) {
+				groupName = "Extensions";
+			} else if (name.startsWith("analytics_")) {
+				groupName = "Analytics";
+			} else if (name.startsWith("log_") || name.startsWith("logs_")) {
+				groupName = "Logs";
+			} else if (name.startsWith("storage_")) {
+				groupName = "Storage";
+			} else if (name.includes("_")) {
+				// Try to extract a meaningful prefix
+				const prefix = name.split("_")[0];
+				groupName = prefix.charAt(0).toUpperCase() + prefix.slice(1);
+			}
+
+			if (!groups.has(groupName)) {
+				groups.set(groupName, []);
+			}
+			groups.get(groupName)!.push(table);
+		});
+
+		// Sort tables within each group
+		groups.forEach((tables, key) => {
+			tables.sort((a, b) => (a.name || a.value).localeCompare(b.name || b.value));
+		});
+
+		return groups;
+	}
+
+	function toggleGroup(groupName: string) {
+		if (expandedGroups.has(groupName)) {
+			expandedGroups.delete(groupName);
+		} else {
+			expandedGroups.add(groupName);
+		}
+		expandedGroups = new Set(expandedGroups);
+	}
+
+	function selectTable(tableName: string) {
+		selectedTable = tableName;
+		dropdownOpen = false;
+		currentPage = 1;
+		totalRows = 0;
+		loadTableData();
+	}
 
 	async function handleTableChange(e: Event) {
 		selectedTable = (e.target as HTMLSelectElement).value;
@@ -63,6 +125,14 @@
 			} else {
 				tables = [];
 			}
+
+			// Group tables by prefix
+			groupedTables = groupTablesByPrefix(tables);
+
+			// Auto-expand groups initially
+			groupedTables.forEach((_, groupName) => {
+				expandedGroups.add(groupName);
+			});
 
 			// Select users table by default if available
 			if (tables.length > 0 && !selectedTable) {
@@ -229,10 +299,28 @@
 		}
 	}
 
-	onMount(async () => {
+	onMount(() => {
 		if (!requireAdmin()) return;
-		await loadTables();
-		await getDatabaseInfo();
+
+		const init = async () => {
+			await loadTables();
+			await getDatabaseInfo();
+		};
+
+		init();
+
+		// Close dropdown when clicking outside
+		const handleClickOutside = (event: MouseEvent) => {
+			const target = event.target as HTMLElement;
+			if (!target.closest('.table-select-wrapper')) {
+				dropdownOpen = false;
+			}
+		};
+
+		document.addEventListener('click', handleClickOutside);
+		return () => {
+			document.removeEventListener('click', handleClickOutside);
+		};
 	});
 </script>
 
@@ -294,26 +382,64 @@
 					<div class="controls-bar">
 						<div class="controls-left">
 							<div class="table-select-wrapper">
-								<select
-									class="table-select"
-									value={selectedTable}
-									on:change={handleTableChange}
+								<button
+									class="table-dropdown-trigger"
+									on:click={() => (dropdownOpen = !dropdownOpen)}
 									disabled={loading || tables.length === 0}
 								>
-									{#if tables.length === 0}
-										<option value=""
-											>No tables available</option
-										>
-									{:else if !selectedTable}
-										<option value="">Select a table</option>
-									{/if}
-									{#each tables as table}
-										<option value={table.name}>
-											{table.name} • {table.rows_count ||
-												0} rows
-										</option>
-									{/each}
-								</select>
+									<Database size={16} />
+									<span class="selected-table-name">
+										{selectedTable || "Select a table"}
+									</span>
+									<ChevronDown
+										size={16}
+										class="dropdown-chevron {dropdownOpen ? 'open' : ''}"
+									/>
+								</button>
+
+								{#if dropdownOpen}
+									<div class="table-dropdown-menu">
+										{#if tables.length === 0}
+											<div class="dropdown-empty">
+												No tables available
+											</div>
+										{:else}
+											{#each [...groupedTables.entries()] as [groupName, groupTables]}
+												<div class="table-group">
+													<button
+														class="group-header"
+														on:click={() => toggleGroup(groupName)}
+													>
+														{#if expandedGroups.has(groupName)}
+															<FolderOpen size={14} />
+														{:else}
+															<Folder size={14} />
+														{/if}
+														<span class="group-name">{groupName}</span>
+														<span class="group-count">({groupTables.length})</span>
+													</button>
+
+													{#if expandedGroups.has(groupName)}
+														<div class="group-tables">
+															{#each groupTables as table}
+																<button
+																	class="table-item {selectedTable === table.name ? 'selected' : ''}"
+																	on:click={() => selectTable(table.name)}
+																>
+																	<Table size={12} />
+																	<span class="table-name">{table.name}</span>
+																	{#if table.rows_count !== undefined}
+																		<span class="table-rows">{table.rows_count} rows</span>
+																	{/if}
+																</button>
+															{/each}
+														</div>
+													{/if}
+												</div>
+											{/each}
+										{/if}
+									</div>
+								{/if}
 							</div>
 
 							<div class="search-box">
@@ -765,33 +891,154 @@
 		position: relative;
 	}
 
-	.table-select {
+	.table-dropdown-trigger {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 		padding: 0.5rem 0.75rem;
-		padding-right: 2rem;
 		border: 1px solid #e2e8f0;
 		border-radius: 0.375rem;
 		background: white;
 		font-size: 0.8125rem;
 		color: #475569;
-		min-width: 180px;
+		min-width: 220px;
 		cursor: pointer;
 		transition: all 0.15s;
-		appearance: none;
-		background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-		background-repeat: no-repeat;
-		background-position: right 0.5rem center;
-		background-size: 1rem;
 	}
 
-	.table-select:hover {
+	.table-dropdown-trigger:hover:not(:disabled) {
 		border-color: #cbd5e1;
 		background-color: #f8fafc;
 	}
 
-	.table-select:focus {
+	.table-dropdown-trigger:focus {
 		outline: none;
 		border-color: #3b82f6;
 		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.08);
+	}
+
+	.table-dropdown-trigger:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.selected-table-name {
+		flex: 1;
+		text-align: left;
+		font-weight: 500;
+	}
+
+	.dropdown-chevron {
+		transition: transform 0.2s;
+		color: #94a3b8;
+	}
+
+	.dropdown-chevron.open {
+		transform: rotate(180deg);
+	}
+
+	.table-dropdown-menu {
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		min-width: 280px;
+		max-width: 400px;
+		max-height: 400px;
+		overflow-y: auto;
+		background: white;
+		border: 1px solid #e2e8f0;
+		border-radius: 0.5rem;
+		box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+		z-index: 50;
+	}
+
+	.dropdown-empty {
+		padding: 1rem;
+		text-align: center;
+		color: #94a3b8;
+		font-size: 0.875rem;
+	}
+
+	.table-group {
+		border-bottom: 1px solid #f1f5f9;
+	}
+
+	.table-group:last-child {
+		border-bottom: none;
+	}
+
+	.group-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.625rem 0.75rem;
+		background: #f8fafc;
+		border: none;
+		color: #475569;
+		font-size: 0.8125rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s;
+		text-align: left;
+	}
+
+	.group-header:hover {
+		background: #f1f5f9;
+	}
+
+	.group-name {
+		flex: 1;
+	}
+
+	.group-count {
+		color: #94a3b8;
+		font-weight: 400;
+		font-size: 0.75rem;
+	}
+
+	.group-tables {
+		padding: 0.25rem 0;
+	}
+
+	.table-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.5rem 0.75rem;
+		padding-left: 2.25rem;
+		background: white;
+		border: none;
+		color: #64748b;
+		font-size: 0.8125rem;
+		cursor: pointer;
+		transition: all 0.15s;
+		text-align: left;
+	}
+
+	.table-item:hover {
+		background: #f8fafc;
+		color: #334155;
+	}
+
+	.table-item.selected {
+		background: #eff6ff;
+		color: #1e40af;
+		font-weight: 500;
+	}
+
+	.table-name {
+		flex: 1;
+	}
+
+	.table-rows {
+		font-size: 0.75rem;
+		color: #94a3b8;
+	}
+
+	.table-item.selected .table-rows {
+		color: #60a5fa;
 	}
 
 	.search-box {

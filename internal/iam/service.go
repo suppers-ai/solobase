@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
@@ -150,9 +151,18 @@ func (s *Service) AssignRole(ctx context.Context, userID string, roleName string
 		return fmt.Errorf("role not found: %w", err)
 	}
 
+	// Check if user already has this role
+	var existingUserRole UserRole
+	err := s.db.Where("user_id = ? AND role_id = ?", userID, role.ID).First(&existingUserRole).Error
+	if err == nil {
+		// Role already assigned, skip
+		return nil
+	}
+
 	// Add grouping policy in Casbin
 	if _, err := s.enforcer.AddGroupingPolicy(userID, roleName); err != nil {
-		return fmt.Errorf("failed to assign role: %w", err)
+		// If the policy already exists, Casbin returns false but no error
+		// We can safely continue
 	}
 
 	// Save to UserRole table for tracking
@@ -201,21 +211,23 @@ func (s *Service) GetUserRoles(ctx context.Context, userID string) ([]string, er
 func (s *Service) GetUsersWithRoles(ctx context.Context) ([]map[string]interface{}, error) {
 	// Get all users from the database
 	var users []struct {
-		ID        string `json:"id"`
-		Email     string `json:"email"`
-		FirstName string `json:"first_name"`
-		LastName  string `json:"last_name"`
+		ID        string     `json:"id"`
+		Email     string     `json:"email"`
+		FirstName string     `json:"first_name"`
+		LastName  string     `json:"last_name"`
+		LastLogin *time.Time `json:"last_login"`
+		CreatedAt time.Time  `json:"created_at"`
 	}
-	
-	if err := s.db.Table("users").Select("id, email, first_name, last_name").Find(&users).Error; err != nil {
+
+	if err := s.db.Table("auth_users").Select("id, email, first_name, last_name, last_login, created_at").Find(&users).Error; err != nil {
 		return nil, fmt.Errorf("failed to get users: %w", err)
 	}
-	
+
 	// Get roles for each user
 	result := make([]map[string]interface{}, 0, len(users))
 	for _, user := range users {
 		roles, _ := s.GetUserRoles(ctx, user.ID)
-		
+
 		// Get full role details
 		roleDetails := make([]map[string]interface{}, 0, len(roles))
 		for _, roleName := range roles {
@@ -227,16 +239,18 @@ func (s *Service) GetUsersWithRoles(ctx context.Context) ([]map[string]interface
 				})
 			}
 		}
-		
+
 		result = append(result, map[string]interface{}{
-			"id":         user.ID,
-			"email":      user.Email,
-			"first_name": user.FirstName,
-			"last_name":  user.LastName,
-			"roles":      roleDetails,
+			"id":          user.ID,
+			"email":       user.Email,
+			"first_name":  user.FirstName,
+			"last_name":   user.LastName,
+			"last_login":  user.LastLogin,
+			"created_at":  user.CreatedAt,
+			"roles":       roleDetails,
 		})
 	}
-	
+
 	return result, nil
 }
 

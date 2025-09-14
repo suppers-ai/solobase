@@ -33,8 +33,8 @@ func (r *Role) BeforeCreate(tx *gorm.DB) error {
 // UserRole represents the many-to-many relationship between users and roles
 type UserRole struct {
 	ID        string    `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID    string    `gorm:"type:uuid;not null;index" json:"user_id"`
-	RoleID    string    `gorm:"type:uuid;not null;index" json:"role_id"`
+	UserID    string    `gorm:"type:uuid;not null;index:idx_user_role,unique" json:"user_id"`
+	RoleID    string    `gorm:"type:uuid;not null;index:idx_user_role,unique" json:"role_id"`
 	GrantedBy string    `gorm:"type:uuid" json:"granted_by"`
 	GrantedAt time.Time `json:"granted_at"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`

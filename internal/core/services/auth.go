@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"time"
 	"github.com/google/uuid"
 	auth "github.com/suppers-ai/auth"
 	"github.com/suppers-ai/solobase/database"
@@ -30,6 +31,14 @@ func (s *AuthService) AuthenticateUser(email, password string) (*auth.User, erro
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		log.Printf("Password comparison failed for user: %s, error: %v", email, err)
 		return nil, errors.New("invalid credentials")
+	}
+
+	// Update last login time
+	now := time.Now()
+	user.LastLogin = &now
+	if err := s.db.Model(&user).Update("last_login", now).Error; err != nil {
+		// Log the error but don't fail the authentication
+		log.Printf("Failed to update last_login for user %s: %v", email, err)
 	}
 
 	log.Printf("Authentication successful for user: %s", email)

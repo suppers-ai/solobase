@@ -18,7 +18,7 @@ type Setting struct {
 }
 
 func (Setting) TableName() string {
-	return "settings"
+	return "sys_settings"
 }
 
 func (s *Setting) BeforeCreate(tx *gorm.DB) error {

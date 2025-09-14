@@ -753,7 +753,7 @@
 								</div>
 							</td>
 							<td class="text-muted">{user.created_at}</td>
-							<td class="text-muted">{user.last_login || 'Never'}</td>
+							<td class="text-muted">{user.last_login}</td>
 							<td>
 								<div class="action-buttons">
 									<button 
