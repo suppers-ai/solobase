@@ -59,28 +59,44 @@ func (s *AuthService) GetUserByID(id string) (*auth.User, error) {
 }
 
 func (s *AuthService) CreateDefaultAdmin(email, password string) error {
-	// Check if admin already exists
-	var existingUser auth.User
-	result := s.db.Where("email = ?", email).First(&existingUser)
+	// Check if ANY admin user already exists
+	var adminCount int64
+	s.db.Model(&auth.User{}).Count(&adminCount)
 
-	// Hash password
+	if adminCount > 0 {
+		// If any users exist, only update if this specific email exists
+		var existingUser auth.User
+		result := s.db.Where("email = ?", email).First(&existingUser)
+
+		if result.Error == nil {
+			// Hash password
+			hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+			if err != nil {
+				log.Printf("Failed to hash password: %v", err)
+				return err
+			}
+
+			// User exists, update password
+			log.Printf("Admin user exists, updating password for: %s", email)
+			existingUser.Password = string(hashedPassword)
+			existingUser.Confirmed = true
+			if err := s.db.Save(&existingUser).Error; err != nil {
+				log.Printf("Failed to update admin password: %v", err)
+				return err
+			}
+			log.Printf("Successfully updated admin password for: %s", email)
+			return nil
+		} else {
+			log.Printf("Users already exist in database, skipping creation of %s", email)
+			return nil
+		}
+	}
+
+	// Hash password for new user
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		log.Printf("Failed to hash password: %v", err)
 		return err
-	}
-
-	if result.Error == nil {
-		// User exists, update password
-		log.Printf("Admin user exists, updating password for: %s", email)
-		existingUser.Password = string(hashedPassword)
-		existingUser.Confirmed = true
-		if err := s.db.Save(&existingUser).Error; err != nil {
-			log.Printf("Failed to update admin password: %v", err)
-			return err
-		}
-		log.Printf("Successfully updated admin password for: %s", email)
-		return nil
 	}
 
 	log.Printf("Creating default admin user: %s", email)

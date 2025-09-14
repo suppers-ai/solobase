@@ -29,11 +29,13 @@ This guide explains how to deploy a secure public demo of Solobase using Fly.io 
    - 1GB storage, 10GB bandwidth
    - No uploads allowed, 100 req/min
 
-5. **Restricted** - Limited access (perfect for demos)
-   - 50MB storage, 500MB bandwidth
-   - 5MB max upload, 30 req/min
+5. **Admin Viewer** - Read-only administrative access (perfect for demos)
+   - Read access to all endpoints
+   - Cannot delete or modify resources
+   - Cannot execute database queries
+   - Cannot manage users or settings
+   - 30 req/min rate limit
    - 30-minute session timeout
-   - Disabled features: webhooks, bulk operations, user management
 
 ## Demo Deployment
 
@@ -44,19 +46,29 @@ This guide explains how to deploy a secure public demo of Solobase using Fly.io 
 fly deploy --config fly-demo.toml --dockerfile Dockerfile.fly
 
 # The demo will be available with:
-# Email: demo@solobase.com
-# Password: DemoAccess2024!
+#
+# Admin Account (Full Access):
+# Email: admin@solobase.demo
+# Password: [Auto-generated secure password - check container logs]
+#
+# To create a viewer account after deployment:
+# 1. Login as admin
+# 2. Create user: viewer@solobase.demo with password: demo123
+# 3. Assign role: admin_viewer (read-only access)
 ```
 
-### 2. Demo Restrictions
+### 2. Demo Security Configuration
 
-The demo deployment automatically:
-- Creates a user with the "restricted" role
-- Enforces strict quotas (50MB storage, 5MB per file)
-- Rate limits to 30 requests per minute
-- Disables dangerous features (webhooks, database writes)
-- Uses in-memory SQLite (resets on restart)
-- Auto-stops when idle to save resources
+The demo deployment features:
+- **Admin Account**: Auto-generated secure password for administration
+- **Viewer Account**: Can be created with `admin_viewer` role for safe demo access
+- **Security Features**:
+  - Read-only access for viewer accounts
+  - No delete, modify, or execute operations for viewers
+  - Rate limiting (30 requests per minute)
+  - Session timeout (30 minutes)
+  - Persistent SQLite database with data isolation
+- **Auto-stop**: Machine stops when idle to save resources
 
 ### 3. Periodic Restart
 
@@ -143,9 +155,12 @@ View metrics and usage:
 ### Different Demo Scenarios
 
 1. **Read-Only Demo**
-   ```javascript
-   // Assign "viewer" role instead of "restricted"
-   DEFAULT_ADMIN_EMAIL=viewer@demo.com
+   ```bash
+   # Set environment variables
+   DEFAULT_ADMIN_EMAIL=admin@demo.com
+   VIEWER_EMAIL=viewer@demo.com
+   VIEWER_PASSWORD=demo123
+   # Viewer gets admin_viewer role for read-only access
    ```
 
 2. **Trial with Uploads**

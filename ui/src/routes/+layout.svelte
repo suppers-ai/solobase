@@ -129,22 +129,23 @@
 	onMount(async () => {
 		// Fix text selection in inputs
 		const observer = observeAndFixInputs();
-		
+
+
 		// First check if we have a stored token before doing auth check
 		const hasStoredToken = typeof window !== 'undefined' && localStorage.getItem('auth_token');
-		
+
 		// If we have a stored token, attempt to validate it
 		if (hasStoredToken) {
 			// Check if user is authenticated on mount
 			const isAuth = await auth.checkAuth();
 			authChecked = true;
-			
+
 			// Only redirect if auth check definitively failed (not just loading)
 			if (!isAuth) {
 				const currentPath = $page.url.pathname;
 				const isPublicPage = publicPages.some(p => currentPath === p || currentPath.startsWith('/auth/'));
 				const isProfilePage = currentPath.startsWith('/profile');
-				
+
 				if (!isPublicPage && !isProfilePage) {
 					goto('/auth/login');
 					return;
@@ -158,15 +159,15 @@
 			const currentPath = $page.url.pathname;
 			const isPublicPage = publicPages.some(p => currentPath === p || currentPath.startsWith('/auth/'));
 			const isProfilePage = currentPath.startsWith('/profile');
-			
+
 			authChecked = true;
-			
+
 			if (!isPublicPage && !isProfilePage) {
 				goto('/auth/login');
 				return;
 			}
 		}
-		
+
 		// Cleanup observer on unmount
 		return () => {
 			if (observer) {
@@ -181,11 +182,11 @@
 			settings = response.data;
 		}
 	}
-	
+
 	function dismissNotification() {
 		notificationDismissed = true;
 	}
-	
+
 	async function handleLogout() {
 		// Navigate to logout page which handles the logout process
 		window.location.href = '/auth/logout';

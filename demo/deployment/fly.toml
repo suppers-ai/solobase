@@ -1,14 +1,15 @@
-# fly.toml app configuration file generated for solobase-lingering-bird-7226 on 2025-09-09T19:42:58+12:00
-#
+# fly.toml configuration for Solobase Demo
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-# To deploy can run fly deploy --config solobase/fly-demo.toml --dockerfile solobase/Dockerfile.fly in parent folder
 
-app = 'solobase-demo'
+# App name will be set via command line or FLY_APP_NAME env var
+# app = 'solobase-demo'
+
 primary_region = 'syd'
 
 [build]
-  dockerfile = "Dockerfile.fly"
+  # Dockerfile path is relative to the build context
+  # When running from root: fly deploy --config demo/deployment/fly.toml --dockerfile demo/deployment/Dockerfile
+  # When running from demo/deployment: fly deploy --dockerfile Dockerfile
 
 [http_service]
   internal_port = 8080
@@ -16,27 +17,17 @@ primary_region = 'syd'
   auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-  max_machines_running = 1
   processes = ['app']
 
 [checks]
   [checks.demo_health]
-    grace_period = "30s"
+    grace_period = "60s"
     interval = "30s"
     method = "get"
     path = "/api/health"
     port = 8080
     timeout = "10s"
     type = "http"
-
-[services]
-  [[services.ports]]
-    handlers = ["http"]
-    port = 80
-    
-  [[services.ports]]
-    handlers = ["tls", "http"]
-    port = 443
 
 [[vm]]
   memory = '256MB'

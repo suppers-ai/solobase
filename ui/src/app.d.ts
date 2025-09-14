@@ -8,6 +8,10 @@ declare global {
 		// interface PageState {}
 		// interface Platform {}
 	}
+
+	// Build-time constants
+	const __APP_VERSION__: string;
+	const __BUILD_DATE__: string;
 }
 
 export {};

@@ -1,48 +1,39 @@
-# Build stage
-FROM golang:1.23 AS builder
+# Simple Dockerfile for Solobase Demo
+FROM golang:1.23-bookworm
 
-WORKDIR /build
-
-# Copy all packages
-COPY packages ./packages
-COPY integrations ./integrations
-COPY solobase ./solobase
-
-WORKDIR /build/solobase
-
-# Build the binary from the cmd/solobase directory where main.go is
-# SQLite REQUIRES CGO_ENABLED=1
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o solobase ./cmd/solobase
-
-# Make it executable in the build stage
-RUN chmod +x solobase
-
-# Final stage - use debian for glibc compatibility with CGO
-FROM debian:bookworm-slim
-
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+# Install sqlite3 for debugging and Node.js for UI build
+RUN apt-get update && apt-get install -y sqlite3 curl && rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy the executable binary
-COPY --from=builder --chmod=755 /build/solobase/solobase /app/solobase
+# Copy go.mod first for better caching
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Copy static files and config
-COPY --from=builder /build/solobase/static ./static
-COPY --from=builder /build/solobase/admin ./admin
-COPY --from=builder /build/solobase/config ./config
+# Copy everything else
+COPY . .
 
-# Verify the binary exists and is executable
-RUN ls -la /app/solobase
+# Build the UI
+WORKDIR /app/ui
+RUN npm install && npm run build
 
+# Build the binary with clean cache
+WORKDIR /app
+RUN go clean -cache && go build -o solobase ./cmd/solobase
+
+# Create data directory and ensure it's clean
+RUN mkdir -p /app/.data && rm -f /app/.data/*.db
+
+# Environment variables
 ENV PORT=8080
 ENV DATABASE_TYPE=sqlite
-ENV DATABASE_URL=:memory:
-ENV DEFAULT_ADMIN_EMAIL=demo@solobase.com
-ENV DEFAULT_ADMIN_PASSWORD=DemoAccess2024!
-ENV RATE_LIMIT_ENABLED=true
-ENV RATE_LIMIT_REQUESTS_PER_MINUTE=30
+ENV DATABASE_URL=file:/app/.data/solobase.db
+ENV DEFAULT_ADMIN_EMAIL=admin@solobase.demo
+ENV DEFAULT_ADMIN_PASSWORD=admin123
 
 EXPOSE 8080
 
-CMD ["/app/solobase"]
+# Run the app
+CMD ["./solobase"]

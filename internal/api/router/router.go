@@ -91,7 +91,7 @@ func (a *API) setupRoutesWithAdmin() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok","message":"API is running"}`))
 	}).Methods("GET", "OPTIONS")
-	
+
 	apiRouter.Handle("/metrics", system.HandlePrometheusMetrics()).Methods("GET", "OPTIONS")
 
 	// Authentication (public endpoints)

@@ -158,15 +158,15 @@ func NewWithOptions(opts *Options) *App {
 	}
 	if opts.DefaultAdminEmail == "" {
 		opts.DefaultAdminEmail = os.Getenv("DEFAULT_ADMIN_EMAIL")
-		if opts.DefaultAdminEmail == "" {
-			opts.DefaultAdminEmail = "admin@example.com"
-		}
+		log.Printf("DEBUG: DEFAULT_ADMIN_EMAIL from env: '%s'", opts.DefaultAdminEmail)
+		// Don't set a default if the env var is not set
+		// This prevents creating unintended admin accounts
+	} else {
+		log.Printf("DEBUG: DefaultAdminEmail already set to: '%s'", opts.DefaultAdminEmail)
 	}
 	if opts.DefaultAdminPassword == "" {
 		opts.DefaultAdminPassword = os.Getenv("DEFAULT_ADMIN_PASSWORD")
-		if opts.DefaultAdminPassword == "" {
-			opts.DefaultAdminPassword = "admin123"
-		}
+		// Don't set a default password either
 	}
 
 	app := &App{
@@ -304,6 +304,7 @@ func (app *App) Initialize() error {
 
 	// Create default admin
 	if app.config.AdminEmail != "" && app.config.AdminPassword != "" {
+		log.Printf("Creating default admin with email: %s", app.config.AdminEmail)
 		if err := app.services.Auth.CreateDefaultAdmin(app.config.AdminEmail, app.config.AdminPassword); err != nil {
 			log.Printf("Warning: Failed to create default admin: %v", err)
 		} else {

@@ -2,7 +2,7 @@
 	import { Menu, X } from 'lucide-svelte';
 	import { onMount } from 'svelte';
 	import Sidebar from './Sidebar.svelte';
-	
+
 	export let currentUser: { email?: string; role?: string } | null = null;
 	export let navigation: any[] = [];
 	export let currentPath: string = '/';

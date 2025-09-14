@@ -100,7 +100,10 @@
 
 <div class="container mx-auto p-6 max-w-6xl">
 	<div class="flex justify-between items-center mb-8">
-		<h1 class="text-3xl font-bold text-gray-900">Settings</h1>
+		<div>
+			<h1 class="text-3xl font-bold text-gray-900">Settings</h1>
+			<p class="text-sm text-gray-500 mt-1">Version {__APP_VERSION__} • Built {__BUILD_DATE__}</p>
+		</div>
 		<div class="flex gap-2">
 			{#if saved}
 				<div class="flex items-center text-green-600 px-3 py-2 bg-green-50 rounded">
