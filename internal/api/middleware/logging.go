@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/suppers-ai/logger"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 )
 
 // LoggingMiddleware logs all HTTP requests

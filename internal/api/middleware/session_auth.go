@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/suppers-ai/logger"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 	"github.com/suppers-ai/solobase/constants"
 	"github.com/suppers-ai/solobase/internal/core/services"
 )

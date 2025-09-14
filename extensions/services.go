@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/suppers-ai/database"
-	"github.com/suppers-ai/logger"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 	"github.com/suppers-ai/solobase/extensions/core"
 	"gorm.io/gorm"
 )

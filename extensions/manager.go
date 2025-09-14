@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/gorilla/mux"
-	"github.com/suppers-ai/logger"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 	"github.com/suppers-ai/solobase/extensions/core"
 	"gorm.io/gorm"
 )

@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/suppers-ai/auth"
-	"github.com/suppers-ai/database"
-	"github.com/suppers-ai/logger"
+	"github.com/suppers-ai/solobase/internal/pkg/auth"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 	"github.com/suppers-ai/solobase/internal/config"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/internal/iam"

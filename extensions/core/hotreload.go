@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/suppers-ai/logger"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 )
 
 // HotReloader manages hot-reload of extension configurations

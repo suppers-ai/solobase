@@ -13,10 +13,6 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/prometheus/client_golang v1.23.0
 	github.com/stretchr/testify v1.11.1
-	github.com/suppers-ai/auth v0.0.0-local
-	github.com/suppers-ai/database v0.0.0
-	github.com/suppers-ai/logger v0.0.0
-	github.com/suppers-ai/storage v0.0.0-local
 	github.com/volatiletech/authboss/v3 v3.5.0
 	golang.org/x/crypto v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -77,9 +73,6 @@ require (
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230126093431-47fa9a501578 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/suppers-ai/dynamicfields v0.0.0-00010101000000-000000000000 // indirect
-	github.com/suppers-ai/formulaengine v0.0.0-00010101000000-000000000000 // indirect
-	github.com/suppers-ai/mailer v0.0.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect
@@ -97,18 +90,3 @@ require (
 	modernc.org/sqlite v1.20.3 // indirect
 )
 
-replace github.com/suppers-ai/auth => ./packages/auth
-
-replace github.com/suppers-ai/database => ./packages/database
-
-replace github.com/suppers-ai/logger => ./packages/logger
-
-replace github.com/suppers-ai/mailer => ./packages/mailer
-
-replace github.com/suppers-ai/storage => ./packages/storage
-
-replace github.com/suppers-ai/storageadapter => ../integrations/storageadapter
-
-replace github.com/suppers-ai/formulaengine => ./packages/formulaengine
-
-replace github.com/suppers-ai/dynamicfields => ./packages/dynamicfields

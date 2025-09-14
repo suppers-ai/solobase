@@ -21,7 +21,7 @@ import (
 	"github.com/suppers-ai/solobase/internal/data/models"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/utils"
-	pkgstorage "github.com/suppers-ai/storage"
+	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
 )
 
 // Claims represents the JWT claims

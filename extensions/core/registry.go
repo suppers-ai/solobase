@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/suppers-ai/logger"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 )
 
 // ExtensionRegistry manages all extensions and their lifecycle

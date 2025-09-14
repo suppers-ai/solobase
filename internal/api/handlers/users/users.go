@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
-	auth "github.com/suppers-ai/auth"
+	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/utils"
 )

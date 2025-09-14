@@ -1,7 +1,7 @@
 package services
 
 import (
-	auth "github.com/suppers-ai/auth"
+	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
 	"github.com/suppers-ai/solobase/database"
 )
 

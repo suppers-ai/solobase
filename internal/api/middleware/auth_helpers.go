@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	auth "github.com/suppers-ai/auth"
+	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
 )
 
 // GetUserFromContext retrieves the authenticated user from the request context

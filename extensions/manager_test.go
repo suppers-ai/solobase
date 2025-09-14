@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/suppers-ai/logger"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )

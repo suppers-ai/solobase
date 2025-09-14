@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	pkgstorage "github.com/suppers-ai/storage"
+	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"

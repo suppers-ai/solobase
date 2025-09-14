@@ -7,7 +7,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	auth "github.com/suppers-ai/auth"
+	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
 	commonjwt "github.com/suppers-ai/solobase/internal/common/jwt"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/utils"

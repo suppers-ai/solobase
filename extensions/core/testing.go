@@ -10,8 +10,8 @@ import (
 
 	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/suppers-ai/database"
-	"github.com/suppers-ai/logger"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 )
 
 // ExtensionTestSuite provides testing utilities for extensions

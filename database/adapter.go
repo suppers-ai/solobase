@@ -1,4 +1,4 @@
-// Package database provides an adapter to use the github.com/suppers-ai/database package
+// Package database provides an adapter to use the github.com/suppers-ai/solobase/internal/pkg/database package
 package database
 
 import (
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	pkgdb "github.com/suppers-ai/database"
+	pkgdb "github.com/suppers-ai/solobase/internal/pkg/database"
 	"gorm.io/gorm"
 )
 

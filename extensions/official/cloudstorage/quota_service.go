@@ -6,7 +6,7 @@ import (
 	"strings"
 	
 	"gorm.io/gorm"
-	pkgstorage "github.com/suppers-ai/storage"
+	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
 )
 
 // QuotaService manages storage quotas and limits

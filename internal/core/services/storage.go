@@ -15,7 +15,7 @@ import (
 	"github.com/suppers-ai/solobase/internal/config"
 	"github.com/suppers-ai/solobase/database"
 	"github.com/suppers-ai/solobase/storage"
-	pkgstorage "github.com/suppers-ai/storage"
+	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
 )
 
 // EnhancedStorageService is an alias for StorageService

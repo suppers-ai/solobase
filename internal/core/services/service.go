@@ -3,8 +3,8 @@ package services
 import (
 	"context"
 	"github.com/google/uuid"
-	auth "github.com/suppers-ai/auth"
-	"github.com/suppers-ai/logger"
+	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 	"gorm.io/gorm"
 )
 

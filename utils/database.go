@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/suppers-ai/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 )
 
 // DatabaseHelper provides common database operations

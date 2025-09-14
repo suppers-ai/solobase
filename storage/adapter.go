@@ -1,4 +1,4 @@
-// Package storage provides adapters to use the github.com/suppers-ai/storage package
+// Package storage provides adapters to use the github.com/suppers-ai/solobase/internal/pkg/storage package
 package storage
 
 import (
@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	pkgstorage "github.com/suppers-ai/storage"
+	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
 )
 
 // Object represents a stored object (adapter for package storage)

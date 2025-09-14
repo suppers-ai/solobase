@@ -3,7 +3,7 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/suppers-ai/logger"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 )
 
 // Logger middleware

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	auth "github.com/suppers-ai/auth"
+	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
 	"github.com/suppers-ai/solobase/extensions/core"
 	commonjwt "github.com/suppers-ai/solobase/internal/common/jwt"
 	"github.com/suppers-ai/solobase/internal/core/services"

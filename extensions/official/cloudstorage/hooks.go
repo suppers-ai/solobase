@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/suppers-ai/solobase/extensions/core"
-	pkgstorage "github.com/suppers-ai/storage"
+	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
 )
 
 // checkStorageQuotaHook checks if user has enough storage quota before upload

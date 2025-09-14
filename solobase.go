@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	auth "github.com/suppers-ai/auth"
-	"github.com/suppers-ai/logger"
+	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 	"github.com/suppers-ai/solobase/database"
 	"github.com/suppers-ai/solobase/extensions"
 	authHandlers "github.com/suppers-ai/solobase/internal/api/handlers/auth"
@@ -26,7 +26,7 @@ import (
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/internal/data/models"
 	"github.com/suppers-ai/solobase/internal/iam"
-	storage "github.com/suppers-ai/storage"
+	storage "github.com/suppers-ai/solobase/internal/pkg/storage"
 )
 
 // App represents the Solobase application

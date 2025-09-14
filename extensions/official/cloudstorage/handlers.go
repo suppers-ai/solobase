@@ -1,7 +1,7 @@
 package cloudstorage
 
 import (
-	auth "github.com/suppers-ai/auth"
+	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
 )
 
 import (
@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	pkgstorage "github.com/suppers-ai/storage"
+	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
 )
 
 // Response structs

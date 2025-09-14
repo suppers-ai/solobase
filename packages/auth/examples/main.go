@@ -10,9 +10,9 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	"github.com/suppers-ai/auth"
-	"github.com/suppers-ai/database"
-	"github.com/suppers-ai/mailer"
+	"github.com/suppers-ai/solobase/internal/pkg/auth"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
+	"github.com/suppers-ai/solobase/internal/pkg/mailer"
 	"github.com/volatiletech/authboss/v3"
 )
 
