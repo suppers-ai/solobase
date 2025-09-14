@@ -1,5 +1,6 @@
 # Binaries
-solobase
+/solobase
+cmd/solobase/solobase
 *.exe
 *.dll
 *.so
