@@ -100,7 +100,12 @@
 	function initCharts() {
 		// Performance Chart
 		const perfCtx = document.getElementById('performance-chart') as HTMLCanvasElement;
-		if (perfCtx && !performanceChart) {
+		if (perfCtx) {
+			// Destroy existing chart if it exists
+			if (performanceChart) {
+				performanceChart.destroy();
+				performanceChart = null;
+			}
 			performanceChart = new Chart(perfCtx, {
 				type: 'line',
 				data: {
@@ -201,7 +206,12 @@
 
 		// Activity Chart
 		const actCtx = document.getElementById('activity-chart') as HTMLCanvasElement;
-		if (actCtx && !activityChart) {
+		if (actCtx) {
+			// Destroy existing chart if it exists
+			if (activityChart) {
+				activityChart.destroy();
+				activityChart = null;
+			}
 			activityChart = new Chart(actCtx, {
 				type: 'line',
 				data: {
@@ -493,16 +503,7 @@
 		
 		lastSampleTime = now.getTime();
 		
-		// Reinitialize charts
-		if (performanceChart) {
-			performanceChart.destroy();
-			performanceChart = null;
-		}
-		if (activityChart) {
-			activityChart.destroy();
-			activityChart = null;
-		}
-		
+		// Reinitialize charts (initCharts will handle cleanup)
 		setTimeout(() => {
 			initCharts();
 			updateCharts(true);
