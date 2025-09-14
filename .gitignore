@@ -34,7 +34,7 @@ uploads/
 
 # Log files
 *.log
-logs/
+/logs/
 
 # IDE directories
 .idea/
