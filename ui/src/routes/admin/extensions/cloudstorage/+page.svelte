@@ -136,7 +136,7 @@
 				const promises = [];
 				
 				promises.push(
-					api.get('/extensions/cloudstorage/stats')
+					api.get('/ext/cloudstorage/stats')
 						.catch(e => {
 							console.log('Stats endpoint not available');
 							return { totalFiles: 0, totalSize: 0, totalUsers: 0, totalShares: 0 };
@@ -152,7 +152,7 @@
 				);
 				
 				promises.push(
-					api.get('/extensions/cloudstorage/quotas')
+					api.get('/ext/cloudstorage/quotas/user')
 						.catch(e => {
 							console.log('Quotas endpoint not available');
 							return [];
@@ -160,7 +160,7 @@
 				);
 				
 				promises.push(
-					api.get('/extensions/cloudstorage/access-logs?limit=50')
+					api.get('/ext/cloudstorage/access-logs?limit=50')
 						.catch(e => {
 							console.log('Access logs endpoint not available');
 							return [];
@@ -336,7 +336,7 @@
 	
 	async function updateQuota() {
 		try {
-			const response = await api.put('/ext/cloudstorage/api/quota', {
+			const response = await api.put('/ext/cloudstorage/quota', {
 				user_id: quotaForm.userId,
 				max_storage_bytes: quotaForm.maxStorageGB * 1024 * 1024 * 1024,
 				max_bandwidth_bytes: quotaForm.maxBandwidthGB * 1024 * 1024 * 1024
@@ -380,15 +380,9 @@
 		// Debounce the actual search
 		searchDebounceTimer = setTimeout(async () => {
 			try {
-				// Use the new search endpoint from cloudstorage extension
+				// Use the search endpoint from cloudstorage extension
 				// Extension routes are at /ext/ not /api/ext/
-				const response = await fetch(`/ext/cloudstorage/api/users/search?q=${encodeURIComponent(userSearchQuery)}`, {
-					headers: {
-						'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-					}
-				});
-				const data = await response.json();
-				searchResults = data || [];
+				searchResults = await api.get(`/ext/cloudstorage/users/search?q=${encodeURIComponent(userSearchQuery)}`) || [];
 			} catch (error) {
 				// If search fails, show no results
 				searchResults = [];
@@ -407,7 +401,7 @@
 	
 	async function updateDefaultQuotas() {
 		try {
-			const response = await api.put('/ext/cloudstorage/api/default-quotas', {
+			const response = await api.put('/ext/cloudstorage/default-quotas', {
 				default_storage: defaultQuotas.storage * 1024 * 1024 * 1024,
 				default_bandwidth: defaultQuotas.bandwidth * 1024 * 1024 * 1024,
 				apply_to_existing: defaultQuotas.applyToExisting
@@ -431,7 +425,7 @@
 				if (value) params.append(key, value.toString());
 			});
 			
-			const response = await api.get(`/extensions/cloudstorage/access-logs?${params}`);
+			const response = await api.get(`/ext/cloudstorage/access-logs?${params}`);
 			accessLogs = response || [];
 		} catch (error) {
 			// Silently handle error - logs might not be available

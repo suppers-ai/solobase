@@ -231,7 +231,7 @@
 		}
 		
 		try {
-			await api.delete(`/ext/products/api/products/${id}`);
+			await api.delete(`/ext/products/products/${id}`);
 			products = products.filter(p => p.id !== id);
 			await loadData();
 		} catch (error) {

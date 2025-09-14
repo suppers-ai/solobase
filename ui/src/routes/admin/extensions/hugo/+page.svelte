@@ -67,8 +67,8 @@
 			
 			// Fetch sites from API
 			const [sitesRes, statsRes] = await Promise.all([
-				api.get('/ext/hugo/api/sites'),
-				api.get('/ext/hugo/api/stats')
+				api.get('/admin/ext/hugo/sites'),
+				api.get('/admin/ext/hugo/stats')
 			]);
 			
 			sites = sitesRes || [];
@@ -108,7 +108,7 @@
 			buildingStatus[siteId] = true;
 			
 			// Trigger build via API
-			const result = await api.post(`/ext/hugo/api/sites/${siteId}/build`);
+			const result = await api.post(`/admin/ext/hugo/sites/${siteId}/build`);
 			
 			if (result) {
 				// Refresh sites to get updated status
@@ -123,7 +123,7 @@
 	
 	async function createSite() {
 		try {
-			const result = await api.post('/ext/hugo/api/sites', newSite);
+			const result = await api.post('/admin/ext/hugo/sites', newSite);
 			if (result) {
 				// Reset form
 				newSite = {
@@ -145,7 +145,7 @@
 		if (!confirm('Are you sure you want to delete this site? This action cannot be undone.')) return;
 		
 		try {
-			await api.delete(`/ext/hugo/api/sites/${id}`);
+			await api.delete(`/admin/ext/hugo/sites/${id}`);
 			// Reload sites
 			await loadSites();
 		} catch (error) {
@@ -159,7 +159,7 @@
 			creatingExample = true;
 			
 			// Create the example site
-			const exampleSite = await api.post('/ext/hugo/api/sites', {
+			const exampleSite = await api.post('/admin/ext/hugo/sites', {
 				name: 'Example Blog',
 				domain: 'example-blog.local',
 				theme: 'default',
@@ -168,7 +168,7 @@
 			
 			if (exampleSite && exampleSite.id) {
 				// Build the example site
-				await api.post(`/ext/hugo/api/sites/${exampleSite.id}/build`);
+				await api.post(`/admin/ext/hugo/sites/${exampleSite.id}/build`);
 				
 				// Mark as created
 				localStorage.setItem('hugo_example_created', 'true');
@@ -229,7 +229,7 @@
 			
 			// Try to load from API first
 			try {
-				const files = await api.get(`/ext/hugo/api/sites/${editingSite.id}/files`);
+				const files = await api.get(`/admin/ext/hugo/sites/${editingSite.id}/files`);
 				console.log('Loaded files from API:', files);
 				
 				// Check if files is an array or needs to be extracted
@@ -421,7 +421,7 @@
 			
 			// Try to load from API first
 			try {
-				const response = await api.post(`/ext/hugo/api/sites/${editingSite.id}/files/read`, {
+				const response = await api.post(`/admin/ext/hugo/sites/${editingSite.id}/files/read`, {
 					path: file.path
 				});
 				fileContent = response.content || '';
@@ -572,7 +572,7 @@ document.addEventListener('DOMContentLoaded', function() {
 			
 			// Try to save via API first
 			try {
-				await api.post(`/ext/hugo/api/sites/${editingSite.id}/files/save`, {
+				await api.post(`/admin/ext/hugo/sites/${editingSite.id}/files/save`, {
 					path: selectedFile.path,
 					content: fileContent
 				});

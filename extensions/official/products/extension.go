@@ -32,6 +32,21 @@ func NewProductsExtensionWithDB(db *gorm.DB) *ProductsExtension {
 	return ext
 }
 
+// Name returns the extension name
+func (e *ProductsExtension) Name() string {
+	return "products"
+}
+
+// Version returns the extension version
+func (e *ProductsExtension) Version() string {
+	return "1.0.0"
+}
+
+// Description returns the extension description
+func (e *ProductsExtension) Description() string {
+	return "Complete products and pricing management with dynamic fields and formula-based pricing"
+}
+
 // SetDatabase sets the database and initializes APIs
 func (e *ProductsExtension) SetDatabase(db *gorm.DB) {
 	e.db = db
@@ -86,7 +101,7 @@ func (e *ProductsExtension) GetPublicAPI() *PublicAPI {
 // Metadata returns extension metadata
 func (e *ProductsExtension) Metadata() core.ExtensionMetadata {
 	return core.ExtensionMetadata{
-		Name:        "Products & Pricing",
+		Name:        "products",
 		Version:     "1.0.0",
 		Description: "Complete products and pricing management with dynamic fields and formula-based pricing",
 		Author:      "Solobase Official",
@@ -177,7 +192,14 @@ func (e *ProductsExtension) RegisterMiddleware() []core.MiddlewareRegistration {
 
 // RegisterRoutes registers the extension's routes
 func (e *ProductsExtension) RegisterRoutes(router core.ExtensionRouter) error {
-	// Routes are registered via the main router for now
+	if e.userAPI == nil {
+		// APIs not initialized yet
+		return nil
+	}
+
+	// For now, just register the basic product list route for testing
+	router.HandleFunc("/list", e.userAPI.ListMyProducts)
+
 	return nil
 }
 

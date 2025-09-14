@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/suppers-ai/solobase/database"
 	"github.com/suppers-ai/solobase/extensions/core"
+	"github.com/suppers-ai/solobase/extensions/official/cloudstorage"
 	"github.com/suppers-ai/solobase/internal/api/handlers/auth"
 	dbhandlers "github.com/suppers-ai/solobase/internal/api/handlers/database"
 	"github.com/suppers-ai/solobase/internal/api/handlers/extensions"
@@ -221,6 +222,8 @@ func (a *API) setupRoutesWithAdmin() {
 	
 	// User endpoints (product browsing and usage)
 	protected.HandleFunc("/ext/products/products", a.productHandlers.HandleProductsList()).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/ext/products/products", a.productHandlers.HandleProductsCreate()).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/ext/products/products/{id}", extensions.HandleProductsDelete()).Methods("DELETE", "OPTIONS")
 	protected.HandleFunc("/ext/products/groups", a.productHandlers.HandleListGroups()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/ext/products/groups", a.productHandlers.HandleCreateGroup()).Methods("POST", "OPTIONS")
 	protected.HandleFunc("/ext/products/groups/{id}", a.productHandlers.HandleGetGroup()).Methods("GET", "OPTIONS")
@@ -228,6 +231,11 @@ func (a *API) setupRoutesWithAdmin() {
 	protected.HandleFunc("/ext/products/groups/{id}", a.productHandlers.HandleDeleteGroup()).Methods("DELETE", "OPTIONS")
 	protected.HandleFunc("/ext/products/groups/{id}/products", a.productHandlers.HandleGroupProducts()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/ext/products/calculate-price", a.productHandlers.HandleCalculatePrice()).Methods("POST", "OPTIONS")
+
+	// User endpoints that also need to be available (read-only access to types)
+	protected.HandleFunc("/ext/products/group-types", a.productHandlers.HandleListGroupTypes()).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/ext/products/product-types", a.productHandlers.HandleListProductTypes()).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/ext/products/variables", a.productHandlers.HandleListVariables()).Methods("GET", "OPTIONS")
 	
 	// Admin endpoints (product management)
 	admin.HandleFunc("/ext/products/products", a.productHandlers.HandleProductsCreate()).Methods("POST", "OPTIONS")
@@ -281,16 +289,32 @@ func (a *API) setupRoutesWithAdmin() {
 	admin.HandleFunc("/ext/hugo/stats", extensions.HandleHugoStats()).Methods("GET", "OPTIONS")
 	
 	// ---- Cloud Storage Extension ----
-	
-	// User endpoints
-	protected.HandleFunc("/ext/cloudstorage/shares", a.sharesHandler.HandleShares()).Methods("GET", "POST", "OPTIONS")
-	protected.HandleFunc("/ext/cloudstorage/shares/{id}", a.sharesHandler.HandleShareByID()).Methods("GET", "DELETE", "OPTIONS")
-	
-	// Admin endpoints
-	admin.HandleFunc("/ext/cloudstorage/providers", extensions.HandleCloudStorageProviders()).Methods("GET", "OPTIONS")
-	admin.HandleFunc("/ext/cloudstorage/providers", extensions.HandleCloudStorageAddProvider()).Methods("POST", "OPTIONS")
-	admin.HandleFunc("/ext/cloudstorage/activity", extensions.HandleCloudStorageActivity()).Methods("GET", "OPTIONS")
-	admin.HandleFunc("/ext/cloudstorage/stats", extensions.HandleCloudStorageStats()).Methods("GET", "OPTIONS")
+	// CloudStorage extension routes need to be registered directly with the Gorilla Mux router
+	// Get the CloudStorage extension from the registry and create handler wrappers
+
+	if a.ExtensionRegistry != nil {
+		if ext, ok := a.ExtensionRegistry.Get("cloudstorage"); ok {
+			if cloudStorageExt, ok := ext.(*cloudstorage.CloudStorageExtension); ok {
+				// Register CloudStorage routes
+				protected.HandleFunc("/ext/cloudstorage/stats", cloudStorageExt.HandleStats()).Methods("GET", "OPTIONS")
+				protected.HandleFunc("/ext/cloudstorage/shares", cloudStorageExt.HandleShares()).Methods("GET", "POST", "OPTIONS")
+				protected.HandleFunc("/ext/cloudstorage/share/{token}", cloudStorageExt.HandleShareAccess()).Methods("GET", "OPTIONS")
+				protected.HandleFunc("/ext/cloudstorage/quota", cloudStorageExt.HandleQuota()).Methods("GET", "PUT", "OPTIONS")
+				protected.HandleFunc("/ext/cloudstorage/quotas/user", cloudStorageExt.HandleGetUserQuota()).Methods("GET", "OPTIONS")
+				protected.HandleFunc("/ext/cloudstorage/access-logs", cloudStorageExt.HandleAccessLogs()).Methods("GET", "OPTIONS")
+				protected.HandleFunc("/ext/cloudstorage/access-stats", cloudStorageExt.HandleAccessStats()).Methods("GET", "OPTIONS")
+
+				// Admin routes
+				admin.HandleFunc("/ext/cloudstorage/quotas/roles", cloudStorageExt.HandleRoleQuotas()).Methods("GET", "OPTIONS")
+				admin.HandleFunc("/ext/cloudstorage/quotas/roles/{role}", cloudStorageExt.HandleUpdateRoleQuota()).Methods("PUT", "OPTIONS")
+				admin.HandleFunc("/ext/cloudstorage/quotas/overrides", cloudStorageExt.HandleUserOverrides()).Methods("GET", "OPTIONS")
+				admin.HandleFunc("/ext/cloudstorage/quotas/overrides/{user}", cloudStorageExt.HandleDeleteUserOverride()).Methods("DELETE", "OPTIONS")
+				admin.HandleFunc("/ext/cloudstorage/users/search", cloudStorageExt.HandleUserSearch()).Methods("GET", "OPTIONS")
+				admin.HandleFunc("/ext/cloudstorage/default-quotas", cloudStorageExt.HandleDefaultQuotas()).Methods("GET", "PUT", "OPTIONS")
+			}
+		}
+	}
+
 }
 func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.Router.ServeHTTP(w, r)

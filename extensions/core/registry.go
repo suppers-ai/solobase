@@ -265,6 +265,17 @@ func (r *ExtensionRegistry) GetMetrics(name string) (*ExtensionMetrics, error) {
 	return &metricsCopy, nil
 }
 
+// GetRoutes returns all registered routes
+func (r *ExtensionRegistry) GetRoutes() []RouteRegistration {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// Return a copy to avoid race conditions
+	routes := make([]RouteRegistration, len(r.routes))
+	copy(routes, r.routes)
+	return routes
+}
+
 // RegisterRoutes registers routes with the provided router
 func (r *ExtensionRegistry) RegisterRoutes(router *mux.Router) {
 	r.mu.RLock()

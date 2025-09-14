@@ -118,8 +118,8 @@
 		try {
 			loading = true;
 			const [templatesRes, variablesRes] = await Promise.all([
-				api.get('/ext/products/pricing-templates'),
-				api.get('/ext/products/variables')
+				api.get('/admin/ext/products/pricing-templates'),
+				api.get('/admin/ext/products/variables')
 			]);
 			pricingTemplates = templatesRes || [];
 			availableVariables = variablesRes || [];
@@ -163,7 +163,7 @@
 			const allVars = [...new Set([...priceVars, ...conditionVars])];
 			newTemplate.variables = { required: allVars };
 			
-			const result = await api.post('/ext/products/pricing-templates', newTemplate);
+			const result = await api.post('/admin/ext/products/pricing-templates', newTemplate);
 			if (result) {
 				// Reset form
 				newTemplate = {

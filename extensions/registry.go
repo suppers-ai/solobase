@@ -21,6 +21,15 @@ func RegisterAllExtensions(registry *core.ExtensionRegistry, db *gorm.DB) error 
 	// Set the database to trigger migrations
 	productsExt.SetDatabase(db)
 
+	// Enable Products extension by default
+	fmt.Printf("Enabling Products extension...\n")
+	if err := registry.Enable("products"); err != nil {
+		// Log but don't fail - extension can still work without being enabled
+		fmt.Printf("Warning: Failed to enable Products extension: %v\n", err)
+	} else {
+		fmt.Printf("Products extension enabled successfully\n")
+	}
+
 	// Register Hugo extension
 	// Hugo extension temporarily disabled - needs API updates
 	// if err := registry.Register(hugo.NewHugoExtension()); err != nil {

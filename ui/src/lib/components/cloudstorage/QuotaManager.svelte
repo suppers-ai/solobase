@@ -1,7 +1,8 @@
 <script>
 	import { onMount } from 'svelte';
 	import { createEventDispatcher } from 'svelte';
-	
+	import { api } from '$lib/api';
+
 	const dispatch = createEventDispatcher();
 	
 	export let roles = [];
@@ -46,25 +47,19 @@
 		loading = true;
 		try {
 			// Load role quotas
-			const quotaResponse = await fetch('/ext/cloudstorage/api/quotas/roles', {
-				headers: {
-					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-				}
-			});
-			
-			if (quotaResponse.ok) {
-				roleQuotas = await quotaResponse.json();
+			try {
+				roleQuotas = await api.get('/admin/ext/cloudstorage/quotas/roles') || [];
+			} catch (error) {
+				console.error('Failed to load role quotas:', error);
+				roleQuotas = [];
 			}
 			
 			// Load user overrides
-			const overrideResponse = await fetch('/ext/cloudstorage/api/quotas/overrides', {
-				headers: {
-					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-				}
-			});
-			
-			if (overrideResponse.ok) {
-				userOverrides = await overrideResponse.json();
+			try {
+				userOverrides = await api.get('/admin/ext/cloudstorage/quotas/overrides') || [];
+			} catch (error) {
+				console.error('Failed to load user overrides:', error);
+				userOverrides = [];
 			}
 		} catch (error) {
 			console.error('Failed to load quotas:', error);
@@ -90,28 +85,17 @@
 	
 	async function saveQuota() {
 		try {
-			const response = await fetch(`/ext/cloudstorage/api/quotas/roles/${quotaForm.roleId}`, {
-				method: 'PUT',
-				headers: {
-					'Content-Type': 'application/json',
-					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-				},
-				body: JSON.stringify({
-					max_storage_bytes: quotaForm.maxStorageBytes,
-					max_bandwidth_bytes: quotaForm.maxBandwidthBytes,
-					max_upload_size: quotaForm.maxUploadSize,
-					max_files_count: quotaForm.maxFilesCount,
-					allowed_extensions: quotaForm.allowedExtensions,
-					blocked_extensions: quotaForm.blockedExtensions
-				})
+			await api.put(`/admin/ext/cloudstorage/quotas/roles/${quotaForm.roleId}`, {
+				max_storage_bytes: quotaForm.maxStorageBytes,
+				max_bandwidth_bytes: quotaForm.maxBandwidthBytes,
+				max_upload_size: quotaForm.maxUploadSize,
+				max_files_count: quotaForm.maxFilesCount,
+				allowed_extensions: quotaForm.allowedExtensions,
+				blocked_extensions: quotaForm.blockedExtensions
 			});
-			
-			if (response.ok) {
-				showEditModal = false;
-				await loadQuotas();
-			} else {
-				alert('Failed to update quota');
-			}
+
+			showEditModal = false;
+			await loadQuotas();
 		} catch (error) {
 			console.error('Failed to save quota:', error);
 			alert('Failed to update quota');
@@ -120,33 +104,22 @@
 	
 	async function createOverride() {
 		try {
-			const response = await fetch('/ext/cloudstorage/api/quotas/overrides', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-				},
-				body: JSON.stringify(overrideForm)
-			});
-			
-			if (response.ok) {
-				showOverrideModal = false;
-				await loadQuotas();
-				// Reset form
-				overrideForm = {
-					userId: '',
-					maxStorageBytes: null,
-					maxBandwidthBytes: null,
-					maxUploadSize: null,
-					maxFilesCount: null,
-					allowedExtensions: null,
-					blockedExtensions: null,
-					reason: '',
-					expiresAt: null
-				};
-			} else {
-				alert('Failed to create override');
-			}
+			await api.post('/admin/ext/cloudstorage/quotas/overrides', overrideForm);
+
+			showOverrideModal = false;
+			await loadQuotas();
+			// Reset form
+			overrideForm = {
+				userId: '',
+				maxStorageBytes: null,
+				maxBandwidthBytes: null,
+				maxUploadSize: null,
+				maxFilesCount: null,
+				allowedExtensions: null,
+				blockedExtensions: null,
+				reason: '',
+				expiresAt: null
+			};
 		} catch (error) {
 			console.error('Failed to create override:', error);
 			alert('Failed to create override');
@@ -159,18 +132,8 @@
 		}
 		
 		try {
-			const response = await fetch(`/ext/cloudstorage/api/quotas/overrides/${override.id}`, {
-				method: 'DELETE',
-				headers: {
-					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-				}
-			});
-			
-			if (response.ok) {
-				await loadQuotas();
-			} else {
-				alert('Failed to delete override');
-			}
+			await api.delete(`/admin/ext/cloudstorage/quotas/overrides/${override.id}`);
+			await loadQuotas();
 		} catch (error) {
 			console.error('Failed to delete override:', error);
 			alert('Failed to delete override');

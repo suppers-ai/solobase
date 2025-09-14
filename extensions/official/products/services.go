@@ -218,7 +218,7 @@ func (s *ProductService) ListByUser(userID uint) ([]models.Product, error) {
 
 	// First, get all group IDs for the user
 	var groupIDs []uint
-	if err := s.db.Table("groups").Where("user_id = ?", userID).Pluck("id", &groupIDs).Error; err != nil {
+	if err := s.db.Model(&models.Group{}).Where("user_id = ?", userID).Pluck("id", &groupIDs).Error; err != nil {
 		return nil, err
 	}
 

@@ -212,9 +212,9 @@
 		try {
 			// Load storage statistics
 			const [statsRes, quotaRes, logsRes] = await Promise.all([
-				api.get('/ext/cloudstorage/api/stats').catch(() => null),
-				api.get('/ext/cloudstorage/api/quota/me').catch(() => null),
-				api.get('/ext/cloudstorage/api/access-logs?user_id=me&limit=10').catch(() => null)
+				api.get('/ext/cloudstorage/stats').catch(() => null),
+				api.get('/ext/cloudstorage/quotas/user').catch(() => null),
+				api.get('/ext/cloudstorage/access-logs?user_id=me&limit=10').catch(() => null)
 			]);
 			
 			storageStats = statsRes;

@@ -38,11 +38,6 @@ type QuotaResponse struct {
 
 // handleShares manages file sharing operations
 func (e *CloudStorageExtension) handleShares(w http.ResponseWriter, r *http.Request) {
-	if e.shareService == nil {
-		http.Error(w, "Sharing is not enabled", http.StatusNotImplemented)
-		return
-	}
-
 	ctx := r.Context()
 	// SECURITY: Get user info from JWT token context, not headers
 	user, ok := ctx.Value("user").(*auth.User)
@@ -51,6 +46,18 @@ func (e *CloudStorageExtension) handleShares(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	userID := user.ID.String()
+
+	// If share service is not initialized, return empty array for GET, error for POST
+	if e.shareService == nil {
+		if r.Method == http.MethodGet {
+			// Return empty array for GET requests
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]interface{}{})
+			return
+		}
+		http.Error(w, "Sharing is not enabled", http.StatusNotImplemented)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodPost:
@@ -822,22 +829,21 @@ func (e *CloudStorageExtension) handleUserSearch(w http.ResponseWriter, r *http.
 
 // handleGetRoleQuotas returns all role quotas
 func (e *CloudStorageExtension) handleGetRoleQuotas(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	// SECURITY: Get user info from JWT token context, not headers
-	user, ok := ctx.Value("user").(*auth.User)
-	// Check admin role via IAM service
-	isAdmin := false
-	if ok && e.services != nil && e.services.IAM() != nil {
-		isAdmin, _ = e.services.IAM().UserHasRole(user.ID.String(), "admin")
-	}
-	if !ok || !isAdmin {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	// Note: Admin check is already done by AdminMiddleware in router
+	// This handler is only called for admin routes
+
+	if e.db == nil {
+		// Return empty array if database not initialized
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]RoleQuota{})
 		return
 	}
 
 	var quotas []RoleQuota
 	if err := e.db.Find(&quotas).Error; err != nil {
-		http.Error(w, "Failed to retrieve role quotas", http.StatusInternalServerError)
+		// Return empty array on error instead of 500
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]RoleQuota{})
 		return
 	}
 
@@ -847,18 +853,7 @@ func (e *CloudStorageExtension) handleGetRoleQuotas(w http.ResponseWriter, r *ht
 
 // handleUpdateRoleQuota updates quota for a specific role
 func (e *CloudStorageExtension) handleUpdateRoleQuota(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	// SECURITY: Get user info from JWT token context, not headers  
-	user, ok := ctx.Value("user").(*auth.User)
-	// Check admin role via IAM service
-	isAdmin := false
-	if ok && e.services != nil && e.services.IAM() != nil {
-		isAdmin, _ = e.services.IAM().UserHasRole(user.ID.String(), "admin")
-	}
-	if !ok || !isAdmin {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
+	// Note: Admin check is already done by AdminMiddleware in router
 
 	// Get role ID from URL path
 	parts := strings.Split(r.URL.Path, "/")
@@ -903,23 +898,22 @@ func (e *CloudStorageExtension) handleUpdateRoleQuota(w http.ResponseWriter, r *
 
 // handleGetUserOverrides returns all user quota overrides
 func (e *CloudStorageExtension) handleGetUserOverrides(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	// SECURITY: Get user info from JWT token context, not headers
-	user, ok := ctx.Value("user").(*auth.User)
-	// Check admin role via IAM service
-	isAdmin := false
-	if ok && e.services != nil && e.services.IAM() != nil {
-		isAdmin, _ = e.services.IAM().UserHasRole(user.ID.String(), "admin")
-	}
-	if !ok || !isAdmin {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	// Note: Admin check is already done by AdminMiddleware in router
+
+	if e.db == nil {
+		// Return empty array if database not initialized
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]UserQuotaOverride{})
 		return
 	}
 
 	var overrides []UserQuotaOverride
-	if err := e.db.Where("expires_at IS NULL OR expires_at > NOW()").
+	// Use datetime('now') for SQLite compatibility
+	if err := e.db.Where("expires_at IS NULL OR expires_at > datetime('now')").
 		Find(&overrides).Error; err != nil {
-		http.Error(w, "Failed to retrieve user overrides", http.StatusInternalServerError)
+		// Return empty array on error instead of 500
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]UserQuotaOverride{})
 		return
 	}
 
@@ -929,18 +923,11 @@ func (e *CloudStorageExtension) handleGetUserOverrides(w http.ResponseWriter, r 
 
 // handleCreateUserOverride creates a new user quota override
 func (e *CloudStorageExtension) handleCreateUserOverride(w http.ResponseWriter, r *http.Request) {
+	// Note: Admin check is already done by AdminMiddleware in router
 	ctx := r.Context()
-	// SECURITY: Get user info from JWT token context, not headers
-	user, ok := ctx.Value("user").(*auth.User)
-	// Check admin role via IAM service
-	isAdmin := false
-	if ok && e.services != nil && e.services.IAM() != nil {
-		isAdmin, _ = e.services.IAM().UserHasRole(user.ID.String(), "admin")
-	}
-	if !ok || !isAdmin {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
+
+	// Get user for audit purposes
+	user, _ := ctx.Value("user").(*auth.User)
 
 	var override UserQuotaOverride
 	if err := json.NewDecoder(r.Body).Decode(&override); err != nil {
@@ -987,18 +974,7 @@ func (e *CloudStorageExtension) handleCreateUserOverride(w http.ResponseWriter, 
 
 // handleDeleteUserOverride deletes a user quota override
 func (e *CloudStorageExtension) handleDeleteUserOverride(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	// SECURITY: Get user info from JWT token context, not headers
-	user, ok := ctx.Value("user").(*auth.User)
-	// Check admin role via IAM service
-	isAdmin := false
-	if ok && e.services != nil && e.services.IAM() != nil {
-		isAdmin, _ = e.services.IAM().UserHasRole(user.ID.String(), "admin")
-	}
-	if !ok || !isAdmin {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
+	// Note: Admin check is already done by AdminMiddleware in router
 
 	// Get override ID from URL path
 	parts := strings.Split(r.URL.Path, "/")
@@ -1081,4 +1057,50 @@ func (e *CloudStorageExtension) handleGetUserQuota(w http.ResponseWriter, r *htt
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(quota)
+}
+
+// handleDefaultQuotas manages default quota settings
+func (e *CloudStorageExtension) handleDefaultQuotas(w http.ResponseWriter, r *http.Request) {
+	// Note: Admin check is already done by AdminMiddleware in router
+
+	if e.quotaService == nil {
+		http.Error(w, "Quota service not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// Get default quotas
+		quotas := map[string]interface{}{
+			"default_storage": e.config.DefaultStorageLimit,
+			"default_bandwidth": e.config.DefaultBandwidthLimit,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(quotas)
+
+	case http.MethodPut:
+		// Update default quotas
+		var req struct {
+			DefaultStorage   int64 `json:"default_storage"`
+			DefaultBandwidth int64 `json:"default_bandwidth"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Update configuration
+		e.config.DefaultStorageLimit = req.DefaultStorage
+		e.config.DefaultBandwidthLimit = req.DefaultBandwidth
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Default quotas updated successfully",
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }

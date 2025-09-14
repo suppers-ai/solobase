@@ -133,16 +133,16 @@ func (e *WebhooksExtension) RegisterRoutes(router core.ExtensionRouter) error {
 	router.HandleFunc("/dashboard", e.DashboardHandler())
 
 	// Webhook management endpoints
-	router.HandleFunc("/api/webhooks", e.handleListWebhooks)
-	router.HandleFunc("/api/webhooks/create", e.handleCreateWebhook)
-	router.HandleFunc("/api/webhooks/{id}", e.handleGetWebhook)
-	router.HandleFunc("/api/webhooks/{id}/update", e.handleUpdateWebhook)
-	router.HandleFunc("/api/webhooks/{id}/delete", e.handleDeleteWebhook)
-	router.HandleFunc("/api/webhooks/{id}/test", e.handleTestWebhook)
+	router.HandleFunc("/webhooks", e.handleListWebhooks)
+	router.HandleFunc("/webhooks/create", e.handleCreateWebhook)
+	router.HandleFunc("/webhooks/{id}", e.handleGetWebhook)
+	router.HandleFunc("/webhooks/{id}/update", e.handleUpdateWebhook)
+	router.HandleFunc("/webhooks/{id}/delete", e.handleDeleteWebhook)
+	router.HandleFunc("/webhooks/{id}/test", e.handleTestWebhook)
 
 	// Delivery history
-	router.HandleFunc("/api/webhooks/{id}/deliveries", e.handleListDeliveries)
-	router.HandleFunc("/api/webhooks/deliveries/{deliveryId}", e.handleGetDelivery)
+	router.HandleFunc("/webhooks/{id}/deliveries", e.handleListDeliveries)
+	router.HandleFunc("/webhooks/deliveries/{deliveryId}", e.handleGetDelivery)
 
 	return nil
 }

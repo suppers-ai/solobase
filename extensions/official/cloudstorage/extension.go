@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -144,29 +145,29 @@ func (e *CloudStorageExtension) Health(ctx context.Context) (*core.HealthStatus,
 // RegisterRoutes registers HTTP routes
 func (e *CloudStorageExtension) RegisterRoutes(router core.ExtensionRouter) error {
 	// Core storage routes
-	router.HandleFunc("/api/buckets", e.handleBuckets)
-	router.HandleFunc("/api/upload", e.handleUpload)
-	router.HandleFunc("/api/download", e.handleDownload)
-	router.HandleFunc("/api/stats", e.handleStats)
+	router.HandleFunc("/buckets", e.handleBuckets)
+	router.HandleFunc("/upload", e.handleUpload)
+	router.HandleFunc("/download", e.handleDownload)
+	router.HandleFunc("/stats", e.handleStats)
 
 	// Sharing routes
-	router.HandleFunc("/api/shares", e.handleShares)
+	router.HandleFunc("/shares", e.handleShares)
 	router.HandleFunc("/share/*", e.handleShareAccess) // Public share access
 
 	// Quota management routes
-	router.HandleFunc("/api/quota", e.handleQuota)
-	router.HandleFunc("/api/quotas/roles", e.handleRoleQuotas)
-	router.HandleFunc("/api/quotas/roles/*", e.handleUpdateRoleQuota)
-	router.HandleFunc("/api/quotas/overrides", e.handleUserOverrides)
-	router.HandleFunc("/api/quotas/overrides/*", e.handleDeleteUserOverride)
-	router.HandleFunc("/api/quotas/user", e.handleGetUserQuota)
+	router.HandleFunc("/quota", e.handleQuota)
+	router.HandleFunc("/quotas/roles", e.handleRoleQuotas)
+	router.HandleFunc("/quotas/roles/*", e.handleUpdateRoleQuota)
+	router.HandleFunc("/quotas/overrides", e.handleUserOverrides)
+	router.HandleFunc("/quotas/overrides/*", e.handleDeleteUserOverride)
+	router.HandleFunc("/quotas/user", e.handleGetUserQuota)
 
 	// Access logging routes
-	router.HandleFunc("/api/access-logs", e.handleAccessLogs)
-	router.HandleFunc("/api/access-stats", e.handleAccessStats)
+	router.HandleFunc("/access-logs", e.handleAccessLogs)
+	router.HandleFunc("/access-stats", e.handleAccessStats)
 
 	// Admin routes
-	router.HandleFunc("/api/users/search", e.handleUserSearch)
+	router.HandleFunc("/users/search", e.handleUserSearch)
 
 	// Log that routes were registered
 	fmt.Printf("CloudStorage extension routes registered successfully\n")
@@ -425,4 +426,57 @@ func (e *CloudStorageExtension) initializeServices() {
 	// This will be properly initialized when the Initialize method is called with services
 	e.quotaService = NewQuotaService(e.db)
 	e.accessLogService = NewAccessLogService(e.db)
+}
+
+// Public handler methods for router registration
+func (e *CloudStorageExtension) HandleStats() http.HandlerFunc {
+	return e.handleStats
+}
+
+func (e *CloudStorageExtension) HandleShares() http.HandlerFunc {
+	return e.handleShares
+}
+
+func (e *CloudStorageExtension) HandleShareAccess() http.HandlerFunc {
+	return e.handleShareAccess
+}
+
+func (e *CloudStorageExtension) HandleQuota() http.HandlerFunc {
+	return e.handleQuota
+}
+
+func (e *CloudStorageExtension) HandleGetUserQuota() http.HandlerFunc {
+	return e.handleGetUserQuota
+}
+
+func (e *CloudStorageExtension) HandleAccessLogs() http.HandlerFunc {
+	return e.handleAccessLogs
+}
+
+func (e *CloudStorageExtension) HandleAccessStats() http.HandlerFunc {
+	return e.handleAccessStats
+}
+
+func (e *CloudStorageExtension) HandleRoleQuotas() http.HandlerFunc {
+	return e.handleRoleQuotas
+}
+
+func (e *CloudStorageExtension) HandleUpdateRoleQuota() http.HandlerFunc {
+	return e.handleUpdateRoleQuota
+}
+
+func (e *CloudStorageExtension) HandleUserOverrides() http.HandlerFunc {
+	return e.handleUserOverrides
+}
+
+func (e *CloudStorageExtension) HandleDeleteUserOverride() http.HandlerFunc {
+	return e.handleDeleteUserOverride
+}
+
+func (e *CloudStorageExtension) HandleUserSearch() http.HandlerFunc {
+	return e.handleUserSearch
+}
+
+func (e *CloudStorageExtension) HandleDefaultQuotas() http.HandlerFunc {
+	return e.handleDefaultQuotas
 }
