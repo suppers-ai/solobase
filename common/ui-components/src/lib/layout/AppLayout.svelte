@@ -53,7 +53,7 @@
 	<!-- Sidebar with overlay for mobile -->
 	<div class="sidebar-container {mobileMenuOpen ? 'active' : ''}">
 		{#if windowWidth < 768 && mobileMenuOpen}
-			<div class="sidebar-overlay" on:click={toggleMobileMenu}></div>
+			<div class="sidebar-overlay" role="button" tabindex="-1" on:click={toggleMobileMenu} on:keydown={(e) => e.key === 'Escape' && toggleMobileMenu()}></div>
 		{/if}
 		<div class="sidebar-wrapper">
 			<Sidebar 

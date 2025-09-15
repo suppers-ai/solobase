@@ -77,9 +77,17 @@ func NewAPI(
 func (a *API) setupRoutesWithAdmin() {
 	apiRouter := a.Router
 
+	// Apply security middleware first
+	apiRouter.Use(middleware.SecurityHeadersMiddleware)
+	apiRouter.Use(middleware.ReadOnlyMiddleware)
+
 	// Apply CORS and Metrics middleware to all API routes
 	apiRouter.Use(middleware.CORSMiddleware)
 	apiRouter.Use(middleware.MetricsMiddleware)
+
+	// Apply rate limiting for demo mode
+	rateLimiter := middleware.NewRateLimitMiddleware()
+	apiRouter.Use(rateLimiter.Middleware)
 
 	// ==================================
 	// PUBLIC ROUTES (no auth required)

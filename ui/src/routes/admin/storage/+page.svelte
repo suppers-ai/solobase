@@ -1210,8 +1210,8 @@
 
 <!-- Create Bucket Modal -->
 {#if showCreateBucketModal}
-	<div class="modal-overlay" on:click={closeCreateBucketModal}>
-		<div class="modal modal-sm" on:click|stopPropagation>
+	<div class="modal-overlay" role="button" tabindex="-1" on:click={closeCreateBucketModal} on:keydown={(e) => e.key === 'Escape' && closeCreateBucketModal()}>
+		<div class="modal modal-sm" role="dialog" aria-modal="true" on:click|stopPropagation>
 			<div class="modal-header">
 				<h3 class="modal-title">Create Bucket</h3>
 				<button class="modal-close" on:click={closeCreateBucketModal}>
@@ -1250,8 +1250,8 @@
 
 <!-- Create Folder Modal -->
 {#if showCreateFolderModal}
-	<div class="modal-overlay" on:click={closeCreateFolderModal}>
-		<div class="modal modal-sm" on:click|stopPropagation>
+	<div class="modal-overlay" role="button" tabindex="-1" on:click={closeCreateFolderModal} on:keydown={(e) => e.key === 'Escape' && closeCreateFolderModal()}>
+		<div class="modal modal-sm" role="dialog" aria-modal="true" on:click|stopPropagation>
 			<div class="modal-header">
 				<h3 class="modal-title">Create Folder</h3>
 				<button class="modal-close" on:click={closeCreateFolderModal}>
@@ -1281,8 +1281,8 @@
 
 <!-- Upload Modal -->
 {#if showUploadModal}
-	<div class="modal-overlay" on:click={closeUploadModal}>
-		<div class="modal" on:click|stopPropagation>
+	<div class="modal-overlay" role="button" tabindex="-1" on:click={closeUploadModal} on:keydown={(e) => e.key === 'Escape' && closeUploadModal()}>
+		<div class="modal" role="dialog" aria-modal="true" on:click|stopPropagation>
 			<div class="modal-header">
 				<h3 class="modal-title">Upload Files</h3>
 				<button class="modal-close" on:click={closeUploadModal}>
@@ -1379,8 +1379,8 @@
 
 <!-- Delete Confirmation Modal -->
 {#if showDeleteModal}
-	<div class="modal-overlay" on:click={closeDeleteModal}>
-		<div class="modal modal-sm" on:click|stopPropagation>
+	<div class="modal-overlay" role="button" tabindex="-1" on:click={closeDeleteModal} on:keydown={(e) => e.key === 'Escape' && closeDeleteModal()}>
+		<div class="modal modal-sm" role="dialog" aria-modal="true" on:click|stopPropagation>
 			<div class="modal-header">
 				<h3 class="modal-title">Delete {itemToDelete?.type === 'folder' ? 'Folder' : 'File'}</h3>
 				<button class="modal-close" on:click={closeDeleteModal}>
@@ -1407,8 +1407,8 @@
 
 <!-- Rename Modal -->
 {#if showRenameModal}
-	<div class="modal-overlay" on:click={closeRenameModal}>
-		<div class="modal modal-sm" on:click|stopPropagation>
+	<div class="modal-overlay" role="button" tabindex="-1" on:click={closeRenameModal} on:keydown={(e) => e.key === 'Escape' && closeRenameModal()}>
+		<div class="modal modal-sm" role="dialog" aria-modal="true" on:click|stopPropagation>
 			<div class="modal-header">
 				<h3 class="modal-title">Rename {itemToRename?.type === 'folder' ? 'Folder' : 'File'}</h3>
 				<button class="modal-close" on:click={closeRenameModal}>
@@ -1438,8 +1438,8 @@
 
 <!-- Preview Modal -->
 {#if showPreviewModal}
-	<div class="modal-overlay" on:click={closePreviewModal}>
-		<div class="modal modal-lg" on:click|stopPropagation>
+	<div class="modal-overlay" role="button" tabindex="-1" on:click={closePreviewModal} on:keydown={(e) => e.key === 'Escape' && closePreviewModal()}>
+		<div class="modal modal-lg" role="dialog" aria-modal="true" on:click|stopPropagation>
 			<div class="modal-header">
 				<h3 class="modal-title">Preview: {previewItem?.name || 'File'}</h3>
 				<button class="modal-close" on:click={closePreviewModal}>
@@ -1729,11 +1729,6 @@
 		color: var(--text-primary);
 	}
 	
-	.files-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-	}
 	
 	.view-toggles {
 		display: flex;
@@ -1854,17 +1849,6 @@
 		text-overflow: ellipsis;
 	}
 	
-	.file-card-actions {
-		display: flex;
-		gap: 0.25rem;
-		margin-top: auto;
-		opacity: 0;
-		transition: opacity 0.2s;
-	}
-	
-	.file-card:hover .file-card-actions {
-		opacity: 1;
-	}
 	
 	.empty-folder {
 		grid-column: 1 / -1;

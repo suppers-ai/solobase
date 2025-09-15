@@ -207,9 +207,22 @@ func NewWithOptions(opts *Options) *App {
 		app.config.Database = parsePostgresURL(opts.DatabaseURL)
 	} else {
 		// SQLite
+		dbURL := opts.DatabaseURL
+
+		// Add read-only mode if READONLY_MODE is enabled
+		if os.Getenv("READONLY_MODE") == "true" {
+			// Check if URL already has query parameters
+			if strings.Contains(dbURL, "?") {
+				dbURL += "&mode=ro"
+			} else {
+				dbURL += "?mode=ro"
+			}
+			log.Printf("Read-only mode enabled - database will be opened in read-only mode")
+		}
+
 		app.config.Database = database.Config{
 			Type:     "sqlite",
-			Database: opts.DatabaseURL,
+			Database: dbURL,
 		}
 	}
 
@@ -255,29 +268,34 @@ func (app *App) Initialize() error {
 	}
 	app.db = db
 
-	// Run migrations
-	if err := db.Migrate(); err != nil {
-		return fmt.Errorf("failed to run migrations: %w", err)
+	// Skip migrations and auto-migrate in read-only mode
+	if os.Getenv("READONLY_MODE") == "true" {
+		log.Printf("Read-only mode: Skipping database migrations and table creation")
+	} else {
+		// Run migrations
+		if err := db.Migrate(); err != nil {
+			return fmt.Errorf("failed to run migrations: %w", err)
+		}
+
+		// Auto-migrate models
+		db.AutoMigrate(
+			&auth.User{},
+			&models.Setting{},
+			&models.StorageDownloadToken{},
+			&models.StorageUploadToken{},
+			&storage.StorageObject{},
+			&storage.StorageBucket{},
+			&logger.LogModel{},
+			&logger.RequestLogModel{},
+			// IAM models
+			&iam.Role{},
+			&iam.UserRole{},
+			&iam.IAMAuditLog{},
+		)
 	}
 
 	// Initialize database logger
 	dbLogger := services.NewDBLogger(db)
-
-	// Auto-migrate models
-	db.AutoMigrate(
-		&auth.User{},
-		&models.Setting{},
-		&models.StorageDownloadToken{},
-		&models.StorageUploadToken{},
-		&storage.StorageObject{},
-		&storage.StorageBucket{},
-		&logger.LogModel{},
-		&logger.RequestLogModel{},
-		// IAM models
-		&iam.Role{},
-		&iam.UserRole{},
-		&iam.IAMAuditLog{},
-	)
 
 	// Setup database metrics
 	database.RecordDBQueryFunc = middleware.RecordDBQuery
@@ -302,8 +320,10 @@ func (app *App) Initialize() error {
 		IAM:        iamService,
 	}
 
-	// Create default admin
-	if app.config.AdminEmail != "" && app.config.AdminPassword != "" {
+	// Create default admin (skip in read-only mode)
+	if os.Getenv("READONLY_MODE") == "true" {
+		log.Printf("Read-only mode: Skipping default admin creation")
+	} else if app.config.AdminEmail != "" && app.config.AdminPassword != "" {
 		log.Printf("Creating default admin with email: %s", app.config.AdminEmail)
 		if err := app.services.Auth.CreateDefaultAdmin(app.config.AdminEmail, app.config.AdminPassword); err != nil {
 			log.Printf("Warning: Failed to create default admin: %v", err)
