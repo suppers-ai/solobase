@@ -55,7 +55,6 @@ temp/
 # Build artifacts
 dist/
 build/
-ui/build/
 .svelte-kit/
 ui/.svelte-kit/
 

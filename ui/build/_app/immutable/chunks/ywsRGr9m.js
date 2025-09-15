@@ -1,0 +1,1 @@
+import{g as e}from"./B3l2LnzV.js";import{P as o}from"./BDqP8p-g.js";import{c as s,u as t}from"./s0hTdxz5.js";function f(){if(!o(s))return e("/login"),!1;const r=o(t);return!r||!r.includes("admin")?(e("/profile"),!1):!0}export{f as r};

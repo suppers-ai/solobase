@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text Selection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .test-group {
+            margin-bottom: 20px;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-top: 5px;
+        }
+        h2 {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Plain HTML Text Selection Test</h1>
+    
+    <div class="test-group">
+        <h2>Test 1: Regular Input</h2>
+        <input type="text" value="Can you select this text?" />
+    </div>
+    
+    <div class="test-group">
+        <h2>Test 2: Textarea</h2>
+        <textarea rows="3">Can you select this text in a textarea?</textarea>
+    </div>
+    
+    <div class="test-group">
+        <h2>Test 3: Email Input</h2>
+        <input type="email" value="test@example.com" />
+    </div>
+    
+    <div class="test-group">
+        <h2>Test 4: Password Input</h2>
+        <input type="password" value="password123" />
+    </div>
+    
+    <p>If you can select text in these inputs, the issue is specific to the Svelte app.</p>
+</body>
+</html>
