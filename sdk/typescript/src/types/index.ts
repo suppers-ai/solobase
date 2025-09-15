@@ -1,5 +1,16 @@
 // Common types used across the SDK
 
+// Re-export auto-generated database types
+export * from './database';
+
+// Import generated types for aliasing
+import {
+  AuthUser as GeneratedAuthUser,
+  StorageStorageObject as GeneratedStorageObject,
+  StorageStorageBucket as GeneratedBucket,
+  IAMRole as GeneratedIAMRole
+} from './database';
+
 export interface SolobaseConfig {
   url: string;
   apiKey?: string;
@@ -7,15 +18,10 @@ export interface SolobaseConfig {
   timeout?: number;
 }
 
-export interface User {
-  id: string;
-  email: string;
-  roles?: string[];  // Array of role names from IAM system
-  confirmed: boolean;
-  created_at: string;
-  updated_at: string;
-  metadata?: Record<string, any>;
-}
+// Type alias for backward compatibility - uses generated type
+export type User = GeneratedAuthUser & {
+  roles?: string[];  // Additional field for runtime role names
+};
 
 export interface AuthTokens {
   access_token: string;
@@ -24,22 +30,8 @@ export interface AuthTokens {
   token_type: string;
 }
 
-// Matches the Go StorageObject struct exactly
-export interface StorageObject {
-  id: string;
-  bucket_name: string;
-  object_name: string;  // Just the name (file.txt or foldername)
-  parent_folder_id?: string | null;  // ID of parent folder, null for root items
-  size: number;
-  content_type: string;  // "application/x-directory" for folders
-  checksum?: string;
-  metadata?: string;  // JSON string containing metadata
-  created_at: string | Date;
-  updated_at: string | Date;
-  last_viewed?: string | Date | null;
-  user_id?: string;
-  app_id?: string | null;
-}
+// Type alias for backward compatibility - uses generated type
+export type StorageObject = GeneratedStorageObject;
 
 // Metadata structure (stored as JSON string in StorageObject.metadata)
 export interface StorageObjectMetadata {
@@ -54,13 +46,8 @@ export interface StorageObjectMetadata {
   [key: string]: any;  // Allow additional custom fields
 }
 
-export interface Bucket {
-  id: string;
-  name: string;
-  public: boolean;
-  created_at: string;
-  updated_at: string;
-}
+// Type alias for backward compatibility - uses generated type
+export type Bucket = GeneratedBucket;
 
 export interface Collection {
   id: string;
@@ -94,20 +81,8 @@ export interface ApiResponse<T = any> {
   };
 }
 
-// IAM Types
-export interface IAMRole {
-  id?: string;
-  name: string;
-  display_name?: string;
-  description?: string;
-  is_system?: boolean;
-  metadata?: {
-    allowed_ips?: string[];
-    disabled_features?: string[];
-  };
-  created_at?: string;
-  updated_at?: string;
-}
+// Re-export IAMRole from generated types
+export type IAMRole = GeneratedIAMRole;
 
 export interface IAMPolicy {
   id?: string;

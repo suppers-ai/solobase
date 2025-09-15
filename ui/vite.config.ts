@@ -12,7 +12,7 @@ try {
 	// Not in a git repository (e.g., Docker build), use default
 	console.log('Not in git repository, using default version: demo');
 }
-const buildDate = new Date().toISOString().split('T')[0];
+const buildDate = new Date().toISOString().replace('T', ' ').split('.')[0];
 
 export default defineConfig({
 	plugins: [sveltekit()],

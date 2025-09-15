@@ -6,6 +6,8 @@
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "scripts": {
+    "generate:types": "cd ../.. && go run scripts/generate-types.go",
+    "prebuild": "npm run generate:types",
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "test": "ts-node --project tsconfig.test.json test/test-all.ts",
