@@ -8,7 +8,7 @@
 
 # Solobase
 
-Solobase is a modern, self-hosted backend solution that provides a complete suite of features for building web applications. It includes authentication, database management, file storage, real-time capabilities, and an intuitive admin interface - all in a single binary.
+What if deploying a backend was as simple as running a single file? No Docker containers, no Node.js runtime, no required dependencies - just download and run. Solobase delivers auth, database, storage, UI components, and extension capabilities, all in one single self-contained binary, that you can run in literally seconds. The backend you've been waiting for - powerful enough for production, simple enough for anyone, free from lock-in.
 
 ## Installation
 

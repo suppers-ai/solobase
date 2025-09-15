@@ -32,6 +32,10 @@
 	},
 	"dependencies": {
 		"@common/ui-components": "file:../common/ui-components",
+		"@tiptap/core": "^3.4.2",
+		"@tiptap/extension-link": "^3.4.2",
+		"@tiptap/pm": "^3.4.2",
+		"@tiptap/starter-kit": "^3.4.2",
 		"chart.js": "^4.5.0",
 		"chartjs-adapter-date-fns": "^3.0.0",
 		"date-fns": "^4.1.0",

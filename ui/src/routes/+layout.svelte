@@ -80,12 +80,16 @@
 					title: 'Cloud Storage', 
 					href: '/admin/extensions/cloudstorage'
 				},
-				{ 
-					title: 'Webhooks', 
+				{
+					title: 'Webhooks',
 					href: '/admin/extensions/webhooks'
 				},
-				{ 
-					title: 'Manage Extensions', 
+				{
+					title: 'Legal Pages',
+					href: '/admin/extensions/legalpages'
+				},
+				{
+					title: 'Manage Extensions',
 					href: '/admin/extensions/manage',
 					icon: Plus
 				}

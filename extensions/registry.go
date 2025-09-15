@@ -5,6 +5,7 @@ import (
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/extensions/official/analytics"
 	"github.com/suppers-ai/solobase/extensions/official/cloudstorage"
+	"github.com/suppers-ai/solobase/extensions/official/legalpages"
 	// "github.com/suppers-ai/solobase/extensions/official/hugo" // Temporarily disabled - needs API updates
 	"github.com/suppers-ai/solobase/extensions/official/products"
 	"github.com/suppers-ai/solobase/extensions/official/webhooks"
@@ -78,6 +79,24 @@ func RegisterAllExtensions(registry *core.ExtensionRegistry, db *gorm.DB) error 
 		return fmt.Errorf("failed to register webhooks extension: %w", err)
 	}
 
+	// Register Legal Pages extension
+	legalPagesExt := legalpages.NewLegalPagesExtension()
+	// Set the database first to trigger migrations
+	legalPagesExt.SetDatabase(db)
+
+	if err := registry.Register(legalPagesExt); err != nil {
+		return fmt.Errorf("failed to register legal pages extension: %w", err)
+	}
+
+	// Enable Legal Pages extension by default
+	fmt.Printf("Enabling Legal Pages extension...\n")
+	if err := registry.Enable("legalpages"); err != nil {
+		// Log but don't fail - extension can still work without being enabled
+		fmt.Printf("Warning: Failed to enable Legal Pages extension: %v\n", err)
+	} else {
+		fmt.Printf("Legal Pages extension enabled successfully\n")
+	}
+
 	return nil
 }
 
@@ -89,5 +108,6 @@ func GetAvailableExtensions() []string {
 		"analytics",
 		"cloudstorage",
 		"webhooks",
+		"legalpages",
 	}
 }

@@ -1,12 +1,14 @@
 package router
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gorilla/mux"
 	"github.com/suppers-ai/solobase/database"
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/extensions/official/cloudstorage"
+	"github.com/suppers-ai/solobase/extensions/official/legalpages"
 	"github.com/suppers-ai/solobase/internal/api/handlers/auth"
 	dbhandlers "github.com/suppers-ai/solobase/internal/api/handlers/database"
 	"github.com/suppers-ai/solobase/internal/api/handlers/extensions"
@@ -301,6 +303,43 @@ func (a *API) setupRoutesWithAdmin() {
 	// Get the CloudStorage extension from the registry and create handler wrappers
 
 	if a.ExtensionRegistry != nil {
+		// Register Legal Pages extension routes
+		if ext, ok := a.ExtensionRegistry.Get("legalpages"); ok {
+			log.Println("Legal Pages extension found in registry")
+			if legalPagesExt, ok := ext.(*legalpages.LegalPagesExtension); ok && legalPagesExt != nil {
+				log.Println("Legal Pages extension cast successful")
+				// Get handlers
+				handlers := legalPagesExt.GetHandlers()
+				log.Printf("Legal Pages handlers: %v\n", handlers)
+				if handlers != nil {
+					log.Println("Registering Legal Pages routes...")
+					// Admin API routes
+					log.Println("Registering route: /ext/legalpages/documents")
+					admin.HandleFunc("/ext/legalpages/documents", handlers.HandleGetDocuments).Methods("GET", "OPTIONS")
+					log.Println("Registering route: /ext/legalpages/documents/{type}")
+					admin.HandleFunc("/ext/legalpages/documents/{type}", handlers.HandleGetDocument).Methods("GET", "OPTIONS")
+					admin.HandleFunc("/ext/legalpages/documents/{type}", handlers.HandleSaveDocument).Methods("POST", "OPTIONS")
+					admin.HandleFunc("/ext/legalpages/documents/{type}/publish", handlers.HandlePublishDocument).Methods("POST", "OPTIONS")
+					admin.HandleFunc("/ext/legalpages/documents/{type}/preview", handlers.HandlePreviewDocument).Methods("GET", "OPTIONS")
+					admin.HandleFunc("/ext/legalpages/documents/{type}/history", handlers.HandleGetDocumentHistory).Methods("GET", "OPTIONS")
+
+					// Admin UI route
+					admin.HandleFunc("/ext/legalpages/admin", legalPagesExt.HandleAdminUI).Methods("GET", "OPTIONS")
+
+					// Public routes (no auth required)
+					apiRouter.HandleFunc("/ext/legalpages/terms", handlers.HandlePublicTerms).Methods("GET", "OPTIONS")
+					apiRouter.HandleFunc("/ext/legalpages/privacy", handlers.HandlePublicPrivacy).Methods("GET", "OPTIONS")
+					log.Println("Legal Pages routes registered successfully")
+				} else {
+					log.Println("Legal Pages handlers are nil")
+				}
+			} else {
+				log.Println("Failed to cast Legal Pages extension")
+			}
+		} else {
+			log.Println("Legal Pages extension not found in registry")
+		}
+
 		if ext, ok := a.ExtensionRegistry.Get("cloudstorage"); ok {
 			if cloudStorageExt, ok := ext.(*cloudstorage.CloudStorageExtension); ok {
 				// Register CloudStorage routes
