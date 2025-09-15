@@ -32,11 +32,11 @@ func (r *Role) BeforeCreate(tx *gorm.DB) error {
 
 // UserRole represents the many-to-many relationship between users and roles
 type UserRole struct {
-	ID        string    `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID    string    `gorm:"type:uuid;not null;index:idx_user_role,unique" json:"user_id"`
-	RoleID    string    `gorm:"type:uuid;not null;index:idx_user_role,unique" json:"role_id"`
-	GrantedBy string    `gorm:"type:uuid" json:"granted_by"`
-	GrantedAt time.Time `json:"granted_at"`
+	ID        string     `gorm:"type:uuid;primaryKey" json:"id"`
+	UserID    string     `gorm:"type:uuid;not null;index:idx_user_role,unique" json:"user_id"`
+	RoleID    string     `gorm:"type:uuid;not null;index:idx_user_role,unique" json:"role_id"`
+	GrantedBy string     `gorm:"type:uuid" json:"granted_by"`
+	GrantedAt time.Time  `json:"granted_at"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
@@ -56,16 +56,16 @@ func (ur *UserRole) BeforeCreate(tx *gorm.DB) error {
 
 // IAMAuditLog represents an audit log entry for IAM actions
 type IAMAuditLog struct {
-	ID         string                 `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID     string                 `gorm:"type:uuid;index" json:"user_id"`
-	Action     string                 `json:"action"`
-	Resource   string                 `json:"resource"`
-	Result     string                 `json:"result"` // "allow" or "deny"
-	Reason     string                 `json:"reason"`
-	IPAddress  string                 `json:"ip_address"`
-	UserAgent  string                 `json:"user_agent"`
-	Metadata   map[string]interface{} `gorm:"serializer:json" json:"metadata"`
-	CreatedAt  time.Time              `json:"created_at"`
+	ID        string                 `gorm:"type:uuid;primaryKey" json:"id"`
+	UserID    string                 `gorm:"type:uuid;index" json:"user_id"`
+	Action    string                 `json:"action"`
+	Resource  string                 `json:"resource"`
+	Result    string                 `json:"result"` // "allow" or "deny"
+	Reason    string                 `json:"reason"`
+	IPAddress string                 `json:"ip_address"`
+	UserAgent string                 `json:"user_agent"`
+	Metadata  map[string]interface{} `gorm:"serializer:json" json:"metadata"`
+	CreatedAt time.Time              `json:"created_at"`
 }
 
 func (al *IAMAuditLog) BeforeCreate(tx *gorm.DB) error {
@@ -80,6 +80,6 @@ func (al *IAMAuditLog) BeforeCreate(tx *gorm.DB) error {
 // Note: Rate limiting and session management are handled by their respective middleware
 type RoleMetadata struct {
 	// Access control settings
-	AllowedIPs        []string `json:"allowed_ips,omitempty"`        // IP whitelist for access control
-	DisabledFeatures  []string `json:"disabled_features,omitempty"`  // List of disabled features for this role
+	AllowedIPs       []string `json:"allowed_ips,omitempty"`       // IP whitelist for access control
+	DisabledFeatures []string `json:"disabled_features,omitempty"` // List of disabled features for this role
 }
