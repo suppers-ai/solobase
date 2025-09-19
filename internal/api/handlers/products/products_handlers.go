@@ -300,11 +300,11 @@ func (h *ProductsExtensionHandlers) HandleProductsCreate() http.HandlerFunc {
 
 func (h *ProductsExtensionHandlers) HandleProductsStats() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if h.ext == nil || h.ext.GetUserAPI() == nil {
+		if h.ext == nil || h.ext.GetAdminAPI() == nil {
 			http.Error(w, "Extension not initialized", http.StatusServiceUnavailable)
 			return
 		}
-		h.ext.GetUserAPI().GetProductStats(w, r)
+		h.ext.GetAdminAPI().GetProductStats(w, r)
 	}
 }
 

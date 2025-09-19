@@ -837,3 +837,40 @@ func (a *AdminAPI) ListAllPurchases(w http.ResponseWriter, r *http.Request) {
 		"offset":    offset,
 	})
 }
+
+// GetProductStats returns global product statistics for admins
+func (a *AdminAPI) GetProductStats(w http.ResponseWriter, r *http.Request) {
+	// Get total counts across all users
+	var groupCount int64
+	a.db.Model(&models.Group{}).Count(&groupCount)
+
+	var productCount int64
+	a.db.Model(&models.Product{}).Count(&productCount)
+
+	var activeProductCount int64
+	a.db.Model(&models.Product{}).Where("active = ?", true).Count(&activeProductCount)
+
+	// Get total revenue from purchases
+	var totalRevenue float64
+	a.db.Model(&models.Purchase{}).
+		Where("status IN ?", []string{string(models.PurchaseStatusPaid), string(models.PurchaseStatusPaidPendingApproval)}).
+		Select("COALESCE(SUM(total_cents), 0) / 100.0").
+		Scan(&totalRevenue)
+
+	// Calculate average price
+	var avgPrice float64
+	a.db.Model(&models.Product{}).
+		Select("COALESCE(AVG(base_price_cents), 0) / 100.0").
+		Scan(&avgPrice)
+
+	stats := map[string]interface{}{
+		"totalProducts":  productCount,
+		"totalGroups":    groupCount,
+		"activeProducts": activeProductCount,
+		"totalRevenue":   totalRevenue,
+		"avgPrice":       avgPrice,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}

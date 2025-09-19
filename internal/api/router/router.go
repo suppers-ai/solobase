@@ -10,6 +10,7 @@ import (
 	"github.com/suppers-ai/solobase/extensions/official/cloudstorage"
 	"github.com/suppers-ai/solobase/extensions/official/legalpages"
 	"github.com/suppers-ai/solobase/internal/api/handlers/auth"
+	"github.com/suppers-ai/solobase/internal/api/handlers/custom_tables"
 	dbhandlers "github.com/suppers-ai/solobase/internal/api/handlers/database"
 	"github.com/suppers-ai/solobase/internal/api/handlers/extensions"
 	"github.com/suppers-ai/solobase/internal/api/handlers/logs"
@@ -26,19 +27,21 @@ import (
 )
 
 type API struct {
-	Router            *mux.Router
-	DB                *database.DB
-	AuthService       *services.AuthService
-	UserService       *services.UserService
-	StorageService    *services.StorageService
-	DatabaseService   *services.DatabaseService
-	SettingsService   *services.SettingsService
-	LogsService       *services.LogsService
-	IAMService        *iam.Service
-	storageHandlers   *storage.StorageHandlers
-	sharesHandler     *shares.SharesHandler
-	productHandlers   *products.ProductsExtensionHandlers
-	ExtensionRegistry *core.ExtensionRegistry
+	Router               *mux.Router
+	DB                   *database.DB
+	AuthService          *services.AuthService
+	UserService          *services.UserService
+	StorageService       *services.StorageService
+	DatabaseService      *services.DatabaseService
+	SettingsService      *services.SettingsService
+	LogsService          *services.LogsService
+	IAMService           *iam.Service
+	CustomTablesService  *services.CustomTablesService
+	storageHandlers      *storage.StorageHandlers
+	sharesHandler        *shares.SharesHandler
+	productHandlers      *products.ProductsExtensionHandlers
+	customTablesHandler  *custom_tables.Handler
+	ExtensionRegistry    *core.ExtensionRegistry
 }
 
 func NewAPI(
@@ -70,6 +73,10 @@ func NewAPI(
 
 	// Initialize shares handler
 	api.sharesHandler = shares.NewSharesHandler(db)
+
+	// Initialize custom tables service and handler
+	api.CustomTablesService = services.NewCustomTablesService(db.DB)
+	api.customTablesHandler = custom_tables.NewHandler(api.CustomTablesService, db.DB)
 
 	api.setupRoutesWithAdmin()
 	return api
@@ -210,6 +217,21 @@ func (a *API) setupRoutesWithAdmin() {
 	
 	// ---- IAM (Identity & Access Management) ----
 	routes.RegisterIAMRoutes(admin, a.IAMService)
+
+	// ---- Custom Tables Management ----
+	admin.HandleFunc("/custom-tables", a.customTablesHandler.CreateTable).Methods("POST", "OPTIONS")
+	admin.HandleFunc("/custom-tables", a.customTablesHandler.ListTables).Methods("GET", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}", a.customTablesHandler.GetTableSchema).Methods("GET", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}", a.customTablesHandler.AlterTable).Methods("PUT", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}", a.customTablesHandler.DropTable).Methods("DELETE", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}/migrations", a.customTablesHandler.GetMigrationHistory).Methods("GET", "OPTIONS")
+
+	// Custom table data operations
+	admin.HandleFunc("/custom-tables/{name}/data", a.customTablesHandler.InsertData).Methods("POST", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}/data", a.customTablesHandler.QueryData).Methods("GET", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.GetRecord).Methods("GET", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.UpdateRecord).Methods("PUT", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.DeleteRecord).Methods("DELETE", "OPTIONS")
 
 	// Initialize handlers if needed
 	

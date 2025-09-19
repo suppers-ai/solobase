@@ -7,6 +7,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/suppers-ai/solobase/constants"
 	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
 	commonjwt "github.com/suppers-ai/solobase/internal/common/jwt"
 	"github.com/suppers-ai/solobase/internal/core/services"
@@ -87,6 +88,10 @@ func AuthMiddleware(authService *services.AuthService) func(http.Handler) http.H
 			ctx = context.WithValue(ctx, "userID", claims.UserID)
 			// Add roles from JWT claims to context
 			ctx = context.WithValue(ctx, "user_roles", claims.Roles)
+			// Add constants keys for products extension compatibility
+			ctx = context.WithValue(ctx, constants.ContextKeyUserID, claims.UserID)
+			ctx = context.WithValue(ctx, constants.ContextKeyUserEmail, claims.Email)
+			ctx = context.WithValue(ctx, constants.ContextKeyUserRoles, claims.Roles)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

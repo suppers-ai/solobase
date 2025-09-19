@@ -291,6 +291,9 @@ func (app *App) Initialize() error {
 			&iam.Role{},
 			&iam.UserRole{},
 			&iam.IAMAuditLog{},
+			// Custom Tables models
+			&models.CustomTableDefinition{},
+			&models.CustomTableMigration{},
 		)
 	}
 
