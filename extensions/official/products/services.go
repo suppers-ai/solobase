@@ -87,7 +87,7 @@ func NewGroupService(db *gorm.DB) *GroupService {
 	}
 }
 
-func (s *GroupService) ListByUser(userID uint) ([]models.Group, error) {
+func (s *GroupService) ListByUser(userID string) ([]models.Group, error) {
 	var groups []models.Group
 	err := s.db.Preload("GroupTemplate").Where("user_id = ?", userID).Find(&groups).Error
 	return groups, err
@@ -177,15 +177,15 @@ func (s *GroupService) mapToFilterColumn(tx *gorm.DB, group *models.Group, field
 	}
 }
 
-func (s *GroupService) Update(id uint, userID uint, group *models.Group) error {
+func (s *GroupService) Update(id uint, userID string, group *models.Group) error {
 	return s.db.Model(&models.Group{}).Where("id = ? AND user_id = ?", id, userID).Updates(group).Error
 }
 
-func (s *GroupService) Delete(id uint, userID uint) error {
+func (s *GroupService) Delete(id uint, userID string) error {
 	return s.db.Where("id = ? AND user_id = ?", id, userID).Delete(&models.Group{}).Error
 }
 
-func (s *GroupService) GetByID(id uint, userID uint) (*models.Group, error) {
+func (s *GroupService) GetByID(id uint, userID string) (*models.Group, error) {
 	var group models.Group
 	err := s.db.Preload("GroupTemplate").Where("id = ? AND user_id = ?", id, userID).First(&group).Error
 	if err != nil {
@@ -213,7 +213,7 @@ func (s *ProductService) ListByGroup(groupID uint) ([]models.Product, error) {
 	return products, err
 }
 
-func (s *ProductService) ListByUser(userID uint) ([]models.Product, error) {
+func (s *ProductService) ListByUser(userID string) ([]models.Product, error) {
 	var products []models.Product
 
 	// First, get all group IDs for the user
@@ -231,6 +231,15 @@ func (s *ProductService) ListByUser(userID uint) ([]models.Product, error) {
 	}
 
 	return products, nil
+}
+
+// GetByID retrieves a product by ID
+func (s *ProductService) GetByID(id uint) (*models.Product, error) {
+	var product models.Product
+	if err := s.db.Preload("ProductTemplate").Preload("Group").First(&product, id).Error; err != nil {
+		return nil, err
+	}
+	return &product, nil
 }
 
 func (s *ProductService) Create(product *models.Product) error {

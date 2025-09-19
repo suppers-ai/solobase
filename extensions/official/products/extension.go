@@ -3,17 +3,21 @@ package products
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/extensions/official/products/models"
+	"github.com/suppers-ai/solobase/extensions/official/products/providers"
 	"gorm.io/gorm"
 )
 
 // ProductsExtension implements the products and pricing extension
 type ProductsExtension struct {
-	db        *gorm.DB
-	adminAPI  *AdminAPI
-	userAPI   *UserAPI
-	publicAPI *PublicAPI
+	db              *gorm.DB
+	adminAPI        *AdminAPI
+	userAPI         *UserAPI
+	publicAPI       *PublicAPI
+	webhookHandler  *WebhookHandler
+	paymentProvider providers.PaymentProvider
 }
 
 // NewProductsExtension creates a new products extension instance
@@ -77,10 +81,25 @@ func (e *ProductsExtension) initializeAPIs() {
 	productService := NewProductService(e.db, variableService)
 	pricingService := NewPricingService(e.db, variableService)
 
+	// Get the default payment provider
+	provider, err := providers.GetDefaultProvider()
+	if err != nil {
+		// Log warning but continue - payments will be disabled
+		provider = nil
+	}
+	e.paymentProvider = provider
+
+	// Initialize purchase service with provider
+	purchaseService := NewPurchaseService(e.db, productService, pricingService, provider)
+
 	// Initialize APIs with services
 	e.adminAPI = NewAdminAPI(e.db, variableService, groupService, productService, pricingService)
-	e.userAPI = NewUserAPI(e.db, groupService, productService, pricingService)
+	e.adminAPI.SetExtension(e) // Set extension reference for provider status
+	e.userAPI = NewUserAPI(e.db, groupService, productService, pricingService, purchaseService)
 	e.publicAPI = NewPublicAPI(e.db, productService)
+
+	// Initialize webhook handler
+	e.webhookHandler = NewWebhookHandler(provider, purchaseService)
 }
 
 // GetAdminAPI returns the admin API
@@ -96,6 +115,38 @@ func (e *ProductsExtension) GetUserAPI() *UserAPI {
 // GetPublicAPI returns the public API
 func (e *ProductsExtension) GetPublicAPI() *PublicAPI {
 	return e.publicAPI
+}
+
+// GetWebhookHandler returns the webhook handler
+func (e *ProductsExtension) GetWebhookHandler() *WebhookHandler {
+	return e.webhookHandler
+}
+
+// GetPaymentProvider returns the configured payment provider
+func (e *ProductsExtension) GetPaymentProvider() providers.PaymentProvider {
+	return e.paymentProvider
+}
+
+// GetProviderStatus returns detailed information about the payment provider
+func (e *ProductsExtension) GetProviderStatus() map[string]interface{} {
+	status := map[string]interface{}{
+		"configured": false,
+		"provider":   "none",
+		"mode":       "none",
+		"available_providers": providers.ListAvailableProviders(),
+		"configured_provider": string(providers.GetConfiguredProviderType()),
+	}
+
+	if e.paymentProvider != nil && e.paymentProvider.IsEnabled() {
+		status["configured"] = true
+		status["provider"] = e.paymentProvider.GetProviderName()
+		status["mode"] = "production"
+		if e.paymentProvider.IsTestMode() {
+			status["mode"] = "test"
+		}
+	}
+
+	return status
 }
 
 // Metadata returns extension metadata
@@ -146,9 +197,20 @@ func (e *ProductsExtension) Health(ctx context.Context) (*core.HealthStatus, err
 		}, err
 	}
 
+	// Get payment provider info
+	providerInfo := "No payment provider configured"
+	if e.paymentProvider != nil {
+		providerName := e.paymentProvider.GetProviderName()
+		providerMode := "production"
+		if e.paymentProvider.IsTestMode() {
+			providerMode = "test"
+		}
+		providerInfo = fmt.Sprintf("Payment Provider: %s (%s mode)", providerName, providerMode)
+	}
+
 	return &core.HealthStatus{
 		Status:  "healthy",
-		Message: "Products extension is running",
+		Message: fmt.Sprintf("Products extension is running. %s", providerInfo),
 	}, nil
 }
 

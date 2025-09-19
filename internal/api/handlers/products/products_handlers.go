@@ -71,6 +71,17 @@ func (h *ProductsExtensionHandlers) HandleDeleteVariable() http.HandlerFunc {
 	}
 }
 
+// HandleProviderStatus returns payment provider status
+func (h *ProductsExtensionHandlers) HandleProviderStatus() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.ext == nil || h.ext.GetAdminAPI() == nil {
+			http.Error(w, "Extension not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		h.ext.GetAdminAPI().GetProviderStatus(w, r)
+	}
+}
+
 // Admin API handlers - Entity Types
 func (h *ProductsExtensionHandlers) HandleListGroupTypes() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -294,5 +305,98 @@ func (h *ProductsExtensionHandlers) HandleProductsStats() http.HandlerFunc {
 			return
 		}
 		h.ext.GetUserAPI().GetProductStats(w, r)
+	}
+}
+
+// Purchase handlers
+func (h *ProductsExtensionHandlers) HandleCreatePurchase() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.ext == nil || h.ext.GetUserAPI() == nil {
+			http.Error(w, "Extension not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		h.ext.GetUserAPI().CreatePurchase(w, r)
+	}
+}
+
+func (h *ProductsExtensionHandlers) HandleListPurchases() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.ext == nil || h.ext.GetUserAPI() == nil {
+			http.Error(w, "Extension not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		h.ext.GetUserAPI().ListPurchases(w, r)
+	}
+}
+
+func (h *ProductsExtensionHandlers) HandleGetPurchase() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.ext == nil || h.ext.GetUserAPI() == nil {
+			http.Error(w, "Extension not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		h.ext.GetUserAPI().GetPurchase(w, r)
+	}
+}
+
+func (h *ProductsExtensionHandlers) HandleCancelPurchase() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.ext == nil || h.ext.GetUserAPI() == nil {
+			http.Error(w, "Extension not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		h.ext.GetUserAPI().CancelPurchase(w, r)
+	}
+}
+
+func (h *ProductsExtensionHandlers) HandlePurchaseStats() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.ext == nil || h.ext.GetUserAPI() == nil {
+			http.Error(w, "Extension not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		h.ext.GetUserAPI().GetPurchaseStats(w, r)
+	}
+}
+
+// Webhook handler
+func (h *ProductsExtensionHandlers) HandleWebhook() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.ext == nil || h.ext.GetWebhookHandler() == nil {
+			http.Error(w, "Extension not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		h.ext.GetWebhookHandler().HandleWebhook(w, r)
+	}
+}
+
+// Admin purchase handlers
+func (h *ProductsExtensionHandlers) HandleRefundPurchase() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.ext == nil || h.ext.GetAdminAPI() == nil {
+			http.Error(w, "Extension not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		h.ext.GetAdminAPI().RefundPurchase(w, r)
+	}
+}
+
+func (h *ProductsExtensionHandlers) HandleApprovePurchase() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.ext == nil || h.ext.GetAdminAPI() == nil {
+			http.Error(w, "Extension not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		h.ext.GetAdminAPI().ApprovePurchase(w, r)
+	}
+}
+
+func (h *ProductsExtensionHandlers) HandleListAllPurchases() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.ext == nil || h.ext.GetAdminAPI() == nil {
+			http.Error(w, "Extension not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		h.ext.GetAdminAPI().ListAllPurchases(w, r)
 	}
 }

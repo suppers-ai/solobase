@@ -2,13 +2,24 @@ package products
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gorilla/mux"
+	"github.com/suppers-ai/solobase/constants"
 	"github.com/suppers-ai/solobase/extensions/official/products/models"
 	"gorm.io/gorm"
 )
+
+// getUserIDFromContext extracts the user ID from the request context
+func getUserIDFromContext(r *http.Request) (string, error) {
+	userID, ok := r.Context().Value(constants.ContextKeyUserID).(string)
+	if !ok || userID == "" {
+		return "", errors.New("user not authenticated")
+	}
+	return userID, nil
+}
 
 // AdminAPI handles admin operations
 type AdminAPI struct {
@@ -17,6 +28,7 @@ type AdminAPI struct {
 	groupService    *GroupService
 	productService  *ProductService
 	pricingService  *PricingService
+	extension       *ProductsExtension // Reference to extension for provider status
 }
 
 func NewAdminAPI(db *gorm.DB, vs *VariableService, es *GroupService, ps *ProductService, prs *PricingService) *AdminAPI {
@@ -27,6 +39,27 @@ func NewAdminAPI(db *gorm.DB, vs *VariableService, es *GroupService, ps *Product
 		productService:  ps,
 		pricingService:  prs,
 	}
+}
+
+// SetExtension sets the reference to the extension (for provider status)
+func (a *AdminAPI) SetExtension(ext *ProductsExtension) {
+	a.extension = ext
+}
+
+// GetProviderStatus returns the payment provider status
+func (a *AdminAPI) GetProviderStatus(w http.ResponseWriter, r *http.Request) {
+	status := map[string]interface{}{
+		"configured": false,
+		"provider":   "none",
+		"mode":       "none",
+	}
+
+	if a.extension != nil {
+		status = a.extension.GetProviderStatus()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
 }
 
 // Variable management
@@ -306,25 +339,30 @@ func (a *AdminAPI) DeletePricingTemplate(w http.ResponseWriter, r *http.Request)
 
 // UserAPI handles user operations
 type UserAPI struct {
-	db             *gorm.DB
-	groupService   *GroupService
-	productService *ProductService
-	pricingService *PricingService
+	db              *gorm.DB
+	groupService    *GroupService
+	productService  *ProductService
+	pricingService  *PricingService
+	purchaseService *PurchaseService
 }
 
-func NewUserAPI(db *gorm.DB, es *GroupService, ps *ProductService, prs *PricingService) *UserAPI {
+func NewUserAPI(db *gorm.DB, es *GroupService, ps *ProductService, prs *PricingService, purchaseService *PurchaseService) *UserAPI {
 	return &UserAPI{
-		db:             db,
-		groupService:   es,
-		productService: ps,
-		pricingService: prs,
+		db:              db,
+		groupService:    es,
+		productService:  ps,
+		pricingService:  prs,
+		purchaseService: purchaseService,
 	}
 }
 
 // Group management for users
 func (u *UserAPI) ListMyGroups(w http.ResponseWriter, r *http.Request) {
-	// TODO: Get user ID from context/session
-	userID := uint(1) // Placeholder
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	groups, err := u.groupService.ListByUser(userID)
 	if err != nil {
@@ -337,7 +375,11 @@ func (u *UserAPI) ListMyGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) CreateGroup(w http.ResponseWriter, r *http.Request) {
-	userID := uint(1) // TODO: Get from context
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	var group models.Group
 	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
@@ -357,7 +399,11 @@ func (u *UserAPI) CreateGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) UpdateGroup(w http.ResponseWriter, r *http.Request) {
-	userID := uint(1) // TODO: Get from context
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	vars := mux.Vars(r)
 	id, err := strconv.ParseUint(vars["id"], 10, 32)
 	if err != nil {
@@ -381,7 +427,11 @@ func (u *UserAPI) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) DeleteGroup(w http.ResponseWriter, r *http.Request) {
-	userID := uint(1) // TODO: Get from context
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	vars := mux.Vars(r)
 	id, err := strconv.ParseUint(vars["id"], 10, 32)
 	if err != nil {
@@ -398,7 +448,11 @@ func (u *UserAPI) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) GetGroup(w http.ResponseWriter, r *http.Request) {
-	userID := uint(1) // TODO: Get from context
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	vars := mux.Vars(r)
 	id, err := strconv.ParseUint(vars["id"], 10, 32)
 	if err != nil {
@@ -436,7 +490,11 @@ func (u *UserAPI) ListGroupProducts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) ListMyProducts(w http.ResponseWriter, r *http.Request) {
-	userID := uint(1) // TODO: Get from context
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	products, err := u.productService.ListByUser(userID)
 	if err != nil {
@@ -493,7 +551,11 @@ func (u *UserAPI) CalculatePrice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) GetProductStats(w http.ResponseWriter, r *http.Request) {
-	userID := uint(1) // TODO: Get from context
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	// Get counts
 	var groupCount int64
@@ -531,3 +593,247 @@ func NewPublicAPI(db *gorm.DB, ps *ProductService) *PublicAPI {
 }
 
 // Public product listing, search, etc can be added here
+
+// Purchase management endpoints
+func (u *UserAPI) CreatePurchase(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req PurchaseRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	req.UserID = userID
+
+	// Create purchase and checkout session
+	purchase, err := u.purchaseService.Create(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return purchase with checkout URL
+	response := map[string]interface{}{
+		"purchase": purchase,
+	}
+
+	// Get checkout URL from the purchase service (provider-agnostic)
+	if checkoutURL := u.purchaseService.GetCheckoutURL(purchase); checkoutURL != "" {
+		response["checkout_url"] = checkoutURL
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response)
+}
+
+func (u *UserAPI) ListPurchases(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse query parameters
+	limit := 20
+	offset := 0
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	purchases, total, err := u.purchaseService.GetByUserID(userID, limit, offset)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"purchases": purchases,
+		"total":     total,
+		"limit":     limit,
+		"offset":    offset,
+	})
+}
+
+func (u *UserAPI) GetPurchase(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	purchase, err := u.purchaseService.GetByID(uint(id))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// Verify user owns this purchase
+	if purchase.UserID != userID {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(purchase)
+}
+
+func (u *UserAPI) CancelPurchase(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	// Verify ownership
+	purchase, err := u.purchaseService.GetByID(uint(id))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if purchase.UserID != userID {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	if err := u.purchaseService.Cancel(uint(id), req.Reason); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (u *UserAPI) GetPurchaseStats(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	stats, err := u.purchaseService.GetStats(userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+// Admin purchase endpoints
+func (a *AdminAPI) RefundPurchase(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Amount int64  `json:"amount"` // Amount in cents, 0 for full refund
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Get purchase service (need to expose it from admin API)
+	purchaseService := NewPurchaseService(a.db, a.productService, a.pricingService, nil)
+	if err := purchaseService.Refund(uint(id), req.Amount, req.Reason); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *AdminAPI) ApprovePurchase(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	approverID := uint(1) // TODO: Get from admin context
+
+	// Get purchase service
+	purchaseService := NewPurchaseService(a.db, a.productService, a.pricingService, nil)
+	if err := purchaseService.Approve(uint(id), approverID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *AdminAPI) ListAllPurchases(w http.ResponseWriter, r *http.Request) {
+	// Parse query parameters
+	limit := 20
+	offset := 0
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	var purchases []models.Purchase
+	var total int64
+
+	// Count total
+	if err := a.db.Model(&models.Purchase{}).Count(&total).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch purchases
+	if err := a.db.Order("created_at DESC").Limit(limit).Offset(offset).Find(&purchases).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"purchases": purchases,
+		"total":     total,
+		"limit":     limit,
+		"offset":    offset,
+	})
+}

@@ -111,6 +111,9 @@ func (a *API) setupRoutesWithAdmin() {
 	// Direct download with tokens (public but token-protected)
 	apiRouter.HandleFunc("/storage/direct/{token}", a.storageHandlers.HandleDirectDownload).Methods("GET", "OPTIONS")
 
+	// Payment provider webhook endpoint (public, verified by signature)
+	apiRouter.HandleFunc("/ext/products/webhooks", a.productHandlers.HandleWebhook()).Methods("POST")
+
 	// ==================================
 	// PROTECTED ROUTES (auth required)
 	// ==================================
@@ -242,6 +245,13 @@ func (a *API) setupRoutesWithAdmin() {
 	protected.HandleFunc("/ext/products/groups/{id}/products", a.productHandlers.HandleGroupProducts()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/ext/products/calculate-price", a.productHandlers.HandleCalculatePrice()).Methods("POST", "OPTIONS")
 
+	// Purchase endpoints
+	protected.HandleFunc("/ext/products/purchase", a.productHandlers.HandleCreatePurchase()).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/ext/products/purchases", a.productHandlers.HandleListPurchases()).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/ext/products/purchases/stats", a.productHandlers.HandlePurchaseStats()).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/ext/products/purchases/{id}", a.productHandlers.HandleGetPurchase()).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/ext/products/purchases/{id}/cancel", a.productHandlers.HandleCancelPurchase()).Methods("POST", "OPTIONS")
+
 	// User endpoints that also need to be available (read-only access to types)
 	protected.HandleFunc("/ext/products/group-types", a.productHandlers.HandleListGroupTypes()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/ext/products/product-types", a.productHandlers.HandleListProductTypes()).Methods("GET", "OPTIONS")
@@ -254,6 +264,7 @@ func (a *API) setupRoutesWithAdmin() {
 	admin.HandleFunc("/ext/products/stats", a.productHandlers.HandleProductsStats()).Methods("GET", "OPTIONS")
 	
 	// Admin configuration endpoints
+	admin.HandleFunc("/ext/products/provider/status", a.productHandlers.HandleProviderStatus()).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/ext/products/variables", a.productHandlers.HandleListVariables()).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/ext/products/variables", a.productHandlers.HandleCreateVariable()).Methods("POST", "OPTIONS")
 	admin.HandleFunc("/ext/products/variables/{id}", a.productHandlers.HandleUpdateVariable()).Methods("PUT", "OPTIONS")
@@ -273,6 +284,11 @@ func (a *API) setupRoutesWithAdmin() {
 	admin.HandleFunc("/ext/products/pricing-templates", a.productHandlers.HandleCreatePricingTemplate()).Methods("POST", "OPTIONS")
 	admin.HandleFunc("/ext/products/pricing-templates/{id}", a.productHandlers.HandleUpdatePricingTemplate()).Methods("PUT", "OPTIONS")
 	admin.HandleFunc("/ext/products/pricing-templates/{id}", a.productHandlers.HandleDeletePricingTemplate()).Methods("DELETE", "OPTIONS")
+
+	// Admin purchase management endpoints
+	admin.HandleFunc("/ext/products/purchases", a.productHandlers.HandleListAllPurchases()).Methods("GET", "OPTIONS")
+	admin.HandleFunc("/ext/products/purchases/{id}/refund", a.productHandlers.HandleRefundPurchase()).Methods("POST", "OPTIONS")
+	admin.HandleFunc("/ext/products/purchases/{id}/approve", a.productHandlers.HandleApprovePurchase()).Methods("POST", "OPTIONS")
 	
 	// ---- Webhooks Extension ----
 	

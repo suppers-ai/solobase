@@ -92,7 +92,7 @@ func (GroupTemplate) TableName() string {
 // Group represents a business group (restaurant, store, etc)
 type Group struct {
 	ID              uint          `gorm:"primaryKey" json:"id"`
-	UserID          uint          `gorm:"index;not null" json:"user_id"`
+	UserID          string        `gorm:"index;size:36;not null" json:"user_id"`
 	GroupTemplateID uint          `gorm:"index;not null" json:"group_template_id"`
 	GroupTemplate   GroupTemplate `json:"group_template,omitempty" gorm:"foreignKey:GroupTemplateID"`
 	Name            string        `gorm:"not null" json:"name"`
@@ -254,9 +254,11 @@ func extensionsMigrate(db *gorm.DB) error {
 		&ProductTemplate{},
 		&Product{},
 		&PricingTemplate{},
+		&Purchase{},
 	}
 
 	// This will be called from the extension.go file which has access to the extensions package
 	// For now, we'll use regular AutoMigrate and the extension will handle the prefix
 	return db.AutoMigrate(models...)
 }
+
