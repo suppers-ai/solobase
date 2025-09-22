@@ -52,6 +52,7 @@ type Config struct {
 	// UI
 	DisableUI      bool
 	DisableAdminUI bool
+	DisableHome    bool
 
 	// Logging
 	LogLevel string

@@ -76,7 +76,7 @@
 
 		selectedTemplate = productTemplates.find(t => t.id === templateId) || null;
 		templateFields = selectedTemplate?.fields || [];
-		customFields = customFieldsConfig || selectedTemplate?.custom_field_definitions || [];
+		customFields = customFieldsConfig || selectedTemplate?.custom_fields_schema || [];
 	}
 
 	// React to product changes

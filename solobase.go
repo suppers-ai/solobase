@@ -93,6 +93,7 @@ type Options struct {
 	JWTSecret            string
 	Port                 string
 	DisableUI            bool
+	DisableHome          bool        // Disable the root "/" handler while keeping other UI routes
 	ProductsSeeder       interface{} // Custom seeder for Products extension
 }
 
@@ -193,6 +194,7 @@ func NewWithOptions(opts *Options) *App {
 		AdminEmail:    opts.DefaultAdminEmail,
 		AdminPassword: opts.DefaultAdminPassword,
 		DisableUI:     opts.DisableUI,
+		DisableHome:   opts.DisableHome,
 	}
 
 	// Set S3 config if provided
@@ -485,6 +487,9 @@ func (app *App) Start() error {
 
 	// Admin UI routes (if not disabled) - These are catch-all routes so must come LAST
 	if !app.config.DisableUI {
+		// Serve UI assets - MUST come before page routes
+		app.router.PathPrefix("/_app/").Handler(app.ServeUI())
+
 		// Serve auth pages at root level
 		app.router.PathPrefix("/auth/").Handler(app.ServeUI())
 		app.router.PathPrefix("/profile").Handler(app.ServeUI())
@@ -494,7 +499,11 @@ func (app *App) Start() error {
 
 		// Serve root last as catch-all for the main dashboard
 		// Note: This must come after ALL other routes
-		app.router.PathPrefix("/").Handler(app.ServeUI())
+		// Only register the root handler if DisableHome is false
+		if !app.config.DisableHome {
+			app.router.PathPrefix("/").Handler(app.ServeUI())
+		}
+		// When DisableHome is true, don't register "/" - let the embedding app handle it
 	}
 
 	// Run OnServe hooks

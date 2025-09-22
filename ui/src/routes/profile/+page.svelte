@@ -309,7 +309,7 @@
 					</button>
 					
 					<!-- Home (for non-admins) -->
-					<a href="/" class="action-card">
+					<a href="/" class="action-card" data-sveltekit-reload>
 						<Home size={24} />
 						<span>Home</span>
 					</a>
