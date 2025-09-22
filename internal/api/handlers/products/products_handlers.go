@@ -294,6 +294,16 @@ func (h *ProductsExtensionHandlers) HandleProductsCreate() http.HandlerFunc {
 	}
 }
 
+func (h *ProductsExtensionHandlers) HandleProductsUpdate() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.ext == nil || h.ext.GetUserAPI() == nil {
+			http.Error(w, "Extension not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		h.ext.GetUserAPI().UpdateProduct(w, r)
+	}
+}
+
 func (h *ProductsExtensionHandlers) HandleProductsStats() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if h.ext == nil || h.ext.GetAdminAPI() == nil {

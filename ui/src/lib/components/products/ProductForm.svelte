@@ -19,6 +19,7 @@
 	export let productTemplates: any[] = [];
 	export let groups: any[] = [];
 	export let customFieldsConfig: any = null;
+	export let initialGroupId: number | string | null = null;
 	export let submitButtonText = mode === 'create' ? 'Create' : 'Save';
 	export let onSubmit: ((data: any) => void) | undefined = undefined;
 	export let onCancel: (() => void) | undefined = undefined;
@@ -26,7 +27,7 @@
 	const dispatch = createEventDispatcher();
 
 	let formData: any = {
-		group_id: '',
+		group_id: mode === 'create' && initialGroupId ? initialGroupId : '',
 		product_template_id: '',
 		name: '',
 		description: '',

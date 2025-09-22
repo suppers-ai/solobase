@@ -507,13 +507,28 @@ func (u *UserAPI) ListMyProducts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) CreateProduct(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var product models.Product
 	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// TODO: Verify user owns the group
+	// Verify user owns the group
+	var group models.Group
+	if err := u.db.Where("id = ? AND user_id = ?", product.GroupID, userID).First(&group).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			http.Error(w, "Forbidden: You don't own this group", http.StatusForbidden)
+		} else {
+			http.Error(w, "Failed to verify group ownership", http.StatusInternalServerError)
+		}
+		return
+	}
 
 	if err := u.productService.Create(&product); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -548,6 +563,56 @@ func (u *UserAPI) CalculatePrice(w http.ResponseWriter, r *http.Request) {
 		"currency":  "USD",
 		"breakdown": []interface{}{}, // TODO: Add breakdown details
 	})
+}
+
+func (u *UserAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid product ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get the existing product to verify ownership
+	existingProduct, err := u.productService.GetByID(uint(id))
+	if err != nil {
+		http.Error(w, "Product not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify user owns the product's group
+	var group models.Group
+	if err := u.db.Where("id = ? AND user_id = ?", existingProduct.GroupID, userID).First(&group).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			http.Error(w, "Forbidden: You don't own this product", http.StatusForbidden)
+		} else {
+			http.Error(w, "Failed to verify ownership", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	var product models.Product
+	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	product.ID = uint(id)
+	product.GroupID = existingProduct.GroupID // Prevent changing group
+
+	if err := u.productService.Update(uint(id), &product); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(product)
 }
 
 func (u *UserAPI) GetProductStats(w http.ResponseWriter, r *http.Request) {

@@ -12,6 +12,7 @@
 	import { api } from '$lib/api';
 	import { authStore } from '$lib/stores/auth';
 	import ProductModal from '$lib/components/products/ProductModal.svelte';
+	import GroupModal from '$lib/components/products/GroupModal.svelte';
 	
 	let loading = true;
 	let activeTab = 'dashboard';
@@ -39,30 +40,14 @@
 	
 	// Group and Product creation
 	let showCreateGroupModal = false;
+	let showEditGroupModal = false;
 	let showCreateProductModal = false;
 	let showEditProductModal = false;
 	let selectedGroupForProduct: any = null;
-	let selectedGroupType: any = null;
-	let selectedProductType: any = null;
 	let productTypes: any[] = [];
 	let productTemplates: any[] = [];
 	let editingProduct: any = null;
-	
-	let newGroup = {
-		name: '',
-		group_type_id: '',
-		description: '',
-		custom_fields: {}
-	};
-	
-	let newProduct = {
-		name: '',
-		description: '',
-		base_price: 0,
-		group_id: '',
-		product_type_id: '',
-		custom_fields: {}
-	};
+	let editingGroup: any = null;
 	
 	$: filteredOrders = orders.filter(order => {
 		const matchesSearch = 
@@ -86,8 +71,8 @@
 	$: topProducts = products.slice(0, 3).map(product => ({
 		...product,
 		sales: orders.filter(o => o.product_id === product.id && o.status === 'completed').length,
-		views: Math.floor(Math.random() * 500) + 100, // Placeholder until we have view tracking
-		likes: Math.floor(Math.random() * 50) + 10 // Placeholder until we have likes
+		views: 0, // Will be implemented when view tracking is added
+		likes: 0 // Will be implemented when likes feature is added
 	}));
 	
 	// Recent sales from orders
@@ -147,7 +132,10 @@
 			// Load products
 			try {
 				const productsRes = await api.get('/ext/products/products');
-				products = Array.isArray(productsRes) ? productsRes : [];
+				// Filter out any null/undefined products and ensure all have IDs
+				products = Array.isArray(productsRes)
+					? productsRes.filter(p => p && p.id)
+					: [];
 			} catch (err) {
 				console.error('Failed to load products:', err);
 				products = [];
@@ -175,31 +163,51 @@
 		}
 	}
 	
-	async function createGroup() {
+	async function handleGroupSubmit(event: CustomEvent) {
+		const groupData = event.detail;
 		try {
-			// Don't send user_id - backend should handle it from session
-			const groupData = {
-				name: newGroup.name,
-				group_type_id: parseInt(newGroup.group_type_id) || undefined,
-				description: newGroup.description || '',
-				custom_fields: newGroup.custom_fields || {}
-			};
-			
-			const group = await api.post('/ext/products/groups', groupData);
-			groups = [...groups, group];
+			if (editingGroup && editingGroup.id) {
+				// Update existing group
+				const response = await api.put(`/ext/products/groups/${editingGroup.id}`, groupData);
+
+				// Check if response is an error
+				if (response?.error) {
+					throw new Error(response.error);
+				}
+
+				if (response && response.id) {
+					groups = groups.map(g => g.id === editingGroup.id ? response : g);
+				} else {
+					throw new Error('Invalid response from server');
+				}
+			} else {
+				// Create new group
+				const response = await api.post('/ext/products/groups', groupData);
+
+				// Check if response is an error
+				if (response?.error) {
+					throw new Error(response.error);
+				}
+
+				if (response && response.id) {
+					groups = [...groups, response];
+				} else {
+					throw new Error('Invalid response from server');
+				}
+			}
 			await loadData();
 			showCreateGroupModal = false;
-			selectedGroupType = null;
-			newGroup = {
-				name: '',
-				group_type_id: '',
-				description: '',
-				custom_fields: {}
-			};
+			showEditGroupModal = false;
+			editingGroup = null;
 		} catch (error) {
-			console.error('Failed to create group:', error);
-			alert('Failed to create group: ' + (error.message || 'Unknown error'));
+			console.error('Failed to save group:', error);
+			alert('Failed to save group: ' + (error.message || 'Unknown error'));
 		}
+	}
+
+	async function editGroup(group: any) {
+		editingGroup = group;
+		showEditGroupModal = true;
 	}
 	
 	async function handleProductSubmit(event: CustomEvent) {
@@ -210,23 +218,54 @@
 			if (productData.product_template_id) productData.product_template_id = parseInt(productData.product_template_id);
 			if (productData.base_price) productData.base_price = parseFloat(productData.base_price);
 
-			if (editingProduct) {
+			let success = false;
+
+			if (editingProduct && editingProduct.id) {
 				// Update existing product
-				const updated = await api.put(`/ext/products/products/${editingProduct.id}`, productData);
-				products = products.map(p => p.id === editingProduct.id ? updated : p);
+				const productId = editingProduct.id; // Store ID before any async operations
+				const response = await api.put(`/ext/products/products/${productId}`, productData);
+
+				// Check if response is an error
+				if (response?.error) {
+					throw new Error(response.error);
+				}
+
+				if (response && response.id) {
+					// Use stored productId instead of editingProduct.id in map
+					products = products.filter(p => p && p.id).map(p => {
+						return p.id === productId ? response : p;
+					});
+					success = true;
+				} else {
+					throw new Error('Invalid response from server - missing product ID');
+				}
 			} else {
 				// Create new product
 				if (selectedGroupForProduct) {
 					productData.group_id = parseInt(selectedGroupForProduct.id);
 				}
-				const product = await api.post('/ext/products/products', productData);
-				products = [...products, product];
+				const response = await api.post('/ext/products/products', productData);
+
+				// Check if response is an error
+				if (response?.error) {
+					throw new Error(response.error);
+				}
+
+				if (response && response.id) {
+					products = [...products, response];
+					success = true;
+				} else {
+					throw new Error('Invalid response from server');
+				}
 			}
-			await loadData();
-			showCreateProductModal = false;
-			showEditProductModal = false;
-			selectedGroupForProduct = null;
-			editingProduct = null;
+
+			if (success) {
+				await loadData();
+				showCreateProductModal = false;
+				showEditProductModal = false;
+				selectedGroupForProduct = null;
+				editingProduct = null;
+			}
 		} catch (error) {
 			console.error('Failed to save product:', error);
 			alert('Failed to save product: ' + (error.message || 'Unknown error'));
@@ -236,11 +275,6 @@
 	async function editProduct(product: any) {
 		editingProduct = product;
 		showEditProductModal = true;
-	}
-
-	async function createProduct() {
-		// This function is now handled by handleProductSubmit
-		// Kept for backward compatibility if needed
 	}
 	
 	async function deleteProduct(id: string) {
@@ -262,9 +296,9 @@
 		if (!confirm('Are you sure you want to delete this group? All associated products will also be deleted.')) {
 			return;
 		}
-		
+
 		try {
-			await api.delete(`/products/groups/${id}`);
+			await api.delete(`/ext/products/groups/${id}`);
 			groups = groups.filter(e => e.id !== id);
 			await loadData();
 		} catch (error) {
@@ -561,12 +595,17 @@
 									<div class="group-header">
 										<div class="group-info">
 											<h4>{group.name}</h4>
-											<span class="group-type">{getGroupTypeName(group.group_type_id)}</span>
+											{#if group.group_type_id && getGroupTypeName(group.group_type_id) !== 'Unknown'}
+												<span class="group-type">{getGroupTypeName(group.group_type_id)}</span>
+											{/if}
 										</div>
 										<div class="group-actions">
 											<button class="btn-sm btn-primary" on:click={() => openProductCreationForGroup(group)}>
 												<Plus size={12} />
 												Add Product
+											</button>
+											<button class="btn-icon" on:click={() => editGroup(group)} title="Edit Group">
+												<Edit2 size={14} />
 											</button>
 											<button class="btn-icon" on:click={() => deleteGroup(group.id)} title="Delete Group">
 												<Trash2 size={14} />
@@ -634,152 +673,23 @@
 	</div>
 </div>
 
-<!-- Create Group Modal -->
-{#if showCreateGroupModal}
-	<div class="modal-overlay" on:click={() => showCreateGroupModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h3>Create New Group</h3>
-				<button class="btn-close" on:click={() => showCreateGroupModal = false}>
-					<X size={18} />
-				</button>
-			</div>
-			<div class="modal-body">
-				<div class="form-group">
-					<label for="group-name">Group Name</label>
-					<input 
-						type="text" 
-						id="group-name" 
-						bind:value={newGroup.name}
-						placeholder="e.g., Main Store, Downtown Restaurant"
-					/>
-				</div>
-				
-				{#if groupTypes.length > 0}
-					<div class="form-group">
-						<label for="group-type">Group Type</label>
-						<select id="group-type" bind:value={newGroup.group_type_id} 
-							on:change={() => {
-								selectedGroupType = groupTypes.find(t => t.id == newGroup.group_type_id);
-								newGroup.custom_fields = {};
-							}}>
-							<option value="">Select type</option>
-							{#each groupTypes as type}
-								<option value={type.id}>{type.display_name || type.name}</option>
-							{/each}
-						</select>
-					</div>
-				{/if}
-				
-				{#if selectedGroupType && selectedGroupType.fields && selectedGroupType.fields.length > 0}
-					<div class="custom-fields-section">
-						<h4 class="custom-fields-title">Custom Fields</h4>
-						{#each selectedGroupType.fields as field}
-							<div class="form-group">
-								<label for="field-{field.name}">
-									{field.label || field.name}
-									{#if field.constraints?.required}<span class="required">*</span>{/if}
-								</label>
-								{#if field.description}
-									<small class="field-help">{field.description}</small>
-								{/if}
-								
-								{#if field.type === 'boolean'}
-									<select id="field-{field.name}" bind:value={newGroup.custom_fields[field.name]}>
-										<option value="">Select...</option>
-										<option value={true}>Yes</option>
-										<option value={false}>No</option>
-									</select>
-								{:else if field.type === 'select' && field.constraints?.options}
-									<select id="field-{field.name}" bind:value={newGroup.custom_fields[field.name]}>
-										<option value="">Select...</option>
-										{#each field.constraints.options as option}
-											<option value={option}>{option}</option>
-										{/each}
-									</select>
-								{:else if field.type === 'textarea'}
-									<textarea 
-										id="field-{field.name}"
-										bind:value={newGroup.custom_fields[field.name]}
-										placeholder={field.constraints?.placeholder || ''}
-										rows="3"
-									></textarea>
-								{:else if field.type === 'number'}
-									<input 
-										type="number"
-										id="field-{field.name}"
-										bind:value={newGroup.custom_fields[field.name]}
-										placeholder={field.constraints?.placeholder || ''}
-										min={field.constraints?.min}
-										max={field.constraints?.max}
-									/>
-								{:else if field.type === 'date'}
-									<input 
-										type="date"
-										id="field-{field.name}"
-										bind:value={newGroup.custom_fields[field.name]}
-									/>
-								{:else if field.type === 'email'}
-									<input 
-										type="email"
-										id="field-{field.name}"
-										bind:value={newGroup.custom_fields[field.name]}
-										placeholder={field.constraints?.placeholder || ''}
-										minlength={field.constraints?.min_length}
-										maxlength={field.constraints?.max_length}
-										pattern={field.constraints?.pattern}
-									/>
-								{:else if field.type === 'url'}
-									<input 
-										type="url"
-										id="field-{field.name}"
-										bind:value={newGroup.custom_fields[field.name]}
-										placeholder={field.constraints?.placeholder || ''}
-										minlength={field.constraints?.min_length}
-										maxlength={field.constraints?.max_length}
-										pattern={field.constraints?.pattern}
-									/>
-								{:else}
-									<input 
-										type="text"
-										id="field-{field.name}"
-										bind:value={newGroup.custom_fields[field.name]}
-										placeholder={field.constraints?.placeholder || ''}
-										minlength={field.constraints?.min_length}
-										maxlength={field.constraints?.max_length}
-										pattern={field.constraints?.pattern}
-									/>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				{/if}
-				
-				<div class="form-group">
-					<label for="group-description">Description (optional)</label>
-					<textarea 
-						id="group-description" 
-						bind:value={newGroup.description}
-						rows="3"
-						placeholder="Brief description of this group"
-					></textarea>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showCreateGroupModal = false}>
-					Cancel
-				</button>
-				<button 
-					class="btn btn-primary" 
-					on:click={createGroup}
-					disabled={!newGroup.name}
-				>
-					Create Group
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
+<!-- Group Modals -->
+<GroupModal
+	show={showCreateGroupModal}
+	mode="create"
+	on:submit={handleGroupSubmit}
+	on:close={() => showCreateGroupModal = false}
+/>
+
+<GroupModal
+	show={showEditGroupModal}
+	mode="edit"
+	group={editingGroup}
+	title="Edit Group"
+	submitButtonText="Save Changes"
+	on:submit={handleGroupSubmit}
+	on:close={() => showEditGroupModal = false}
+/>
 
 <!-- Product Modals -->
 <ProductModal
@@ -787,6 +697,7 @@
 	mode="create"
 	{productTemplates}
 	{groups}
+	initialGroupId={selectedGroupForProduct?.id}
 	title={selectedGroupForProduct ? `Add Product to ${selectedGroupForProduct.name}` : 'Create New Product'}
 	on:submit={handleProductSubmit}
 	on:close={() => {

@@ -1,17 +1,13 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { X } from 'lucide-svelte';
-	import ProductForm from './ProductForm.svelte';
+	import GroupForm from './GroupForm.svelte';
 
 	export let show = false;
 	export let mode: 'create' | 'edit' = 'create';
-	export let product: any = null;
-	export let productTemplates: any[] = [];
-	export let groups: any[] = [];
-	export let initialGroupId: number | string | null = null;
-	export let title = mode === 'create' ? 'Create Product' : 'Edit Product';
-	export let submitButtonText = mode === 'create' ? 'Create' : 'Save';
-	export let customFieldsConfig: any = null;
+	export let group: any = null;
+	export let title = mode === 'create' ? 'Create Group' : 'Edit Group';
+	export let submitButtonText = mode === 'create' ? 'Create Group' : 'Save Changes';
 
 	const dispatch = createEventDispatcher();
 
@@ -40,13 +36,9 @@
 				</button>
 			</div>
 
-			<ProductForm
+			<GroupForm
 				{mode}
-				{product}
-				{productTemplates}
-				{groups}
-				{initialGroupId}
-				{customFieldsConfig}
+				{group}
 				{submitButtonText}
 				on:submit={handleFormSubmit}
 				on:cancel={handleFormCancel}
@@ -74,7 +66,7 @@
 		background: white;
 		border-radius: 0.5rem;
 		width: 100%;
-		max-width: 800px;
+		max-width: 600px;
 		max-height: 90vh;
 		display: flex;
 		flex-direction: column;

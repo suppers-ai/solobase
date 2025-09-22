@@ -270,6 +270,7 @@ func (a *API) setupRoutesWithAdmin() {
 	// User endpoints (product browsing and usage)
 	protected.HandleFunc("/ext/products/products", a.productHandlers.HandleProductsList()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/ext/products/products", a.productHandlers.HandleProductsCreate()).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/ext/products/products/{id}", a.productHandlers.HandleProductsUpdate()).Methods("PUT", "OPTIONS")
 	protected.HandleFunc("/ext/products/products/{id}", extensions.HandleProductsDelete()).Methods("DELETE", "OPTIONS")
 	protected.HandleFunc("/ext/products/groups", a.productHandlers.HandleListGroups()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/ext/products/groups", a.productHandlers.HandleCreateGroup()).Methods("POST", "OPTIONS")
