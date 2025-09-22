@@ -2,7 +2,7 @@
 	import '../../../app.css';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { 
+	import {
 		TrendingUp, Package, ShoppingCart, Users,
 		Eye, Heart, DollarSign, Search, Filter,
 		Download, Plus, MoreVertical, ChevronDown,
@@ -11,6 +11,7 @@
 	} from 'lucide-svelte';
 	import { api } from '$lib/api';
 	import { authStore } from '$lib/stores/auth';
+	import ProductModal from '$lib/components/products/ProductModal.svelte';
 	
 	let loading = true;
 	let activeTab = 'dashboard';
@@ -39,10 +40,13 @@
 	// Group and Product creation
 	let showCreateGroupModal = false;
 	let showCreateProductModal = false;
+	let showEditProductModal = false;
 	let selectedGroupForProduct: any = null;
 	let selectedGroupType: any = null;
 	let selectedProductType: any = null;
 	let productTypes: any[] = [];
+	let productTemplates: any[] = [];
+	let editingProduct: any = null;
 	
 	let newGroup = {
 		name: '',
@@ -126,6 +130,10 @@
 				console.error('Failed to load product types:', err);
 				productTypes = [];
 			}
+
+			// Load product templates (product types are actually ProductTemplate models)
+			// No mapping needed - they already have the correct structure
+			productTemplates = productTypes;
 			
 			// Load groups
 			try {
@@ -194,35 +202,45 @@
 		}
 	}
 	
-	async function createProduct() {
+	async function handleProductSubmit(event: CustomEvent) {
+		const productData = event.detail;
 		try {
-			const productData = {
-				name: newProduct.name,
-				description: newProduct.description || '',
-				base_price: parseFloat(newProduct.base_price) || 0,
-				group_id: parseInt(selectedGroupForProduct?.id || newProduct.group_id),
-				product_type_id: parseInt(newProduct.product_type_id) || undefined,
-				custom_fields: newProduct.custom_fields || {}
-			};
-			
-			const product = await api.post('/ext/products/products', productData);
-			products = [...products, product];
+			// Ensure proper data types
+			if (productData.group_id) productData.group_id = parseInt(productData.group_id);
+			if (productData.product_template_id) productData.product_template_id = parseInt(productData.product_template_id);
+			if (productData.base_price) productData.base_price = parseFloat(productData.base_price);
+
+			if (editingProduct) {
+				// Update existing product
+				const updated = await api.put(`/ext/products/products/${editingProduct.id}`, productData);
+				products = products.map(p => p.id === editingProduct.id ? updated : p);
+			} else {
+				// Create new product
+				if (selectedGroupForProduct) {
+					productData.group_id = parseInt(selectedGroupForProduct.id);
+				}
+				const product = await api.post('/ext/products/products', productData);
+				products = [...products, product];
+			}
 			await loadData();
 			showCreateProductModal = false;
+			showEditProductModal = false;
 			selectedGroupForProduct = null;
-			selectedProductType = null;
-			newProduct = {
-				name: '',
-				description: '',
-				base_price: 0,
-				group_id: '',
-				product_type_id: '',
-				custom_fields: {}
-			};
+			editingProduct = null;
 		} catch (error) {
-			console.error('Failed to create product:', error);
-			alert('Failed to create product: ' + (error.message || 'Unknown error'));
+			console.error('Failed to save product:', error);
+			alert('Failed to save product: ' + (error.message || 'Unknown error'));
 		}
+	}
+
+	async function editProduct(product: any) {
+		editingProduct = product;
+		showEditProductModal = true;
+	}
+
+	async function createProduct() {
+		// This function is now handled by handleProductSubmit
+		// Kept for backward compatibility if needed
 	}
 	
 	async function deleteProduct(id: string) {
@@ -257,7 +275,7 @@
 	
 	function openProductCreationForGroup(group: any) {
 		selectedGroupForProduct = group;
-		newProduct.group_id = group.id;
+		editingProduct = null;
 		showCreateProductModal = true;
 	}
 	
@@ -566,12 +584,17 @@
 												<div class="product-card">
 													<div class="product-card-header">
 														<h5>{product.name}</h5>
-														<button class="btn-icon" on:click={() => deleteProduct(product.id)}>
-															<Trash2 size={12} />
-														</button>
+														<div class="product-actions">
+															<button class="btn-icon btn-icon-edit" on:click={() => editProduct(product)} title="Edit Product">
+																<Edit2 size={12} />
+															</button>
+															<button class="btn-icon" on:click={() => deleteProduct(product.id)} title="Delete Product">
+																<Trash2 size={12} />
+															</button>
+														</div>
 													</div>
 													<p class="product-description">{product.description || 'No description'}</p>
-													<div class="product-price">${(product.price || 0).toFixed(2)}</div>
+													<div class="product-price">${(product.base_price || product.price || 0).toFixed(2)}</div>
 												</div>
 											{/each}
 										</div>
@@ -758,172 +781,33 @@
 	</div>
 {/if}
 
-<!-- Create Product Modal -->
-{#if showCreateProductModal}
-	<div class="modal-overlay" on:click={() => showCreateProductModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h3>
-					{#if selectedGroupForProduct}
-						Add Product to {selectedGroupForProduct.name}
-					{:else}
-						Create New Product
-					{/if}
-				</h3>
-				<button class="btn-close" on:click={() => showCreateProductModal = false}>
-					<X size={18} />
-				</button>
-			</div>
-			<div class="modal-body">
-				<div class="form-group">
-					<label for="product-name">Product Name</label>
-					<input 
-						type="text" 
-						id="product-name" 
-						bind:value={newProduct.name}
-						placeholder="Enter product name"
-					/>
-				</div>
-				
-				{#if productTypes.length > 0}
-					<div class="form-group">
-						<label for="product-type">Product Type</label>
-						<select id="product-type" bind:value={newProduct.product_type_id}
-							on:change={() => {
-								selectedProductType = productTypes.find(t => t.id == newProduct.product_type_id);
-								newProduct.custom_fields = {};
-							}}>
-							<option value="">Select type</option>
-							{#each productTypes as type}
-								<option value={type.id}>{type.display_name || type.name}</option>
-							{/each}
-						</select>
-					</div>
-				{/if}
-				
-				<div class="form-group">
-					<label for="product-description">Description</label>
-					<textarea 
-						id="product-description" 
-						bind:value={newProduct.description}
-						rows="3"
-						placeholder="Product description"
-					></textarea>
-				</div>
-				
-				<div class="form-group">
-					<label for="product-price">Base Price</label>
-					<input 
-						type="number" 
-						id="product-price" 
-						bind:value={newProduct.base_price}
-						step="0.01"
-						placeholder="0.00"
-					/>
-				</div>
-				
-				{#if selectedProductType && selectedProductType.fields && selectedProductType.fields.length > 0}
-					<div class="custom-fields-section">
-						<h4 class="custom-fields-title">Product Details</h4>
-						{#each selectedProductType.fields as field}
-							<div class="form-group">
-								<label for="prod-field-{field.name}">
-									{field.label || field.name}
-									{#if field.constraints?.required}<span class="required">*</span>{/if}
-								</label>
-								{#if field.description}
-									<small class="field-help">{field.description}</small>
-								{/if}
-								
-								{#if field.type === 'boolean'}
-									<select id="prod-field-{field.name}" bind:value={newProduct.custom_fields[field.name]}>
-										<option value="">Select...</option>
-										<option value={true}>Yes</option>
-										<option value={false}>No</option>
-									</select>
-								{:else if field.type === 'select' && field.constraints?.options}
-									<select id="prod-field-{field.name}" bind:value={newProduct.custom_fields[field.name]}>
-										<option value="">Select...</option>
-										{#each field.constraints.options as option}
-											<option value={option}>{option}</option>
-										{/each}
-									</select>
-								{:else if field.type === 'textarea'}
-									<textarea 
-										id="prod-field-{field.name}"
-										bind:value={newProduct.custom_fields[field.name]}
-										placeholder={field.constraints?.placeholder || ''}
-										rows="3"
-									></textarea>
-								{:else if field.type === 'number'}
-									<input 
-										type="number"
-										id="prod-field-{field.name}"
-										bind:value={newProduct.custom_fields[field.name]}
-										placeholder={field.constraints?.placeholder || ''}
-										min={field.constraints?.min}
-										max={field.constraints?.max}
-									/>
-								{:else if field.type === 'date'}
-									<input 
-										type="date"
-										id="prod-field-{field.name}"
-										bind:value={newProduct.custom_fields[field.name]}
-									/>
-								{:else if field.type === 'email'}
-									<input 
-										type="email"
-										id="prod-field-{field.name}"
-										bind:value={newProduct.custom_fields[field.name]}
-										placeholder={field.constraints?.placeholder || ''}
-										minlength={field.constraints?.min_length}
-										maxlength={field.constraints?.max_length}
-										pattern={field.constraints?.pattern}
-									/>
-								{:else if field.type === 'url'}
-									<input 
-										type="url"
-										id="prod-field-{field.name}"
-										bind:value={newProduct.custom_fields[field.name]}
-										placeholder={field.constraints?.placeholder || ''}
-										minlength={field.constraints?.min_length}
-										maxlength={field.constraints?.max_length}
-										pattern={field.constraints?.pattern}
-									/>
-								{:else}
-									<input 
-										type="text"
-										id="prod-field-{field.name}"
-										bind:value={newProduct.custom_fields[field.name]}
-										placeholder={field.constraints?.placeholder || ''}
-										minlength={field.constraints?.min_length}
-										maxlength={field.constraints?.max_length}
-										pattern={field.constraints?.pattern}
-									/>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				{/if}
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => {
-					showCreateProductModal = false;
-					selectedGroupForProduct = null;
-				}}>
-					Cancel
-				</button>
-				<button 
-					class="btn btn-primary" 
-					on:click={createProduct}
-					disabled={!newProduct.name || newProduct.price < 0}
-				>
-					Create Product
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
+<!-- Product Modals -->
+<ProductModal
+	show={showCreateProductModal}
+	mode="create"
+	{productTemplates}
+	{groups}
+	title={selectedGroupForProduct ? `Add Product to ${selectedGroupForProduct.name}` : 'Create New Product'}
+	on:submit={handleProductSubmit}
+	on:close={() => {
+		showCreateProductModal = false;
+		selectedGroupForProduct = null;
+	}}
+/>
+
+<ProductModal
+	show={showEditProductModal}
+	mode="edit"
+	product={editingProduct}
+	{productTemplates}
+	{groups}
+	title="Edit Product"
+	on:submit={handleProductSubmit}
+	on:close={() => {
+		showEditProductModal = false;
+		editingProduct = null;
+	}}
+/>
 
 <style>
 	/* Page Layout - matching profile page */
@@ -1557,6 +1441,12 @@
 		background: #fee2e2;
 		border-color: #ef4444;
 		color: #ef4444;
+	}
+
+	.btn-icon-edit:hover {
+		background: #e0f2fe;
+		border-color: #189AB4;
+		color: #189AB4;
 	}
 	
 	.product-description {

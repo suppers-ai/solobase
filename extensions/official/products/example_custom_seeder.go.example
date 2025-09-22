@@ -42,7 +42,7 @@ func (s *MyCustomSeeder) SeedGroupTemplates(db *gorm.DB) ([]models.GroupTemplate
 			Status:      "active",
 			Fields: []models.FieldDefinition{
 				{
-					ID:          "filter_text_1",
+					ID:          string(models.FilterText1),
 					Name:        "Company Name",
 					Type:        "text",
 					Required:    true,

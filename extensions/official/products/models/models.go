@@ -3,6 +3,7 @@ package models
 import (
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"gorm.io/gorm"
 	"time"
 )
@@ -61,14 +62,66 @@ type FieldConstraints struct {
 	Placeholder string      `json:"placeholder,omitempty"`
 }
 
-// FieldDefinition defines a custom field with its constraints
+// FieldDefinition defines a custom field with its constraints (for filter fields)
 type FieldDefinition struct {
-	ID          string           `json:"id"`   // e.g., "filter_text_1", "filter_numeric_1"
+	ID          string           `json:"id"`   // Must be a valid FilterFieldID value (e.g., "filter_text_1", "filter_numeric_1")
 	Name        string           `json:"name"` // Display name for the field
 	Type        string           `json:"type"` // numeric, text, boolean, enum, location
 	Required    bool             `json:"required"`
 	Description string           `json:"description,omitempty"`
 	Constraints FieldConstraints `json:"constraints"`
+}
+
+// CustomFieldDefinition defines a field stored in CustomFields JSON (non-indexed)
+type CustomFieldDefinition struct {
+	ID          string      `json:"id"`   // Unique identifier for the custom field
+	Name        string      `json:"name"` // Display name for the field
+	Type        string      `json:"type"` // text, numeric, boolean, enum, color, date, email, url, textarea
+	Required    bool        `json:"required"`
+	Description string      `json:"description,omitempty"`
+	Default     interface{} `json:"default,omitempty"`
+	// Type-specific constraints
+	Options     []string `json:"options,omitempty"`      // For enum/select types
+	Min         *float64 `json:"min,omitempty"`          // For numeric types
+	Max         *float64 `json:"max,omitempty"`          // For numeric types
+	MinLength   *int     `json:"min_length,omitempty"`   // For text types
+	MaxLength   *int     `json:"max_length,omitempty"`   // For text types
+	Pattern     string   `json:"pattern,omitempty"`      // Regex pattern for validation
+	Placeholder string   `json:"placeholder,omitempty"`   // UI placeholder text
+	Rows        *int     `json:"rows,omitempty"`          // For textarea type
+}
+
+// Validate checks if the FieldDefinition is valid
+func (f *FieldDefinition) Validate() error {
+	// Validate that ID is a valid filter field
+	if _, valid := ValidateFilterFieldID(f.ID); !valid {
+		return fmt.Errorf("invalid field ID: %s", f.ID)
+	}
+
+	// Validate that the field type matches the filter type
+	filterID := FilterFieldID(f.ID)
+	expectedType := filterID.GetType()
+
+	// Map field types to filter types
+	var actualFilterType string
+	switch f.Type {
+	case "text", "location", "color": // color values stored as text (hex)
+		actualFilterType = "text"
+	case "numeric", "number":
+		actualFilterType = "numeric"
+	case "boolean":
+		actualFilterType = "boolean"
+	case "enum", "select", "multiselect":
+		actualFilterType = "enum"
+	default:
+		return fmt.Errorf("invalid field type: %s", f.Type)
+	}
+
+	if actualFilterType != expectedType {
+		return fmt.Errorf("field type %s does not match filter type %s for ID %s", f.Type, expectedType, f.ID)
+	}
+
+	return nil
 }
 
 // GroupTemplate represents a template for business groups
@@ -141,21 +194,22 @@ func (Group) TableName() string {
 
 // ProductTemplate represents a template for products
 type ProductTemplate struct {
-	ID                            uint              `gorm:"primaryKey" json:"id"`
-	Name                          string            `gorm:"uniqueIndex;not null" json:"name"`
-	DisplayName                   string            `json:"display_name"`
-	Description                   string            `json:"description"`
-	Category                      string            `json:"category,omitempty"`
-	Icon                          string            `json:"icon,omitempty"`
-	Fields                        []FieldDefinition `gorm:"type:jsonb;serializer:json" json:"fields"`            // Custom field definitions
-	PricingTemplates              []uint            `gorm:"type:jsonb;serializer:json" json:"pricing_templates"` // IDs of pricing templates to use
-	BillingMode                   string            `gorm:"default:'instant';not null" json:"billing_mode"`      // instant, approval
-	BillingType                   string            `gorm:"default:'one-time';not null" json:"billing_type"`     // one-time, recurring
-	BillingRecurringInterval      *string           `json:"billing_recurring_interval,omitempty"`                // day, week, month, year
-	BillingRecurringIntervalCount *int              `gorm:"default:1" json:"billing_recurring_interval_count,omitempty"`
-	Status                        string            `gorm:"default:'active'" json:"status"` // active, pending, deleted
-	CreatedAt                     time.Time         `json:"created_at"`
-	UpdatedAt                     time.Time         `json:"updated_at"`
+	ID                            uint                      `gorm:"primaryKey" json:"id"`
+	Name                          string                    `gorm:"uniqueIndex;not null" json:"name"`
+	DisplayName                   string                    `json:"display_name"`
+	Description                   string                    `json:"description"`
+	Category                      string                    `json:"category,omitempty"`
+	Icon                          string                    `json:"icon,omitempty"`
+	Fields                        []FieldDefinition         `gorm:"type:jsonb;serializer:json" json:"fields"`                      // Filter field definitions (indexed)
+	CustomFieldsSchema            []CustomFieldDefinition   `gorm:"type:jsonb;serializer:json" json:"custom_fields_schema"`        // Custom field definitions (non-indexed, stored in CustomFields)
+	PricingTemplates              []uint                    `gorm:"type:jsonb;serializer:json" json:"pricing_templates"`           // IDs of pricing templates to use
+	BillingMode                   string                    `gorm:"default:'instant';not null" json:"billing_mode"`                // instant, approval
+	BillingType                   string                    `gorm:"default:'one-time';not null" json:"billing_type"`               // one-time, recurring
+	BillingRecurringInterval      *string                   `json:"billing_recurring_interval,omitempty"`                          // day, week, month, year
+	BillingRecurringIntervalCount *int                      `gorm:"default:1" json:"billing_recurring_interval_count,omitempty"`
+	Status                        string                    `gorm:"default:'active'" json:"status"` // active, pending, deleted
+	CreatedAt                     time.Time                 `json:"created_at"`
+	UpdatedAt                     time.Time                 `json:"updated_at"`
 }
 
 // TableName specifies the table name with extension prefix

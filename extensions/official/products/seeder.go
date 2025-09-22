@@ -1,6 +1,7 @@
 package products
 
 import (
+	"fmt"
 	"github.com/suppers-ai/solobase/extensions/official/products/models"
 	"gorm.io/gorm"
 )
@@ -140,10 +141,14 @@ func SeedWithSeeder(db *gorm.DB, seeder Seeder) error {
 	if err != nil {
 		return err
 	}
+	fmt.Printf("SeedWithSeeder: Seeding %d product templates\n", len(productTemplates))
 	for _, pt := range productTemplates {
+		fmt.Printf("SeedWithSeeder: Creating product template: %s\n", pt.Name)
 		if err := db.Create(&pt).Error; err != nil {
+			fmt.Printf("SeedWithSeeder: Error creating product template %s: %v\n", pt.Name, err)
 			return err
 		}
+		fmt.Printf("SeedWithSeeder: Successfully created product template: %s\n", pt.Name)
 	}
 
 	// Seed pricing templates

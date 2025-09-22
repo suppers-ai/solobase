@@ -97,7 +97,8 @@ func DefaultVariables() []models.Variable {
 	}
 }
 
-// defaultGroupTemplates returns the default group templates
+// DefaultGroupTemplates returns the default group templates
+// This is exported so custom seeders can extend the defaults
 func DefaultGroupTemplates() []models.GroupTemplate {
 	return []models.GroupTemplate{
 		{
@@ -108,7 +109,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 			Status:      "active",
 			Fields: []models.FieldDefinition{
 				{
-					ID:          "filter_enum_1",
+					ID:          string(models.FilterEnum1),
 					Name:        "Cuisine Type",
 					Type:        "enum",
 					Required:    true,
@@ -118,7 +119,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 					},
 				},
 				{
-					ID:          "filter_numeric_1",
+					ID:          string(models.FilterNumeric1),
 					Name:        "Seating Capacity",
 					Type:        "numeric",
 					Required:    false,
@@ -129,7 +130,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 					},
 				},
 				{
-					ID:          "filter_numeric_2",
+					ID:          string(models.FilterNumeric2),
 					Name:        "Delivery Radius",
 					Type:        "numeric",
 					Required:    false,
@@ -140,7 +141,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 					},
 				},
 				{
-					ID:          "filter_boolean_1",
+					ID:          string(models.FilterBoolean1),
 					Name:        "Accepts Reservations",
 					Type:        "boolean",
 					Required:    false,
@@ -157,7 +158,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 			Status:      "active",
 			Fields: []models.FieldDefinition{
 				{
-					ID:          "filter_enum_1",
+					ID:          string(models.FilterEnum1),
 					Name:        "Store Type",
 					Type:        "enum",
 					Required:    true,
@@ -167,7 +168,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 					},
 				},
 				{
-					ID:          "filter_text_1",
+					ID:          string(models.FilterText1),
 					Name:        "Location",
 					Type:        "text",
 					Required:    false,
@@ -184,7 +185,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 			Status:      "active",
 			Fields: []models.FieldDefinition{
 				{
-					ID:          "filter_text_1",
+					ID:          string(models.FilterText1),
 					Name:        "Service Type",
 					Type:        "text",
 					Description: "Type of service provided",
@@ -193,7 +194,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 					},
 				},
 				{
-					ID:          "filter_numeric_1",
+					ID:          string(models.FilterNumeric1),
 					Name:        "Team Size",
 					Type:        "numeric",
 					Description: "Number of team members",
@@ -209,7 +210,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 			Status:      "active",
 			Fields: []models.FieldDefinition{
 				{
-					ID:          "filter_enum_1",
+					ID:          string(models.FilterEnum1),
 					Name:        "Billing Cycle",
 					Type:        "enum",
 					Description: "Billing frequency",
@@ -219,7 +220,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 					},
 				},
 				{
-					ID:          "filter_numeric_1",
+					ID:          string(models.FilterNumeric1),
 					Name:        "Trial Period (days)",
 					Type:        "numeric",
 					Description: "Number of trial days offered",
@@ -230,7 +231,8 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 	}
 }
 
-// defaultProductTemplates returns the default product templates
+// DefaultProductTemplates returns the default product templates
+// This is exported so custom seeders can extend the defaults
 func DefaultProductTemplates() []models.ProductTemplate {
 	return []models.ProductTemplate{
 		{
@@ -244,7 +246,7 @@ func DefaultProductTemplates() []models.ProductTemplate {
 			Status:      "active",
 			Fields: []models.FieldDefinition{
 				{
-					ID:          "filter_text_1",
+					ID:          string(models.FilterText1),
 					Name:        "SKU",
 					Type:        "text",
 					Description: "Stock Keeping Unit",
@@ -253,14 +255,14 @@ func DefaultProductTemplates() []models.ProductTemplate {
 					},
 				},
 				{
-					ID:          "filter_numeric_1",
+					ID:          string(models.FilterNumeric1),
 					Name:        "Weight (kg)",
 					Type:        "numeric",
 					Description: "Product weight in kilograms",
 					Constraints: models.FieldConstraints{},
 				},
 				{
-					ID:          "filter_text_2",
+					ID:          string(models.FilterText2),
 					Name:        "Manufacturer",
 					Type:        "text",
 					Description: "Product manufacturer",
@@ -279,21 +281,21 @@ func DefaultProductTemplates() []models.ProductTemplate {
 			Status:      "active",
 			Fields: []models.FieldDefinition{
 				{
-					ID:          "filter_numeric_1",
+					ID:          string(models.FilterNumeric1),
 					Name:        "File Size (MB)",
 					Type:        "numeric",
 					Description: "Size of the digital file in megabytes",
 					Constraints: models.FieldConstraints{},
 				},
 				{
-					ID:          "filter_text_1",
+					ID:          string(models.FilterText1),
 					Name:        "File Format",
 					Type:        "text",
 					Description: "File format (PDF, ZIP, etc.)",
 					Constraints: models.FieldConstraints{},
 				},
 				{
-					ID:          "filter_enum_1",
+					ID:          string(models.FilterEnum1),
 					Name:        "License Type",
 					Type:        "enum",
 					Description: "Type of license for this digital product",
@@ -314,21 +316,21 @@ func DefaultProductTemplates() []models.ProductTemplate {
 			Status:      "active",
 			Fields: []models.FieldDefinition{
 				{
-					ID:          "filter_numeric_1",
+					ID:          string(models.FilterNumeric1),
 					Name:        "Duration (hours)",
 					Type:        "numeric",
 					Description: "Service duration in hours",
 					Constraints: models.FieldConstraints{},
 				},
 				{
-					ID:          "filter_text_1",
+					ID:          string(models.FilterText1),
 					Name:        "Service Location",
 					Type:        "text",
 					Description: "Where the service will be provided",
 					Constraints: models.FieldConstraints{},
 				},
 				{
-					ID:          "filter_text_2",
+					ID:          string(models.FilterText2),
 					Name:        "Special Requirements",
 					Type:        "text",
 					Description: "Any special requirements for the service",
@@ -349,7 +351,7 @@ func DefaultProductTemplates() []models.ProductTemplate {
 			Status:                        "active",
 			Fields: []models.FieldDefinition{
 				{
-					ID:          "filter_enum_1",
+					ID:          string(models.FilterEnum1),
 					Name:        "Billing Cycle",
 					Type:        "enum",
 					Description: "Subscription billing frequency",
@@ -360,7 +362,7 @@ func DefaultProductTemplates() []models.ProductTemplate {
 					},
 				},
 				{
-					ID:          "filter_numeric_2",
+					ID:          string(models.FilterNumeric2),
 					Name:        "User Limit",
 					Type:        "numeric",
 					Description: "Maximum number of users",
@@ -379,7 +381,7 @@ func DefaultProductTemplates() []models.ProductTemplate {
 			Status:      "active",
 			Fields: []models.FieldDefinition{
 				{
-					ID:          "filter_numeric_1",
+					ID:          string(models.FilterNumeric1),
 					Name:        "Number of Items",
 					Type:        "numeric",
 					Description: "Number of items in the bundle",
@@ -388,7 +390,7 @@ func DefaultProductTemplates() []models.ProductTemplate {
 					},
 				},
 				{
-					ID:          "filter_numeric_2",
+					ID:          string(models.FilterNumeric2),
 					Name:        "Savings (%)",
 					Type:        "numeric",
 					Description: "Percentage saved by purchasing the bundle",
@@ -401,7 +403,8 @@ func DefaultProductTemplates() []models.ProductTemplate {
 	}
 }
 
-// defaultPricingTemplates returns the default pricing templates
+// DefaultPricingTemplates returns the default pricing templates
+// This is exported so custom seeders can extend the defaults
 func DefaultPricingTemplates() []models.PricingTemplate {
 	return []models.PricingTemplate{
 		{
