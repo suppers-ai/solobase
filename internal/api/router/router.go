@@ -9,6 +9,7 @@ import (
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/extensions/official/cloudstorage"
 	"github.com/suppers-ai/solobase/extensions/official/legalpages"
+	productsext "github.com/suppers-ai/solobase/extensions/official/products"
 	"github.com/suppers-ai/solobase/internal/api/handlers/auth"
 	"github.com/suppers-ai/solobase/internal/api/handlers/custom_tables"
 	dbhandlers "github.com/suppers-ai/solobase/internal/api/handlers/database"
@@ -234,9 +235,20 @@ func (a *API) setupRoutesWithAdmin() {
 	admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.DeleteRecord).Methods("DELETE", "OPTIONS")
 
 	// Initialize handlers if needed
-	
+
 	if a.productHandlers == nil {
-		a.productHandlers = products.NewProductsExtensionHandlersWithDB(a.DB.DB)
+		// Get the products extension from the registry instead of creating a new one
+		if ext, exists := a.ExtensionRegistry.Get("products"); exists {
+			if productsExt, ok := ext.(*productsext.ProductsExtension); ok {
+				a.productHandlers = products.NewProductsExtensionHandlersWithExtension(productsExt)
+			} else {
+				// Fallback to empty handler
+				a.productHandlers = products.NewProductsExtensionHandlers()
+			}
+		} else {
+			// Create empty handlers
+			a.productHandlers = products.NewProductsExtensionHandlers()
+		}
 	}
 
 	// ==================================

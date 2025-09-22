@@ -38,6 +38,7 @@ type App struct {
 	services         *AppServices
 	extensionManager *extensions.ExtensionManager
 	server           *http.Server
+	productsSeeder   interface{} // Custom seeder for Products extension
 
 	// Event hooks
 	onServeHooks     []func(*ServeEvent) error
@@ -92,6 +93,7 @@ type Options struct {
 	JWTSecret            string
 	Port                 string
 	DisableUI            bool
+	ProductsSeeder       interface{} // Custom seeder for Products extension
 }
 
 // S3Config for S3 storage
@@ -170,8 +172,9 @@ func NewWithOptions(opts *Options) *App {
 	}
 
 	app := &App{
-		appID:        opts.AppID,
-		onModelHooks: make(map[string][]func(*ModelEvent) error),
+		appID:          opts.AppID,
+		productsSeeder: opts.ProductsSeeder,
+		onModelHooks:   make(map[string][]func(*ModelEvent) error),
 	}
 
 	// Create config
@@ -342,7 +345,7 @@ func (app *App) Initialize() error {
 	}
 
 	// Initialize extension system
-	extensionManager, err := extensions.NewExtensionManager(db.DB, dbLogger)
+	extensionManager, err := extensions.NewExtensionManagerWithOptions(db.DB, dbLogger, app.productsSeeder)
 	if err != nil {
 		return fmt.Errorf("failed to create extension manager: %w", err)
 	}

@@ -1,21 +1,11 @@
 package products
 
-import (
-	"github.com/suppers-ai/solobase/extensions/official/products/models"
-	"gorm.io/gorm"
-)
+import "github.com/suppers-ai/solobase/extensions/official/products/models"
 
-// SeedData seeds initial data for the products extension
-func SeedData(db *gorm.DB) error {
-	// Check if data already exists
-	var count int64
-	db.Model(&models.Variable{}).Count(&count)
-	if count > 0 {
-		return nil // Data already seeded
-	}
-
-	// Seed user variables (system variables like running_total are hard-coded)
-	userVariables := []models.Variable{
+// DefaultVariables returns the default variables for seeding
+// This is exported so custom seeders can extend the defaults
+func DefaultVariables() []models.Variable {
+	return []models.Variable{
 		// Product variables
 		{Name: "quantity", DisplayName: "Quantity", ValueType: "number", Type: "user", DefaultValue: 1.0, Description: "Number of items"},
 		{Name: "weight", DisplayName: "Weight (kg)", ValueType: "number", Type: "user", DefaultValue: 0.0, Description: "Product weight in kilograms"},
@@ -59,7 +49,7 @@ func SeedData(db *gorm.DB) error {
 		{Name: "hours", DisplayName: "Hours", ValueType: "number", Type: "user", DefaultValue: 1.0, Description: "Number of service hours"},
 		{Name: "service_level", DisplayName: "Service Level", ValueType: "string", Type: "user", DefaultValue: "standard", Description: "Selected service level"},
 
-		// System variables (note: running_total is now hard-coded as a system variable)
+		// System variables
 		{Name: "base_price", DisplayName: "Base Price", ValueType: "number", Type: "user", DefaultValue: 0.0, Description: "Base product price"},
 		{Name: "cost", DisplayName: "Cost", ValueType: "number", Type: "user", DefaultValue: 0.0, Description: "Product cost"},
 		{Name: "margin", DisplayName: "Margin", ValueType: "number", Type: "user", DefaultValue: 0.3, Description: "Default profit margin"},
@@ -105,15 +95,11 @@ func SeedData(db *gorm.DB) error {
 		{Name: "cancellation_fee", DisplayName: "Cancellation Fee", ValueType: "number", Type: "user", DefaultValue: 10.0, Description: "Order cancellation fee"},
 		{Name: "restocking_fee", DisplayName: "Restocking Fee", ValueType: "number", Type: "user", DefaultValue: 0.15, Description: "Restocking fee percentage"},
 	}
+}
 
-	for _, v := range userVariables {
-		if err := db.Create(&v).Error; err != nil {
-			return err
-		}
-	}
-
-	// Seed group types
-	groupTemplates := []models.GroupTemplate{
+// defaultGroupTemplates returns the default group templates
+func DefaultGroupTemplates() []models.GroupTemplate {
+	return []models.GroupTemplate{
 		{
 			Name:        "restaurant",
 			DisplayName: "Restaurant",
@@ -242,15 +228,11 @@ func SeedData(db *gorm.DB) error {
 			},
 		},
 	}
+}
 
-	for _, et := range groupTemplates {
-		if err := db.Create(&et).Error; err != nil {
-			return err
-		}
-	}
-
-	// Seed product types
-	productTemplates := []models.ProductTemplate{
+// defaultProductTemplates returns the default product templates
+func DefaultProductTemplates() []models.ProductTemplate {
+	return []models.ProductTemplate{
 		{
 			Name:        "physical_product",
 			DisplayName: "Physical Product",
@@ -417,15 +399,11 @@ func SeedData(db *gorm.DB) error {
 			},
 		},
 	}
+}
 
-	for _, pt := range productTemplates {
-		if err := db.Create(&pt).Error; err != nil {
-			return err
-		}
-	}
-
-	// Seed pricing templates
-	pricingTemplates := []models.PricingTemplate{
+// defaultPricingTemplates returns the default pricing templates
+func DefaultPricingTemplates() []models.PricingTemplate {
+	return []models.PricingTemplate{
 		{
 			Name:         "volume_discount",
 			DisplayName:  "Volume Discount",
@@ -547,12 +525,4 @@ func SeedData(db *gorm.DB) error {
 			},
 		},
 	}
-
-	for _, pt := range pricingTemplates {
-		if err := db.Create(&pt).Error; err != nil {
-			return err
-		}
-	}
-
-	return nil
 }

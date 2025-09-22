@@ -1,0 +1,148 @@
+package main
+
+import (
+	"os"
+
+	"github.com/suppers-ai/solobase/extensions/official/products"
+	"github.com/suppers-ai/solobase/extensions/official/products/models"
+	"gorm.io/gorm"
+)
+
+// Example 1: Complete custom seeder implementation
+type MyCustomSeeder struct{}
+
+func (s *MyCustomSeeder) ShouldSeed(db *gorm.DB) bool {
+	// Custom logic to determine if seeding should occur
+	var count int64
+	db.Model(&models.Variable{}).Count(&count)
+	return count == 0
+}
+
+func (s *MyCustomSeeder) SeedVariables(db *gorm.DB) ([]models.Variable, error) {
+	return []models.Variable{
+		{
+			Name:         "my_custom_var",
+			DisplayName:  "My Custom Variable",
+			ValueType:    "number",
+			Type:         "user",
+			DefaultValue: 100.0,
+			Description:  "A custom variable for my business",
+		},
+		// Add more custom variables as needed
+	}, nil
+}
+
+func (s *MyCustomSeeder) SeedGroupTemplates(db *gorm.DB) ([]models.GroupTemplate, error) {
+	return []models.GroupTemplate{
+		{
+			Name:        "saas_company",
+			DisplayName: "SaaS Company",
+			Description: "Software as a Service company",
+			Icon:        "cloud",
+			Status:      "active",
+			Fields: []models.FieldDefinition{
+				{
+					ID:          "filter_text_1",
+					Name:        "Company Name",
+					Type:        "text",
+					Required:    true,
+					Description: "Name of the SaaS company",
+					Constraints: models.FieldConstraints{},
+				},
+			},
+		},
+	}, nil
+}
+
+func (s *MyCustomSeeder) SeedProductTemplates(db *gorm.DB) ([]models.ProductTemplate, error) {
+	return []models.ProductTemplate{
+		{
+			Name:        "api_access",
+			DisplayName: "API Access",
+			Description: "API access tier",
+			Category:    "digital",
+			Icon:        "code",
+			BillingMode: "instant",
+			BillingType: "recurring",
+			Status:      "active",
+			Fields:      []models.FieldDefinition{
+				// Custom fields
+			},
+		},
+	}, nil
+}
+
+func (s *MyCustomSeeder) SeedPricingTemplates(db *gorm.DB) ([]models.PricingTemplate, error) {
+	return []models.PricingTemplate{
+		{
+			Name:         "usage_based",
+			DisplayName:  "Usage Based Pricing",
+			Description:  "Pay per API call",
+			Category:     "usage",
+			PriceFormula: "api_calls * 0.001",
+			Variables: models.JSONB{
+				"required": []string{"api_calls"},
+			},
+		},
+	}, nil
+}
+
+// Example 2: Partial customization using CustomSeeder
+func SetupPartialCustomSeeding(extension *products.ProductsExtension) {
+	extension.SetCustomSeeder(products.CustomSeederOptions{
+		// Only customize variables, use defaults for everything else
+		Variables: func(db *gorm.DB) ([]models.Variable, error) {
+			// Get default variables
+			defaults := products.DefaultVariables()
+
+			// Add custom variables
+			customs := []models.Variable{
+				{
+					Name:         "api_calls",
+					DisplayName:  "API Calls",
+					ValueType:    "number",
+					Type:         "user",
+					DefaultValue: 0,
+					Description:  "Number of API calls made",
+				},
+			}
+
+			// Combine defaults with customs
+			return append(defaults, customs...), nil
+		},
+		// Use default implementations for other seed data
+	})
+}
+
+// Example 3: Conditional seeding
+func SetupConditionalSeeding(extension *products.ProductsExtension) {
+	extension.SetCustomSeeder(products.CustomSeederOptions{
+		ShouldSeed: func(db *gorm.DB) bool {
+			// Only seed in development environment
+			return os.Getenv("ENVIRONMENT") == "development"
+		},
+		// Other custom implementations...
+	})
+}
+
+// Example 4: How to use in main.go
+func main() {
+	// ... database setup ...
+
+	// Create products extension
+	productsExt := products.NewProductsExtension()
+
+	// Option 1: Use complete custom seeder
+	productsExt.SetSeeder(&MyCustomSeeder{})
+
+	// Option 2: Use partial custom seeder
+	SetupPartialCustomSeeding(productsExt)
+
+	// Option 3: Use conditional seeding
+	SetupConditionalSeeding(productsExt)
+
+	// Initialize with custom seeding
+	productsExt.Initialize(db)
+
+	// ... rest of application setup ...
+}

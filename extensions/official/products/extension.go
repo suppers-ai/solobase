@@ -18,17 +18,21 @@ type ProductsExtension struct {
 	publicAPI       *PublicAPI
 	webhookHandler  *WebhookHandler
 	paymentProvider providers.PaymentProvider
+	seeder          Seeder // Custom seeder for data initialization
 }
 
 // NewProductsExtension creates a new products extension instance
 func NewProductsExtension() *ProductsExtension {
-	return &ProductsExtension{}
+	return &ProductsExtension{
+		seeder: &DefaultSeeder{}, // Use default seeder by default
+	}
 }
 
 // NewProductsExtensionWithDB creates a new products extension with database
 func NewProductsExtensionWithDB(db *gorm.DB) *ProductsExtension {
 	ext := &ProductsExtension{
-		db: db,
+		db:     db,
+		seeder: &DefaultSeeder{}, // Initialize with default seeder
 	}
 	if db != nil {
 		ext.initializeAPIs()
@@ -62,11 +66,14 @@ func (e *ProductsExtension) SetDatabase(db *gorm.DB) {
 		return
 	}
 
-	// Run seed data if needed
-	if err := SeedData(e.db); err != nil {
+	// Run seed data using the configured seeder
+	fmt.Printf("Products extension: Running SeedWithSeeder with seeder: %T\n", e.seeder)
+	if err := SeedWithSeeder(e.db, e.seeder); err != nil {
 		// Log error but don't fail
+		fmt.Printf("Products extension: SeedWithSeeder error: %v\n", err)
 		return
 	}
+	fmt.Printf("Products extension: SeedWithSeeder completed successfully\n")
 }
 
 // initializeAPIs initializes all API handlers
@@ -120,6 +127,32 @@ func (e *ProductsExtension) GetPublicAPI() *PublicAPI {
 // GetWebhookHandler returns the webhook handler
 func (e *ProductsExtension) GetWebhookHandler() *WebhookHandler {
 	return e.webhookHandler
+}
+
+// SetSeeder sets a custom seeder for the extension
+func (e *ProductsExtension) SetSeeder(seeder Seeder) {
+	e.seeder = seeder
+}
+
+// SetCustomSeeder provides a convenient way to set custom seed functions
+func (e *ProductsExtension) SetCustomSeeder(options CustomSeederOptions) {
+	customSeeder := &CustomSeeder{
+		CustomVariables:        options.Variables,
+		CustomGroupTemplates:   options.GroupTemplates,
+		CustomProductTemplates: options.ProductTemplates,
+		CustomPricingTemplates: options.PricingTemplates,
+		CustomShouldSeed:      options.ShouldSeed,
+	}
+	e.seeder = customSeeder
+}
+
+// CustomSeederOptions provides options for custom seeding
+type CustomSeederOptions struct {
+	Variables        func(db *gorm.DB) ([]models.Variable, error)
+	GroupTemplates   func(db *gorm.DB) ([]models.GroupTemplate, error)
+	ProductTemplates func(db *gorm.DB) ([]models.ProductTemplate, error)
+	PricingTemplates func(db *gorm.DB) ([]models.PricingTemplate, error)
+	ShouldSeed      func(db *gorm.DB) bool
 }
 
 // GetPaymentProvider returns the configured payment provider

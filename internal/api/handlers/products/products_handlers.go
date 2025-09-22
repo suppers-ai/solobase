@@ -2,7 +2,6 @@ package products
 
 import (
 	"github.com/suppers-ai/solobase/extensions/official/products"
-	"gorm.io/gorm"
 	"net/http"
 )
 
@@ -13,15 +12,12 @@ type ProductsExtensionHandlers struct {
 
 // NewProductsExtensionHandlers creates a new wrapper for products extension handlers
 func NewProductsExtensionHandlers() *ProductsExtensionHandlers {
-	ext := products.NewProductsExtensionWithDB(nil)
-	return &ProductsExtensionHandlers{ext: ext}
+	// Start with nil extension, will be set later via SetExtension
+	return &ProductsExtensionHandlers{ext: nil}
 }
 
-// NewProductsExtensionHandlersWithDB creates handlers with database
-func NewProductsExtensionHandlersWithDB(db *gorm.DB) *ProductsExtensionHandlers {
-	ext := products.NewProductsExtensionWithDB(db)
-	// SetDatabase will run migrations and seed data
-	ext.SetDatabase(db)
+// NewProductsExtensionHandlersWithExtension creates handlers with an existing extension
+func NewProductsExtensionHandlersWithExtension(ext *products.ProductsExtension) *ProductsExtensionHandlers {
 	return &ProductsExtensionHandlers{ext: ext}
 }
 
