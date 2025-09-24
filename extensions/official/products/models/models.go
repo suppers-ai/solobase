@@ -80,6 +80,8 @@ type CustomFieldDefinition struct {
 	Required    bool        `json:"required"`
 	Description string      `json:"description,omitempty"`
 	Default     interface{} `json:"default,omitempty"`
+	Section     string      `json:"section,omitempty"` // Section/tab this field belongs to
+	Order       int         `json:"order,omitempty"`   // Display order within section
 	// Type-specific constraints
 	Options     []string `json:"options,omitempty"`      // For enum/select types
 	Min         *float64 `json:"min,omitempty"`          // For numeric types

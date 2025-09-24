@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/suppers-ai/solobase/internal/pkg/logger"
-	"github.com/suppers-ai/solobase/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"gorm.io/datatypes"
 )
 

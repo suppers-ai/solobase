@@ -13,6 +13,8 @@
 
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import FieldRenderer from './FieldRenderer.svelte';
+	import NineSliceUpload from './NineSliceUpload.svelte';
 
 	export let mode: 'create' | 'edit' = 'create';
 	export let product: any = null;
@@ -38,10 +40,11 @@
 		custom_fields: {}
 	};
 
-	// Store template separately to avoid circular dependency
 	let selectedTemplate: any = null;
 	let templateFields: any[] = [];
 	let customFields: any[] = [];
+	let activeTab = '';
+	let sections: Map<string, any[]> = new Map();
 
 	// Initialize form data from existing product
 	function initializeFromProduct() {
@@ -69,7 +72,6 @@
 
 	// Update selected template when product_template_id changes
 	function updateSelectedTemplate() {
-		// Convert to number for comparison since select values are strings
 		const templateId = typeof formData.product_template_id === 'string'
 			? parseInt(formData.product_template_id)
 			: formData.product_template_id;
@@ -77,6 +79,34 @@
 		selectedTemplate = productTemplates.find(t => t.id === templateId) || null;
 		templateFields = selectedTemplate?.fields || [];
 		customFields = customFieldsConfig || selectedTemplate?.custom_fields_schema || [];
+
+		// Group custom fields by section
+		organizeFieldsBySections();
+	}
+
+	// Organize fields into sections for tabbed display
+	function organizeFieldsBySections() {
+		sections = new Map();
+
+		if (customFields.length > 0) {
+			customFields.forEach(field => {
+				const sectionName = field.section || 'General';
+				if (!sections.has(sectionName)) {
+					sections.set(sectionName, []);
+				}
+				sections.get(sectionName)?.push(field);
+			});
+
+			// Sort fields within each section by order
+			sections.forEach((fields) => {
+				fields.sort((a, b) => (a.order || 0) - (b.order || 0));
+			});
+
+			// Set initial active tab
+			if (sections.size > 0 && !activeTab) {
+				activeTab = Array.from(sections.keys())[0];
+			}
+		}
 	}
 
 	// React to product changes
@@ -90,32 +120,8 @@
 	}
 
 	function updateField(fieldPath: string, value: any) {
-		const keys = fieldPath.split('.');
+		formData = { ...formData, [fieldPath]: value };
 
-		if (keys.length === 1) {
-			// Simple field update
-			formData = {
-				...formData,
-				[keys[0]]: value
-			};
-		} else {
-			// Nested field update
-			const newFormData = { ...formData };
-			let target = newFormData;
-
-			for (let i = 0; i < keys.length - 1; i++) {
-				const key = keys[i];
-				if (!target[key]) {
-					target[key] = {};
-				}
-				target = target[key];
-			}
-
-			target[keys[keys.length - 1]] = value;
-			formData = newFormData;
-		}
-
-		// If product_template_id changed, update the selected template
 		if (fieldPath === 'product_template_id') {
 			updateSelectedTemplate();
 		}
@@ -136,9 +142,19 @@
 		formData = formData;
 	}
 
-	function getFieldComponent(field: any) {
-		const value = formData.filter_fields[field.id] || field.constraints?.default;
-		return { field, value };
+	function getFieldValue(field: any, isCustom = false) {
+		const source = isCustom ? formData.custom_fields : formData.filter_fields;
+		return source[field.id] || field.default || field.constraints?.default || '';
+	}
+
+	function handleFileUpload(e: Event, fieldId: string, isCustom = false) {
+		const target = e.currentTarget as HTMLInputElement;
+		const file = target.files?.[0];
+		if (!file) return;
+
+		const uploadedId = `pending_upload_${Date.now()}`;
+		updateFieldValue(fieldId, uploadedId, isCustom);
+		dispatch('fileUpload', { field: fieldId, file, customField: isCustom });
 	}
 
 	function handleSubmit() {
@@ -201,7 +217,12 @@
 				<div class="form-row">
 					<div class="form-group">
 						<label for="group">Group <span class="required">*</span></label>
-						<select id="group" value={String(formData.group_id || '')} on:change={(e) => updateField('group_id', e.currentTarget.value ? parseInt(e.currentTarget.value) : '')} required>
+						<select
+							id="group"
+							value={String(formData.group_id || '')}
+							on:change={(e) => updateField('group_id', e.currentTarget.value ? parseInt(e.currentTarget.value) : '')}
+							required
+						>
 							<option value="">Select a group</option>
 							{#each groups as group}
 								<option value={String(group.id)}>{group.name || `Group ${group.id}`}</option>
@@ -211,7 +232,12 @@
 
 					<div class="form-group">
 						<label for="template">Product Type <span class="required">*</span></label>
-						<select id="template" value={String(formData.product_template_id || '')} on:change={(e) => updateField('product_template_id', e.currentTarget.value ? parseInt(e.currentTarget.value) : '')} required>
+						<select
+							id="template"
+							value={String(formData.product_template_id || '')}
+							on:change={(e) => updateField('product_template_id', e.currentTarget.value ? parseInt(e.currentTarget.value) : '')}
+							required
+						>
 							<option value="">Select a type</option>
 							{#each productTemplates as template}
 								<option value={String(template.id)}>{template.display_name || template.name}</option>
@@ -265,7 +291,6 @@
 				<h3>Product Properties</h3>
 
 				{#each templateFields as field}
-					{@const fieldData = getFieldComponent(field)}
 					<div class="form-group">
 						<label for={field.id}>
 							{field.name}
@@ -276,73 +301,14 @@
 							<p class="field-description">{field.description}</p>
 						{/if}
 
-						<!-- Render based on field type -->
-						{#if field.type === 'enum' || field.type === 'select'}
-							<select
-								id={field.id}
-								value={formData.filter_fields[field.id] || ''}
-								on:change={(e) => updateFieldValue(field.id, e.currentTarget.value)}
-								required={field.required}
-							>
-								<option value="">Select {field.name}</option>
-								{#each field.constraints?.options || [] as option}
-									<option value={option}>{option}</option>
-								{/each}
-							</select>
-						{:else if field.type === 'boolean'}
-							<select
-								id={field.id}
-								value={formData.filter_fields[field.id]}
-								on:change={(e) => updateFieldValue(field.id, e.currentTarget.value === 'true')}
-								required={field.required}
-							>
-								<option value="">Select</option>
-								<option value="true">Yes</option>
-								<option value="false">No</option>
-							</select>
-						{:else if field.type === 'numeric' || field.type === 'number'}
-							<input
-								id={field.id}
-								type="number"
-								value={formData.filter_fields[field.id] || ''}
-								on:input={(e) => updateFieldValue(field.id, parseFloat(e.currentTarget.value) || 0)}
-								min={field.constraints?.min}
-								max={field.constraints?.max}
-								step="any"
-								placeholder={field.constraints?.placeholder}
-								required={field.required}
-							/>
-						{:else if field.type === 'color'}
-							<div class="color-input-wrapper">
-								<input
-									id={field.id}
-									type="color"
-									value={formData.filter_fields[field.id] || '#000000'}
-									on:input={(e) => updateFieldValue(field.id, e.currentTarget.value)}
-									required={field.required}
-									class="color-picker"
-								/>
-								<input
-									type="text"
-									value={formData.filter_fields[field.id] || '#000000'}
-									on:input={(e) => updateFieldValue(field.id, e.currentTarget.value)}
-									placeholder="#000000"
-									pattern="^#[0-9A-Fa-f]{6}$"
-									class="color-text"
-								/>
-							</div>
-						{:else}
-							<!-- Default to text input -->
-							<input
-								id={field.id}
-								type="text"
-								value={formData.filter_fields[field.id] || ''}
-								on:input={(e) => updateFieldValue(field.id, e.currentTarget.value)}
-								placeholder={field.constraints?.placeholder}
-								maxlength={field.constraints?.max_length}
-								required={field.required}
-							/>
-						{/if}
+						<FieldRenderer
+							{field}
+							value={getFieldValue(field)}
+							fieldId={field.id}
+							required={field.required}
+							onUpdate={(val) => updateFieldValue(field.id, val)}
+							onFileUpload={field.type === 'upload' ? (e) => handleFileUpload(e, field.id) : null}
+						/>
 					</div>
 				{/each}
 			</div>
@@ -353,72 +319,94 @@
 			<div class="form-section">
 				<h3>Additional Configuration</h3>
 
-				{#each customFields as field}
-					<div class="form-group">
-						<label for={`custom-${field.id}`}>
-							{field.name}
-							{#if field.required}<span class="required">*</span>{/if}
-						</label>
+				{#if sections.size > 1}
+					<!-- Tabbed interface when there are multiple sections -->
+					<div class="tabs">
+						<div class="tab-list">
+							{#each Array.from(sections.keys()) as sectionName}
+								<button
+									type="button"
+									class="tab-button"
+									class:active={activeTab === sectionName}
+									on:click={() => activeTab = sectionName}
+								>
+									{sectionName}
+								</button>
+							{/each}
+						</div>
 
-						{#if field.description}
-							<p class="field-description">{field.description}</p>
-						{/if}
+						<div class="tab-content">
+							{#each Array.from(sections.entries()) as [sectionName, sectionFields]}
+								{#if activeTab === sectionName}
+									<div class="tab-panel">
+										{#each sectionFields as field}
+											<div class="form-group">
+												<label for={`custom-${field.id}`}>
+													{field.name}
+													{#if field.required}<span class="required">*</span>{/if}
+												</label>
 
-						{#if field.type === 'color'}
-							<div class="color-input-wrapper">
-								<input
-									id={`custom-${field.id}`}
-									type="color"
-									value={formData.custom_fields[field.id] || field.default || '#000000'}
-									on:input={(e) => updateFieldValue(field.id, e.currentTarget.value, true)}
-									required={field.required}
-									class="color-picker"
-								/>
-								<input
-									type="text"
-									value={formData.custom_fields[field.id] || field.default || '#000000'}
-									on:input={(e) => updateFieldValue(field.id, e.currentTarget.value, true)}
-									placeholder="#000000"
-									pattern="^#[0-9A-Fa-f]{6}$"
-									class="color-text"
-								/>
-							</div>
-						{:else if field.type === 'enum' || field.type === 'select'}
-							<select
-								id={`custom-${field.id}`}
-								value={formData.custom_fields[field.id] || field.default}
-								on:change={(e) => updateFieldValue(field.id, e.currentTarget.value, true)}
-								required={field.required}
-							>
-								<option value="">Select {field.name}</option>
-								{#each field.options || [] as option}
-									<option value={option}>{option}</option>
-								{/each}
-							</select>
-						{:else if field.type === 'numeric' || field.type === 'number'}
-							<input
-								id={`custom-${field.id}`}
-								type="number"
-								value={formData.custom_fields[field.id] || field.default}
-								on:input={(e) => updateFieldValue(field.id, parseFloat(e.currentTarget.value), true)}
-								min={field.min}
-								max={field.max}
-								step="any"
-								placeholder={field.placeholder}
-								required={field.required}
-							/>
-						{:else}
-							<input
-								id={`custom-${field.id}`}
-								type="text"
-								value={formData.custom_fields[field.id] || field.default || ''}
-								on:input={(e) => updateFieldValue(field.id, e.currentTarget.value, true)}
-								placeholder={field.placeholder}
-								required={field.required}
-							/>
-						{/if}
+												{#if field.description}
+													<p class="field-description">{field.description}</p>
+												{/if}
+
+												{#if field.type === 'nine-slice-upload'}
+													<NineSliceUpload
+														fieldId={field.id}
+														value={formData.custom_fields[field.id] || {}}
+														onUpdate={(val) => updateFieldValue(field.id, val, true)}
+														on:fileUpload
+													/>
+												{:else}
+													<FieldRenderer
+														{field}
+														value={getFieldValue(field, true)}
+														fieldId={`custom-${field.id}`}
+														required={field.required}
+														onUpdate={(val) => updateFieldValue(field.id, val, true)}
+														onFileUpload={field.type === 'upload' ? (e) => handleFileUpload(e, field.id, true) : null}
+													/>
+												{/if}
+											</div>
+										{/each}
+									</div>
+								{/if}
+							{/each}
+						</div>
 					</div>
-				{/each}
+				{:else}
+					<!-- Single section or no sections - flat layout -->
+					{#each customFields as field}
+						<div class="form-group">
+							<label for={`custom-${field.id}`}>
+								{field.name}
+								{#if field.required}<span class="required">*</span>{/if}
+							</label>
+
+							{#if field.description}
+								<p class="field-description">{field.description}</p>
+							{/if}
+
+							{#if field.type === 'nine-slice-upload'}
+								<NineSliceUpload
+									fieldId={field.id}
+									value={formData.custom_fields[field.id] || {}}
+									onUpdate={(val) => updateFieldValue(field.id, val, true)}
+									on:fileUpload
+								/>
+							{:else}
+								<FieldRenderer
+									{field}
+									value={getFieldValue(field, true)}
+									fieldId={`custom-${field.id}`}
+									required={field.required}
+									onUpdate={(val) => updateFieldValue(field.id, val, true)}
+									onFileUpload={field.type === 'upload' ? (e) => handleFileUpload(e, field.id, true) : null}
+								/>
+							{/if}
+						</div>
+					{/each}
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -511,27 +499,6 @@
 		font-family: inherit;
 	}
 
-	.color-input-wrapper {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
-	}
-
-	.color-picker {
-		width: 60px;
-		height: 38px;
-		padding: 0.25rem;
-		border: 1px solid #d1d5db;
-		border-radius: 0.375rem;
-		cursor: pointer;
-	}
-
-	.color-text {
-		flex: 1;
-		font-family: 'Courier New', monospace;
-		text-transform: uppercase;
-	}
-
 	.form-footer {
 		display: flex;
 		justify-content: flex-end;
@@ -568,6 +535,63 @@
 
 	.btn-secondary:hover {
 		background: #f3f4f6;
+	}
+
+	/* Tab styles */
+	.tabs {
+		margin-top: 1rem;
+	}
+
+	.tab-list {
+		display: flex;
+		gap: 0.25rem;
+		border-bottom: 2px solid #e5e7eb;
+		margin-bottom: 1.5rem;
+		overflow-x: auto;
+	}
+
+	.tab-button {
+		padding: 0.5rem 1rem;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: #6b7280;
+		background: transparent;
+		border: none;
+		border-bottom: 2px solid transparent;
+		margin-bottom: -2px;
+		cursor: pointer;
+		transition: all 0.2s;
+		white-space: nowrap;
+	}
+
+	.tab-button:hover {
+		color: #374151;
+		background: #f9fafb;
+	}
+
+	.tab-button.active {
+		color: #3b82f6;
+		border-bottom-color: #3b82f6;
+		background: transparent;
+	}
+
+	.tab-content {
+		min-height: 200px;
+	}
+
+	.tab-panel {
+		animation: fadeIn 0.2s;
+	}
+
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+			transform: translateY(-10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	@media (max-width: 640px) {

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/suppers-ai/solobase/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"github.com/suppers-ai/solobase/utils"
 )
 
@@ -27,7 +27,7 @@ type Config struct {
 	Environment string
 
 	// Database
-	Database database.Config
+	Database *database.Config
 
 	// Storage
 	Storage StorageConfig
@@ -83,7 +83,7 @@ func Load() *Config {
 		Environment: getEnv("ENVIRONMENT", "development"),
 
 		// Database
-		Database: database.Config{
+		Database: &database.Config{
 			Type:     dbType,
 			Host:     getEnv("DATABASE_HOST", "localhost"),
 			Port:     getEnvInt("DATABASE_PORT", 5432),

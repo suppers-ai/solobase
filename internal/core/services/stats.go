@@ -1,7 +1,7 @@
 package services
 
 import (
-	"github.com/suppers-ai/solobase/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 )
 
 // StatsService handles statistics and metrics

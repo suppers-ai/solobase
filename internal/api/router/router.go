@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/suppers-ai/solobase/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/extensions/official/cloudstorage"
 	"github.com/suppers-ai/solobase/extensions/official/legalpages"

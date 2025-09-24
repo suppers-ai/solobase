@@ -1,5 +1,5 @@
 // Auto-generated from GORM models - DO NOT EDIT MANUALLY
-// Generated at: 2025-09-15T14:27:09+12:00
+// Generated at: 2025-09-23T19:44:10+12:00
 // Run 'go run scripts/generate-types.go' to regenerate
 
 // ============================================
@@ -400,6 +400,112 @@ export interface ProductAppSettings {
   notification: string;
 }
 
+export interface ProductCustomFieldDefinition {
+  // Unique identifier for the custom field
+  id: string;
+  // Display name for the field
+  name: string;
+  // text, numeric, boolean, enum, color, date, email, url, textarea
+  type: string;
+  required: boolean;
+  description: string;
+  default: any;
+  // For enum/select types
+  options: string[];
+  // For numeric types
+  min?: number | null;
+  // For numeric types
+  max?: number | null;
+  // For text types
+  min_length?: number | null;
+  // For text types
+  max_length?: number | null;
+  // Regex pattern for validation
+  pattern: string;
+  // UI placeholder text
+  placeholder: string;
+  // For textarea type
+  rows?: number | null;
+}
+
+export interface ProductCustomTableDefinition {
+  id: number;
+  // Actual table name with custom_ prefix
+  name: string;
+  // User-friendly name without prefix
+  display_name: string;
+  description: string;
+  // Column definitions
+  fields: any[];
+  // Index definitions
+  indexes: any[];
+  // Table options
+  options: any;
+  // User ID who created the table
+  created_by: string;
+  // active, disabled, archived
+  status: string;
+  created_at: string | Date;
+  updated_at: string | Date;
+}
+
+export interface ProductCustomTableField {
+  // Column name
+  name: string;
+  // GORM data type: string, int, float, bool, time, json
+  type: string;
+  // For varchar(n)
+  size: number;
+  nullable: boolean;
+  default_value: any;
+  is_primary_key: boolean;
+  is_unique: boolean;
+  is_indexed: boolean;
+  auto_increment: boolean;
+  description: string;
+  foreign_key?: any | null;
+  validation: any;
+}
+
+export interface ProductCustomTableIndex {
+  name: string;
+  columns: string[];
+  unique: boolean;
+  // btree, hash, gin, gist (PostgreSQL specific)
+  type: string;
+}
+
+export interface ProductCustomTableMigration {
+  id: number;
+  table_id: number;
+  version: number;
+  // create, alter, drop
+  migration_type: string;
+  old_schema: any;
+  new_schema: any;
+  executed_by: string;
+  executed_at: string | Date;
+  rollback_at?: string | Date | null;
+  // pending, completed, failed, rolled_back
+  status: string;
+  error_message: string;
+}
+
+export interface ProductCustomTableOptions {
+  // Add deleted_at field
+  soft_delete: boolean;
+  // Add created_at, updated_at
+  timestamps: boolean;
+  // Add version field for optimistic locking
+  versioning: boolean;
+  // Track changes in audit log
+  auditing: boolean;
+  // Enable query caching
+  cache_enabled: boolean;
+  // Maximum allowed rows
+  max_rows: number;
+}
+
 export interface ProductFieldConstraints {
   required: boolean;
   min?: number | null;
@@ -414,7 +520,7 @@ export interface ProductFieldConstraints {
 }
 
 export interface ProductFieldDefinition {
-  // e.g., "filter_text_1", "filter_numeric_1"
+  // Must be a valid FilterFieldID value (e.g., "filter_text_1", "filter_numeric_1")
   id: string;
   // Display name for the field
   name: string;
@@ -425,9 +531,32 @@ export interface ProductFieldDefinition {
   constraints: any;
 }
 
+export interface ProductFieldValidation {
+  min_length?: number | null;
+  max_length?: number | null;
+  min_value?: number | null;
+  max_value?: number | null;
+  // Regex pattern
+  pattern: string;
+  // Allowed values
+  enum_values: string[];
+  required: boolean;
+}
+
+export interface ProductForeignKeyDef {
+  // Table to reference (with custom_ prefix)
+  reference_table: string;
+  // Column in reference table
+  reference_column: string;
+  // CASCADE, SET NULL, RESTRICT
+  on_delete: string;
+  // CASCADE, SET NULL, RESTRICT
+  on_update: string;
+}
+
 export interface ProductGroup {
   id: number;
-  user_id: number;
+  user_id: string;
   group_template_id: number;
   group_template: any;
   name: string;
@@ -549,8 +678,10 @@ export interface ProductProductTemplate {
   description: string;
   category: string;
   icon: string;
-  // Custom field definitions
+  // Filter field definitions (indexed)
   fields: any[];
+  // Custom field definitions (non-indexed, stored in CustomFields)
+  custom_fields_schema: any[];
   // IDs of pricing templates to use
   pricing_templates: number[];
   // instant, approval

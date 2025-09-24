@@ -6,7 +6,7 @@ import (
 	"time"
 	"github.com/google/uuid"
 	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
-	"github.com/suppers-ai/solobase/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"golang.org/x/crypto/bcrypt"
 	"log"
 )

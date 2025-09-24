@@ -2,6 +2,7 @@ package solobase
 
 import (
 	"context"
+	"database/sql"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -15,9 +16,10 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"gorm.io/gorm"
 	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
 	"github.com/suppers-ai/solobase/internal/pkg/logger"
-	"github.com/suppers-ai/solobase/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"github.com/suppers-ai/solobase/extensions"
 	authHandlers "github.com/suppers-ai/solobase/internal/api/handlers/auth"
 	"github.com/suppers-ai/solobase/internal/api/middleware"
@@ -34,6 +36,7 @@ type App struct {
 	router           *mux.Router
 	db               *database.DB
 	config           *config.Config
+	sqlDB            *sql.DB // Store sql.DB reference for Close()
 	appID            string // Application ID for storage isolation
 	services         *AppServices
 	extensionManager *extensions.ExtensionManager
@@ -110,8 +113,6 @@ type S3Config struct {
 //go:embed all:ui/build/*
 var uiFiles embed.FS
 
-//go:embed config/casbin_model.conf
-var casbinModelConfig []byte
 
 // New creates a new Solobase application instance
 func New() *App {
@@ -182,7 +183,7 @@ func NewWithOptions(opts *Options) *App {
 	app.config = &config.Config{
 		Port:        opts.Port,
 		Environment: os.Getenv("ENVIRONMENT"),
-		Database: database.Config{
+		Database: &database.Config{
 			Type: opts.DatabaseType,
 			// Parse DATABASE_URL based on type
 		},
@@ -225,7 +226,7 @@ func NewWithOptions(opts *Options) *App {
 			log.Printf("Read-only mode enabled - database will be opened in read-only mode")
 		}
 
-		app.config.Database = database.Config{
+		app.config.Database = &database.Config{
 			Type:     "sqlite",
 			Database: dbURL,
 		}
@@ -273,14 +274,18 @@ func (app *App) Initialize() error {
 	}
 	app.db = db
 
+	// Get underlying sql.DB for connection management
+	sqlDB, err := db.DB.DB()
+	if err != nil {
+		return fmt.Errorf("failed to get sql.DB: %w", err)
+	}
+	app.sqlDB = sqlDB
+
 	// Skip migrations and auto-migrate in read-only mode
 	if os.Getenv("READONLY_MODE") == "true" {
 		log.Printf("Read-only mode: Skipping database migrations and table creation")
 	} else {
-		// Run migrations
-		if err := db.Migrate(); err != nil {
-			return fmt.Errorf("failed to run migrations: %w", err)
-		}
+		// Run migrations (handled by AutoMigrate below)
 
 		// Auto-migrate models
 		db.AutoMigrate(
@@ -305,11 +310,18 @@ func (app *App) Initialize() error {
 	// Initialize database logger
 	dbLogger := services.NewDBLogger(db)
 
-	// Setup database metrics
-	database.RecordDBQueryFunc = middleware.RecordDBQuery
+	// Setup database metrics callbacks
+	db.DB.Callback().Query().Before("gorm:query").Register("metrics:before_query", beforeQuery)
+	db.DB.Callback().Query().After("gorm:query").Register("metrics:after_query", afterQuery)
+	db.DB.Callback().Create().Before("gorm:create").Register("metrics:before_create", beforeQuery)
+	db.DB.Callback().Create().After("gorm:create").Register("metrics:after_query", afterQuery)
+	db.DB.Callback().Update().Before("gorm:update").Register("metrics:before_update", beforeQuery)
+	db.DB.Callback().Update().After("gorm:update").Register("metrics:after_query", afterQuery)
+	db.DB.Callback().Delete().Before("gorm:delete").Register("metrics:before_delete", beforeQuery)
+	db.DB.Callback().Delete().After("gorm:delete").Register("metrics:after_query", afterQuery)
 
-	// Initialize IAM service with Casbin using embedded config
-	iamService, err := iam.NewServiceWithContent(db.DB, string(casbinModelConfig))
+	// Initialize IAM service with Casbin
+	iamService, err := iam.NewService(db.DB)
 	if err != nil {
 		return fmt.Errorf("failed to initialize IAM service: %w", err)
 	}
@@ -487,6 +499,11 @@ func (app *App) Start() error {
 
 	// Admin UI routes (if not disabled) - These are catch-all routes so must come LAST
 	if !app.config.DisableUI {
+		// Serve static assets at root (logo.png, logo_long.png, etc)
+		app.router.HandleFunc("/logo.png", app.ServeStaticAsset("logo.png"))
+		app.router.HandleFunc("/logo_long.png", app.ServeStaticAsset("logo_long.png"))
+		app.router.HandleFunc("/favicon.ico", app.ServeStaticAsset("favicon.ico"))
+
 		// Serve UI assets - MUST come before page routes
 		app.router.PathPrefix("/_app/").Handler(app.ServeUI())
 
@@ -562,6 +579,48 @@ func (app *App) GetAppID() string {
 	return app.appID
 }
 
+// ServeStaticAsset returns a handler for serving a specific static asset
+func (app *App) ServeStaticAsset(assetName string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Try embedded files
+		uiFS, err := fs.Sub(uiFiles, "ui/build")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Read the specific asset
+		data, err := fs.ReadFile(uiFS, assetName)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Set appropriate content type
+		contentType := "application/octet-stream"
+		switch {
+		case strings.HasSuffix(assetName, ".png"):
+			contentType = "image/png"
+		case strings.HasSuffix(assetName, ".jpg"), strings.HasSuffix(assetName, ".jpeg"):
+			contentType = "image/jpeg"
+		case strings.HasSuffix(assetName, ".svg"):
+			contentType = "image/svg+xml"
+		case strings.HasSuffix(assetName, ".ico"):
+			contentType = "image/x-icon"
+		case strings.HasSuffix(assetName, ".css"):
+			contentType = "text/css"
+		case strings.HasSuffix(assetName, ".js"):
+			contentType = "application/javascript"
+		case strings.HasSuffix(assetName, ".html"):
+			contentType = "text/html"
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write(data)
+	}
+}
+
 // ServeUI returns the UI handler
 func (app *App) ServeUI() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -609,8 +668,8 @@ func (app *App) Shutdown(ctx context.Context) error {
 	}
 
 	// Close database
-	if app.db != nil {
-		if err := app.db.Close(); err != nil {
+	if app.sqlDB != nil {
+		if err := app.sqlDB.Close(); err != nil {
 			return fmt.Errorf("database close error: %w", err)
 		}
 	}
@@ -633,10 +692,10 @@ func (app *App) handleShutdown() {
 	}
 }
 
-func parsePostgresURL(url string) database.Config {
+func parsePostgresURL(url string) *database.Config {
 	// Simple URL parsing for postgres://user:pass@host:port/dbname
 	// This is a simplified version, you might want to use a proper URL parser
-	return database.Config{
+	return &database.Config{
 		Type:     "postgres",
 		Host:     "localhost",
 		Port:     5432,
@@ -644,5 +703,32 @@ func parsePostgresURL(url string) database.Config {
 		Username: "postgres",
 		Password: "postgres",
 		SSLMode:  "disable",
+	}
+}
+
+// Database query callback functions
+func beforeQuery(db *gorm.DB) {
+	db.Set("query_start_time", time.Now())
+}
+
+func afterQuery(db *gorm.DB) {
+	if startTime, ok := db.Get("query_start_time"); ok {
+		if start, ok := startTime.(time.Time); ok {
+			duration := time.Since(start)
+
+			// Get operation type
+			operation := "query"
+			if db.Statement != nil && db.Statement.Schema != nil {
+				operation = strings.ToLower(db.Statement.Schema.Table)
+			}
+
+			// Record in metrics collector
+			middleware.RecordDBQuery(operation, duration.Seconds(), db.Error != nil)
+
+			// Log slow queries (optional)
+			if duration > 100*time.Millisecond {
+				log.Printf("Slow query (%v): %s\n", duration, db.Statement.SQL.String())
+			}
+		}
 	}
 }
