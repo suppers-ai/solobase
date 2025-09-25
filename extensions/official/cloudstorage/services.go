@@ -94,6 +94,45 @@ func (s *ShareService) GetUserShares(ctx context.Context, userID string) ([]Stor
 	return shares, nil
 }
 
+// GetSharedWithMe retrieves all items shared with the current user
+func (s *ShareService) GetSharedWithMe(ctx context.Context, userID string) ([]StorageShareWithObject, error) {
+	var shares []StorageShareWithObject
+
+	// Get user's email for email-based shares
+	var userEmail string
+	s.db.Table("users").Where("id = ?", userID).Select("email").Scan(&userEmail)
+
+	// Query shares with joined storage objects
+	query := s.db.Table("ext_cloudstorage_storage_shares ss").
+		Select("ss.*, so.id as object_id, so.name as object_name, so.content_type, so.size, so.created_at as object_created_at, so.metadata as object_metadata").
+		Joins("JOIN storage_objects so ON ss.object_id = so.id").
+		Where("(ss.shared_with_user_id = ? OR ss.shared_with_email = ?) AND (ss.expires_at IS NULL OR ss.expires_at > ?)",
+			userID, userEmail, time.Now())
+
+	if err := query.Scan(&shares).Error; err != nil {
+		return nil, fmt.Errorf("failed to get shared items: %w", err)
+	}
+
+	return shares, nil
+}
+
+// GetSharedByMe retrieves all items shared by the current user
+func (s *ShareService) GetSharedByMe(ctx context.Context, userID string) ([]StorageShareWithObject, error) {
+	var shares []StorageShareWithObject
+
+	// Query shares with joined storage objects
+	query := s.db.Table("ext_cloudstorage_storage_shares ss").
+		Select("ss.*, so.id as object_id, so.name as object_name, so.content_type, so.size, so.created_at as object_created_at, so.metadata as object_metadata").
+		Joins("JOIN storage_objects so ON ss.object_id = so.id").
+		Where("ss.created_by = ?", userID)
+
+	if err := query.Scan(&shares).Error; err != nil {
+		return nil, fmt.Errorf("failed to get shared items: %w", err)
+	}
+
+	return shares, nil
+}
+
 // RevokeShare revokes a share
 func (s *ShareService) RevokeShare(ctx context.Context, shareID, userID string) error {
 	result := s.db.Where("id = ? AND created_by = ?", shareID, userID).Delete(&StorageShare{})

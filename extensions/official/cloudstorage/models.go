@@ -135,3 +135,13 @@ func (s *StorageQuota) BeforeCreate(tx *gorm.DB) error {
 	}
 	return nil
 }
+
+// StorageShareWithObject combines share data with object information
+type StorageShareWithObject struct {
+	StorageShare
+	ObjectName      string         `json:"object_name"`
+	ContentType     string         `json:"content_type"`
+	Size            int64          `json:"size"`
+	ObjectCreatedAt time.Time      `json:"object_created_at"`
+	ObjectMetadata  datatypes.JSON `json:"object_metadata"`
+}
