@@ -2,11 +2,11 @@
 	import '../../app.css';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { 
+	import {
 		User, Lock, LogOut, Shield, ChevronRight,
 		Mail, Phone, Calendar, MapPin, Save, X, Settings,
 		Edit, Home, Package, HardDrive, Database, TrendingUp,
-		Activity, Share2, Download, Upload
+		Activity, Share2, Download, Upload, ArrowLeft
 	} from 'lucide-svelte';
 	import { api } from '$lib/api';
 	import { authStore } from '$lib/stores/auth';
@@ -265,6 +265,12 @@
 
 <div class="profile-page">
 	<div class="profile-container">
+		<!-- Back Button -->
+		<a href="/" class="back-button" data-sveltekit-reload>
+			<ArrowLeft size={18} />
+			<span>Back to Home</span>
+		</a>
+
 		<div class="profile-card">
 			<!-- Logo Header -->
 			<div class="logo-header">
@@ -308,12 +314,6 @@
 						<span>Products</span>
 					</button>
 					
-					<!-- Home (for non-admins) -->
-					<a href="/" class="action-card" data-sveltekit-reload>
-						<Home size={24} />
-						<span>Home</span>
-					</a>
-
 					<!-- Account Settings -->
 					<button 
 						class="action-card"
@@ -700,8 +700,33 @@
 	.profile-container {
 		width: 100%;
 		max-width: 500px;
+		position: relative;
 	}
-	
+
+	/* Back Button */
+	.back-button {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.375rem 0.625rem;
+		margin-bottom: 0.75rem;
+		background: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.375rem;
+		color: #374151;
+		font-size: 0.813rem;
+		font-weight: 500;
+		text-decoration: none;
+		transition: all 0.2s;
+		width: fit-content;
+	}
+
+	.back-button:hover {
+		background: #f9fafb;
+		border-color: #189AB4;
+		transform: translateX(-2px);
+	}
+
 	.profile-card {
 		background: white;
 		border: 1px solid #e2e8f0;

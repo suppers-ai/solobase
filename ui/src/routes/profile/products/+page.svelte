@@ -11,11 +11,19 @@
 	} from 'lucide-svelte';
 	import { api } from '$lib/api';
 	import { authStore } from '$lib/stores/auth';
+	import { productPreviewRegistry } from '$lib/stores/productPreviewRegistry';
 	import ProductModal from '$lib/components/products/ProductModal.svelte';
 	import GroupModal from '$lib/components/products/GroupModal.svelte';
 	
 	let loading = true;
 	let activeTab = 'dashboard';
+
+	// Subscribe to the preview component registry
+	let previewComponents: Record<string, any> = {};
+	$: previewComponents = $productPreviewRegistry;
+
+	// Check for navigation parameters
+	let navigationParams: any = null;
 	
 	// Real data from API
 	let products: any[] = [];
@@ -91,7 +99,56 @@
 			goto('/login');
 			return;
 		}
+
+		// Check for navigation parameters from sessionStorage (generic)
+		if (typeof window !== 'undefined') {
+			const navParams = sessionStorage.getItem('productNavigationParams');
+			if (navParams) {
+				navigationParams = JSON.parse(navParams);
+				sessionStorage.removeItem('productNavigationParams');
+
+				// Switch to products tab if specified
+				if (navigationParams.activeTab) {
+					activeTab = navigationParams.activeTab;
+				}
+			}
+
+			// Generic preview URL discovery
+			// Applications can register preview URLs using the pattern: solobase_preview_[template_id]
+			// This allows any application to register preview URLs without Solobase knowing about them
+			console.log('Scanning localStorage for preview URLs...');
+			for (let i = 0; i < localStorage.length; i++) {
+				const key = localStorage.key(i);
+				if (key && key.startsWith('solobase_preview_')) {
+					const templateId = key.replace('solobase_preview_', '');
+					const previewUrl = localStorage.getItem(key);
+					console.log('Found preview registration:', { key, templateId, previewUrl });
+					if (previewUrl) {
+						productPreviewRegistry.register(templateId, previewUrl);
+						console.log('Registered preview URL for template:', templateId);
+					}
+				}
+			}
+		}
+
 		await loadData();
+
+		// Open modal if navigation params indicate it
+		if (navigationParams) {
+			if (navigationParams.mode === 'create') {
+				// Pre-select the template if specified
+				if (navigationParams.template) {
+					// Create initial product with template selected
+					editingProduct = {
+						product_template_id: navigationParams.template
+					};
+				}
+				showCreateProductModal = true;
+			} else if (navigationParams.mode === 'edit' && navigationParams.product) {
+				editingProduct = navigationParams.product;
+				showEditProductModal = true;
+			}
+		}
 	});
 	
 	async function loadData() {
@@ -695,14 +752,17 @@
 <ProductModal
 	show={showCreateProductModal}
 	mode="create"
+	product={navigationParams?.template ? editingProduct : null}
 	{productTemplates}
 	{groups}
 	initialGroupId={selectedGroupForProduct?.id}
-	title={selectedGroupForProduct ? `Add Product to ${selectedGroupForProduct.name}` : 'Create New Product'}
+	title={selectedGroupForProduct ? `Add Product to ${selectedGroupForProduct.name}` : (navigationParams?.title || 'Create New Product')}
 	on:submit={handleProductSubmit}
 	on:close={() => {
 		showCreateProductModal = false;
 		selectedGroupForProduct = null;
+		navigationParams = null;
+		editingProduct = null;
 	}}
 />
 
@@ -712,11 +772,12 @@
 	product={editingProduct}
 	{productTemplates}
 	{groups}
-	title="Edit Product"
+	title={navigationParams?.title || 'Edit Product'}
 	on:submit={handleProductSubmit}
 	on:close={() => {
 		showEditProductModal = false;
 		editingProduct = null;
+		navigationParams = null;
 	}}
 />
 

@@ -78,7 +78,10 @@
 
 		selectedTemplate = productTemplates.find(t => t.id === templateId) || null;
 		templateFields = selectedTemplate?.fields || [];
-		customFields = customFieldsConfig || selectedTemplate?.custom_fields_schema || [];
+		// Only use customFieldsConfig if it's explicitly provided and not empty
+		customFields = (customFieldsConfig && customFieldsConfig.length > 0)
+			? customFieldsConfig
+			: (selectedTemplate?.custom_fields_schema || []);
 
 		// Group custom fields by section
 		organizeFieldsBySections();
@@ -125,6 +128,13 @@
 		if (fieldPath === 'product_template_id') {
 			updateSelectedTemplate();
 		}
+
+		// Emit field change event for preview updates
+		dispatch('fieldChange', {
+			fieldId: fieldPath,
+			value,
+			formData: { ...formData }
+		});
 	}
 
 	function updateFieldValue(fieldId: string, value: any, isCustom: boolean = false) {
@@ -140,6 +150,13 @@
 			};
 		}
 		formData = formData;
+
+		// Emit field change event for preview updates
+		dispatch('fieldChange', {
+			fieldId: isCustom ? `custom_${fieldId}` : `filter_${fieldId}`,
+			value,
+			formData: { ...formData }
+		});
 	}
 
 	function getFieldValue(field: any, isCustom = false) {
@@ -425,7 +442,7 @@
 	.form-content {
 		padding: 1.5rem;
 		overflow-y: auto;
-		max-height: 60vh;
+		max-height: 70vh;
 	}
 
 	.form-section {
@@ -452,21 +469,22 @@
 	}
 
 	.form-group {
-		margin-bottom: 1rem;
+		margin-bottom: 1.25rem;
 	}
 
 	.form-group label {
 		display: block;
 		font-size: 0.875rem;
-		font-weight: 500;
-		color: #374151;
-		margin-bottom: 0.25rem;
+		font-weight: 600;
+		color: #111827;
+		margin-bottom: 0.5rem;
 	}
 
 	.field-description {
-		font-size: 0.75rem;
+		font-size: 0.8125rem;
 		color: #6b7280;
-		margin: 0.25rem 0;
+		margin: 0.25rem 0 0.5rem 0;
+		line-height: 1.4;
 	}
 
 	.required {
@@ -540,14 +558,41 @@
 	/* Tab styles */
 	.tabs {
 		margin-top: 1rem;
+		width: 100%;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.tab-list {
 		display: flex;
-		gap: 0.25rem;
+		gap: 0.5rem;
 		border-bottom: 2px solid #e5e7eb;
 		margin-bottom: 1.5rem;
 		overflow-x: auto;
+		overflow-y: hidden;
+		width: 100%;
+		flex-wrap: nowrap;
+		white-space: nowrap;
+		scrollbar-width: thin;
+		scrollbar-color: #d1d5db #f9fafb;
+	}
+
+	.tab-list::-webkit-scrollbar {
+		height: 6px;
+	}
+
+	.tab-list::-webkit-scrollbar-track {
+		background: #f9fafb;
+		border-radius: 3px;
+	}
+
+	.tab-list::-webkit-scrollbar-thumb {
+		background: #d1d5db;
+		border-radius: 3px;
+	}
+
+	.tab-list::-webkit-scrollbar-thumb:hover {
+		background: #9ca3af;
 	}
 
 	.tab-button {
@@ -576,11 +621,30 @@
 	}
 
 	.tab-content {
-		min-height: 200px;
+		min-height: 300px;
+		width: 100%;
+		padding: 1rem 0;
+		display: block;
+		clear: both;
 	}
 
 	.tab-panel {
 		animation: fadeIn 0.2s;
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1.25rem 2rem;
+		width: 100%;
+	}
+
+	@media (max-width: 768px) {
+		.tab-panel {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	.tab-panel .form-group {
+		margin-bottom: 0;
+		min-width: 0; /* Prevent overflow */
 	}
 
 	@keyframes fadeIn {

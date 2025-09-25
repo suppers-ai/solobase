@@ -287,13 +287,44 @@ func (e *ProductsExtension) RegisterMiddleware() []core.MiddlewareRegistration {
 
 // RegisterRoutes registers the extension's routes
 func (e *ProductsExtension) RegisterRoutes(router core.ExtensionRouter) error {
-	if e.userAPI == nil {
+	if e.userAPI == nil || e.adminAPI == nil {
 		// APIs not initialized yet
 		return nil
 	}
 
-	// For now, just register the basic product list route for testing
+	// User API routes
 	router.HandleFunc("/list", e.userAPI.ListMyProducts)
+	router.HandleFunc("/products", e.userAPI.ListProducts)
+	router.HandleFunc("/products/{id}", e.userAPI.GetProduct)
+
+	// Admin API routes
+	// Product Template management
+	router.HandleFunc("/templates", e.adminAPI.ListProductTypes)
+	router.HandleFunc("/templates/{id}", e.adminAPI.GetProductTemplate)
+
+	// Product management
+	router.HandleFunc("/admin/products", e.adminAPI.ListProducts)
+	router.HandleFunc("/admin/products", e.adminAPI.CreateProduct)
+	router.HandleFunc("/admin/products/{id}", e.adminAPI.UpdateProduct)
+	router.HandleFunc("/admin/products/{id}", e.adminAPI.DeleteProduct)
+
+	// Group management
+	router.HandleFunc("/groups", e.adminAPI.ListGroups)
+	router.HandleFunc("/groups", e.adminAPI.CreateGroup)
+	router.HandleFunc("/groups/{id}", e.adminAPI.UpdateGroup)
+	router.HandleFunc("/groups/{id}", e.adminAPI.DeleteGroup)
+
+	// Variables management
+	router.HandleFunc("/variables", e.adminAPI.ListVariables)
+	router.HandleFunc("/variables", e.adminAPI.CreateVariable)
+	router.HandleFunc("/variables/{id}", e.adminAPI.UpdateVariable)
+	router.HandleFunc("/variables/{id}", e.adminAPI.DeleteVariable)
+
+	// Pricing management
+	router.HandleFunc("/pricing-templates", e.adminAPI.ListPricingTemplates)
+
+	// Provider status
+	router.HandleFunc("/provider/status", e.adminAPI.GetProviderStatus)
 
 	return nil
 }

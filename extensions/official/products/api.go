@@ -210,6 +210,26 @@ func (a *AdminAPI) ListProductTypes(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(productTemplates)
 }
 
+func (a *AdminAPI) GetProductTemplate(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	templateID := vars["id"]
+
+	var productTemplate models.ProductTemplate
+	if err := a.db.Where("id = ? OR name = ?", templateID, templateID).First(&productTemplate).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			http.Error(w, "Template not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data": productTemplate,
+	})
+}
+
 func (a *AdminAPI) CreateProductType(w http.ResponseWriter, r *http.Request) {
 	var productTemplate models.ProductTemplate
 	if err := json.NewDecoder(r.Body).Decode(&productTemplate); err != nil {
@@ -259,6 +279,130 @@ func (a *AdminAPI) DeleteProductType(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.db.Delete(&models.ProductTemplate{}, id).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Product management (Admin)
+func (a *AdminAPI) ListProducts(w http.ResponseWriter, r *http.Request) {
+	var products []models.Product
+	if err := a.db.Preload("Group").Preload("ProductTemplate").Find(&products).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(products)
+}
+
+func (a *AdminAPI) CreateProduct(w http.ResponseWriter, r *http.Request) {
+	var product models.Product
+	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := a.db.Create(&product).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(product)
+}
+
+func (a *AdminAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var product models.Product
+	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := a.db.Model(&models.Product{}).Where("id = ?", id).Updates(&product).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(product)
+}
+
+func (a *AdminAPI) DeleteProduct(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	if err := a.db.Delete(&models.Product{}, "id = ?", id).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Group management (Admin)
+func (a *AdminAPI) ListGroups(w http.ResponseWriter, r *http.Request) {
+	var groups []models.Group
+	if err := a.db.Find(&groups).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data": groups,
+	})
+}
+
+func (a *AdminAPI) CreateGroup(w http.ResponseWriter, r *http.Request) {
+	var group models.Group
+	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := a.db.Create(&group).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data": group,
+	})
+}
+
+func (a *AdminAPI) UpdateGroup(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var group models.Group
+	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := a.db.Model(&models.Group{}).Where("id = ?", id).Updates(&group).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(group)
+}
+
+func (a *AdminAPI) DeleteGroup(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	if err := a.db.Delete(&models.Group{}, "id = ?", id).Error; err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -487,6 +631,36 @@ func (u *UserAPI) ListGroupProducts(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(products)
+}
+
+func (u *UserAPI) ListProducts(w http.ResponseWriter, r *http.Request) {
+	var products []models.Product
+	// List all public products or products from groups the user belongs to
+	if err := u.db.Preload("Group").Preload("ProductTemplate").Where("is_public = ?", true).Find(&products).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(products)
+}
+
+func (u *UserAPI) GetProduct(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var product models.Product
+	if err := u.db.Preload("Group").Preload("ProductTemplate").Where("id = ?", id).First(&product).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			http.Error(w, "Product not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(product)
 }
 
 func (u *UserAPI) ListMyProducts(w http.ResponseWriter, r *http.Request) {
