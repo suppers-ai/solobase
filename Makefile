@@ -10,7 +10,7 @@ help:
 
 build:
 	@echo "Building Solobase..."
-	go build -o solobase .
+	go build -o solobase ./backend
 
 run:
 	@echo "Running Solobase..."

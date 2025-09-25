@@ -287,9 +287,11 @@ func (e *ProductsExtension) RegisterMiddleware() []core.MiddlewareRegistration {
 
 // RegisterRoutes registers the extension's routes
 func (e *ProductsExtension) RegisterRoutes(router core.ExtensionRouter) error {
+	fmt.Printf("ProductsExtension.RegisterRoutes called - userAPI: %v, adminAPI: %v\n", e.userAPI != nil, e.adminAPI != nil)
 	if e.userAPI == nil || e.adminAPI == nil {
+		fmt.Printf("ProductsExtension.RegisterRoutes: APIs not initialized, skipping route registration\n")
 		// APIs not initialized yet
-		return nil
+		return fmt.Errorf("products extension APIs not initialized")
 	}
 
 	// User API routes

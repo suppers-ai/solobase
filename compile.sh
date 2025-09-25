@@ -2,4 +2,4 @@
 
 # Build the application
 echo "Building Solobase..."
-go build -o solobase cmd/solobase/main.go
+go build -o solobase backend/cmd/solobase/main.go

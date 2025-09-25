@@ -3,6 +3,7 @@ package products
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -634,15 +635,40 @@ func (u *UserAPI) ListGroupProducts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) ListProducts(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("UserAPI.ListProducts called\n")
+
+	if u == nil {
+		fmt.Printf("ERROR: UserAPI is nil\n")
+		http.Error(w, "Service not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	if u.db == nil {
+		fmt.Printf("ERROR: UserAPI.db is nil\n")
+		http.Error(w, "Database not initialized", http.StatusInternalServerError)
+		return
+	}
+
 	var products []models.Product
-	// List all public products or products from groups the user belongs to
-	if err := u.db.Preload("Group").Preload("ProductTemplate").Where("is_public = ?", true).Find(&products).Error; err != nil {
+	// List all active products
+	query := u.db.Preload("Group").Preload("ProductTemplate").Where("active = ?", true)
+	if err := query.Find(&products).Error; err != nil {
+		fmt.Printf("ERROR finding products: %v\n", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	fmt.Printf("Found %d products\n", len(products))
+
+	// If no products found, return empty array instead of null
+	if products == nil {
+		products = []models.Product{}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(products)
+	if err := json.NewEncoder(w).Encode(products); err != nil {
+		fmt.Printf("ERROR encoding products: %v\n", err)
+	}
 }
 
 func (u *UserAPI) GetProduct(w http.ResponseWriter, r *http.Request) {

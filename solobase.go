@@ -110,7 +110,7 @@ type S3Config struct {
 	UsePathStyle    bool
 }
 
-//go:embed all:ui/build/*
+//go:embed all:frontend/build/*
 var uiFiles embed.FS
 
 
@@ -488,10 +488,6 @@ func (app *App) Start() error {
 	log.Println("DEBUG: Setting up API routes")
 	app.router.PathPrefix("/api").Handler(http.StripPrefix("/api", apiRouter))
 
-	// TODO: Register extension management routes
-	// adminExtHandler := admin.NewExtensionsHandler(app.extensionManager, app.services.Logger)
-	// adminExtHandler.RegisterRoutes(app.router)
-
 	// Storage files
 	storageDir := "./.data/storage/"
 	app.router.PathPrefix("/storage/").Handler(http.StripPrefix("/storage/", http.FileServer(http.Dir(storageDir))))
@@ -583,7 +579,7 @@ func (app *App) GetAppID() string {
 func (app *App) ServeStaticAsset(assetName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Try embedded files
-		uiFS, err := fs.Sub(uiFiles, "ui/build")
+		uiFS, err := fs.Sub(uiFiles, "frontend/build")
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -625,7 +621,7 @@ func (app *App) ServeStaticAsset(assetName string) http.HandlerFunc {
 func (app *App) ServeUI() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Try embedded files first
-		uiFS, err := fs.Sub(uiFiles, "ui/build")
+		uiFS, err := fs.Sub(uiFiles, "frontend/build")
 		if err != nil {
 			http.Error(w, "Admin interface not available", http.StatusNotFound)
 			return
