@@ -555,8 +555,49 @@ func (s *StorageService) CreateFolderWithParent(bucket, folderName, userID strin
 	}
 
 	if err := query.First(&existingFolder).Error; err == nil {
-		log.Printf("CreateFolderWithParent: Folder already exists: %s", folderName)
-		return existingFolder.ID, nil // Return existing folder ID
+		// Folder with same name exists in the same location
+		// Let's create a new folder with a numbered suffix
+		log.Printf("CreateFolderWithParent: Folder '%s' already exists, will create with suffix", folderName)
+
+		// Find a unique name by adding a number suffix
+		baseName := folderName
+		counter := 1
+		for {
+			// Try with suffix
+			newFolderName := fmt.Sprintf("%s (%d)", baseName, counter)
+
+			// Check if this name exists
+			var checkFolder storage.StorageObject
+			checkQuery := s.db.Where("bucket_name = ? AND object_name = ? AND content_type = ? AND user_id = ?",
+				bucket, newFolderName, "application/x-directory", userID)
+
+			// Add AppID filter if present
+			if s.appID != "" {
+				checkQuery = checkQuery.Where("app_id = ?", s.appID)
+			} else {
+				checkQuery = checkQuery.Where("app_id IS NULL")
+			}
+
+			// Add parent folder filter
+			if parentFolderID != nil {
+				checkQuery = checkQuery.Where("parent_folder_id = ?", *parentFolderID)
+			} else {
+				checkQuery = checkQuery.Where("parent_folder_id IS NULL")
+			}
+
+			if err := checkQuery.First(&checkFolder).Error; err != nil {
+				// This name doesn't exist, use it
+				folderName = newFolderName
+				log.Printf("CreateFolderWithParent: Will create folder with name: %s", folderName)
+				break
+			}
+
+			counter++
+			if counter > 100 {
+				// Safety check to avoid infinite loop
+				return "", fmt.Errorf("could not find unique folder name after 100 attempts")
+			}
+		}
 	}
 
 	// Create a placeholder file in storage

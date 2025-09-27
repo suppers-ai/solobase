@@ -1,7 +1,8 @@
 <script lang="ts">
 	import '../../../app.css';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import {
 		TrendingUp, Package, ShoppingCart, Users,
 		Eye, Heart, DollarSign, Search, Filter,
@@ -14,17 +15,52 @@
 	import { productPreviewRegistry } from '$lib/stores/productPreviewRegistry';
 	import ProductModal from '$lib/components/products/ProductModal.svelte';
 	import GroupModal from '$lib/components/products/GroupModal.svelte';
-	
+
 	let loading = true;
-	let activeTab = 'dashboard';
+
+	// Get tab from URL
+	function getTabFromURL() {
+		console.log('window', window)
+		if (typeof window !== 'undefined') {
+			const params = new URLSearchParams(window.location.search);
+			const tab = params.get('tab');
+			console.log('[Products Page] Getting tab from URL:', tab);
+			return tab || 'dashboard';
+		}
+		return 'dashboard';
+	}
+
+	// Initialize currentTab from URL IMMEDIATELY
+	let currentTab = getTabFromURL();
+	console.log('[Products Page] Initial currentTab value:', currentTab);
+
+	// Navigate to tab
+	function navigateToTab(tab: string) {
+		console.log('[Products Page] Navigating to tab:', tab);
+		currentTab = tab;
+		if (typeof window !== 'undefined') {
+			window.history.replaceState({}, '', `?tab=${tab}`);
+		}
+	}
+
+	// Listen for browser back/forward
+	onMount(() => {
+		const handlePopState = () => {
+			currentTab = getTabFromURL();
+			console.log('[Products Page] PopState - tab is now:', currentTab);
+		};
+
+		window.addEventListener('popstate', handlePopState);
+
+		return () => {
+			window.removeEventListener('popstate', handlePopState);
+		};
+	});
 
 	// Subscribe to the preview component registry
 	let previewComponents: Record<string, any> = {};
 	$: previewComponents = $productPreviewRegistry;
 
-	// Check for navigation parameters
-	let navigationParams: any = null;
-	
 	// Real data from API
 	let products: any[] = [];
 	let orders: any[] = [];
@@ -95,25 +131,25 @@
 		}));
 	
 	onMount(async () => {
+		// Get tab from URL first - CRITICAL FOR INITIAL LOAD
+		const tabFromURL = getTabFromURL();
+		console.log('[Products Page] onMount - setting tab to:', tabFromURL);
+		currentTab = tabFromURL;
+
 		if (!$authStore.user) {
 			goto('/login');
 			return;
 		}
 
-		// Check for navigation parameters from sessionStorage (generic)
+		// Check for URL parameters for navigation
+		const urlParams = new URLSearchParams(window.location.search);
+		const mode = urlParams.get('mode');
+		const template = urlParams.get('template');
+		const productId = urlParams.get('id');
+		const data = urlParams.get('data');
+
+		// Generic preview URL discovery
 		if (typeof window !== 'undefined') {
-			const navParams = sessionStorage.getItem('productNavigationParams');
-			if (navParams) {
-				navigationParams = JSON.parse(navParams);
-				sessionStorage.removeItem('productNavigationParams');
-
-				// Switch to products tab if specified
-				if (navigationParams.activeTab) {
-					activeTab = navigationParams.activeTab;
-				}
-			}
-
-			// Generic preview URL discovery
 			// Applications can register preview URLs using the pattern: solobase_preview_[template_id]
 			// This allows any application to register preview URLs without Solobase knowing about them
 			console.log('Scanning localStorage for preview URLs...');
@@ -133,21 +169,40 @@
 
 		await loadData();
 
-		// Open modal if navigation params indicate it
-		if (navigationParams) {
-			if (navigationParams.mode === 'create') {
-				// Pre-select the template if specified
-				if (navigationParams.template) {
-					// Create initial product with template selected
-					editingProduct = {
-						product_template_id: navigationParams.template
-					};
+		// Handle navigation based on URL parameters
+		if (mode === 'create') {
+			// Pre-select the template if specified
+			if (template) {
+				editingProduct = {
+					product_template_id: template
+				};
+				// If there's data (for duplicate), parse and apply it
+				if (data) {
+					try {
+						const parsedData = JSON.parse(decodeURIComponent(data));
+						editingProduct = {
+							...parsedData,
+							product_template_id: template
+						};
+					} catch (e) {
+						console.error('Failed to parse product data:', e);
+					}
 				}
-				showCreateProductModal = true;
-			} else if (navigationParams.mode === 'edit' && navigationParams.product) {
-				editingProduct = navigationParams.product;
+			}
+			showCreateProductModal = true;
+		} else if (mode === 'edit' && productId) {
+			// Find the product by ID
+			const product = products.find(p => p.id === parseInt(productId));
+			if (product) {
+				editingProduct = product;
 				showEditProductModal = true;
 			}
+		}
+
+		// Clear navigation params from URL after processing (but keep tab)
+		if (mode || template || productId || data) {
+			const tab = urlParams.get('tab') || 'dashboard';
+			goto(`?tab=${tab}`, { replaceState: true, noScroll: true });
 		}
 	});
 	
@@ -442,23 +497,23 @@
 			
 			<!-- Navigation Tabs -->
 			<div class="nav-tabs">
-				<button 
-					class="nav-tab {activeTab === 'dashboard' ? 'active' : ''}"
-					on:click={() => activeTab = 'dashboard'}
+				<button
+					class="nav-tab {currentTab === 'dashboard' ? 'active' : ''}"
+					on:click={() => navigateToTab('dashboard')}
 				>
 					<TrendingUp size={14} />
 					Dashboard
 				</button>
-				<button 
-					class="nav-tab {activeTab === 'orders' ? 'active' : ''}"
-					on:click={() => activeTab = 'orders'}
+				<button
+					class="nav-tab {currentTab === 'orders' ? 'active' : ''}"
+					on:click={() => navigateToTab('orders')}
 				>
 					<ShoppingCart size={14} />
 					Orders
 				</button>
-				<button 
-					class="nav-tab {activeTab === 'products' ? 'active' : ''}"
-					on:click={() => activeTab = 'products'}
+				<button
+					class="nav-tab {currentTab === 'products' ? 'active' : ''}"
+					on:click={() => navigateToTab('products')}
 				>
 					<Package size={14} />
 					Products
@@ -470,7 +525,7 @@
 					<div class="spinner"></div>
 					<p>Loading dashboard...</p>
 				</div>
-			{:else if activeTab === 'dashboard'}
+			{:else if currentTab === 'dashboard'}
 				<!-- Dashboard Tab -->
 				<div class="dashboard-content">
 					<!-- Compact Stats Grid -->
@@ -561,7 +616,7 @@
 						</div>
 					</div>
 				</div>
-			{:else if activeTab === 'orders'}
+			{:else if currentTab === 'orders'}
 				<!-- Orders Tab -->
 				<div class="orders-content">
 					<!-- Search Bar -->
@@ -630,7 +685,7 @@
 						</div>
 					{/if}
 				</div>
-			{:else if activeTab === 'products'}
+			{:else if currentTab === 'products'}
 				<!-- Products Tab -->
 				<div class="products-content">
 					<div class="products-header">
@@ -752,16 +807,15 @@
 <ProductModal
 	show={showCreateProductModal}
 	mode="create"
-	product={navigationParams?.template ? editingProduct : null}
+	product={editingProduct}
 	{productTemplates}
 	{groups}
 	initialGroupId={selectedGroupForProduct?.id}
-	title={selectedGroupForProduct ? `Add Product to ${selectedGroupForProduct.name}` : (navigationParams?.title || 'Create New Product')}
+	title={selectedGroupForProduct ? `Add Product to ${selectedGroupForProduct.name}` : 'Create New Product'}
 	on:submit={handleProductSubmit}
 	on:close={() => {
 		showCreateProductModal = false;
 		selectedGroupForProduct = null;
-		navigationParams = null;
 		editingProduct = null;
 	}}
 />
@@ -772,12 +826,11 @@
 	product={editingProduct}
 	{productTemplates}
 	{groups}
-	title={navigationParams?.title || 'Edit Product'}
+	title={'Edit Product'}
 	on:submit={handleProductSubmit}
 	on:close={() => {
 		showEditProductModal = false;
 		editingProduct = null;
-		navigationParams = null;
 	}}
 />
 

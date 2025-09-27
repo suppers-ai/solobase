@@ -18,6 +18,11 @@
 	let productsLoading = false;
 	let productsError: string | null = null;
 
+	// Groups data
+	let groups: any[] = [];
+	let groupsLoading = false;
+	let groupsError: string | null = null;
+
 	// Purchases data for the Purchases tab
 	interface Purchase {
 		id: number;
@@ -165,6 +170,20 @@
 		}
 	}
 
+	async function loadGroups() {
+		groupsLoading = true;
+		groupsError = null;
+		try {
+			const data = await api.get('/admin/ext/products/groups');
+			groups = Array.isArray(data) ? data : [];
+		} catch (err) {
+			groupsError = 'Failed to load groups';
+			console.error('Error loading groups:', err);
+		} finally {
+			groupsLoading = false;
+		}
+	}
+
 	async function loadPurchases() {
 		purchasesLoading = true;
 		purchasesError = null;
@@ -250,6 +269,7 @@
 
 	// Load data based on active tab
 	$: if (activeTab === 'products') loadProducts();
+	$: if (activeTab === 'groups') loadGroups();
 	$: if (activeTab === 'purchases') loadPurchases();
 	$: if (activeTab === 'setup') loadConfigCounts();
 
@@ -286,6 +306,12 @@
 				class="py-2 px-1 border-b-2 font-medium text-sm {activeTab === 'products' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}"
 			>
 				Products
+			</button>
+			<button
+				on:click={() => activeTab = 'groups'}
+				class="py-2 px-1 border-b-2 font-medium text-sm {activeTab === 'groups' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}"
+			>
+				Groups
 			</button>
 			<button
 				on:click={() => activeTab = 'purchases'}
@@ -461,6 +487,64 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 								</td>
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
 									{new Date(product.created_at).toLocaleDateString()}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+		</div>
+
+	{:else if activeTab === 'groups'}
+		<!-- Groups Tab -->
+		<div class="bg-white rounded-lg shadow">
+			{#if groupsLoading}
+				<div class="p-8 text-center">
+					<div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+				</div>
+			{:else if groupsError}
+				<div class="p-4 text-red-600">{groupsError}</div>
+			{:else if groups.length === 0}
+				<div class="p-8 text-center text-gray-500">
+					<p>No groups found</p>
+					<a href="/admin/extensions/products/group-types" class="mt-4 inline-block text-blue-600 hover:underline">
+						Create your first group type →
+					</a>
+				</div>
+			{:else}
+				<table class="min-w-full divide-y divide-gray-200">
+					<thead class="bg-gray-50">
+						<tr>
+							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Owner</th>
+							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Products</th>
+							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+						</tr>
+					</thead>
+					<tbody class="bg-white divide-y divide-gray-200">
+						{#each groups as group}
+							<tr>
+								<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+									{group.name}
+								</td>
+								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+									{group.type_name || 'N/A'}
+								</td>
+								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+									{group.owner_id || 'N/A'}
+								</td>
+								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+									{group.products?.length || 0}
+								</td>
+								<td class="px-6 py-4 whitespace-nowrap">
+									<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {group.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+										{group.active ? 'Active' : 'Inactive'}
+									</span>
+								</td>
+								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+									{new Date(group.created_at).toLocaleDateString()}
 								</td>
 							</tr>
 						{/each}
