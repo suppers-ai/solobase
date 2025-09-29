@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/suppers-ai/solobase/constants"
@@ -719,6 +721,22 @@ func (u *UserAPI) CreateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate required fields
+	if product.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	if product.GroupID == 0 {
+		http.Error(w, "Group is required", http.StatusBadRequest)
+		return
+	}
+
+	if product.ProductTemplateID == 0 {
+		http.Error(w, "Product type is required", http.StatusBadRequest)
+		return
+	}
+
 	// Verify user owns the group
 	var group models.Group
 	if err := u.db.Where("id = ? AND user_id = ?", product.GroupID, userID).First(&group).Error; err != nil {
@@ -727,6 +745,20 @@ func (u *UserAPI) CreateProduct(w http.ResponseWriter, r *http.Request) {
 		} else {
 			http.Error(w, "Failed to verify group ownership", http.StatusInternalServerError)
 		}
+		return
+	}
+
+	// Get the product template to validate required fields
+	var productTemplate models.ProductTemplate
+	if err := u.db.First(&productTemplate, product.ProductTemplateID).Error; err != nil {
+		http.Error(w, "Product template not found", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required filter fields that are editable by users
+	validationErrors := u.validateRequiredFields(&product, &productTemplate)
+	if len(validationErrors) > 0 {
+		http.Error(w, "Validation failed: "+strings.Join(validationErrors, ", "), http.StatusBadRequest)
 		return
 	}
 
@@ -763,6 +795,90 @@ func (u *UserAPI) CalculatePrice(w http.ResponseWriter, r *http.Request) {
 		"currency":  "USD",
 		"breakdown": []interface{}{}, // TODO: Add breakdown details
 	})
+}
+
+// validateRequiredFields validates that all required fields editable by users are filled
+func (u *UserAPI) validateRequiredFields(product *models.Product, template *models.ProductTemplate) []string {
+	var errors []string
+	productValue := reflect.ValueOf(product).Elem()
+
+	// Check filter fields using reflection and the existing mapping
+	for _, field := range template.FilterFieldsSchema {
+		// Only validate fields that are required and editable by users
+		if field.Required && field.Constraints.EditableByUser {
+			// Get the struct field name from the mapping
+			structFieldName, ok := models.FilterFieldMapping[field.ID]
+			if !ok {
+				continue // Skip if field ID not in mapping
+			}
+
+			// Use reflection to get the field value
+			fieldValue := productValue.FieldByName(structFieldName)
+			if !fieldValue.IsValid() {
+				continue
+			}
+
+			// Check if the field is empty based on its type
+			isEmpty := false
+			if fieldValue.Kind() == reflect.Ptr {
+				if fieldValue.IsNil() {
+					isEmpty = true
+				} else {
+					// For string pointers, also check if the string is empty
+					if fieldValue.Elem().Kind() == reflect.String && fieldValue.Elem().String() == "" {
+						isEmpty = true
+					}
+				}
+			}
+
+			if isEmpty {
+				// Check if field has a default value
+				if field.Constraints.Default == nil {
+					errors = append(errors, field.Name+" is required")
+				} else {
+					// Apply the default value using reflection
+					defaultValue := field.Constraints.Default
+					switch v := defaultValue.(type) {
+					case string:
+						strPtr := &v
+						fieldValue.Set(reflect.ValueOf(strPtr))
+					case bool:
+						boolPtr := &v
+						fieldValue.Set(reflect.ValueOf(boolPtr))
+					case float64:
+						float64Ptr := &v
+						fieldValue.Set(reflect.ValueOf(float64Ptr))
+					}
+				}
+			}
+		}
+	}
+
+	// Check custom fields
+	for _, field := range template.CustomFieldsSchema {
+		// Only validate fields that are required and editable by users
+		if field.Required && field.Constraints.EditableByUser {
+			needsValue := false
+			if product.CustomFields == nil {
+				product.CustomFields = make(map[string]interface{})
+				needsValue = true
+			} else if val, exists := product.CustomFields[field.ID]; !exists || val == nil || val == "" {
+				needsValue = true
+			}
+
+			if needsValue {
+				// Check if field has a default value
+				if field.Constraints.Default != nil {
+					// Apply the default value
+					product.CustomFields[field.ID] = field.Constraints.Default
+				} else {
+					errors = append(errors, field.Name+" is required")
+				}
+			}
+		}
+	}
+
+	return errors
 }
 
 func (u *UserAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
@@ -803,6 +919,12 @@ func (u *UserAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate required fields
+	if product.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
 	// Get the product template to check field constraints
 	var productTemplate models.ProductTemplate
 	if err := u.db.First(&productTemplate, existingProduct.ProductTemplateID).Error; err != nil {
@@ -812,6 +934,13 @@ func (u *UserAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 
 	// Preserve non-editable fields (both filter fields and custom fields)
 	models.PreserveNonEditableFields(&product, existingProduct, &productTemplate)
+
+	// Validate required fields that are editable by users
+	validationErrors := u.validateRequiredFields(&product, &productTemplate)
+	if len(validationErrors) > 0 {
+		http.Error(w, "Validation failed: "+strings.Join(validationErrors, ", "), http.StatusBadRequest)
+		return
+	}
 
 	product.ID = uint(id)
 	product.GroupID = existingProduct.GroupID // Prevent changing group

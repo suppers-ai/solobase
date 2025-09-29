@@ -175,6 +175,12 @@
 	}
 
 	function handleSubmit() {
+		const validation = validateForm();
+		if (!validation.valid) {
+			alert('Please fix the following errors:\n\n' + validation.errors.join('\n'));
+			return;
+		}
+
 		const submitData = {
 			...formData,
 			...formData.filter_fields
@@ -206,13 +212,15 @@
 		if (!formData.name) errors.push('Name is required');
 
 		templateFields.forEach((field: any) => {
-			if (field.required && !formData.filter_fields[field.id]) {
+			// Only validate fields that are editable by users
+			if (field.constraints?.editable_by_user === true && field.required && !formData.filter_fields[field.id]) {
 				errors.push(`${field.name} is required`);
 			}
 		});
 
 		customFields.forEach((field: any) => {
-			if (field.required && !formData.custom_fields[field.id]) {
+			// Only validate fields that are editable by users
+			if (field.constraints?.editable_by_user === true && field.required && !formData.custom_fields[field.id]) {
 				errors.push(`${field.name} is required`);
 			}
 		});
