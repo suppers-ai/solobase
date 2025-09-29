@@ -1,6 +1,9 @@
 package models
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+)
 
 // FilterFieldID represents the available filter field IDs
 type FilterFieldID string
@@ -116,4 +119,79 @@ func ValidateFieldDefinitions(fields []FieldDefinition) error {
 	}
 
 	return nil
+}
+
+// FilterFieldMapping maps filter field IDs to Product struct field names
+var FilterFieldMapping = map[string]string{
+	"filter_text_1":     "FilterText1",
+	"filter_text_2":     "FilterText2",
+	"filter_text_3":     "FilterText3",
+	"filter_text_4":     "FilterText4",
+	"filter_text_5":     "FilterText5",
+	"filter_numeric_1":  "FilterNumeric1",
+	"filter_numeric_2":  "FilterNumeric2",
+	"filter_numeric_3":  "FilterNumeric3",
+	"filter_numeric_4":  "FilterNumeric4",
+	"filter_numeric_5":  "FilterNumeric5",
+	"filter_boolean_1":  "FilterBoolean1",
+	"filter_boolean_2":  "FilterBoolean2",
+	"filter_boolean_3":  "FilterBoolean3",
+	"filter_boolean_4":  "FilterBoolean4",
+	"filter_boolean_5":  "FilterBoolean5",
+	"filter_enum_1":     "FilterEnum1",
+	"filter_enum_2":     "FilterEnum2",
+	"filter_enum_3":     "FilterEnum3",
+	"filter_enum_4":     "FilterEnum4",
+	"filter_enum_5":     "FilterEnum5",
+	"filter_location_1": "FilterLocation1",
+	"filter_location_2": "FilterLocation2",
+	"filter_location_3": "FilterLocation3",
+	"filter_location_4": "FilterLocation4",
+	"filter_location_5": "FilterLocation5",
+}
+
+// PreserveNonEditableFields preserves fields that are not editable by users
+// It handles both filter fields (individual columns) and custom fields (JSON)
+func PreserveNonEditableFields(product *Product, existingProduct *Product, template *ProductTemplate) {
+	// Handle filter fields
+	for _, field := range template.FilterFieldsSchema {
+		// Only preserve if explicitly marked as not editable
+		if field.Constraints.EditableByUser != false {
+			continue
+		}
+
+		// Get the struct field name from our mapping
+		if structFieldName, ok := FilterFieldMapping[field.ID]; ok {
+			// Use reflection to copy the value from existing to new product
+			productValue := reflect.ValueOf(product).Elem()
+			existingValue := reflect.ValueOf(existingProduct).Elem()
+
+			productField := productValue.FieldByName(structFieldName)
+			existingField := existingValue.FieldByName(structFieldName)
+
+			// If both fields are valid, copy the value
+			if productField.IsValid() && existingField.IsValid() && productField.CanSet() {
+				productField.Set(existingField)
+			}
+		}
+	}
+
+	// Handle custom fields stored in the CustomFields JSON
+	for _, field := range template.CustomFieldsSchema {
+		// Only preserve if explicitly marked as not editable
+		if field.Constraints.EditableByUser != false {
+			continue
+		}
+
+		// Preserve the custom field value from existing product
+		if existingProduct.CustomFields != nil {
+			if existingValue, exists := existingProduct.CustomFields[field.ID]; exists {
+				// Ensure product.CustomFields is initialized
+				if product.CustomFields == nil {
+					product.CustomFields = make(map[string]interface{})
+				}
+				product.CustomFields[field.ID] = existingValue
+			}
+		}
+	}
 }

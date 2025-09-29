@@ -57,8 +57,8 @@
 
 			// Find template and map filter fields
 			const template = productTemplates.find(t => t.id === product.product_template_id);
-			if (template?.fields) {
-				template.fields.forEach((field: any) => {
+			if (template?.filter_fields_schema) {
+				template.filter_fields_schema.forEach((field: any) => {
 					if (field.id && product[field.id] !== undefined) {
 						newFormData.filter_fields[field.id] = product[field.id];
 					}
@@ -77,7 +77,7 @@
 			: formData.product_template_id;
 
 		selectedTemplate = productTemplates.find(t => t.id === templateId) || null;
-		templateFields = selectedTemplate?.fields || [];
+		templateFields = selectedTemplate?.filter_fields_schema || [];
 		// Only use customFieldsConfig if it's explicitly provided and not empty
 		customFields = (customFieldsConfig && customFieldsConfig.length > 0)
 			? customFieldsConfig
@@ -224,7 +224,7 @@
 	}
 </script>
 
-<form on:submit|preventDefault={handleSubmit}>
+<form on:submit|preventDefault={handleSubmit} novalidate>
 	<div class="form-content">
 		<!-- Basic Fields -->
 		<div class="form-section">
@@ -308,25 +308,27 @@
 				<h3>Product Properties</h3>
 
 				{#each templateFields as field}
-					<div class="form-group">
-						<label for={field.id}>
-							{field.name}
-							{#if field.required}<span class="required">*</span>{/if}
-						</label>
+					{#if field.constraints?.editable_by_user === true}
+						<div class="form-group">
+							<label for={field.id}>
+								{field.name}
+								{#if field.required}<span class="required">*</span>{/if}
+							</label>
 
-						{#if field.description}
-							<p class="field-description">{field.description}</p>
-						{/if}
+							{#if field.description}
+								<p class="field-description">{field.description}</p>
+							{/if}
 
-						<FieldRenderer
-							{field}
-							value={getFieldValue(field)}
-							fieldId={field.id}
-							required={field.required}
-							onUpdate={(val) => updateFieldValue(field.id, val)}
-							onFileUpload={field.type === 'upload' ? (e) => handleFileUpload(e, field.id) : null}
-						/>
-					</div>
+							<FieldRenderer
+								{field}
+								value={getFieldValue(field)}
+								fieldId={field.id}
+								required={field.required}
+								onUpdate={(val) => updateFieldValue(field.id, val)}
+								onFileUpload={field.type === 'upload' ? (e) => handleFileUpload(e, field.id) : null}
+							/>
+						</div>
+					{/if}
 				{/each}
 			</div>
 		{/if}
@@ -357,26 +359,27 @@
 								{#if activeTab === sectionName}
 									<div class="tab-panel">
 										{#each sectionFields as field}
-											<div class="form-group">
-												<label for={`custom-${field.id}`}>
-													{field.name}
-													{#if field.required}<span class="required">*</span>{/if}
-												</label>
+											{#if field.constraints?.editable_by_user === true}
+												<div class="form-group">
+													<label for={`custom-${field.id}`}>
+														{field.name}
+														{#if field.required}<span class="required">*</span>{/if}
+													</label>
 
-												{#if field.description}
-													<p class="field-description">{field.description}</p>
-												{/if}
+													{#if field.description}
+														<p class="field-description">{field.description}</p>
+													{/if}
 
-												{#if field.type === 'nine-slice-upload'}
-													<NineSliceUpload
-														fieldId={field.id}
-														value={formData.custom_fields[field.id] || {}}
-														onUpdate={(val) => updateFieldValue(field.id, val, true)}
-														on:fileUpload
-													/>
-												{:else}
-													<FieldRenderer
-														{field}
+													{#if field.type === 'nine-slice-upload'}
+														<NineSliceUpload
+															fieldId={field.id}
+															value={formData.custom_fields[field.id] || {}}
+															onUpdate={(val) => updateFieldValue(field.id, val, true)}
+															on:fileUpload
+														/>
+													{:else}
+														<FieldRenderer
+															{field}
 														value={getFieldValue(field, true)}
 														fieldId={`custom-${field.id}`}
 														required={field.required}
@@ -385,6 +388,7 @@
 													/>
 												{/if}
 											</div>
+											{/if}
 										{/each}
 									</div>
 								{/if}
@@ -394,34 +398,36 @@
 				{:else}
 					<!-- Single section or no sections - flat layout -->
 					{#each customFields as field}
-						<div class="form-group">
-							<label for={`custom-${field.id}`}>
-								{field.name}
-								{#if field.required}<span class="required">*</span>{/if}
-							</label>
+						{#if field.constraints?.editable_by_user === true}
+							<div class="form-group">
+								<label for={`custom-${field.id}`}>
+									{field.name}
+									{#if field.required}<span class="required">*</span>{/if}
+								</label>
 
-							{#if field.description}
-								<p class="field-description">{field.description}</p>
-							{/if}
+								{#if field.description}
+									<p class="field-description">{field.description}</p>
+								{/if}
 
-							{#if field.type === 'nine-slice-upload'}
-								<NineSliceUpload
-									fieldId={field.id}
-									value={formData.custom_fields[field.id] || {}}
-									onUpdate={(val) => updateFieldValue(field.id, val, true)}
-									on:fileUpload
-								/>
-							{:else}
-								<FieldRenderer
-									{field}
-									value={getFieldValue(field, true)}
-									fieldId={`custom-${field.id}`}
-									required={field.required}
-									onUpdate={(val) => updateFieldValue(field.id, val, true)}
-									onFileUpload={field.type === 'upload' ? (e) => handleFileUpload(e, field.id, true) : null}
-								/>
-							{/if}
-						</div>
+								{#if field.type === 'nine-slice-upload'}
+									<NineSliceUpload
+										fieldId={field.id}
+										value={formData.custom_fields[field.id] || {}}
+										onUpdate={(val) => updateFieldValue(field.id, val, true)}
+										on:fileUpload
+									/>
+								{:else}
+									<FieldRenderer
+										{field}
+										value={getFieldValue(field, true)}
+										fieldId={`custom-${field.id}`}
+										required={field.required}
+										onUpdate={(val) => updateFieldValue(field.id, val, true)}
+										onFileUpload={field.type === 'upload' ? (e) => handleFileUpload(e, field.id, true) : null}
+									/>
+								{/if}
+							</div>
+						{/if}
 					{/each}
 				{/if}
 			</div>

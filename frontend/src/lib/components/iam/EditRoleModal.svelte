@@ -45,12 +45,12 @@
 		<div class="form-grid">
 			<div class="form-group">
 				<label for="display-name">Display Name</label>
-				<input 
-					id="display-name" 
-					type="text" 
-					bind:value={editedRole.display_name} 
+				<input
+					id="display-name"
+					type="text"
+					bind:value={editedRole.display_name}
 					placeholder="Enter display name"
-					disabled={role.is_system}
+					disabled={role.type === 'system'}
 				/>
 			</div>
 			

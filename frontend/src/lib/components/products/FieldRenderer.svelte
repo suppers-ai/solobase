@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { formatHexColor, isValidHexColor } from '$lib/utils/colorUtils';
 
 	export let field: any;
 	export let value: any;
@@ -16,6 +17,19 @@
 	const min = field.min ?? constraints.min;
 	const max = field.max ?? constraints.max;
 	const step = field.step ?? constraints.step;
+
+
+	// Format color value if it's a color field
+	$: formattedColorValue = field.type === 'color' ? formatHexColor(value || '#000000') : value;
+
+	// Ensure color values are formatted on mount/change
+	$: if (field.type === 'color' && value && !isValidHexColor(value)) {
+		// Format and update the value immediately if it's invalid
+		const formatted = formatHexColor(value);
+		if (formatted !== value) {
+			onUpdate(formatted);
+		}
+	}
 </script>
 
 {#if field.type === 'enum' || field.type === 'select'}
@@ -58,17 +72,42 @@
 		<input
 			id={fieldId}
 			type="color"
-			value={value || '#000000'}
-			on:input={(e) => onUpdate(e.currentTarget.value)}
-			{required}
+			value={formattedColorValue}
+			on:input={(e) => {
+				const formatted = formatHexColor(e.currentTarget.value);
+				onUpdate(formatted);
+			}}
+			on:invalid={(e) => {
+				// Prevent default validation message
+				e.preventDefault();
+				e.currentTarget.setCustomValidity('');
+			}}
+			required={false}
 			class="color-picker"
 		/>
 		<input
 			type="text"
-			value={value || '#000000'}
-			on:input={(e) => onUpdate(e.currentTarget.value)}
+			value={formattedColorValue}
+			on:input={(e) => {
+				// Clear any custom validity
+				e.currentTarget.setCustomValidity('');
+				const formatted = formatHexColor(e.currentTarget.value);
+				onUpdate(formatted);
+			}}
+			on:blur={(e) => {
+				// On blur, ensure the value is properly formatted
+				e.currentTarget.setCustomValidity('');
+				const formatted = formatHexColor(e.currentTarget.value);
+				onUpdate(formatted);
+				e.currentTarget.value = formatted;
+			}}
+			on:invalid={(e) => {
+				// Prevent default validation message
+				e.preventDefault();
+				e.currentTarget.setCustomValidity('');
+			}}
 			placeholder="#000000"
-			pattern="^#[0-9A-Fa-f]{6}$"
+			required={false}
 			class="color-text"
 		/>
 	</div>

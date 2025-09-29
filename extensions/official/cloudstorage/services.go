@@ -94,17 +94,89 @@ func (s *ShareService) GetUserShares(ctx context.Context, userID string) ([]Stor
 	return shares, nil
 }
 
-// GetSharedWithMe retrieves all items shared with the current user
+// GetSharedWithMe retrieves all items shared with the current user (both direct and inherited)
 func (s *ShareService) GetSharedWithMe(ctx context.Context, userID string) ([]StorageShareWithObject, error) {
-	var shares []StorageShareWithObject
-
 	// Get user's email for email-based shares
 	var userEmail string
 	s.db.Table("users").Where("id = ?", userID).Select("email").Scan(&userEmail)
 
-	// Query shares with joined storage objects
+	// Use a CTE to find both direct shares and inherited shares
+	query := `
+		WITH RECURSIVE shared_items AS (
+			-- Direct shares: items directly shared with the user
+			SELECT DISTINCT
+				ss.id,
+				ss.object_id,
+				ss.shared_with_user_id,
+				ss.shared_with_email,
+				ss.permission_level,
+				ss.inherit_to_children,
+				ss.share_token,
+				ss.is_public,
+				ss.expires_at,
+				ss.created_by,
+				ss.created_at,
+				ss.updated_at,
+				false as is_inherited,
+				so.object_name,
+				so.content_type,
+				so.size,
+				so.created_at as object_created_at,
+				so.metadata as object_metadata
+			FROM ext_cloudstorage_storage_shares ss
+			JOIN storage_objects so ON ss.object_id = so.id
+			WHERE (ss.shared_with_user_id = ? OR ss.shared_with_email = ?)
+				AND (ss.expires_at IS NULL OR ss.expires_at > datetime('now'))
+
+			UNION
+
+			-- Inherited shares: child items of folders shared with inherit_to_children = true
+			SELECT DISTINCT
+				ss.id,
+				child.id as object_id,
+				ss.shared_with_user_id,
+				ss.shared_with_email,
+				ss.permission_level,
+				ss.inherit_to_children,
+				ss.share_token,
+				ss.is_public,
+				ss.expires_at,
+				ss.created_by,
+				ss.created_at,
+				ss.updated_at,
+				true as is_inherited,
+				child.object_name,
+				child.content_type,
+				child.size,
+				child.created_at as object_created_at,
+				child.metadata as object_metadata
+			FROM ext_cloudstorage_storage_shares ss
+			JOIN storage_objects parent ON ss.object_id = parent.id
+			JOIN storage_objects child ON child.parent_folder_id = parent.id
+			WHERE ss.inherit_to_children = true
+				AND (ss.shared_with_user_id = ? OR ss.shared_with_email = ?)
+				AND (ss.expires_at IS NULL OR ss.expires_at > datetime('now'))
+		)
+		SELECT * FROM shared_items
+		ORDER BY object_name
+	`
+
+	var shares []StorageShareWithObject
+	if err := s.db.Raw(query, userID, userEmail, userID, userEmail).Scan(&shares).Error; err != nil {
+		// Fallback to simple query if CTE fails
+		return s.getSharedWithMeSimple(ctx, userID, userEmail)
+	}
+
+	return shares, nil
+}
+
+// getSharedWithMeSimple is the fallback for databases without CTE support
+func (s *ShareService) getSharedWithMeSimple(ctx context.Context, userID string, userEmail string) ([]StorageShareWithObject, error) {
+	var shares []StorageShareWithObject
+
+	// Query direct shares with joined storage objects
 	query := s.db.Table("ext_cloudstorage_storage_shares ss").
-		Select("ss.*, so.id as object_id, so.name as object_name, so.content_type, so.size, so.created_at as object_created_at, so.metadata as object_metadata").
+		Select("ss.*, so.id as object_id, so.object_name, so.content_type, so.size, so.created_at as object_created_at, so.metadata as object_metadata").
 		Joins("JOIN storage_objects so ON ss.object_id = so.id").
 		Where("(ss.shared_with_user_id = ? OR ss.shared_with_email = ?) AND (ss.expires_at IS NULL OR ss.expires_at > ?)",
 			userID, userEmail, time.Now())
@@ -143,6 +215,188 @@ func (s *ShareService) RevokeShare(ctx context.Context, shareID, userID string) 
 		return fmt.Errorf("share not found or unauthorized")
 	}
 	return nil
+}
+
+// CheckInheritedPermissions checks if a user has access to an object through parent folder shares
+// This uses a recursive CTE query for better performance
+func (s *ShareService) CheckInheritedPermissions(ctx context.Context, objectID string, userID string, userEmail string) (*StorageShare, error) {
+	// Build the recursive CTE query to find all parent folders and their shares
+	query := `
+		WITH RECURSIVE parent_hierarchy AS (
+			-- Base case: start with the object itself
+			SELECT id, parent_folder_id, 0 as depth
+			FROM storage_objects
+			WHERE id = ?
+
+			UNION ALL
+
+			-- Recursive case: find parent folders
+			SELECT so.id, so.parent_folder_id, ph.depth + 1
+			FROM storage_objects so
+			INNER JOIN parent_hierarchy ph ON so.id = ph.parent_folder_id
+			WHERE ph.depth < 20  -- Prevent infinite recursion
+		)
+		SELECT
+			ss.*,
+			ph.depth
+		FROM parent_hierarchy ph
+		INNER JOIN ext_cloudstorage_storage_shares ss ON ss.object_id = ph.id
+		WHERE ss.inherit_to_children = true
+			AND (ss.expires_at IS NULL OR ss.expires_at > datetime('now'))
+	`
+
+	// Add user-specific conditions
+	var args []interface{}
+	args = append(args, objectID)
+
+	conditions := []string{}
+	if userID != "" || userEmail != "" {
+		if userID != "" {
+			conditions = append(conditions, "(ss.is_public = true OR ss.shared_with_user_id = ?)")
+			args = append(args, userID)
+		}
+		if userEmail != "" {
+			if len(conditions) > 0 {
+				conditions = append(conditions, "ss.shared_with_email = ?")
+			} else {
+				conditions = append(conditions, "(ss.is_public = true OR ss.shared_with_email = ?)")
+			}
+			args = append(args, userEmail)
+		}
+	} else {
+		conditions = append(conditions, "ss.is_public = true")
+	}
+
+	if len(conditions) > 0 {
+		query += " AND (" + conditions[0]
+		for i := 1; i < len(conditions); i++ {
+			query += " OR " + conditions[i]
+		}
+		query += ")"
+	}
+
+	query += " ORDER BY ph.depth ASC, " +
+		"CASE ss.permission_level " +
+		"WHEN 'admin' THEN 3 " +
+		"WHEN 'edit' THEN 2 " +
+		"WHEN 'view' THEN 1 " +
+		"ELSE 0 END DESC"
+
+	// Execute the query
+	var shares []struct {
+		StorageShare
+		Depth int
+	}
+
+	if err := s.db.Raw(query, args...).Scan(&shares).Error; err != nil {
+		// Fallback to the iterative approach if CTE is not supported
+		return s.checkInheritedPermissionsIterative(ctx, objectID, userID, userEmail)
+	}
+
+	// Return the best share (first one due to our ordering)
+	if len(shares) > 0 {
+		return &shares[0].StorageShare, nil
+	}
+
+	return nil, nil
+}
+
+// checkInheritedPermissionsIterative is the fallback implementation for databases without CTE support
+func (s *ShareService) checkInheritedPermissionsIterative(ctx context.Context, objectID string, userID string, userEmail string) (*StorageShare, error) {
+	// First, get the object to find its parent
+	var obj pkgstorage.StorageObject
+	if err := s.db.Where("id = ?", objectID).First(&obj).Error; err != nil {
+		return nil, fmt.Errorf("object not found: %w", err)
+	}
+
+	// If object has no parent, no inheritance to check
+	if obj.ParentFolderID == nil || *obj.ParentFolderID == "" {
+		return nil, nil
+	}
+
+	// Recursively check parent folders for shares
+	currentParentID := obj.ParentFolderID
+	maxDepth := 20 // Prevent infinite loops
+	depth := 0
+
+	var bestShare *StorageShare
+	var bestPermissionLevel PermissionLevel = PermissionView // Start with lowest permission
+
+	for currentParentID != nil && *currentParentID != "" && depth < maxDepth {
+		// Check for shares on this parent folder
+		var shares []StorageShare
+		query := s.db.Where("object_id = ? AND inherit_to_children = ?", *currentParentID, true)
+
+		// Check for public shares, user-specific shares, or email-based shares
+		if userID != "" || userEmail != "" {
+			subQuery := query.Where("is_public = ?", true)
+			if userID != "" {
+				subQuery = subQuery.Or("shared_with_user_id = ?", userID)
+			}
+			if userEmail != "" {
+				subQuery = subQuery.Or("shared_with_email = ?", userEmail)
+			}
+			query = subQuery
+		} else {
+			// Only check public shares if no user info provided
+			query = query.Where("is_public = ?", true)
+		}
+
+		if err := query.Find(&shares).Error; err != nil {
+			return nil, fmt.Errorf("failed to check parent shares: %w", err)
+		}
+
+		// Find the most permissive share
+		for _, share := range shares {
+			// Check if share is expired
+			if share.ExpiresAt != nil && share.ExpiresAt.Before(time.Now()) {
+				continue
+			}
+
+			// Compare permission levels (Admin > Edit > View)
+			if comparePermissionLevel(share.PermissionLevel, bestPermissionLevel) > 0 {
+				shareCopy := share
+				bestShare = &shareCopy
+				bestPermissionLevel = share.PermissionLevel
+
+				// If we found admin permission, no need to check further
+				if bestPermissionLevel == PermissionAdmin {
+					return bestShare, nil
+				}
+			}
+		}
+
+		// Get the parent folder to continue traversing up
+		var parentFolder pkgstorage.StorageObject
+		if err := s.db.Where("id = ?", *currentParentID).First(&parentFolder).Error; err != nil {
+			// Parent not found, stop traversing
+			break
+		}
+
+		currentParentID = parentFolder.ParentFolderID
+		depth++
+	}
+
+	return bestShare, nil
+}
+
+// comparePermissionLevel returns 1 if a > b, -1 if a < b, 0 if equal
+func comparePermissionLevel(a, b PermissionLevel) int {
+	levels := map[PermissionLevel]int{
+		PermissionView:  1,
+		PermissionEdit:  2,
+		PermissionAdmin: 3,
+	}
+
+	aLevel := levels[a]
+	bLevel := levels[b]
+
+	if aLevel > bLevel {
+		return 1
+	} else if aLevel < bLevel {
+		return -1
+	}
+	return 0
 }
 
 // ShareOptions defines options for creating a share

@@ -251,7 +251,7 @@ func (s *Service) UpdateRole(ctx context.Context, roleID string, updates map[str
 		return fmt.Errorf("role not found: %w", err)
 	}
 
-	if role.IsSystem {
+	if role.Type == "system" {
 		return fmt.Errorf("cannot update system role")
 	}
 
@@ -276,7 +276,7 @@ func (s *Service) DeleteRole(ctx context.Context, roleID string) error {
 		return fmt.Errorf("role not found: %w", err)
 	}
 
-	if role.IsSystem {
+	if role.Type == "system" {
 		return fmt.Errorf("cannot delete system role")
 	}
 
@@ -493,21 +493,21 @@ func (s *Service) initializeDefaults() error {
 			Name:        "admin",
 			DisplayName: "Administrator",
 			Description: "Full system access",
-			IsSystem:    true,
+			Type:        "system",
 			Metadata:    map[string]interface{}{},
 		},
 		{
 			Name:        "admin_viewer",
 			DisplayName: "Admin Viewer",
 			Description: "Read-only administrative access",
-			IsSystem:    true,
+			Type:        "system",
 			Metadata:    map[string]interface{}{},
 		},
 		{
 			Name:        "user",
 			DisplayName: "User",
 			Description: "Standard user access",
-			IsSystem:    true,
+			Type:        "system",
 			Metadata:    map[string]interface{}{},
 		},
 	}

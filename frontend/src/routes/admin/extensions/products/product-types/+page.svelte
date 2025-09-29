@@ -8,6 +8,7 @@
 	import { requireAdmin } from '$lib/utils/auth';
 	import IconPicker from '$lib/components/IconPicker.svelte';
 	import FieldEditor from '$lib/components/FieldEditor.svelte';
+	import CustomFieldEditor from '$lib/components/CustomFieldEditor.svelte';
 	import ReorderableList from '$lib/components/ReorderableList.svelte';
 	import PricingTemplateModal from '$lib/components/PricingTemplateModal.svelte';
 	import { getIconComponent } from '$lib/utils/icons';
@@ -39,7 +40,8 @@
 		display_name: string;
 		description: string;
 		icon?: string;
-		fields?: FieldDefinition[];
+		filter_fields_schema?: FieldDefinition[];
+		custom_fields_schema?: FieldDefinition[];
 		pricing_templates?: string[];
 		billing_mode: 'instant' | 'approval';
 		billing_type: 'one-time' | 'recurring';
@@ -205,9 +207,9 @@
 	
 	async function createProductType() {
 		try {
-			// Ensure fields is a valid array
-			if (!Array.isArray(newProductType.fields)) {
-				newProductType.fields = [];
+			// Ensure filter_fields_schema is a valid array
+			if (!Array.isArray(newProductType.filter_fields_schema)) {
+				newProductType.filter_fields_schema = [];
 			}
 			// Ensure pricing_templates is a valid array
 			if (!Array.isArray(newProductType.pricing_templates)) {
@@ -242,15 +244,27 @@
 	
 	async function saveProductType() {
 		if (!selectedProductType) return;
-		
-		// Update fields from schema editor
-		selectedProductType.fields = schemaFields.filter(field => field.name).map(field => ({
+
+		// Update filter fields (mapped to database columns)
+		selectedProductType.filter_fields_schema = schemaFields.filter(field => field.name).map(field => ({
 			id: field.id,
 			name: field.name,
 			type: field.type,
 			required: field.required || false,
 			description: field.description || '',
 			constraints: field.constraints || {}
+		}));
+
+		// Update custom fields schema (stored in JSON)
+		selectedProductType.custom_fields_schema = customSchemaFields.filter(field => field.name).map(field => ({
+			id: field.id,
+			name: field.name,
+			type: field.type,
+			required: field.required || false,
+			description: field.description || '',
+			constraints: field.constraints || {},
+			section: field.section || 'General',
+			order: field.order || 0
 		}));
 		
 		try {
@@ -259,6 +273,7 @@
 				showEditModal = false;
 				selectedProductType = null;
 				schemaFields = [];
+				customSchemaFields = [];
 				// Reload product types
 				await loadProductTypes();
 			}
@@ -282,7 +297,8 @@
 	}
 
 	// Schema editor state
-	let schemaFields: FieldDefinition[] = [];
+	let schemaFields: FieldDefinition[] = [];  // For filter fields (mapped to DB columns)
+	let customSchemaFields: FieldDefinition[] = [];  // For custom fields (stored in JSON)
 	let showFieldTypeSelector = false;
 	
 	// Track used filter IDs
@@ -349,8 +365,9 @@
 
 	function openEditModal(productType: ProductType) {
 		selectedProductType = { ...productType };
-		if (Array.isArray(productType.fields)) {
-			schemaFields = productType.fields.map((field: any) => ({
+		// Load filter fields (that map to database columns)
+		if (Array.isArray(productType.filter_fields_schema)) {
+			schemaFields = productType.filter_fields_schema.map((field: any) => ({
 				id: field.id || '',
 				name: field.name || '',
 				type: field.type || 'text',
@@ -360,6 +377,21 @@
 			}));
 		} else {
 			schemaFields = [];
+		}
+		// Load custom fields schema (stored in JSON)
+		if (Array.isArray(productType.custom_fields_schema)) {
+			customSchemaFields = productType.custom_fields_schema.map((field: any) => ({
+				id: field.id || '',
+				name: field.name || '',
+				type: field.type || 'text',
+				required: field.required || false,
+				description: field.description || '',
+				constraints: field.constraints || {},
+				section: field.section || 'General',
+				order: field.order || 0
+			}));
+		} else {
+			customSchemaFields = [];
 		}
 		// Ensure pricing_templates is an array
 		if (!Array.isArray(selectedProductType.pricing_templates)) {
@@ -497,11 +529,11 @@
 							<code class="group-code">{productType.name}</code>
 							<p class="group-description">{productType.description}</p>
 							
-							{#if productType.fields && productType.fields.length > 0}
+							{#if productType.filter_fields_schema && productType.filter_fields_schema.length > 0}
 								<div class="group-fields">
-									<p class="fields-label">Custom Fields:</p>
+									<p class="fields-label">Filter Fields:</p>
 									<div class="fields-list">
-										{#each productType.fields as field}
+										{#each productType.filter_fields_schema as field}
 											<span class="field-badge" title="{field.type}{field.constraints?.required ? ' (required)' : ''}">{field.label || field.name}</span>
 										{/each}
 									</div>
@@ -548,6 +580,12 @@
 		padding: 1.5rem;
 		max-width: 1400px;
 		margin: 0 auto;
+	}
+
+	.field-description {
+		font-size: 0.875rem;
+		color: #6b7280;
+		margin: 0.25rem 0 0.75rem 0;
 	}
 
 	.page-header {
@@ -1530,10 +1568,20 @@
 				{/if}
 				
 				<div class="form-group">
-					<label>Custom Fields Definition</label>
-					<FieldEditor 
-						fields={schemaFields} 
-						onFieldsChange={(newFields) => schemaFields = newFields} 
+					<label>Filter Fields (Searchable/Filterable)</label>
+					<p class="field-description">These fields map to database columns and can be used for filtering products. Limited to 5 of each type.</p>
+					<FieldEditor
+						fields={schemaFields}
+						onFieldsChange={(newFields) => schemaFields = newFields}
+					/>
+				</div>
+
+				<div class="form-group">
+					<label>Custom Fields (Additional Properties)</label>
+					<p class="field-description">These fields are stored as JSON and can hold any additional product data. Unlimited fields allowed.</p>
+					<CustomFieldEditor
+						fields={customSchemaFields}
+						onFieldsChange={(newFields) => customSchemaFields = newFields}
 					/>
 				</div>
 				
@@ -1582,7 +1630,7 @@
 					}
 				}}>Delete</button>
 				<div class="modal-footer-right">
-					<button class="btn btn-secondary" on:click={() => { showEditModal = false; schemaFields = []; }}>Cancel</button>
+					<button class="btn btn-secondary" on:click={() => { showEditModal = false; schemaFields = []; customSchemaFields = []; }}>Cancel</button>
 					<button class="btn btn-primary" on:click={saveProductType}>Save</button>
 				</div>
 			</div>

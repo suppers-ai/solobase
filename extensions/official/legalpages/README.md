@@ -77,7 +77,7 @@ The extension creates a table `ext_legalpages_legal_documents` with the followin
 | title | VARCHAR | Document title |
 | content | TEXT | HTML content |
 | version | INTEGER | Auto-incrementing version number |
-| is_published | BOOLEAN | Publication status |
+| status | VARCHAR | Document status (draft/published/archived/review) |
 | created_at | TIMESTAMP | Creation timestamp |
 | updated_at | TIMESTAMP | Last update timestamp |
 | created_by | UUID | User ID of creator |

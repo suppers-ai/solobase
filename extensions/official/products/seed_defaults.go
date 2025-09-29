@@ -107,7 +107,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 			Description: "Food service establishment",
 			Icon:        "utensils",
 			Status:      "active",
-			Fields: []models.FieldDefinition{
+			FilterFieldsSchema:[]models.FieldDefinition{
 				{
 					ID:          string(models.FilterEnum1),
 					Name:        "Cuisine Type",
@@ -156,7 +156,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 			Description: "Physical or online retail business",
 			Icon:        "shopping-bag",
 			Status:      "active",
-			Fields: []models.FieldDefinition{
+			FilterFieldsSchema:[]models.FieldDefinition{
 				{
 					ID:          string(models.FilterEnum1),
 					Name:        "Store Type",
@@ -183,7 +183,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 			Description: "Professional or technical services",
 			Icon:        "briefcase",
 			Status:      "active",
-			Fields: []models.FieldDefinition{
+			FilterFieldsSchema:[]models.FieldDefinition{
 				{
 					ID:          string(models.FilterText1),
 					Name:        "Service Type",
@@ -208,7 +208,7 @@ func DefaultGroupTemplates() []models.GroupTemplate {
 			Description: "Recurring subscription-based business",
 			Icon:        "credit-card",
 			Status:      "active",
-			Fields: []models.FieldDefinition{
+			FilterFieldsSchema:[]models.FieldDefinition{
 				{
 					ID:          string(models.FilterEnum1),
 					Name:        "Billing Cycle",
@@ -244,7 +244,7 @@ func DefaultProductTemplates() []models.ProductTemplate {
 			BillingMode: "instant",
 			BillingType: "one-time",
 			Status:      "active",
-			Fields: []models.FieldDefinition{
+			FilterFieldsSchema:[]models.FieldDefinition{
 				{
 					ID:          string(models.FilterText1),
 					Name:        "SKU",
@@ -279,7 +279,7 @@ func DefaultProductTemplates() []models.ProductTemplate {
 			BillingMode: "instant",
 			BillingType: "one-time",
 			Status:      "active",
-			Fields: []models.FieldDefinition{
+			FilterFieldsSchema:[]models.FieldDefinition{
 				{
 					ID:          string(models.FilterNumeric1),
 					Name:        "File Size (MB)",
@@ -314,7 +314,7 @@ func DefaultProductTemplates() []models.ProductTemplate {
 			BillingMode: "approval",
 			BillingType: "one-time",
 			Status:      "active",
-			Fields: []models.FieldDefinition{
+			FilterFieldsSchema:[]models.FieldDefinition{
 				{
 					ID:          string(models.FilterNumeric1),
 					Name:        "Duration (hours)",
@@ -349,7 +349,7 @@ func DefaultProductTemplates() []models.ProductTemplate {
 			BillingRecurringInterval:      func() *string { v := "month"; return &v }(),
 			BillingRecurringIntervalCount: func() *int { v := 1; return &v }(),
 			Status:                        "active",
-			Fields: []models.FieldDefinition{
+			FilterFieldsSchema:[]models.FieldDefinition{
 				{
 					ID:          string(models.FilterEnum1),
 					Name:        "Billing Cycle",
@@ -379,7 +379,7 @@ func DefaultProductTemplates() []models.ProductTemplate {
 			BillingMode: "instant",
 			BillingType: "one-time",
 			Status:      "active",
-			Fields: []models.FieldDefinition{
+			FilterFieldsSchema:[]models.FieldDefinition{
 				{
 					ID:          string(models.FilterNumeric1),
 					Name:        "Number of Items",

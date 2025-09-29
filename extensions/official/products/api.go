@@ -803,6 +803,16 @@ func (u *UserAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get the product template to check field constraints
+	var productTemplate models.ProductTemplate
+	if err := u.db.First(&productTemplate, existingProduct.ProductTemplateID).Error; err != nil {
+		http.Error(w, "Product template not found", http.StatusInternalServerError)
+		return
+	}
+
+	// Preserve non-editable fields (both filter fields and custom fields)
+	models.PreserveNonEditableFields(&product, existingProduct, &productTemplate)
+
 	product.ID = uint(id)
 	product.GroupID = existingProduct.GroupID // Prevent changing group
 

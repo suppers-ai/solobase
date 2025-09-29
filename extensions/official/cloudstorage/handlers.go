@@ -742,15 +742,46 @@ func (e *CloudStorageExtension) handleDownload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Check if user has access (owns the file or it's public)
-	// TODO: Add more sophisticated access control
-	if obj.UserID != userID {
-		// Check if there's a public share for this object
+	// Check if user has access
+	hasAccess := false
+	var accessShare *StorageShare
+
+	// Check if user owns the file
+	if obj.UserID == userID {
+		hasAccess = true
+	} else {
+		// Check for direct share or public access
 		var share StorageShare
-		if err := e.db.Where("object_id = ? AND is_public = ?", objectID, true).First(&share).Error; err != nil {
-			http.Error(w, "Access denied", http.StatusForbidden)
-			return
+		err := e.db.Where("object_id = ?", objectID).
+			Where("is_public = ? OR shared_with_user_id = ?", true, userID).
+			First(&share).Error
+
+		if err == nil {
+			hasAccess = true
+			accessShare = &share
+		} else if e.shareService != nil {
+			// Check for inherited permissions from parent folders
+			// Get user's email for email-based shares
+			var userEmail string
+			e.db.Table("users").Where("id = ?", userID).Select("email").Scan(&userEmail)
+
+			inheritedShare, err := e.shareService.CheckInheritedPermissions(ctx, objectID, userID, userEmail)
+			if err == nil && inheritedShare != nil {
+				hasAccess = true
+				accessShare = inheritedShare
+			}
 		}
+	}
+
+	if !hasAccess {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	// Check permission level if accessing through a share
+	if accessShare != nil && accessShare.PermissionLevel == PermissionView && r.Method != http.MethodGet {
+		http.Error(w, "Permission denied for this operation", http.StatusForbidden)
+		return
 	}
 
 	// Download the file

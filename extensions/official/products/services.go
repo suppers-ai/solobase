@@ -25,7 +25,7 @@ func GetSystemVariables() []models.Variable {
 			ValueType:   "number",
 			Type:        "system",
 			Description: "Accumulated total from previous calculations",
-			IsActive:    true,
+			Status:      "active",
 		},
 	}
 }
@@ -54,7 +54,7 @@ func (s *VariableService) CreateFromField(field models.FieldDefinition) (*models
 		Type:         "user",
 		Description:  field.Description,
 		DefaultValue: field.Constraints.Default,
-		IsActive:     true,
+		Status:       "active",
 	}
 
 	if err := s.db.Create(variable).Error; err != nil {
@@ -105,10 +105,10 @@ func (s *GroupService) Create(group *models.Group) error {
 
 	// Load the group template to get field definitions
 	var groupTemplate models.GroupTemplate
-	if err := tx.First(&groupTemplate, group.GroupTemplateID).Error; err == nil && len(groupTemplate.Fields) > 0 {
+	if err := tx.First(&groupTemplate, group.GroupTemplateID).Error; err == nil && len(groupTemplate.FilterFieldsSchema) > 0 {
 		// Map field values to filter columns based on field IDs
 		if customFields, ok := group.CustomFields["fields"].(map[string]interface{}); ok {
-			for _, field := range groupTemplate.Fields {
+			for _, field := range groupTemplate.FilterFieldsSchema {
 				if value, exists := customFields[field.Name]; exists {
 					// Map to appropriate filter column based on field ID
 					s.mapToFilterColumn(tx, group, field.ID, value)
@@ -118,7 +118,7 @@ func (s *GroupService) Create(group *models.Group) error {
 
 		// Create variables for each field using the transaction
 		txVariableService := &VariableService{db: tx}
-		for _, field := range groupTemplate.Fields {
+		for _, field := range groupTemplate.FilterFieldsSchema {
 			variable := &models.Variable{
 				Name:         field.ID,
 				DisplayName:  field.Name,
@@ -126,7 +126,7 @@ func (s *GroupService) Create(group *models.Group) error {
 				Type:         "user",
 				Description:  field.Description,
 				DefaultValue: field.Constraints.Default,
-				IsActive:     true,
+				Status:       "active",
 			}
 			txVariableService.Create(variable)
 		}
@@ -254,10 +254,10 @@ func (s *ProductService) Create(product *models.Product) error {
 
 	// Load the product template to get field definitions
 	var productTemplate models.ProductTemplate
-	if err := tx.First(&productTemplate, product.ProductTemplateID).Error; err == nil && len(productTemplate.Fields) > 0 {
+	if err := tx.First(&productTemplate, product.ProductTemplateID).Error; err == nil && len(productTemplate.FilterFieldsSchema) > 0 {
 		// Map field values to filter columns based on field IDs
 		if customFields, ok := product.CustomFields["fields"].(map[string]interface{}); ok {
-			for _, field := range productTemplate.Fields {
+			for _, field := range productTemplate.FilterFieldsSchema {
 				if value, exists := customFields[field.Name]; exists {
 					// Map to appropriate filter column based on field ID
 					s.mapProductToFilterColumn(tx, product, field.ID, value)
@@ -267,7 +267,7 @@ func (s *ProductService) Create(product *models.Product) error {
 
 		// Create variables for each field using the transaction
 		txVariableService := &VariableService{db: tx}
-		for _, field := range productTemplate.Fields {
+		for _, field := range productTemplate.FilterFieldsSchema {
 			variable := &models.Variable{
 				Name:         field.ID,
 				DisplayName:  field.Name,
@@ -275,7 +275,7 @@ func (s *ProductService) Create(product *models.Product) error {
 				Type:         "user",
 				Description:  field.Description,
 				DefaultValue: field.Constraints.Default,
-				IsActive:     true,
+				Status:       "active",
 			}
 			txVariableService.Create(variable)
 		}

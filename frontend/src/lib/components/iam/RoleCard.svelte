@@ -14,10 +14,10 @@
 	}
 </script>
 
-<div class="role-card" class:system={role.is_system}>
+<div class="role-card" class:system={role.type === 'system'}>
 	<div class="role-header">
 		<h3>{role.display_name || role.name}</h3>
-		{#if role.is_system}
+		{#if role.type === 'system'}
 			<span class="badge">System</span>
 		{/if}
 	</div>
@@ -36,7 +36,7 @@
 		<button class="btn btn-small" on:click={handleEdit}>
 			Edit
 		</button>
-		{#if !role.is_system}
+		{#if role.type !== 'system'}
 			<button class="btn btn-small btn-danger" on:click={handleDelete}>
 				Delete
 			</button>

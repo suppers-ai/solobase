@@ -276,4 +276,69 @@ func (e *CloudStorageExtension) setupUserResourcesHook(ctx context.Context, hook
 	return nil
 }
 
+// checkSharePermissionsHook checks share permissions including inheritance before downloads
+func (e *CloudStorageExtension) checkSharePermissionsHook(ctx context.Context, hookCtx *core.HookContext) error {
+	if e.shareService == nil {
+		return nil // Skip if sharing not enabled
+	}
+
+	// Extract data from hook context
+	userID, _ := hookCtx.Data["userID"].(string)
+	objectID, ok := hookCtx.Data["objectID"].(string)
+	if !ok || objectID == "" {
+		return nil // No object ID, skip
+	}
+
+	// Get the object to check ownership and access
+	var obj pkgstorage.StorageObject
+	if err := e.db.Where("id = ?", objectID).First(&obj).Error; err != nil {
+		// Object not found, let the main handler deal with it
+		return nil
+	}
+
+	// If user owns the file, allow access
+	if userID != "" && obj.UserID == userID {
+		return nil // Owner has full access
+	}
+
+	// Check for direct share or public access
+	var directShare StorageShare
+	query := e.db.Where("object_id = ?", objectID)
+
+	if userID != "" {
+		// Check for user-specific share or public share
+		query = query.Where("is_public = ? OR shared_with_user_id = ?", true, userID)
+	} else {
+		// Anonymous user, only check public shares
+		query = query.Where("is_public = ?", true)
+	}
+
+	err := query.First(&directShare).Error
+	if err == nil {
+		// Found direct share, store it in context for permission checking
+		hookCtx.Data["share"] = directShare
+		return nil
+	}
+
+	// No direct share found, check for inherited permissions
+	var userEmail string
+	if userID != "" {
+		e.db.Table("users").Where("id = ?", userID).Select("email").Scan(&userEmail)
+	}
+
+	inheritedShare, err := e.shareService.CheckInheritedPermissions(ctx, objectID, userID, userEmail)
+	if err == nil && inheritedShare != nil {
+		// Found inherited share, store it in context
+		hookCtx.Data["share"] = *inheritedShare
+		hookCtx.Data["inherited"] = true
+		return nil
+	}
+
+	// No access found - return error to block download
+	if userID == "" {
+		return fmt.Errorf("authentication required to access this file")
+	}
+	return fmt.Errorf("access denied: you don't have permission to access this file")
+}
+
 // Helper methods for quota service

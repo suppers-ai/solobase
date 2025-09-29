@@ -3,6 +3,8 @@
  * A clean, maintainable structure for defining custom field configurations
  */
 
+import type { FieldDefinition } from './field-definition';
+
 // ============================================
 // BASE INTERFACES
 // ============================================
@@ -416,18 +418,10 @@ export interface ProductTemplate {
   description?: string;
   category?: string;
   icon?: string;
-  fields: ProductTemplateField[];
-  custom_fields_schema?: ProductCustomFieldDefinition[];
+  filter_fields_schema: FieldDefinition[];  // Filter fields (mapped to DB columns)
+  custom_fields_schema: FieldDefinition[];  // Custom fields (stored as JSON)
   billing_mode?: string;
   billing_type?: string;
   status?: string;
 }
 
-export interface ProductTemplateField {
-  id: string;
-  name: string;
-  type: CustomFieldType;
-  required?: boolean;
-  description?: string;
-  constraints?: any; // This should match the constraint type for the field type
-}
