@@ -13,32 +13,46 @@
 	
 	// Get redirect parameter from URL
 	$: redirectTo = $page.url.searchParams.get('redirect');
-	
+
+	/**
+	 * Validates that a redirect URL is safe (same-origin only)
+	 * Prevents open redirect vulnerabilities
+	 */
+	function isValidRedirectUrl(url: string): boolean {
+		if (!url) return false;
+
+		try {
+			// For relative URLs, they're safe by default
+			if (url.startsWith('/') && !url.startsWith('//')) {
+				return true;
+			}
+
+			// For absolute URLs, check if they're same-origin
+			const urlObj = new URL(url, window.location.origin);
+			return urlObj.origin === window.location.origin;
+		} catch {
+			// If URL parsing fails, it's not valid
+			return false;
+		}
+	}
+
 	async function handleLogin(loginEmail: string, loginPassword: string) {
 		loading = true;
 		error = '';
-		
+
 		const success = await auth.login(loginEmail, loginPassword);
-		
+
 		if (success) {
-			// Always check for redirect parameter first
-			if (redirectTo) {
+			// Validate redirect parameter to prevent open redirect vulnerabilities
+			if (redirectTo && isValidRedirectUrl(redirectTo)) {
 				console.log('Redirecting to:', redirectTo);
-				// Handle both absolute and relative URLs
-				if (redirectTo.startsWith('http')) {
-					// Absolute URL - navigate directly
-					window.location.href = redirectTo;
-					return; // Ensure we don't continue
-				} else {
-					// Relative URL - use goto
-					await goto(redirectTo);
-					return; // Ensure we don't continue
-				}
+				await goto(redirectTo);
 			} else {
-				// Default redirect to home page
-				console.log('No redirect param, going to /');
+				// If redirect is invalid or not provided, go to home
+				if (redirectTo) {
+					console.warn('Invalid redirect URL blocked:', redirectTo);
+				}
 				await goto('/');
-				return;
 			}
 		} else {
 			const authState = get(auth);
