@@ -93,3 +93,5 @@ require (
 	modernc.org/memory v1.5.0 // indirect
 	modernc.org/sqlite v1.20.3 // indirect
 )
+
+exclude cloud.google.com/go v0.34.0

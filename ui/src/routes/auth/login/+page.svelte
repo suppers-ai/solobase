@@ -17,9 +17,9 @@
 	async function handleLogin(loginEmail: string, loginPassword: string) {
 		loading = true;
 		error = '';
-		
+
 		const success = await auth.login(loginEmail, loginPassword);
-		
+
 		if (success) {
 			// Always check for redirect parameter first
 			if (redirectTo) {
@@ -46,6 +46,16 @@
 			loading = false;
 		}
 	}
+
+	function handleOAuthLogin(provider: string) {
+		// Construct OAuth login URL
+		const baseUrl = window.location.origin;
+		const callbackUrl = `${baseUrl}/auth/oauth/callback`;
+		const oauthUrl = `/api/auth/oauth/login?provider=${provider}`;
+
+		// Redirect to OAuth provider
+		window.location.href = oauthUrl;
+	}
 </script>
 
 <LoginForm
@@ -61,5 +71,7 @@
 	showForgotPassword={true}
 	forgotPasswordUrl="/auth/forgot-password"
 	showRememberMe={true}
+	showOAuthButtons={true}
 	onSubmit={handleLogin}
+	onOAuthLogin={handleOAuthLogin}
 />
