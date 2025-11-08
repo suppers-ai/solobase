@@ -47,6 +47,16 @@ func (e *CloudStorageExtension) handleShares(w http.ResponseWriter, r *http.Requ
 	}
 	userID := user.ID.String()
 
+	// Check for special share types
+	shareType := r.URL.Query().Get("type")
+	if shareType == "shared-with-me" {
+		e.handleSharedWithMe(w, r, userID)
+		return
+	} else if shareType == "shared-by-me" {
+		e.handleSharedByMe(w, r, userID)
+		return
+	}
+
 	// If share service is not initialized, return empty array for GET, error for POST
 	if e.shareService == nil {
 		if r.Method == http.MethodGet {
@@ -732,15 +742,46 @@ func (e *CloudStorageExtension) handleDownload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Check if user has access (owns the file or it's public)
-	// TODO: Add more sophisticated access control
-	if obj.UserID != userID {
-		// Check if there's a public share for this object
+	// Check if user has access
+	hasAccess := false
+	var accessShare *StorageShare
+
+	// Check if user owns the file
+	if obj.UserID == userID {
+		hasAccess = true
+	} else {
+		// Check for direct share or public access
 		var share StorageShare
-		if err := e.db.Where("object_id = ? AND is_public = ?", objectID, true).First(&share).Error; err != nil {
-			http.Error(w, "Access denied", http.StatusForbidden)
-			return
+		err := e.db.Where("object_id = ?", objectID).
+			Where("is_public = ? OR shared_with_user_id = ?", true, userID).
+			First(&share).Error
+
+		if err == nil {
+			hasAccess = true
+			accessShare = &share
+		} else if e.shareService != nil {
+			// Check for inherited permissions from parent folders
+			// Get user's email for email-based shares
+			var userEmail string
+			e.db.Table("users").Where("id = ?", userID).Select("email").Scan(&userEmail)
+
+			inheritedShare, err := e.shareService.CheckInheritedPermissions(ctx, objectID, userID, userEmail)
+			if err == nil && inheritedShare != nil {
+				hasAccess = true
+				accessShare = inheritedShare
+			}
 		}
+	}
+
+	if !hasAccess {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	// Check permission level if accessing through a share
+	if accessShare != nil && accessShare.PermissionLevel == PermissionView && r.Method != http.MethodGet {
+		http.Error(w, "Permission denied for this operation", http.StatusForbidden)
+		return
 	}
 
 	// Download the file
@@ -1103,4 +1144,68 @@ func (e *CloudStorageExtension) handleDefaultQuotas(w http.ResponseWriter, r *ht
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleSharedWithMe returns items shared with the current user
+func (e *CloudStorageExtension) handleSharedWithMe(w http.ResponseWriter, r *http.Request, userID string) {
+	if e.shareService == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(struct {
+			Files   []interface{} `json:"files"`
+			Folders []interface{} `json:"folders"`
+		}{
+			Files:   []interface{}{},
+			Folders: []interface{}{},
+		})
+		return
+	}
+
+	ctx := r.Context()
+	shares, err := e.shareService.GetSharedWithMe(ctx, userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Separate files and folders
+	files := []StorageShareWithObject{}
+	folders := []StorageShareWithObject{}
+
+	for _, share := range shares {
+		if share.ContentType == "application/x-directory" {
+			folders = append(folders, share)
+		} else {
+			files = append(files, share)
+		}
+	}
+
+	result := struct {
+		Files   []StorageShareWithObject `json:"files"`
+		Folders []StorageShareWithObject `json:"folders"`
+	}{
+		Files:   files,
+		Folders: folders,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleSharedByMe returns items shared by the current user
+func (e *CloudStorageExtension) handleSharedByMe(w http.ResponseWriter, r *http.Request, userID string) {
+	if e.shareService == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
+	ctx := r.Context()
+	shares, err := e.shareService.GetSharedByMe(ctx, userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(shares)
 }

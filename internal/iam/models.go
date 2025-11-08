@@ -13,7 +13,7 @@ type Role struct {
 	Name        string                 `gorm:"uniqueIndex;not null" json:"name"`
 	DisplayName string                 `json:"display_name"`
 	Description string                 `json:"description"`
-	IsSystem    bool                   `json:"is_system"` // System roles cannot be deleted
+	Type        string                 `json:"type"` // "system" for protected roles, "custom" for user-created roles
 	Metadata    map[string]interface{} `gorm:"serializer:json" json:"metadata"`
 	CreatedAt   time.Time              `json:"created_at"`
 	UpdatedAt   time.Time              `json:"updated_at"`

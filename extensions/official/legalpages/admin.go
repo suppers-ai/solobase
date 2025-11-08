@@ -388,7 +388,7 @@ const adminTemplate = `
                     if (doc && doc.content) {
                         document.getElementById(type + '-editor').innerHTML = doc.content;
                         document.getElementById(type + '-title').value = doc.title || (type === 'terms' ? 'Terms and Conditions' : 'Privacy Policy');
-                        document.getElementById(type + '-version').textContent = 'Version ' + doc.version + ' - ' + (doc.is_published ? 'Published' : 'Draft');
+                        document.getElementById(type + '-version').textContent = 'Version ' + doc.version + ' - ' + (doc.status ? doc.status.charAt(0).toUpperCase() + doc.status.slice(1) : 'Draft');
                     }
                 }
             } catch (error) {

@@ -6,11 +6,13 @@ import (
 	"os"
 
 	"github.com/gorilla/mux"
-	"github.com/suppers-ai/solobase/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/extensions/official/cloudstorage"
 	"github.com/suppers-ai/solobase/extensions/official/legalpages"
+	productsext "github.com/suppers-ai/solobase/extensions/official/products"
 	"github.com/suppers-ai/solobase/internal/api/handlers/auth"
+	"github.com/suppers-ai/solobase/internal/api/handlers/custom_tables"
 	dbhandlers "github.com/suppers-ai/solobase/internal/api/handlers/database"
 	"github.com/suppers-ai/solobase/internal/api/handlers/extensions"
 	"github.com/suppers-ai/solobase/internal/api/handlers/logs"
@@ -27,19 +29,21 @@ import (
 )
 
 type API struct {
-	Router            *mux.Router
-	DB                *database.DB
-	AuthService       *services.AuthService
-	UserService       *services.UserService
-	StorageService    *services.StorageService
-	DatabaseService   *services.DatabaseService
-	SettingsService   *services.SettingsService
-	LogsService       *services.LogsService
-	IAMService        *iam.Service
-	storageHandlers   *storage.StorageHandlers
-	sharesHandler     *shares.SharesHandler
-	productHandlers   *products.ProductsExtensionHandlers
-	ExtensionRegistry *core.ExtensionRegistry
+	Router               *mux.Router
+	DB                   *database.DB
+	AuthService          *services.AuthService
+	UserService          *services.UserService
+	StorageService       *services.StorageService
+	DatabaseService      *services.DatabaseService
+	SettingsService      *services.SettingsService
+	LogsService          *services.LogsService
+	IAMService           *iam.Service
+	CustomTablesService  *services.CustomTablesService
+	storageHandlers      *storage.StorageHandlers
+	sharesHandler        *shares.SharesHandler
+	productHandlers      *products.ProductsExtensionHandlers
+	customTablesHandler  *custom_tables.Handler
+	ExtensionRegistry    *core.ExtensionRegistry
 }
 
 func NewAPI(
@@ -71,6 +75,10 @@ func NewAPI(
 
 	// Initialize shares handler
 	api.sharesHandler = shares.NewSharesHandler(db)
+
+	// Initialize custom tables service and handler
+	api.CustomTablesService = services.NewCustomTablesService(db.DB)
+	api.customTablesHandler = custom_tables.NewHandler(api.CustomTablesService, db.DB)
 
 	api.setupRoutesWithAdmin()
 	return api
@@ -114,6 +122,9 @@ func (a *API) setupRoutesWithAdmin() {
 
 	// Direct download with tokens (public but token-protected)
 	apiRouter.HandleFunc("/storage/direct/{token}", a.storageHandlers.HandleDirectDownload).Methods("GET", "OPTIONS")
+
+	// Payment provider webhook endpoint (public, verified by signature)
+	apiRouter.HandleFunc("/ext/products/webhooks", a.productHandlers.HandleWebhook()).Methods("POST")
 
 	// ==================================
 	// PROTECTED ROUTES (auth required)
@@ -212,10 +223,36 @@ func (a *API) setupRoutesWithAdmin() {
 	// ---- IAM (Identity & Access Management) ----
 	routes.RegisterIAMRoutes(admin, a.IAMService)
 
+	// ---- Custom Tables Management ----
+	admin.HandleFunc("/custom-tables", a.customTablesHandler.CreateTable).Methods("POST", "OPTIONS")
+	admin.HandleFunc("/custom-tables", a.customTablesHandler.ListTables).Methods("GET", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}", a.customTablesHandler.GetTableSchema).Methods("GET", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}", a.customTablesHandler.AlterTable).Methods("PUT", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}", a.customTablesHandler.DropTable).Methods("DELETE", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}/migrations", a.customTablesHandler.GetMigrationHistory).Methods("GET", "OPTIONS")
+
+	// Custom table data operations
+	admin.HandleFunc("/custom-tables/{name}/data", a.customTablesHandler.InsertData).Methods("POST", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}/data", a.customTablesHandler.QueryData).Methods("GET", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.GetRecord).Methods("GET", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.UpdateRecord).Methods("PUT", "OPTIONS")
+	admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.DeleteRecord).Methods("DELETE", "OPTIONS")
+
 	// Initialize handlers if needed
-	
+
 	if a.productHandlers == nil {
-		a.productHandlers = products.NewProductsExtensionHandlersWithDB(a.DB.DB)
+		// Get the products extension from the registry instead of creating a new one
+		if ext, exists := a.ExtensionRegistry.Get("products"); exists {
+			if productsExt, ok := ext.(*productsext.ProductsExtension); ok {
+				a.productHandlers = products.NewProductsExtensionHandlersWithExtension(productsExt)
+			} else {
+				// Fallback to empty handler
+				a.productHandlers = products.NewProductsExtensionHandlers()
+			}
+		} else {
+			// Create empty handlers
+			a.productHandlers = products.NewProductsExtensionHandlers()
+		}
 	}
 
 	// ==================================
@@ -237,6 +274,7 @@ func (a *API) setupRoutesWithAdmin() {
 	// User endpoints (product browsing and usage)
 	protected.HandleFunc("/ext/products/products", a.productHandlers.HandleProductsList()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/ext/products/products", a.productHandlers.HandleProductsCreate()).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/ext/products/products/{id}", a.productHandlers.HandleProductsUpdate()).Methods("PUT", "OPTIONS")
 	protected.HandleFunc("/ext/products/products/{id}", extensions.HandleProductsDelete()).Methods("DELETE", "OPTIONS")
 	protected.HandleFunc("/ext/products/groups", a.productHandlers.HandleListGroups()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/ext/products/groups", a.productHandlers.HandleCreateGroup()).Methods("POST", "OPTIONS")
@@ -245,6 +283,13 @@ func (a *API) setupRoutesWithAdmin() {
 	protected.HandleFunc("/ext/products/groups/{id}", a.productHandlers.HandleDeleteGroup()).Methods("DELETE", "OPTIONS")
 	protected.HandleFunc("/ext/products/groups/{id}/products", a.productHandlers.HandleGroupProducts()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/ext/products/calculate-price", a.productHandlers.HandleCalculatePrice()).Methods("POST", "OPTIONS")
+
+	// Purchase endpoints
+	protected.HandleFunc("/ext/products/purchase", a.productHandlers.HandleCreatePurchase()).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/ext/products/purchases", a.productHandlers.HandleListPurchases()).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/ext/products/purchases/stats", a.productHandlers.HandlePurchaseStats()).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/ext/products/purchases/{id}", a.productHandlers.HandleGetPurchase()).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/ext/products/purchases/{id}/cancel", a.productHandlers.HandleCancelPurchase()).Methods("POST", "OPTIONS")
 
 	// User endpoints that also need to be available (read-only access to types)
 	protected.HandleFunc("/ext/products/group-types", a.productHandlers.HandleListGroupTypes()).Methods("GET", "OPTIONS")
@@ -258,6 +303,8 @@ func (a *API) setupRoutesWithAdmin() {
 	admin.HandleFunc("/ext/products/stats", a.productHandlers.HandleProductsStats()).Methods("GET", "OPTIONS")
 	
 	// Admin configuration endpoints
+	admin.HandleFunc("/ext/products/provider/status", a.productHandlers.HandleProviderStatus()).Methods("GET", "OPTIONS")
+	admin.HandleFunc("/ext/products/groups", a.productHandlers.HandleListGroups()).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/ext/products/variables", a.productHandlers.HandleListVariables()).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/ext/products/variables", a.productHandlers.HandleCreateVariable()).Methods("POST", "OPTIONS")
 	admin.HandleFunc("/ext/products/variables/{id}", a.productHandlers.HandleUpdateVariable()).Methods("PUT", "OPTIONS")
@@ -277,6 +324,11 @@ func (a *API) setupRoutesWithAdmin() {
 	admin.HandleFunc("/ext/products/pricing-templates", a.productHandlers.HandleCreatePricingTemplate()).Methods("POST", "OPTIONS")
 	admin.HandleFunc("/ext/products/pricing-templates/{id}", a.productHandlers.HandleUpdatePricingTemplate()).Methods("PUT", "OPTIONS")
 	admin.HandleFunc("/ext/products/pricing-templates/{id}", a.productHandlers.HandleDeletePricingTemplate()).Methods("DELETE", "OPTIONS")
+
+	// Admin purchase management endpoints
+	admin.HandleFunc("/ext/products/purchases", a.productHandlers.HandleListAllPurchases()).Methods("GET", "OPTIONS")
+	admin.HandleFunc("/ext/products/purchases/{id}/refund", a.productHandlers.HandleRefundPurchase()).Methods("POST", "OPTIONS")
+	admin.HandleFunc("/ext/products/purchases/{id}/approve", a.productHandlers.HandleApprovePurchase()).Methods("POST", "OPTIONS")
 	
 	// ---- Webhooks Extension ----
 	

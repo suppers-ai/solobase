@@ -14,12 +14,26 @@ import (
 
 // RegisterAllExtensions registers all discovered extensions with the registry
 func RegisterAllExtensions(registry *core.ExtensionRegistry, db *gorm.DB) error {
-	// Register Products extension with database
-	productsExt := products.NewProductsExtensionWithDB(db)
+	return RegisterAllExtensionsWithOptions(registry, db, nil)
+}
+
+// RegisterAllExtensionsWithOptions registers all extensions with custom options
+func RegisterAllExtensionsWithOptions(registry *core.ExtensionRegistry, db *gorm.DB, productsSeeder interface{}) error {
+	// Register Products extension WITHOUT database first
+	productsExt := products.NewProductsExtension()
+
+	// Set custom seeder BEFORE setting database
+	if productsSeeder != nil {
+		if seeder, ok := productsSeeder.(products.Seeder); ok {
+			fmt.Printf("Setting custom theme seeder for Products extension\n")
+			productsExt.SetSeeder(seeder)
+		}
+	}
+
 	if err := registry.Register(productsExt); err != nil {
 		return fmt.Errorf("failed to register products extension: %w", err)
 	}
-	// Set the database to trigger migrations
+	// NOW set the database which will trigger migrations and seeding with our custom seeder
 	productsExt.SetDatabase(db)
 
 	// Enable Products extension by default

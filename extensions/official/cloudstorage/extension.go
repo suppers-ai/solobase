@@ -193,6 +193,17 @@ func (e *CloudStorageExtension) RegisterHooks() []core.HookRegistration {
 		Handler:   e.setupUserResourcesHook,
 	})
 
+	// Check share permissions (including inheritance) before downloads
+	if e.config.EnableSharing {
+		hooks = append(hooks, core.HookRegistration{
+			Extension: "cloudstorage",
+			Name:      "check_share_permissions",
+			Type:      core.HookBeforeDownload,
+			Priority:  5, // Run before quota checks
+			Handler:   e.checkSharePermissionsHook,
+		})
+	}
+
 	// Only register hooks if quotas are enabled
 	if e.config.EnableQuotas {
 		// Before upload - check storage quota

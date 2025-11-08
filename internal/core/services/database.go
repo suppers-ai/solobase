@@ -4,7 +4,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/suppers-ai/solobase/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 )
 
 type DatabaseService struct {
@@ -12,7 +12,7 @@ type DatabaseService struct {
 }
 
 func NewDatabaseService(db *database.DB) *DatabaseService {
-	log.Printf("DatabaseService initialized with type: %s", db.Config.Type)
+	log.Printf("DatabaseService initialized with type: %s", db.GetConfig().Type)
 	return &DatabaseService{db: db}
 }
 
@@ -20,7 +20,7 @@ func (s *DatabaseService) GetTables() ([]interface{}, error) {
 	var tables []interface{}
 
 	// Detect database type
-	dbType := strings.ToLower(s.db.Config.Type)
+	dbType := strings.ToLower(s.db.GetConfig().Type)
 	log.Printf("Database type detected: %s", dbType)
 
 	var query string
@@ -135,7 +135,7 @@ func (s *DatabaseService) GetTableColumns(tableName string) ([]interface{}, erro
 	var columns []interface{}
 
 	// Detect database type
-	dbType := strings.ToLower(s.db.Config.Type)
+	dbType := strings.ToLower(s.db.GetConfig().Type)
 
 	if dbType == "postgres" || dbType == "postgresql" {
 		// PostgreSQL query
@@ -206,7 +206,7 @@ func (s *DatabaseService) GetTableColumns(tableName string) ([]interface{}, erro
 }
 
 func (s *DatabaseService) GetDatabaseInfo() (string, string) {
-	dbType := strings.ToLower(s.db.Config.Type)
+	dbType := strings.ToLower(s.db.GetConfig().Type)
 
 	var displayType, version string
 	switch dbType {
@@ -308,7 +308,7 @@ func (s *DatabaseService) ExecuteQuery(query string) (interface{}, error) {
 		}, nil
 	} else {
 		// Handle INSERT/UPDATE/DELETE queries
-		result := s.db.Exec(query)
+		result := s.db.DB.Exec(query)
 		if result.Error != nil {
 			return map[string]interface{}{
 				"error": result.Error.Error(),

@@ -63,7 +63,7 @@ const role: IAMRole = {
   name: 'admin',
   display_name: 'Administrator',
   description: 'Full system access',
-  is_system: true,
+  type: 'system',
   metadata: {
     allowed_ips: ['192.168.1.1'],
     disabled_features: []
