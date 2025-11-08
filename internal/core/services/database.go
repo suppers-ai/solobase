@@ -2,10 +2,20 @@ package services
 
 import (
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/suppers-ai/solobase/database"
 )
+
+// isValidTableName validates that a table name only contains safe characters
+// to prevent SQL injection in contexts where parameterized queries aren't possible
+func isValidTableName(tableName string) bool {
+	// Allow alphanumeric characters, underscores, and hyphens
+	// This prevents SQL injection through table names
+	validNamePattern := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	return validNamePattern.MatchString(tableName)
+}
 
 type DatabaseService struct {
 	db *database.DB
@@ -78,9 +88,12 @@ func (s *DatabaseService) GetTables() ([]interface{}, error) {
 				continue
 			}
 
-			// Get row count for each table
+			// Get row count for each table using GORM's Table method
 			var count int64
-			s.db.Raw("SELECT COUNT(*) FROM " + name).Scan(&count)
+			if err := s.db.Table(name).Count(&count).Error; err != nil {
+				log.Printf("Error counting rows in table %s: %v", name, err)
+				count = 0
+			}
 
 			tables = append(tables, map[string]interface{}{
 				"name":       name,
@@ -120,7 +133,7 @@ func (s *DatabaseService) GetTotalRowCount() (int64, error) {
 		}
 
 		var count int64
-		if err := s.db.Raw("SELECT COUNT(*) FROM " + tableName).Scan(&count).Error; err != nil {
+		if err := s.db.Table(tableName).Count(&count).Error; err != nil {
 			log.Printf("Error counting rows in table %s: %v", tableName, err)
 			continue
 		}
@@ -173,6 +186,11 @@ func (s *DatabaseService) GetTableColumns(tableName string) ([]interface{}, erro
 		}
 	} else {
 		// SQLite query using PRAGMA
+		// Note: PRAGMA doesn't support parameterized queries, so we need to validate the table name
+		// to prevent SQL injection. Only allow alphanumeric characters and underscores.
+		if !isValidTableName(tableName) {
+			return nil, nil
+		}
 		query := "PRAGMA table_info(" + tableName + ")"
 
 		rows, err := s.db.Raw(query).Rows()
