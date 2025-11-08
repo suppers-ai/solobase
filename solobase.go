@@ -147,7 +147,7 @@ func NewWithOptions(opts *Options) *App {
 	if opts.JWTSecret == "" {
 		opts.JWTSecret = os.Getenv("JWT_SECRET")
 		if opts.JWTSecret == "" {
-			opts.JWTSecret = "your-secret-key-change-in-production"
+			log.Fatal("JWT_SECRET environment variable is required. Please set a secure random string (minimum 32 characters recommended)")
 		}
 	}
 	if opts.Port == "" {

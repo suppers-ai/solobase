@@ -235,10 +235,20 @@ func (s *Service) CreateSession(ctx context.Context, userID string, duration tim
 		return nil, err
 	}
 
+	sessionID, err := GenerateToken(32)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate session ID: %w", err)
+	}
+
+	sessionToken, err := GenerateToken(64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate session token: %w", err)
+	}
+
 	session := &Session{
-		ID:        GenerateToken(32),
+		ID:        sessionID,
 		UserID:    uid,
-		Token:     GenerateToken(64),
+		Token:     sessionToken,
 		ExpiresAt: time.Now().Add(duration),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -275,9 +285,14 @@ func (s *Service) CreateToken(ctx context.Context, userID string, tokenType stri
 		return nil, err
 	}
 
+	tokenString, err := GenerateToken(64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate token: %w", err)
+	}
+
 	token := &Token{
 		UserID:    uid,
-		Token:     GenerateToken(64),
+		Token:     tokenString,
 		Type:      tokenType,
 		ExpiresAt: time.Now().Add(duration),
 		CreatedAt: time.Now(),
