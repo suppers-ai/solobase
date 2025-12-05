@@ -13,48 +13,83 @@
 		const token = $page.url.searchParams.get('token');
 		const errorParam = $page.url.searchParams.get('error');
 
+		// Check if we're running in a popup window
+		const isPopup = window.opener !== null;
+
 		if (errorParam) {
 			error = decodeURIComponent(errorParam);
 			loading = false;
-			setTimeout(() => {
-				goto('/auth/login');
-			}, 3000);
+
+			if (isPopup) {
+				// Send error message to parent window
+				window.opener.postMessage({
+					type: 'oauth_callback',
+					error: error
+				}, '*');
+				setTimeout(() => window.close(), 2000);
+			} else {
+				setTimeout(() => {
+					goto('/auth/login');
+				}, 3000);
+			}
 			return;
 		}
 
 		if (!token) {
 			error = 'No authentication token received';
 			loading = false;
-			setTimeout(() => {
-				goto('/auth/login');
-			}, 3000);
+
+			if (isPopup) {
+				// Send error message to parent window
+				window.opener.postMessage({
+					type: 'oauth_callback',
+					error: error
+				}, '*');
+				setTimeout(() => window.close(), 2000);
+			} else {
+				setTimeout(() => {
+					goto('/auth/login');
+				}, 3000);
+			}
 			return;
 		}
 
-		try {
-			// Store the token
-			api.setToken(token);
+		if (isPopup) {
+			// Send token to parent window
+			window.opener.postMessage({
+				type: 'oauth_callback',
+				token: token
+			}, '*');
 
-			// Fetch user info
-			const user = await api.getCurrentUser();
-
-			if (user) {
-				// Update auth store
-				auth.setUser(user);
-
-				// Redirect to home page
-				await goto('/');
-			} else {
-				error = 'Failed to fetch user information';
-				loading = false;
-			}
-		} catch (err) {
-			console.error('OAuth callback error:', err);
-			error = 'Authentication failed. Please try again.';
+			// Show success message and close
 			loading = false;
-			setTimeout(() => {
-				goto('/auth/login');
-			}, 3000);
+			setTimeout(() => window.close(), 1000);
+		} else {
+			try {
+				// Store the token
+				api.setToken(token);
+
+				// Fetch user info
+				const user = await api.getCurrentUser();
+
+				if (user) {
+					// Update auth store
+					auth.setUser(user);
+
+					// Redirect to home page
+					await goto('/');
+				} else {
+					error = 'Failed to fetch user information';
+					loading = false;
+				}
+			} catch (err) {
+				console.error('OAuth callback error:', err);
+				error = 'Authentication failed. Please try again.';
+				loading = false;
+				setTimeout(() => {
+					goto('/auth/login');
+				}, 3000);
+			}
 		}
 	});
 </script>
@@ -69,7 +104,18 @@
 			<div class="error-icon">⚠️</div>
 			<h2>Authentication Error</h2>
 			<p>{error}</p>
-			<p class="redirect-message">Redirecting to login page...</p>
+			<p class="redirect-message">
+				{#if window.opener}
+					Closing window...
+				{:else}
+					Redirecting to login page...
+				{/if}
+			</p>
+		{:else}
+			<div class="success-icon">✓</div>
+			<h2>Success!</h2>
+			<p>Authentication completed successfully.</p>
+			<p class="redirect-message">Closing window...</p>
 		{/if}
 	</div>
 </div>
@@ -113,6 +159,12 @@
 	.error-icon {
 		font-size: 3rem;
 		margin-bottom: 1rem;
+	}
+
+	.success-icon {
+		font-size: 3rem;
+		margin-bottom: 1rem;
+		color: #10b981;
 	}
 
 	h2 {
