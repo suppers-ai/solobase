@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/suppers-ai/solobase/internal/pkg/logger"
-	"github.com/suppers-ai/solobase/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 )
 
 type LogsService struct {
@@ -160,7 +160,7 @@ func (s *LogsService) GetLogStats(timeRange string) (map[string]interface{}, err
 		ORDER BY hour
 	`
 
-	if s.db.Config.Type == "sqlite" {
+	if s.db.GetConfig().Type == "sqlite" {
 		query = `
 			SELECT 
 				level,

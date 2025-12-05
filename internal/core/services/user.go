@@ -2,7 +2,7 @@ package services
 
 import (
 	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
-	"github.com/suppers-ai/solobase/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 )
 
 type UserService struct {

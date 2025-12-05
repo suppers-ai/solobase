@@ -2,6 +2,7 @@ package iam
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -12,6 +13,9 @@ import (
 	"gorm.io/gorm"
 )
 
+//go:embed casbin_model.conf
+var defaultCasbinModel string
+
 // Service provides IAM functionality
 type Service struct {
 	db       *gorm.DB
@@ -19,57 +23,17 @@ type Service struct {
 }
 
 // NewService creates a new IAM service
-func NewService(db *gorm.DB, modelPath string) (*Service, error) {
+func NewService(db *gorm.DB) (*Service, error) {
 	// Create Casbin adapter using existing database connection with custom table name
 	adapter, err := gormadapter.NewAdapterByDBWithCustomTable(db, nil, "iam_casbin_rules")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Casbin adapter: %w", err)
 	}
 
-	// Create enforcer with model and adapter
-	enforcer, err := casbin.NewEnforcer(modelPath, adapter)
+	// Parse the embedded model
+	m, err := model.NewModelFromString(defaultCasbinModel)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Casbin enforcer: %w", err)
-	}
-
-	// Enable auto-save (automatically save policy changes to database)
-	enforcer.EnableAutoSave(true)
-
-	// Load existing policies from database
-	if err := enforcer.LoadPolicy(); err != nil {
-		return nil, fmt.Errorf("failed to load policies: %w", err)
-	}
-
-	service := &Service{
-		db:       db,
-		enforcer: enforcer,
-	}
-
-	// Run migrations for IAM tables
-	if err := service.Migrate(); err != nil {
-		return nil, fmt.Errorf("failed to run IAM migrations: %w", err)
-	}
-
-	// Initialize default roles and policies if needed
-	if err := service.initializeDefaults(); err != nil {
-		return nil, fmt.Errorf("failed to initialize defaults: %w", err)
-	}
-
-	return service, nil
-}
-
-// NewServiceWithContent creates a new IAM service with model content as string
-func NewServiceWithContent(db *gorm.DB, modelContent string) (*Service, error) {
-	// Create Casbin adapter using existing database connection with custom table name
-	adapter, err := gormadapter.NewAdapterByDBWithCustomTable(db, nil, "iam_casbin_rules")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Casbin adapter: %w", err)
-	}
-
-	// Create model from string content
-	m, err := model.NewModelFromString(modelContent)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create model from string: %w", err)
+		return nil, fmt.Errorf("failed to parse Casbin model: %w", err)
 	}
 
 	// Create enforcer with model and adapter
@@ -287,7 +251,7 @@ func (s *Service) UpdateRole(ctx context.Context, roleID string, updates map[str
 		return fmt.Errorf("role not found: %w", err)
 	}
 
-	if role.IsSystem {
+	if role.Type == "system" {
 		return fmt.Errorf("cannot update system role")
 	}
 
@@ -312,7 +276,7 @@ func (s *Service) DeleteRole(ctx context.Context, roleID string) error {
 		return fmt.Errorf("role not found: %w", err)
 	}
 
-	if role.IsSystem {
+	if role.Type == "system" {
 		return fmt.Errorf("cannot delete system role")
 	}
 
@@ -529,21 +493,21 @@ func (s *Service) initializeDefaults() error {
 			Name:        "admin",
 			DisplayName: "Administrator",
 			Description: "Full system access",
-			IsSystem:    true,
+			Type:        "system",
 			Metadata:    map[string]interface{}{},
 		},
 		{
 			Name:        "admin_viewer",
 			DisplayName: "Admin Viewer",
 			Description: "Read-only administrative access",
-			IsSystem:    true,
+			Type:        "system",
 			Metadata:    map[string]interface{}{},
 		},
 		{
 			Name:        "user",
 			DisplayName: "User",
 			Description: "Standard user access",
-			IsSystem:    true,
+			Type:        "system",
 			Metadata:    map[string]interface{}{},
 		},
 	}

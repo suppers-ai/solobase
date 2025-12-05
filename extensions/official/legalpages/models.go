@@ -10,15 +10,21 @@ import (
 const (
 	DocumentTypeTerms   = "terms"
 	DocumentTypePrivacy = "privacy"
+
+	// Document status constants
+	StatusDraft     = "draft"
+	StatusPublished = "published"
+	StatusArchived  = "archived"
+	StatusReview    = "review"
 )
 
 type LegalDocument struct {
 	ID           string    `gorm:"primaryKey" json:"id"`
-	DocumentType string    `gorm:"not null;index:idx_doc_type_published" json:"document_type"`
+	DocumentType string    `gorm:"not null;index:idx_doc_type_status" json:"document_type"`
 	Title        string    `gorm:"not null" json:"title"`
 	Content      string    `gorm:"type:text" json:"content"`
 	Version      int       `gorm:"not null;default:1" json:"version"`
-	IsPublished  bool      `gorm:"default:false;index:idx_doc_type_published" json:"is_published"`
+	Status       string    `gorm:"default:'draft';index:idx_doc_type_status" json:"status"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	CreatedBy    string    `gorm:"type:uuid" json:"created_by"`
@@ -53,7 +59,7 @@ func generateID() string {
 
 func (d *LegalDocument) GetLatestVersion(db *gorm.DB, docType string) (*LegalDocument, error) {
 	var doc LegalDocument
-	err := db.Where("document_type = ? AND is_published = ?", docType, true).
+	err := db.Where("document_type = ? AND status = ?", docType, StatusPublished).
 		Order("version DESC").
 		First(&doc).Error
 

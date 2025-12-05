@@ -43,7 +43,7 @@ func (s *LegalPagesService) GetDocument(docType string) (*LegalDocument, error) 
 	}
 
 	var doc LegalDocument
-	err := s.db.Where("document_type = ? AND is_published = ?", docType, true).
+	err := s.db.Where("document_type = ? AND status = ?", docType, StatusPublished).
 		Order("version DESC").
 		First(&doc).Error
 
@@ -112,17 +112,17 @@ func (s *LegalPagesService) PublishDocument(docType string, version int) error {
 
 	// Start a transaction
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// Unpublish all other versions
+		// Archive all previously published versions
 		if err := tx.Model(&LegalDocument{}).
-			Where("document_type = ? AND is_published = ?", docType, true).
-			Update("is_published", false).Error; err != nil {
+			Where("document_type = ? AND status = ?", docType, StatusPublished).
+			Update("status", StatusArchived).Error; err != nil {
 			return err
 		}
 
 		// Publish the specified version
 		result := tx.Model(&LegalDocument{}).
 			Where("document_type = ? AND version = ?", docType, version).
-			Update("is_published", true)
+			Update("status", StatusPublished)
 
 		if result.Error != nil {
 			return result.Error
@@ -170,4 +170,37 @@ func (s *LegalPagesService) GetDocumentByVersion(docType string, version int) (*
 	}
 
 	return &doc, nil
+}
+
+// SetDocumentStatus updates the status of a specific document version
+func (s *LegalPagesService) SetDocumentStatus(docType string, version int, status string) error {
+	if err := s.validateDocumentType(docType); err != nil {
+		return err
+	}
+
+	// Validate status
+	if status != StatusDraft && status != StatusPublished &&
+	   status != StatusArchived && status != StatusReview {
+		return fmt.Errorf("invalid status: %s", status)
+	}
+
+	// If setting to published, archive other published docs
+	if status == StatusPublished {
+		return s.PublishDocument(docType, version)
+	}
+
+	// Update the document status
+	result := s.db.Model(&LegalDocument{}).
+		Where("document_type = ? AND version = ?", docType, version).
+		Update("status", status)
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return ErrDocumentNotFound
+	}
+
+	return nil
 }

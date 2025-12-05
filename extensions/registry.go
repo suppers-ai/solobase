@@ -5,8 +5,8 @@ import (
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/extensions/official/analytics"
 	"github.com/suppers-ai/solobase/extensions/official/cloudstorage"
+	"github.com/suppers-ai/solobase/extensions/official/hugo"
 	"github.com/suppers-ai/solobase/extensions/official/legalpages"
-	// "github.com/suppers-ai/solobase/extensions/official/hugo" // Temporarily disabled - needs API updates
 	"github.com/suppers-ai/solobase/extensions/official/products"
 	"github.com/suppers-ai/solobase/extensions/official/webhooks"
 	"gorm.io/gorm"
@@ -14,12 +14,26 @@ import (
 
 // RegisterAllExtensions registers all discovered extensions with the registry
 func RegisterAllExtensions(registry *core.ExtensionRegistry, db *gorm.DB) error {
-	// Register Products extension with database
-	productsExt := products.NewProductsExtensionWithDB(db)
+	return RegisterAllExtensionsWithOptions(registry, db, nil)
+}
+
+// RegisterAllExtensionsWithOptions registers all extensions with custom options
+func RegisterAllExtensionsWithOptions(registry *core.ExtensionRegistry, db *gorm.DB, productsSeeder interface{}) error {
+	// Register Products extension WITHOUT database first
+	productsExt := products.NewProductsExtension()
+
+	// Set custom seeder BEFORE setting database
+	if productsSeeder != nil {
+		if seeder, ok := productsSeeder.(products.Seeder); ok {
+			fmt.Printf("Setting custom theme seeder for Products extension\n")
+			productsExt.SetSeeder(seeder)
+		}
+	}
+
 	if err := registry.Register(productsExt); err != nil {
 		return fmt.Errorf("failed to register products extension: %w", err)
 	}
-	// Set the database to trigger migrations
+	// NOW set the database which will trigger migrations and seeding with our custom seeder
 	productsExt.SetDatabase(db)
 
 	// Enable Products extension by default
@@ -31,11 +45,22 @@ func RegisterAllExtensions(registry *core.ExtensionRegistry, db *gorm.DB) error 
 		fmt.Printf("Products extension enabled successfully\n")
 	}
 
-	// Register Hugo extension
-	// Hugo extension temporarily disabled - needs API updates
-	// if err := registry.Register(hugo.NewHugoExtension()); err != nil {
-	// 	return fmt.Errorf("failed to register hugo extension: %w", err)
-	// }
+	// Register Hugo extension with database
+	hugoExt := hugo.NewHugoExtension()
+	// Set the database to enable GORM operations
+	hugoExt.SetDatabase(db)
+	if err := registry.Register(hugoExt); err != nil {
+		return fmt.Errorf("failed to register hugo extension: %w", err)
+	}
+
+	// Enable Hugo extension by default
+	fmt.Printf("Enabling Hugo extension...\n")
+	if err := registry.Enable("hugo"); err != nil {
+		// Log but don't fail - extension can still work without being enabled
+		fmt.Printf("Warning: Failed to enable Hugo extension: %v\n", err)
+	} else {
+		fmt.Printf("Hugo extension enabled successfully\n")
+	}
 
 	// Register Analytics extension with database
 	analyticsExt := analytics.NewAnalyticsExtension()

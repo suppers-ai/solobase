@@ -16,6 +16,9 @@ export {
 // Export types
 export * from './types';
 
+// Export static assets
+export { SOLOBASE_ASSETS, getSolobaseAssetPath, solobaseAssets } from './assets';
+
 // Export service types
 export type {
   SignUpOptions,

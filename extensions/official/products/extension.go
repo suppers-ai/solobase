@@ -3,28 +3,36 @@ package products
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/extensions/official/products/models"
+	"github.com/suppers-ai/solobase/extensions/official/products/providers"
 	"gorm.io/gorm"
 )
 
 // ProductsExtension implements the products and pricing extension
 type ProductsExtension struct {
-	db        *gorm.DB
-	adminAPI  *AdminAPI
-	userAPI   *UserAPI
-	publicAPI *PublicAPI
+	db              *gorm.DB
+	adminAPI        *AdminAPI
+	userAPI         *UserAPI
+	publicAPI       *PublicAPI
+	webhookHandler  *WebhookHandler
+	paymentProvider providers.PaymentProvider
+	seeder          Seeder // Custom seeder for data initialization
 }
 
 // NewProductsExtension creates a new products extension instance
 func NewProductsExtension() *ProductsExtension {
-	return &ProductsExtension{}
+	return &ProductsExtension{
+		seeder: &DefaultSeeder{}, // Use default seeder by default
+	}
 }
 
 // NewProductsExtensionWithDB creates a new products extension with database
 func NewProductsExtensionWithDB(db *gorm.DB) *ProductsExtension {
 	ext := &ProductsExtension{
-		db: db,
+		db:     db,
+		seeder: &DefaultSeeder{}, // Initialize with default seeder
 	}
 	if db != nil {
 		ext.initializeAPIs()
@@ -58,11 +66,14 @@ func (e *ProductsExtension) SetDatabase(db *gorm.DB) {
 		return
 	}
 
-	// Run seed data if needed
-	if err := SeedData(e.db); err != nil {
+	// Run seed data using the configured seeder
+	fmt.Printf("Products extension: Running SeedWithSeeder with seeder: %T\n", e.seeder)
+	if err := SeedWithSeeder(e.db, e.seeder); err != nil {
 		// Log error but don't fail
+		fmt.Printf("Products extension: SeedWithSeeder error: %v\n", err)
 		return
 	}
+	fmt.Printf("Products extension: SeedWithSeeder completed successfully\n")
 }
 
 // initializeAPIs initializes all API handlers
@@ -77,10 +88,25 @@ func (e *ProductsExtension) initializeAPIs() {
 	productService := NewProductService(e.db, variableService)
 	pricingService := NewPricingService(e.db, variableService)
 
+	// Get the default payment provider
+	provider, err := providers.GetDefaultProvider()
+	if err != nil {
+		// Log warning but continue - payments will be disabled
+		provider = nil
+	}
+	e.paymentProvider = provider
+
+	// Initialize purchase service with provider
+	purchaseService := NewPurchaseService(e.db, productService, pricingService, provider)
+
 	// Initialize APIs with services
 	e.adminAPI = NewAdminAPI(e.db, variableService, groupService, productService, pricingService)
-	e.userAPI = NewUserAPI(e.db, groupService, productService, pricingService)
+	e.adminAPI.SetExtension(e) // Set extension reference for provider status
+	e.userAPI = NewUserAPI(e.db, groupService, productService, pricingService, purchaseService)
 	e.publicAPI = NewPublicAPI(e.db, productService)
+
+	// Initialize webhook handler
+	e.webhookHandler = NewWebhookHandler(provider, purchaseService)
 }
 
 // GetAdminAPI returns the admin API
@@ -96,6 +122,64 @@ func (e *ProductsExtension) GetUserAPI() *UserAPI {
 // GetPublicAPI returns the public API
 func (e *ProductsExtension) GetPublicAPI() *PublicAPI {
 	return e.publicAPI
+}
+
+// GetWebhookHandler returns the webhook handler
+func (e *ProductsExtension) GetWebhookHandler() *WebhookHandler {
+	return e.webhookHandler
+}
+
+// SetSeeder sets a custom seeder for the extension
+func (e *ProductsExtension) SetSeeder(seeder Seeder) {
+	e.seeder = seeder
+}
+
+// SetCustomSeeder provides a convenient way to set custom seed functions
+func (e *ProductsExtension) SetCustomSeeder(options CustomSeederOptions) {
+	customSeeder := &CustomSeeder{
+		CustomVariables:        options.Variables,
+		CustomGroupTemplates:   options.GroupTemplates,
+		CustomProductTemplates: options.ProductTemplates,
+		CustomPricingTemplates: options.PricingTemplates,
+		CustomShouldSeed:      options.ShouldSeed,
+	}
+	e.seeder = customSeeder
+}
+
+// CustomSeederOptions provides options for custom seeding
+type CustomSeederOptions struct {
+	Variables        func(db *gorm.DB) ([]models.Variable, error)
+	GroupTemplates   func(db *gorm.DB) ([]models.GroupTemplate, error)
+	ProductTemplates func(db *gorm.DB) ([]models.ProductTemplate, error)
+	PricingTemplates func(db *gorm.DB) ([]models.PricingTemplate, error)
+	ShouldSeed      func(db *gorm.DB) bool
+}
+
+// GetPaymentProvider returns the configured payment provider
+func (e *ProductsExtension) GetPaymentProvider() providers.PaymentProvider {
+	return e.paymentProvider
+}
+
+// GetProviderStatus returns detailed information about the payment provider
+func (e *ProductsExtension) GetProviderStatus() map[string]interface{} {
+	status := map[string]interface{}{
+		"configured": false,
+		"provider":   "none",
+		"mode":       "none",
+		"available_providers": providers.ListAvailableProviders(),
+		"configured_provider": string(providers.GetConfiguredProviderType()),
+	}
+
+	if e.paymentProvider != nil && e.paymentProvider.IsEnabled() {
+		status["configured"] = true
+		status["provider"] = e.paymentProvider.GetProviderName()
+		status["mode"] = "production"
+		if e.paymentProvider.IsTestMode() {
+			status["mode"] = "test"
+		}
+	}
+
+	return status
 }
 
 // Metadata returns extension metadata
@@ -146,9 +230,20 @@ func (e *ProductsExtension) Health(ctx context.Context) (*core.HealthStatus, err
 		}, err
 	}
 
+	// Get payment provider info
+	providerInfo := "No payment provider configured"
+	if e.paymentProvider != nil {
+		providerName := e.paymentProvider.GetProviderName()
+		providerMode := "production"
+		if e.paymentProvider.IsTestMode() {
+			providerMode = "test"
+		}
+		providerInfo = fmt.Sprintf("Payment Provider: %s (%s mode)", providerName, providerMode)
+	}
+
 	return &core.HealthStatus{
 		Status:  "healthy",
-		Message: "Products extension is running",
+		Message: fmt.Sprintf("Products extension is running. %s", providerInfo),
 	}, nil
 }
 
@@ -192,13 +287,46 @@ func (e *ProductsExtension) RegisterMiddleware() []core.MiddlewareRegistration {
 
 // RegisterRoutes registers the extension's routes
 func (e *ProductsExtension) RegisterRoutes(router core.ExtensionRouter) error {
-	if e.userAPI == nil {
+	fmt.Printf("ProductsExtension.RegisterRoutes called - userAPI: %v, adminAPI: %v\n", e.userAPI != nil, e.adminAPI != nil)
+	if e.userAPI == nil || e.adminAPI == nil {
+		fmt.Printf("ProductsExtension.RegisterRoutes: APIs not initialized, skipping route registration\n")
 		// APIs not initialized yet
-		return nil
+		return fmt.Errorf("products extension APIs not initialized")
 	}
 
-	// For now, just register the basic product list route for testing
+	// User API routes
 	router.HandleFunc("/list", e.userAPI.ListMyProducts)
+	router.HandleFunc("/products", e.userAPI.ListProducts)
+	router.HandleFunc("/products/{id}", e.userAPI.GetProduct)
+
+	// Admin API routes
+	// Product Template management
+	router.HandleFunc("/templates", e.adminAPI.ListProductTypes)
+	router.HandleFunc("/templates/{id}", e.adminAPI.GetProductTemplate)
+
+	// Product management
+	router.HandleFunc("/admin/products", e.adminAPI.ListProducts)
+	router.HandleFunc("/admin/products", e.adminAPI.CreateProduct)
+	router.HandleFunc("/admin/products/{id}", e.adminAPI.UpdateProduct)
+	router.HandleFunc("/admin/products/{id}", e.adminAPI.DeleteProduct)
+
+	// Group management
+	router.HandleFunc("/groups", e.adminAPI.ListGroups)
+	router.HandleFunc("/groups", e.adminAPI.CreateGroup)
+	router.HandleFunc("/groups/{id}", e.adminAPI.UpdateGroup)
+	router.HandleFunc("/groups/{id}", e.adminAPI.DeleteGroup)
+
+	// Variables management
+	router.HandleFunc("/variables", e.adminAPI.ListVariables)
+	router.HandleFunc("/variables", e.adminAPI.CreateVariable)
+	router.HandleFunc("/variables/{id}", e.adminAPI.UpdateVariable)
+	router.HandleFunc("/variables/{id}", e.adminAPI.DeleteVariable)
+
+	// Pricing management
+	router.HandleFunc("/pricing-templates", e.adminAPI.ListPricingTemplates)
+
+	// Provider status
+	router.HandleFunc("/provider/status", e.adminAPI.GetProviderStatus)
 
 	return nil
 }

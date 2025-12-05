@@ -1,5 +1,5 @@
 // Auto-generated from GORM models - DO NOT EDIT MANUALLY
-// Generated at: 2025-09-15T14:27:09+12:00
+// Generated at: 2025-09-29T22:42:09+13:00
 // Run 'go run scripts/generate-types.go' to regenerate
 
 // ============================================
@@ -42,47 +42,6 @@ export interface AnalyticsPageView {
 export interface AnalyticsPageViewStats {
   page_url: string;
   views: number;
-}
-
-// ============================================
-// Package: auth
-// ============================================
-
-export interface AuthSession {
-  id: string;
-  user_id: string;
-  token: string;
-  expires_at: string | Date;
-  created_at: string | Date;
-  updated_at: string | Date;
-}
-
-export interface AuthToken {
-  id: string;
-  user_id: string;
-  token: string;
-  // reset, confirm, etc.
-  type: string;
-  expires_at: string | Date;
-  used_at?: string | Date | null;
-  created_at: string | Date;
-}
-
-export interface AuthUser {
-  id: string;
-  email: string;
-  username: string;
-  confirmed: boolean;
-  first_name: string;
-  last_name: string;
-  display_name: string;
-  phone: string;
-  location: string;
-  last_login?: string | Date | null;
-  metadata: string;
-  created_at: string | Date;
-  updated_at: string | Date;
-  deleted_at?: string | Date | null;
 }
 
 // ============================================
@@ -151,6 +110,14 @@ export interface CloudStorageStorageShare {
   updated_at: string | Date;
 }
 
+export interface CloudStorageStorageShareWithObject {
+  object_name: string;
+  content_type: string;
+  size: number;
+  object_created_at: string | Date;
+  object_metadata: any;
+}
+
 export interface CloudStorageUserQuotaOverride {
   id: string;
   // Unique index for fast lookups
@@ -167,39 +134,6 @@ export interface CloudStorageUserQuotaOverride {
   expires_at?: string | Date | null;
   // Indexed for admin queries
   created_by: string;
-  created_at: string | Date;
-  updated_at: string | Date;
-}
-
-// ============================================
-// Package: database
-// ============================================
-
-export interface BaseModel {
-  id: string;
-  created_at: string | Date;
-  updated_at: string | Date;
-  deleted_at: any;
-}
-
-export interface Config {
-  type: string;
-  dsn: string;
-  host: string;
-  port: number;
-  database: string;
-  username: string;
-  password: string;
-  ssl_mode: string;
-  max_open_conns: number;
-  max_idle_conns: number;
-  conn_max_lifetime: any;
-  debug: boolean;
-  auto_migrate: boolean;
-}
-
-export interface TimestampModel {
-  id: string;
   created_at: string | Date;
   updated_at: string | Date;
 }
@@ -227,8 +161,8 @@ export interface IAMRole {
   name: string;
   display_name: string;
   description: string;
-  // System roles cannot be deleted
-  is_system: boolean;
+  // "system" for protected roles, "custom" for user-created roles
+  type: string;
   metadata: Record<string, any>;
   created_at: string | Date;
   updated_at: string | Date;
@@ -248,128 +182,6 @@ export interface IAMUserRole {
   granted_by: string;
   granted_at: string | Date;
   expires_at?: string | Date | null;
-}
-
-// ============================================
-// Package: logger
-// ============================================
-
-export interface Config {
-  level: any;
-  // console, database, file, multi
-  output: string;
-  // json, text
-  format: string;
-  buffer_size: number;
-  flush_interval: any;
-  max_batch_size: number;
-  async_mode: boolean;
-  include_stack: boolean;
-  include_caller: boolean;
-  enable_rotation: boolean;
-  // MB for file rotation
-  max_size: number;
-  // days for file rotation
-  max_age: number;
-  // number of backup files
-  max_backups: number;
-  file_path: string;
-  extra: Record<string, any>;
-}
-
-export interface Field {
-}
-
-export interface Log {
-  id: string;
-  level: any;
-  message: string;
-  fields: Record<string, any>;
-  user_id?: string | null;
-  trace_id?: string | null;
-  timestamp: string | Date;
-}
-
-export interface LogFilter {
-  level?: any | null;
-  user_id?: string | null;
-  trace_id?: string | null;
-  start_time?: string | Date | null;
-  end_time?: string | Date | null;
-  limit: number;
-  offset: number;
-  order_by: string;
-  order_desc: boolean;
-}
-
-export interface LogModel {
-  id: string;
-  level: string;
-  message: string;
-  fields: any;
-  user_id?: string | null;
-  trace_id?: string | null;
-  created_at: string | Date;
-}
-
-export interface MiddlewareConfig {
-}
-
-export interface RequestLog {
-  id: string;
-  level: any;
-  method: string;
-  path: string;
-  query: string;
-  status_code: number;
-  exec_time_ms: number;
-  user_ip: string;
-  user_agent: string;
-  user_id?: string | null;
-  trace_id?: string | null;
-  error?: string | null;
-  request_body?: string | null;
-  response_body?: string | null;
-  headers?: string | null;
-  created_at: string | Date;
-}
-
-export interface RequestLogFilter {
-  method?: string | null;
-  path?: string | null;
-  path_prefix?: string | null;
-  status_code?: number | null;
-  min_exec_time?: number | null;
-  max_exec_time?: number | null;
-  user_id?: string | null;
-  user_ip?: string | null;
-  trace_id?: string | null;
-  has_error?: boolean | null;
-  start_time?: string | Date | null;
-  end_time?: string | Date | null;
-  limit: number;
-  offset: number;
-  order_by: string;
-  order_desc: boolean;
-}
-
-export interface RequestLogModel {
-  id: string;
-  level: string;
-  method: string;
-  path: string;
-  query?: string | null;
-  status_code: number;
-  exec_time_ms: number;
-  user_ip: string;
-  user_agent?: string | null;
-  user_id?: string | null;
-  trace_id?: string | null;
-  error?: string | null;
-  request_body?: string | null;
-  response_body?: string | null;
-  headers?: string | null;
-  created_at: string | Date;
 }
 
 // ============================================
@@ -400,34 +212,153 @@ export interface ProductAppSettings {
   notification: string;
 }
 
+export interface ProductCustomTableDefinition {
+  id: number;
+  // Actual table name with custom_ prefix
+  name: string;
+  // User-friendly name without prefix
+  display_name: string;
+  description: string;
+  // Column definitions
+  fields: any[];
+  // Index definitions
+  indexes: any[];
+  // Table options
+  options: any;
+  // User ID who created the table
+  created_by: string;
+  // active, disabled, archived
+  status: string;
+  created_at: string | Date;
+  updated_at: string | Date;
+}
+
+export interface ProductCustomTableField {
+  // Column name
+  name: string;
+  // GORM data type: string, int, float, bool, time, json
+  type: string;
+  // For varchar(n)
+  size: number;
+  nullable: boolean;
+  default_value: any;
+  is_primary_key: boolean;
+  is_unique: boolean;
+  is_indexed: boolean;
+  auto_increment: boolean;
+  description: string;
+  foreign_key?: any | null;
+  validation: any;
+}
+
+export interface ProductCustomTableIndex {
+  name: string;
+  columns: string[];
+  unique: boolean;
+  // btree, hash, gin, gist (PostgreSQL specific)
+  type: string;
+}
+
+export interface ProductCustomTableMigration {
+  id: number;
+  table_id: number;
+  version: number;
+  // create, alter, drop
+  migration_type: string;
+  old_schema: any;
+  new_schema: any;
+  executed_by: string;
+  executed_at: string | Date;
+  rollback_at?: string | Date | null;
+  // pending, completed, failed, rolled_back
+  status: string;
+  error_message: string;
+}
+
+export interface ProductCustomTableOptions {
+  // Add deleted_at field
+  soft_delete: boolean;
+  // Add created_at, updated_at
+  timestamps: boolean;
+  // Add version field for optimistic locking
+  versioning: boolean;
+  // Track changes in audit log
+  auditing: boolean;
+  // Enable query caching
+  cache_enabled: boolean;
+  // Maximum allowed rows
+  max_rows: number;
+}
+
 export interface ProductFieldConstraints {
   required: boolean;
+  // For numeric/range types
   min?: number | null;
+  // For numeric/range types
   max?: number | null;
+  // For text types
   min_length?: number | null;
+  // For text types
   max_length?: number | null;
+  // Regex pattern for validation
   pattern: string;
   // For select/enum types
   options: string[];
+  // Default value
   default: any;
+  // UI placeholder text
   placeholder: string;
+  // For textarea type
+  rows?: number | null;
+  // For numeric/range types
+  step?: number | null;
+  // Whether the user can edit this field
+  editable_by_user: boolean;
 }
 
 export interface ProductFieldDefinition {
-  // e.g., "filter_text_1", "filter_numeric_1"
+  // For filter fields: "filter_text_1", etc. For custom fields: any unique ID
   id: string;
   // Display name for the field
   name: string;
-  // numeric, text, boolean, enum, location
+  // text, numeric, boolean, enum, color, date, email, url, textarea, etc.
   type: string;
   required: boolean;
   description: string;
+  // Section/tab this field belongs to (for UI organization)
+  section: string;
+  // Display order within section
+  order: number;
+  // All validation constraints
   constraints: any;
+}
+
+export interface ProductFieldValidation {
+  min_length?: number | null;
+  max_length?: number | null;
+  min_value?: number | null;
+  max_value?: number | null;
+  // Regex pattern
+  pattern: string;
+  // Allowed values
+  enum_values: string[];
+  required: boolean;
+}
+
+export interface ProductForeignKeyDef {
+  // Table to reference (with custom_ prefix)
+  reference_table: string;
+  // Column in reference table
+  reference_column: string;
+  // CASCADE, SET NULL, RESTRICT
+  on_delete: string;
+  // CASCADE, SET NULL, RESTRICT
+  on_update: string;
 }
 
 export interface ProductGroup {
   id: number;
-  user_id: number;
+  user_id: string;
   group_template_id: number;
   group_template: any;
   name: string;
@@ -470,8 +401,8 @@ export interface ProductGroupTemplate {
   display_name: string;
   description: string;
   icon: string;
-  // Custom field definitions
-  fields: any[];
+  // Filter field definitions
+  filter_fields_schema: any[];
   // active, pending, deleted
   status: string;
   created_at: string | Date;
@@ -490,7 +421,8 @@ export interface ProductPricingTemplate {
   // Required variables for this template
   variables: Record<string, any>;
   category: string;
-  is_active: boolean;
+  // active, pending, deleted
+  status: string;
   created_at: string | Date;
   updated_at: string | Date;
 }
@@ -549,8 +481,10 @@ export interface ProductProductTemplate {
   description: string;
   category: string;
   icon: string;
-  // Custom field definitions
-  fields: any[];
+  // Filter field definitions (indexed, mapped to filter columns)
+  filter_fields_schema: any[];
+  // Custom field definitions (non-indexed, stored in CustomFields JSON)
+  custom_fields_schema: any[];
   // IDs of pricing templates to use
   pricing_templates: number[];
   // instant, approval
@@ -628,44 +562,10 @@ export interface ProductVariable {
   type: string;
   default_value: any;
   description: string;
-  is_active: boolean;
+  // active, pending, deleted
+  status: string;
   created_at: string | Date;
   updated_at: string | Date;
-}
-
-// ============================================
-// Package: storage
-// ============================================
-
-export interface StorageStorageBucket {
-  id: string;
-  name: string;
-  public: boolean;
-  created_at: string | Date;
-  updated_at: string | Date;
-}
-
-export interface StorageStorageObject {
-  id: string;
-  bucket_name: string;
-  // Just the name (file.txt or foldername)
-  object_name: string;
-  // ID of parent folder, null for root items
-  parent_folder_id?: string | null;
-  size: number;
-  // "application/x-directory" for folders
-  content_type: string;
-  // MD5 or SHA256 hash
-  checksum: string;
-  // JSON string
-  metadata: string;
-  created_at: string | Date;
-  updated_at: string | Date;
-  // Track when the item was last viewed
-  last_viewed?: string | Date | null;
-  user_id: string;
-  // Application ID, null for admin uploads
-  app_id?: string | null;
 }
 
 // ============================================

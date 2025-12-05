@@ -16,11 +16,12 @@ import (
 
 // ExtensionManager manages the extension system lifecycle
 type ExtensionManager struct {
-	registry *core.ExtensionRegistry
-	services *core.ExtensionServices
-	config   *ExtensionConfig
-	logger   logger.Logger
-	db       *gorm.DB
+	registry       *core.ExtensionRegistry
+	services       *core.ExtensionServices
+	config         *ExtensionConfig
+	logger         logger.Logger
+	db             *gorm.DB
+	productsSeeder interface{} // Custom seeder for Products extension
 }
 
 // ExtensionConfig holds the configuration for all extensions
@@ -36,6 +37,11 @@ type ExtensionSettings struct {
 
 // NewExtensionManager creates a new extension manager
 func NewExtensionManager(db *gorm.DB, logger logger.Logger) (*ExtensionManager, error) {
+	return NewExtensionManagerWithOptions(db, logger, nil)
+}
+
+// NewExtensionManagerWithOptions creates a new extension manager with custom options
+func NewExtensionManagerWithOptions(db *gorm.DB, logger logger.Logger, productsSeeder interface{}) (*ExtensionManager, error) {
 	// Create extension services
 	// For now, we pass nil for services we don't have
 	services := core.NewExtensionServices(
@@ -58,11 +64,12 @@ func NewExtensionManager(db *gorm.DB, logger logger.Logger) (*ExtensionManager, 
 	}
 
 	return &ExtensionManager{
-		registry: registry,
-		services: services,
-		config:   config,
-		logger:   logger,
-		db:       db,
+		registry:       registry,
+		services:       services,
+		config:         config,
+		logger:         logger,
+		db:             db,
+		productsSeeder: productsSeeder,
 	}, nil
 }
 
@@ -246,7 +253,7 @@ func (m *ExtensionManager) registerExtensions() error {
 
 	// Register all available extensions with database
 	// Use the manual registration for now since we need to pass database
-	if err := RegisterAllExtensions(m.registry, m.db); err != nil {
+	if err := RegisterAllExtensionsWithOptions(m.registry, m.db, m.productsSeeder); err != nil {
 		return fmt.Errorf("failed to register extensions: %w", err)
 	}
 

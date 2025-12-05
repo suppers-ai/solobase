@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/suppers-ai/solobase/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"github.com/suppers-ai/solobase/internal/data/models"
 	"gorm.io/gorm"
 )
@@ -313,7 +313,7 @@ func (s *SettingsService) DeleteSetting(key string) error {
 // ResetToDefaults resets all settings to default values
 func (s *SettingsService) ResetToDefaults() error {
 	// Delete all existing settings
-	if err := s.db.Exec("DELETE FROM settings").Error; err != nil {
+	if err := s.db.DB.Exec("DELETE FROM settings").Error; err != nil {
 		return err
 	}
 

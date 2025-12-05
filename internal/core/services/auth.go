@@ -6,7 +6,7 @@ import (
 	"time"
 	"github.com/google/uuid"
 	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
-	"github.com/suppers-ai/solobase/database"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"golang.org/x/crypto/bcrypt"
 	"log"
 )
@@ -141,4 +141,27 @@ func (s *AuthService) CreateUserWithContext(ctx context.Context, email, password
 	}
 
 	return user, nil
+}
+
+// FindUserByEmail finds a user by email address
+func (s *AuthService) FindUserByEmail(email string) (*auth.User, error) {
+	var user auth.User
+	if err := s.db.Where("email = ?", email).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// FindUserByOAuth finds a user by OAuth provider and user ID
+func (s *AuthService) FindUserByOAuth(provider, uid string) (*auth.User, error) {
+	var user auth.User
+	if err := s.db.Where("oauth2_provider = ? AND oauth2_uid = ?", provider, uid).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// UpdateUserOAuth updates a user's OAuth information
+func (s *AuthService) UpdateUserOAuth(user *auth.User) error {
+	return s.db.Save(user).Error
 }

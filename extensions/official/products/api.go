@@ -2,13 +2,27 @@ package products
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/suppers-ai/solobase/constants"
 	"github.com/suppers-ai/solobase/extensions/official/products/models"
 	"gorm.io/gorm"
 )
+
+// getUserIDFromContext extracts the user ID from the request context
+func getUserIDFromContext(r *http.Request) (string, error) {
+	userID, ok := r.Context().Value(constants.ContextKeyUserID).(string)
+	if !ok || userID == "" {
+		return "", errors.New("user not authenticated")
+	}
+	return userID, nil
+}
 
 // AdminAPI handles admin operations
 type AdminAPI struct {
@@ -17,6 +31,7 @@ type AdminAPI struct {
 	groupService    *GroupService
 	productService  *ProductService
 	pricingService  *PricingService
+	extension       *ProductsExtension // Reference to extension for provider status
 }
 
 func NewAdminAPI(db *gorm.DB, vs *VariableService, es *GroupService, ps *ProductService, prs *PricingService) *AdminAPI {
@@ -27,6 +42,27 @@ func NewAdminAPI(db *gorm.DB, vs *VariableService, es *GroupService, ps *Product
 		productService:  ps,
 		pricingService:  prs,
 	}
+}
+
+// SetExtension sets the reference to the extension (for provider status)
+func (a *AdminAPI) SetExtension(ext *ProductsExtension) {
+	a.extension = ext
+}
+
+// GetProviderStatus returns the payment provider status
+func (a *AdminAPI) GetProviderStatus(w http.ResponseWriter, r *http.Request) {
+	status := map[string]interface{}{
+		"configured": false,
+		"provider":   "none",
+		"mode":       "none",
+	}
+
+	if a.extension != nil {
+		status = a.extension.GetProviderStatus()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
 }
 
 // Variable management
@@ -177,6 +213,26 @@ func (a *AdminAPI) ListProductTypes(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(productTemplates)
 }
 
+func (a *AdminAPI) GetProductTemplate(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	templateID := vars["id"]
+
+	var productTemplate models.ProductTemplate
+	if err := a.db.Where("id = ? OR name = ?", templateID, templateID).First(&productTemplate).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			http.Error(w, "Template not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data": productTemplate,
+	})
+}
+
 func (a *AdminAPI) CreateProductType(w http.ResponseWriter, r *http.Request) {
 	var productTemplate models.ProductTemplate
 	if err := json.NewDecoder(r.Body).Decode(&productTemplate); err != nil {
@@ -226,6 +282,130 @@ func (a *AdminAPI) DeleteProductType(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.db.Delete(&models.ProductTemplate{}, id).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Product management (Admin)
+func (a *AdminAPI) ListProducts(w http.ResponseWriter, r *http.Request) {
+	var products []models.Product
+	if err := a.db.Preload("Group").Preload("ProductTemplate").Find(&products).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(products)
+}
+
+func (a *AdminAPI) CreateProduct(w http.ResponseWriter, r *http.Request) {
+	var product models.Product
+	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := a.db.Create(&product).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(product)
+}
+
+func (a *AdminAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var product models.Product
+	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := a.db.Model(&models.Product{}).Where("id = ?", id).Updates(&product).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(product)
+}
+
+func (a *AdminAPI) DeleteProduct(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	if err := a.db.Delete(&models.Product{}, "id = ?", id).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Group management (Admin)
+func (a *AdminAPI) ListGroups(w http.ResponseWriter, r *http.Request) {
+	var groups []models.Group
+	if err := a.db.Find(&groups).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data": groups,
+	})
+}
+
+func (a *AdminAPI) CreateGroup(w http.ResponseWriter, r *http.Request) {
+	var group models.Group
+	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := a.db.Create(&group).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data": group,
+	})
+}
+
+func (a *AdminAPI) UpdateGroup(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var group models.Group
+	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := a.db.Model(&models.Group{}).Where("id = ?", id).Updates(&group).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(group)
+}
+
+func (a *AdminAPI) DeleteGroup(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	if err := a.db.Delete(&models.Group{}, "id = ?", id).Error; err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -306,25 +486,30 @@ func (a *AdminAPI) DeletePricingTemplate(w http.ResponseWriter, r *http.Request)
 
 // UserAPI handles user operations
 type UserAPI struct {
-	db             *gorm.DB
-	groupService   *GroupService
-	productService *ProductService
-	pricingService *PricingService
+	db              *gorm.DB
+	groupService    *GroupService
+	productService  *ProductService
+	pricingService  *PricingService
+	purchaseService *PurchaseService
 }
 
-func NewUserAPI(db *gorm.DB, es *GroupService, ps *ProductService, prs *PricingService) *UserAPI {
+func NewUserAPI(db *gorm.DB, es *GroupService, ps *ProductService, prs *PricingService, purchaseService *PurchaseService) *UserAPI {
 	return &UserAPI{
-		db:             db,
-		groupService:   es,
-		productService: ps,
-		pricingService: prs,
+		db:              db,
+		groupService:    es,
+		productService:  ps,
+		pricingService:  prs,
+		purchaseService: purchaseService,
 	}
 }
 
 // Group management for users
 func (u *UserAPI) ListMyGroups(w http.ResponseWriter, r *http.Request) {
-	// TODO: Get user ID from context/session
-	userID := uint(1) // Placeholder
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	groups, err := u.groupService.ListByUser(userID)
 	if err != nil {
@@ -337,7 +522,11 @@ func (u *UserAPI) ListMyGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) CreateGroup(w http.ResponseWriter, r *http.Request) {
-	userID := uint(1) // TODO: Get from context
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	var group models.Group
 	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
@@ -357,7 +546,11 @@ func (u *UserAPI) CreateGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) UpdateGroup(w http.ResponseWriter, r *http.Request) {
-	userID := uint(1) // TODO: Get from context
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	vars := mux.Vars(r)
 	id, err := strconv.ParseUint(vars["id"], 10, 32)
 	if err != nil {
@@ -381,7 +574,11 @@ func (u *UserAPI) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) DeleteGroup(w http.ResponseWriter, r *http.Request) {
-	userID := uint(1) // TODO: Get from context
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	vars := mux.Vars(r)
 	id, err := strconv.ParseUint(vars["id"], 10, 32)
 	if err != nil {
@@ -398,7 +595,11 @@ func (u *UserAPI) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) GetGroup(w http.ResponseWriter, r *http.Request) {
-	userID := uint(1) // TODO: Get from context
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	vars := mux.Vars(r)
 	id, err := strconv.ParseUint(vars["id"], 10, 32)
 	if err != nil {
@@ -435,8 +636,67 @@ func (u *UserAPI) ListGroupProducts(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(products)
 }
 
+func (u *UserAPI) ListProducts(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("UserAPI.ListProducts called\n")
+
+	if u == nil {
+		fmt.Printf("ERROR: UserAPI is nil\n")
+		http.Error(w, "Service not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	if u.db == nil {
+		fmt.Printf("ERROR: UserAPI.db is nil\n")
+		http.Error(w, "Database not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	var products []models.Product
+	// List all active products
+	query := u.db.Preload("Group").Preload("ProductTemplate").Where("active = ?", true)
+	if err := query.Find(&products).Error; err != nil {
+		fmt.Printf("ERROR finding products: %v\n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Printf("Found %d products\n", len(products))
+
+	// If no products found, return empty array instead of null
+	if products == nil {
+		products = []models.Product{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(products); err != nil {
+		fmt.Printf("ERROR encoding products: %v\n", err)
+	}
+}
+
+func (u *UserAPI) GetProduct(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var product models.Product
+	if err := u.db.Preload("Group").Preload("ProductTemplate").Where("id = ?", id).First(&product).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			http.Error(w, "Product not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(product)
+}
+
 func (u *UserAPI) ListMyProducts(w http.ResponseWriter, r *http.Request) {
-	userID := uint(1) // TODO: Get from context
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	products, err := u.productService.ListByUser(userID)
 	if err != nil {
@@ -449,13 +709,58 @@ func (u *UserAPI) ListMyProducts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UserAPI) CreateProduct(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var product models.Product
 	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// TODO: Verify user owns the group
+	// Validate required fields
+	if product.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	if product.GroupID == 0 {
+		http.Error(w, "Group is required", http.StatusBadRequest)
+		return
+	}
+
+	if product.ProductTemplateID == 0 {
+		http.Error(w, "Product type is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify user owns the group
+	var group models.Group
+	if err := u.db.Where("id = ? AND user_id = ?", product.GroupID, userID).First(&group).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			http.Error(w, "Forbidden: You don't own this group", http.StatusForbidden)
+		} else {
+			http.Error(w, "Failed to verify group ownership", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Get the product template to validate required fields
+	var productTemplate models.ProductTemplate
+	if err := u.db.First(&productTemplate, product.ProductTemplateID).Error; err != nil {
+		http.Error(w, "Product template not found", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required filter fields that are editable by users
+	validationErrors := u.validateRequiredFields(&product, &productTemplate)
+	if len(validationErrors) > 0 {
+		http.Error(w, "Validation failed: "+strings.Join(validationErrors, ", "), http.StatusBadRequest)
+		return
+	}
 
 	if err := u.productService.Create(&product); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -492,8 +797,169 @@ func (u *UserAPI) CalculatePrice(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// validateRequiredFields validates that all required fields editable by users are filled
+func (u *UserAPI) validateRequiredFields(product *models.Product, template *models.ProductTemplate) []string {
+	var errors []string
+	productValue := reflect.ValueOf(product).Elem()
+
+	// Check filter fields using reflection and the existing mapping
+	for _, field := range template.FilterFieldsSchema {
+		// Only validate fields that are required and editable by users
+		if field.Required && field.Constraints.EditableByUser {
+			// Get the struct field name from the mapping
+			structFieldName, ok := models.FilterFieldMapping[field.ID]
+			if !ok {
+				continue // Skip if field ID not in mapping
+			}
+
+			// Use reflection to get the field value
+			fieldValue := productValue.FieldByName(structFieldName)
+			if !fieldValue.IsValid() {
+				continue
+			}
+
+			// Check if the field is empty based on its type
+			isEmpty := false
+			if fieldValue.Kind() == reflect.Ptr {
+				if fieldValue.IsNil() {
+					isEmpty = true
+				} else {
+					// For string pointers, also check if the string is empty
+					if fieldValue.Elem().Kind() == reflect.String && fieldValue.Elem().String() == "" {
+						isEmpty = true
+					}
+				}
+			}
+
+			if isEmpty {
+				// Check if field has a default value
+				if field.Constraints.Default == nil {
+					errors = append(errors, field.Name+" is required")
+				} else {
+					// Apply the default value using reflection
+					defaultValue := field.Constraints.Default
+					switch v := defaultValue.(type) {
+					case string:
+						strPtr := &v
+						fieldValue.Set(reflect.ValueOf(strPtr))
+					case bool:
+						boolPtr := &v
+						fieldValue.Set(reflect.ValueOf(boolPtr))
+					case float64:
+						float64Ptr := &v
+						fieldValue.Set(reflect.ValueOf(float64Ptr))
+					}
+				}
+			}
+		}
+	}
+
+	// Check custom fields
+	for _, field := range template.CustomFieldsSchema {
+		// Only validate fields that are required and editable by users
+		if field.Required && field.Constraints.EditableByUser {
+			needsValue := false
+			if product.CustomFields == nil {
+				product.CustomFields = make(map[string]interface{})
+				needsValue = true
+			} else if val, exists := product.CustomFields[field.ID]; !exists || val == nil || val == "" {
+				needsValue = true
+			}
+
+			if needsValue {
+				// Check if field has a default value
+				if field.Constraints.Default != nil {
+					// Apply the default value
+					product.CustomFields[field.ID] = field.Constraints.Default
+				} else {
+					errors = append(errors, field.Name+" is required")
+				}
+			}
+		}
+	}
+
+	return errors
+}
+
+func (u *UserAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid product ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get the existing product to verify ownership
+	existingProduct, err := u.productService.GetByID(uint(id))
+	if err != nil {
+		http.Error(w, "Product not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify user owns the product's group
+	var group models.Group
+	if err := u.db.Where("id = ? AND user_id = ?", existingProduct.GroupID, userID).First(&group).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			http.Error(w, "Forbidden: You don't own this product", http.StatusForbidden)
+		} else {
+			http.Error(w, "Failed to verify ownership", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	var product models.Product
+	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if product.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get the product template to check field constraints
+	var productTemplate models.ProductTemplate
+	if err := u.db.First(&productTemplate, existingProduct.ProductTemplateID).Error; err != nil {
+		http.Error(w, "Product template not found", http.StatusInternalServerError)
+		return
+	}
+
+	// Preserve non-editable fields (both filter fields and custom fields)
+	models.PreserveNonEditableFields(&product, existingProduct, &productTemplate)
+
+	// Validate required fields that are editable by users
+	validationErrors := u.validateRequiredFields(&product, &productTemplate)
+	if len(validationErrors) > 0 {
+		http.Error(w, "Validation failed: "+strings.Join(validationErrors, ", "), http.StatusBadRequest)
+		return
+	}
+
+	product.ID = uint(id)
+	product.GroupID = existingProduct.GroupID // Prevent changing group
+
+	if err := u.productService.Update(uint(id), &product); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(product)
+}
+
 func (u *UserAPI) GetProductStats(w http.ResponseWriter, r *http.Request) {
-	userID := uint(1) // TODO: Get from context
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	// Get counts
 	var groupCount int64
@@ -531,3 +997,284 @@ func NewPublicAPI(db *gorm.DB, ps *ProductService) *PublicAPI {
 }
 
 // Public product listing, search, etc can be added here
+
+// Purchase management endpoints
+func (u *UserAPI) CreatePurchase(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req PurchaseRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	req.UserID = userID
+
+	// Create purchase and checkout session
+	purchase, err := u.purchaseService.Create(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return purchase with checkout URL
+	response := map[string]interface{}{
+		"purchase": purchase,
+	}
+
+	// Get checkout URL from the purchase service (provider-agnostic)
+	if checkoutURL := u.purchaseService.GetCheckoutURL(purchase); checkoutURL != "" {
+		response["checkout_url"] = checkoutURL
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response)
+}
+
+func (u *UserAPI) ListPurchases(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse query parameters
+	limit := 20
+	offset := 0
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	purchases, total, err := u.purchaseService.GetByUserID(userID, limit, offset)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"purchases": purchases,
+		"total":     total,
+		"limit":     limit,
+		"offset":    offset,
+	})
+}
+
+func (u *UserAPI) GetPurchase(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	purchase, err := u.purchaseService.GetByID(uint(id))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// Verify user owns this purchase
+	if purchase.UserID != userID {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(purchase)
+}
+
+func (u *UserAPI) CancelPurchase(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	// Verify ownership
+	purchase, err := u.purchaseService.GetByID(uint(id))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if purchase.UserID != userID {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	if err := u.purchaseService.Cancel(uint(id), req.Reason); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (u *UserAPI) GetPurchaseStats(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	stats, err := u.purchaseService.GetStats(userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+// Admin purchase endpoints
+func (a *AdminAPI) RefundPurchase(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Amount int64  `json:"amount"` // Amount in cents, 0 for full refund
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Get purchase service (need to expose it from admin API)
+	purchaseService := NewPurchaseService(a.db, a.productService, a.pricingService, nil)
+	if err := purchaseService.Refund(uint(id), req.Amount, req.Reason); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *AdminAPI) ApprovePurchase(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	approverID := uint(1) // TODO: Get from admin context
+
+	// Get purchase service
+	purchaseService := NewPurchaseService(a.db, a.productService, a.pricingService, nil)
+	if err := purchaseService.Approve(uint(id), approverID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *AdminAPI) ListAllPurchases(w http.ResponseWriter, r *http.Request) {
+	// Parse query parameters
+	limit := 20
+	offset := 0
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	var purchases []models.Purchase
+	var total int64
+
+	// Count total
+	if err := a.db.Model(&models.Purchase{}).Count(&total).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch purchases
+	if err := a.db.Order("created_at DESC").Limit(limit).Offset(offset).Find(&purchases).Error; err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"purchases": purchases,
+		"total":     total,
+		"limit":     limit,
+		"offset":    offset,
+	})
+}
+
+// GetProductStats returns global product statistics for admins
+func (a *AdminAPI) GetProductStats(w http.ResponseWriter, r *http.Request) {
+	// Get total counts across all users
+	var groupCount int64
+	a.db.Model(&models.Group{}).Count(&groupCount)
+
+	var productCount int64
+	a.db.Model(&models.Product{}).Count(&productCount)
+
+	var activeProductCount int64
+	a.db.Model(&models.Product{}).Where("active = ?", true).Count(&activeProductCount)
+
+	// Get total revenue from purchases
+	var totalRevenue float64
+	a.db.Model(&models.Purchase{}).
+		Where("status IN ?", []string{string(models.PurchaseStatusPaid), string(models.PurchaseStatusPaidPendingApproval)}).
+		Select("COALESCE(SUM(total_cents), 0) / 100.0").
+		Scan(&totalRevenue)
+
+	// Calculate average price
+	var avgPrice float64
+	a.db.Model(&models.Product{}).
+		Select("COALESCE(AVG(base_price_cents), 0) / 100.0").
+		Scan(&avgPrice)
+
+	stats := map[string]interface{}{
+		"totalProducts":  productCount,
+		"totalGroups":    groupCount,
+		"activeProducts": activeProductCount,
+		"totalRevenue":   totalRevenue,
+		"avgPrice":       avgPrice,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
