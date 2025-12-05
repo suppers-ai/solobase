@@ -98,6 +98,25 @@ func (om *OAuthManager) RegisterProvider(name, clientID, clientSecret string, sc
 	return nil
 }
 
+// GetAvailableProviders returns a list of configured OAuth providers
+func (om *OAuthManager) GetAvailableProviders() []string {
+	providers := make([]string, 0, len(om.providers))
+	for name := range om.providers {
+		providers = append(providers, name)
+	}
+	return providers
+}
+
+// HandleGetProviders returns the list of configured OAuth providers
+func (om *OAuthManager) HandleGetProviders() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		providers := om.GetAvailableProviders()
+		utils.JSONResponse(w, http.StatusOK, map[string]interface{}{
+			"providers": providers,
+		})
+	}
+}
+
 // generateStateToken generates a random state token for OAuth
 func generateStateToken() (string, error) {
 	b := make([]byte, 32)

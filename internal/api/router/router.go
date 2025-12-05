@@ -452,6 +452,9 @@ func (a *API) setupOAuthRoutes(router *mux.Router) {
 		}
 	}
 
+	// Public endpoint to get available OAuth providers
+	router.HandleFunc("/auth/oauth/providers", oauthManager.HandleGetProviders()).Methods("GET", "OPTIONS")
+
 	// OAuth login endpoint
 	router.HandleFunc("/auth/oauth/login", oauthManager.HandleOAuthLogin()).Methods("GET", "OPTIONS")
 

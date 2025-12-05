@@ -240,12 +240,115 @@ export class AuthService extends BaseService {
   }
 
   /**
-   * OAuth sign in
+   * OAuth sign in (redirect)
    */
-  async signInWithOAuth(provider: 'google' | 'github' | 'facebook'): Promise<{ url: string }> {
+  async signInWithOAuth(provider: 'google' | 'github' | 'facebook' | 'microsoft'): Promise<{ url: string }> {
     return this.request<{ url: string }>({
       method: 'GET',
       url: `/auth/oauth/${provider}`,
+    });
+  }
+
+  /**
+   * Sign in with OAuth using popup window
+   */
+  async signInWithPopup(provider: 'google' | 'github' | 'facebook' | 'microsoft'): Promise<{ user: User; tokens: AuthTokens }> {
+    return new Promise(async (resolve, reject) => {
+      try {
+        // Get OAuth URL from backend
+        const { url } = await this.signInWithOAuth(provider);
+
+        // Calculate popup position (centered)
+        const width = 500;
+        const height = 600;
+        const left = window.screenX + (window.innerWidth - width) / 2;
+        const top = window.screenY + (window.innerHeight - height) / 2;
+
+        // Open popup window
+        const popup = window.open(
+          url,
+          `${provider}_auth_popup`,
+          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=no,status=no`
+        );
+
+        if (!popup) {
+          throw new Error('Failed to open authentication popup. Please check your popup blocker settings.');
+        }
+
+        // Setup message listener for OAuth callback
+        const handleMessage = (event: MessageEvent) => {
+          // Validate message origin matches our backend URL
+          const expectedOrigin = new URL(this.config.url).origin;
+
+          // Allow both backend origin and same origin (for OAuth callback page)
+          if (event.origin !== expectedOrigin && event.origin !== window.location.origin) {
+            return;
+          }
+
+          // Check for OAuth callback data
+          if (event.data?.type === 'oauth_callback') {
+            // Clean up
+            window.removeEventListener('message', handleMessage);
+            if (popup && !popup.closed) {
+              popup.close();
+            }
+
+            if (event.data.error) {
+              reject(new Error(event.data.error));
+              return;
+            }
+
+            if (event.data.token) {
+              // Set the token
+              const tokens: AuthTokens = {
+                access_token: event.data.token,
+                expires_in: 86400, // 24 hours default
+                token_type: 'Bearer',
+              };
+
+              this.tokens = tokens;
+              this.setAuthToken(tokens.access_token);
+
+              // Fetch user info
+              this.getUser().then(user => {
+                if (user) {
+                  this.currentUser = user;
+                  resolve({ user, tokens });
+                } else {
+                  reject(new Error('Failed to fetch user information'));
+                }
+              }).catch(reject);
+            } else {
+              reject(new Error('No authentication token received'));
+            }
+          }
+        };
+
+        // Listen for messages from the popup
+        window.addEventListener('message', handleMessage);
+
+        // Check if popup was closed manually
+        const checkClosed = setInterval(() => {
+          if (popup.closed) {
+            clearInterval(checkClosed);
+            window.removeEventListener('message', handleMessage);
+            reject(new Error('Authentication popup was closed'));
+          }
+        }, 500);
+
+        // Timeout after 5 minutes
+        setTimeout(() => {
+          clearInterval(checkClosed);
+          window.removeEventListener('message', handleMessage);
+          if (popup && !popup.closed) {
+            popup.close();
+          }
+          reject(new Error('Authentication timeout'));
+        }, 5 * 60 * 1000);
+
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 
