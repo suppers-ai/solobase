@@ -144,7 +144,7 @@
 						termsEditor.commands.setContent(termsDoc.content);
 					}
 					termsTitle = termsDoc.title || 'Terms and Conditions';
-					termsVersion = termsDoc.is_published
+					termsVersion = termsDoc.status === 'published'
 						? `Version ${termsDoc.version} - Published`
 						: `Version ${termsDoc.version} - Draft`;
 				} else {
@@ -160,7 +160,6 @@
 				if (termsEditor) {
 					termsEditor.commands.setContent(defaultContent);
 				}
-				termsContent = defaultContent;
 				termsVersion = 'No saved versions yet';
 			} else if (termsResponse.status === 401) {
 				console.error('Authentication failed - redirecting to login');
@@ -173,7 +172,6 @@
 				if (termsEditor) {
 					termsEditor.commands.setContent(defaultContent);
 				}
-				termsContent = defaultContent;
 				termsVersion = 'Error loading document';
 			}
 
@@ -188,7 +186,7 @@
 						privacyEditor.commands.setContent(privacyDoc.content);
 					}
 					privacyTitle = privacyDoc.title || 'Privacy Policy';
-					privacyVersion = privacyDoc.is_published
+					privacyVersion = privacyDoc.status === 'published'
 						? `Version ${privacyDoc.version} - Published`
 						: `Version ${privacyDoc.version} - Draft`;
 				} else {
@@ -204,7 +202,6 @@
 				if (privacyEditor) {
 					privacyEditor.commands.setContent(defaultContent);
 				}
-				privacyContent = defaultContent;
 				privacyVersion = 'No saved versions yet';
 			} else if (privacyResponse.status === 401) {
 				console.error('Authentication failed - redirecting to login');
@@ -217,7 +214,6 @@
 				if (privacyEditor) {
 					privacyEditor.commands.setContent(defaultContent);
 				}
-				privacyContent = defaultContent;
 				privacyVersion = 'Error loading document';
 			}
 		} catch (error) {

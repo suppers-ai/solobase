@@ -19,17 +19,17 @@ import (
 )
 
 type SystemMetrics struct {
-	CPUUsage      float64 `json:"cpu_usage"`
-	MemoryUsage   float64 `json:"memory_usage"`
-	MemoryTotal   uint64  `json:"memory_total"`
-	MemoryUsed    uint64  `json:"memory_used"`
-	DiskUsage     float64 `json:"disk_usage"`
-	DiskTotal     uint64  `json:"disk_total"`
-	DiskUsed      uint64  `json:"disk_used"`
+	CPUUsage      float64 `json:"cpuUsage"`
+	MemoryUsage   float64 `json:"memoryUsage"`
+	MemoryTotal   uint64  `json:"memoryTotal"`
+	MemoryUsed    uint64  `json:"memoryUsed"`
+	DiskUsage     float64 `json:"diskUsage"`
+	DiskTotal     uint64  `json:"diskTotal"`
+	DiskUsed      uint64  `json:"diskUsed"`
 	Uptime        string  `json:"uptime"`
 	Goroutines    int     `json:"goroutines"`
-	DBQueries     int64   `json:"db_queries"`
-	APICallsTotal int64   `json:"api_calls_total"`
+	DBQueries     int64   `json:"dbQueries"`
+	APICallsTotal int64   `json:"apiCallsTotal"`
 }
 
 var (

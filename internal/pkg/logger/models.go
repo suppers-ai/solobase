@@ -14,9 +14,9 @@ type LogModel struct {
 	Level     string         `gorm:"not null;size:20;index" json:"level"`
 	Message   string         `gorm:"type:text;not null" json:"message"`
 	Fields    datatypes.JSON `gorm:"type:text" json:"fields,omitempty"`
-	UserID    *string        `gorm:"size:255;index" json:"user_id,omitempty"`
-	TraceID   *string        `gorm:"size:255;index" json:"trace_id,omitempty"`
-	CreatedAt time.Time      `gorm:"index" json:"created_at"`
+	UserID    *string        `gorm:"size:255;index" json:"userId,omitempty"`
+	TraceID   *string        `gorm:"size:255;index" json:"traceId,omitempty"`
+	CreatedAt time.Time      `gorm:"index" json:"createdAt"`
 }
 
 // TableName specifies the table name
@@ -39,17 +39,17 @@ type RequestLogModel struct {
 	Method       string    `gorm:"not null;size:10;index" json:"method"`
 	Path         string    `gorm:"not null;index" json:"path"`
 	Query        *string   `gorm:"type:text" json:"query,omitempty"`
-	StatusCode   int       `gorm:"not null;index" json:"status_code"`
-	ExecTimeMs   int64     `gorm:"not null" json:"exec_time_ms"`
-	UserIP       string    `gorm:"not null;size:45" json:"user_ip"`
-	UserAgent    *string   `gorm:"size:500" json:"user_agent,omitempty"`
-	UserID       *string   `gorm:"size:255;index" json:"user_id,omitempty"`
-	TraceID      *string   `gorm:"size:255" json:"trace_id,omitempty"`
+	StatusCode   int       `gorm:"not null;index" json:"statusCode"`
+	ExecTimeMs   int64     `gorm:"not null" json:"execTimeMs"`
+	UserIP       string    `gorm:"not null;size:45" json:"userIp"`
+	UserAgent    *string   `gorm:"size:500" json:"userAgent,omitempty"`
+	UserID       *string   `gorm:"size:255;index" json:"userId,omitempty"`
+	TraceID      *string   `gorm:"size:255" json:"traceId,omitempty"`
 	Error        *string   `gorm:"type:text" json:"error,omitempty"`
-	RequestBody  *string   `gorm:"type:text" json:"request_body,omitempty"`
-	ResponseBody *string   `gorm:"type:text" json:"response_body,omitempty"`
+	RequestBody  *string   `gorm:"type:text" json:"requestBody,omitempty"`
+	ResponseBody *string   `gorm:"type:text" json:"responseBody,omitempty"`
 	Headers      *string   `gorm:"type:text" json:"headers,omitempty"`
-	CreatedAt    time.Time `gorm:"index" json:"created_at"`
+	CreatedAt    time.Time `gorm:"index" json:"createdAt"`
 }
 
 // TableName specifies the table name

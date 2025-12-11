@@ -84,8 +84,8 @@
 			let filesCount = 0;
 			let storageUsed = 0;
 			buckets.forEach(bucket => {
-				filesCount += bucket.files || 0;
-				storageUsed += bucket.size_bytes || 0;
+				filesCount += bucket.ObjectCount || bucket.files || 0;
+				storageUsed += bucket.TotalSize || bucket.sizeBytes || 0;
 			});
 			totalFiles = filesCount;
 			usedStorage = formatBytes(storageUsed);
@@ -100,6 +100,10 @@
 		}
 	}
 
+	interface StorageObjectsResponse {
+		objects?: unknown[];
+	}
+
 	async function fetchBucketObjects(bucketName: string) {
 		loadingFiles = true;
 		files = [];
@@ -109,11 +113,11 @@
 				? `/storage/buckets/${bucketName}/objects?parent_folder_id=${encodeURIComponent(currentFolderId)}`
 				: `/storage/buckets/${bucketName}/objects`;
 
-			const response = await api.get(url);
+			const response = await api.get<unknown[] | StorageObjectsResponse>(url);
 
 			if (Array.isArray(response)) {
 				files = processFiles(response);
-			} else if (response?.objects) {
+			} else if (response && 'objects' in response && Array.isArray(response.objects)) {
 				files = processFiles(response.objects);
 			} else {
 				files = [];
@@ -129,11 +133,11 @@
 	function processFiles(rawFiles: any[]): any[] {
 		return rawFiles.map(file => ({
 			...file,
-			id: file.id || file.object_id,
-			is_folder: file.type === 'folder' || file.object_name?.endsWith('/'),
-			object_name: file.object_name || file.name,
-			size: file.size_bytes || file.size || 0,
-			last_modified: file.last_modified || file.updated_at || new Date().toISOString()
+			id: file.id || file.objectId,
+			isFolder: file.type === 'folder' || file.objectName?.endsWith('/'),
+			objectName: file.objectName || file.name,
+			size: file.sizeBytes || file.size || 0,
+			lastModified: file.lastModified || file.updatedAt || new Date().toISOString()
 		}));
 	}
 
@@ -152,9 +156,9 @@
 	}
 
 	async function openFolder(folder: any) {
-		if (!folder.is_folder) return;
+		if (!folder.isFolder) return;
 
-		currentPath = currentPath ? `${currentPath}/${folder.object_name}` : folder.object_name;
+		currentPath = currentPath ? `${currentPath}/${folder.objectName}` : folder.objectName;
 		currentFolderId = folder.id;
 		selectedItems.clear();
 		await fetchBucketObjects(selectedBucket.name);
@@ -179,9 +183,9 @@
 		try {
 			const fullPath = currentPath ? `${currentPath}/${name}/` : `${name}/`;
 			await api.post(`/storage/buckets/${selectedBucket.name}/objects`, {
-				object_name: fullPath,
+				objectName: fullPath,
 				type: 'folder',
-				parent_folder_id: currentFolderId
+				parentFolderId: currentFolderId
 			});
 			await fetchBucketObjects(selectedBucket.name);
 			showCreateFolderModal = false;
@@ -200,14 +204,14 @@
 		fileUploadProgress.clear();
 
 		try {
-			const totalSize = filesToUpload.reduce((sum, file) => sum + file.size, 0);
+			const totalSize = filesToUpload.reduce((sum: number, file: File) => sum + file.size, 0);
 			let uploadedSize = 0;
 
 			for (const file of filesToUpload) {
 				const formData = new FormData();
 				formData.append('file', file);
 				if (currentFolderId) {
-					formData.append('parent_folder_id', currentFolderId);
+					formData.append('parentFolderId', currentFolderId);
 				}
 
 				// Track individual file progress
@@ -297,7 +301,7 @@
 
 	// Download operations
 	async function downloadFile(file: any) {
-		if (file.is_folder) return;
+		if (file.isFolder) return;
 
 		try {
 			// Token is stored in httpOnly cookie
@@ -308,7 +312,7 @@
 				const url = window.URL.createObjectURL(blob);
 				const a = document.createElement('a');
 				a.href = url;
-				a.download = file.object_name;
+				a.download = file.objectName;
 				document.body.appendChild(a);
 				a.click();
 				document.body.removeChild(a);
@@ -320,7 +324,7 @@
 	}
 
 	async function downloadSelectedItems() {
-		const itemsToDownload = files.filter(f => selectedItems.has(f.id) && !f.is_folder);
+		const itemsToDownload = files.filter(f => selectedItems.has(f.id) && !f.isFolder);
 		for (const item of itemsToDownload) {
 			await downloadFile(item);
 		}
@@ -328,7 +332,7 @@
 
 	// Preview operations
 	async function showPreview(file: any) {
-		if (file.is_folder) return;
+		if (file.isFolder) return;
 
 		previewItem = file;
 
@@ -392,7 +396,7 @@
 
 	function handleFileOpen(event: CustomEvent) {
 		const item = event.detail;
-		if (item.is_folder) {
+		if (item.isFolder) {
 			openFolder(item);
 		} else {
 			showPreview(item);
@@ -401,7 +405,8 @@
 
 	function handleFileMenu(event: CustomEvent) {
 		const item = event.detail;
-		const rect = event.target.getBoundingClientRect();
+		const target = event.target as HTMLElement | null;
+		const rect = target?.getBoundingClientRect() || { right: 0, bottom: 0 };
 
 		contextMenuItem = item;
 		contextMenuX = rect.right;

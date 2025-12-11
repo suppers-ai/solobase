@@ -47,7 +47,7 @@
 		style="left: {x}px; top: {y}px;"
 		bind:this={menuEl}
 	>
-		{#if !item.is_folder}
+		{#if !item.isFolder}
 			<button class="menu-item" on:click={() => handleAction('preview')}>
 				<Eye size={16} />
 				<span>Preview</span>
@@ -58,7 +58,7 @@
 			</button>
 			<div class="menu-divider"></div>
 		{/if}
-		
+
 		<button class="menu-item" on:click={() => handleAction('rename')}>
 			<Edit2 size={16} />
 			<span>Rename</span>
@@ -71,8 +71,8 @@
 			<Move size={16} />
 			<span>Move</span>
 		</button>
-		
-		{#if !item.is_folder}
+
+		{#if !item.isFolder}
 			<button class="menu-item" on:click={() => handleAction('share')}>
 				<Share2 size={16} />
 				<span>Share</span>

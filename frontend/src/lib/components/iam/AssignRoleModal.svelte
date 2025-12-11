@@ -1,15 +1,26 @@
-<script>
+<script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	
-	export let user;
-	export let roles = [];
-	
+
+	interface User {
+		id: string;
+		email: string;
+	}
+
+	interface Role {
+		name: string;
+		displayName?: string;
+		description: string;
+	}
+
+	export let user: User;
+	export let roles: Role[] = [];
+
 	const dispatch = createEventDispatcher();
-	
-	function handleAssign(roleName) {
+
+	function handleAssign(roleName: string) {
 		dispatch('assign', { userId: user.id, roleName });
 	}
-	
+
 	function handleClose() {
 		dispatch('close');
 	}
@@ -22,7 +33,7 @@
 		<div class="role-options">
 			{#each roles as role}
 				<button class="role-option" on:click={() => handleAssign(role.name)}>
-					<h4>{role.display_name || role.name}</h4>
+					<h4>{role.displayName || role.name}</h4>
 					<p>{role.description}</p>
 				</button>
 			{/each}

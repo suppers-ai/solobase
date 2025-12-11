@@ -28,7 +28,14 @@
 	};
 
 	// Stats
-	let stats = {
+	interface HugoStats {
+		totalSites: number;
+		activeSites: number;
+		totalBuilds: number;
+		storageUsed: string;
+	}
+
+	let stats: HugoStats = {
 		totalSites: 0,
 		activeSites: 0,
 		totalBuilds: 0,
@@ -71,8 +78,8 @@
 				api.get('/admin/ext/hugo/stats')
 			]);
 			
-			sites = sitesRes || [];
-			stats = statsRes || {
+			sites = Array.isArray(sitesRes) ? sitesRes : [];
+			stats = (statsRes as HugoStats) || {
 				totalSites: 0,
 				activeSites: 0,
 				totalBuilds: 0,
@@ -164,9 +171,10 @@
 				isExample: true
 			});
 			
-			if (exampleSite && exampleSite.id) {
+			const typedSite = exampleSite as { id?: string };
+			if (typedSite && typedSite.id) {
 				// Build the example site
-				await api.post(`/admin/ext/hugo/sites/${exampleSite.id}/build`);
+				await api.post(`/admin/ext/hugo/sites/${typedSite.id}/build`);
 				
 				// Mark as created
 				localStorage.setItem('hugo_example_created', 'true');
@@ -235,7 +243,8 @@
 					fileTree = files;
 				} else if (files && typeof files === 'object') {
 					// Try to find the files array in the response
-					fileTree = files.files || files.data || files.items || [];
+					const typedFiles = files as { files?: unknown[]; data?: unknown[]; items?: unknown[] };
+					fileTree = typedFiles.files || typedFiles.data || typedFiles.items || [];
 				} else {
 					fileTree = [];
 				}
@@ -419,7 +428,7 @@
 			
 			// Try to load from API first
 			try {
-				const response = await api.post(`/admin/ext/hugo/sites/${editingSite.id}/files/read`, {
+				const response = await api.post<{ content?: string }>(`/admin/ext/hugo/sites/${editingSite.id}/files/read`, {
 					path: file.path
 				});
 				fileContent = response.content || '';

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/suppers-ai/solobase/constants"
+	"github.com/suppers-ai/solobase/utils"
 )
 
 // Handlers provides HTTP handlers for IAM endpoints
@@ -50,30 +51,27 @@ func (h *Handlers) RegisterRoutes(router *mux.Router) {
 func (h *Handlers) GetRoles(w http.ResponseWriter, r *http.Request) {
 	roles, err := h.service.GetRoles(r.Context())
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to get roles")
+		utils.JSONError(w, http.StatusInternalServerError, "Failed to get roles")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(roles)
+	utils.JSONResponse(w, http.StatusOK,roles)
 }
 
 // CreateRole creates a new role
 func (h *Handlers) CreateRole(w http.ResponseWriter, r *http.Request) {
 	var role Role
 	if err := json.NewDecoder(r.Body).Decode(&role); err != nil {
-		WriteError(w, http.StatusBadRequest, "Invalid request body")
+		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if err := h.service.CreateRole(r.Context(), &role); err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to create role")
+		utils.JSONError(w, http.StatusInternalServerError, "Failed to create role")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(role)
+	utils.JSONResponse(w, http.StatusCreated, role)
 }
 
 // GetRole gets a specific role
@@ -83,7 +81,7 @@ func (h *Handlers) GetRole(w http.ResponseWriter, r *http.Request) {
 
 	var role Role
 	if err := h.service.db.Where("id = ?", roleID).First(&role).Error; err != nil {
-		WriteError(w, http.StatusNotFound, "Role not found")
+		utils.JSONError(w, http.StatusNotFound, "Role not found")
 		return
 	}
 
@@ -98,8 +96,7 @@ func (h *Handlers) GetRole(w http.ResponseWriter, r *http.Request) {
 		Policies: policies,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	utils.JSONResponse(w, http.StatusOK,response)
 }
 
 // UpdateRole updates a role
@@ -109,15 +106,15 @@ func (h *Handlers) UpdateRole(w http.ResponseWriter, r *http.Request) {
 
 	var updates map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		WriteError(w, http.StatusBadRequest, "Invalid request body")
+		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if err := h.service.UpdateRole(r.Context(), roleID, updates); err != nil {
 		if strings.Contains(err.Error(), "system role") {
-			WriteError(w, http.StatusForbidden, err.Error())
+			utils.JSONError(w, http.StatusForbidden, err.Error())
 		} else {
-			WriteError(w, http.StatusInternalServerError, "Failed to update role")
+			utils.JSONError(w, http.StatusInternalServerError, "Failed to update role")
 		}
 		return
 	}
@@ -132,9 +129,9 @@ func (h *Handlers) DeleteRole(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.DeleteRole(r.Context(), roleID); err != nil {
 		if strings.Contains(err.Error(), "system role") {
-			WriteError(w, http.StatusForbidden, err.Error())
+			utils.JSONError(w, http.StatusForbidden, err.Error())
 		} else {
-			WriteError(w, http.StatusInternalServerError, "Failed to delete role")
+			utils.JSONError(w, http.StatusInternalServerError, "Failed to delete role")
 		}
 		return
 	}
@@ -159,8 +156,7 @@ func (h *Handlers) GetPolicies(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(formattedPolicies)
+	utils.JSONResponse(w, http.StatusOK,formattedPolicies)
 }
 
 // CreatePolicy creates a new policy
@@ -173,7 +169,7 @@ func (h *Handlers) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		WriteError(w, http.StatusBadRequest, "Invalid request body")
+		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -182,7 +178,7 @@ func (h *Handlers) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.AddPolicy(r.Context(), req.Subject, req.Resource, req.Action, req.Effect); err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to create policy")
+		utils.JSONError(w, http.StatusInternalServerError, "Failed to create policy")
 		return
 	}
 
@@ -199,12 +195,12 @@ func (h *Handlers) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		WriteError(w, http.StatusBadRequest, "Invalid request body")
+		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if err := h.service.RemovePolicy(r.Context(), req.Subject, req.Resource, req.Action, req.Effect); err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to delete policy")
+		utils.JSONError(w, http.StatusInternalServerError, "Failed to delete policy")
 		return
 	}
 
@@ -231,8 +227,7 @@ func (h *Handlers) GetRolePolicies(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(formattedPolicies)
+	utils.JSONResponse(w, http.StatusOK,formattedPolicies)
 }
 
 // GetUserRoles gets roles for a user
@@ -242,7 +237,7 @@ func (h *Handlers) GetUserRoles(w http.ResponseWriter, r *http.Request) {
 
 	roles, err := h.service.GetUserRoles(r.Context(), userID)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to get user roles")
+		utils.JSONError(w, http.StatusInternalServerError, "Failed to get user roles")
 		return
 	}
 
@@ -255,8 +250,7 @@ func (h *Handlers) GetUserRoles(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(roleDetails)
+	utils.JSONResponse(w, http.StatusOK,roleDetails)
 }
 
 // AssignRole assigns a role to a user
@@ -269,7 +263,7 @@ func (h *Handlers) AssignRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		WriteError(w, http.StatusBadRequest, "Invalid request body")
+		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -280,7 +274,7 @@ func (h *Handlers) AssignRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.AssignRole(r.Context(), userID, req.Role, grantedBy); err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to assign role")
+		utils.JSONError(w, http.StatusInternalServerError, "Failed to assign role")
 		return
 	}
 
@@ -294,7 +288,7 @@ func (h *Handlers) RemoveRole(w http.ResponseWriter, r *http.Request) {
 	roleName := vars["role"]
 
 	if err := h.service.RemoveRole(r.Context(), userID, roleName); err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to remove role")
+		utils.JSONError(w, http.StatusInternalServerError, "Failed to remove role")
 		return
 	}
 
@@ -304,14 +298,14 @@ func (h *Handlers) RemoveRole(w http.ResponseWriter, r *http.Request) {
 // EvaluatePermission evaluates if a permission would be allowed
 func (h *Handlers) EvaluatePermission(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		UserID   string                 `json:"user_id"`
+		UserID   string                 `json:"userId"`
 		Resource string                 `json:"resource"`
 		Action   string                 `json:"action"`
 		Context  map[string]interface{} `json:"context,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		WriteError(w, http.StatusBadRequest, "Invalid request body")
+		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -325,7 +319,7 @@ func (h *Handlers) EvaluatePermission(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to evaluate permission")
+		utils.JSONError(w, http.StatusInternalServerError, "Failed to evaluate permission")
 		return
 	}
 
@@ -365,8 +359,8 @@ func (h *Handlers) EvaluatePermission(w http.ResponseWriter, r *http.Request) {
 
 	response := struct {
 		Allowed          bool                   `json:"allowed"`
-		UserRoles        []string               `json:"user_roles"`
-		MatchingPolicies []map[string]string    `json:"matching_policies"`
+		UserRoles        []string               `json:"userRoles"`
+		MatchingPolicies []map[string]string    `json:"matchingPolicies"`
 		Context          map[string]interface{} `json:"context,omitempty"`
 	}{
 		Allowed:          allowed,
@@ -375,8 +369,7 @@ func (h *Handlers) EvaluatePermission(w http.ResponseWriter, r *http.Request) {
 		Context:          req.Context,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	utils.JSONResponse(w, http.StatusOK,response)
 }
 
 // GetAuditLogs gets IAM audit logs
@@ -393,12 +386,11 @@ func (h *Handlers) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	if err := q.Find(&logs).Error; err != nil {
-		WriteError(w, http.StatusInternalServerError, "Failed to get audit logs")
+		utils.JSONError(w, http.StatusInternalServerError, "Failed to get audit logs")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(logs)
+	utils.JSONResponse(w, http.StatusOK,logs)
 }
 
 // Helper functions for pattern matching

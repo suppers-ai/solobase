@@ -81,13 +81,13 @@ func (e *CloudStorageExtension) Initialize(ctx context.Context, services *core.E
 		// Initialize quota service
 		if e.config.EnableQuotas {
 			e.quotaService = NewQuotaService(e.db)
-			
+
 			// Migrate quota tables
 			if err := e.db.AutoMigrate(&RoleQuota{}, &UserQuotaOverride{}, &StorageQuota{}); err != nil {
 				services.Logger().Error(ctx, fmt.Sprintf("Failed to migrate quota tables: %v", err))
 				return err
 			}
-			
+
 			// Initialize default quotas for system roles
 			if err := e.quotaService.InitializeDefaultQuotas(); err != nil {
 				services.Logger().Error(ctx, fmt.Sprintf("Failed to initialize default quotas: %v", err))
@@ -261,7 +261,7 @@ func (e *CloudStorageExtension) SyncRoleQuota(ctx context.Context, roleName stri
 	if e.quotaService == nil {
 		return nil // Quotas not enabled
 	}
-	
+
 	return e.quotaService.SyncRoleQuotaFromIAM(ctx, roleName, roleID)
 }
 

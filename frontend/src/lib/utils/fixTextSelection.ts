@@ -24,8 +24,8 @@ export function enableTextSelection() {
 	const inputs = document.querySelectorAll('input, textarea');
 	inputs.forEach((input) => {
 		// Remove any existing selectstart handlers
-		input.onselectstart = null;
-		
+		(input as HTMLElement).onselectstart = null;
+
 		// Ensure default behavior is not prevented
 		const events = ['mousedown', 'selectstart', 'select'];
 		events.forEach(eventName => {

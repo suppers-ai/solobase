@@ -46,7 +46,7 @@ type SignupRequest struct {
 }
 
 type Claims struct {
-	UserID string   `json:"user_id"`
+	UserID string   `json:"userId"`
 	Email  string   `json:"email"`
 	Roles  []string `json:"roles"` // Array of role names from IAM
 	jwt.RegisteredClaims
@@ -443,8 +443,8 @@ func HandleUpdateCurrentUser(userService *services.UserService) http.HandlerFunc
 }
 
 type ChangePasswordRequest struct {
-	CurrentPassword string `json:"current_password"`
-	NewPassword     string `json:"new_password"`
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
 }
 
 func HandleChangePassword(authService *services.AuthService) http.HandlerFunc {

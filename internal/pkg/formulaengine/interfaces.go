@@ -69,6 +69,6 @@ type CalculationResult struct {
 	Value       float64                `json:"value"`
 	Formula     string                 `json:"formula"`
 	Variables   map[string]interface{} `json:"variables"`
-	RuleApplied *Rule                  `json:"rule_applied,omitempty"`
+	RuleApplied *Rule                  `json:"ruleApplied,omitempty"`
 	Error       string                 `json:"error,omitempty"`
 }

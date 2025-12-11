@@ -11,7 +11,24 @@
 	import { api } from '$lib/api';
 	import { currentUser, userRoles } from '$lib/stores/auth';
 	import { formatBytes, formatNumber } from '$lib/utils/formatters';
-	
+
+	interface DashboardStats {
+		totalUsers: number;
+		totalRows: number;
+		totalStorageUsed: number;
+	}
+
+	interface SystemMetrics {
+		cpuUsage: number;
+		memoryUsage: number;
+		diskUsage: number;
+		uptime: string;
+		memoryUsed: number;
+		memoryTotal: number;
+		diskUsed: number;
+		diskTotal: number;
+	}
+
 	Chart.register(...registerables);
 	
 	// Check if user is admin
@@ -57,33 +74,33 @@
 	};
 	
 	// Time range configurations
-	const TIME_RANGES = {
-		'10m': { 
-			label: 'Last 10 minutes', 
-			points: 20, 
+	const TIME_RANGES: Record<string, { label: string; points: number; interval: number; format: Intl.DateTimeFormatOptions }> = {
+		'10m': {
+			label: 'Last 10 minutes',
+			points: 20,
 			interval: 30 * 1000, // 30 seconds
 			format: { hour: '2-digit', minute: '2-digit', second: '2-digit' }
 		},
-		'6h': { 
-			label: 'Last 6 hours', 
-			points: 72, 
+		'6h': {
+			label: 'Last 6 hours',
+			points: 72,
 			interval: 5 * 60 * 1000, // 5 minutes
 			format: { hour: '2-digit', minute: '2-digit' }
 		},
-		'24h': { 
-			label: 'Last 24 hours', 
-			points: 48, 
+		'24h': {
+			label: 'Last 24 hours',
+			points: 48,
 			interval: 30 * 60 * 1000, // 30 minutes
 			format: { hour: '2-digit', minute: '2-digit' }
 		},
-		'7d': { 
-			label: 'Last 7 days', 
-			points: 84, 
+		'7d': {
+			label: 'Last 7 days',
+			points: 84,
 			interval: 2 * 60 * 60 * 1000, // 2 hours
 			format: { month: 'short', day: 'numeric', hour: '2-digit' }
 		}
 	};
-	
+
 	let selectedRange = '6h';
 	$: currentRange = TIME_RANGES[selectedRange];
 	
@@ -388,8 +405,8 @@
 	async function fetchDashboardData() {
 		try {
 			// Fetch dashboard stats
-			const stats = await api.get('/dashboard/stats');
-			
+			const stats = await api.get<DashboardStats>('/dashboard/stats');
+
 			// Store previous values for trend calculation
 			previousMetrics = {
 				users: totalUsers,
@@ -397,25 +414,25 @@
 				storage: totalStorage,
 				requests: httpRequestsTotal
 			};
-			
-			totalUsers = stats.total_users || 0;
-			totalRows = stats.total_rows || 0;
-			totalStorage = stats.total_storage_used || 0;
-			
+
+			totalUsers = stats.totalUsers || 0;
+			totalRows = stats.totalRows || 0;
+			totalStorage = stats.totalStorageUsed || 0;
+
 			// Fetch system metrics
-			const metrics = await api.get('/admin/system/metrics');
-			cpuUsage = metrics.cpu_usage || 0;
-			memoryUsage = metrics.memory_usage || 0;
-			diskUsage = metrics.disk_usage || 0;
+			const metrics = await api.get<SystemMetrics>('/admin/system/metrics');
+			cpuUsage = metrics.cpuUsage || 0;
+			memoryUsage = metrics.memoryUsage || 0;
+			diskUsage = metrics.diskUsage || 0;
 			uptime = metrics.uptime || '0h 0m';
-			
+
 			memoryInfo = {
-				used: metrics.memory_used || 0,
-				total: metrics.memory_total || 0
+				used: metrics.memoryUsed || 0,
+				total: metrics.memoryTotal || 0
 			};
 			diskInfo = {
-				used: metrics.disk_used || 0,
-				total: metrics.disk_total || 0
+				used: metrics.diskUsed || 0,
+				total: metrics.diskTotal || 0
 			};
 			
 			// Fetch Prometheus metrics

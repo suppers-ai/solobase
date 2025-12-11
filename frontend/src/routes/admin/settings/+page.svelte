@@ -26,44 +26,44 @@
 		if (response.data) {
 			settings = response.data;
 		} else {
-			error = response.error || 'Failed to load settings';
+			error = typeof response.error === 'string' ? response.error : 'Failed to load settings';
 		}
 		loading = false;
 	}
-	
+
 	async function saveSettings() {
 		if (!settings) return;
-		
+
 		saving = true;
 		saved = false;
 		error = '';
-		
+
 		const response = await api.updateSettings(settings);
 		if (response.data) {
 			settings = response.data;
 			saved = true;
 			setTimeout(() => saved = false, 3000);
 		} else {
-			error = response.error || 'Failed to save settings';
+			error = typeof response.error === 'string' ? response.error : 'Failed to save settings';
 		}
 		saving = false;
 	}
-	
+
 	async function resetSettings() {
 		if (!confirm('Are you sure you want to reset all settings to default values?')) {
 			return;
 		}
-		
+
 		saving = true;
 		error = '';
-		
-		const response = await api.post('/admin/settings/reset');
-		if (response.data) {
-			settings = response.data;
+
+		const response = await api.post<AppSettings>('/admin/settings/reset');
+		if (response) {
+			settings = response;
 			saved = true;
 			setTimeout(() => saved = false, 3000);
 		} else {
-			error = response.error || 'Failed to reset settings';
+			error = 'Failed to reset settings';
 		}
 		saving = false;
 	}
@@ -144,10 +144,10 @@
 						<label class="label">
 							<span class="label-text font-medium">Application Name</span>
 						</label>
-						<input 
-							type="text" 
-							class="input input-bordered" 
-							bind:value={settings.app_name}
+						<input
+							type="text"
+							class="input input-bordered"
+							bind:value={settings.appName}
 							placeholder="My Application"
 						/>
 					</div>
@@ -156,10 +156,10 @@
 						<label class="label">
 							<span class="label-text font-medium">Application URL</span>
 						</label>
-						<input 
-							type="url" 
-							class="input input-bordered" 
-							bind:value={settings.app_url}
+						<input
+							type="url"
+							class="input input-bordered"
+							bind:value={settings.appUrl}
 							placeholder="https://example.com"
 						/>
 					</div>
@@ -167,10 +167,10 @@
 					<div class="form-control">
 						<label class="label cursor-pointer">
 							<span class="label-text font-medium">Allow User Signup</span>
-							<input 
-								type="checkbox" 
-								class="toggle toggle-primary" 
-								bind:checked={settings.allow_signup}
+							<input
+								type="checkbox"
+								class="toggle toggle-primary"
+								bind:checked={settings.allowSignup}
 							/>
 						</label>
 					</div>
@@ -178,10 +178,10 @@
 					<div class="form-control">
 						<label class="label cursor-pointer">
 							<span class="label-text font-medium">Require Email Confirmation</span>
-							<input 
-								type="checkbox" 
-								class="toggle toggle-primary" 
-								bind:checked={settings.require_email_confirmation}
+							<input
+								type="checkbox"
+								class="toggle toggle-primary"
+								bind:checked={settings.requireEmailConfirmation}
 							/>
 						</label>
 					</div>
@@ -217,10 +217,10 @@
 								<span class="label-text font-medium">Session Timeout</span>
 								<span class="label-text-alt">minutes</span>
 							</label>
-							<input 
-								type="number" 
-								class="input input-bordered" 
-								bind:value={settings.session_timeout}
+							<input
+								type="number"
+								class="input input-bordered"
+								bind:value={settings.sessionTimeout}
 								min="5"
 								placeholder="1440"
 							/>
@@ -230,10 +230,10 @@
 							<label class="label">
 								<span class="label-text font-medium">Minimum Password Length</span>
 							</label>
-							<input 
-								type="number" 
-								class="input input-bordered" 
-								bind:value={settings.password_min_length}
+							<input
+								type="number"
+								class="input input-bordered"
+								bind:value={settings.passwordMinLength}
 								min="6"
 								max="32"
 								placeholder="8"
@@ -253,49 +253,49 @@
 					
 					<div class="form-control mb-4">
 						<label class="label cursor-pointer justify-start gap-3">
-							<input 
-								type="checkbox" 
-								class="toggle toggle-primary" 
-								bind:checked={settings.smtp_enabled}
+							<input
+								type="checkbox"
+								class="toggle toggle-primary"
+								bind:checked={settings.smtpEnabled}
 							/>
 							<span class="label-text font-medium">Enable SMTP</span>
 						</label>
 					</div>
-					
-					{#if settings.smtp_enabled}
+
+					{#if settings.smtpEnabled}
 						<div class="grid grid-cols-1 md:grid-cols-2 gap-4 pl-4 border-l-2 border-primary/20">
 							<div class="form-control">
 								<label class="label">
 									<span class="label-text font-medium">SMTP Host</span>
 								</label>
-								<input 
-									type="text" 
-									class="input input-bordered" 
-									bind:value={settings.smtp_host}
+								<input
+									type="text"
+									class="input input-bordered"
+									bind:value={settings.smtpHost}
 									placeholder="smtp.example.com"
 								/>
 							</div>
-							
+
 							<div class="form-control">
 								<label class="label">
 									<span class="label-text font-medium">SMTP Port</span>
 								</label>
-								<input 
-									type="number" 
-									class="input input-bordered" 
-									bind:value={settings.smtp_port}
+								<input
+									type="number"
+									class="input input-bordered"
+									bind:value={settings.smtpPort}
 									placeholder="587"
 								/>
 							</div>
-							
+
 							<div class="form-control md:col-span-2">
 								<label class="label">
 									<span class="label-text font-medium">SMTP Username</span>
 								</label>
-								<input 
-									type="text" 
-									class="input input-bordered" 
-									bind:value={settings.smtp_user}
+								<input
+									type="text"
+									class="input input-bordered"
+									bind:value={settings.smtpUser}
 									placeholder="user@example.com"
 								/>
 							</div>
@@ -317,7 +317,7 @@
 							<label class="label">
 								<span class="label-text font-medium">Storage Provider</span>
 							</label>
-							<select class="select select-bordered" bind:value={settings.storage_provider}>
+							<select class="select select-bordered" bind:value={settings.storageProvider}>
 								<option value="local">Local Filesystem</option>
 								<option value="s3">Amazon S3</option>
 							</select>
@@ -327,11 +327,11 @@
 							<label class="label">
 								<span class="label-text font-medium">Max Upload Size</span>
 							</label>
-							<input 
-								type="text" 
-								class="input input-bordered" 
-								value={formatBytes(settings.max_upload_size)}
-								on:change={(e) => settings.max_upload_size = parseBytes(e.currentTarget.value)}
+							<input
+								type="text"
+								class="input input-bordered"
+								value={formatBytes(settings.maxUploadSize)}
+								on:change={(e) => { if (settings) settings.maxUploadSize = parseBytes(e.currentTarget.value); }}
 								placeholder="10 MB"
 							/>
 						</div>
@@ -344,13 +344,13 @@
 							<input 
 								type="text" 
 								class="input input-bordered" 
-								bind:value={settings.allowed_file_types}
+								bind:value={settings.allowedFileTypes}
 								placeholder="image/*,application/pdf,text/*"
 							/>
 						</div>
 					</div>
 					
-					{#if settings.storage_provider === 's3'}
+					{#if settings.storageProvider === 's3'}
 						<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pl-4 border-l-2 border-primary/20">
 							<div class="form-control">
 								<label class="label">
@@ -359,7 +359,7 @@
 								<input 
 									type="text" 
 									class="input input-bordered" 
-									bind:value={settings.s3_bucket}
+									bind:value={settings.s3Bucket}
 									placeholder="my-bucket"
 								/>
 							</div>
@@ -371,7 +371,7 @@
 								<input 
 									type="text" 
 									class="input input-bordered" 
-									bind:value={settings.s3_region}
+									bind:value={settings.s3Region}
 									placeholder="us-east-1"
 								/>
 							</div>
@@ -391,7 +391,7 @@
 								<input 
 									type="checkbox" 
 									class="toggle toggle-primary" 
-									bind:checked={settings.enable_api_logs}
+									bind:checked={settings.enableApiLogs}
 								/>
 								<span class="label-text font-medium">Enable API Logging</span>
 							</label>
@@ -402,7 +402,7 @@
 								<input 
 									type="checkbox" 
 									class="toggle toggle-warning" 
-									bind:checked={settings.enable_debug_mode}
+									bind:checked={settings.enableDebugMode}
 								/>
 								<span class="label-text font-medium">Enable Debug Mode</span>
 							</label>
@@ -424,20 +424,20 @@
 							<input 
 								type="checkbox" 
 								class="toggle toggle-warning" 
-								bind:checked={settings.maintenance_mode}
+								bind:checked={settings.maintenanceMode}
 							/>
 							<span class="label-text font-medium">Enable Maintenance Mode</span>
 						</label>
 					</div>
 					
-					{#if settings.maintenance_mode}
+					{#if settings.maintenanceMode}
 						<div class="form-control pl-4 border-l-2 border-warning/20">
 							<label class="label">
 								<span class="label-text font-medium">Maintenance Message</span>
 							</label>
 							<textarea 
 								class="textarea textarea-bordered h-24" 
-								bind:value={settings.maintenance_message}
+								bind:value={settings.maintenanceMessage}
 								placeholder="We're currently performing maintenance. Please check back later."
 							></textarea>
 						</div>

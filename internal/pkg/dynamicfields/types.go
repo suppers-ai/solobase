@@ -28,11 +28,11 @@ const (
 // Field represents a dynamic field definition
 type Field struct {
 	Name         string                 `json:"name"`
-	DisplayName  string                 `json:"display_name"`
+	DisplayName  string                 `json:"displayName"`
 	Type         FieldType              `json:"type"`
 	Description  string                 `json:"description,omitempty"`
 	Required     bool                   `json:"required"`
-	DefaultValue interface{}            `json:"default_value,omitempty"`
+	DefaultValue interface{}            `json:"defaultValue,omitempty"`
 	Placeholder  string                 `json:"placeholder,omitempty"`
 	Validation   *ValidationRules       `json:"validation,omitempty"`
 	Options      []Option               `json:"options,omitempty"`    // For enum fields
@@ -52,8 +52,8 @@ type Option struct {
 // ValidationRules contains validation rules for a field
 type ValidationRules struct {
 	// Text validations
-	MinLength *int    `json:"min_length,omitempty"`
-	MaxLength *int    `json:"max_length,omitempty"`
+	MinLength *int    `json:"minLength,omitempty"`
+	MaxLength *int    `json:"maxLength,omitempty"`
 	Pattern   *string `json:"pattern,omitempty"` // Regex pattern
 
 	// Number validations
@@ -63,17 +63,17 @@ type ValidationRules struct {
 	Precision *int     `json:"precision,omitempty"` // Decimal places
 
 	// Date validations
-	MinDate *time.Time `json:"min_date,omitempty"`
-	MaxDate *time.Time `json:"max_date,omitempty"`
+	MinDate *time.Time `json:"minDate,omitempty"`
+	MaxDate *time.Time `json:"maxDate,omitempty"`
 
 	// Array validations
-	MinItems *int `json:"min_items,omitempty"`
-	MaxItems *int `json:"max_items,omitempty"`
+	MinItems *int `json:"minItems,omitempty"`
+	MaxItems *int `json:"maxItems,omitempty"`
 	Unique   bool `json:"unique,omitempty"`
 
 	// File validations
-	MaxSize      *int64   `json:"max_size,omitempty"`      // In bytes
-	AllowedTypes []string `json:"allowed_types,omitempty"` // MIME types
+	MaxSize      *int64   `json:"maxSize,omitempty"`      // In bytes
+	AllowedTypes []string `json:"allowedTypes,omitempty"` // MIME types
 
 	// Custom validation
 	Custom *CustomValidation `json:"custom,omitempty"`
@@ -97,19 +97,19 @@ type Schema struct {
 type Value struct {
 	Field     string      `json:"field"`
 	Value     interface{} `json:"value"`
-	IsValid   bool        `json:"is_valid"`
+	IsValid   bool        `json:"isValid"`
 	Error     string      `json:"error,omitempty"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	UpdatedAt time.Time   `json:"updatedAt"`
 }
 
 // Document represents a collection of field values
 type Document struct {
 	ID        string                 `json:"id"`
-	SchemaID  string                 `json:"schema_id"`
+	SchemaID  string                 `json:"schemaId"`
 	Values    map[string]interface{} `json:"values"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
+	CreatedAt time.Time              `json:"createdAt"`
+	UpdatedAt time.Time              `json:"updatedAt"`
 }
 
 // ValidationError represents a field validation error

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	coremodels "github.com/suppers-ai/solobase/internal/core/models"
 	"github.com/suppers-ai/solobase/internal/data/models"
 	"gorm.io/gorm"
 )
@@ -576,4 +577,32 @@ func (s *CustomTablesService) GetMigrationHistory(tableName string) ([]models.Cu
 	}
 
 	return migrations, nil
+}
+
+// GetRepository returns a DynamicRepository for CRUD operations on a custom table.
+// This provides a convenient way to interact with custom table data.
+//
+// Example:
+//
+//	repo, err := customTablesService.GetRepository("customer_feedback")
+//	if err != nil {
+//	    return err
+//	}
+//
+//	// Create a record
+//	record, err := repo.Create(map[string]interface{}{
+//	    "customer_name": "John",
+//	    "email": "john@example.com",
+//	    "rating": 5,
+//	})
+//
+//	// Find records
+//	records, err := repo.Find(map[string]interface{}{"rating": 5}, 10, 0)
+func (s *CustomTablesService) GetRepository(tableName string) (*coremodels.DynamicRepository, error) {
+	definition, err := s.GetTable(tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	return coremodels.NewDynamicRepository(s.db, tableName, definition), nil
 }

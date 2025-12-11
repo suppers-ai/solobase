@@ -30,15 +30,15 @@
 	const dispatch = createEventDispatcher();
 
 	let formData: any = {
-		group_id: mode === 'create' && initialGroupId ? initialGroupId : '',
-		product_template_id: '',
+		groupId: mode === 'create' && initialGroupId ? initialGroupId : '',
+		productTemplateId: '',
 		name: '',
 		description: '',
-		base_price: 0,
+		basePrice: 0,
 		currency: 'USD',
 		active: true,
-		filter_fields: {},
-		custom_fields: {}
+		filterFields: {},
+		customFields: {}
 	};
 
 	let selectedTemplate: any = null;
@@ -52,16 +52,16 @@
 		if (mode === 'edit' && product) {
 			const newFormData = {
 				...product,
-				filter_fields: {},
-				custom_fields: product.custom_fields || {}
+				filterFields: {},
+				customFields: product.customFields || {}
 			};
 
 			// Find template and map filter fields
-			const template = productTemplates.find(t => t.id === product.product_template_id);
-			if (template?.filter_fields_schema) {
-				template.filter_fields_schema.forEach((field: any) => {
+			const template = productTemplates.find(t => t.id === product.productTemplateId);
+			if (template?.filterFieldsSchema) {
+				template.filterFieldsSchema.forEach((field: any) => {
 					if (field.id && product[field.id] !== undefined) {
-						newFormData.filter_fields[field.id] = product[field.id];
+						newFormData.filterFields[field.id] = product[field.id];
 					}
 				});
 			}
@@ -71,18 +71,18 @@
 		}
 	}
 
-	// Update selected template when product_template_id changes
+	// Update selected template when productTemplateId changes
 	function updateSelectedTemplate() {
-		const templateId = typeof formData.product_template_id === 'string'
-			? parseInt(formData.product_template_id)
-			: formData.product_template_id;
+		const templateId = typeof formData.productTemplateId === 'string'
+			? parseInt(formData.productTemplateId)
+			: formData.productTemplateId;
 
 		selectedTemplate = productTemplates.find(t => t.id === templateId) || null;
-		templateFields = selectedTemplate?.filter_fields_schema || [];
+		templateFields = selectedTemplate?.filterFieldsSchema || [];
 		// Only use customFieldsConfig if it's explicitly provided and not empty
 		customFields = (customFieldsConfig && customFieldsConfig.length > 0)
 			? customFieldsConfig
-			: (selectedTemplate?.custom_fields_schema || []);
+			: (selectedTemplate?.customFieldsSchema || []);
 
 		// Group custom fields by section
 		organizeFieldsBySections();
@@ -119,14 +119,14 @@
 	}
 
 	// React to template ID changes
-	$: if (formData.product_template_id) {
+	$: if (formData.productTemplateId) {
 		updateSelectedTemplate();
 	}
 
 	function updateField(fieldPath: string, value: any) {
 		formData = { ...formData, [fieldPath]: value };
 
-		if (fieldPath === 'product_template_id') {
+		if (fieldPath === 'productTemplateId') {
 			updateSelectedTemplate();
 		}
 
@@ -140,13 +140,13 @@
 
 	function updateFieldValue(fieldId: string, value: any, isCustom: boolean = false) {
 		if (isCustom) {
-			formData.custom_fields = {
-				...formData.custom_fields,
+			formData.customFields = {
+				...formData.customFields,
 				[fieldId]: value
 			};
 		} else {
-			formData.filter_fields = {
-				...formData.filter_fields,
+			formData.filterFields = {
+				...formData.filterFields,
 				[fieldId]: value
 			};
 		}
@@ -161,7 +161,7 @@
 	}
 
 	function getFieldValue(field: any, isCustom = false) {
-		const source = isCustom ? formData.custom_fields : formData.filter_fields;
+		const source = isCustom ? formData.customFields : formData.filterFields;
 		return source[field.id] || field.default || field.constraints?.default || '';
 	}
 
@@ -184,9 +184,9 @@
 
 		const submitData = {
 			...formData,
-			...formData.filter_fields
+			...formData.filterFields
 		};
-		delete submitData.filter_fields;
+		delete submitData.filterFields;
 
 		if (onSubmit) {
 			onSubmit(submitData);
@@ -206,22 +206,22 @@
 		const errors: string[] = [];
 
 		if (mode === 'create') {
-			if (!formData.group_id) errors.push('Group is required');
-			if (!formData.product_template_id) errors.push('Product type is required');
+			if (!formData.groupId) errors.push('Group is required');
+			if (!formData.productTemplateId) errors.push('Product type is required');
 		}
 
 		if (!formData.name) errors.push('Name is required');
 
 		templateFields.forEach((field: any) => {
 			// Only validate fields that are editable by users
-			if (field.constraints?.editable_by_user === true && field.required && !formData.filter_fields[field.id]) {
+			if (field.constraints?.editableByUser === true && field.required && !formData.filterFields[field.id]) {
 				errors.push(`${field.name} is required`);
 			}
 		});
 
 		customFields.forEach((field: any) => {
 			// Only validate fields that are editable by users
-			if (field.constraints?.editable_by_user === true && field.required && !formData.custom_fields[field.id]) {
+			if (field.constraints?.editableByUser === true && field.required && !formData.customFields[field.id]) {
 				errors.push(`${field.name} is required`);
 			}
 		});
@@ -245,8 +245,8 @@
 						<label for="group">Group <span class="required">*</span></label>
 						<select
 							id="group"
-							value={String(formData.group_id || '')}
-							on:change={(e) => updateField('group_id', e.currentTarget.value ? parseInt(e.currentTarget.value) : '')}
+							value={String(formData.groupId || '')}
+							on:change={(e) => updateField('groupId', e.currentTarget.value ? parseInt(e.currentTarget.value) : '')}
 							required
 						>
 							<option value="">Select a group</option>
@@ -260,13 +260,13 @@
 						<label for="template">Product Type <span class="required">*</span></label>
 						<select
 							id="template"
-							value={String(formData.product_template_id || '')}
-							on:change={(e) => updateField('product_template_id', e.currentTarget.value ? parseInt(e.currentTarget.value) : '')}
+							value={String(formData.productTemplateId || '')}
+							on:change={(e) => updateField('productTemplateId', e.currentTarget.value ? parseInt(e.currentTarget.value) : '')}
 							required
 						>
 							<option value="">Select a type</option>
 							{#each productTemplates as template}
-								<option value={String(template.id)}>{template.display_name || template.name}</option>
+								<option value={String(template.id)}>{template.displayName || template.name}</option>
 							{/each}
 						</select>
 					</div>
@@ -287,12 +287,12 @@
 				</div>
 
 				<div class="form-group">
-					<label for="base_price">Base Price</label>
+					<label for="basePrice">Base Price</label>
 					<input
-						id="base_price"
+						id="basePrice"
 						type="number"
-						value={formData.base_price}
-						on:input={(e) => updateField('base_price', parseFloat(e.currentTarget.value) || 0)}
+						value={formData.basePrice}
+						on:input={(e) => updateField('basePrice', parseFloat(e.currentTarget.value) || 0)}
 						step="0.01"
 						min="0"
 					/>
@@ -317,7 +317,7 @@
 				<h3>Product Properties</h3>
 
 				{#each templateFields as field}
-					{#if field.constraints?.editable_by_user === true}
+					{#if field.constraints?.editableByUser === true}
 						<div class="form-group">
 							<label for={field.id}>
 								{field.name}
@@ -368,7 +368,7 @@
 								{#if activeTab === sectionName}
 									<div class="tab-panel">
 										{#each sectionFields as field}
-											{#if field.constraints?.editable_by_user === true}
+											{#if field.constraints?.editableByUser === true}
 												<div class="form-group">
 													<label for={`custom-${field.id}`}>
 														{field.name}
@@ -382,7 +382,7 @@
 													{#if field.type === 'nine-slice-upload'}
 														<NineSliceUpload
 															fieldId={field.id}
-															value={formData.custom_fields[field.id] || {}}
+															value={formData.customFields[field.id] || {}}
 															onUpdate={(val) => updateFieldValue(field.id, val, true)}
 															on:fileUpload
 														/>
@@ -407,7 +407,7 @@
 				{:else}
 					<!-- Single section or no sections - flat layout -->
 					{#each customFields as field}
-						{#if field.constraints?.editable_by_user === true}
+						{#if field.constraints?.editableByUser === true}
 							<div class="form-group">
 								<label for={`custom-${field.id}`}>
 									{field.name}
@@ -421,7 +421,7 @@
 								{#if field.type === 'nine-slice-upload'}
 									<NineSliceUpload
 										fieldId={field.id}
-										value={formData.custom_fields[field.id] || {}}
+										value={formData.customFields[field.id] || {}}
 										onUpdate={(val) => updateFieldValue(field.id, val, true)}
 										on:fileUpload
 									/>

@@ -9,28 +9,18 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"github.com/suppers-ai/solobase/internal/pkg/database"
+	"github.com/suppers-ai/solobase/constants"
 	"github.com/suppers-ai/solobase/extensions/core"
-	commonjwt "github.com/suppers-ai/solobase/internal/common/jwt"
-	"github.com/suppers-ai/solobase/internal/data/models"
 	"github.com/suppers-ai/solobase/internal/core/services"
-	"github.com/suppers-ai/solobase/utils"
+	"github.com/suppers-ai/solobase/internal/data/models"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
 	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
+	"github.com/suppers-ai/solobase/utils"
 )
-
-// Claims represents the JWT claims
-type Claims struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
-	jwt.RegisteredClaims
-}
 
 
 // StorageHandlers contains all storage-related handlers with hook support
@@ -38,31 +28,6 @@ type StorageHandlers struct {
 	storageService *services.StorageService
 	db             *database.DB
 	hookRegistry   *core.ExtensionRegistry
-}
-
-// extractUserIDFromToken extracts user ID from JWT token in Authorization header
-func extractUserIDFromToken(r *http.Request) string {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		return ""
-	}
-
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	if tokenString == authHeader {
-		return ""
-	}
-
-	claims := &Claims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		// Use the common JWT secret
-		return commonjwt.GetJWTSecret(), nil
-	})
-
-	if err != nil || !token.Valid {
-		return ""
-	}
-
-	return claims.UserID
 }
 
 // NewStorageHandlers creates new storage handlers with hook support
@@ -90,11 +55,7 @@ func (h *StorageHandlers) HandleGetBucketObjects(w http.ResponseWriter, r *http.
 	vars := mux.Vars(r)
 	bucket := vars["bucket"]
 
-	// Get user ID from context if available, otherwise try to extract from token
-	userID, _ := r.Context().Value("user_id").(string)
-	if userID == "" {
-		userID = extractUserIDFromToken(r)
-	}
+	userID := utils.GetUserIDFromRequest(r)
 
 	// Get parent folder ID from query
 	parentFolderIDStr := r.URL.Query().Get("parent_folder_id")
@@ -105,8 +66,8 @@ func (h *StorageHandlers) HandleGetBucketObjects(w http.ResponseWriter, r *http.
 
 	// For user files, ensure we have a user ID
 	filterByUser := ""
-	if bucket == "user-files" || bucket == "int_storage" {
-		bucket = "int_storage"
+	if utils.IsInternalBucket(bucket) {
+		bucket = constants.InternalStorageBucket
 		// For int_storage, only filter by user if we have a userID
 		filterByUser = userID
 	}
@@ -172,7 +133,7 @@ func (h *StorageHandlers) HandleUploadFile(w http.ResponseWriter, r *http.Reques
 	bucket := vars["bucket"]
 
 	// Parse multipart form
-	err := r.ParseMultipartForm(32 << 20) // 32MB max
+	err := r.ParseMultipartForm(constants.MaxMultipartFormSize)
 	if err != nil {
 		utils.JSONError(w, http.StatusBadRequest, "Failed to parse form")
 		return
@@ -194,11 +155,7 @@ func (h *StorageHandlers) HandleUploadFile(w http.ResponseWriter, r *http.Reques
 		contentType = "application/octet-stream"
 	}
 
-	// Get user ID from context if available, otherwise try to extract from token
-	userID, _ := r.Context().Value("user_id").(string)
-	if userID == "" {
-		userID = extractUserIDFromToken(r)
-	}
+	userID := utils.GetUserIDFromRequest(r)
 
 	// Require user authentication for uploads
 	if userID == "" {
@@ -207,8 +164,8 @@ func (h *StorageHandlers) HandleUploadFile(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Determine the correct bucket
-	if bucket == "user-files" || bucket == "int_storage" {
-		bucket = "int_storage"
+	if utils.IsInternalBucket(bucket) {
+		bucket = constants.InternalStorageBucket
 	}
 
 	// Prepare hook context for before upload
@@ -289,11 +246,7 @@ func (h *StorageHandlers) HandleDeleteObject(w http.ResponseWriter, r *http.Requ
 	bucket := vars["bucket"]
 	objectID := vars["id"]
 
-	// Get user ID from context if available, otherwise try to extract from token
-	userID, _ := r.Context().Value("user_id").(string)
-	if userID == "" {
-		userID = extractUserIDFromToken(r)
-	}
+	userID := utils.GetUserIDFromRequest(r)
 
 	// Require user authentication for deletions
 	if userID == "" {
@@ -303,30 +256,26 @@ func (h *StorageHandlers) HandleDeleteObject(w http.ResponseWriter, r *http.Requ
 
 	// For internal storage, verify user owns the object
 	var err error
-	if bucket == "user-files" || bucket == "int_storage" {
+	if utils.IsInternalBucket(bucket) {
 		// Get object info to verify ownership
-		objectInfo, getErr := h.storageService.GetObjectInfo("int_storage", objectID)
+		objectInfo, getErr := h.storageService.GetObjectInfo(constants.InternalStorageBucket, objectID)
 		if getErr != nil {
 			utils.JSONError(w, http.StatusNotFound, "Object not found")
 			return
 		}
 
-		// Check if object belongs to the user
-		if objectInfo.UserID != userID {
-			utils.JSONError(w, http.StatusForbidden, "Access denied")
+		// Check ownership
+		ownershipErr := utils.CheckStorageOwnership(userID, &utils.StorageObjectInfo{
+			UserID: objectInfo.UserID,
+			AppID:  objectInfo.AppID,
+		}, h.storageService.GetAppID())
+		if ownershipErr != nil {
+			utils.HandleOwnershipError(w, ownershipErr)
 			return
 		}
 
-		// Check if object belongs to the correct app
-		if h.storageService.GetAppID() != "" {
-			if objectInfo.AppID == nil || *objectInfo.AppID != h.storageService.GetAppID() {
-				utils.JSONError(w, http.StatusForbidden, "Access denied")
-				return
-			}
-		}
-
 		// Delete from int_storage bucket
-		err = h.storageService.DeleteObject("int_storage", objectID)
+		err = h.storageService.DeleteObject(constants.InternalStorageBucket, objectID)
 	} else {
 		// For other buckets, proceed normally
 		err = h.storageService.DeleteObject(bucket, objectID)
@@ -348,17 +297,13 @@ func (h *StorageHandlers) HandleDownloadObject(w http.ResponseWriter, r *http.Re
 
 	log.Printf("HandleDownloadObject: bucket=%s, objectID=%s", bucket, objectID)
 
-	// Get user ID from context if available, otherwise try to extract from token
-	userID, _ := r.Context().Value("user_id").(string)
-	if userID == "" {
-		userID = extractUserIDFromToken(r)
-	}
+	userID := utils.GetUserIDFromRequest(r)
 	log.Printf("HandleDownloadObject: userID=%s", userID)
 
 	// For internal storage, verify user access
 	actualBucket := bucket
-	if bucket == "user-files" || bucket == "int_storage" {
-		actualBucket = "int_storage"
+	if utils.IsInternalBucket(bucket) {
+		actualBucket = constants.InternalStorageBucket
 
 		// Require authentication for internal storage
 		if userID == "" {
@@ -465,16 +410,12 @@ func (h *StorageHandlers) HandleGetObject(w http.ResponseWriter, r *http.Request
 	bucket := vars["bucket"]
 	objectID := vars["id"]
 
-	// Get user ID from context if available, otherwise try to extract from token
-	userID, _ := r.Context().Value("user_id").(string)
-	if userID == "" {
-		userID = extractUserIDFromToken(r)
-	}
+	userID := utils.GetUserIDFromRequest(r)
 
 	// For internal storage, check access
 	actualBucket := bucket
-	if bucket == "user-files" || bucket == "int_storage" {
-		actualBucket = "int_storage"
+	if utils.IsInternalBucket(bucket) {
+		actualBucket = constants.InternalStorageBucket
 
 		// Require authentication for internal storage
 		if userID == "" {
@@ -491,21 +432,13 @@ func (h *StorageHandlers) HandleGetObject(w http.ResponseWriter, r *http.Request
 	}
 
 	// For internal storage, verify user access
-	if bucket == "user-files" || bucket == "int_storage" {
-		// Check if object belongs to user
-		fullPath := objectInfo.ObjectName
-		expectedPrefix := fmt.Sprintf("%s/%s/", userID, h.storageService.GetAppID())
-
-		// Check ownership: path starts with userID/appID
-		isOwner := strings.HasPrefix(fullPath, expectedPrefix)
-
-		// Also check if the object's UserID field matches (for backward compatibility)
-		if objectInfo.UserID == userID {
-			isOwner = true
-		}
-
-		if !isOwner {
-			utils.JSONError(w, http.StatusForbidden, "Access denied")
+	if utils.IsInternalBucket(bucket) {
+		ownershipErr := utils.CheckStorageOwnership(userID, &utils.StorageObjectInfo{
+			UserID: objectInfo.UserID,
+			AppID:  objectInfo.AppID,
+		}, h.storageService.GetAppID())
+		if ownershipErr != nil {
+			utils.HandleOwnershipError(w, ownershipErr)
 			return
 		}
 	}
@@ -519,11 +452,7 @@ func (h *StorageHandlers) HandleRenameObject(w http.ResponseWriter, r *http.Requ
 	bucket := vars["bucket"]
 	objectID := vars["id"]
 
-	// Get user ID from context if available, otherwise try to extract from token
-	userID, _ := r.Context().Value("user_id").(string)
-	if userID == "" {
-		userID = extractUserIDFromToken(r)
-	}
+	userID := utils.GetUserIDFromRequest(r)
 
 	// Require user authentication for renames
 	if userID == "" {
@@ -547,8 +476,8 @@ func (h *StorageHandlers) HandleRenameObject(w http.ResponseWriter, r *http.Requ
 
 	// For internal storage, verify user owns the object
 	actualBucket := bucket
-	if bucket == "user-files" || bucket == "int_storage" {
-		actualBucket = "int_storage"
+	if utils.IsInternalBucket(bucket) {
+		actualBucket = constants.InternalStorageBucket
 
 		// Get object info to verify ownership
 		objectInfo, err := h.storageService.GetObjectInfo(actualBucket, objectID)
@@ -586,11 +515,7 @@ func (h *StorageHandlers) HandleCreateFolder(w http.ResponseWriter, r *http.Requ
 	vars := mux.Vars(r)
 	bucket := vars["bucket"]
 
-	// Get user ID from context if available, otherwise try to extract from token
-	userID, _ := r.Context().Value("user_id").(string)
-	if userID == "" {
-		userID = extractUserIDFromToken(r)
-	}
+	userID := utils.GetUserIDFromRequest(r)
 
 	// Require user authentication for folder creation
 	if userID == "" {
@@ -601,7 +526,7 @@ func (h *StorageHandlers) HandleCreateFolder(w http.ResponseWriter, r *http.Requ
 	var request struct {
 		Name           string  `json:"name"`
 		Path           string  `json:"path"`
-		ParentFolderID *string `json:"parent_folder_id"`
+		ParentFolderID *string `json:"parentFolderId"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -616,8 +541,8 @@ func (h *StorageHandlers) HandleCreateFolder(w http.ResponseWriter, r *http.Requ
 
 	// Determine the correct bucket
 	actualBucket := bucket
-	if bucket == "user-files" || bucket == "int_storage" {
-		actualBucket = "int_storage"
+	if utils.IsInternalBucket(bucket) {
+		actualBucket = constants.InternalStorageBucket
 	}
 
 	// Create the folder with the new method that supports parent_folder_id
@@ -664,11 +589,7 @@ func (h *StorageHandlers) HandleGenerateDownloadURL(w http.ResponseWriter, r *ht
 	bucket := vars["bucket"]
 	objectID := vars["id"]
 
-	// Get user ID from context
-	userID, _ := r.Context().Value("user_id").(string)
-	if userID == "" {
-		userID = extractUserIDFromToken(r)
-	}
+	userID := utils.GetUserIDFromRequest(r)
 
 	// Get object info
 	object, err := h.storageService.GetObjectInfo(bucket, objectID)
@@ -684,7 +605,7 @@ func (h *StorageHandlers) HandleGenerateDownloadURL(w http.ResponseWriter, r *ht
 
 	if provider == "s3" {
 		// Generate S3 presigned URL
-		url, err := h.storageService.GeneratePresignedDownloadURL(bucket, object.ObjectName, 3600) // 1 hour
+		url, err := h.storageService.GeneratePresignedDownloadURL(bucket, object.ObjectName, constants.DefaultURLExpiry) // 1 hour
 		if err != nil {
 			utils.JSONError(w, http.StatusInternalServerError, "Failed to generate download URL")
 			return
@@ -710,7 +631,7 @@ func (h *StorageHandlers) HandleGenerateDownloadURL(w http.ResponseWriter, r *ht
 		response = map[string]interface{}{
 			"url":          url,
 			"type":         "presigned",
-			"expires_in":   3600,
+			"expires_in":   constants.DefaultURLExpiry,
 			"callback_url": fmt.Sprintf("/api/storage/download-callback/%s", token.Token),
 		}
 	} else {
@@ -735,7 +656,7 @@ func (h *StorageHandlers) HandleGenerateDownloadURL(w http.ResponseWriter, r *ht
 		response = map[string]interface{}{
 			"url":        fmt.Sprintf("/api/storage/direct/%s", token.Token),
 			"type":       "token",
-			"expires_in": 3600,
+			"expires_in": constants.DefaultURLExpiry,
 		}
 	}
 
@@ -749,7 +670,7 @@ func (h *StorageHandlers) HandleGenerateUploadURL(w http.ResponseWriter, r *http
 
 	var request struct {
 		Filename       string  `json:"filename"`
-		ParentFolderID *string `json:"parent_folder_id,omitempty"`
+		ParentFolderID *string `json:"parentFolderId,omitempty"`
 		ContentType    string  `json:"contentType"`
 		MaxSize        int64   `json:"maxSize"`
 	}
@@ -769,14 +690,10 @@ func (h *StorageHandlers) HandleGenerateUploadURL(w http.ResponseWriter, r *http
 	}
 
 	if request.MaxSize == 0 {
-		request.MaxSize = 10 << 20 // 10MB default
+		request.MaxSize = constants.DefaultMaxFileSize
 	}
 
-	// Get user ID from context
-	userID, _ := r.Context().Value("user_id").(string)
-	if userID == "" {
-		userID = extractUserIDFromToken(r)
-	}
+	userID := utils.GetUserIDFromRequest(r)
 
 	// Object key is just the filename now
 	objectKey := request.Filename
@@ -807,7 +724,7 @@ func (h *StorageHandlers) HandleGenerateUploadURL(w http.ResponseWriter, r *http
 
 	if provider == "s3" {
 		// Generate S3 presigned upload URL
-		url, err := h.storageService.GeneratePresignedUploadURL(bucket, objectKey, request.ContentType, 3600)
+		url, err := h.storageService.GeneratePresignedUploadURL(bucket, objectKey, request.ContentType, constants.DefaultURLExpiry)
 		if err != nil {
 			utils.JSONError(w, http.StatusInternalServerError, "Failed to generate upload URL")
 			return
@@ -835,7 +752,7 @@ func (h *StorageHandlers) HandleGenerateUploadURL(w http.ResponseWriter, r *http
 		response = map[string]interface{}{
 			"url":          url,
 			"type":         "presigned",
-			"expires_in":   3600,
+			"expires_in":   constants.DefaultURLExpiry,
 			"callback_url": fmt.Sprintf("/api/storage/upload-callback/%s", token.Token),
 		}
 	} else {
@@ -862,7 +779,7 @@ func (h *StorageHandlers) HandleGenerateUploadURL(w http.ResponseWriter, r *http
 		response = map[string]interface{}{
 			"url":        fmt.Sprintf("/api/storage/direct-upload/%s", token.Token),
 			"type":       "token",
-			"expires_in": 3600,
+			"expires_in": constants.DefaultURLExpiry,
 		}
 	}
 
@@ -888,12 +805,7 @@ func (h *StorageHandlers) HandleDirectDownload(w http.ResponseWriter, r *http.Re
 	}
 
 	// Get the file from storage
-	// Reconstruct the full path from ObjectPath and ObjectName
-	fullPath := token.ObjectName
-	if false { // ObjectPath no longer used
-		fullPath = "" + "/" + token.ObjectName
-	}
-	reader, filename, contentType, err := h.storageService.GetObjectByKey(token.Bucket, fullPath)
+	reader, filename, contentType, err := h.storageService.GetObjectByKey(token.Bucket, token.ObjectName)
 	if err != nil {
 		utils.JSONError(w, http.StatusNotFound, "File not found")
 		return
@@ -957,12 +869,7 @@ func (h *StorageHandlers) HandleDirectUpload(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Upload the file
-	// Reconstruct the full path from ObjectPath and ObjectName
-	fullPath := token.ObjectName
-	if false { // ObjectPath no longer used
-		fullPath = "" + "/" + token.ObjectName
-	}
-	object, err := h.storageService.UploadFile(token.Bucket, fullPath, token.UserID, bytes.NewReader(fileContent), fileSize, token.ContentType, nil)
+	object, err := h.storageService.UploadFile(token.Bucket, token.ObjectName, token.UserID, bytes.NewReader(fileContent), fileSize, token.ContentType, nil)
 	if err != nil {
 		utils.JSONError(w, http.StatusInternalServerError, "Failed to upload file")
 		return
@@ -992,7 +899,7 @@ func (h *StorageHandlers) HandleDirectUpload(w http.ResponseWriter, r *http.Requ
 				"bucket":   token.Bucket,
 				"objectID": objectIDStr,
 				"filename": token.ObjectName,
-				"key":      fullPath,
+				"key":      token.ObjectName,
 				"fileSize": fileSize,
 			},
 			Services: nil,
@@ -1048,7 +955,7 @@ func (d *DirectDownloadTracker) Close() error {
 
 // HandleGetStorageQuota returns storage quota information for the current user
 func (h *StorageHandlers) HandleGetStorageQuota(w http.ResponseWriter, r *http.Request) {
-	userID := extractUserIDFromToken(r)
+	userID := utils.GetUserIDFromRequest(r)
 	if userID == "" {
 		utils.JSONError(w, http.StatusUnauthorized, "Authentication required")
 		return
@@ -1065,15 +972,15 @@ func (h *StorageHandlers) HandleGetStorageQuota(w http.ResponseWriter, r *http.R
 	}
 
 	// Default quota limits (can be overridden by CloudStorage extension)
-	maxStorage := int64(5 * 1024 * 1024 * 1024)    // 5GB default
-	maxBandwidth := int64(10 * 1024 * 1024 * 1024) // 10GB default
+	maxStorage := int64(constants.DefaultMaxStorageBytes)
+	maxBandwidth := int64(constants.DefaultMaxBandwidthBytes)
 
 	// Check if there's a storage quota record for this user
 	var quota struct {
-		MaxStorageBytes   int64 `json:"max_storage_bytes"`
-		MaxBandwidthBytes int64 `json:"max_bandwidth_bytes"`
-		StorageUsed       int64 `json:"storage_used"`
-		BandwidthUsed     int64 `json:"bandwidth_used"`
+		MaxStorageBytes   int64 `json:"maxStorageBytes"`
+		MaxBandwidthBytes int64 `json:"maxBandwidthBytes"`
+		StorageUsed       int64 `json:"storageUsed"`
+		BandwidthUsed     int64 `json:"bandwidthUsed"`
 	}
 
 	// Try to get quota from ext_cloudstorage_storage_quotas table if it exists
@@ -1116,7 +1023,7 @@ func (h *StorageHandlers) HandleGetStorageQuota(w http.ResponseWriter, r *http.R
 
 // HandleGetStorageStats returns storage statistics for the current user
 func (h *StorageHandlers) HandleGetStorageStats(w http.ResponseWriter, r *http.Request) {
-	userID := extractUserIDFromToken(r)
+	userID := utils.GetUserIDFromRequest(r)
 	if userID == "" {
 		utils.JSONError(w, http.StatusUnauthorized, "Authentication required")
 		return
@@ -1131,15 +1038,15 @@ func (h *StorageHandlers) HandleGetStorageStats(w http.ResponseWriter, r *http.R
 
 	// Format response
 	response := map[string]interface{}{
-		"totalSize":     stats["total_size"],
-		"fileCount":     stats["file_count"],
-		"folderCount":   stats["folder_count"],
-		"sharedCount":   stats["shared_count"],
-		"recentUploads": stats["recent_uploads"],
+		"totalSize":     stats["totalSize"],
+		"fileCount":     stats["fileCount"],
+		"folderCount":   stats["folderCount"],
+		"sharedCount":   stats["sharedCount"],
+		"recentUploads": stats["recentUploads"],
 		// Additional fields for compatibility
 		"trashedCount": 0, // We don't have trash functionality yet
-		"totalFiles":   stats["file_count"],
-		"totalFolders": stats["folder_count"],
+		"totalFiles":   stats["fileCount"],
+		"totalFolders": stats["folderCount"],
 	}
 
 	utils.JSONResponse(w, http.StatusOK, response)
@@ -1160,7 +1067,7 @@ func (h *StorageHandlers) HandleGetAdminStorageStats(w http.ResponseWriter, r *h
 
 // HandleGetRecentlyViewed returns recently viewed items for the current user
 func (h *StorageHandlers) HandleGetRecentlyViewed(w http.ResponseWriter, r *http.Request) {
-	userID := extractUserIDFromToken(r)
+	userID := utils.GetUserIDFromRequest(r)
 	if userID == "" {
 		utils.JSONError(w, http.StatusUnauthorized, "Authentication required")
 		return
@@ -1214,7 +1121,7 @@ func (h *StorageHandlers) HandleUpdateLastViewed(w http.ResponseWriter, r *http.
 	vars := mux.Vars(r)
 	itemID := vars["id"]
 
-	userID := extractUserIDFromToken(r)
+	userID := utils.GetUserIDFromRequest(r)
 	if userID == "" {
 		utils.JSONError(w, http.StatusUnauthorized, "Authentication required")
 		return
@@ -1238,7 +1145,7 @@ func (h *StorageHandlers) HandleUpdateLastViewed(w http.ResponseWriter, r *http.
 
 // HandleSearchStorageObjects searches for storage objects by name
 func (h *StorageHandlers) HandleSearchStorageObjects(w http.ResponseWriter, r *http.Request) {
-	userID := extractUserIDFromToken(r)
+	userID := utils.GetUserIDFromRequest(r)
 	if userID == "" {
 		utils.JSONError(w, http.StatusUnauthorized, "Authentication required")
 		return
@@ -1304,11 +1211,7 @@ func (h *StorageHandlers) HandleUpdateObjectMetadata(w http.ResponseWriter, r *h
 	bucket := vars["bucket"]
 	objectID := vars["id"]
 
-	// Get user ID from context if available, otherwise try to extract from token
-	userID, _ := r.Context().Value("user_id").(string)
-	if userID == "" {
-		userID = extractUserIDFromToken(r)
-	}
+	userID := utils.GetUserIDFromRequest(r)
 
 	// Require user authentication
 	if userID == "" {
@@ -1327,8 +1230,8 @@ func (h *StorageHandlers) HandleUpdateObjectMetadata(w http.ResponseWriter, r *h
 
 	// For internal storage, verify user owns the object
 	actualBucket := bucket
-	if bucket == "user-files" || bucket == "int_storage" {
-		actualBucket = "int_storage"
+	if utils.IsInternalBucket(bucket) {
+		actualBucket = constants.InternalStorageBucket
 
 		// Get object info to verify ownership
 		objectInfo, err := h.storageService.GetObjectInfo(actualBucket, objectID)
@@ -1367,10 +1270,3 @@ func (h *StorageHandlers) HandleUpdateObjectMetadata(w http.ResponseWriter, r *h
 	utils.JSONResponse(w, http.StatusOK, objectInfo)
 }
 
-// Helper function to determine item type
-func getItemType(item pkgstorage.StorageObject) string {
-	if item.ContentType == "application/x-directory" {
-		return "folder"
-	}
-	return "file"
-}

@@ -1,0 +1,129 @@
+package utils
+
+import (
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/suppers-ai/solobase/constants"
+	commonjwt "github.com/suppers-ai/solobase/internal/common/jwt"
+)
+
+// Storage ownership errors
+var (
+	ErrNotOwner       = errors.New("access denied: not owner")
+	ErrAppIDMismatch  = errors.New("access denied: app ID mismatch")
+	ErrObjectNotFound = errors.New("object not found")
+)
+
+// StorageClaims represents JWT claims for storage operations
+type StorageClaims struct {
+	UserID string `json:"userId"`
+	Email  string `json:"email"`
+	Role   string `json:"role"`
+	jwt.RegisteredClaims
+}
+
+// GetUserIDFromRequest extracts user ID from request context or JWT token
+func GetUserIDFromRequest(r *http.Request) string {
+	// First try typed context key
+	if userID, ok := r.Context().Value(constants.ContextKeyUserID).(string); ok && userID != "" {
+		return userID
+	}
+
+	// Fallback to string context key for backward compatibility
+	if userID, ok := r.Context().Value("user_id").(string); ok && userID != "" {
+		return userID
+	}
+
+	// Last resort: extract from JWT token
+	return extractUserIDFromToken(r)
+}
+
+// extractUserIDFromToken extracts user ID from JWT token in Authorization header
+func extractUserIDFromToken(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	if tokenString == authHeader {
+		return ""
+	}
+
+	claims := &StorageClaims{}
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		return commonjwt.GetJWTSecret(), nil
+	})
+
+	if err != nil || !token.Valid {
+		return ""
+	}
+
+	return claims.UserID
+}
+
+// NormalizeBucket converts user-facing bucket names to internal bucket names
+func NormalizeBucket(bucket string) string {
+	if bucket == constants.UserFilesBucket || bucket == constants.InternalStorageBucket {
+		return constants.InternalStorageBucket
+	}
+	return bucket
+}
+
+// IsInternalBucket checks if a bucket is the internal storage bucket
+func IsInternalBucket(bucket string) bool {
+	return bucket == constants.UserFilesBucket || bucket == constants.InternalStorageBucket
+}
+
+// RequireAuth is a helper that checks for user authentication and returns an error response if not authenticated
+func RequireAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
+	userID := GetUserIDFromRequest(r)
+	if userID == "" {
+		JSONError(w, http.StatusUnauthorized, "Authentication required")
+		return "", false
+	}
+	return userID, true
+}
+
+// StorageObjectInfo holds the basic info needed for ownership checks
+type StorageObjectInfo struct {
+	UserID string
+	AppID  *string
+}
+
+// CheckStorageOwnership verifies that the user owns the storage object
+// Returns nil if ownership is verified, otherwise returns an appropriate error
+func CheckStorageOwnership(userID string, obj *StorageObjectInfo, expectedAppID string) error {
+	if obj == nil {
+		return ErrObjectNotFound
+	}
+
+	// Check if object belongs to user
+	if obj.UserID != userID {
+		return ErrNotOwner
+	}
+
+	// If an app ID is expected, verify it matches
+	if expectedAppID != "" {
+		if obj.AppID == nil || *obj.AppID != expectedAppID {
+			return ErrAppIDMismatch
+		}
+	}
+
+	return nil
+}
+
+// HandleOwnershipError writes the appropriate HTTP error response for ownership errors
+func HandleOwnershipError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrObjectNotFound):
+		JSONError(w, http.StatusNotFound, "Object not found")
+	case errors.Is(err, ErrNotOwner), errors.Is(err, ErrAppIDMismatch):
+		JSONError(w, http.StatusForbidden, "Access denied")
+	default:
+		JSONError(w, http.StatusInternalServerError, "Internal server error")
+	}
+}

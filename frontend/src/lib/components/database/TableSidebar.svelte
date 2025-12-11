@@ -88,8 +88,8 @@
 								>
 									<Table size={14} />
 									<span class="table-name">{table.name || table.value}</span>
-									{#if table.rows_count !== undefined}
-										<span class="table-rows">{table.rows_count.toLocaleString()} rows</span>
+									{#if table.rowsCount !== undefined}
+										<span class="table-rows">{table.rowsCount.toLocaleString()} rows</span>
 									{/if}
 								</button>
 							{/each}

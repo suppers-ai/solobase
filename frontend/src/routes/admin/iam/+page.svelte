@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, ErrorHandler, authFetch } from '$lib/api';
 	import RolesManager from '$lib/components/iam/RolesManager.svelte';
@@ -6,11 +6,45 @@
 	import UserRolesManager from '$lib/components/iam/UserRolesManager.svelte';
 	import PolicyTester from '$lib/components/iam/PolicyTester.svelte';
 	import AuditLog from '$lib/components/iam/AuditLog.svelte';
-	
+
+	interface RoleMetadata {
+		disabledFeatures?: string[];
+		[key: string]: unknown;
+	}
+
+	interface Role {
+		name: string;
+		displayName?: string;
+		description: string;
+		type?: string;
+		metadata?: RoleMetadata;
+	}
+
+	interface Policy {
+		id?: string;
+		subject: string;
+		resource: string;
+		action: string;
+		effect: 'allow' | 'deny';
+	}
+
+	interface UserRole {
+		name: string;
+		displayName?: string;
+	}
+
+	interface User {
+		id: string;
+		email: string;
+		firstName?: string;
+		lastName?: string;
+		roles?: UserRole[];
+	}
+
 	let activeTab = 'roles';
-	let roles = [];
-	let policies = [];
-	let users = [];
+	let roles: Role[] = [];
+	let policies: Policy[] = [];
+	let users: User[] = [];
 	let loading = true;
 	
 	async function loadRoles() {
@@ -64,7 +98,7 @@
 		loading = false;
 	}
 	
-	async function handleRoleCreated(event) {
+	async function handleRoleCreated(event: CustomEvent<Role>) {
 		const role = event.detail;
 		try {
 			const response = await authFetch('/api/admin/iam/roles', {
@@ -82,9 +116,9 @@
 		}
 	}
 
-	async function handleRoleDeleted(event) {
+	async function handleRoleDeleted(event: CustomEvent<Role>) {
 		const role = event.detail;
-		if (!confirm(`Delete role ${role.display_name || role.name}?`)) {
+		if (!confirm(`Delete role ${role.displayName || role.name}?`)) {
 			return;
 		}
 
@@ -99,7 +133,7 @@
 		}
 	}
 
-	async function handlePolicyCreated(event) {
+	async function handlePolicyCreated(event: CustomEvent<Policy>) {
 		const policy = event.detail;
 		const response = await authFetch('/api/admin/iam/policies', {
 			method: 'POST',
@@ -113,7 +147,7 @@
 		}
 	}
 
-	async function handlePolicyDeleted(event) {
+	async function handlePolicyDeleted(event: CustomEvent<Policy>) {
 		const policy = event.detail;
 		if (!confirm(`Delete policy for ${policy.subject}?`)) {
 			return;

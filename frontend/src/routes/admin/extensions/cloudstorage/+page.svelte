@@ -36,13 +36,13 @@
 	
 	interface Share {
 		id: string;
-		object_id: string;
-		shared_with_email?: string;
-		shared_with_user_id?: string;
-		permission_level: 'view' | 'edit' | 'admin';
-		is_public: boolean;
-		share_token?: string;
-		expires_at?: string;
+		objectId: string;
+		sharedWithEmail?: string;
+		sharedWithUserId?: string;
+		permissionLevel: 'view' | 'edit' | 'admin';
+		isPublic: boolean;
+		shareToken?: string;
+		expiresAt?: string;
 	}
 	
 	// Data states
@@ -165,11 +165,11 @@
 				);
 				
 				const [statsRes, sharesRes, quotasRes, logsRes] = await Promise.all(promises);
-				
+
 				stats = statsRes || {};
-				shares = sharesRes || [];
-				quotas = quotasRes || [];
-				accessLogs = logsRes || [];
+				shares = (Array.isArray(sharesRes) ? sharesRes : []) as Share[];
+				quotas = Array.isArray(quotasRes) ? quotasRes : [];
+				accessLogs = Array.isArray(logsRes) ? logsRes : [];
 			} catch (err) {
 				// CloudStorage extension API might not be fully implemented yet
 				// Continue with empty data
@@ -214,11 +214,11 @@
 	async function loadExtensionSettings() {
 		try {
 			// Load the setting from API
-			const response = await api.get('/settings/ext_cloudstorage_profile_show_usage');
+			const response = await api.get<{ value?: string | boolean }>('/settings/ext_cloudstorage_profile_show_usage');
 			if (response && response.value !== undefined) {
 				showUsageInProfile = response.value === 'true' || response.value === true;
 			}
-		} catch (err) {
+		} catch {
 			// Setting might not exist yet, use default value
 			showUsageInProfile = true;
 		}
@@ -251,21 +251,21 @@
 			
 			// Add objects to bucket
 			if (bucket.objects && Array.isArray(bucket.objects)) {
-				bucket.objects.forEach((obj: any) => {
-					// Skip if no object_key
-					if (!obj.object_key) return;
-					
-					const parts = obj.object_key.split('/').filter(p => p); // Remove empty parts
+				bucket.objects.forEach((obj: { objectKey?: string; id?: string; contentType?: string; size?: number }) => {
+					// Skip if no objectKey
+					if (!obj.objectKey) return;
+
+					const parts = obj.objectKey.split('/').filter((p: string) => p); // Remove empty parts
 					if (parts.length === 0) return;
-					
-					let currentLevel = bucketNode.children;
+
+					let currentLevel: FileTreeNode[] = bucketNode.children;
 					let currentPath = bucket.name;
-					
+
 					parts.forEach((part: string, index: number) => {
 						currentPath += '/' + part;
-						const isFile = index === parts.length - 1 && obj.content_type !== 'application/x-directory';
-						
-						let node = currentLevel.find((n: any) => n.name === part);
+						const isFile = index === parts.length - 1 && obj.contentType !== 'application/x-directory';
+
+						let node: FileTreeNode | undefined = currentLevel.find((n: FileTreeNode) => n.name === part);
 						if (!node) {
 							node = {
 								id: isFile ? (obj.id || currentPath) : `dir-${currentPath}`,
@@ -277,7 +277,7 @@
 							};
 							currentLevel.push(node);
 						}
-						
+
 						if (!isFile && node.children) {
 							currentLevel = node.children;
 						}
@@ -308,13 +308,13 @@
 				null;
 			
 			const response = await api.post('/ext/cloudstorage/shares', {
-				object_id: shareForm.objectId,
-				shared_with_email: shareForm.sharedWithEmail || undefined,
-				permission_level: shareForm.permissionLevel,
-				inherit_to_children: shareForm.inheritToChildren,
-				generate_token: shareForm.generateToken,
-				is_public: shareForm.isPublic,
-				expires_at: expiresAt
+				objectId: shareForm.objectId,
+				sharedWithEmail: shareForm.sharedWithEmail || undefined,
+				permissionLevel: shareForm.permissionLevel,
+				inheritToChildren: shareForm.inheritToChildren,
+				generateToken: shareForm.generateToken,
+				isPublic: shareForm.isPublic,
+				expiresAt: expiresAt
 			});
 			
 			if (response) {
@@ -322,8 +322,9 @@
 				await loadData();
 
 				// Show share link if token was generated
-				if (response.share_token) {
-					toasts.success(`Share link created: ${window.location.origin}/share/${response.share_token}`);
+				const typedResponse = response as { shareToken?: string };
+				if (typedResponse.shareToken) {
+					toasts.success(`Share link created: ${window.location.origin}/share/${typedResponse.shareToken}`);
 				}
 			}
 		} catch (error) {
@@ -334,9 +335,9 @@
 	async function updateQuota() {
 		try {
 			const response = await api.put('/ext/cloudstorage/quota', {
-				user_id: quotaForm.userId,
-				max_storage_bytes: quotaForm.maxStorageGB * 1024 * 1024 * 1024,
-				max_bandwidth_bytes: quotaForm.maxBandwidthGB * 1024 * 1024 * 1024
+				userId: quotaForm.userId,
+				maxStorageBytes: quotaForm.maxStorageGB * 1024 * 1024 * 1024,
+				maxBandwidthBytes: quotaForm.maxBandwidthGB * 1024 * 1024 * 1024
 			});
 			
 			if (response) {
@@ -399,9 +400,8 @@
 	async function updateDefaultQuotas() {
 		try {
 			const response = await api.put('/ext/cloudstorage/default-quotas', {
-				default_storage: defaultQuotas.storage * 1024 * 1024 * 1024,
-				default_bandwidth: defaultQuotas.bandwidth * 1024 * 1024 * 1024,
-				apply_to_existing: defaultQuotas.applyToExisting
+				defaultStorage: defaultQuotas.storage * 1024 * 1024 * 1024,
+				defaultBandwidth: defaultQuotas.bandwidth * 1024 * 1024 * 1024
 			});
 			
 			if (response) {
@@ -420,10 +420,10 @@
 			Object.entries(logFilters).forEach(([key, value]) => {
 				if (value) params.append(key, value.toString());
 			});
-			
+
 			const response = await api.get(`/ext/cloudstorage/access-logs?${params}`);
-			accessLogs = response || [];
-		} catch (error) {
+			accessLogs = Array.isArray(response) ? response : [];
+		} catch {
 			// Silently handle error - logs might not be available
 		}
 	}
@@ -570,8 +570,8 @@
 						</div>
 						<div class="stat-content">
 							<p class="stat-label">Total Storage</p>
-							<p class="stat-value">{formatBytes(stats.storage?.total_size || 0)}</p>
-							<p class="stat-detail">{stats.storage?.total_objects || 0} objects</p>
+							<p class="stat-value">{formatBytes(stats.storage?.totalSize || 0)}</p>
+							<p class="stat-detail">{stats.storage?.totalObjects || 0} objects</p>
 						</div>
 					</div>
 				{/if}
@@ -583,9 +583,9 @@
 						</div>
 						<div class="stat-content">
 							<p class="stat-label">Storage Usage</p>
-							<p class="stat-value">{formatPercentage(stats.quota?.storage_percentage || 0)}</p>
+							<p class="stat-value">{formatPercentage(stats.quota?.storagePercentage || 0)}</p>
 							<div class="progress-bar">
-								<div class="progress-fill" style="width: {stats.quota?.storage_percentage || 0}%"></div>
+								<div class="progress-fill" style="width: {stats.quota?.storagePercentage || 0}%"></div>
 							</div>
 						</div>
 					</div>
@@ -596,9 +596,9 @@
 						</div>
 						<div class="stat-content">
 							<p class="stat-label">Bandwidth Usage</p>
-							<p class="stat-value">{formatPercentage(stats.quota?.bandwidth_percentage || 0)}</p>
+							<p class="stat-value">{formatPercentage(stats.quota?.bandwidthPercentage || 0)}</p>
 							<div class="progress-bar">
-								<div class="progress-fill bandwidth" style="width: {stats.quota?.bandwidth_percentage || 0}%"></div>
+								<div class="progress-fill bandwidth" style="width: {stats.quota?.bandwidthPercentage || 0}%"></div>
 							</div>
 						</div>
 					</div>
@@ -611,8 +611,8 @@
 						</div>
 						<div class="stat-content">
 							<p class="stat-label">Active Shares</p>
-							<p class="stat-value">{stats.shares?.active_shares || 0}</p>
-							<p class="stat-detail">Total: {stats.shares?.total_shares || 0}</p>
+							<p class="stat-value">{stats.shares?.activeShares || 0}</p>
+							<p class="stat-detail">Total: {stats.shares?.totalShares || 0}</p>
 						</div>
 					</div>
 				{/if}
@@ -624,8 +624,8 @@
 						</div>
 						<div class="stat-content">
 							<p class="stat-label">Total Access</p>
-							<p class="stat-value">{stats.access?.total_access || 0}</p>
-							<p class="stat-detail">{stats.access?.unique_users || 0} unique users</p>
+							<p class="stat-value">{stats.access?.totalAccess || 0}</p>
+							<p class="stat-detail">{stats.access?.uniqueUsers || 0} unique users</p>
 						</div>
 					</div>
 				{/if}
@@ -643,13 +643,13 @@
 								</div>
 								<div class="activity-details">
 									<p class="activity-description">
-										<strong>{log.user_id || 'Anonymous'}</strong> 
-										{log.action} 
-										<span class="file-name">Object {log.object_id.slice(0, 8)}...</span>
+										<strong>{log.userId || 'Anonymous'}</strong>
+										{log.action}
+										<span class="file-name">Object {log.objectId.slice(0, 8)}...</span>
 									</p>
 									<div class="activity-meta">
-										{#if log.metadata?.bytes_size}
-											<span>{formatBytes(log.metadata.bytes_size)}</span>
+										{#if log.metadata?.bytesSize}
+											<span>{formatBytes(log.metadata.bytesSize)}</span>
 											<span>•</span>
 										{/if}
 										<span>{new Date(log.createdAt).toLocaleString()}</span>
@@ -669,7 +669,7 @@
 					<h3>Share Statistics</h3>
 				</div>
 				
-				{#if !stats.shares || stats.shares.total_shares === 0}
+				{#if !stats.shares || stats.shares.totalShares === 0}
 					<!-- Empty State for Shares -->
 					<div class="empty-state">
 						<div class="empty-state-icon">
@@ -688,7 +688,7 @@
 								<Share2 size={24} class="text-cyan-600" />
 							</div>
 							<div class="share-stat-content">
-								<p class="share-stat-value">{stats.shares.total_shares || 0}</p>
+								<p class="share-stat-value">{stats.shares.totalShares || 0}</p>
 								<p class="share-stat-label">Total Shares</p>
 							</div>
 						</div>
@@ -698,7 +698,7 @@
 								<Globe size={24} class="text-green-600" />
 							</div>
 							<div class="share-stat-content">
-								<p class="share-stat-value">{stats.shares.public_shares || 0}</p>
+								<p class="share-stat-value">{stats.shares.publicShares || 0}</p>
 								<p class="share-stat-label">Public Shares</p>
 							</div>
 						</div>
@@ -708,7 +708,7 @@
 								<Lock size={24} class="text-orange-600" />
 							</div>
 							<div class="share-stat-content">
-								<p class="share-stat-value">{stats.shares.private_shares || 0}</p>
+								<p class="share-stat-value">{stats.shares.privateShares || 0}</p>
 								<p class="share-stat-label">Private Shares</p>
 							</div>
 						</div>
@@ -718,7 +718,7 @@
 								<FolderOpen size={24} class="text-blue-600" />
 							</div>
 							<div class="share-stat-content">
-								<p class="share-stat-value">{stats.shares.folders_shared || 0}</p>
+								<p class="share-stat-value">{stats.shares.foldersShared || 0}</p>
 								<p class="share-stat-label">Folders Shared</p>
 							</div>
 						</div>
@@ -728,7 +728,7 @@
 								<File size={24} class="text-purple-600" />
 							</div>
 							<div class="share-stat-content">
-								<p class="share-stat-value">{stats.shares.files_shared || 0}</p>
+								<p class="share-stat-value">{stats.shares.filesShared || 0}</p>
 								<p class="share-stat-label">Files Shared</p>
 							</div>
 						</div>
@@ -738,7 +738,7 @@
 								<Clock size={24} class="text-red-600" />
 							</div>
 							<div class="share-stat-content">
-								<p class="share-stat-value">{stats.shares.expired_shares || 0}</p>
+								<p class="share-stat-value">{stats.shares.expiredShares || 0}</p>
 								<p class="share-stat-label">Expired Shares</p>
 							</div>
 						</div>
@@ -769,41 +769,41 @@
 							<tbody>
 								{#each shares as share}
 									<tr>
-										<td class="truncate">{share.object_id.slice(0, 8)}...</td>
+										<td class="truncate">{share.objectId.slice(0, 8)}...</td>
 										<td>
-											{#if share.shared_with_email}
-												{share.shared_with_email}
-											{:else if share.shared_with_user_id}
-												User: {share.shared_with_user_id.slice(0, 8)}...
-											{:else if share.share_token}
+											{#if share.sharedWithEmail}
+												{share.sharedWithEmail}
+											{:else if share.sharedWithUserId}
+												User: {share.sharedWithUserId.slice(0, 8)}...
+											{:else if share.shareToken}
 												<span class="text-cyan-600">Public Link</span>
 											{:else}
 												-
 											{/if}
 										</td>
 										<td>
-											<span class="badge {getPermissionColor(share.permission_level)}">
-												{share.permission_level}
+											<span class="badge {getPermissionColor(share.permissionLevel)}">
+												{share.permissionLevel}
 											</span>
 										</td>
 										<td>
-											{#if share.is_public}
+											{#if share.isPublic}
 												<span class="badge bg-green-100 text-green-700">Public</span>
 											{:else}
 												<span class="badge bg-gray-100 text-gray-700">Private</span>
 											{/if}
 										</td>
 										<td>
-											{#if share.expires_at}
-												{new Date(share.expires_at).toLocaleDateString()}
+											{#if share.expiresAt}
+												{new Date(share.expiresAt).toLocaleDateString()}
 											{:else}
 												Never
 											{/if}
 										</td>
 										<td>
-											{#if share.share_token}
+											{#if share.shareToken}
 												<button class="btn btn-xs" on:click={() => {
-													navigator.clipboard.writeText(`${window.location.origin}/share/${share.share_token}`);
+													navigator.clipboard.writeText(`${window.location.origin}/share/${share.shareToken}`);
 													toasts.success('Share link copied!');
 												}}>
 													<Link size={12} />
@@ -848,7 +848,7 @@
 								<Users size={24} class="text-blue-600" />
 							</div>
 							<div class="quota-stat-content">
-								<p class="quota-stat-value">{stats.quota.total_users || 0}</p>
+								<p class="quota-stat-value">{stats.quota.totalUsers || 0}</p>
 								<p class="quota-stat-label">Users with Quotas</p>
 							</div>
 						</div>
@@ -858,7 +858,7 @@
 								<HardDrive size={24} class="text-green-600" />
 							</div>
 							<div class="quota-stat-content">
-								<p class="quota-stat-value">{formatBytes(stats.quota.storage_used || 0)}</p>
+								<p class="quota-stat-value">{formatBytes(stats.quota.storageUsed || 0)}</p>
 								<p class="quota-stat-label">Total Storage Used</p>
 							</div>
 						</div>
@@ -868,7 +868,7 @@
 								<Activity size={24} class="text-purple-600" />
 							</div>
 							<div class="quota-stat-content">
-								<p class="quota-stat-value">{formatBytes(stats.quota.bandwidth_used || 0)}</p>
+								<p class="quota-stat-value">{formatBytes(stats.quota.bandwidthUsed || 0)}</p>
 								<p class="quota-stat-label">Total Bandwidth Used</p>
 							</div>
 						</div>
@@ -878,7 +878,7 @@
 								<TrendingUp size={24} class="text-orange-600" />
 							</div>
 							<div class="quota-stat-content">
-								<p class="quota-stat-value">{formatPercentage(stats.quota.storage_percentage || 0)}</p>
+								<p class="quota-stat-value">{formatPercentage(stats.quota.storagePercentage || 0)}</p>
 								<p class="quota-stat-label">Storage Utilization</p>
 							</div>
 						</div>
@@ -888,7 +888,7 @@
 								<Zap size={24} class="text-yellow-600" />
 							</div>
 							<div class="quota-stat-content">
-								<p class="quota-stat-value">{formatPercentage(stats.quota.bandwidth_percentage || 0)}</p>
+								<p class="quota-stat-value">{formatPercentage(stats.quota.bandwidthPercentage || 0)}</p>
 								<p class="quota-stat-label">Bandwidth Utilization</p>
 							</div>
 						</div>
@@ -898,7 +898,7 @@
 								<AlertTriangle size={24} class="text-red-600" />
 							</div>
 							<div class="quota-stat-content">
-								<p class="quota-stat-value">{stats.quota.users_near_limit || 0}</p>
+								<p class="quota-stat-value">{stats.quota.usersNearLimit || 0}</p>
 								<p class="quota-stat-label">Users Near Limit</p>
 							</div>
 						</div>
@@ -912,12 +912,12 @@
 								<div class="usage-bar-header">
 									<span class="usage-bar-label">Total Storage Used</span>
 									<span class="usage-bar-value">
-										{formatBytes(stats.quota.storage_used || 0)} / {formatBytes(stats.quota.storage_limit || 0)}
+										{formatBytes(stats.quota.storageUsed || 0)} / {formatBytes(stats.quota.storageLimit || 0)}
 									</span>
 								</div>
 								<div class="usage-progress-bar">
-									<div class="usage-progress-fill storage" style="width: {Math.min(stats.quota.storage_percentage || 0, 100)}%">
-										<span class="usage-percentage">{formatPercentage(stats.quota.storage_percentage || 0)}</span>
+									<div class="usage-progress-fill storage" style="width: {Math.min(stats.quota.storagePercentage || 0, 100)}%">
+										<span class="usage-percentage">{formatPercentage(stats.quota.storagePercentage || 0)}</span>
 									</div>
 								</div>
 							</div>
@@ -926,12 +926,12 @@
 								<div class="usage-bar-header">
 									<span class="usage-bar-label">Total Bandwidth Used</span>
 									<span class="usage-bar-value">
-										{formatBytes(stats.quota.bandwidth_used || 0)} / {formatBytes(stats.quota.bandwidth_limit || 0)}
+										{formatBytes(stats.quota.bandwidthUsed || 0)} / {formatBytes(stats.quota.bandwidthLimit || 0)}
 									</span>
 								</div>
 								<div class="usage-progress-bar">
-									<div class="usage-progress-fill bandwidth" style="width: {Math.min(stats.quota.bandwidth_percentage || 0, 100)}%">
-										<span class="usage-percentage">{formatPercentage(stats.quota.bandwidth_percentage || 0)}</span>
+									<div class="usage-progress-fill bandwidth" style="width: {Math.min(stats.quota.bandwidthPercentage || 0, 100)}%">
+										<span class="usage-percentage">{formatPercentage(stats.quota.bandwidthPercentage || 0)}</span>
 									</div>
 								</div>
 							</div>
@@ -980,14 +980,14 @@
 								<div class="log-details">
 									<div class="log-main">
 										<span class="log-action">{log.action}</span>
-										<span class="log-object">Object: {log.object_id.slice(0, 12)}...</span>
-										{#if log.user_id}
-											<span class="log-user">User: {log.user_id.slice(0, 8)}...</span>
+										<span class="log-object">Object: {log.objectId.slice(0, 12)}...</span>
+										{#if log.userId}
+											<span class="log-user">User: {log.userId.slice(0, 8)}...</span>
 										{/if}
 									</div>
 									<div class="log-meta">
-										{#if log.ip_address}
-											<span>IP: {log.ip_address}</span>
+										{#if log.ipAddress}
+											<span>IP: {log.ipAddress}</span>
 										{/if}
 										{#if log.metadata?.success !== undefined}
 											{#if log.metadata.success}
@@ -996,11 +996,11 @@
 												<XCircle size={14} class="text-red-600" />
 											{/if}
 										{/if}
-										{#if log.metadata?.bytes_size}
-											<span>{formatBytes(log.metadata.bytes_size)}</span>
+										{#if log.metadata?.bytesSize}
+											<span>{formatBytes(log.metadata.bytesSize)}</span>
 										{/if}
-										{#if log.metadata?.duration_ms}
-											<span>{log.metadata.duration_ms}ms</span>
+										{#if log.metadata?.durationMs}
+											<span>{log.metadata.durationMs}ms</span>
 										{/if}
 										<span class="log-time">{new Date(log.createdAt).toLocaleString()}</span>
 									</div>
@@ -1021,18 +1021,20 @@
 		{#if activeTab === 'analytics'}
 			<!-- Analytics Dashboard -->
 			<div class="analytics-grid">
-				{#if stats.access?.action_breakdown}
+				{#if stats.access?.actionBreakdown}
+					{@const breakdownValues = Object.values(stats.access.actionBreakdown)}
+					{@const maxValue = Math.max(...breakdownValues.map(v => Number(v)))}
 					<div class="analytics-card">
 						<h3>Actions Breakdown</h3>
 						<div class="breakdown-list">
-							{#each Object.entries(stats.access.action_breakdown) as [action, count]}
+							{#each Object.entries(stats.access.actionBreakdown) as [action, count]}
 								<div class="breakdown-item">
 									<div class="breakdown-label">
 										<svelte:component this={getActionIcon(action)} size={14} class={getActionColor(action)} />
 										<span>{action}</span>
 									</div>
 									<div class="breakdown-bar-container">
-										<div class="breakdown-bar" style="width: {(count / Math.max(...Object.values(stats.access.action_breakdown))) * 100}%"></div>
+										<div class="breakdown-bar" style="width: {(Number(count) / maxValue) * 100}%"></div>
 										<span class="breakdown-value">{count}</span>
 									</div>
 								</div>
@@ -1063,7 +1065,7 @@
 							{#each accessLogs.slice(0, 5) as log}
 								<div class="popular-file-item">
 									<File size={14} class="text-gray-500" />
-									<span class="file-id">{log.object_id.slice(0, 8)}...</span>
+									<span class="file-id">{log.objectId.slice(0, 8)}...</span>
 									<span class="file-access-count">{log.action}</span>
 								</div>
 							{/each}
@@ -1079,17 +1081,17 @@
 						{#if stats.access}
 							<div class="activity-metric">
 								<span class="metric-label">Unique Users</span>
-								<span class="metric-value">{stats.access.unique_users || 0}</span>
+								<span class="metric-value">{stats.access.uniqueUsers || 0}</span>
 							</div>
 							<div class="activity-metric">
 								<span class="metric-label">Total Actions</span>
-								<span class="metric-value">{stats.access.total_access || 0}</span>
+								<span class="metric-value">{stats.access.totalAccess || 0}</span>
 							</div>
 							<div class="activity-metric">
 								<span class="metric-label">Avg Actions/User</span>
 								<span class="metric-value">
-									{stats.access.unique_users > 0 ? 
-										Math.round(stats.access.total_access / stats.access.unique_users) : 0}
+									{stats.access.uniqueUsers > 0 ?
+										Math.round(stats.access.totalAccess / stats.access.uniqueUsers) : 0}
 								</span>
 							</div>
 						{:else}

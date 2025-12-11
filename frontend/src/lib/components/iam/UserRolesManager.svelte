@@ -1,23 +1,47 @@
-<script>
+<script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import UserRoleRow from './UserRoleRow.svelte';
 	import AssignRoleModal from './AssignRoleModal.svelte';
 	import { ErrorHandler, authFetch } from '$lib/api';
 
-	export let users = [];
-	export let roles = [];
+	interface UserRole {
+		name: string;
+		displayName?: string;
+	}
+
+	interface User {
+		id: string;
+		email: string;
+		firstName?: string;
+		lastName?: string;
+		roles?: UserRole[];
+	}
+
+	interface Role {
+		name: string;
+		displayName?: string;
+		description: string;
+	}
+
+	interface RoleAssignEvent {
+		userId: string;
+		roleName: string;
+	}
+
+	export let users: User[] = [];
+	export let roles: Role[] = [];
 
 	const dispatch = createEventDispatcher();
-	
-	let selectedUser = null;
+
+	let selectedUser: User | null = null;
 	let showAssignModal = false;
-	
-	function handleAssignRole(user) {
+
+	function handleAssignRole(user: User) {
 		selectedUser = user;
 		showAssignModal = true;
 	}
-	
-	async function handleRoleAssigned(event) {
+
+	async function handleRoleAssigned(event: CustomEvent<RoleAssignEvent>) {
 		const { userId, roleName } = event.detail;
 		const response = await authFetch(`/api/admin/iam/users/${userId}/roles`, {
 			method: 'POST',
@@ -32,7 +56,7 @@
 		}
 	}
 
-	async function handleRoleRemoved(event) {
+	async function handleRoleRemoved(event: CustomEvent<RoleAssignEvent>) {
 		const { userId, roleName } = event.detail;
 		if (!confirm(`Remove role ${roleName} from user?`)) {
 			return;

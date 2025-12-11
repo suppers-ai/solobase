@@ -569,7 +569,7 @@ func HandleWebhooksCreate() http.HandlerFunc {
 
 		// Mock creation
 		webhook["id"] = "wh_new"
-		webhook["created_at"] = "2024-01-15T10:00:00Z"
+		webhook["createdAt"] = "2024-01-15T10:00:00Z"
 
 		utils.JSONResponse(w, http.StatusCreated, webhook)
 	}

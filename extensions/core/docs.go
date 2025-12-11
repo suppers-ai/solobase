@@ -182,8 +182,8 @@ func (dg *DocumentationGenerator) GenerateJSON() ([]byte, error) {
 		Metadata    ExtensionMetadata `json:"metadata"`
 		Status      *ExtensionStatus  `json:"status,omitempty"`
 		Permissions []Permission      `json:"permissions,omitempty"`
-		Schema      string            `json:"database_schema,omitempty"`
-		Config      json.RawMessage   `json:"config_schema,omitempty"`
+		Schema      string            `json:"databaseSchema,omitempty"`
+		Config      json.RawMessage   `json:"configSchema,omitempty"`
 	}
 
 	docs := make([]ExtensionDoc, 0, len(extensions))

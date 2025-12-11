@@ -5,9 +5,9 @@ import "net/http"
 // ExtensionDocumentation provides comprehensive documentation for an extension
 type ExtensionDocumentation struct {
 	Overview      string           `json:"overview"`
-	DataCollected []DataPoint      `json:"data_collected"`
+	DataCollected []DataPoint      `json:"dataCollected"`
 	Endpoints     []EndpointDoc    `json:"endpoints"`
-	UsageExamples []UsageExample   `json:"usage_examples"`
+	UsageExamples []UsageExample   `json:"usageExamples"`
 	Configuration ConfigDoc        `json:"configuration"`
 	Permissions   []PermissionDoc  `json:"permissions"`
 	Screenshots   []Screenshot     `json:"screenshots"`
@@ -36,7 +36,7 @@ type EndpointDoc struct {
 	Request     *RequestExample  `json:"request,omitempty"`
 	Response    *ResponseExample `json:"response,omitempty"`
 	Errors      []ErrorDoc       `json:"errors"`
-	RateLimit   string           `json:"rate_limit,omitempty"`
+	RateLimit   string           `json:"rateLimit,omitempty"`
 	Auth        string           `json:"auth"`
 }
 
@@ -61,21 +61,21 @@ type HeaderDoc struct {
 
 // RequestExample provides a request example
 type RequestExample struct {
-	ContentType string      `json:"content_type"`
+	ContentType string      `json:"contentType"`
 	Body        interface{} `json:"body"`
 	CURL        string      `json:"curl,omitempty"`
 }
 
 // ResponseExample provides a response example
 type ResponseExample struct {
-	StatusCode  int         `json:"status_code"`
-	ContentType string      `json:"content_type"`
+	StatusCode  int         `json:"statusCode"`
+	ContentType string      `json:"contentType"`
 	Body        interface{} `json:"body"`
 }
 
 // ErrorDoc documents possible errors
 type ErrorDoc struct {
-	StatusCode  int    `json:"status_code"`
+	StatusCode  int    `json:"statusCode"`
 	Code        string `json:"code"`
 	Description string `json:"description"`
 }

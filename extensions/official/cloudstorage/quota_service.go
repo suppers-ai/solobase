@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	
-	"gorm.io/gorm"
+
 	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
+	"gorm.io/gorm"
 )
 
 // QuotaService manages storage quotas and limits
@@ -26,9 +26,9 @@ func (q *QuotaService) InitializeDefaultQuotas() error {
 	defaultQuotas := []RoleQuota{
 		{
 			RoleName:          "admin",
-			MaxStorageBytes:   107374182400, // 100GB
+			MaxStorageBytes:   107374182400,  // 100GB
 			MaxBandwidthBytes: 1099511627776, // 1TB
-			MaxUploadSize:     5368709120,   // 5GB
+			MaxUploadSize:     5368709120,    // 5GB
 			MaxFilesCount:     100000,
 		},
 		{
@@ -49,7 +49,7 @@ func (q *QuotaService) InitializeDefaultQuotas() error {
 			RoleName:          "viewer",
 			MaxStorageBytes:   1073741824,  // 1GB
 			MaxBandwidthBytes: 10737418240, // 10GB
-			MaxUploadSize:     0,            // No uploads
+			MaxUploadSize:     0,           // No uploads
 			MaxFilesCount:     0,
 		},
 		{
@@ -61,14 +61,14 @@ func (q *QuotaService) InitializeDefaultQuotas() error {
 			BlockedExtensions: "exe,bat,sh,cmd,ps1", // Block executables
 		},
 	}
-	
+
 	for _, quota := range defaultQuotas {
 		// Check if quota already exists
 		var existing RoleQuota
 		if err := q.db.Where("role_name = ?", quota.RoleName).First(&existing).Error; err == nil {
 			continue // Already exists
 		}
-		
+
 		// Get role ID from database directly
 		var role struct {
 			ID string
@@ -78,12 +78,12 @@ func (q *QuotaService) InitializeDefaultQuotas() error {
 			continue // Role doesn't exist, skip
 		}
 		quota.RoleID = role.ID
-		
+
 		if err := q.db.Create(&quota).Error; err != nil {
 			return fmt.Errorf("failed to create quota for role %s: %w", quota.RoleName, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -96,13 +96,13 @@ func (q *QuotaService) GetUserQuota(ctx context.Context, userID string) (*Effect
 	// First check for user-specific override
 	var override UserQuotaOverride
 	hasOverride := false
-	
+
 	err := q.db.Where("user_id = ? AND (expires_at IS NULL OR expires_at > NOW())", userID).
 		First(&override).Error
 	if err == nil {
 		hasOverride = true
 	}
-	
+
 	// Get user's roles from database directly
 	var userRoles []struct {
 		RoleName string `gorm:"column:role_name"`
@@ -112,11 +112,11 @@ func (q *QuotaService) GetUserQuota(ctx context.Context, userID string) (*Effect
 		Where("ur.user_id = ?", userID).
 		Select("r.name as role_name").
 		Find(&userRoles).Error
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user roles: %w", err)
 	}
-	
+
 	// Get quotas for all user's roles and take the maximum values
 	var roleQuotas []RoleQuota
 	if len(userRoles) > 0 {
@@ -126,7 +126,7 @@ func (q *QuotaService) GetUserQuota(ctx context.Context, userID string) (*Effect
 		}
 		q.db.Where("role_name IN ?", roleNames).Find(&roleQuotas)
 	}
-	
+
 	// Calculate effective quota (taking max from all roles)
 	effective := &EffectiveQuota{
 		UserID:            userID,
@@ -135,7 +135,7 @@ func (q *QuotaService) GetUserQuota(ctx context.Context, userID string) (*Effect
 		MaxUploadSize:     0,
 		MaxFilesCount:     0,
 	}
-	
+
 	for _, quota := range roleQuotas {
 		if quota.MaxStorageBytes > effective.MaxStorageBytes {
 			effective.MaxStorageBytes = quota.MaxStorageBytes
@@ -149,12 +149,12 @@ func (q *QuotaService) GetUserQuota(ctx context.Context, userID string) (*Effect
 		if quota.MaxFilesCount > effective.MaxFilesCount {
 			effective.MaxFilesCount = quota.MaxFilesCount
 		}
-		
+
 		// Merge allowed extensions
 		if quota.AllowedExtensions != "" {
 			effective.AllowedExtensions = mergeExtensions(effective.AllowedExtensions, quota.AllowedExtensions)
 		}
-		
+
 		// Merge blocked extensions (intersection - only block if all roles block it)
 		if quota.BlockedExtensions != "" {
 			if effective.BlockedExtensions == "" {
@@ -164,7 +164,7 @@ func (q *QuotaService) GetUserQuota(ctx context.Context, userID string) (*Effect
 			}
 		}
 	}
-	
+
 	// Apply user-specific overrides if they exist
 	if hasOverride {
 		if override.MaxStorageBytes != nil {
@@ -186,44 +186,44 @@ func (q *QuotaService) GetUserQuota(ctx context.Context, userID string) (*Effect
 			effective.BlockedExtensions = *override.BlockedExtensions
 		}
 	}
-	
+
 	// Get current usage and file count in a single query
 	var usage struct {
 		StorageUsed   int64
 		BandwidthUsed int64
 		FileCount     int64
 	}
-	
+
 	// Get storage usage
 	q.db.Table("ext_cloudstorage_storage_quotas").
 		Where("user_id = ?", userID).
 		Select("storage_used, bandwidth_used").
 		Scan(&usage)
-	
+
 	// Get file count
 	q.db.Model(&pkgstorage.StorageObject{}).
 		Where("owner_id = ?", userID).
 		Count(&usage.FileCount)
-	
+
 	effective.StorageUsed = usage.StorageUsed
 	effective.BandwidthUsed = usage.BandwidthUsed
 	effective.FilesUsed = usage.FileCount
-	
+
 	return effective, nil
 }
 
 // EffectiveQuota represents the calculated quota for a user
 type EffectiveQuota struct {
-	UserID            string `json:"user_id"`
-	MaxStorageBytes   int64  `json:"max_storage_bytes"`
-	MaxBandwidthBytes int64  `json:"max_bandwidth_bytes"`
-	MaxUploadSize     int64  `json:"max_upload_size"`
-	MaxFilesCount     int64  `json:"max_files_count"`
-	AllowedExtensions string `json:"allowed_extensions"`
-	BlockedExtensions string `json:"blocked_extensions"`
-	StorageUsed       int64  `json:"storage_used"`
-	BandwidthUsed     int64  `json:"bandwidth_used"`
-	FilesUsed         int64  `json:"files_used"`
+	UserID            string `json:"userId"`
+	MaxStorageBytes   int64  `json:"maxStorageBytes"`
+	MaxBandwidthBytes int64  `json:"maxBandwidthBytes"`
+	MaxUploadSize     int64  `json:"maxUploadSize"`
+	MaxFilesCount     int64  `json:"maxFilesCount"`
+	AllowedExtensions string `json:"allowedExtensions"`
+	BlockedExtensions string `json:"blockedExtensions"`
+	StorageUsed       int64  `json:"storageUsed"`
+	BandwidthUsed     int64  `json:"bandwidthUsed"`
+	FilesUsed         int64  `json:"filesUsed"`
 }
 
 // CheckUploadAllowed checks if a user can upload a file
@@ -239,22 +239,22 @@ func (q *QuotaService) CheckUploadAllowed(ctx context.Context, userID string, fi
 	if err != nil {
 		return fmt.Errorf("failed to get user quota: %w", err)
 	}
-	
+
 	// Check file size limit
 	if quota.MaxUploadSize > 0 && fileSize > quota.MaxUploadSize {
 		return fmt.Errorf("file size %d exceeds maximum upload size %d", fileSize, quota.MaxUploadSize)
 	}
-	
+
 	// Check storage quota
 	if quota.MaxStorageBytes > 0 && (quota.StorageUsed+fileSize) > quota.MaxStorageBytes {
 		return fmt.Errorf("upload would exceed storage quota (used: %d, max: %d)", quota.StorageUsed, quota.MaxStorageBytes)
 	}
-	
+
 	// Check file count limit
 	if quota.MaxFilesCount > 0 && quota.FilesUsed >= quota.MaxFilesCount {
 		return fmt.Errorf("maximum file count reached (%d)", quota.MaxFilesCount)
 	}
-	
+
 	// Check file extension
 	ext := getFileExtension(fileName)
 	if ext != "" {
@@ -267,7 +267,7 @@ func (q *QuotaService) CheckUploadAllowed(ctx context.Context, userID string, fi
 				}
 			}
 		}
-		
+
 		// Check allowed extensions (if specified, only these are allowed)
 		if quota.AllowedExtensions != "" {
 			allowed := strings.Split(strings.ToLower(quota.AllowedExtensions), ",")
@@ -283,7 +283,7 @@ func (q *QuotaService) CheckUploadAllowed(ctx context.Context, userID string, fi
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -298,7 +298,7 @@ func (q *QuotaService) SyncRoleQuotaFromIAM(ctx context.Context, roleName string
 	// Check if quota already exists for this role
 	var existingQuota RoleQuota
 	err := q.db.Where("role_id = ? OR role_name = ?", roleID, roleName).First(&existingQuota).Error
-	
+
 	if err == nil {
 		// Quota exists, update role_id if needed
 		if existingQuota.RoleID != roleID {
@@ -307,7 +307,7 @@ func (q *QuotaService) SyncRoleQuotaFromIAM(ctx context.Context, roleName string
 		}
 		return nil
 	}
-	
+
 	// Create default quota for new role
 	defaultQuota := &RoleQuota{
 		RoleID:            roleID,
@@ -317,15 +317,15 @@ func (q *QuotaService) SyncRoleQuotaFromIAM(ctx context.Context, roleName string
 		MaxUploadSize:     100 * 1024 * 1024,       // 100MB per file
 		MaxFilesCount:     1000,                    // 1000 files default
 	}
-	
+
 	// Special defaults for admin role
 	if roleName == "admin" {
-		defaultQuota.MaxStorageBytes = 100 * 1024 * 1024 * 1024   // 100GB for admin
+		defaultQuota.MaxStorageBytes = 100 * 1024 * 1024 * 1024    // 100GB for admin
 		defaultQuota.MaxBandwidthBytes = 1000 * 1024 * 1024 * 1024 // 1TB for admin
-		defaultQuota.MaxUploadSize = 1024 * 1024 * 1024           // 1GB per file
-		defaultQuota.MaxFilesCount = 0                            // Unlimited files
+		defaultQuota.MaxUploadSize = 1024 * 1024 * 1024            // 1GB per file
+		defaultQuota.MaxFilesCount = 0                             // Unlimited files
 	}
-	
+
 	return q.db.Create(defaultQuota).Error
 }
 
@@ -350,7 +350,7 @@ func mergeExtensions(ext1, ext2 string) string {
 	if ext2 == "" {
 		return ext1
 	}
-	
+
 	// Merge and deduplicate
 	allExts := make(map[string]bool)
 	for _, ext := range strings.Split(ext1, ",") {
@@ -359,14 +359,14 @@ func mergeExtensions(ext1, ext2 string) string {
 	for _, ext := range strings.Split(ext2, ",") {
 		allExts[strings.TrimSpace(ext)] = true
 	}
-	
+
 	result := []string{}
 	for ext := range allExts {
 		if ext != "" {
 			result = append(result, ext)
 		}
 	}
-	
+
 	return strings.Join(result, ",")
 }
 
@@ -376,7 +376,7 @@ func intersectExtensions(ext1, ext2 string) string {
 	for _, ext := range strings.Split(ext1, ",") {
 		exts1[strings.TrimSpace(ext)] = true
 	}
-	
+
 	result := []string{}
 	for _, ext := range strings.Split(ext2, ",") {
 		ext = strings.TrimSpace(ext)
@@ -384,14 +384,14 @@ func intersectExtensions(ext1, ext2 string) string {
 			result = append(result, ext)
 		}
 	}
-	
+
 	return strings.Join(result, ",")
 }
 
 // UpdateStorageUsage updates the storage usage for a user after upload/delete
 func (q *QuotaService) UpdateStorageUsage(ctx context.Context, userID string, sizeChange int64) error {
 	var quota StorageQuota
-	
+
 	// Find or create user quota record
 	err := q.db.Where("user_id = ?", userID).FirstOrCreate(&quota, StorageQuota{
 		UserID: userID,
@@ -399,13 +399,13 @@ func (q *QuotaService) UpdateStorageUsage(ctx context.Context, userID string, si
 	if err != nil {
 		return fmt.Errorf("failed to get user quota: %w", err)
 	}
-	
+
 	// Update storage used
 	quota.StorageUsed += sizeChange
 	if quota.StorageUsed < 0 {
 		quota.StorageUsed = 0
 	}
-	
+
 	// Save updated quota
 	return q.db.Save(&quota).Error
 }
@@ -413,7 +413,7 @@ func (q *QuotaService) UpdateStorageUsage(ctx context.Context, userID string, si
 // UpdateBandwidthUsage updates the bandwidth usage for a user after download
 func (q *QuotaService) UpdateBandwidthUsage(ctx context.Context, userID string, bytes int64) error {
 	var quota StorageQuota
-	
+
 	// Find or create user quota record
 	err := q.db.Where("user_id = ?", userID).FirstOrCreate(&quota, StorageQuota{
 		UserID: userID,
@@ -421,10 +421,10 @@ func (q *QuotaService) UpdateBandwidthUsage(ctx context.Context, userID string, 
 	if err != nil {
 		return fmt.Errorf("failed to get user quota: %w", err)
 	}
-	
+
 	// Update bandwidth used
 	quota.BandwidthUsed += bytes
-	
+
 	// Save updated quota
 	return q.db.Save(&quota).Error
 }
@@ -437,17 +437,17 @@ func (q *QuotaService) CheckStorageQuota(ctx context.Context, userID string, fil
 // GetOrCreateQuota gets or creates a default quota for a user (compatibility method)
 func (q *QuotaService) GetOrCreateQuota(ctx context.Context, userID string) (*StorageQuota, error) {
 	var quota StorageQuota
-	
+
 	err := q.db.Where("user_id = ?", userID).FirstOrCreate(&quota, StorageQuota{
 		UserID:            userID,
 		MaxStorageBytes:   5368709120,  // 5GB default
 		MaxBandwidthBytes: 10737418240, // 10GB default
 	}).Error
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to get or create quota: %w", err)
 	}
-	
+
 	return &quota, nil
 }
 
@@ -457,18 +457,18 @@ func (q *QuotaService) GetQuotaStats(ctx context.Context, userID string) (*Quota
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Calculate percentages safely (avoid division by zero)
 	storagePercentage := float64(0)
 	if effectiveQuota.MaxStorageBytes > 0 {
 		storagePercentage = float64(effectiveQuota.StorageUsed) / float64(effectiveQuota.MaxStorageBytes) * 100
 	}
-	
+
 	bandwidthPercentage := float64(0)
 	if effectiveQuota.MaxBandwidthBytes > 0 {
 		bandwidthPercentage = float64(effectiveQuota.BandwidthUsed) / float64(effectiveQuota.MaxBandwidthBytes) * 100
 	}
-	
+
 	return &QuotaStats{
 		StorageUsed:         effectiveQuota.StorageUsed,
 		StorageLimit:        effectiveQuota.MaxStorageBytes,
@@ -481,10 +481,10 @@ func (q *QuotaService) GetQuotaStats(ctx context.Context, userID string) (*Quota
 
 // QuotaStats represents quota usage statistics
 type QuotaStats struct {
-	StorageUsed         int64   `json:"storage_used"`
-	StorageLimit        int64   `json:"storage_limit"`
-	StoragePercentage   float64 `json:"storage_percentage"`
-	BandwidthUsed       int64   `json:"bandwidth_used"`
-	BandwidthLimit      int64   `json:"bandwidth_limit"`
-	BandwidthPercentage float64 `json:"bandwidth_percentage"`
+	StorageUsed         int64   `json:"storageUsed"`
+	StorageLimit        int64   `json:"storageLimit"`
+	StoragePercentage   float64 `json:"storagePercentage"`
+	BandwidthUsed       int64   `json:"bandwidthUsed"`
+	BandwidthLimit      int64   `json:"bandwidthLimit"`
+	BandwidthPercentage float64 `json:"bandwidthPercentage"`
 }

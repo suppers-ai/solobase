@@ -196,14 +196,14 @@
 			error = null;
 			const response = await api.getExtensions();
 			if (response.error) {
-				throw new Error(response.error);
+				throw new Error(typeof response.error === 'string' ? response.error : 'Failed to load extensions');
 			}
 			// The API returns the extensions array directly in response.data
 			extensions = Array.isArray(response.data) ? response.data : [];
 			console.log("Loaded extensions:", extensions);
-		} catch (err) {
+		} catch (err: unknown) {
 			console.error("Failed to load extensions:", err);
-			error = err.message || "Failed to load extensions";
+			error = err instanceof Error ? err.message : "Failed to load extensions";
 			extensions = [];
 		} finally {
 			loading = false;
@@ -214,10 +214,10 @@
 		try {
 			const response = await api.toggleExtension(name, enable);
 			if (response.error) {
-				throw new Error(response.error);
+				throw new Error(typeof response.error === 'string' ? response.error : 'Failed to toggle extension');
 			}
 			await loadExtensions();
-		} catch (err: any) {
+		} catch (err: unknown) {
 			ErrorHandler.handle(err);
 		}
 	}

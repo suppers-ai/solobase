@@ -28,10 +28,15 @@
 			return;
 		}
 		
-		const response = await api.signup({ email, password, fullName });
-		
+		// Split fullName into firstName and lastName
+		const nameParts = fullName.trim().split(/\s+/);
+		const firstName = nameParts[0] || '';
+		const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
+		const response = await api.signup({ email, password, firstName, lastName });
+
 		if (response.error) {
-			error = response.error;
+			error = typeof response.error === 'string' ? response.error : 'An error occurred';
 		} else {
 			goto('/auth/login?registered=true');
 		}

@@ -18,8 +18,8 @@
 		required?: boolean;
 		min?: number;
 		max?: number;
-		min_length?: number;
-		max_length?: number;
+		minLength?: number;
+		maxLength?: number;
 		pattern?: string;
 		options?: string[];
 		default?: any;
@@ -29,37 +29,75 @@
 	interface FieldDefinition {
 		id: string;  // e.g., "filter_text_1", "filter_numeric_1"
 		name: string;
+		label?: string;  // Display label
 		type: string;  // numeric, text, boolean, enum, location
 		required?: boolean;
 		description?: string;
+		section?: string;  // e.g., "General"
+		order?: number;  // Sort order
 		constraints: FieldConstraints;
+	}
+
+	// Constraints type for FieldEditor component
+	interface EditorFieldConstraints {
+		editableByUser: boolean;
+		options?: string[];
+		min?: number;
+		max?: number;
+		minLength?: number;
+		maxLength?: number;
+		format?: string;
+	}
+
+	// Field type for FieldEditor component (with non-optional required/description)
+	interface EditorField {
+		id: string;
+		name: string;
+		type: string;
+		required: boolean;
+		description: string;
+		constraints: EditorFieldConstraints;
+	}
+
+	// Custom field type for CustomFieldEditor component
+	interface CustomEditorField {
+		id: string;
+		name: string;
+		type: string;
+		required: boolean;
+		description: string;
+		section: string;
+		order: number;
+		constraints: EditorFieldConstraints;
 	}
 
 	interface ProductType {
 		id: string;
 		name: string;
-		display_name: string;
+		displayName: string;
 		description: string;
 		icon?: string;
-		filter_fields_schema?: FieldDefinition[];
-		custom_fields_schema?: FieldDefinition[];
-		pricing_templates?: string[];
-		billing_mode: 'instant' | 'approval';
-		billing_type: 'one-time' | 'recurring';
-		billing_recurring_interval?: 'day' | 'week' | 'month' | 'year';
-		billing_recurring_interval_count?: number;
+		filterFieldsSchema?: FieldDefinition[];
+		customFieldsSchema?: FieldDefinition[];
+		pricingTemplates?: string[];
+		billingMode: 'instant' | 'approval';
+		billingType: 'one-time' | 'recurring';
+		billingRecurringInterval?: 'day' | 'week' | 'month' | 'year';
+		billingRecurringIntervalCount?: number;
 		status: 'active' | 'pending' | 'deleted';
-		created_at: string;
-		updated_at: string;
+		createdAt: string;
+		updatedAt: string;
 	}
-	
+
 	interface PricingTemplate {
 		id: string;
 		name: string;
-		display_name: string;
+		displayName: string;
 		description: string;
 		category: string;
-		is_active: boolean;
+		priceFormula?: string;
+		conditionFormula?: string;
+		isActive: boolean;
 	}
 
 	let productTypes: ProductType[] = [];
@@ -74,32 +112,33 @@
 	let editingPricingTemplate: any = null;
 	let newPricingTemplate = {
 		name: '',
-		display_name: '',
+		displayName: '',
 		description: '',
-		price_formula: '',
-		condition_formula: '',
+		priceFormula: '',
+		conditionFormula: '',
 		category: 'standard',
-		is_active: true
+		isActive: true
 	};
 	let availableVariables: any[] = [];
 	let variables: any[] = []; // For formula editor in pricing template modal
-	
+
 	// Form data for new product type
 	let newProductType: Partial<ProductType> = {
 		name: '',
-		display_name: '',
+		displayName: '',
 		description: '',
 		icon: 'package',
-		billing_mode: 'instant',
-		billing_type: 'one-time',
+		billingMode: 'instant',
+		billingType: 'one-time',
 		status: 'active',
-		fields: [],
-		pricing_templates: []
+		filterFieldsSchema: [],
+		customFieldsSchema: [],
+		pricingTemplates: []
 	};
 
 	$: filteredProductTypes = productTypes.filter(productType => {
 		const matchesSearch = productType.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			productType.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+			productType.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
 			productType.description?.toLowerCase().includes(searchQuery.toLowerCase());
 		return matchesSearch;
 	});
@@ -113,8 +152,8 @@
 	async function loadProductTypes() {
 		try {
 			loading = true;
-			const response = await api.get('/admin/ext/products/product-types');
-			productTypes = response || [];
+			const response = await api.get<ProductType[]>('/admin/ext/products/product-types');
+			productTypes = Array.isArray(response) ? response : [];
 		} catch (error) {
 			console.error('Failed to load product types:', error);
 			productTypes = [];
@@ -122,22 +161,22 @@
 			loading = false;
 		}
 	}
-	
+
 	async function loadPricingTemplates() {
 		try {
-			const response = await api.get('/admin/ext/products/pricing-templates');
-			pricingTemplates = response || [];
+			const response = await api.get<PricingTemplate[]>('/admin/ext/products/pricing-templates');
+			pricingTemplates = Array.isArray(response) ? response : [];
 		} catch (error) {
 			console.error('Failed to load pricing templates:', error);
 			pricingTemplates = [];
 		}
 	}
-	
+
 	async function loadVariables() {
 		try {
-			const response = await api.get('/admin/ext/products/variables');
-			availableVariables = response || [];
-			variables = response || []; // Also set variables for formula editor
+			const response = await api.get<any[]>('/admin/ext/products/variables');
+			availableVariables = Array.isArray(response) ? response : [];
+			variables = Array.isArray(response) ? response : []; // Also set variables for formula editor
 		} catch (error) {
 			console.error('Failed to load variables:', error);
 			availableVariables = [];
@@ -147,24 +186,26 @@
 	
 	async function createPricingTemplate() {
 		try {
-			const result = await api.post('/admin/ext/products/pricing-templates', newPricingTemplate);
+			const result = await api.post<{ id: string }>('/admin/ext/products/pricing-templates', newPricingTemplate);
 			await loadPricingTemplates();
-			
+
 			// Add the new template to the selected product type
-			if (!selectedProductType.pricing_templates) {
-				selectedProductType.pricing_templates = [];
+			if (selectedProductType) {
+				if (!selectedProductType.pricingTemplates) {
+					selectedProductType.pricingTemplates = [];
+				}
+				selectedProductType.pricingTemplates.push(result.id);
 			}
-			selectedProductType.pricing_templates.push(result.id);
-			
+
 			// Reset form
 			newPricingTemplate = {
 				name: '',
-				display_name: '',
+				displayName: '',
 				description: '',
-				price_formula: '',
-				condition_formula: '',
+				priceFormula: '',
+				conditionFormula: '',
 				category: 'standard',
-				is_active: true
+				isActive: true
 			};
 			showCreatePricingModal = false;
 		} catch (error) {
@@ -206,13 +247,13 @@
 	
 	async function createProductType() {
 		try {
-			// Ensure filter_fields_schema is a valid array
-			if (!Array.isArray(newProductType.filter_fields_schema)) {
-				newProductType.filter_fields_schema = [];
+			// Ensure filterFieldsSchema is a valid array
+			if (!Array.isArray(newProductType.filterFieldsSchema)) {
+				newProductType.filterFieldsSchema = [];
 			}
-			// Ensure pricing_templates is a valid array
-			if (!Array.isArray(newProductType.pricing_templates)) {
-				newProductType.pricing_templates = [];
+			// Ensure pricingTemplates is a valid array
+			if (!Array.isArray(newProductType.pricingTemplates)) {
+				newProductType.pricingTemplates = [];
 			}
 
 			const result = await api.post('/admin/ext/products/product-types', newProductType);
@@ -220,16 +261,17 @@
 				// Reset form
 				newProductType = {
 					name: '',
-					display_name: '',
+					displayName: '',
 					description: '',
 					icon: 'package',
-					billing_mode: 'instant',
-					billing_type: 'one-time',
-					billing_recurring_interval: 'month',
-					billing_recurring_interval_count: 1,
+					billingMode: 'instant',
+					billingType: 'one-time',
+					billingRecurringInterval: 'month',
+					billingRecurringIntervalCount: 1,
 					status: 'active',
-					fields: [],
-					pricing_templates: []
+					filterFieldsSchema: [],
+					customFieldsSchema: [],
+					pricingTemplates: []
 				};
 				showCreateModal = false;
 				// Reload product types
@@ -244,23 +286,23 @@
 		if (!selectedProductType) return;
 
 		// Update filter fields (mapped to database columns)
-		selectedProductType.filter_fields_schema = schemaFields.filter(field => field.name).map(field => ({
+		selectedProductType.filterFieldsSchema = schemaFields.filter(field => field.name).map((field): FieldDefinition => ({
 			id: field.id,
 			name: field.name,
 			type: field.type,
 			required: field.required || false,
 			description: field.description || '',
-			constraints: field.constraints || {}
+			constraints: field.constraints as unknown as FieldConstraints
 		}));
 
 		// Update custom fields schema (stored in JSON)
-		selectedProductType.custom_fields_schema = customSchemaFields.filter(field => field.name).map(field => ({
+		selectedProductType.customFieldsSchema = customSchemaFields.filter(field => field.name).map((field): FieldDefinition => ({
 			id: field.id,
 			name: field.name,
 			type: field.type,
 			required: field.required || false,
 			description: field.description || '',
-			constraints: field.constraints || {},
+			constraints: field.constraints as unknown as FieldConstraints,
 			section: field.section || 'General',
 			order: field.order || 0
 		}));
@@ -293,8 +335,8 @@
 	}
 
 	// Schema editor state
-	let schemaFields: FieldDefinition[] = [];  // For filter fields (mapped to DB columns)
-	let customSchemaFields: FieldDefinition[] = [];  // For custom fields (stored in JSON)
+	let schemaFields: EditorField[] = [];  // For filter fields (mapped to DB columns)
+	let customSchemaFields: CustomEditorField[] = [];  // For custom fields (stored in JSON)
 	let showFieldTypeSelector = false;
 	
 	// Track used filter IDs
@@ -362,50 +404,50 @@
 	function openEditModal(productType: ProductType) {
 		selectedProductType = { ...productType };
 		// Load filter fields (that map to database columns)
-		if (Array.isArray(productType.filter_fields_schema)) {
-			schemaFields = productType.filter_fields_schema.map((field: any) => ({
+		if (Array.isArray(productType.filterFieldsSchema)) {
+			schemaFields = productType.filterFieldsSchema.map((field: FieldDefinition) => ({
 				id: field.id || '',
 				name: field.name || '',
 				type: field.type || 'text',
 				required: field.required || false,
 				description: field.description || '',
-				constraints: field.constraints || {}
+				constraints: { editableByUser: true, ...field.constraints }
 			}));
 		} else {
 			schemaFields = [];
 		}
 		// Load custom fields schema (stored in JSON)
-		if (Array.isArray(productType.custom_fields_schema)) {
-			customSchemaFields = productType.custom_fields_schema.map((field: any) => ({
+		if (Array.isArray(productType.customFieldsSchema)) {
+			customSchemaFields = productType.customFieldsSchema.map((field: FieldDefinition) => ({
 				id: field.id || '',
 				name: field.name || '',
 				type: field.type || 'text',
 				required: field.required || false,
 				description: field.description || '',
-				constraints: field.constraints || {},
 				section: field.section || 'General',
-				order: field.order || 0
+				order: field.order || 0,
+				constraints: { editableByUser: true, ...field.constraints }
 			}));
 		} else {
 			customSchemaFields = [];
 		}
-		// Ensure pricing_templates is an array
-		if (!Array.isArray(selectedProductType.pricing_templates)) {
-			selectedProductType.pricing_templates = [];
+		// Ensure pricingTemplates is an array
+		if (!Array.isArray(selectedProductType.pricingTemplates)) {
+			selectedProductType.pricingTemplates = [];
 		}
 		// Set default billing values if not present
-		if (!selectedProductType.billing_mode) {
-			selectedProductType.billing_mode = 'instant';
+		if (!selectedProductType.billingMode) {
+			selectedProductType.billingMode = 'instant';
 		}
-		if (!selectedProductType.billing_type) {
-			selectedProductType.billing_type = 'one-time';
+		if (!selectedProductType.billingType) {
+			selectedProductType.billingType = 'one-time';
 		}
-		if (selectedProductType.billing_type === 'recurring') {
-			if (!selectedProductType.billing_recurring_interval) {
-				selectedProductType.billing_recurring_interval = 'month';
+		if (selectedProductType.billingType === 'recurring') {
+			if (!selectedProductType.billingRecurringInterval) {
+				selectedProductType.billingRecurringInterval = 'month';
 			}
-			if (!selectedProductType.billing_recurring_interval_count) {
-				selectedProductType.billing_recurring_interval_count = 1;
+			if (!selectedProductType.billingRecurringIntervalCount) {
+				selectedProductType.billingRecurringIntervalCount = 1;
 			}
 		}
 		showFieldTypeSelector = false;
@@ -413,19 +455,19 @@
 	}
 
 	function addSchemaField(type: string) {
-		const id = getNextFilterId(type, schemaFields);
+		const id = getNextFilterId(type, schemaFields as unknown as FieldDefinition[]);
 		if (!id) {
 			toasts.warning(`Maximum of 5 ${type} fields reached`);
 			return;
 		}
-		
+
 		schemaFields = [...schemaFields, {
 			id: id,
 			name: '',
 			type: type,
 			required: false,
 			description: '',
-			constraints: {}
+			constraints: { editableByUser: true }
 		}];
 		showFieldTypeSelector = false;
 	}
@@ -521,43 +563,43 @@
 							</span>
 						</div>
 						<div class="group-content">
-							<h3 class="group-name">{productType.display_name}</h3>
+							<h3 class="group-name">{productType.displayName}</h3>
 							<code class="group-code">{productType.name}</code>
 							<p class="group-description">{productType.description}</p>
-							
-							{#if productType.filter_fields_schema && productType.filter_fields_schema.length > 0}
+
+							{#if productType.filterFieldsSchema && productType.filterFieldsSchema.length > 0}
 								<div class="group-fields">
 									<p class="fields-label">Filter Fields:</p>
 									<div class="fields-list">
-										{#each productType.filter_fields_schema as field}
+										{#each productType.filterFieldsSchema as field}
 											<span class="field-badge" title="{field.type}{field.constraints?.required ? ' (required)' : ''}">{field.label || field.name}</span>
 										{/each}
 									</div>
 								</div>
 							{/if}
-							
-							{#if productType.pricing_templates && productType.pricing_templates.length > 0}
+
+							{#if productType.pricingTemplates && productType.pricingTemplates.length > 0}
 								<div class="group-fields">
 									<p class="fields-label">Pricing Templates:</p>
 									<div class="fields-list">
-										{#each productType.pricing_templates as templateId}
+										{#each productType.pricingTemplates as templateId}
 											{@const template = pricingTemplates.find(t => t.id === templateId)}
 											{#if template}
-												<span class="pricing-badge">{template.display_name}</span>
+												<span class="pricing-badge">{template.displayName}</span>
 											{/if}
 										{/each}
 									</div>
 								</div>
 							{/if}
-							
+
 							<div class="billing-info">
-								<span class="billing-badge billing-{productType.billing_mode}">
-									{productType.billing_mode === 'instant' ? '⚡' : '✓'} {productType.billing_mode}
+								<span class="billing-badge billing-{productType.billingMode}">
+									{productType.billingMode === 'instant' ? '⚡' : '✓'} {productType.billingMode}
 								</span>
-								<span class="billing-badge billing-{productType.billing_type}">
-									{#if productType.billing_type === 'recurring'}
-										🔄 {productType.billing_recurring_interval_count || 1}
-										{productType.billing_recurring_interval || 'month'}
+								<span class="billing-badge billing-{productType.billingType}">
+									{#if productType.billingType === 'recurring'}
+										🔄 {productType.billingRecurringIntervalCount || 1}
+										{productType.billingRecurringInterval || 'month'}
 									{:else}
 										💳 One-time
 									{/if}
@@ -1430,18 +1472,18 @@
 				<div class="form-row">
 					<div class="form-group">
 						<label for="name">Product Type Name</label>
-						<input type="text" id="name" bind:value={newProductType.name} 
+						<input type="text" id="name" bind:value={newProductType.name}
 							placeholder="e.g., store, company, team" />
 					</div>
 					<div class="form-group">
-						<label for="display_name">Display Name</label>
-						<input type="text" id="display_name" bind:value={newProductType.display_name} 
+						<label for="displayName">Display Name</label>
+						<input type="text" id="displayName" bind:value={newProductType.displayName}
 							placeholder="e.g., Store, Company, Team" />
 					</div>
 				</div>
 				<div class="form-group">
 					<label for="description">Description</label>
-					<textarea id="description" bind:value={newProductType.description} rows="2" 
+					<textarea id="description" bind:value={newProductType.description} rows="2"
 						placeholder="Describe what this product type represents"></textarea>
 				</div>
 				<div class="form-group">
@@ -1450,25 +1492,25 @@
 				</div>
 				<div class="form-row">
 					<div class="form-group">
-						<label for="billing_mode">Billing Mode</label>
-						<select id="billing_mode" bind:value={newProductType.billing_mode}>
+						<label for="billingMode">Billing Mode</label>
+						<select id="billingMode" bind:value={newProductType.billingMode}>
 							<option value="instant">Instant</option>
 							<option value="approval">Requires Approval</option>
 						</select>
 					</div>
 					<div class="form-group">
-						<label for="billing_type">Billing Type</label>
-						<select id="billing_type" bind:value={newProductType.billing_type}>
+						<label for="billingType">Billing Type</label>
+						<select id="billingType" bind:value={newProductType.billingType}>
 							<option value="one-time">One-time</option>
 							<option value="recurring">Recurring</option>
 						</select>
 					</div>
 				</div>
-				{#if newProductType.billing_type === 'recurring'}
+				{#if newProductType.billingType === 'recurring'}
 					<div class="form-row">
 						<div class="form-group">
-							<label for="billing_interval">Recurring Interval</label>
-							<select id="billing_interval" bind:value={newProductType.billing_recurring_interval}>
+							<label for="billingInterval">Recurring Interval</label>
+							<select id="billingInterval" bind:value={newProductType.billingRecurringInterval}>
 								<option value="day">Daily</option>
 								<option value="week">Weekly</option>
 								<option value="month">Monthly</option>
@@ -1476,8 +1518,8 @@
 							</select>
 						</div>
 						<div class="form-group">
-							<label for="billing_interval_count">Interval Count</label>
-							<input type="number" id="billing_interval_count" min="1" bind:value={newProductType.billing_recurring_interval_count} placeholder="e.g., 2 for bi-weekly" />
+							<label for="billingIntervalCount">Interval Count</label>
+							<input type="number" id="billingIntervalCount" min="1" bind:value={newProductType.billingRecurringIntervalCount} placeholder="e.g., 2 for bi-weekly" />
 						</div>
 					</div>
 				{/if}
@@ -1515,8 +1557,8 @@
 						<input type="text" id="edit-name" bind:value={selectedProductType.name} />
 					</div>
 					<div class="form-group">
-						<label for="edit-display_name">Display Name</label>
-						<input type="text" id="edit-display_name" bind:value={selectedProductType.display_name} />
+						<label for="edit-displayName">Display Name</label>
+						<input type="text" id="edit-displayName" bind:value={selectedProductType.displayName} />
 					</div>
 				</div>
 				<div class="form-group">
@@ -1530,26 +1572,26 @@
 				
 				<div class="form-row">
 					<div class="form-group">
-						<label for="edit-billing_mode">Billing Mode</label>
-						<select id="edit-billing_mode" bind:value={selectedProductType.billing_mode}>
+						<label for="edit-billingMode">Billing Mode</label>
+						<select id="edit-billingMode" bind:value={selectedProductType.billingMode}>
 							<option value="instant">Instant</option>
 							<option value="approval">Requires Approval</option>
 						</select>
 					</div>
 					<div class="form-group">
-						<label for="edit-billing_type">Billing Type</label>
-						<select id="edit-billing_type" bind:value={selectedProductType.billing_type}>
+						<label for="edit-billingType">Billing Type</label>
+						<select id="edit-billingType" bind:value={selectedProductType.billingType}>
 							<option value="one-time">One-time</option>
 							<option value="recurring">Recurring</option>
 						</select>
 					</div>
 				</div>
-				
-				{#if selectedProductType.billing_type === 'recurring'}
+
+				{#if selectedProductType.billingType === 'recurring'}
 					<div class="form-row">
 						<div class="form-group">
-							<label for="edit-billing_interval">Recurring Interval</label>
-							<select id="edit-billing_interval" bind:value={selectedProductType.billing_recurring_interval}>
+							<label for="edit-billingInterval">Recurring Interval</label>
+							<select id="edit-billingInterval" bind:value={selectedProductType.billingRecurringInterval}>
 								<option value="day">Daily</option>
 								<option value="week">Weekly</option>
 								<option value="month">Monthly</option>
@@ -1557,8 +1599,8 @@
 							</select>
 						</div>
 						<div class="form-group">
-							<label for="edit-billing_interval_count">Interval Count</label>
-							<input type="number" id="edit-billing_interval_count" min="1" bind:value={selectedProductType.billing_recurring_interval_count} placeholder="e.g., 2 for bi-weekly" />
+							<label for="edit-billingIntervalCount">Interval Count</label>
+							<input type="number" id="edit-billingIntervalCount" min="1" bind:value={selectedProductType.billingRecurringIntervalCount} placeholder="e.g., 2 for bi-weekly" />
 						</div>
 					</div>
 				{/if}
@@ -1584,16 +1626,16 @@
 				
 				<div class="form-group">
 					<ReorderableList
-						bind:selectedIds={selectedProductType.pricing_templates}
+						bind:selectedIds={selectedProductType.pricingTemplates}
 						availableItems={pricingTemplates.map(t => ({
 							id: t.id,
 							name: t.name,
-							displayName: t.display_name,
+							displayName: t.displayName,
 							description: t.description,
 							category: t.category,
-							price_formula: t.price_formula,
-							condition_formula: t.condition_formula,
-							is_active: t.is_active
+							priceFormula: t.priceFormula,
+							conditionFormula: t.conditionFormula,
+							isActive: t.isActive
 						}))}
 						title="Pricing Templates"
 						helpText="Templates will be applied in the order shown. Drag to reorder."
@@ -1619,8 +1661,8 @@
 				</div>
 			</div>
 			<div class="modal-footer">
-				<button class="btn btn-danger" on:click={() => { 
-					if (confirm('Are you sure you want to delete this product type? This will affect all products of this type.')) {
+				<button class="btn btn-danger" on:click={() => {
+					if (selectedProductType && confirm('Are you sure you want to delete this product type? This will affect all products of this type.')) {
 						deleteProductType(selectedProductType.id);
 						showEditModal = false;
 					}

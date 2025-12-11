@@ -1,33 +1,61 @@
-<script>
+<script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { api, ErrorHandler } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
 	import { toasts } from '$lib/stores/toast';
 	import Chart from 'chart.js/auto';
 	import 'chartjs-adapter-date-fns';
-	import { 
-		BarChart3, TrendingUp, Users, Eye, 
+	import {
+		BarChart3, TrendingUp, Users, Eye,
 		Clock, RefreshCw, Plus, X,
 		Calendar, Activity, MousePointer, Globe
 	} from 'lucide-svelte';
 	import ExportButton from '$lib/components/ExportButton.svelte';
-	
+
+	interface PageView {
+		path: string;
+		url?: string;
+		views: number;
+		unique_users?: number;
+	}
+
+	interface DailyStat {
+		date: string;
+		views: number;
+		unique_users?: number;
+		uniqueVisitors?: number;
+	}
+
+	interface RealtimeEntry {
+		timestamp?: string;
+		time?: string;
+		views?: number;
+		users?: number;
+	}
+
+	interface Stats {
+		totalViews: number;
+		uniqueUsers: number;
+		todayViews: number;
+		activeNow: number;
+	}
+
 	// State
-	let stats = {
+	let stats: Stats = {
 		totalViews: 0,
 		uniqueUsers: 0,
 		todayViews: 0,
 		activeNow: 0
 	};
-	
-	let pageViews = [];
-	let dailyStats = [];
-	let realtimeData = [];
+
+	let pageViews: PageView[] = [];
+	let dailyStats: DailyStat[] = [];
+	let realtimeData: RealtimeEntry[] = [];
 	let loading = true;
-	let error = null;
-	let refreshInterval;
-	let chart = null;
-	let realtimeChart = null;
+	let error: string | null = null;
+	let refreshInterval: ReturnType<typeof setInterval> | null = null;
+	let chart: Chart | null = null;
+	let realtimeChart: Chart | null = null;
 	let selectedTimeRange = '7days';
 	
 	// Modal state
@@ -85,7 +113,7 @@
 			if (chart) updateMainChart();
 			if (realtimeChart) updateRealtimeChart();
 		} catch (err) {
-			error = err.message;
+			error = err instanceof Error ? err.message : 'An error occurred';
 		} finally {
 			loading = false;
 		}
@@ -93,25 +121,34 @@
 
 	async function loadStats() {
 		const response = await api.getAnalyticsStats();
-		if (response.error) throw new Error(response.error);
-		stats = response.data || stats;
+		if (response.error) throw new Error(typeof response.error === 'string' ? response.error : 'Failed to load stats');
+		if (response.data) {
+			const data = response.data as unknown as Record<string, number>;
+			stats = {
+				totalViews: data.totalViews ?? 0,
+				uniqueUsers: data.uniqueUsers ?? 0,
+				todayViews: data.todayViews ?? 0,
+				activeNow: data.activeNow ?? 0
+			};
+		}
 	}
 
 	async function loadPageViews() {
 		const response = await api.getAnalyticsPageviews();
-		if (response.error) throw new Error(response.error);
-		pageViews = response.data?.pageViews || [];
+		if (response.error) throw new Error(typeof response.error === 'string' ? response.error : 'Failed to load page views');
+		pageViews = (response.data as unknown as PageView[]) || [];
 	}
-	
+
 	async function loadDailyStats() {
 		const days = parseInt(selectedTimeRange.replace(/\D/g, '') || '7');
 		const response = await api.getAnalyticsDailyStats(days);
-		
-		if (response.error || !response.data?.dailyStats?.length) {
+
+		const data = response.data as DailyStat[] | undefined;
+		if (response.error || !data?.length) {
 			// If no real data, generate sample data for demo
 			const now = new Date();
 			dailyStats = [];
-			
+
 			for (let i = days - 1; i >= 0; i--) {
 				const date = new Date(now);
 				date.setDate(date.getDate() - i);
@@ -122,15 +159,15 @@
 				});
 			}
 		} else {
-			dailyStats = response.data.dailyStats;
+			dailyStats = data;
 		}
 	}
-	
+
 	async function loadRealtimeData() {
 		// Generate sample realtime data (last 60 minutes)
 		const now = new Date();
 		realtimeData = [];
-		
+
 		for (let i = 59; i >= 0; i--) {
 			const time = new Date(now);
 			time.setMinutes(time.getMinutes() - i);
@@ -143,7 +180,7 @@
 
 	function initializeCharts() {
 		// Main analytics chart
-		const mainCtx = document.getElementById('mainChart');
+		const mainCtx = document.getElementById('mainChart') as HTMLCanvasElement | null;
 		if (mainCtx) {
 			chart = new Chart(mainCtx, {
 				type: 'line',
@@ -210,7 +247,7 @@
 		}
 		
 		// Realtime users chart
-		const realtimeCtx = document.getElementById('realtimeChart');
+		const realtimeCtx = document.getElementById('realtimeChart') as HTMLCanvasElement | null;
 		if (realtimeCtx) {
 			realtimeChart = new Chart(realtimeCtx, {
 				type: 'line',
@@ -258,24 +295,24 @@
 	
 	function updateMainChart() {
 		if (!chart || !dailyStats.length) return;
-		
+
 		chart.data.labels = dailyStats.map(d => {
 			const date = new Date(d.date);
 			return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 		});
-		chart.data.datasets[0].data = dailyStats.map(d => d.views);
-		chart.data.datasets[1].data = dailyStats.map(d => d.uniqueVisitors);
+		chart.data.datasets[0].data = dailyStats.map(d => d.views ?? 0);
+		chart.data.datasets[1].data = dailyStats.map(d => d.uniqueVisitors ?? 0);
 		chart.update();
 	}
-	
+
 	function updateRealtimeChart() {
 		if (!realtimeChart || !realtimeData.length) return;
-		
+
 		realtimeChart.data.labels = realtimeData.map(d => {
-			const time = new Date(d.time);
+			const time = new Date(d.time ?? d.timestamp ?? '');
 			return time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 		});
-		realtimeChart.data.datasets[0].data = realtimeData.map(d => d.users);
+		realtimeChart.data.datasets[0].data = realtimeData.map(d => d.users ?? d.views ?? 0);
 		realtimeChart.update();
 	}
 
@@ -295,38 +332,38 @@
 			toasts.warning('Please enter an event name');
 			return;
 		}
-		
-		let eventData = {
-			event: trackEventCategory === 'page_view' ? 'page_view' : trackEventName,
+
+		let eventData: Record<string, unknown> = {
+			name: trackEventCategory === 'page_view' ? 'page_view' : trackEventName,
 			category: trackEventCategory,
 			timestamp: new Date().toISOString()
 		};
-		
+
 		// If it's a page view, add URL
 		if (trackEventCategory === 'page_view') {
-			eventData.url = trackEventName;
+			eventData.label = trackEventName;
 		}
-		
+
 		// Parse additional properties if provided
 		if (trackEventProperties.trim()) {
 			try {
 				const additionalProps = JSON.parse(trackEventProperties);
 				eventData = { ...eventData, ...additionalProps };
-			} catch (e) {
+			} catch {
 				toasts.warning('Invalid JSON in properties field');
 				return;
 			}
 		}
-		
+
 		try {
-			const response = await api.trackAnalyticsEvent(eventData);
-			
+			const response = await api.trackAnalyticsEvent(eventData as unknown as Parameters<typeof api.trackAnalyticsEvent>[0]);
+
 			if (!response.error) {
 				closeTrackModal();
 				// Refresh data after tracking
 				await loadData();
 			} else {
-				throw new Error(response.error);
+				throw new Error(typeof response.error === 'string' ? response.error : 'Failed to track event');
 			}
 		} catch (err) {
 			ErrorHandler.handle(err);
@@ -347,13 +384,13 @@
 		}));
 	}
 
-	function formatNumber(num) {
+	function formatNumber(num: number) {
 		if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
 		if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
 		return num.toString();
 	}
-	
-	function getChangeClass(value) {
+
+	function getChangeClass(value: number) {
 		if (value > 0) return 'text-green-600';
 		if (value < 0) return 'text-red-600';
 		return 'text-gray-500';

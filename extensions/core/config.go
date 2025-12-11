@@ -15,8 +15,8 @@ type ExtensionConfig struct {
 	mu        sync.RWMutex
 	Enabled   map[string]bool                   `yaml:"enabled" json:"enabled"`
 	Config    map[string]map[string]interface{} `yaml:"config" json:"config"`
-	BuildTags []string                          `yaml:"build_tags" json:"build_tags"`
-	LoadOrder []string                          `yaml:"load_order" json:"load_order"`
+	BuildTags []string                          `yaml:"buildTags" json:"buildTags"`
+	LoadOrder []string                          `yaml:"loadOrder" json:"loadOrder"`
 }
 
 // NewExtensionConfig creates a new extension configuration

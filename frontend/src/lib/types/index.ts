@@ -21,8 +21,17 @@ export {
 	type BatchResponse,
 	type WebSocketMessage,
 	type ApiClientConfig,
+	type RecentActivity,
 	type DashboardStats,
-	type AppSettings
+	type AppSettings,
+	type Extension,
+	type ExtensionStatus,
+	type Webhook,
+	type WebhookCreateRequest,
+	type AnalyticsStats,
+	type AnalyticsPageview,
+	type AnalyticsDailyStats,
+	type AnalyticsEvent
 } from './api.types';
 
 // Re-export database types

@@ -25,6 +25,7 @@ import (
 	"github.com/suppers-ai/solobase/internal/api/middleware"
 	"github.com/suppers-ai/solobase/internal/api/router"
 	"github.com/suppers-ai/solobase/internal/config"
+	coremodels "github.com/suppers-ai/solobase/internal/core/models"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/internal/data/models"
 	"github.com/suppers-ai/solobase/internal/iam"
@@ -37,7 +38,7 @@ type App struct {
 	db               *database.DB
 	config           *config.Config
 	sqlDB            *sql.DB // Store sql.DB reference for Close()
-	appID            string // Application ID for storage isolation
+	appID            string  // Application ID for storage isolation
 	services         *AppServices
 	extensionManager *extensions.ExtensionManager
 	server           *http.Server
@@ -48,18 +49,39 @@ type App struct {
 	onBeforeAPIHooks []func(*APIEvent) error
 	onAfterAPIHooks  []func(*APIEvent) error
 	onModelHooks     map[string][]func(*ModelEvent) error
+
+	// Custom routes registered before Start()
+	customRoutes []customRoute
 }
+
+// customRoute holds route registration info
+type customRoute struct {
+	path       string
+	handler    http.HandlerFunc
+	methods    []string
+	routeType  routeType
+}
+
+// routeType defines the authentication level for a route
+type routeType int
+
+const (
+	routeTypePublic routeType = iota
+	routeTypeProtected
+	routeTypeAdmin
+)
 
 // AppServices contains all the services used by the app
 type AppServices struct {
-	Auth       *services.AuthService
-	User       *services.UserService
-	Storage    *services.StorageService
-	Database   *services.DatabaseService
-	Settings   *services.SettingsService
-	Logs       *services.LogsService
-	Logger     *services.DBLogger
-	IAM        *iam.Service
+	Auth         *services.AuthService
+	User         *services.UserService
+	Storage      *services.StorageService
+	Database     *services.DatabaseService
+	Settings     *services.SettingsService
+	Logs         *services.LogsService
+	Logger       *services.DBLogger
+	IAM          *iam.Service
+	CustomTables *services.CustomTablesService
 }
 
 // ServeEvent is passed to OnServe hooks
@@ -109,6 +131,24 @@ type S3Config struct {
 	Endpoint        string
 	UsePathStyle    bool
 }
+
+// Custom Table types - re-exported for easier access
+type (
+	// TableDefinition defines the schema for a custom table
+	TableDefinition = models.CustomTableDefinition
+	// TableField defines a column in a custom table
+	TableField = models.CustomTableField
+	// TableIndex defines an index on a custom table
+	TableIndex = models.CustomTableIndex
+	// TableOptions defines additional table options
+	TableOptions = models.CustomTableOptions
+	// ForeignKey defines a foreign key relationship
+	ForeignKey = models.ForeignKeyDef
+	// FieldValidation defines validation rules for a field
+	FieldValidation = models.FieldValidation
+	// DynamicRepository provides CRUD operations for custom tables
+	DynamicRepository = coremodels.DynamicRepository
+)
 
 //go:embed all:frontend/build/*
 var uiFiles embed.FS
@@ -339,11 +379,12 @@ func (app *App) Initialize() error {
 		Storage: services.NewStorageServiceWithOptions(db, app.config.Storage, &services.StorageOptions{
 			AppID: app.appID,
 		}),
-		Database:   services.NewDatabaseService(db),
-		Settings:   services.NewSettingsService(db),
-		Logs:       services.NewLogsService(db),
-		Logger:     dbLogger,
-		IAM:        iamService,
+		Database:     services.NewDatabaseService(db),
+		Settings:     services.NewSettingsService(db),
+		Logs:         services.NewLogsService(db),
+		Logger:       dbLogger,
+		IAM:          iamService,
+		CustomTables: services.NewCustomTablesService(db.DB),
 	}
 
 	// Create default admin (skip in read-only mode)
@@ -490,6 +531,9 @@ func (app *App) Start() error {
 		log.Println("WARNING: Extension manager is nil, cannot register extension routes")
 	}
 
+	// Register custom routes
+	app.registerCustomRoutes(apiRouter)
+
 	// API routes
 	log.Println("DEBUG: Setting up API routes")
 	app.router.PathPrefix("/api").Handler(http.StripPrefix("/api", apiRouter))
@@ -579,6 +623,112 @@ func (app *App) Config() *config.Config {
 // GetAppID returns the application ID for storage isolation
 func (app *App) GetAppID() string {
 	return app.appID
+}
+
+// RegisterPublicRoute registers a custom route that does not require authentication.
+// The path should start with "/" and will be prefixed with "/api".
+// Methods defaults to ["GET"] if not provided.
+//
+// Example:
+//
+//	app.RegisterPublicRoute("/custom/hello", func(w http.ResponseWriter, r *http.Request) {
+//	    w.Write([]byte(`{"message": "Hello, World!"}`))
+//	}, "GET")
+func (app *App) RegisterPublicRoute(path string, handler http.HandlerFunc, methods ...string) {
+	if len(methods) == 0 {
+		methods = []string{"GET"}
+	}
+	app.customRoutes = append(app.customRoutes, customRoute{
+		path:      path,
+		handler:   handler,
+		methods:   methods,
+		routeType: routeTypePublic,
+	})
+}
+
+// RegisterProtectedRoute registers a custom route that requires authentication.
+// The authenticated user's context is available via:
+//   - r.Context().Value(constants.ContextKeyUserID).(string) - User ID
+//   - r.Context().Value(constants.ContextKeyUserEmail).(string) - User email
+//   - r.Context().Value(constants.ContextKeyUserRoles).([]string) - User roles
+//   - r.Context().Value("user").(*auth.User) - Full user object
+//
+// The path should start with "/" and will be prefixed with "/api".
+// Methods defaults to ["GET"] if not provided.
+//
+// Example:
+//
+//	app.RegisterProtectedRoute("/custom/profile", func(w http.ResponseWriter, r *http.Request) {
+//	    userID := r.Context().Value(constants.ContextKeyUserID).(string)
+//	    // Use userID...
+//	}, "GET")
+func (app *App) RegisterProtectedRoute(path string, handler http.HandlerFunc, methods ...string) {
+	if len(methods) == 0 {
+		methods = []string{"GET"}
+	}
+	app.customRoutes = append(app.customRoutes, customRoute{
+		path:      path,
+		handler:   handler,
+		methods:   methods,
+		routeType: routeTypeProtected,
+	})
+}
+
+// RegisterAdminRoute registers a custom route that requires admin role.
+// The authenticated user's context is available (same as RegisterProtectedRoute).
+// Additionally, the user must have the "admin" role.
+//
+// The path should start with "/" and will be prefixed with "/api".
+// Methods defaults to ["GET"] if not provided.
+//
+// Example:
+//
+//	app.RegisterAdminRoute("/custom/admin/stats", func(w http.ResponseWriter, r *http.Request) {
+//	    // Only admins can access this
+//	}, "GET")
+func (app *App) RegisterAdminRoute(path string, handler http.HandlerFunc, methods ...string) {
+	if len(methods) == 0 {
+		methods = []string{"GET"}
+	}
+	app.customRoutes = append(app.customRoutes, customRoute{
+		path:      path,
+		handler:   handler,
+		methods:   methods,
+		routeType: routeTypeAdmin,
+	})
+}
+
+// registerCustomRoutes registers all custom routes on the API router
+func (app *App) registerCustomRoutes(apiRouter *router.API) {
+	if len(app.customRoutes) == 0 {
+		return
+	}
+
+	log.Printf("Registering %d custom routes...", len(app.customRoutes))
+
+	// Create subrouters for protected and admin routes
+	protectedRouter := apiRouter.Router.PathPrefix("").Subrouter()
+	protectedRouter.Use(middleware.AuthMiddleware(app.services.Auth))
+
+	adminRouter := apiRouter.Router.PathPrefix("").Subrouter()
+	adminRouter.Use(middleware.AuthMiddleware(app.services.Auth))
+	adminRouter.Use(middleware.AdminMiddleware(app.services.IAM))
+
+	for _, route := range app.customRoutes {
+		methods := append(route.methods, "OPTIONS") // Always allow OPTIONS for CORS
+
+		switch route.routeType {
+		case routeTypePublic:
+			apiRouter.Router.HandleFunc(route.path, route.handler).Methods(methods...)
+			log.Printf("  Registered public route: %s %v", route.path, route.methods)
+		case routeTypeProtected:
+			protectedRouter.HandleFunc(route.path, route.handler).Methods(methods...)
+			log.Printf("  Registered protected route: %s %v", route.path, route.methods)
+		case routeTypeAdmin:
+			adminRouter.HandleFunc(route.path, route.handler).Methods(methods...)
+			log.Printf("  Registered admin route: %s %v", route.path, route.methods)
+		}
+	}
 }
 
 // ServeStaticAsset returns a handler for serving a specific static asset

@@ -94,7 +94,7 @@ type AuditEntry struct {
 	Extension string                 `json:"extension"`
 	Action    string                 `json:"action"`
 	Resource  string                 `json:"resource"`
-	UserID    string                 `json:"user_id"`
+	UserID    string                 `json:"userId"`
 	Result    string                 `json:"result"`
 	Details   map[string]interface{} `json:"details"`
 }

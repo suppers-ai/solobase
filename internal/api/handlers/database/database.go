@@ -13,7 +13,7 @@ type DatabaseTable struct {
 	Name      string `json:"name"`
 	Schema    string `json:"schema"`
 	Type      string `json:"type"`
-	RowsCount int    `json:"rows_count"`
+	RowsCount int    `json:"rowsCount"`
 	Size      string `json:"size"`
 }
 
@@ -22,8 +22,8 @@ type DatabaseColumn struct {
 	Type      string `json:"type"`
 	Nullable  bool   `json:"nullable"`
 	Default   string `json:"default,omitempty"`
-	IsPrimary bool   `json:"is_primary"`
-	IsUnique  bool   `json:"is_unique"`
+	IsPrimary bool   `json:"isPrimary"`
+	IsUnique  bool   `json:"isUnique"`
 }
 
 // HandleGetDatabaseInfo returns database information
@@ -48,8 +48,8 @@ type QueryRequest struct {
 type QueryResult struct {
 	Columns       []string        `json:"columns"`
 	Rows          [][]interface{} `json:"rows"`
-	AffectedRows  int             `json:"affected_rows,omitempty"`
-	ExecutionTime int64           `json:"execution_time"`
+	AffectedRows  int             `json:"affectedRows,omitempty"`
+	ExecutionTime int64           `json:"executionTime"`
 }
 
 func HandleGetDatabaseTables(dbService *services.DatabaseService) http.HandlerFunc {

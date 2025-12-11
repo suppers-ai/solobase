@@ -30,20 +30,20 @@ func NewPurchaseService(db *gorm.DB, productService *ProductService, pricingServ
 
 // PurchaseRequest represents a request to create a purchase
 type PurchaseRequest struct {
-	UserID   string                 `json:"user_id"`
+	UserID   string                 `json:"userId"`
 	Items    []PurchaseRequestItem  `json:"items"`
 	Metadata map[string]interface{} `json:"metadata"`
 	// Checkout configuration
-	SuccessURL         string   `json:"success_url"`
-	CancelURL          string   `json:"cancel_url"`
-	CustomerEmail      string   `json:"customer_email"`
-	PaymentMethodTypes []string `json:"payment_method_types"`
-	RequiresApproval   bool     `json:"requires_approval"`
+	SuccessURL         string   `json:"successUrl"`
+	CancelURL          string   `json:"cancelUrl"`
+	CustomerEmail      string   `json:"customerEmail"`
+	PaymentMethodTypes []string `json:"paymentMethodTypes"`
+	RequiresApproval   bool     `json:"requiresApproval"`
 }
 
 // PurchaseRequestItem represents a single item in a purchase request
 type PurchaseRequestItem struct {
-	ProductID uint                   `json:"product_id"`
+	ProductID uint                   `json:"productId"`
 	Quantity  int                    `json:"quantity"`
 	Variables map[string]interface{} `json:"variables"`
 }
@@ -322,17 +322,17 @@ func (s *PurchaseService) Cancel(id uint, reason string) error {
 // GetStats retrieves purchase statistics for a user
 func (s *PurchaseService) GetStats(userID string) (map[string]interface{}, error) {
 	stats := map[string]interface{}{
-		"total_purchases": 0,
-		"total_spent":     int64(0),
-		"pending":         0,
-		"completed":       0,
-		"refunded":        0,
+		"totalPurchases": 0,
+		"totalSpent":     int64(0),
+		"pending":        0,
+		"completed":      0,
+		"refunded":       0,
 	}
 
 	// Total purchases
 	var totalPurchases int64
 	s.db.Model(&models.Purchase{}).Where("user_id = ?", userID).Count(&totalPurchases)
-	stats["total_purchases"] = totalPurchases
+	stats["totalPurchases"] = totalPurchases
 
 	// Total spent (paid purchases)
 	var totalSpent struct {
@@ -342,7 +342,7 @@ func (s *PurchaseService) GetStats(userID string) (map[string]interface{}, error
 		Select("COALESCE(SUM(total_cents), 0) as total").
 		Where("user_id = ? AND status IN ?", userID, []string{models.PurchaseStatusPaid, models.PurchaseStatusRefunded}).
 		Scan(&totalSpent)
-	stats["total_spent"] = totalSpent.Total
+	stats["totalSpent"] = totalSpent.Total
 
 	// Status counts
 	var statusCounts []struct {

@@ -774,7 +774,7 @@ func (u *UserAPI) CreateProduct(w http.ResponseWriter, r *http.Request) {
 
 func (u *UserAPI) CalculatePrice(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ProductID uint                   `json:"product_id"`
+		ProductID uint                   `json:"productId"`
 		Variables map[string]interface{} `json:"variables"`
 	}
 
@@ -1028,7 +1028,7 @@ func (u *UserAPI) CreatePurchase(w http.ResponseWriter, r *http.Request) {
 
 	// Get checkout URL from the purchase service (provider-agnostic)
 	if checkoutURL := u.purchaseService.GetCheckoutURL(purchase); checkoutURL != "" {
-		response["checkout_url"] = checkoutURL
+		response["checkoutUrl"] = checkoutURL
 	}
 
 	w.Header().Set("Content-Type", "application/json")

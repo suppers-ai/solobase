@@ -15,8 +15,8 @@ type PaginatedUsersResponse struct {
 	Data       []*auth.User `json:"data"`
 	Total      int          `json:"total"`
 	Page       int          `json:"page"`
-	PageSize   int          `json:"page_size"`
-	TotalPages int          `json:"total_pages"`
+	PageSize   int          `json:"pageSize"`
+	TotalPages int          `json:"totalPages"`
 }
 
 func HandleGetUsers(userService *services.UserService) http.HandlerFunc {

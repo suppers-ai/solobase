@@ -22,12 +22,9 @@ function createAuthStore() {
 		async login(email: string, password: string) {
 			update(state => ({ ...state, loading: true, error: null }));
 
-			console.log('Attempting login for:', email);
 			const response = await api.login({ email, password });
-			console.log('Login response:', response);
 
 			if (response.error) {
-				console.error('Login failed:', response.error);
 				const errorMessage = typeof response.error === 'string'
 					? response.error
 					: response.error.message;
@@ -38,8 +35,6 @@ function createAuthStore() {
 			// Login response wraps UserResponse in data: { data: UserResponse, message: string }
 			const loginResponse = response.data as LoginResponse;
 			const userResponse = loginResponse.data;
-			console.log('Login successful, user:', userResponse.user);
-			console.log('User roles:', userResponse.roles);
 
 			set({
 				user: userResponse.user,
@@ -50,28 +45,21 @@ function createAuthStore() {
 			return true;
 		},
 		async logout() {
-			console.log('Logging out...');
 			await api.logout();
 			set({ user: null, roles: [], loading: false, error: null });
-			console.log('Logout complete, auth store cleared');
 		},
 		async checkAuth() {
 			update(state => ({ ...state, loading: true }));
 
-			console.log('Checking auth status...');
 			const response = await api.getCurrentUser();
-			console.log('Current user response:', response);
 
 			if (response.error) {
-				console.log('Auth check failed:', response.error);
 				set({ user: null, roles: [], loading: false, error: null });
 				return false;
 			}
 
 			// /api/auth/me returns UserResponse directly (not wrapped in data)
 			const userResponse = response.data as UserResponse;
-			console.log('Auth check successful, user:', userResponse.user);
-			console.log('User roles:', userResponse.roles);
 
 			set({
 				user: userResponse.user,

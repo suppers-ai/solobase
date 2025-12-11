@@ -11,11 +11,11 @@
 	let newName = '';
 
 	$: if (item) {
-		newName = item.object_name || item.name || '';
+		newName = item.objectName || item.name || '';
 	}
 
 	function handleRename() {
-		if (newName.trim() && newName !== (item?.object_name || item?.name)) {
+		if (newName.trim() && newName !== (item?.objectName || item?.name)) {
 			dispatch('rename', { newName: newName.trim() });
 		}
 	}
@@ -30,7 +30,7 @@
 	<div class="modal-overlay" on:click={handleClose}>
 		<div class="modal" on:click|stopPropagation>
 			<div class="modal-header">
-				<h3>Rename {item.is_folder ? 'Folder' : 'File'}</h3>
+				<h3>Rename {item.isFolder ? 'Folder' : 'File'}</h3>
 				<button class="icon-button" on:click={handleClose} disabled={renaming}>
 					<X size={20} />
 				</button>
@@ -50,7 +50,7 @@
 							title="Names cannot contain slashes"
 						/>
 						<p class="form-hint">
-							Current: {item.object_name || item.name}
+							Current: {item.objectName || item.name}
 						</p>
 					</div>
 				</div>
@@ -59,10 +59,10 @@
 					<button type="button" class="btn btn-secondary" on:click={handleClose} disabled={renaming}>
 						Cancel
 					</button>
-					<button 
-						type="submit" 
-						class="btn btn-primary" 
-						disabled={!newName.trim() || newName === (item?.object_name || item?.name) || renaming}
+					<button
+						type="submit"
+						class="btn btn-primary"
+						disabled={!newName.trim() || newName === (item?.objectName || item?.name) || renaming}
 					>
 						{renaming ? 'Renaming...' : 'Rename'}
 					</button>

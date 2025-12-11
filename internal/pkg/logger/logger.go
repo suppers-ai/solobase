@@ -49,8 +49,8 @@ type Log struct {
 	Level     Level                  `json:"level" db:"level"`
 	Message   string                 `json:"message" db:"message"`
 	Fields    map[string]interface{} `json:"fields" db:"fields"`
-	UserID    *string                `json:"user_id,omitempty" db:"user_id"`
-	TraceID   *string                `json:"trace_id,omitempty" db:"trace_id"`
+	UserID    *string                `json:"userId,omitempty" db:"user_id"`
+	TraceID   *string                `json:"traceId,omitempty" db:"trace_id"`
 	Timestamp time.Time              `json:"timestamp" db:"created_at"`
 }
 
@@ -61,17 +61,17 @@ type RequestLog struct {
 	Method       string    `json:"method" db:"method"`
 	Path         string    `json:"path" db:"path"`
 	Query        string    `json:"query,omitempty" db:"query"`
-	StatusCode   int       `json:"status_code" db:"status_code"`
-	ExecTimeMs   int64     `json:"exec_time_ms" db:"exec_time_ms"`
-	UserIP       string    `json:"user_ip" db:"user_ip"`
-	UserAgent    string    `json:"user_agent,omitempty" db:"user_agent"`
-	UserID       *string   `json:"user_id,omitempty" db:"user_id"`
-	TraceID      *string   `json:"trace_id,omitempty" db:"trace_id"`
+	StatusCode   int       `json:"statusCode" db:"status_code"`
+	ExecTimeMs   int64     `json:"execTimeMs" db:"exec_time_ms"`
+	UserIP       string    `json:"userIp" db:"user_ip"`
+	UserAgent    string    `json:"userAgent,omitempty" db:"user_agent"`
+	UserID       *string   `json:"userId,omitempty" db:"user_id"`
+	TraceID      *string   `json:"traceId,omitempty" db:"trace_id"`
 	Error        *string   `json:"error,omitempty" db:"error"`
-	RequestBody  *string   `json:"request_body,omitempty" db:"request_body"`
-	ResponseBody *string   `json:"response_body,omitempty" db:"response_body"`
+	RequestBody  *string   `json:"requestBody,omitempty" db:"request_body"`
+	ResponseBody *string   `json:"responseBody,omitempty" db:"response_body"`
 	Headers      *string   `json:"headers,omitempty" db:"headers"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	CreatedAt    time.Time `json:"createdAt" db:"created_at"`
 }
 
 // Field represents a structured logging field
@@ -83,34 +83,34 @@ type Field struct {
 // LogFilter for querying logs
 type LogFilter struct {
 	Level     *Level     `json:"level,omitempty"`
-	UserID    *string    `json:"user_id,omitempty"`
-	TraceID   *string    `json:"trace_id,omitempty"`
-	StartTime *time.Time `json:"start_time,omitempty"`
-	EndTime   *time.Time `json:"end_time,omitempty"`
+	UserID    *string    `json:"userId,omitempty"`
+	TraceID   *string    `json:"traceId,omitempty"`
+	StartTime *time.Time `json:"startTime,omitempty"`
+	EndTime   *time.Time `json:"endTime,omitempty"`
 	Limit     int        `json:"limit,omitempty"`
 	Offset    int        `json:"offset,omitempty"`
-	OrderBy   string     `json:"order_by,omitempty"`
-	OrderDesc bool       `json:"order_desc,omitempty"`
+	OrderBy   string     `json:"orderBy,omitempty"`
+	OrderDesc bool       `json:"orderDesc,omitempty"`
 }
 
 // RequestLogFilter for querying request logs
 type RequestLogFilter struct {
 	Method      *string    `json:"method,omitempty"`
 	Path        *string    `json:"path,omitempty"`
-	PathPrefix  *string    `json:"path_prefix,omitempty"`
-	StatusCode  *int       `json:"status_code,omitempty"`
-	MinExecTime *int64     `json:"min_exec_time,omitempty"`
-	MaxExecTime *int64     `json:"max_exec_time,omitempty"`
-	UserID      *string    `json:"user_id,omitempty"`
-	UserIP      *string    `json:"user_ip,omitempty"`
-	TraceID     *string    `json:"trace_id,omitempty"`
-	HasError    *bool      `json:"has_error,omitempty"`
-	StartTime   *time.Time `json:"start_time,omitempty"`
-	EndTime     *time.Time `json:"end_time,omitempty"`
+	PathPrefix  *string    `json:"pathPrefix,omitempty"`
+	StatusCode  *int       `json:"statusCode,omitempty"`
+	MinExecTime *int64     `json:"minExecTime,omitempty"`
+	MaxExecTime *int64     `json:"maxExecTime,omitempty"`
+	UserID      *string    `json:"userId,omitempty"`
+	UserIP      *string    `json:"userIp,omitempty"`
+	TraceID     *string    `json:"traceId,omitempty"`
+	HasError    *bool      `json:"hasError,omitempty"`
+	StartTime   *time.Time `json:"startTime,omitempty"`
+	EndTime     *time.Time `json:"endTime,omitempty"`
 	Limit       int        `json:"limit,omitempty"`
 	Offset      int        `json:"offset,omitempty"`
-	OrderBy     string     `json:"order_by,omitempty"`
-	OrderDesc   bool       `json:"order_desc,omitempty"`
+	OrderBy     string     `json:"orderBy,omitempty"`
+	OrderDesc   bool       `json:"orderDesc,omitempty"`
 }
 
 // Config holds logger configuration
@@ -118,17 +118,17 @@ type Config struct {
 	Level          Level                  `json:"level"`
 	Output         string                 `json:"output"` // console, database, file, multi
 	Format         string                 `json:"format"` // json, text
-	BufferSize     int                    `json:"buffer_size"`
-	FlushInterval  time.Duration          `json:"flush_interval"`
-	MaxBatchSize   int                    `json:"max_batch_size"`
-	AsyncMode      bool                   `json:"async_mode"`
-	IncludeStack   bool                   `json:"include_stack"`
-	IncludeCaller  bool                   `json:"include_caller"`
-	EnableRotation bool                   `json:"enable_rotation"`
-	MaxSize        int64                  `json:"max_size"`    // MB for file rotation
-	MaxAge         int                    `json:"max_age"`     // days for file rotation
-	MaxBackups     int                    `json:"max_backups"` // number of backup files
-	FilePath       string                 `json:"file_path"`
+	BufferSize     int                    `json:"bufferSize"`
+	FlushInterval  time.Duration          `json:"flushInterval"`
+	MaxBatchSize   int                    `json:"maxBatchSize"`
+	AsyncMode      bool                   `json:"asyncMode"`
+	IncludeStack   bool                   `json:"includeStack"`
+	IncludeCaller  bool                   `json:"includeCaller"`
+	EnableRotation bool                   `json:"enableRotation"`
+	MaxSize        int64                  `json:"maxSize"`    // MB for file rotation
+	MaxAge         int                    `json:"maxAge"`     // days for file rotation
+	MaxBackups     int                    `json:"maxBackups"` // number of backup files
+	FilePath       string                 `json:"filePath"`
 	Extra          map[string]interface{} `json:"extra"`
 }
 

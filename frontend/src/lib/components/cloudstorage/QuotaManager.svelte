@@ -1,20 +1,49 @@
-<script>
+<script lang="ts">
 	import { onMount } from 'svelte';
 	import { createEventDispatcher } from 'svelte';
 	import { api, ErrorHandler } from '$lib/api';
 	import { formatBytes } from '$lib/utils/formatters';
 
+	interface Role {
+		id: string;
+		name: string;
+	}
+
+	interface RoleQuota {
+		roleId: string;
+		roleName: string;
+		maxStorageBytes: number;
+		maxBandwidthBytes: number;
+		maxUploadSize: number;
+		maxFilesCount: number;
+		allowedExtensions?: string;
+		blockedExtensions?: string;
+	}
+
+	interface UserOverride {
+		id: string;
+		userId: string;
+		maxStorageBytes?: number | null;
+		maxBandwidthBytes?: number | null;
+		maxUploadSize?: number | null;
+		maxFilesCount?: number | null;
+		allowedExtensions?: string | null;
+		blockedExtensions?: string | null;
+		reason?: string;
+		expiresAt?: string | null;
+	}
+
 	const dispatch = createEventDispatcher();
-	
-	export let roles = [];
-	
-	let roleQuotas = [];
-	let userOverrides = [];
+
+	export let roles: Role[] = [];
+
+	let roleQuotas: RoleQuota[] = [];
+	let userOverrides: UserOverride[] = [];
 	let loading = true;
 	let activeView = 'roles'; // 'roles' or 'overrides'
 	let showEditModal = false;
 	let showOverrideModal = false;
-	let selectedQuota = null;
+	let selectedQuota: RoleQuota | null = null;
 	
 	// Form data
 	let quotaForm = {
@@ -49,50 +78,48 @@
 		try {
 			// Load role quotas
 			try {
-				roleQuotas = await api.get('/admin/ext/cloudstorage/quotas/roles') || [];
-			} catch (error) {
-				console.error('Failed to load role quotas:', error);
+				const quotasResult = await api.get<RoleQuota[]>('/admin/ext/cloudstorage/quotas/roles');
+				roleQuotas = Array.isArray(quotasResult) ? quotasResult : [];
+			} catch {
 				roleQuotas = [];
 			}
-			
+
 			// Load user overrides
 			try {
-				userOverrides = await api.get('/admin/ext/cloudstorage/quotas/overrides') || [];
-			} catch (error) {
-				console.error('Failed to load user overrides:', error);
+				const overridesResult = await api.get<UserOverride[]>('/admin/ext/cloudstorage/quotas/overrides');
+				userOverrides = Array.isArray(overridesResult) ? overridesResult : [];
+			} catch {
 				userOverrides = [];
 			}
-		} catch (error) {
-			console.error('Failed to load quotas:', error);
 		} finally {
 			loading = false;
 		}
 	}
-	
-	function handleEditQuota(quota) {
+
+	function handleEditQuota(quota: RoleQuota) {
 		selectedQuota = quota;
 		quotaForm = {
-			roleId: quota.role_id,
-			roleName: quota.role_name,
-			maxStorageBytes: quota.max_storage_bytes,
-			maxBandwidthBytes: quota.max_bandwidth_bytes,
-			maxUploadSize: quota.max_upload_size,
-			maxFilesCount: quota.max_files_count,
-			allowedExtensions: quota.allowed_extensions || '',
-			blockedExtensions: quota.blocked_extensions || ''
+			roleId: quota.roleId,
+			roleName: quota.roleName,
+			maxStorageBytes: quota.maxStorageBytes,
+			maxBandwidthBytes: quota.maxBandwidthBytes,
+			maxUploadSize: quota.maxUploadSize,
+			maxFilesCount: quota.maxFilesCount,
+			allowedExtensions: quota.allowedExtensions || '',
+			blockedExtensions: quota.blockedExtensions || ''
 		};
 		showEditModal = true;
 	}
-	
+
 	async function saveQuota() {
 		try {
 			await api.put(`/admin/ext/cloudstorage/quotas/roles/${quotaForm.roleId}`, {
-				max_storage_bytes: quotaForm.maxStorageBytes,
-				max_bandwidth_bytes: quotaForm.maxBandwidthBytes,
-				max_upload_size: quotaForm.maxUploadSize,
-				max_files_count: quotaForm.maxFilesCount,
-				allowed_extensions: quotaForm.allowedExtensions,
-				blocked_extensions: quotaForm.blockedExtensions
+				maxStorageBytes: quotaForm.maxStorageBytes,
+				maxBandwidthBytes: quotaForm.maxBandwidthBytes,
+				maxUploadSize: quotaForm.maxUploadSize,
+				maxFilesCount: quotaForm.maxFilesCount,
+				allowedExtensions: quotaForm.allowedExtensions,
+				blockedExtensions: quotaForm.blockedExtensions
 			});
 
 			showEditModal = false;
@@ -125,11 +152,11 @@
 		}
 	}
 	
-	async function deleteOverride(override) {
+	async function deleteOverride(override: UserOverride) {
 		if (!confirm('Delete this user quota override?')) {
 			return;
 		}
-		
+
 		try {
 			await api.delete(`/admin/ext/cloudstorage/quotas/overrides/${override.id}`);
 			await loadQuotas();
@@ -137,8 +164,8 @@
 			ErrorHandler.handle(error);
 		}
 	}
-	
-	function formatNumber(num) {
+
+	function formatNumber(num: number | null | undefined): string {
 		return num?.toLocaleString() || '0';
 	}
 </script>
@@ -174,41 +201,41 @@
 				{#each roleQuotas as quota}
 					<div class="quota-card">
 						<div class="quota-header">
-							<h4>{quota.role_name}</h4>
+							<h4>{quota.roleName}</h4>
 							<button class="btn-edit" on:click={() => handleEditQuota(quota)}>
 								Edit
 							</button>
 						</div>
-						
+
 						<div class="quota-details">
 							<div class="quota-item">
 								<span class="label">Storage:</span>
-								<span class="value">{formatBytes(quota.max_storage_bytes)}</span>
+								<span class="value">{formatBytes(quota.maxStorageBytes)}</span>
 							</div>
 							<div class="quota-item">
 								<span class="label">Bandwidth:</span>
-								<span class="value">{formatBytes(quota.max_bandwidth_bytes)}</span>
+								<span class="value">{formatBytes(quota.maxBandwidthBytes)}</span>
 							</div>
 							<div class="quota-item">
 								<span class="label">Max Upload:</span>
-								<span class="value">{formatBytes(quota.max_upload_size)}</span>
+								<span class="value">{formatBytes(quota.maxUploadSize)}</span>
 							</div>
 							<div class="quota-item">
 								<span class="label">Max Files:</span>
-								<span class="value">{formatNumber(quota.max_files_count)}</span>
+								<span class="value">{formatNumber(quota.maxFilesCount)}</span>
 							</div>
-							
-							{#if quota.allowed_extensions}
+
+							{#if quota.allowedExtensions}
 								<div class="quota-item full-width">
 									<span class="label">Allowed:</span>
-									<span class="value extensions">{quota.allowed_extensions}</span>
+									<span class="value extensions">{quota.allowedExtensions}</span>
 								</div>
 							{/if}
-							
-							{#if quota.blocked_extensions}
+
+							{#if quota.blockedExtensions}
 								<div class="quota-item full-width">
 									<span class="label">Blocked:</span>
-									<span class="value extensions blocked">{quota.blocked_extensions}</span>
+									<span class="value extensions blocked">{quota.blockedExtensions}</span>
 								</div>
 							{/if}
 						</div>
@@ -250,13 +277,13 @@
 						<tbody>
 							{#each userOverrides as override}
 								<tr>
-									<td>{override.user_id}</td>
-									<td>{override.max_storage_bytes ? formatBytes(override.max_storage_bytes) : '-'}</td>
-									<td>{override.max_bandwidth_bytes ? formatBytes(override.max_bandwidth_bytes) : '-'}</td>
-									<td>{override.max_upload_size ? formatBytes(override.max_upload_size) : '-'}</td>
-									<td>{override.max_files_count ? formatNumber(override.max_files_count) : '-'}</td>
+									<td>{override.userId}</td>
+									<td>{override.maxStorageBytes ? formatBytes(override.maxStorageBytes) : '-'}</td>
+									<td>{override.maxBandwidthBytes ? formatBytes(override.maxBandwidthBytes) : '-'}</td>
+									<td>{override.maxUploadSize ? formatBytes(override.maxUploadSize) : '-'}</td>
+									<td>{override.maxFilesCount ? formatNumber(override.maxFilesCount) : '-'}</td>
 									<td class="reason">{override.reason || '-'}</td>
-									<td>{override.expires_at ? new Date(override.expires_at).toLocaleDateString() : 'Never'}</td>
+									<td>{override.expiresAt ? new Date(override.expiresAt).toLocaleDateString() : 'Never'}</td>
 									<td>
 										<button class="btn-delete" on:click={() => deleteOverride(override)}>
 											Delete

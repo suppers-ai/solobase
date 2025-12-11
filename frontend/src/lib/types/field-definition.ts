@@ -8,15 +8,15 @@ export interface FieldConstraints {
   required?: boolean;
   min?: number;
   max?: number;
-  min_length?: number;
-  max_length?: number;
+  minLength?: number;
+  maxLength?: number;
   pattern?: string;
   options?: string[];
   default?: any;
   placeholder?: string;
   rows?: number;
   step?: number;
-  editable_by_user?: boolean;
+  editableByUser?: boolean;
 }
 
 // Unified field definition matching Go FieldDefinition struct

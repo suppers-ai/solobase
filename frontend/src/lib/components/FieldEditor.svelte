@@ -2,22 +2,41 @@
 	import { Plus, Trash2, Edit2, ChevronUp, ChevronDown, GripVertical } from 'lucide-svelte';
 	import { toasts } from '$lib/stores/toast';
 
-	export let fields: any[] = [];
-	export let onFieldsChange: (fields: any[]) => void;
+	interface FieldConstraints {
+		editableByUser: boolean;
+		options?: string[];
+		min?: number;
+		max?: number;
+		minLength?: number;
+		maxLength?: number;
+		format?: string;
+	}
+
+	interface Field {
+		id: string;
+		name: string;
+		type: string;
+		required: boolean;
+		description: string;
+		constraints: FieldConstraints;
+	}
+
+	export let fields: Field[] = [];
+	export let onFieldsChange: (fields: Field[]) => void;
 
 	let showFieldModal = false;
 	let showTypeSelector = false;
 	let editingIndex: number | null = null;
 	let selectedType: string = '';
 
-	let fieldForm = {
+	let fieldForm: Field = {
 		id: '',
 		name: '',
 		type: '',
 		required: false,
 		description: '',
 		constraints: {
-			editable_by_user: true
+			editableByUser: true
 		}
 	};
 
@@ -67,7 +86,12 @@
 			required: false,
 			description: '',
 			constraints: {
-				editable_by_user: true
+				editableByUser: true,
+				options: undefined,
+				min: undefined,
+				max: undefined,
+				minLength: undefined,
+				maxLength: undefined
 			}
 		};
 
@@ -81,8 +105,8 @@
 		fieldForm = {
 			...field,
 			constraints: {
-				editable_by_user: true,
-				...(field.constraints || {})
+				...(field.constraints || {}),
+				editableByUser: field.constraints?.editableByUser ?? true
 			}
 		};
 		selectedType = field.type;
@@ -123,7 +147,12 @@
 			required: false,
 			description: '',
 			constraints: {
-				editable_by_user: true
+				editableByUser: true,
+				options: undefined,
+				min: undefined,
+				max: undefined,
+				minLength: undefined,
+				maxLength: undefined
 			}
 		};
 	}
@@ -175,9 +204,9 @@
 								<span class="field-range">
 									Range: {field.constraints.min ?? '∞'} - {field.constraints.max ?? '∞'}
 								</span>
-							{:else if field.type === 'text' && (field.constraints?.min_length !== undefined || field.constraints?.max_length !== undefined)}
+							{:else if field.type === 'text' && (field.constraints?.minLength !== undefined || field.constraints?.maxLength !== undefined)}
 								<span class="field-length">
-									Length: {field.constraints.min_length ?? 0} - {field.constraints.max_length ?? '∞'}
+									Length: {field.constraints.minLength ?? 0} - {field.constraints.maxLength ?? '∞'}
 								</span>
 							{:else if field.type === 'location' && field.constraints?.format}
 								<span class="field-format">Format: {field.constraints.format}</span>
@@ -299,7 +328,7 @@
 						<label class="checkbox-label">
 							<input
 								type="checkbox"
-								bind:checked={fieldForm.constraints.editable_by_user}
+								bind:checked={fieldForm.constraints.editableByUser}
 							/>
 							Editable by user
 						</label>
@@ -329,7 +358,7 @@
 							<input
 								type="number"
 								min="0"
-								bind:value={fieldForm.constraints.min_length}
+								bind:value={fieldForm.constraints.minLength}
 								placeholder="Optional"
 							/>
 						</div>
@@ -338,7 +367,7 @@
 							<input
 								type="number"
 								min="0"
-								bind:value={fieldForm.constraints.max_length}
+								bind:value={fieldForm.constraints.maxLength}
 								placeholder="Optional"
 							/>
 						</div>

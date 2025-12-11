@@ -1,19 +1,26 @@
-<script>
+<script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import PolicyTable from './PolicyTable.svelte';
 	import CreatePolicyModal from './CreatePolicyModal.svelte';
 	import EditPolicyModal from './EditPolicyModal.svelte';
 	import { ErrorHandler, authFetch } from '$lib/api';
 
-	export let policies = [];
+	interface Policy {
+		subject: string;
+		resource: string;
+		action: string;
+		effect: 'allow' | 'deny';
+	}
+
+	export let policies: Policy[] = [];
 
 	const dispatch = createEventDispatcher();
-	
+
 	let showCreateModal = false;
 	let showEditModal = false;
-	let selectedPolicy = null;
-	
-	async function handleCreatePolicy(event) {
+	let selectedPolicy: Policy | null = null;
+
+	async function handleCreatePolicy(event: CustomEvent<Policy>) {
 		const policy = event.detail;
 		const response = await authFetch('/api/admin/iam/policies', {
 			method: 'POST',
@@ -28,7 +35,7 @@
 		}
 	}
 
-	async function handleDeletePolicy(event) {
+	async function handleDeletePolicy(event: CustomEvent<Policy>) {
 		const policy = event.detail;
 		if (!confirm('Are you sure you want to delete this policy?')) {
 			return;
@@ -46,12 +53,12 @@
 		}
 	}
 
-	function handleEditPolicy(event) {
+	function handleEditPolicy(event: CustomEvent<Policy>) {
 		selectedPolicy = event.detail;
 		showEditModal = true;
 	}
 
-	async function handleSavePolicy(event) {
+	async function handleSavePolicy(event: CustomEvent<Policy>) {
 		const policy = event.detail;
 		// For policies, we need to delete the old one and create a new one
 		// since Casbin doesn't have a direct update method

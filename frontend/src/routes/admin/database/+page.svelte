@@ -22,6 +22,28 @@
 	import ExportButton from "$lib/components/ExportButton.svelte";
 	import { requireAdmin } from "$lib/utils/auth";
 
+	interface TableInfo {
+		name?: string;
+		value?: string;
+	}
+
+	interface TablesResponse {
+		data?: TableInfo[];
+		tables?: TableInfo[];
+	}
+
+	interface QueryResult {
+		rows?: unknown[][];
+		columns?: string[];
+		error?: string;
+		affected_rows?: number;
+	}
+
+	interface DatabaseInfo {
+		type?: string;
+		version?: string;
+	}
+
 	let selectedTable = "";
 	let activeTab = "table";
 	let searchQuery = "";
@@ -116,12 +138,13 @@
 	async function loadTables() {
 		loading = true;
 		try {
-			const response = await api.get("/admin/database/tables");
+			const response = await api.get<TableInfo[] | TablesResponse>("/admin/database/tables");
 			// Ensure tables is always an array
 			if (Array.isArray(response)) {
 				tables = response;
 			} else if (response && typeof response === "object") {
-				tables = response.data || response.tables || [];
+				const typedResponse = response as TablesResponse;
+				tables = typedResponse.data || typedResponse.tables || [];
 			} else {
 				tables = [];
 			}
@@ -169,18 +192,18 @@
 
 		try {
 			// Get table columns
-			const columns = await api.get(
+			const columns = await api.get<string[]>(
 				`/admin/database/tables/${selectedTable}/columns`,
 			);
 			tableColumns = columns || [];
 
 			// Get total count of rows
 			const countQuery = `SELECT COUNT(*) as count FROM ${selectedTable}`;
-			const countResult = await api.post("/admin/database/query", {
+			const countResult = await api.post<QueryResult>("/admin/database/query", {
 				query: countQuery,
 			});
 			if (countResult.rows && countResult.rows[0]) {
-				totalRows = countResult.rows[0][0] || 0;
+				totalRows = (countResult.rows[0][0] as number) || 0;
 				totalPages = Math.max(1, Math.ceil(totalRows / rowsPerPage));
 			} else {
 				totalRows = 0;
@@ -189,13 +212,13 @@
 
 			// Execute a SELECT query to get data
 			const query = `SELECT * FROM ${selectedTable} LIMIT ${rowsPerPage} OFFSET ${(currentPage - 1) * rowsPerPage}`;
-			const result = await api.post("/admin/database/query", { query });
+			const result = await api.post<QueryResult>("/admin/database/query", { query });
 
 			if (result.rows && result.columns) {
 				// Transform rows array to objects
-				tableData = result.rows.map((row: any[]) => {
-					const obj: any = {};
-					result.columns.forEach((col: string, index: number) => {
+				tableData = result.rows.map((row: unknown[]) => {
+					const obj: Record<string, unknown> = {};
+					result.columns!.forEach((col: string, index: number) => {
 						obj[col] = row[index];
 					});
 					return obj;
@@ -220,7 +243,7 @@
 
 		try {
 			const startTime = Date.now();
-			const result = await api.post("/admin/database/query", {
+			const result = await api.post<QueryResult>("/admin/database/query", {
 				query: sqlQuery,
 			});
 			queryExecutionTime = Date.now() - startTime;
@@ -238,17 +261,17 @@
 					Array.isArray(result.rows) &&
 					Array.isArray(result.columns)
 				) {
-					sqlResults = result.rows.map((row: any[]) => {
-						const obj: any = {};
-						result.columns.forEach((col: string, index: number) => {
+					sqlResults = result.rows.map((row: unknown[]) => {
+						const obj: Record<string, unknown> = {};
+						result.columns!.forEach((col: string, index: number) => {
 							obj[col] = row[index];
 						});
 						return obj;
 					});
 				}
-			} else if (result.affected_rows !== undefined) {
+			} else if (result.affectedRows !== undefined) {
 				// For INSERT/UPDATE/DELETE queries
-				affectedRows = result.affected_rows;
+				affectedRows = result.affectedRows;
 				sqlResults = [];
 			} else {
 				// Check if it's already formatted data
@@ -287,7 +310,7 @@
 
 	async function getDatabaseInfo() {
 		try {
-			const info = await api.get("/admin/database/info");
+			const info = await api.get<DatabaseInfo>("/admin/database/info");
 			if (info) {
 				dbType = info.type || "SQLite";
 				dbVersion = info.version || "3.x";
@@ -428,8 +451,8 @@
 																>
 																	<Table size={12} />
 																	<span class="table-name">{table.name}</span>
-																	{#if table.rows_count !== undefined}
-																		<span class="table-rows">{table.rows_count} rows</span>
+																	{#if table.rowsCount !== undefined}
+																		<span class="table-rows">{table.rowsCount} rows</span>
 																	{/if}
 																</button>
 															{/each}

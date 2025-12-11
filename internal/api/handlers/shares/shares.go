@@ -15,16 +15,16 @@ import (
 // StorageShare represents a share in the database
 type StorageShare struct {
 	ID                string     `gorm:"type:uuid;primaryKey" json:"id"`
-	ObjectID          string     `gorm:"type:uuid;index;not null" json:"object_id"`
-	ShareToken        string     `gorm:"type:varchar(255);unique;index" json:"share_token,omitempty"`
-	CreatedBy         string     `gorm:"type:uuid;index;not null" json:"created_by"`
-	SharedWithEmail   string     `gorm:"type:varchar(255);index" json:"shared_with_email,omitempty"`
-	PermissionLevel   string     `gorm:"type:varchar(50);not null;default:'view'" json:"permission_level"`
-	IsPublic          bool       `gorm:"default:false;index" json:"is_public"`
-	InheritToChildren bool       `gorm:"default:false" json:"inherit_to_children"`
-	ExpiresAt         *time.Time `gorm:"index" json:"expires_at,omitempty"`
-	CreatedAt         time.Time  `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt         time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
+	ObjectID          string     `gorm:"type:uuid;index;not null" json:"objectId"`
+	ShareToken        string     `gorm:"type:varchar(255);unique;index" json:"shareToken,omitempty"`
+	CreatedBy         string     `gorm:"type:uuid;index;not null" json:"createdBy"`
+	SharedWithEmail   string     `gorm:"type:varchar(255);index" json:"sharedWithEmail,omitempty"`
+	PermissionLevel   string     `gorm:"type:varchar(50);not null;default:'view'" json:"permissionLevel"`
+	IsPublic          bool       `gorm:"default:false;index" json:"isPublic"`
+	InheritToChildren bool       `gorm:"default:false" json:"inheritToChildren"`
+	ExpiresAt         *time.Time `gorm:"index" json:"expiresAt,omitempty"`
+	CreatedAt         time.Time  `gorm:"autoCreateTime" json:"createdAt"`
+	UpdatedAt         time.Time  `gorm:"autoUpdateTime" json:"updatedAt"`
 }
 
 // TableName specifies the table name

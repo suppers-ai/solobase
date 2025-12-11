@@ -22,9 +22,45 @@
 	let totalPages = 1;
 	let pageSize = 100;
 	
+	interface LogEntry {
+		id?: string;
+		level: string;
+		message: string;
+		timestamp: string;
+		source?: string;
+		fields?: Record<string, unknown>;
+		[key: string]: unknown;
+	}
+
+	interface RequestLog {
+		id?: string;
+		method: string;
+		path: string;
+		status: number;
+		statusCode?: number;
+		execTimeMs?: number;
+		duration?: string;
+		timestamp: string;
+		createdAt?: string;
+		userAgent?: string;
+		userIp?: string;
+		level?: string;
+		[key: string]: unknown;
+	}
+
+	interface LogsResponse {
+		logs: LogEntry[];
+		total: number;
+	}
+
+	interface RequestLogsResponse {
+		logs: RequestLog[];
+		total: number;
+	}
+
 	// Real log data from API
-	let logs: any[] = [];
-	let requestLogs: any[] = [];
+	let logs: LogEntry[] = [];
+	let requestLogs: RequestLog[] = [];
 	let activeTab = 'requests';
 	
 	// Stats
@@ -37,6 +73,15 @@
 	let requestLogsCount = 0;
 	let applicationLogsCount = 0;
 	
+	function getLogLevel(log: RequestLog | LogEntry): string {
+		if ('level' in log && log.level) return log.level;
+		if ('status' in log) {
+			const status = log.status as number;
+			return status >= 500 ? 'error' : status >= 400 ? 'warning' : 'info';
+		}
+		return 'info';
+	}
+
 	function getLevelIcon(level: string) {
 		switch(level) {
 			case 'error': return XCircle;
@@ -45,7 +90,7 @@
 			default: return AlertCircle;
 		}
 	}
-	
+
 	function getLevelColor(level: string) {
 		switch(level) {
 			case 'error': return 'var(--danger-color)';
@@ -73,7 +118,7 @@
 			refreshInterval = setInterval(() => {
 				// Refresh logs
 				console.log('Refreshing logs...');
-			}, 5000);
+			}, 5000) as unknown as number;
 		} else if (refreshInterval) {
 			clearInterval(refreshInterval);
 			refreshInterval = null;
@@ -99,7 +144,7 @@
 					params.append('path', searchQuery);
 				}
 				
-				const response = await api.get(`/admin/logs/requests?${params}`);
+				const response = await api.get<RequestLogsResponse>(`/admin/logs/requests?${params}`);
 				requestLogs = response.logs || [];
 				totalLogs = response.total || 0;
 				requestLogsCount = totalLogs;
@@ -125,7 +170,7 @@
 					params.append('search', searchQuery);
 				}
 				
-				const response = await api.get(`/admin/logs?${params}`);
+				const response = await api.get<LogsResponse>(`/admin/logs?${params}`);
 				logs = response.logs || [];
 				totalLogs = response.total || 0;
 				applicationLogsCount = totalLogs;
@@ -167,10 +212,10 @@
 		try {
 			// Load counts for both tabs
 			const [requestResponse, appResponse] = await Promise.all([
-				api.get(`/admin/logs/requests?page=1&size=1&range=${selectedTimeRange}`),
-				api.get(`/admin/logs?page=1&size=1&range=${selectedTimeRange}`)
+				api.get<RequestLogsResponse>(`/admin/logs/requests?page=1&size=1&range=${selectedTimeRange}`),
+				api.get<LogsResponse>(`/admin/logs?page=1&size=1&range=${selectedTimeRange}`)
 			]);
-			
+
 			requestLogsCount = requestResponse.total || 0;
 			applicationLogsCount = appResponse.total || 0;
 		} catch (error) {
@@ -182,31 +227,31 @@
 		try {
 			// Get logs statistics for the chart
 			const [appLogsResponse, requestLogsResponse] = await Promise.all([
-				api.get(`/admin/logs?page=1&size=1000&range=${selectedTimeRange}`),
-				api.get(`/admin/logs/requests?page=1&size=1000&range=${selectedTimeRange}`)
+				api.get<LogsResponse>(`/admin/logs?page=1&size=1000&range=${selectedTimeRange}`),
+				api.get<RequestLogsResponse>(`/admin/logs/requests?page=1&size=1000&range=${selectedTimeRange}`)
 			]);
-			
-			const appLogs = appLogsResponse.logs || [];
-			const requestLogs = requestLogsResponse.logs || [];
-			
+
+			const chartAppLogs = appLogsResponse.logs || [];
+			const chartRequestLogs = requestLogsResponse.logs || [];
+
 			// Process logs by hour for the chart
 			const hours = Array.from({length: 24}, (_, i) => i);
 			const appLogsByHour = new Array(24).fill(0);
 			const requestLogsByHour = new Array(24).fill(0);
 			const errorsByHour = new Array(24).fill(0);
-			
+
 			// Count application logs by hour
-			appLogs.forEach(log => {
-				const hour = new Date(log.createdAt).getHours();
+			chartAppLogs.forEach((log: LogEntry) => {
+				const hour = new Date(log.timestamp).getHours();
 				appLogsByHour[hour]++;
 				if (log.level === 'error' || log.level === 'fatal') {
 					errorsByHour[hour]++;
 				}
 			});
-			
+
 			// Count request logs by hour
-			requestLogs.forEach(log => {
-				const hour = new Date(log.createdAt).getHours();
+			chartRequestLogs.forEach((log: RequestLog) => {
+				const hour = new Date(log.timestamp).getHours();
 				requestLogsByHour[hour]++;
 				if (log.status >= 500) {
 					errorsByHour[hour]++;
@@ -262,13 +307,12 @@
 		}
 	}
 	
-	onMount(async () => {
-		// Load initial logs
-		await loadLogs();
-		await loadTabCounts();
-		
-		// Get initial chart data
-		const chartData = await loadChartData();
+	onMount(() => {
+		// Load initial data asynchronously
+		(async () => {
+			await loadLogs();
+			await loadTabCounts();
+			const chartData = await loadChartData();
 		
 		// Initialize activity chart with real data
 		const ctx = document.getElementById('activity-chart') as HTMLCanvasElement;
@@ -338,7 +382,8 @@
 				}
 			});
 		}
-		
+		})();
+
 		return () => {
 			if (activityChart) activityChart.destroy();
 			if (refreshInterval) clearInterval(refreshInterval);
@@ -460,15 +505,16 @@
 				<tbody>
 					{#if activeTab === 'requests'}
 						{#each requestLogs as log}
+							{@const level = getLogLevel(log)}
 							<tr>
 								<td>
-									<div class="log-level" style="color: {getLevelColor(log.level || (log.status >= 400 ? 'error' : 'info'))}">
-										<svelte:component this={getLevelIcon(log.level || (log.status >= 400 ? 'error' : 'info'))} size={16} />
+									<div class="log-level" style="color: {getLevelColor(level)}">
+										<svelte:component this={getLevelIcon(level)} size={16} />
 									</div>
 								</td>
 								<td class="log-timestamp">
 									<Clock size={12} style="display: inline; margin-right: 4px; color: var(--text-muted)" />
-									{new Date(log.createdAt).toLocaleString() || 'N/A'}
+									{new Date(log.createdAt || log.timestamp).toLocaleString() || 'N/A'}
 								</td>
 								<td>
 									<span class="log-source">{log.method || 'HTTP'}</span>
@@ -500,7 +546,7 @@
 								</td>
 								<td class="log-timestamp">
 									<Clock size={12} style="display: inline; margin-right: 4px; color: var(--text-muted)" />
-									{new Date(log.createdAt).toLocaleString() || 'N/A'}
+									{new Date(log.timestamp).toLocaleString() || 'N/A'}
 								</td>
 								<td>
 									<span class="log-source">{log.source || 'system'}</span>

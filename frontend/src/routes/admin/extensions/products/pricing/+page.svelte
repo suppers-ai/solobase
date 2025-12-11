@@ -12,27 +12,31 @@
 	interface PricingTemplate {
 		id: string;
 		name: string;
-		display_name: string;
+		displayName: string;
 		description: string;
 		category: string;
-		price_formula: string;
-		condition_formula?: string;
+		priceFormula: string;
+		conditionFormula?: string;
 		variables?: any;
-		is_active: boolean;
-		created_at: string;
-		updated_at: string;
+		variablesUsed?: string[];
+		isActive: boolean;
+		isDefault?: boolean;
+		formula?: string;
+		priority?: number;
+		createdAt: string;
+		updatedAt: string;
 	}
 
 	interface PricingRule {
 		id: string;
 		name: string;
-		product_type_id?: string;
-		group_type_id?: string;
-		template_id?: string;
+		productTypeId?: string;
+		groupTypeId?: string;
+		templateId?: string;
 		formula: string;
 		priority: number;
 		conditions: any[];
-		is_active: boolean;
+		isActive: boolean;
 	}
 
 	let pricingTemplates: PricingTemplate[] = [];
@@ -51,13 +55,13 @@
 	// Form data for new template
 	let newTemplate: Partial<PricingTemplate> = {
 		name: '',
-		display_name: '',
+		displayName: '',
 		description: '',
 		category: 'discount',
-		price_formula: '',
-		condition_formula: '',
+		priceFormula: '',
+		conditionFormula: '',
 		variables: {},
-		is_active: true
+		isActive: true
 	};
 
 	// Test data for formula testing
@@ -102,7 +106,7 @@
 
 	$: filteredTemplates = pricingTemplates.filter(template => {
 		const matchesSearch = template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			template.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+			template.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
 			template.description?.toLowerCase().includes(searchQuery.toLowerCase());
 		const matchesCategory = selectedCategory === 'all' || template.category === selectedCategory;
 		return matchesSearch && matchesCategory;
@@ -118,11 +122,11 @@
 		try {
 			loading = true;
 			const [templatesRes, variablesRes] = await Promise.all([
-				api.get('/admin/ext/products/pricing-templates'),
-				api.get('/admin/ext/products/variables')
+				api.get<PricingTemplate[]>('/admin/ext/products/pricing-templates'),
+				api.get<any[]>('/admin/ext/products/variables')
 			]);
-			pricingTemplates = templatesRes || [];
-			availableVariables = variablesRes || [];
+			pricingTemplates = Array.isArray(templatesRes) ? templatesRes : [];
+			availableVariables = Array.isArray(variablesRes) ? variablesRes : [];
 		} catch (error) {
 			console.error('Failed to load pricing data:', error);
 			pricingTemplates = [];
@@ -151,31 +155,31 @@
 	}
 
 	function applyFormulaTemplate(template: any) {
-		newTemplate.price_formula = template.formula;
+		newTemplate.priceFormula = template.formula;
 		newTemplate.variables = { required: template.variables };
 	}
-	
+
 	async function createTemplate() {
 		try {
 			// Extract variables from formula
-			const priceVars = extractVariables(newTemplate.price_formula || '');
-			const conditionVars = extractVariables(newTemplate.condition_formula || '');
+			const priceVars = extractVariables(newTemplate.priceFormula || '');
+			const conditionVars = extractVariables(newTemplate.conditionFormula || '');
 			const allVars = [...new Set([...priceVars, ...conditionVars])];
 			newTemplate.variables = { required: allVars };
-			
+
 			const result = await api.post('/admin/ext/products/pricing-templates', newTemplate);
 			if (result) {
 				// Reset form
 				newTemplate = {
 					name: '',
-					display_name: '',
+					displayName: '',
 					description: '',
 					category: 'discount',
-					price_formula: '',
-					condition_formula: '',
+					priceFormula: '',
+					conditionFormula: '',
 					variables: {},
 					priority: 0,
-					is_active: true
+					isActive: true
 				};
 				showCreateModal = false;
 				// Reload templates
@@ -193,11 +197,11 @@
 	
 	async function updateTemplate() {
 		if (!selectedTemplate) return;
-		
+
 		try {
 			// Extract variables from formulas
-			const priceVars = extractVariables(selectedTemplate.price_formula || '');
-			const conditionVars = extractVariables(selectedTemplate.condition_formula || '');
+			const priceVars = extractVariables(selectedTemplate.priceFormula || '');
+			const conditionVars = extractVariables(selectedTemplate.conditionFormula || '');
 			const allVars = [...new Set([...priceVars, ...conditionVars])];
 			selectedTemplate.variables = { required: allVars };
 			
@@ -231,7 +235,7 @@
 		testResult = null;
 		testError = '';
 		// Initialize test variables with defaults
-		template.variables_used.forEach(varName => {
+		(template.variablesUsed || []).forEach((varName: string) => {
 			testVariables[varName] = 0;
 		});
 		showTestModal = true;
@@ -247,7 +251,7 @@
 			testResult = {
 				input: { ...testVariables },
 				output: 99.99,
-				execution_time: '0.5ms'
+				executionTime: '0.5ms'
 			};
 		} catch (error) {
 			testError = 'Failed to evaluate formula: ' + error;
@@ -360,8 +364,8 @@
 								<div class="template-icon">
 									<Calculator size={24} />
 								</div>
-								<span class="status-badge {template.is_active ? 'status-active' : 'status-inactive'}">
-									{#if template.is_active}
+								<span class="status-badge {template.isActive ? 'status-active' : 'status-inactive'}">
+									{#if template.isActive}
 										<CheckCircle size={12} />
 										Active
 									{:else}
@@ -371,25 +375,25 @@
 								</span>
 							</div>
 							<div class="template-content">
-								<h3 class="template-name">{template.display_name}</h3>
+								<h3 class="template-name">{template.displayName}</h3>
 								<code class="template-code">{template.name}</code>
 								<p class="template-description">{template.description}</p>
-								
+
 								<div class="formula-box">
 									<div class="formula-label">
 										<Code2 size={14} />
 										Formula
 									</div>
-									<code class="formula-text">{template.price_formula || 'No formula defined'}</code>
+									<code class="formula-text">{template.priceFormula || 'No formula defined'}</code>
 								</div>
-								
-								{#if template.condition_formula}
+
+								{#if template.conditionFormula}
 									<div class="formula-box condition-box">
 										<div class="formula-label">
 											<AlertCircle size={14} />
 											CONDITION
 										</div>
-										<code class="formula-text">{template.condition_formula}</code>
+										<code class="formula-text">{template.conditionFormula}</code>
 									</div>
 								{/if}
 								
@@ -429,7 +433,7 @@
 							</div>
 							<div class="variable-details">
 								<code class="variable-name">{variable.name}</code>
-								<p class="variable-display">{variable.display_name}</p>
+								<p class="variable-display">{variable.displayName}</p>
 								<span class="variable-type">{variable.type}</span>
 							</div>
 						</div>
@@ -1330,12 +1334,12 @@
 				<div class="form-row">
 					<div class="form-group">
 						<label for="name">Template Name</label>
-						<input type="text" id="name" bind:value={newTemplate.name} 
+						<input type="text" id="name" bind:value={newTemplate.name}
 							placeholder="e.g., standard_pricing, bulk_discount" />
 					</div>
 					<div class="form-group">
-						<label for="display_name">Display Name</label>
-						<input type="text" id="display_name" bind:value={newTemplate.display_name} 
+						<label for="displayName">Display Name</label>
+						<input type="text" id="displayName" bind:value={newTemplate.displayName}
 							placeholder="e.g., Standard Pricing, Bulk Discount" />
 					</div>
 				</div>
@@ -1355,16 +1359,16 @@
 					</div>
 					<div class="form-group">
 						<label>
-							<input type="checkbox" bind:checked={newTemplate.is_default} />
+							<input type="checkbox" bind:checked={newTemplate.isDefault} />
 							Set as default template
 						</label>
 					</div>
 				</div>
 				<div class="form-group">
 					<label for="formula">Pricing Formula</label>
-					<textarea id="formula" bind:value={newTemplate.formula} rows="4" 
+					<textarea id="formula" bind:value={newTemplate.formula} rows="4"
 						placeholder="e.g., base_price * quantity * (1 - discount_rate / 100)"></textarea>
-					
+
 					<div class="formula-templates">
 						{#each formulaTemplates as template}
 							<div class="template-option" on:click={() => applyFormulaTemplate(template)}>
@@ -1375,8 +1379,8 @@
 					</div>
 				</div>
 				<div class="form-group">
-					<label for="is_active">Status</label>
-					<select id="is_active" bind:value={newTemplate.is_active}>
+					<label for="isActive">Status</label>
+					<select id="isActive" bind:value={newTemplate.isActive}>
 						<option value={true}>Active</option>
 						<option value={false}>Inactive</option>
 					</select>
@@ -1407,8 +1411,8 @@
 						<input type="text" id="edit-name" bind:value={selectedTemplate.name} />
 					</div>
 					<div class="form-group">
-						<label for="edit-display_name">Display Name</label>
-						<input type="text" id="edit-display_name" bind:value={selectedTemplate.display_name} />
+						<label for="edit-displayName">Display Name</label>
+						<input type="text" id="edit-displayName" bind:value={selectedTemplate.displayName} />
 					</div>
 				</div>
 				<div class="form-group">
@@ -1426,14 +1430,14 @@
 				<div class="form-group">
 					<label>Pricing Formula</label>
 					<div class="formula-display">
-						{#if selectedTemplate.price_formula}
-							<code class="formula-code">{selectedTemplate.price_formula}</code>
+						{#if selectedTemplate.priceFormula}
+							<code class="formula-code">{selectedTemplate.priceFormula}</code>
 						{:else}
 							<span class="formula-placeholder">No formula defined</span>
 						{/if}
 						<button type="button" class="btn-edit-formula" on:click={() => {
 							editingFormulaType = 'price';
-							tempFormula = selectedTemplate.price_formula || '';
+							tempFormula = selectedTemplate?.priceFormula || '';
 							showFormulaEditor = true;
 						}}>
 							<Settings size={16} />
@@ -1444,14 +1448,14 @@
 				<div class="form-group">
 					<label>Condition Formula (Optional)</label>
 					<div class="formula-display">
-						{#if selectedTemplate.condition_formula}
-							<code class="formula-code condition">{selectedTemplate.condition_formula}</code>
+						{#if selectedTemplate.conditionFormula}
+							<code class="formula-code condition">{selectedTemplate.conditionFormula}</code>
 						{:else}
 							<span class="formula-placeholder">No condition defined</span>
 						{/if}
 						<button type="button" class="btn-edit-formula" on:click={() => {
 							editingFormulaType = 'condition';
-							tempFormula = selectedTemplate.condition_formula || '';
+							tempFormula = selectedTemplate?.conditionFormula || '';
 							showFormulaEditor = true;
 						}}>
 							<Settings size={16} />
@@ -1461,8 +1465,8 @@
 					<p class="help-text">When should this pricing template apply?</p>
 				</div>
 				<div class="form-group">
-					<label for="edit-is_active">Status</label>
-					<select id="edit-is_active" bind:value={selectedTemplate.is_active}>
+					<label for="edit-isActive">Status</label>
+					<select id="edit-isActive" bind:value={selectedTemplate.isActive}>
 						<option value={true}>Active</option>
 						<option value={false}>Inactive</option>
 					</select>
@@ -1471,7 +1475,7 @@
 			<div class="modal-footer">
 				<div class="modal-footer-left">
 					<button class="btn btn-danger" on:click={() => {
-						if (confirm('Are you sure you want to delete this pricing template? Products using this template will need to be updated.')) {
+						if (selectedTemplate && confirm('Are you sure you want to delete this pricing template? Products using this template will need to be updated.')) {
 							deleteTemplate(selectedTemplate.id);
 							showEditModal = false;
 						}
@@ -1494,7 +1498,7 @@
 	<div class="modal-overlay" on:click={() => showTestModal = false}>
 		<div class="modal" on:click|stopPropagation>
 			<div class="modal-header">
-				<h2>Test Formula - {selectedTemplate.display_name}</h2>
+				<h2>Test Formula - {selectedTemplate.displayName}</h2>
 				<button class="btn-icon" on:click={() => showTestModal = false}>
 					×
 				</button>
@@ -1505,7 +1509,7 @@
 						<Code2 size={14} />
 						Formula
 					</div>
-					<code class="formula-text">{selectedTemplate.price_formula}</code>
+					<code class="formula-text">{selectedTemplate.priceFormula}</code>
 				</div>
 				
 				<div class="test-section">
@@ -1534,7 +1538,7 @@
 						<h4>Test Result</h4>
 						<div class="test-output">${testResult.output}</div>
 						<div class="test-details">
-							Execution time: {testResult.execution_time}
+							Execution time: {testResult.executionTime}
 						</div>
 					</div>
 				{/if}
@@ -1566,13 +1570,13 @@
 			// Create the variable via API
 			const result = await api.post('/ext/products/variables', {
 				name: newVar.name,
-				display_name: newVar.displayName,
-				value_type: newVar.valueType,
+				displayName: newVar.displayName,
+				valueType: newVar.valueType,
 				type: 'user',
 				description: newVar.description,
-				is_active: true
+				isActive: true
 			});
-			
+
 			if (result) {
 				// Reload variables
 				await loadPricingData();
@@ -1584,9 +1588,9 @@
 	on:save={(e) => {
 		if (selectedTemplate) {
 			if (editingFormulaType === 'price') {
-				selectedTemplate.price_formula = e.detail;
+				selectedTemplate.priceFormula = e.detail;
 			} else if (editingFormulaType === 'condition') {
-				selectedTemplate.condition_formula = e.detail;
+				selectedTemplate.conditionFormula = e.detail;
 			}
 		}
 		showFormulaEditor = false;

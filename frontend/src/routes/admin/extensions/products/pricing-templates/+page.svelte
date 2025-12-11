@@ -1,27 +1,57 @@
-<script>
+<script lang="ts">
 	import { onMount } from 'svelte';
 	import { Plus, Edit2, Trash2, Code, DollarSign, Filter, Copy, ChevronRight, AlertCircle } from 'lucide-svelte';
 	import { ErrorHandler } from '$lib/api';
 
-	let templates = [];
+	interface TemplateVariables {
+		required?: string[];
+		optional?: string[];
+	}
+
+	interface PricingTemplate {
+		id: string;
+		name: string;
+		displayName: string;
+		description: string;
+		priceFormula: string;
+		conditionFormula?: string;
+		category: string;
+		priority: number;
+		variables: TemplateVariables;
+		isActive: boolean;
+	}
+
+	interface FormData {
+		name: string;
+		displayName: string;
+		description: string;
+		priceFormula: string;
+		conditionFormula: string;
+		category: string;
+		priority: number;
+		variables: TemplateVariables;
+		isActive: boolean;
+	}
+
+	let templates: PricingTemplate[] = [];
 	let loading = true;
-	let error = null;
+	let error: string | null = null;
 	let showCreateModal = false;
 	let showEditModal = false;
-	let editingTemplate = null;
+	let editingTemplate: PricingTemplate | null = null;
 	let selectedCategory = 'all';
 
 	// Form data
-	let formData = {
+	let formData: FormData = {
 		name: '',
-		display_name: '',
+		displayName: '',
 		description: '',
-		price_formula: '',
-		condition_formula: '',
+		priceFormula: '',
+		conditionFormula: '',
 		category: 'standard',
 		priority: 0,
 		variables: {},
-		is_active: true
+		isActive: true
 	};
 
 	// Variable management
@@ -40,7 +70,7 @@
 			if (!response.ok) throw new Error('Failed to load templates');
 			templates = await response.json();
 		} catch (err) {
-			error = err.message;
+			error = err instanceof Error ? err.message : 'Failed to load templates';
 		} finally {
 			loading = false;
 		}
@@ -49,14 +79,14 @@
 	function resetForm() {
 		formData = {
 			name: '',
-			display_name: '',
+			displayName: '',
 			description: '',
-			price_formula: '',
-			condition_formula: '',
+			priceFormula: '',
+			conditionFormula: '',
 			category: 'standard',
 			priority: 0,
 			variables: {},
-			is_active: true
+			isActive: true
 		};
 		newVariableName = '';
 		newVariableRequired = true;
@@ -67,9 +97,9 @@
 		showCreateModal = true;
 	}
 
-	function openEditModal(template) {
+	function openEditModal(template: PricingTemplate) {
 		editingTemplate = template;
-		formData = { ...template };
+		formData = { ...template, conditionFormula: template.conditionFormula || '' };
 		if (!formData.variables) formData.variables = {};
 		showEditModal = true;
 	}
@@ -89,23 +119,23 @@
 		}
 	}
 
-	function removeVariable(name, isRequired) {
+	function removeVariable(name: string, isRequired: boolean) {
 		if (isRequired) {
-			formData.variables.required = formData.variables.required.filter(v => v !== name);
+			formData.variables.required = (formData.variables.required || []).filter(v => v !== name);
 		} else {
-			formData.variables.optional = formData.variables.optional.filter(v => v !== name);
+			formData.variables.optional = (formData.variables.optional || []).filter(v => v !== name);
 		}
 		formData = formData;
 	}
 
 	async function saveTemplate() {
 		try {
-			const url = showEditModal 
+			const url = showEditModal && editingTemplate
 				? `/api/products/pricing-templates/${editingTemplate.id}`
 				: '/api/ext/products/pricing-templates';
-			
+
 			const method = showEditModal ? 'PUT' : 'POST';
-			
+
 			const response = await fetch(url, {
 				method,
 				headers: { 'Content-Type': 'application/json' },
@@ -123,8 +153,8 @@
 		}
 	}
 
-	async function deleteTemplate(template) {
-		if (!confirm(`Are you sure you want to delete the template "${template.display_name}"?`)) {
+	async function deleteTemplate(template: PricingTemplate) {
+		if (!confirm(`Are you sure you want to delete the template "${template.displayName}"?`)) {
 			return;
 		}
 
@@ -141,7 +171,7 @@
 		}
 	}
 
-	function getCategoryColor(category) {
+	function getCategoryColor(category: string): string {
 		switch (category) {
 			case 'standard': return 'badge-primary';
 			case 'discount': return 'badge-success';
@@ -152,7 +182,7 @@
 		}
 	}
 
-	function copyFormula(formula) {
+	function copyFormula(formula: string) {
 		navigator.clipboard.writeText(formula);
 	}
 
@@ -240,7 +270,7 @@
 						<div class="flex justify-between items-start">
 							<div class="flex-1">
 								<div class="flex items-center gap-3 mb-2">
-									<h3 class="text-xl font-semibold">{template.display_name}</h3>
+									<h3 class="text-xl font-semibold">{template.displayName}</h3>
 									<span class="badge {getCategoryColor(template.category)} badge-sm">
 										{template.category}
 									</span>
@@ -249,11 +279,11 @@
 											Priority: {template.priority}
 										</span>
 									{/if}
-									{#if !template.is_active}
+									{#if !template.isActive}
 										<span class="badge badge-ghost badge-sm">Inactive</span>
 									{/if}
 								</div>
-								
+
 								<p class="text-base-content/60 mb-4">{template.description}</p>
 
 								<!-- Price Formula -->
@@ -263,10 +293,10 @@
 										<span class="font-semibold text-sm">Price Formula:</span>
 									</div>
 									<div class="bg-base-100 rounded-lg p-3 font-mono text-sm relative group">
-										<code>{template.price_formula}</code>
+										<code>{template.priceFormula}</code>
 										<button
 											class="btn btn-ghost btn-xs absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-											on:click={() => copyFormula(template.price_formula)}
+											on:click={() => copyFormula(template.priceFormula)}
 										>
 											<Copy class="w-3 h-3" />
 										</button>
@@ -274,17 +304,17 @@
 								</div>
 
 								<!-- Condition Formula (if exists) -->
-								{#if template.condition_formula}
+								{#if template.conditionFormula}
 									<div class="mb-3">
 										<div class="flex items-center gap-2 mb-1">
 											<Filter class="w-4 h-4 text-warning" />
 											<span class="font-semibold text-sm">Condition:</span>
 										</div>
 										<div class="bg-base-100 rounded-lg p-3 font-mono text-sm relative group">
-											<code>{template.condition_formula}</code>
+											<code>{template.conditionFormula}</code>
 											<button
 												class="btn btn-ghost btn-xs absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-												on:click={() => copyFormula(template.condition_formula)}
+												on:click={() => copyFormula(template.conditionFormula || '')}
 											>
 												<Copy class="w-3 h-3" />
 											</button>
@@ -293,11 +323,11 @@
 								{/if}
 
 								<!-- Required Variables -->
-								{#if template.variables?.required?.length > 0}
+								{#if (template.variables?.required?.length ?? 0) > 0}
 									<div class="flex items-center gap-2 mt-3">
 										<span class="text-sm font-semibold">Required Variables:</span>
 										<div class="flex flex-wrap gap-1">
-											{#each template.variables.required as variable}
+											{#each template.variables?.required ?? [] as variable}
 												<span class="badge badge-sm badge-outline">
 													{variable}
 												</span>
@@ -359,7 +389,7 @@
 						<input
 							type="text"
 							class="input input-bordered"
-							bind:value={formData.display_name}
+							bind:value={formData.displayName}
 							placeholder="e.g., Volume Discount"
 						/>
 					</div>
@@ -419,7 +449,7 @@
 					</label>
 					<textarea
 						class="textarea textarea-bordered font-mono text-sm"
-						bind:value={formData.price_formula}
+						bind:value={formData.priceFormula}
 						placeholder="e.g., base_price * quantity * (quantity >= 100 ? 0.8 : 1.0)"
 						rows="3"
 					></textarea>
@@ -438,7 +468,7 @@
 					</label>
 					<textarea
 						class="textarea textarea-bordered font-mono text-sm"
-						bind:value={formData.condition_formula}
+						bind:value={formData.conditionFormula}
 						placeholder="e.g., quantity >= 10 && is_member == true"
 						rows="2"
 					></textarea>
@@ -475,11 +505,11 @@
 					</div>
 
 					<!-- Required Variables List -->
-					{#if formData.variables?.required?.length > 0}
+					{#if (formData.variables?.required?.length ?? 0) > 0}
 						<div class="mb-2">
 							<span class="text-sm font-semibold">Required:</span>
 							<div class="flex flex-wrap gap-2 mt-1">
-								{#each formData.variables.required as variable}
+								{#each formData.variables?.required ?? [] as variable (variable)}
 									<span class="badge badge-primary gap-2">
 										{variable}
 										<button on:click={() => removeVariable(variable, true)}>
@@ -492,11 +522,11 @@
 					{/if}
 
 					<!-- Optional Variables List -->
-					{#if formData.variables?.optional?.length > 0}
+					{#if (formData.variables?.optional?.length ?? 0) > 0}
 						<div>
 							<span class="text-sm font-semibold">Optional:</span>
 							<div class="flex flex-wrap gap-2 mt-1">
-								{#each formData.variables.optional as variable}
+								{#each formData.variables?.optional ?? [] as variable (variable)}
 									<span class="badge badge-ghost gap-2">
 										{variable}
 										<button on:click={() => removeVariable(variable, false)}>
@@ -515,7 +545,7 @@
 						<input
 							type="checkbox"
 							class="checkbox"
-							bind:checked={formData.is_active}
+							bind:checked={formData.isActive}
 						/>
 						<span class="label-text">Active</span>
 					</label>

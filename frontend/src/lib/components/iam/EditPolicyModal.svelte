@@ -1,20 +1,32 @@
-<script>
+<script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	
-	export let policy = null;
-	
+
+	interface Policy {
+		subject: string;
+		resource: string;
+		action: string;
+		effect: 'allow' | 'deny';
+	}
+
+	export let policy: Policy | null = null;
+
 	const dispatch = createEventDispatcher();
-	
-	let editedPolicy = {};
-	
+
+	let editedPolicy: Policy = {
+		subject: '',
+		resource: '',
+		action: '',
+		effect: 'allow'
+	};
+
 	$: if (policy) {
 		editedPolicy = { ...policy };
 	}
-	
+
 	function handleSubmit() {
 		dispatch('save', editedPolicy);
 	}
-	
+
 	function handleClose() {
 		dispatch('close');
 	}

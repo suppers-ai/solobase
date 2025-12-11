@@ -156,7 +156,7 @@
 		
 		try {
 			// Try to parse the formula
-			const testVars = {};
+			const testVars: Record<string, boolean | number | string | null> = {};
 			usedVariables.forEach(v => {
 				testVars[v.name] = v.valueType === 'boolean' ? false :
 									v.valueType === 'number' ? 1 :

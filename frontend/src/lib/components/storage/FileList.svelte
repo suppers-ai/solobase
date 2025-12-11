@@ -99,7 +99,7 @@
 {:else if viewMode === 'grid'}
 	<div class="file-grid">
 		{#each files as item}
-			{@const fileType = item.is_folder ? 'folder' : determineFileType(item.object_name)}
+			{@const fileType = item.isFolder ? 'folder' : determineFileType(item.objectName)}
 			{@const IconComponent = getFileIcon(fileType)}
 			{@const iconColor = getFileIconColor(fileType)}
 
@@ -127,12 +127,12 @@
 				</div>
 
 				<div class="file-info">
-					<p class="file-name" title={item.object_name}>{item.object_name}</p>
+					<p class="file-name" title={item.objectName}>{item.objectName}</p>
 					<p class="file-meta">
-						{#if !item.is_folder}
+						{#if !item.isFolder}
 							{formatFileSize(item.size)} •
 						{/if}
-						{formatDateShort(item.last_modified)}
+						{formatDateShort(item.lastModified)}
 					</p>
 				</div>
 			</div>
@@ -164,7 +164,7 @@
 			</thead>
 			<tbody>
 				{#each files as item}
-					{@const fileType = item.is_folder ? 'folder' : determineFileType(item.object_name)}
+					{@const fileType = item.isFolder ? 'folder' : determineFileType(item.objectName)}
 					{@const IconComponent = getFileIcon(fileType)}
 					{@const iconColor = getFileIconColor(fileType)}
 
@@ -182,20 +182,20 @@
 						<td>
 							<div class="file-name-cell">
 								<IconComponent size={20} color={iconColor} />
-								<span title={item.object_name}>{item.object_name}</span>
+								<span title={item.objectName}>{item.objectName}</span>
 							</div>
 						</td>
 						<td>
-							{#if !item.is_folder}
+							{#if !item.isFolder}
 								{formatFileSize(item.size)}
 							{:else}
 								-
 							{/if}
 						</td>
-						<td>{formatDateShort(item.last_modified)}</td>
+						<td>{formatDateShort(item.lastModified)}</td>
 						<td>
 							<div class="action-buttons">
-								{#if !item.is_folder}
+								{#if !item.isFolder}
 									<button
 										class="icon-button"
 										title="Preview"

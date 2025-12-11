@@ -1,15 +1,28 @@
-<script>
+<script lang="ts">
 	import { onMount } from 'svelte';
-	import { formatDate, formatDuration } from '$lib/utils/formatters';
+	import { formatDate } from '$lib/utils/formatters';
 	import { authFetch } from '$lib/api';
-	
+
+	interface AuditLogEntry {
+		id: string;
+		type: string;
+		userId?: string;
+		details?: Record<string, unknown>;
+		createdAt: string;
+		timestamp?: string;
+		resource?: string;
+		action?: string;
+		result?: boolean;
+		metadata?: Record<string, unknown>;
+	}
+
 	export let limit = 50;
-	
-	let logs = [];
+
+	let logs: AuditLogEntry[] = [];
 	let loading = false;
 	let filter = '';
 	let selectedType = 'all';
-	
+
 	const logTypes = [
 		{ value: 'all', label: 'All Events' },
 		{ value: 'permission_check', label: 'Permission Checks' },
@@ -18,7 +31,7 @@
 		{ value: 'policy_created', label: 'Policy Created' },
 		{ value: 'policy_deleted', label: 'Policy Deleted' }
 	];
-	
+
 	async function loadLogs() {
 		loading = true;
 		try {
@@ -32,18 +45,15 @@
 
 			if (response.ok) {
 				logs = await response.json();
-			} else {
-				const error = await response.text();
-				console.error('AuditLog: Error response:', response.status, error);
 			}
-		} catch (error) {
-			console.error('Failed to load audit logs:', error);
+		} catch {
+			// Silently handle errors
 		} finally {
 			loading = false;
 		}
 	}
-	
-	function getEventIcon(type) {
+
+	function getEventIcon(type: string): string {
 		switch(type) {
 			case 'permission_check': return '🔍';
 			case 'role_assigned': return '➕';
@@ -53,8 +63,8 @@
 			default: return '📋';
 		}
 	}
-	
-	function getEventColor(type) {
+
+	function getEventColor(type: string): string {
 		switch(type) {
 			case 'permission_check': return 'blue';
 			case 'role_assigned': return 'green';
@@ -64,11 +74,11 @@
 			default: return 'gray';
 		}
 	}
-	
+
 	onMount(() => {
 		loadLogs();
 	});
-	
+
 	$: if (selectedType) {
 		loadLogs();
 	}
@@ -124,7 +134,7 @@
 							
 							<div class="log-details">
 								<div class="log-user">
-									<strong>User:</strong> {log.user_id || 'System'}
+									<strong>User:</strong> {log.userId || 'System'}
 								</div>
 								
 								{#if log.resource}

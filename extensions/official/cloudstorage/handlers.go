@@ -20,20 +20,20 @@ import (
 // Response structs
 type ShareResponse struct {
 	ID              string     `json:"id"`
-	ShareURL        string     `json:"share_url,omitempty"`
-	ShareToken      string     `json:"share_token,omitempty"`
-	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
-	PermissionLevel string     `json:"permission_level"`
+	ShareURL        string     `json:"shareUrl,omitempty"`
+	ShareToken      string     `json:"shareToken,omitempty"`
+	ExpiresAt       *time.Time `json:"expiresAt,omitempty"`
+	PermissionLevel string     `json:"permissionLevel"`
 }
 
 type QuotaResponse struct {
-	StorageUsed         int64      `json:"storage_used"`
-	StorageLimit        int64      `json:"storage_limit"`
-	StoragePercentage   float64    `json:"storage_percentage"`
-	BandwidthUsed       int64      `json:"bandwidth_used"`
-	BandwidthLimit      int64      `json:"bandwidth_limit"`
-	BandwidthPercentage float64    `json:"bandwidth_percentage"`
-	ResetDate           *time.Time `json:"reset_date,omitempty"`
+	StorageUsed         int64      `json:"storageUsed"`
+	StorageLimit        int64      `json:"storageLimit"`
+	StoragePercentage   float64    `json:"storagePercentage"`
+	BandwidthUsed       int64      `json:"bandwidthUsed"`
+	BandwidthLimit      int64      `json:"bandwidthLimit"`
+	BandwidthPercentage float64    `json:"bandwidthPercentage"`
+	ResetDate           *time.Time `json:"resetDate,omitempty"`
 }
 
 // handleShares manages file sharing operations
@@ -73,14 +73,14 @@ func (e *CloudStorageExtension) handleShares(w http.ResponseWriter, r *http.Requ
 	case http.MethodPost:
 		// Create a new share
 		var req struct {
-			ObjectID          string     `json:"object_id"`
-			SharedWithUserID  string     `json:"shared_with_user_id,omitempty"`
-			SharedWithEmail   string     `json:"shared_with_email,omitempty"`
-			PermissionLevel   string     `json:"permission_level"`
-			InheritToChildren bool       `json:"inherit_to_children"`
-			GenerateToken     bool       `json:"generate_token"`
-			IsPublic          bool       `json:"is_public"`
-			ExpiresAt         *time.Time `json:"expires_at,omitempty"`
+			ObjectID          string     `json:"objectId"`
+			SharedWithUserID  string     `json:"sharedWithUserId,omitempty"`
+			SharedWithEmail   string     `json:"sharedWithEmail,omitempty"`
+			PermissionLevel   string     `json:"permissionLevel"`
+			InheritToChildren bool       `json:"inheritToChildren"`
+			GenerateToken     bool       `json:"generateToken"`
+			IsPublic          bool       `json:"isPublic"`
+			ExpiresAt         *time.Time `json:"expiresAt,omitempty"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -295,9 +295,9 @@ func (e *CloudStorageExtension) handleQuota(w http.ResponseWriter, r *http.Reque
 		}
 
 		var req struct {
-			UserID            string `json:"user_id"`
-			MaxStorageBytes   int64  `json:"max_storage_bytes"`
-			MaxBandwidthBytes int64  `json:"max_bandwidth_bytes"`
+			UserID            string `json:"userId"`
+			MaxStorageBytes   int64  `json:"maxStorageBytes"`
+			MaxBandwidthBytes int64  `json:"maxBandwidthBytes"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -547,8 +547,8 @@ func (e *CloudStorageExtension) handleStats(w http.ResponseWriter, r *http.Reque
 
 	// Get storage stats
 	var storageStats struct {
-		TotalObjects int64 `json:"total_objects"`
-		TotalSize    int64 `json:"total_size"`
+		TotalObjects int64 `json:"totalObjects"`
+		TotalSize    int64 `json:"totalSize"`
 	}
 
 	// For admins, show all storage stats; for users, show only their own
@@ -580,9 +580,9 @@ func (e *CloudStorageExtension) handleStats(w http.ResponseWriter, r *http.Reque
 	// Get bucket count
 	if e.manager != nil {
 		buckets, _ := e.manager.ListBuckets(ctx)
-		stats["total_buckets"] = len(buckets)
+		stats["totalBuckets"] = len(buckets)
 	} else {
-		stats["total_buckets"] = 1 // Default int_storage bucket
+		stats["totalBuckets"] = 1 // Default int_storage bucket
 	}
 
 	// Get quota stats if enabled
@@ -590,11 +590,11 @@ func (e *CloudStorageExtension) handleStats(w http.ResponseWriter, r *http.Reque
 		if isAdmin {
 			// Get overall quota usage for admin
 			var totalQuotaStats struct {
-				TotalUsers          int64 `json:"total_users"`
-				TotalStorageUsed    int64 `json:"total_storage_used"`
-				TotalStorageLimit   int64 `json:"total_storage_limit"`
-				TotalBandwidthUsed  int64 `json:"total_bandwidth_used"`
-				TotalBandwidthLimit int64 `json:"total_bandwidth_limit"`
+				TotalUsers          int64 `json:"totalUsers"`
+				TotalStorageUsed    int64 `json:"totalStorageUsed"`
+				TotalStorageLimit   int64 `json:"totalStorageLimit"`
+				TotalBandwidthUsed  int64 `json:"totalBandwidthUsed"`
+				TotalBandwidthLimit int64 `json:"totalBandwidthLimit"`
 			}
 			e.db.Model(&StorageQuota{}).
 				Select(`
@@ -621,14 +621,14 @@ func (e *CloudStorageExtension) handleStats(w http.ResponseWriter, r *http.Reque
 				Count(&usersNearLimit)
 
 			stats["quota"] = map[string]interface{}{
-				"total_users":          totalQuotaStats.TotalUsers,
-				"storage_used":         totalQuotaStats.TotalStorageUsed,
-				"storage_limit":        totalQuotaStats.TotalStorageLimit,
-				"storage_percentage":   storagePercentage,
-				"bandwidth_used":       totalQuotaStats.TotalBandwidthUsed,
-				"bandwidth_limit":      totalQuotaStats.TotalBandwidthLimit,
-				"bandwidth_percentage": bandwidthPercentage,
-				"users_near_limit":     usersNearLimit,
+				"totalUsers":          totalQuotaStats.TotalUsers,
+				"storageUsed":         totalQuotaStats.TotalStorageUsed,
+				"storageLimit":        totalQuotaStats.TotalStorageLimit,
+				"storagePercentage":   storagePercentage,
+				"bandwidthUsed":       totalQuotaStats.TotalBandwidthUsed,
+				"bandwidthLimit":      totalQuotaStats.TotalBandwidthLimit,
+				"bandwidthPercentage": bandwidthPercentage,
+				"usersNearLimit":      usersNearLimit,
 			}
 		} else {
 			quotaStats, err := e.quotaService.GetQuotaStats(ctx, userID)
@@ -641,13 +641,13 @@ func (e *CloudStorageExtension) handleStats(w http.ResponseWriter, r *http.Reque
 	// Get share stats if enabled
 	if e.shareService != nil && e.config.EnableSharing {
 		var shareStats struct {
-			TotalShares   int64 `json:"total_shares"`
-			PublicShares  int64 `json:"public_shares"`
-			PrivateShares int64 `json:"private_shares"`
-			FoldersShared int64 `json:"folders_shared"`
-			FilesShared   int64 `json:"files_shared"`
-			ActiveShares  int64 `json:"active_shares"`
-			ExpiredShares int64 `json:"expired_shares"`
+			TotalShares   int64 `json:"totalShares"`
+			PublicShares  int64 `json:"publicShares"`
+			PrivateShares int64 `json:"privateShares"`
+			FoldersShared int64 `json:"foldersShared"`
+			FilesShared   int64 `json:"filesShared"`
+			ActiveShares  int64 `json:"activeShares"`
+			ExpiredShares int64 `json:"expiredShares"`
 		}
 
 		if isAdmin {
@@ -911,12 +911,12 @@ func (e *CloudStorageExtension) handleUpdateRoleQuota(w http.ResponseWriter, r *
 	}
 
 	// Validate input
-	if update.MaxStorageBytes < 0 || update.MaxBandwidthBytes < 0 || 
-	   update.MaxUploadSize < 0 || update.MaxFilesCount < 0 {
+	if update.MaxStorageBytes < 0 || update.MaxBandwidthBytes < 0 ||
+		update.MaxUploadSize < 0 || update.MaxFilesCount < 0 {
 		http.Error(w, "Invalid quota values: cannot be negative", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Validate reasonable limits (max 10TB storage, 100TB bandwidth)
 	if update.MaxStorageBytes > 10995116277760 || update.MaxBandwidthBytes > 109951162777600 {
 		http.Error(w, "Quota values exceed maximum allowed limits", http.StatusBadRequest)
@@ -924,7 +924,7 @@ func (e *CloudStorageExtension) handleUpdateRoleQuota(w http.ResponseWriter, r *
 	}
 
 	update.RoleID = roleID
-	
+
 	// Update or create role quota
 	if err := e.db.Where("role_id = ?", roleID).
 		Assign(update).
@@ -981,7 +981,7 @@ func (e *CloudStorageExtension) handleCreateUserOverride(w http.ResponseWriter, 
 		http.Error(w, "User ID is required", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Validate quota values if provided
 	if override.MaxStorageBytes != nil && *override.MaxStorageBytes < 0 {
 		http.Error(w, "Invalid storage quota: cannot be negative", http.StatusBadRequest)
@@ -1113,8 +1113,8 @@ func (e *CloudStorageExtension) handleDefaultQuotas(w http.ResponseWriter, r *ht
 	case http.MethodGet:
 		// Get default quotas
 		quotas := map[string]interface{}{
-			"default_storage": e.config.DefaultStorageLimit,
-			"default_bandwidth": e.config.DefaultBandwidthLimit,
+			"defaultStorage":   e.config.DefaultStorageLimit,
+			"defaultBandwidth": e.config.DefaultBandwidthLimit,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1123,8 +1123,8 @@ func (e *CloudStorageExtension) handleDefaultQuotas(w http.ResponseWriter, r *ht
 	case http.MethodPut:
 		// Update default quotas
 		var req struct {
-			DefaultStorage   int64 `json:"default_storage"`
-			DefaultBandwidth int64 `json:"default_bandwidth"`
+			DefaultStorage   int64 `json:"defaultStorage"`
+			DefaultBandwidth int64 `json:"defaultBandwidth"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

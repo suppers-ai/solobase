@@ -19,9 +19,9 @@ type LegalPagesExtension struct {
 }
 
 type LegalPagesConfig struct {
-	EnableTerms   bool   `json:"enable_terms"`
-	EnablePrivacy bool   `json:"enable_privacy"`
-	CompanyName   string `json:"company_name"`
+	EnableTerms   bool   `json:"enableTerms"`
+	EnablePrivacy bool   `json:"enablePrivacy"`
+	CompanyName   string `json:"companyName"`
 }
 
 func NewLegalPagesExtension() *LegalPagesExtension {

@@ -131,45 +131,47 @@
 		}
 	}
 	
-	onMount(async () => {
+	onMount(() => {
 		// Fix text selection in inputs
 		const observer = observeAndFixInputs();
 
+		// Async initialization
+		(async () => {
+			// Check if auth is available (token stored in httpOnly cookie)
+			// Since we use httpOnly cookies, we'll attempt to validate auth directly
+			if (typeof window !== 'undefined') {
+				// Check if user is authenticated on mount
+				const isAuth = await auth.checkAuth();
+				authChecked = true;
 
-		// Check if auth is available (token stored in httpOnly cookie)
-		// Since we use httpOnly cookies, we'll attempt to validate auth directly
-		if (typeof window !== 'undefined') {
-			// Check if user is authenticated on mount
-			const isAuth = await auth.checkAuth();
-			authChecked = true;
+				// Only redirect if auth check definitively failed (not just loading)
+				if (!isAuth) {
+					const currentPath = $page.url.pathname;
+					const isPublicPage = publicPages.some(p => currentPath === p || currentPath.startsWith('/auth/'));
+					const isProfilePage = currentPath.startsWith('/profile');
 
-			// Only redirect if auth check definitively failed (not just loading)
-			if (!isAuth) {
+					if (!isPublicPage && !isProfilePage) {
+						goto('/auth/login');
+						return;
+					}
+				} else {
+					// Load settings to check for notification
+					loadSettings();
+				}
+			} else {
+				// No stored token, check if we need to redirect
 				const currentPath = $page.url.pathname;
 				const isPublicPage = publicPages.some(p => currentPath === p || currentPath.startsWith('/auth/'));
 				const isProfilePage = currentPath.startsWith('/profile');
+
+				authChecked = true;
 
 				if (!isPublicPage && !isProfilePage) {
 					goto('/auth/login');
 					return;
 				}
-			} else {
-				// Load settings to check for notification
-				loadSettings();
 			}
-		} else {
-			// No stored token, check if we need to redirect
-			const currentPath = $page.url.pathname;
-			const isPublicPage = publicPages.some(p => currentPath === p || currentPath.startsWith('/auth/'));
-			const isProfilePage = currentPath.startsWith('/profile');
-
-			authChecked = true;
-
-			if (!isPublicPage && !isProfilePage) {
-				goto('/auth/login');
-				return;
-			}
-		}
+		})();
 
 		// Cleanup observer on unmount
 		return () => {
@@ -206,7 +208,7 @@
 </script>
 
 <div class="app-container" class:with-notification={showNotification}>
-	{#if showNotification}
+	{#if showNotification && settings?.notification}
 		<div class="notification-banner">
 			<div class="notification-content">
 				<span>{settings.notification}</span>

@@ -94,10 +94,10 @@
 	let editingGroup: any = null;
 	
 	$: filteredOrders = orders.filter(order => {
-		const matchesSearch = 
+		const matchesSearch =
 			(order.id && order.id.toLowerCase().includes(searchQuery.toLowerCase())) ||
-			(order.customer_email && order.customer_email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-			(order.product_name && order.product_name.toLowerCase().includes(searchQuery.toLowerCase()));
+			(order.customerEmail && order.customerEmail.toLowerCase().includes(searchQuery.toLowerCase())) ||
+			(order.productName && order.productName.toLowerCase().includes(searchQuery.toLowerCase()));
 		const matchesStatus = filterStatus === 'all' || order.status === filterStatus;
 		return matchesSearch && matchesStatus;
 	});
@@ -114,7 +114,7 @@
 	// Get top products by calculating from orders
 	$: topProducts = products.slice(0, 3).map(product => ({
 		...product,
-		sales: orders.filter(o => o.product_id === product.id && o.status === 'completed').length,
+		sales: orders.filter(o => o.productId === product.id && o.status === 'completed').length,
 		views: 0, // Will be implemented when view tracking is added
 		likes: 0 // Will be implemented when likes feature is added
 	}));
@@ -125,8 +125,8 @@
 		.slice(0, 3)
 		.map(order => ({
 			id: order.id,
-			name: order.product_name || 'Unknown Product',
-			date: new Date(order.created_at).toLocaleDateString(),
+			name: order.productName || 'Unknown Product',
+			date: new Date(order.createdAt).toLocaleDateString(),
 			price: order.amount || 0
 		}));
 	
@@ -174,7 +174,7 @@
 			// Pre-select the template if specified
 			if (template) {
 				editingProduct = {
-					product_template_id: template
+					productTemplateId: template
 				};
 				// If there's data (for duplicate), parse and apply it
 				if (data) {
@@ -182,7 +182,7 @@
 						const parsedData = JSON.parse(decodeURIComponent(data));
 						editingProduct = {
 							...parsedData,
-							product_template_id: template
+							productTemplateId: template
 						};
 					} catch (e) {
 						console.error('Failed to parse product data:', e);
@@ -275,12 +275,17 @@
 		}
 	}
 	
+	interface GroupResponse {
+		id?: string;
+		error?: string;
+	}
+
 	async function handleGroupSubmit(event: CustomEvent) {
 		const groupData = event.detail;
 		try {
 			if (editingGroup && editingGroup.id) {
 				// Update existing group
-				const response = await api.put(`/ext/products/groups/${editingGroup.id}`, groupData);
+				const response = await api.put<GroupResponse>(`/ext/products/groups/${editingGroup.id}`, groupData);
 
 				// Check if response is an error
 				if (response?.error) {
@@ -294,7 +299,7 @@
 				}
 			} else {
 				// Create new group
-				const response = await api.post('/ext/products/groups', groupData);
+				const response = await api.post<GroupResponse>('/ext/products/groups', groupData);
 
 				// Check if response is an error
 				if (response?.error) {
@@ -321,20 +326,25 @@
 		showEditGroupModal = true;
 	}
 	
+	interface ProductResponse {
+		id?: string;
+		error?: string;
+	}
+
 	async function handleProductSubmit(event: CustomEvent) {
 		const productData = event.detail;
 		try {
 			// Ensure proper data types
-			if (productData.group_id) productData.group_id = parseInt(productData.group_id);
-			if (productData.product_template_id) productData.product_template_id = parseInt(productData.product_template_id);
-			if (productData.base_price) productData.base_price = parseFloat(productData.base_price);
+			if (productData.groupId) productData.groupId = parseInt(productData.groupId);
+			if (productData.productTemplateId) productData.productTemplateId = parseInt(productData.productTemplateId);
+			if (productData.basePrice) productData.basePrice = parseFloat(productData.basePrice);
 
 			let success = false;
 
 			if (editingProduct && editingProduct.id) {
 				// Update existing product
 				const productId = editingProduct.id; // Store ID before any async operations
-				const response = await api.put(`/ext/products/products/${productId}`, productData);
+				const response = await api.put<ProductResponse>(`/ext/products/products/${productId}`, productData);
 
 				// Check if response is an error
 				if (response?.error) {
@@ -353,9 +363,9 @@
 			} else {
 				// Create new product
 				if (selectedGroupForProduct) {
-					productData.group_id = parseInt(selectedGroupForProduct.id);
+					productData.groupId = parseInt(selectedGroupForProduct.id);
 				}
-				const response = await api.post('/ext/products/products', productData);
+				const response = await api.post<ProductResponse>('/ext/products/products', productData);
 
 				// Check if response is an error
 				if (response?.error) {
@@ -428,7 +438,7 @@
 	
 	// Get products for a specific group
 	function getGroupProducts(groupId: string) {
-		return products.filter(p => p.group_id === groupId);
+		return products.filter(p => p.groupId === groupId);
 	}
 	
 	function getStatusColor(status: string) {
@@ -456,9 +466,9 @@
 			['Order ID', 'Date', 'Customer', 'Product', 'Amount', 'Status'],
 			...filteredOrders.map(o => [
 				o.id,
-				new Date(o.created_at).toLocaleDateString(),
-				o.customer_email,
-				o.product_name,
+				new Date(o.createdAt).toLocaleDateString(),
+				o.customerEmail,
+				o.productName,
 				o.amount,
 				o.status
 			])
@@ -650,11 +660,11 @@
 											<td>
 												<div class="order-info">
 													<span class="order-id">#{order.id?.slice(0, 8)}</span>
-													<span class="order-date">{new Date(order.created_at).toLocaleDateString()}</span>
+													<span class="order-date">{new Date(order.createdAt).toLocaleDateString()}</span>
 												</div>
 											</td>
-											<td class="customer">{order.customer_email || 'Unknown'}</td>
-											<td>{order.product_name || 'Unknown'}</td>
+											<td class="customer">{order.customerEmail || 'Unknown'}</td>
+											<td>{order.productName || 'Unknown'}</td>
 											<td class="amount">${(order.amount || 0).toFixed(2)}</td>
 											<td>
 												<span class="status-badge {getStatusColor(order.status)}">
@@ -703,8 +713,8 @@
 									<div class="group-header">
 										<div class="group-info">
 											<h4>{group.name}</h4>
-											{#if group.group_type_id && getGroupTypeName(group.group_type_id) !== 'Unknown'}
-												<span class="group-type">{getGroupTypeName(group.group_type_id)}</span>
+											{#if group.groupTemplateId && getGroupTypeName(group.groupTemplateId) !== 'Unknown'}
+												<span class="group-type">{getGroupTypeName(group.groupTemplateId)}</span>
 											{/if}
 										</div>
 										<div class="group-actions">
@@ -741,7 +751,7 @@
 														</div>
 													</div>
 													<p class="product-description">{product.description || 'No description'}</p>
-													<div class="product-price">${(product.base_price || product.price || 0).toFixed(2)}</div>
+													<div class="product-price">${(product.basePrice || product.price || 0).toFixed(2)}</div>
 												</div>
 											{/each}
 										</div>

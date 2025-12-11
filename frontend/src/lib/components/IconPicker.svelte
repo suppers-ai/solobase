@@ -56,15 +56,24 @@
 	export let showLabel = true;
 	export let placeholder = 'Select an icon';
 	export let disabled = false;
-	
+
 	const dispatch = createEventDispatcher();
-	
+
 	let showPicker = false;
 	let searchQuery = '';
-	let selectedCategory = 'all';
-	
+	let selectedCategory: string = 'all';
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	type IconComponent = any;
+
+	interface IconOption {
+		value: string;
+		label: string;
+		icon: IconComponent;
+	}
+
 	// Icon categories with their icons
-	const iconCategories = {
+	const iconCategories: Record<string, IconOption[]> = {
 		'Business & Commerce': [
 			{ value: 'building', label: 'Building', icon: Building2 },
 			{ value: 'store', label: 'Store', icon: Store },
@@ -249,7 +258,7 @@
 			: iconCategories[selectedCategory] || [];
 		
 		if (searchQuery) {
-			icons = icons.filter(icon => 
+			icons = icons.filter((icon: IconOption) =>
 				icon.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
 				icon.value.toLowerCase().includes(searchQuery.toLowerCase())
 			);
@@ -259,7 +268,7 @@
 	})();
 	
 	// Handle icon selection
-	function selectIcon(icon: any) {
+	function selectIcon(icon: IconOption) {
 		value = icon.value;
 		showPicker = false;
 		searchQuery = '';

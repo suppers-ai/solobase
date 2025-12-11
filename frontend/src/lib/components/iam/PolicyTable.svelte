@@ -1,11 +1,18 @@
-<script>
+<script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	
-	export let policies = [];
-	
+
+	interface Policy {
+		subject: string;
+		resource: string;
+		action: string;
+		effect: 'allow' | 'deny';
+	}
+
+	export let policies: Policy[] = [];
+
 	const dispatch = createEventDispatcher();
-	
-	function handleDelete(policy) {
+
+	function handleDelete(policy: Policy) {
 		dispatch('delete', policy);
 	}
 </script>

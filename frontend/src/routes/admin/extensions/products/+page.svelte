@@ -28,18 +28,18 @@
 	// Purchases data for the Purchases tab
 	interface Purchase {
 		id: number;
-		user_id: number;
+		userId: string;
 		status: string;
-		total_cents: number;
+		totalCents: number;
 		currency: string;
-		customer_name: string;
-		customer_email: string;
-		created_at: string;
-		provider_session_id: string;
-		line_items: Array<{
-			product_name: string;
+		customerName?: string;
+		customerEmail?: string;
+		createdAt: string;
+		providerSessionId: string;
+		lineItems: Array<{
+			productName: string;
 			quantity: number;
-			total_price: number;
+			totalPrice: number;
 		}>;
 	}
 
@@ -59,17 +59,53 @@
 	};
 
 	// Payment provider status
-	let providerStatus = {
+	let providerStatus: ProviderStatus = {
 		configured: false,
 		provider: 'none',
 		mode: 'none',
-		configured_provider: 'stripe',
-		available_providers: []
+		configuredProvider: 'stripe',
+		availableProviders: []
 	};
 
 
+	// Product stats response
+	interface ProductStats {
+		totalProducts: number;
+		activeProducts: number;
+	}
+
+	// Purchase stats response
+	interface PurchaseStats {
+		totalPurchases?: number;
+		totalSpent?: number;
+	}
+
+	// Provider status response
+	interface ProviderStatus {
+		configured: boolean;
+		provider: string;
+		mode: string;
+		configuredProvider?: string;
+		availableProviders?: string[];
+	}
+
+	// Purchases list response
+	interface PurchasesResponse {
+		purchases: Purchase[];
+		total: number;
+	}
+
+	type ConfigCountKey = 'productTypes' | 'groupTypes' | 'pricingTemplates' | 'variables';
+
 	// Configuration sections with colors
-	const configSections = [
+	const configSections: Array<{
+		title: string;
+		description: string;
+		path: string;
+		color: string;
+		count: number;
+		countKey: ConfigCountKey;
+	}> = [
 		{
 			title: 'Product Types',
 			description: 'Define templates for different types of products',
@@ -106,7 +142,7 @@
 
 	async function loadStats() {
 		try {
-			const data = await api.get('/admin/ext/products/stats');
+			const data = await api.get<ProductStats>('/admin/ext/products/stats');
 			stats = {
 				totalProducts: data.totalProducts || 0,
 				totalPurchases: 0,
@@ -115,9 +151,9 @@
 			};
 
 			// Load purchase stats
-			const purchaseStats = await api.get('/ext/products/purchases/stats');
-			stats.totalPurchases = purchaseStats.total_purchases || 0;
-			stats.totalRevenue = purchaseStats.total_spent || 0;
+			const purchaseStats = await api.get<PurchaseStats>('/ext/products/purchases/stats');
+			stats.totalPurchases = purchaseStats.totalPurchases || 0;
+			stats.totalRevenue = purchaseStats.totalSpent || 0;
 		} catch (err) {
 			console.error('Error loading stats:', err);
 		}
@@ -125,7 +161,7 @@
 
 	async function loadProviderStatus() {
 		try {
-			const status = await api.get('/admin/ext/products/provider/status');
+			const status = await api.get<ProviderStatus>('/admin/ext/products/provider/status');
 			providerStatus = status;
 		} catch (err) {
 			console.error('Error loading provider status:', err);
@@ -190,7 +226,7 @@
 		purchasesLoading = true;
 		purchasesError = null;
 		try {
-			const data = await api.get(`/admin/ext/products/purchases?limit=${purchasesLimit}&offset=${purchasesCurrentPage * purchasesLimit}`);
+			const data = await api.get<PurchasesResponse>(`/admin/ext/products/purchases?limit=${purchasesLimit}&offset=${purchasesCurrentPage * purchasesLimit}`);
 			purchases = data.purchases || [];
 			purchasesTotal = data.total || 0;
 		} catch (err) {
@@ -366,7 +402,7 @@
 									<div class="mt-2 text-sm text-green-700">
 										<p><strong>Provider:</strong> {providerStatus.provider.charAt(0).toUpperCase() + providerStatus.provider.slice(1)}</p>
 										<p><strong>Mode:</strong> {providerStatus.mode === 'test' ? 'Test Mode' : 'Production Mode'}</p>
-										<p class="mt-2"><strong>Environment Variable:</strong> PAYMENT_PROVIDER={providerStatus.configured_provider}</p>
+										<p class="mt-2"><strong>Environment Variable:</strong> PAYMENT_PROVIDER={providerStatus.configuredProvider}</p>
 									</div>
 								</div>
 							</div>
@@ -397,7 +433,7 @@ STRIPE_WEBHOOK_SECRET=whsec_... \
 STRIPE_PUBLISHABLE_KEY=pk_test_... \
 ./solobase</pre>
 										</div>
-										<p class="mt-3">Current configured provider: <strong>{providerStatus.configured_provider}</strong></p>
+										<p class="mt-3">Current configured provider: <strong>{providerStatus.configuredProvider}</strong></p>
 									</div>
 								</div>
 							</div>
@@ -468,7 +504,7 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 									{product.group?.name || 'N/A'}
 								</td>
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									${product.base_price}
+									${product.basePrice}
 								</td>
 								<td class="px-6 py-4 whitespace-nowrap">
 									<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {product.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
@@ -476,7 +512,7 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 									</span>
 								</td>
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-									{new Date(product.created_at).toLocaleDateString()}
+									{new Date(product.createdAt).toLocaleDateString()}
 								</td>
 							</tr>
 						{/each}
@@ -520,10 +556,10 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 									{group.name}
 								</td>
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-									{group.type_name || 'N/A'}
+									{group.typeName || 'N/A'}
 								</td>
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-									{group.owner_id || 'N/A'}
+									{group.ownerId || 'N/A'}
 								</td>
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
 									{group.products?.length || 0}
@@ -534,7 +570,7 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 									</span>
 								</td>
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-									{new Date(group.created_at).toLocaleDateString()}
+									{new Date(group.createdAt).toLocaleDateString()}
 								</td>
 							</tr>
 						{/each}
@@ -590,23 +626,23 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 									</td>
 									<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
 										<div>
-											{purchase.customer_name || 'N/A'}
+											{purchase.customerName || 'N/A'}
 										</div>
 										<div class="text-xs text-gray-400">
-											{purchase.customer_email || 'N/A'}
+											{purchase.customerEmail || 'N/A'}
 										</div>
 									</td>
 									<td class="px-6 py-4 text-sm text-gray-500">
-										{#if purchase.line_items && purchase.line_items.length > 0}
+										{#if purchase.lineItems && purchase.lineItems.length > 0}
 											<div class="max-w-xs">
-												{#each purchase.line_items.slice(0, 2) as item}
+												{#each purchase.lineItems.slice(0, 2) as item}
 													<div class="text-xs">
-														{item.product_name} (x{item.quantity})
+														{item.productName} (x{item.quantity})
 													</div>
 												{/each}
-												{#if purchase.line_items.length > 2}
+												{#if purchase.lineItems.length > 2}
 													<div class="text-xs text-gray-400">
-														+{purchase.line_items.length - 2} more
+														+{purchase.lineItems.length - 2} more
 													</div>
 												{/if}
 											</div>
@@ -615,7 +651,7 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 										{/if}
 									</td>
 									<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-										{formatCurrency(purchase.total_cents, purchase.currency)}
+										{formatCurrency(purchase.totalCents, purchase.currency)}
 									</td>
 									<td class="px-6 py-4 whitespace-nowrap">
 										<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {getStatusColor(purchase.status)}">
@@ -623,7 +659,7 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 										</span>
 									</td>
 									<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-										{formatDateTime(purchase.created_at)}
+										{formatDateTime(purchase.createdAt)}
 									</td>
 									<td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
 										<div class="flex justify-end gap-2">
@@ -643,9 +679,9 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 													Refund
 												</button>
 											{/if}
-											{#if purchase.provider_session_id}
+											{#if purchase.providerSessionId}
 												<a
-													href="https://dashboard.stripe.com/test/payments/{purchase.provider_session_id}"
+													href="https://dashboard.stripe.com/test/payments/{purchase.providerSessionId}"
 													target="_blank"
 													rel="noopener noreferrer"
 													class="text-gray-600 hover:text-gray-900"

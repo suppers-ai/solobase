@@ -4,12 +4,12 @@
 	
 	export let template = {
 		name: '',
-		display_name: '',
+		displayName: '',
 		description: '',
 		category: 'standard',
-		price_formula: '',
-		condition_formula: '',
-		is_active: true
+		priceFormula: '',
+		conditionFormula: '',
+		isActive: true
 	};
 	
 	export let templateCategories = [
@@ -26,7 +26,7 @@
 	function editFormula(type: 'price' | 'condition') {
 		dispatch('editFormula', {
 			type,
-			currentValue: type === 'price' ? template.price_formula : template.condition_formula
+			currentValue: type === 'price' ? template.priceFormula : template.conditionFormula
 		});
 	}
 </script>
@@ -43,12 +43,12 @@
 			/>
 		</div>
 		<div class="form-group">
-			<label for="display_name">Display Name</label>
-			<input 
-				type="text" 
-				id="display_name" 
-				bind:value={template.display_name} 
-				placeholder="e.g., Time-Based Pricing" 
+			<label for="displayName">Display Name</label>
+			<input
+				type="text"
+				id="displayName"
+				bind:value={template.displayName}
+				placeholder="e.g., Time-Based Pricing"
 			/>
 		</div>
 	</div>
@@ -75,14 +75,14 @@
 	<div class="form-group">
 		<label>Pricing Formula</label>
 		<div class="formula-display">
-			{#if template.price_formula}
-				<code class="formula-code">{template.price_formula}</code>
+			{#if template.priceFormula}
+				<code class="formula-code">{template.priceFormula}</code>
 			{:else}
 				<span class="formula-placeholder">No formula defined</span>
 			{/if}
-			<button 
-				type="button" 
-				class="btn-edit-formula" 
+			<button
+				type="button"
+				class="btn-edit-formula"
 				on:click={() => editFormula('price')}
 			>
 				<Settings size={16} />
@@ -90,18 +90,18 @@
 			</button>
 		</div>
 	</div>
-	
+
 	<div class="form-group">
 		<label>Condition Formula (Optional)</label>
 		<div class="formula-display">
-			{#if template.condition_formula}
-				<code class="formula-code condition">{template.condition_formula}</code>
+			{#if template.conditionFormula}
+				<code class="formula-code condition">{template.conditionFormula}</code>
 			{:else}
 				<span class="formula-placeholder">No condition defined</span>
 			{/if}
-			<button 
-				type="button" 
-				class="btn-edit-formula" 
+			<button
+				type="button"
+				class="btn-edit-formula"
 				on:click={() => editFormula('condition')}
 			>
 				<Settings size={16} />
@@ -109,10 +109,10 @@
 			</button>
 		</div>
 	</div>
-	
+
 	<div class="form-group">
-		<label for="is_active">Status</label>
-		<select id="is_active" bind:value={template.is_active}>
+		<label for="isActive">Status</label>
+		<select id="isActive" bind:value={template.isActive}>
 			<option value={true}>Active</option>
 			<option value={false}>Inactive</option>
 		</select>

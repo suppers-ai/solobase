@@ -23,7 +23,7 @@
 	let currentFormData: any = {};
 
 	// Get the current selected template ID from form data
-	$: currentTemplateId = currentFormData.product_template_id || product?.product_template_id;
+	$: currentTemplateId = currentFormData.productTemplateId || product?.productTemplateId;
 
 	// Find the template object to get its name
 	$: currentTemplate = currentTemplateId ? productTemplates.find((t: any) => t.id === currentTemplateId) : null;
@@ -60,7 +60,7 @@
 	$: if (iframeElement && previewUrl && currentFormData) {
 		const message = {
 			type: 'updatePreview',
-			customFields: currentFormData.custom_fields || {},
+			customFields: currentFormData.customFields || {},
 			formData: currentFormData
 		};
 		iframeElement.contentWindow?.postMessage(message, '*');
@@ -88,8 +88,8 @@
 				const customFieldId = fieldId.replace('custom_', '');
 				currentFormData = {
 					...currentFormData,
-					custom_fields: {
-						...currentFormData.custom_fields,
+					customFields: {
+						...currentFormData.customFields,
 						[customFieldId]: value
 					}
 				};
@@ -138,7 +138,7 @@
 						<div class="preview-panel">
 							<svelte:component
 								this={previewComponent}
-								customFields={currentFormData.custom_fields || {}}
+								customFields={currentFormData.customFields || {}}
 								formData={currentFormData}
 							/>
 						</div>

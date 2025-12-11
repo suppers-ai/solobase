@@ -21,11 +21,11 @@ import type { StorageObject } from '$shared/types';
 
 export interface BucketPolicy {
 	id: string;
-	bucket_id: string;
+	bucketId: string;
 	name: string;
 	definition: Record<string, any>;
-	created_at: string;
-	updated_at?: string;
+	createdAt: string;
+	updatedAt?: string;
 }
 
 export interface FileUploadProgress {

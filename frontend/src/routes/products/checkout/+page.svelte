@@ -7,7 +7,7 @@
 		id: number;
 		name: string;
 		description: string;
-		base_price: number;
+		basePrice: number;
 		currency: string;
 	}
 
@@ -27,7 +27,7 @@
 
 	async function loadProducts() {
 		try {
-			const data = await api.get('/ext/products/products');
+			const data = await api.get<Product[]>('/ext/products/products');
 			products = data || [];
 		} catch (err) {
 			console.error('Error loading products:', err);
@@ -64,7 +64,7 @@
 
 	function calculateTotal(): number {
 		return cart.reduce((total, item) => {
-			return total + (item.product.base_price * item.quantity);
+			return total + (item.product.basePrice * item.quantity);
 		}, 0);
 	}
 
@@ -81,29 +81,36 @@
 			// Prepare purchase request
 			const purchaseRequest = {
 				items: cart.map(item => ({
-					product_id: item.product.id,
+					productId: item.product.id,
 					quantity: item.quantity,
 					variables: item.variables
 				})),
-				success_url: `${window.location.origin}/products/success`,
-				cancel_url: `${window.location.origin}/products/checkout`,
-				customer_email: email || undefined,
-				payment_method_types: ['card'],
+				successUrl: `${window.location.origin}/products/success`,
+				cancelUrl: `${window.location.origin}/products/checkout`,
+				customerEmail: email || undefined,
+				paymentMethodTypes: ['card'],
 				metadata: {
 					source: 'web_checkout'
 				}
 			};
 
+			interface CheckoutResponse {
+				checkoutUrl?: string;
+				purchase?: {
+					providerSessionId?: string;
+				};
+			}
+
 			// Create checkout session
-			const data = await api.post('/ext/products/purchase', purchaseRequest);
+			const data = await api.post<CheckoutResponse>('/ext/products/purchase', purchaseRequest);
 
 			// Redirect to Stripe Checkout
-			if (data.checkout_url) {
+			if (data.checkoutUrl) {
 				// For Stripe's hosted checkout, we can redirect directly
-				window.location.href = data.checkout_url;
-			} else if (data.purchase?.provider_session_id) {
+				window.location.href = data.checkoutUrl;
+			} else if (data.purchase?.providerSessionId) {
 				// Construct Stripe Checkout URL if not provided
-				const checkoutUrl = `https://checkout.stripe.com/c/pay/${data.purchase.provider_session_id}#`;
+				const checkoutUrl = `https://checkout.stripe.com/c/pay/${data.purchase.providerSessionId}#`;
 				window.location.href = checkoutUrl;
 			} else {
 				throw new Error('No checkout URL received');
@@ -160,7 +167,7 @@
 								<p class="text-sm text-gray-600 mb-2">{product.description}</p>
 								<div class="flex items-center justify-between">
 									<span class="text-lg font-bold">
-										{formatPrice(product.base_price, product.currency)}
+										{formatPrice(product.basePrice, product.currency)}
 									</span>
 									<button
 										on:click={() => addToCart(product)}
@@ -188,7 +195,7 @@
 								<div class="flex-1">
 									<h3 class="font-semibold">{item.product.name}</h3>
 									<p class="text-sm text-gray-600">
-										{formatPrice(item.product.base_price, item.product.currency)} each
+										{formatPrice(item.product.basePrice, item.product.currency)} each
 									</p>
 								</div>
 								<div class="flex items-center gap-2">
@@ -222,7 +229,7 @@
 					{#each cart as item}
 						<div class="flex justify-between text-sm">
 							<span>{item.product.name} x{item.quantity}</span>
-							<span>{formatPrice(item.product.base_price * item.quantity, item.product.currency)}</span>
+							<span>{formatPrice(item.product.basePrice * item.quantity, item.product.currency)}</span>
 						</div>
 					{/each}
 				</div>

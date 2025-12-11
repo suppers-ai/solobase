@@ -15,8 +15,8 @@
 		required?: boolean;
 		min?: number;
 		max?: number;
-		min_length?: number;
-		max_length?: number;
+		minLength?: number;
+		maxLength?: number;
 		pattern?: string;
 		options?: string[];
 		default?: any;
@@ -26,22 +26,44 @@
 	interface FieldDefinition {
 		id: string;  // e.g., "filter_text_1", "filter_numeric_1"
 		name: string;
+		label?: string;  // Display label
 		type: string;  // numeric, text, boolean, enum, location
 		required?: boolean;
 		description?: string;
 		constraints: FieldConstraints;
 	}
 
+	// Constraints type for FieldEditor component
+	interface EditorFieldConstraints {
+		editableByUser: boolean;
+		options?: string[];
+		min?: number;
+		max?: number;
+		minLength?: number;
+		maxLength?: number;
+		format?: string;
+	}
+
+	// Field type for FieldEditor component (with non-optional required/description)
+	interface EditorField {
+		id: string;
+		name: string;
+		type: string;
+		required: boolean;
+		description: string;
+		constraints: EditorFieldConstraints;
+	}
+
 	interface EntityType {
 		id: string;
 		name: string;
-		display_name: string;
+		displayName: string;
 		description: string;
 		icon?: string;
 		fields?: FieldDefinition[];
 		status: 'active' | 'pending' | 'deleted';
-		created_at: string;
-		updated_at: string;
+		createdAt: string;
+		updatedAt: string;
 	}
 
 	let groupTypes: EntityType[] = [];
@@ -54,7 +76,7 @@
 	// Form data for new group type
 	let newEntityType: Partial<EntityType> = {
 		name: '',
-		display_name: '',
+		displayName: '',
 		description: '',
 		icon: 'building',
 		status: 'active',
@@ -63,7 +85,7 @@
 
 	$: filteredEntityTypes = groupTypes.filter(groupType => {
 		const matchesSearch = groupType.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			groupType.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+			groupType.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
 			groupType.description?.toLowerCase().includes(searchQuery.toLowerCase());
 		return matchesSearch;
 	});
@@ -76,8 +98,8 @@
 	async function loadEntityTypes() {
 		try {
 			loading = true;
-			const response = await api.get('/admin/ext/products/group-types');
-			groupTypes = response || [];
+			const response = await api.get<EntityType[]>('/admin/ext/products/group-types');
+			groupTypes = Array.isArray(response) ? response : [];
 		} catch (error) {
 			console.error('Failed to load group types:', error);
 			groupTypes = [];
@@ -98,7 +120,7 @@
 				// Reset form
 				newEntityType = {
 					name: '',
-					display_name: '',
+					displayName: '',
 					description: '',
 					icon: 'building',
 					status: 'active',
@@ -153,18 +175,18 @@
 	}
 
 	// Schema editor state
-	let schemaFields: FieldDefinition[] = [];
+	let schemaFields: EditorField[] = [];
 	let showFieldTypeSelector = false;
 	
 	// Track used filter IDs
-	function getUsedFilterIds(fields: FieldDefinition[]): Map<string, number> {
+	function getUsedFilterIds(fields: EditorField[]): Map<string, number> {
 		const usage = new Map<string, number>();
 		usage.set('numeric', 0);
 		usage.set('text', 0);
 		usage.set('boolean', 0);
 		usage.set('enum', 0);
 		usage.set('location', 0);
-		
+
 		fields.forEach(field => {
 			if (field.id) {
 				const parts = field.id.split('_');
@@ -177,20 +199,20 @@
 				}
 			}
 		});
-		
+
 		return usage;
 	}
-	
+
 	// Get next available filter ID for a type
-	function getNextFilterId(type: string, fields: FieldDefinition[]): string | null {
+	function getNextFilterId(type: string, fields: EditorField[]): string | null {
 		const usage = getUsedFilterIds(fields);
 		const count = usage.get(type) || 0;
-		
+
 		// Check if we've reached the limit of 5
 		if (count >= 5) {
 			return null;
 		}
-		
+
 		// Find the next available number (might not be count+1 if some were deleted)
 		for (let i = 1; i <= 5; i++) {
 			const id = `filter_${type}_${i}`;
@@ -198,17 +220,17 @@
 				return id;
 			}
 		}
-		
+
 		return null;
 	}
-	
+
 	// Check if a field type is available
-	function isTypeAvailable(type: string, fields: FieldDefinition[]): boolean {
+	function isTypeAvailable(type: string, fields: EditorField[]): boolean {
 		return getNextFilterId(type, fields) !== null;
 	}
-	
+
 	// Count fields by type
-	function countFieldsByType(type: string, fields: FieldDefinition[]): number {
+	function countFieldsByType(type: string, fields: EditorField[]): number {
 		return fields.filter(f => {
 			if (f.id) {
 				const parts = f.id.split('_');
@@ -221,13 +243,13 @@
 	function openEditModal(groupType: EntityType) {
 		selectedEntityType = { ...groupType };
 		if (Array.isArray(groupType.fields)) {
-			schemaFields = groupType.fields.map((field: any) => ({
+			schemaFields = groupType.fields.map((field: FieldDefinition) => ({
 				id: field.id || '',
 				name: field.name || '',
 				type: field.type || 'text',
 				required: field.required || false,
 				description: field.description || '',
-				constraints: field.constraints || {}
+				constraints: { editableByUser: true, ...field.constraints }
 			}));
 		} else {
 			schemaFields = [];
@@ -242,14 +264,14 @@
 			toasts.warning(`Maximum of 5 ${type} fields reached`);
 			return;
 		}
-		
+
 		schemaFields = [...schemaFields, {
 			id: id,
 			name: '',
 			type: type,
 			required: false,
 			description: '',
-			constraints: {}
+			constraints: { editableByUser: true }
 		}];
 		showFieldTypeSelector = false;
 	}
@@ -345,7 +367,7 @@
 							</span>
 						</div>
 						<div class="group-content">
-							<h3 class="group-name">{groupType.display_name}</h3>
+							<h3 class="group-name">{groupType.displayName}</h3>
 							<code class="group-code">{groupType.name}</code>
 							<p class="group-description">{groupType.description}</p>
 							
@@ -1032,7 +1054,7 @@
 					</div>
 					<div class="form-group">
 						<label for="display_name">Display Name</label>
-						<input type="text" id="display_name" bind:value={newEntityType.display_name} 
+						<input type="text" id="displayName" bind:value={newEntityType.displayName} 
 							placeholder="e.g., Store, Company, Team" />
 					</div>
 				</div>
@@ -1080,7 +1102,7 @@
 					</div>
 					<div class="form-group">
 						<label for="edit-display_name">Display Name</label>
-						<input type="text" id="edit-display_name" bind:value={selectedEntityType.display_name} />
+						<input type="text" id="edit-displayName" bind:value={selectedEntityType.displayName} />
 					</div>
 				</div>
 				<div class="form-group">
@@ -1110,8 +1132,8 @@
 				</div>
 			</div>
 			<div class="modal-footer">
-				<button class="btn btn-danger" on:click={() => { 
-					if (confirm('Are you sure you want to delete this group type? This will affect all groups of this type.')) {
+				<button class="btn btn-danger" on:click={() => {
+					if (selectedEntityType && confirm('Are you sure you want to delete this group type? This will affect all groups of this type.')) {
 						deleteEntityType(selectedEntityType.id);
 						showEditModal = false;
 					}

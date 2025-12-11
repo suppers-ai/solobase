@@ -20,28 +20,28 @@ const APIKeyPrefix = "sb_"
 // CreateAPIKeyRequest is the request body for creating an API key
 type CreateAPIKeyRequest struct {
 	Name      string     `json:"name"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"` // Optional expiration
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"` // Optional expiration
 }
 
 // CreateAPIKeyResponse is the response for creating an API key
 type CreateAPIKeyResponse struct {
 	ID        uuid.UUID  `json:"id"`
 	Name      string     `json:"name"`
-	Key       string     `json:"key"`        // Full key - only returned once!
-	KeyPrefix string     `json:"key_prefix"` // Prefix for display
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	Key       string     `json:"key"`       // Full key - only returned once!
+	KeyPrefix string     `json:"keyPrefix"` // Prefix for display
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
 }
 
 // APIKeyResponse is the response for listing API keys (without the full key)
 type APIKeyResponse struct {
 	ID         uuid.UUID  `json:"id"`
 	Name       string     `json:"name"`
-	KeyPrefix  string     `json:"key_prefix"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	LastUsedIP *string    `json:"last_used_ip,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
+	KeyPrefix  string     `json:"keyPrefix"`
+	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+	LastUsedIP *string    `json:"lastUsedIp,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
 }
 
 // HandleCreateAPIKey creates a new API key for the authenticated user

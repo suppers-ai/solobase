@@ -135,12 +135,12 @@
 			<h3>Settings</h3>
 
 			<div class="form-group">
-				<label for="max_products">Maximum Products</label>
+				<label for="maxProducts">Maximum Products</label>
 				<input
-					id="max_products"
+					id="maxProducts"
 					type="number"
-					value={formData.settings.max_products || ''}
-					on:input={(e) => updateField('settings.max_products', e.currentTarget.value ? parseInt(e.currentTarget.value) : null)}
+					value={formData.settings.maxProducts || ''}
+					on:input={(e) => updateField('settings.maxProducts', e.currentTarget.value ? parseInt(e.currentTarget.value) : null)}
 					placeholder="No limit"
 					min="0"
 				/>
@@ -148,11 +148,11 @@
 			</div>
 
 			<div class="form-group">
-				<label for="default_currency">Default Currency</label>
+				<label for="defaultCurrency">Default Currency</label>
 				<select
-					id="default_currency"
-					value={formData.settings.default_currency || 'USD'}
-					on:change={(e) => updateField('settings.default_currency', e.currentTarget.value)}
+					id="defaultCurrency"
+					value={formData.settings.defaultCurrency || 'USD'}
+					on:change={(e) => updateField('settings.defaultCurrency', e.currentTarget.value)}
 				>
 					<option value="USD">USD - US Dollar</option>
 					<option value="EUR">EUR - Euro</option>

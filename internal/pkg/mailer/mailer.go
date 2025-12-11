@@ -26,10 +26,10 @@ type Email struct {
 	To          []Address              `json:"to"`
 	CC          []Address              `json:"cc,omitempty"`
 	BCC         []Address              `json:"bcc,omitempty"`
-	ReplyTo     *Address               `json:"reply_to,omitempty"`
+	ReplyTo     *Address               `json:"replyTo,omitempty"`
 	Subject     string                 `json:"subject"`
-	TextBody    string                 `json:"text_body,omitempty"`
-	HTMLBody    string                 `json:"html_body,omitempty"`
+	TextBody    string                 `json:"textBody,omitempty"`
+	HTMLBody    string                 `json:"htmlBody,omitempty"`
 	Attachments []Attachment           `json:"attachments,omitempty"`
 	Headers     map[string]string      `json:"headers,omitempty"`
 	Tags        []string               `json:"tags,omitempty"`
@@ -45,9 +45,9 @@ type Address struct {
 // Attachment represents an email attachment
 type Attachment struct {
 	Filename    string `json:"filename"`
-	ContentType string `json:"content_type"`
+	ContentType string `json:"contentType"`
 	Content     []byte `json:"content"`
-	ContentID   string `json:"content_id,omitempty"` // For inline attachments
+	ContentID   string `json:"contentId,omitempty"` // For inline attachments
 }
 
 // TemplateData represents data for email templates
@@ -57,13 +57,13 @@ type TemplateData map[string]interface{}
 type Config struct {
 	Provider       string                 `json:"provider"` // smtp, sendgrid, mailgun, ses, etc
 	From           Address                `json:"from"`
-	ReplyTo        *Address               `json:"reply_to,omitempty"`
-	MaxRetries     int                    `json:"max_retries"`
-	RetryDelay     time.Duration          `json:"retry_delay"`
+	ReplyTo        *Address               `json:"replyTo,omitempty"`
+	MaxRetries     int                    `json:"maxRetries"`
+	RetryDelay     time.Duration          `json:"retryDelay"`
 	Timeout        time.Duration          `json:"timeout"`
-	RateLimit      int                    `json:"rate_limit"`      // emails per second
-	TemplateEngine string                 `json:"template_engine"` // go, handlebars, etc
-	TemplatesPath  string                 `json:"templates_path"`
+	RateLimit      int                    `json:"rateLimit"`      // emails per second
+	TemplateEngine string                 `json:"templateEngine"` // go, handlebars, etc
+	TemplatesPath  string                 `json:"templatesPath"`
 	Extra          map[string]interface{} `json:"extra"`
 }
 
@@ -73,33 +73,33 @@ type SMTPConfig struct {
 	Port         int           `json:"port"`
 	Username     string        `json:"username"`
 	Password     string        `json:"password"`
-	AuthType     string        `json:"auth_type"` // plain, login, cram-md5, oauth2
+	AuthType     string        `json:"authType"` // plain, login, cram-md5, oauth2
 	TLS          bool          `json:"tls"`
-	StartTLS     bool          `json:"start_tls"`
-	InsecureSkip bool          `json:"insecure_skip"`
-	PoolSize     int           `json:"pool_size"`
-	MaxIdleConns int           `json:"max_idle_conns"`
-	IdleTimeout  time.Duration `json:"idle_timeout"`
+	StartTLS     bool          `json:"startTls"`
+	InsecureSkip bool          `json:"insecureSkip"`
+	PoolSize     int           `json:"poolSize"`
+	MaxIdleConns int           `json:"maxIdleConns"`
+	IdleTimeout  time.Duration `json:"idleTimeout"`
 }
 
 // SendGridConfig holds SendGrid-specific configuration
 type SendGridConfig struct {
-	APIKey string `json:"api_key"`
+	APIKey string `json:"apiKey"`
 }
 
 // MailgunConfig holds Mailgun-specific configuration
 type MailgunConfig struct {
 	Domain string `json:"domain"`
-	APIKey string `json:"api_key"`
+	APIKey string `json:"apiKey"`
 	Region string `json:"region"` // us or eu
 }
 
 // SESConfig holds AWS SES-specific configuration
 type SESConfig struct {
 	Region          string `json:"region"`
-	AccessKeyID     string `json:"access_key_id"`
-	SecretAccessKey string `json:"secret_access_key"`
-	SessionToken    string `json:"session_token,omitempty"`
+	AccessKeyID     string `json:"accessKeyId"`
+	SecretAccessKey string `json:"secretAccessKey"`
+	SessionToken    string `json:"sessionToken,omitempty"`
 }
 
 // New creates a new mailer instance based on the provider

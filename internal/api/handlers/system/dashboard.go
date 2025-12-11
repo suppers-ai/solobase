@@ -9,22 +9,22 @@ import (
 )
 
 type DashboardStats struct {
-	TotalUsers       int        `json:"total_users"`
-	TotalRows        int64      `json:"total_rows"`
-	TotalStorageUsed int64      `json:"total_storage_used"`
-	TotalAPICalls    int        `json:"total_api_calls"`
-	UsersGrowth      float64    `json:"users_growth"`
-	StorageGrowth    float64    `json:"storage_growth"`
-	RecentActivities []Activity `json:"recent_activities"`
+	TotalUsers       int        `json:"totalUsers"`
+	TotalRows        int64      `json:"totalRows"`
+	TotalStorageUsed int64      `json:"totalStorageUsed"`
+	TotalAPICalls    int        `json:"totalApiCalls"`
+	UsersGrowth      float64    `json:"usersGrowth"`
+	StorageGrowth    float64    `json:"storageGrowth"`
+	RecentActivities []Activity `json:"recentActivities"`
 }
 
 type Activity struct {
 	ID          string    `json:"id"`
 	Type        string    `json:"type"`
 	Description string    `json:"description"`
-	UserID      string    `json:"user_id,omitempty"`
-	UserEmail   string    `json:"user_email,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	UserID      string    `json:"userId,omitempty"`
+	UserEmail   string    `json:"userEmail,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // TODO: Re-enable when metrics service is properly integrated

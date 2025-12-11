@@ -163,11 +163,11 @@ func (e *ProductsExtension) GetPaymentProvider() providers.PaymentProvider {
 // GetProviderStatus returns detailed information about the payment provider
 func (e *ProductsExtension) GetProviderStatus() map[string]interface{} {
 	status := map[string]interface{}{
-		"configured": false,
-		"provider":   "none",
-		"mode":       "none",
-		"available_providers": providers.ListAvailableProviders(),
-		"configured_provider": string(providers.GetConfiguredProviderType()),
+		"configured":         false,
+		"provider":           "none",
+		"mode":               "none",
+		"availableProviders": providers.ListAvailableProviders(),
+		"configuredProvider": string(providers.GetConfiguredProviderType()),
 	}
 
 	if e.paymentProvider != nil && e.paymentProvider.IsEnabled() {

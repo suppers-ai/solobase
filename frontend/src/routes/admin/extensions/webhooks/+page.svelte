@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, ErrorHandler } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
@@ -9,12 +9,23 @@
 		CheckCircle, XCircle, Send,
 		Link, Key, Calendar, Activity
 	} from 'lucide-svelte';
-	
-	let webhooks = [];
+
+	interface WebhookItem {
+		id: number;
+		name: string;
+		url: string;
+		events: string[];
+		active: boolean;
+		lastTriggered?: string;
+		deliveries?: number;
+		successRate?: number;
+	}
+
+	let webhooks: WebhookItem[] = [];
 	let loading = true;
-	let error = null;
+	let error: string | null = null;
 	let showCreateModal = false;
-	let newWebhook = {
+	let newWebhook: { name: string; url: string; events: string[]; secret: string } = {
 		name: '',
 		url: '',
 		events: [],
@@ -37,7 +48,7 @@
 		{ category: 'Products', events: ['product.created', 'product.updated', 'product.deleted'] }
 	];
 	
-	let selectedEvents = [];
+	let selectedEvents: string[] = [];
 
 	onMount(async () => {
 		// Check admin access
@@ -51,11 +62,12 @@
 			loading = true;
 			const response = await api.getWebhooks();
 			if (response.error) {
-				throw new Error(response.error);
+				throw new Error(typeof response.error === 'string' ? response.error : 'Failed to load webhooks');
 			}
-			
+
 			// Generate sample webhooks for demo
-			webhooks = response.data?.webhooks || [
+			const data = response.data as { webhooks?: WebhookItem[] } | undefined;
+			webhooks = data?.webhooks || [
 				{
 					id: 1,
 					name: 'Order Notifications',
@@ -77,13 +89,13 @@
 					successRate: 92
 				}
 			];
-			
+
 			// Update stats
 			stats.total = webhooks.length;
 			stats.active = webhooks.filter(w => w.active).length;
-			
+
 		} catch (err) {
-			error = err.message;
+			error = err instanceof Error ? err.message : 'Failed to load webhooks';
 		} finally {
 			loading = false;
 		}
@@ -99,7 +111,7 @@
 		showCreateModal = false;
 	}
 	
-	function toggleEvent(event) {
+	function toggleEvent(event: string) {
 		const index = selectedEvents.indexOf(event);
 		if (index >= 0) {
 			selectedEvents.splice(index, 1);
@@ -123,7 +135,7 @@
 			});
 
 			if (response.error) {
-				throw new Error(response.error);
+				throw new Error(typeof response.error === 'string' ? response.error : 'Failed to create webhook');
 			}
 
 			closeCreateModal();
@@ -133,9 +145,9 @@
 		}
 	}
 
-	async function toggleWebhook(id, active) {
+	async function toggleWebhook(id: number, active: boolean) {
 		try {
-			const response = await api.toggleWebhook(id, active);
+			const response = await api.toggleWebhook(String(id), active);
 			if (response.error) {
 				ErrorHandler.handle('Failed to toggle webhook: ' + response.error);
 			} else {
@@ -146,7 +158,7 @@
 		}
 	}
 
-	async function testWebhook(webhook) {
+	async function testWebhook(webhook: WebhookItem) {
 		try {
 			// Simulate test
 			toasts.info(`Testing webhook "${webhook.name}"...\nSending test payload to ${webhook.url}`);
@@ -154,8 +166,8 @@
 			ErrorHandler.handle(err);
 		}
 	}
-	
-	async function deleteWebhook(id) {
+
+	async function deleteWebhook(id: number) {
 		if (!confirm('Are you sure you want to delete this webhook?')) return;
 
 		try {

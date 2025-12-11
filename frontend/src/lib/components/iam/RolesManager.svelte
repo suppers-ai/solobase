@@ -1,19 +1,32 @@
-<script>
+<script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import RoleCard from './RoleCard.svelte';
 	import CreateRoleModal from './CreateRoleModal.svelte';
 	import EditRoleModal from './EditRoleModal.svelte';
 	import { ErrorHandler, authFetch } from '$lib/api';
 
-	export let roles = [];
+	interface RoleMetadata {
+		disabledFeatures?: string[];
+		[key: string]: unknown;
+	}
+
+	interface Role {
+		name: string;
+		displayName?: string;
+		description?: string;
+		type?: string;
+		metadata?: RoleMetadata;
+	}
+
+	export let roles: Role[] = [];
 
 	const dispatch = createEventDispatcher();
-	
+
 	let showCreateModal = false;
 	let showEditModal = false;
-	let selectedRole = null;
-	
-	async function handleCreateRole(event) {
+	let selectedRole: Role | null = null;
+
+	async function handleCreateRole(event: CustomEvent<Role>) {
 		const role = event.detail;
 		const response = await authFetch('/api/admin/iam/roles', {
 			method: 'POST',
@@ -28,9 +41,9 @@
 		}
 	}
 
-	async function handleDeleteRole(event) {
+	async function handleDeleteRole(event: CustomEvent<Role>) {
 		const role = event.detail;
-		if (!confirm(`Are you sure you want to delete role "${role.display_name || role.name}"?`)) {
+		if (!confirm(`Are you sure you want to delete role "${role.displayName || role.name}"?`)) {
 			return;
 		}
 
@@ -46,12 +59,12 @@
 		}
 	}
 
-	function handleEditRole(event) {
+	function handleEditRole(event: CustomEvent<Role>) {
 		selectedRole = event.detail;
 		showEditModal = true;
 	}
 
-	async function handleSaveRole(event) {
+	async function handleSaveRole(event: CustomEvent<Role>) {
 		const role = event.detail;
 		const response = await authFetch(`/api/admin/iam/roles/${role.name}`, {
 			method: 'PUT',

@@ -12,25 +12,25 @@
 
 	interface Product {
 		id: string;
-		group_id: string;
-		product_type_id: string;
+		groupId: string;
+		productTemplateId: string;
 		name: string;
-		display_name: string;
+		displayName: string;
 		description?: string;
 		sku?: string;
-		base_price: number;
+		basePrice: number;
 		currency: string;
-		variable_values?: any;
-		metadata?: any;
-		is_active: boolean;
-		created_at: string;
-		updated_at: string;
+		variables?: any;
+		customFields?: any;
+		active: boolean;
+		createdAt: string;
+		updatedAt: string;
 		// Calculated fields
-		calculated_price?: number;
-		product_type?: any;
+		calculatedPrice?: number;
+		productTemplate?: any;
 	}
 
-	let groupId = '';
+	let groupId: string = '';
 	let group: any = null;
 	let products: Product[] = [];
 	let productTypes: any[] = [];
@@ -42,35 +42,35 @@
 	let showEditModal = false;
 	let showPricingModal = false;
 	let selectedProduct: Product | null = null;
-	
+
 	// Check if user is admin
 	$: isAdmin = $userRoles?.includes('admin') ?? false;
-	
+
 	// Form data for new product
 	let newProduct: Partial<Product> = {
 		name: '',
-		display_name: '',
+		displayName: '',
 		description: '',
-		product_type_id: '',
+		productTemplateId: '',
 		sku: '',
-		base_price: 0,
+		basePrice: 0,
 		currency: 'USD',
-		is_active: true,
-		variable_values: {},
-		metadata: {}
+		active: true,
+		variables: {},
+		customFields: {}
 	};
 
 	// Dynamic fields based on product type
 	let dynamicFields: any = {};
 	let variableValues: any = {};
 
-	$: groupId = $page.params.groupId;
+	$: groupId = $page.params.groupId ?? '';
 	$: filteredProducts = products.filter(product => {
 		const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			product.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+			product.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
 			product.sku?.toLowerCase().includes(searchQuery.toLowerCase()) ||
 			product.description?.toLowerCase().includes(searchQuery.toLowerCase());
-		const matchesType = selectedType === 'all' || product.product_type_id === selectedType;
+		const matchesType = selectedType === 'all' || product.productTemplateId === selectedType;
 		return matchesSearch && matchesType;
 	});
 
@@ -92,28 +92,32 @@
 			const groupRes = await api.get(`/user/groups/${groupId}`);
 			group = groupRes;
 			
+			interface PriceResponse {
+				price: number;
+			}
+
 			// Load product types and variables
 			const [typesRes, variablesRes] = await Promise.all([
-				api.get('/ext/products/product-types'),
-				api.get('/ext/products/variables')
+				api.get<any[]>('/ext/products/product-types'),
+				api.get<any[]>('/ext/products/variables')
 			]);
 			productTypes = typesRes || [];
 			availableVariables = variablesRes || [];
-			
+
 			// Load group's products
-			const productsRes = await api.get(`/user/groups/${groupId}/products`);
+			const productsRes = await api.get<Product[]>(`/user/groups/${groupId}/products`);
 			products = productsRes || [];
-			
+
 			// Calculate prices for each product
 			products = await Promise.all(products.map(async (product) => {
 				try {
-					const priceRes = await api.post('/ext/products/calculate-price', {
-						product_id: product.id,
-						variables: product.variable_values
+					const priceRes = await api.post<PriceResponse>('/ext/products/calculate-price', {
+						productId: product.id,
+						variables: product.variables
 					});
-					return { ...product, calculated_price: priceRes.price };
+					return { ...product, calculatedPrice: priceRes.price };
 				} catch {
-					return { ...product, calculated_price: product.base_price };
+					return { ...product, calculatedPrice: product.basePrice };
 				}
 			}));
 		} catch (error) {
@@ -130,19 +134,19 @@
 	}
 
 	function onProductTypeChange() {
-		const selectedType = productTypes.find(t => t.id === newProduct.product_type_id);
+		const selectedType = productTypes.find(t => t.id === newProduct.productTemplateId);
 		if (selectedType) {
 			// Initialize dynamic fields based on schema
-			if (selectedType.fields_schema) {
+			if (selectedType.filterFieldsSchema) {
 				dynamicFields = {};
-				Object.entries(selectedType.fields_schema).forEach(([key, field]: [string, any]) => {
+				Object.entries(selectedType.filterFieldsSchema).forEach(([key, field]: [string, any]) => {
 					dynamicFields[key] = field.default || '';
 				});
 			}
-			
+
 			// Initialize variable values based on product type's default variables
-			if (selectedType.default_variables) {
-				variableValues = { ...selectedType.default_variables };
+			if (selectedType.defaultVariables) {
+				variableValues = { ...selectedType.defaultVariables };
 			}
 		} else {
 			dynamicFields = {};
@@ -162,30 +166,30 @@
 	async function createProduct() {
 		try {
 			// Set group ID
-			newProduct.group_id = groupId;
-			
-			// Add dynamic fields to metadata
+			newProduct.groupId = groupId;
+
+			// Add dynamic fields to customFields
 			if (Object.keys(dynamicFields).length > 0) {
-				newProduct.metadata = { ...newProduct.metadata, ...dynamicFields };
+				newProduct.customFields = { ...newProduct.customFields, ...dynamicFields };
 			}
-			
+
 			// Add variable values
-			newProduct.variable_values = variableValues;
-			
+			newProduct.variables = variableValues;
+
 			const result = await api.post(`/user/groups/${groupId}/products`, newProduct);
 			if (result) {
 				// Reset form
 				newProduct = {
 					name: '',
-					display_name: '',
+					displayName: '',
 					description: '',
-					product_type_id: '',
+					productTemplateId: '',
 					sku: '',
-					base_price: 0,
+					basePrice: 0,
 					currency: 'USD',
-					is_active: true,
-					variable_values: {},
-					metadata: {}
+					active: true,
+					variables: {},
+					customFields: {}
 				};
 				dynamicFields = {};
 				variableValues = {};
@@ -200,33 +204,33 @@
 	
 	async function editProduct(product: Product) {
 		selectedProduct = { ...product };
-		
+
 		// Load dynamic fields if product type has schema
-		const productType = getProductTypeInfo(product.product_type_id);
-		if (productType && productType.fields_schema) {
+		const productType = getProductTypeInfo(product.productTemplateId);
+		if (productType && productType.filterFieldsSchema) {
 			dynamicFields = {};
-			Object.entries(productType.fields_schema).forEach(([key, field]: [string, any]) => {
-				dynamicFields[key] = product.metadata?.[key] || field.default || '';
+			Object.entries(productType.filterFieldsSchema).forEach(([key, field]: [string, any]) => {
+				dynamicFields[key] = product.customFields?.[key] || field.default || '';
 			});
 		}
-		
+
 		// Load variable values
-		variableValues = product.variable_values || {};
-		
+		variableValues = product.variables || {};
+
 		showEditModal = true;
 	}
 	
 	async function updateProduct() {
 		if (!selectedProduct) return;
-		
+
 		try {
-			// Add dynamic fields to metadata
+			// Add dynamic fields to customFields
 			if (Object.keys(dynamicFields).length > 0) {
-				selectedProduct.metadata = { ...selectedProduct.metadata, ...dynamicFields };
+				selectedProduct.customFields = { ...selectedProduct.customFields, ...dynamicFields };
 			}
-			
+
 			// Update variable values
-			selectedProduct.variable_values = variableValues;
+			selectedProduct.variables = variableValues;
 			
 			const result = await api.put(`/user/products/${selectedProduct.id}`, selectedProduct);
 			if (result) {
@@ -256,20 +260,24 @@
 
 	async function openPricingModal(product: Product) {
 		selectedProduct = product;
-		variableValues = product.variable_values || {};
+		variableValues = product.variables || {};
 		showPricingModal = true;
+	}
+
+	interface PriceResult {
+		price: number;
 	}
 
 	async function calculatePrice() {
 		if (!selectedProduct) return;
-		
+
 		try {
-			const result = await api.post('/ext/products/calculate-price', {
-				product_id: selectedProduct.id,
+			const result = await api.post<PriceResult>('/ext/products/calculate-price', {
+				productId: selectedProduct.id,
 				variables: variableValues
 			});
-			
-			selectedProduct.calculated_price = result.price;
+
+			selectedProduct.calculatedPrice = result.price;
 		} catch (error) {
 			console.error('Failed to calculate price:', error);
 		}
@@ -294,7 +302,7 @@
 				<div>
 					<div class="header-title">
 						<Package size={24} />
-						<h1>Products - {group?.display_name || 'Loading...'}</h1>
+						<h1>Products - {group?.displayName || 'Loading...'}</h1>
 					</div>
 					<p class="header-subtitle">Manage products for this group</p>
 				</div>
@@ -326,7 +334,7 @@
 				<select class="filter-select" bind:value={selectedType}>
 					<option value="all">All Types</option>
 					{#each productTypes as type}
-						<option value={type.id}>{type.display_name}</option>
+						<option value={type.id}>{type.displayName}</option>
 					{/each}
 				</select>
 			</div>
@@ -360,11 +368,11 @@
 		{:else}
 			<div class="products-grid">
 				{#each filteredProducts as product}
-					{@const productType = getProductTypeInfo(product.product_type_id)}
+					{@const productType = getProductTypeInfo(product.productTemplateId)}
 					<div class="product-card">
 						<div class="product-header">
 							<div class="product-badge">
-								{productType?.display_name || 'Unknown'}
+								{productType?.displayName || 'Unknown'}
 							</div>
 							<div class="product-actions">
 								<button class="btn-icon" on:click={() => openPricingModal(product)} title="Pricing">
@@ -381,7 +389,7 @@
 							</div>
 						</div>
 						<div class="product-body">
-							<h3 class="product-name">{product.display_name}</h3>
+							<h3 class="product-name">{product.displayName}</h3>
 							{#if product.sku}
 								<p class="product-sku">SKU: {product.sku}</p>
 							{/if}
@@ -392,21 +400,21 @@
 							<div class="product-pricing">
 								<div class="price-row">
 									<span class="price-label">Base Price:</span>
-									<span class="price-value">{formatPrice(product.base_price, product.currency)}</span>
+									<span class="price-value">{formatPrice(product.basePrice, product.currency)}</span>
 								</div>
-								{#if product.calculated_price && product.calculated_price !== product.base_price}
+								{#if product.calculatedPrice && product.calculatedPrice !== product.basePrice}
 									<div class="price-row calculated">
 										<span class="price-label">Calculated:</span>
-										<span class="price-value">{formatPrice(product.calculated_price, product.currency)}</span>
+										<span class="price-value">{formatPrice(product.calculatedPrice, product.currency)}</span>
 									</div>
 								{/if}
 							</div>
 							
-							{#if product.variable_values && Object.keys(product.variable_values).length > 0}
+							{#if product.variables && Object.keys(product.variables).length > 0}
 								<div class="product-variables">
 									<p class="variables-label">Variables:</p>
 									<div class="variables-list">
-										{#each Object.entries(product.variable_values) as [key, value]}
+										{#each Object.entries(product.variables) as [key, value]}
 											<span class="variable-chip">
 												{key}: {value}
 											</span>
@@ -416,8 +424,8 @@
 							{/if}
 							
 							<div class="product-footer">
-								<span class="status-badge {product.is_active ? 'status-active' : 'status-inactive'}">
-									{product.is_active ? 'Active' : 'Inactive'}
+								<span class="status-badge {product.active ? 'status-active' : 'status-inactive'}">
+									{product.active ? 'Active' : 'Inactive'}
 								</span>
 								<button class="btn-link" on:click={() => openPricingModal(product)}>
 									<DollarSign size={14} />
@@ -944,10 +952,10 @@
 			<div class="modal-body">
 				<div class="form-group">
 					<label for="product_type">Product Type</label>
-					<select id="product_type" bind:value={newProduct.product_type_id} on:change={onProductTypeChange}>
+					<select id="product_type" bind:value={newProduct.productTemplateId} on:change={onProductTypeChange}>
 						<option value="">Select Product Type</option>
 						{#each productTypes as type}
-							<option value={type.id}>{type.display_name}</option>
+							<option value={type.id}>{type.displayName}</option>
 						{/each}
 					</select>
 				</div>
@@ -959,8 +967,8 @@
 							placeholder="e.g., premium_plan, basic_widget" />
 					</div>
 					<div class="form-group">
-						<label for="display_name">Display Name</label>
-						<input type="text" id="display_name" bind:value={newProduct.display_name} 
+						<label for="displayName">Display Name</label>
+						<input type="text" id="displayName" bind:value={newProduct.displayName} 
 							placeholder="e.g., Premium Plan, Basic Widget" />
 					</div>
 				</div>
@@ -972,8 +980,8 @@
 							placeholder="e.g., PRD-001" />
 					</div>
 					<div class="form-group">
-						<label for="base_price">Base Price</label>
-						<input type="number" id="base_price" bind:value={newProduct.base_price} 
+						<label for="basePrice">Base Price</label>
+						<input type="number" id="basePrice" bind:value={newProduct.basePrice} 
 							step="0.01" min="0" />
 					</div>
 				</div>
@@ -988,7 +996,7 @@
 					<div class="dynamic-fields">
 						<h4>Product Details</h4>
 						{#each Object.entries(dynamicFields) as [key, value]}
-							{@const fieldSchema = productTypes.find(t => t.id === newProduct.product_type_id)?.fields_schema?.[key]}
+							{@const fieldSchema = productTypes.find(t => t.id === newProduct.productTemplateId)?.filterFieldsSchema?.[key]}
 							<div class="form-group">
 								<label for="dynamic-{key}">{fieldSchema?.label || key}</label>
 								{#if fieldSchema?.type === 'boolean'}
@@ -1015,7 +1023,7 @@
 						{#each getRelevantVariables() as variable}
 							{#if variable.source === 'user_input' || variable.category === 'product'}
 								<div class="form-group">
-									<label for="var-{variable.name}">{variable.display_name}</label>
+									<label for="var-{variable.name}">{variable.displayName}</label>
 									{#if variable.type === 'boolean'}
 										<select id="var-{variable.name}" bind:value={variableValues[variable.name]}>
 											<option value={true}>Yes</option>
@@ -1024,11 +1032,11 @@
 									{:else if variable.type === 'number'}
 										<input type="number" id="var-{variable.name}" 
 											bind:value={variableValues[variable.name]} 
-											placeholder="Enter {variable.display_name}" />
+											placeholder="Enter {variable.displayName}" />
 									{:else}
 										<input type="text" id="var-{variable.name}" 
 											bind:value={variableValues[variable.name]} 
-											placeholder="Enter {variable.display_name}" />
+											placeholder="Enter {variable.displayName}" />
 									{/if}
 								</div>
 							{/if}
@@ -1037,8 +1045,8 @@
 				{/if}
 				
 				<div class="form-group">
-					<label for="is_active">Status</label>
-					<select id="is_active" bind:value={newProduct.is_active}>
+					<label for="active">Status</label>
+					<select id="active" bind:value={newProduct.active}>
 						<option value={true}>Active</option>
 						<option value={false}>Inactive</option>
 					</select>
@@ -1069,8 +1077,8 @@
 						<input type="text" id="edit-name" bind:value={selectedProduct.name} />
 					</div>
 					<div class="form-group">
-						<label for="edit-display_name">Display Name</label>
-						<input type="text" id="edit-display_name" bind:value={selectedProduct.display_name} />
+						<label for="edit-displayName">Display Name</label>
+						<input type="text" id="edit-displayName" bind:value={selectedProduct.displayName} />
 					</div>
 				</div>
 				
@@ -1080,8 +1088,8 @@
 						<input type="text" id="edit-sku" bind:value={selectedProduct.sku} />
 					</div>
 					<div class="form-group">
-						<label for="edit-base_price">Base Price</label>
-						<input type="number" id="edit-base_price" bind:value={selectedProduct.base_price} 
+						<label for="edit-basePrice">Base Price</label>
+						<input type="number" id="edit-basePrice" bind:value={selectedProduct.basePrice} 
 							step="0.01" min="0" />
 					</div>
 				</div>
@@ -1092,11 +1100,11 @@
 				</div>
 				
 				{#if Object.keys(dynamicFields).length > 0}
-					{@const productType = getProductTypeInfo(selectedProduct.product_type_id)}
+					{@const productType = getProductTypeInfo(selectedProduct.productTemplateId)}
 					<div class="dynamic-fields">
 						<h4>Product Details</h4>
 						{#each Object.entries(dynamicFields) as [key, value]}
-							{@const fieldSchema = productType?.fields_schema?.[key]}
+							{@const fieldSchema = productType?.filterFieldsSchema?.[key]}
 							<div class="form-group">
 								<label for="edit-dynamic-{key}">{fieldSchema?.label || key}</label>
 								{#if fieldSchema?.type === 'boolean'}
@@ -1122,7 +1130,7 @@
 						{#each getRelevantVariables() as variable}
 							{#if variable.source === 'user_input' || variable.category === 'product'}
 								<div class="form-group">
-									<label for="edit-var-{variable.name}">{variable.display_name}</label>
+									<label for="edit-var-{variable.name}">{variable.displayName}</label>
 									{#if variable.type === 'boolean'}
 										<select id="edit-var-{variable.name}" bind:value={variableValues[variable.name]}>
 											<option value={true}>Yes</option>
@@ -1142,8 +1150,8 @@
 				{/if}
 				
 				<div class="form-group">
-					<label for="edit-is_active">Status</label>
-					<select id="edit-is_active" bind:value={selectedProduct.is_active}>
+					<label for="edit-active">Status</label>
+					<select id="edit-active" bind:value={selectedProduct.active}>
 						<option value={true}>Active</option>
 						<option value={false}>Inactive</option>
 					</select>
@@ -1162,7 +1170,7 @@
 	<div class="modal-overlay" on:click={() => showPricingModal = false}>
 		<div class="modal" on:click|stopPropagation>
 			<div class="modal-header">
-				<h2>Pricing Calculator - {selectedProduct.display_name}</h2>
+				<h2>Pricing Calculator - {selectedProduct.displayName}</h2>
 				<button class="btn-icon" on:click={() => showPricingModal = false}>
 					×
 				</button>
@@ -1172,7 +1180,7 @@
 					<h4>Adjust Variables</h4>
 					{#each getRelevantVariables() as variable}
 						<div class="form-group">
-							<label for="calc-var-{variable.name}">{variable.display_name}</label>
+							<label for="calc-var-{variable.name}">{variable.displayName}</label>
 							{#if variable.type === 'boolean'}
 								<select id="calc-var-{variable.name}" bind:value={variableValues[variable.name]}>
 									<option value={true}>Yes</option>
@@ -1196,9 +1204,9 @@
 					Calculate Price
 				</button>
 				
-				{#if selectedProduct.calculated_price}
+				{#if selectedProduct.calculatedPrice}
 					<div class="pricing-result">
-						<div class="price">{formatPrice(selectedProduct.calculated_price, selectedProduct.currency)}</div>
+						<div class="price">{formatPrice(selectedProduct.calculatedPrice, selectedProduct.currency)}</div>
 						<div class="label">Calculated Price</div>
 					</div>
 				{/if}

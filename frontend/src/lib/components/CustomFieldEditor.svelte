@@ -2,12 +2,34 @@
 	import { Plus, Trash2, GripVertical, Edit2, ChevronUp, ChevronDown } from 'lucide-svelte';
 	import { toasts } from '$lib/stores/toast';
 
-	export let fields: any[] = [];
-	export let onFieldsChange: (fields: any[]) => void;
+	interface FieldConstraints {
+		editableByUser: boolean;
+		options?: string[];
+		min?: number;
+		max?: number;
+		step?: number;
+		minLength?: number;
+		maxLength?: number;
+		default?: string;
+	}
+
+	interface CustomField {
+		id: string;
+		name: string;
+		type: string;
+		required: boolean;
+		description: string;
+		section: string;
+		order: number;
+		constraints: FieldConstraints;
+	}
+
+	export let fields: CustomField[] = [];
+	export let onFieldsChange: (fields: CustomField[]) => void;
 
 	let showFieldModal = false;
 	let editingIndex: number | null = null;
-	let fieldForm = {
+	let fieldForm: CustomField = {
 		id: '',
 		name: '',
 		type: 'text',
@@ -16,7 +38,7 @@
 		section: 'General',
 		order: 0,
 		constraints: {
-			editable_by_user: true
+			editableByUser: true
 		}
 	};
 
@@ -47,8 +69,8 @@
 		fieldForm = {
 			...field,
 			constraints: {
-				editable_by_user: true,
-				...field.constraints
+				...field.constraints,
+				editableByUser: field.constraints?.editableByUser ?? true
 			}
 		};
 		editingIndex = index;
@@ -99,7 +121,14 @@
 			section: 'General',
 			order: 0,
 			constraints: {
-				editable_by_user: true
+				editableByUser: true,
+				options: undefined,
+				min: undefined,
+				max: undefined,
+				step: undefined,
+				minLength: undefined,
+				maxLength: undefined,
+				default: undefined
 			}
 		};
 	}
@@ -142,7 +171,7 @@
 							{#if field.required}
 								<span class="required-badge">Required</span>
 							{/if}
-							{#if field.constraints?.editable_by_user !== true}
+							{#if field.constraints?.editableByUser !== true}
 								<span class="readonly-badge">Read-only</span>
 							{/if}
 							{#if field.section && field.section !== 'General'}
@@ -270,7 +299,7 @@
 					<label class="checkbox-label">
 						<input
 							type="checkbox"
-							bind:checked={fieldForm.constraints.editable_by_user}
+							bind:checked={fieldForm.constraints.editableByUser}
 						/>
 						Editable by user
 					</label>
@@ -324,7 +353,7 @@
 						<label>Min Length</label>
 						<input
 							type="number"
-							bind:value={fieldForm.constraints.min_length}
+							bind:value={fieldForm.constraints.minLength}
 							placeholder="Optional"
 							min="0"
 						/>
@@ -333,7 +362,7 @@
 						<label>Max Length</label>
 						<input
 							type="number"
-							bind:value={fieldForm.constraints.max_length}
+							bind:value={fieldForm.constraints.maxLength}
 							placeholder="Optional"
 							min="0"
 						/>

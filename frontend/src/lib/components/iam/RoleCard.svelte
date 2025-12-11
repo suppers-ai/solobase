@@ -1,14 +1,27 @@
-<script>
+<script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	
-	export let role;
-	
+
+	interface RoleMetadata {
+		disabledFeatures?: string[];
+		[key: string]: unknown;
+	}
+
+	interface Role {
+		name: string;
+		displayName?: string;
+		description?: string;
+		type?: string;
+		metadata?: RoleMetadata;
+	}
+
+	export let role: Role;
+
 	const dispatch = createEventDispatcher();
-	
+
 	function handleDelete() {
 		dispatch('delete', role);
 	}
-	
+
 	function handleEdit() {
 		dispatch('edit', role);
 	}
@@ -16,18 +29,18 @@
 
 <div class="role-card" class:system={role.type === 'system'}>
 	<div class="role-header">
-		<h3>{role.display_name || role.name}</h3>
+		<h3>{role.displayName || role.name}</h3>
 		{#if role.type === 'system'}
 			<span class="badge">System</span>
 		{/if}
 	</div>
 	<p class="role-description">{role.description}</p>
-	
-	{#if role.metadata?.disabled_features?.length > 0}
+
+	{#if (role.metadata?.disabledFeatures?.length ?? 0) > 0}
 		<div class="role-metadata">
 			<h4>Disabled Features</h4>
 			<ul>
-				<li>{role.metadata.disabled_features.join(', ')}</li>
+				<li>{role.metadata?.disabledFeatures?.join(', ') ?? ''}</li>
 			</ul>
 		</div>
 	{/if}

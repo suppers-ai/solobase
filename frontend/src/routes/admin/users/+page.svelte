@@ -55,10 +55,16 @@
 		// Chart data will be generated inside fetchUsers after data is loaded
 	});
 	
+	interface UserStatsResponse {
+		data?: {
+			chartData?: unknown[];
+		};
+	}
+
 	async function fetchUserStats() {
 		try {
 			// Try to fetch real stats from API
-			const response = await api.get(`/users/stats?period=${selectedTimescale}`);
+			const response = await api.get<UserStatsResponse>(`/users/stats?period=${selectedTimescale}`);
 			if (response && response.data) {
 				generateChartDataFromStats(response.data);
 			} else {
@@ -130,8 +136,8 @@
 		let todaySignups = 0;
 		
 		users.forEach(user => {
-			// Use original_created_at for chart data (not formatted)
-			const dateStr = user.original_created_at || user.created_at;
+			// Use originalCreatedAt for chart data (not formatted)
+			const dateStr = user.originalCreatedAt || user.createdAt;
 			if (dateStr && dateStr !== 'N/A') {
 				const date = new Date(dateStr);
 				if (!isNaN(date.getTime())) {
@@ -157,7 +163,7 @@
 		let lastWeekUsers = 0;
 		
 		users.forEach(user => {
-			const dateStr = user.original_created_at || user.created_at;
+			const dateStr = user.originalCreatedAt || user.createdAt;
 			if (dateStr && dateStr !== 'N/A') {
 				const date = new Date(dateStr);
 				if (!isNaN(date.getTime())) {
@@ -233,7 +239,7 @@
 	
 	function generateChartDataFromStats(stats: any) {
 		// Use real stats data if available from API
-		chartData = stats.chart_data || [];
+		chartData = stats.chartData || [];
 		if (chartData.length === 0) {
 			generateChartDataFromUsers();
 		}
@@ -257,16 +263,16 @@
 			if (response.data) {
 				users = response.data.data || [];
 				totalUsers = response.data.total || 0;
-				totalPages = response.data.total_pages || Math.ceil(totalUsers / rowsPerPage);
+				totalPages = response.data.totalPages || Math.ceil(totalUsers / rowsPerPage);
 				console.log('Users loaded:', users.length, 'of', totalUsers, 'total');
 				
 				// Keep original dates for chart generation
 				// API returns camelCase: createdAt, lastLogin
 				users = users.map(user => ({
 					...user,
-					original_created_at: user.createdAt, // Keep original for charts
-					created_at: formatDateTime(user.createdAt),
-					last_login: user.lastLogin ? formatDateTime(user.lastLogin) : 'Never',
+					originalCreatedAt: user.createdAt, // Keep original for charts
+					createdAt: formatDateTime(user.createdAt),
+					lastLogin: user.lastLogin ? formatDateTime(user.lastLogin) : 'Never',
 				}));
 				
 				// Generate chart data after users are loaded
@@ -742,8 +748,8 @@
 									{/if}
 								</div>
 							</td>
-							<td class="text-muted">{user.created_at}</td>
-							<td class="text-muted">{user.last_login}</td>
+							<td class="text-muted">{user.createdAt}</td>
+							<td class="text-muted">{user.lastLogin}</td>
 							<td>
 								<div class="action-buttons">
 									<button 

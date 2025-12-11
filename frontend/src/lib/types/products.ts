@@ -414,14 +414,14 @@ export function validateFieldValue(
 export interface ProductTemplate {
   id: string | number;
   name: string;
-  display_name: string;
+  displayName: string;
   description?: string;
   category?: string;
   icon?: string;
-  filter_fields_schema: FieldDefinition[];  // Filter fields (mapped to DB columns)
-  custom_fields_schema: FieldDefinition[];  // Custom fields (stored as JSON)
-  billing_mode?: string;
-  billing_type?: string;
+  filterFieldsSchema: FieldDefinition[];  // Filter fields (mapped to DB columns)
+  customFieldsSchema: FieldDefinition[];  // Custom fields (stored as JSON)
+  billingMode?: string;
+  billingType?: string;
   status?: string;
 }
 

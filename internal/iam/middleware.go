@@ -2,7 +2,6 @@ package iam
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -249,18 +248,3 @@ var timeNow = func() time.Time {
 	return time.Now()
 }
 
-// ErrorResponse represents an API error response
-type ErrorResponse struct {
-	Error   string                 `json:"error"`
-	Code    string                 `json:"code,omitempty"`
-	Details map[string]interface{} `json:"details,omitempty"`
-}
-
-// WriteError writes an error response
-func WriteError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(ErrorResponse{
-		Error: message,
-	})
-}

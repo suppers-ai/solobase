@@ -67,9 +67,14 @@
 			return;
 		}
 
+		interface AuthMeResponse {
+			user: any;
+			roles?: string[];
+		}
+
 		try {
 			// Fetch current user details - returns { user, roles, permissions }
-			const response = await api.get('/auth/me');
+			const response = await api.get<AuthMeResponse>('/auth/me');
 			user = response.user;
 			roles = response.roles || [];
 
@@ -99,11 +104,11 @@
 		successMessage = '';
 
 		try {
-			// Use /auth/me endpoint for updating own profile (snake_case for DB fields)
+			// Use /auth/me endpoint for updating own profile
 			await api.patch('/auth/me', {
-				first_name: profileForm.firstName,
-				last_name: profileForm.lastName,
-				display_name: profileForm.displayName,
+				firstName: profileForm.firstName,
+				lastName: profileForm.lastName,
+				displayName: profileForm.displayName,
 				phone: profileForm.phone,
 				location: profileForm.location
 			});
@@ -152,8 +157,8 @@
 		
 		try {
 			await api.post('/auth/change-password', {
-				current_password: passwordForm.currentPassword,
-				new_password: passwordForm.newPassword
+				currentPassword: passwordForm.currentPassword,
+				newPassword: passwordForm.newPassword
 			});
 			
 			passwordSuccess = 'Password changed successfully';
@@ -204,10 +209,14 @@
 		return colors[Math.abs(hash) % colors.length];
 	}
 	
+	interface SettingResponse {
+		value?: string | boolean;
+	}
+
 	async function checkStorageSettings() {
 		try {
 			// Check if the setting exists and is enabled
-			const response = await api.get('/settings/ext_cloudstorage_profile_show_usage');
+			const response = await api.get<SettingResponse>('/settings/ext_cloudstorage_profile_show_usage');
 			if (response && response.value) {
 				showStorageCard = response.value === 'true' || response.value === true;
 			}
@@ -223,9 +232,9 @@
 			const [statsRes, quotaRes, logsRes] = await Promise.all([
 				api.get('/ext/cloudstorage/stats').catch(() => null),
 				api.get('/ext/cloudstorage/quotas/user').catch(() => null),
-				api.get('/ext/cloudstorage/access-logs?user_id=me&limit=10').catch(() => null)
+				api.get<any[]>('/ext/cloudstorage/access-logs?user_id=me&limit=10').catch(() => [])
 			]);
-			
+
 			storageStats = statsRes;
 			storageQuota = quotaRes;
 			recentActivity = logsRes || [];
@@ -297,13 +306,17 @@
 		keyCreating = true;
 		keyError = '';
 
+		interface ApiKeyResponse {
+			key: string;
+		}
+
 		try {
 			const payload: any = { name: newKeyName.trim() };
 			if (newKeyExpiry) {
-				payload.expires_at = new Date(newKeyExpiry).toISOString();
+				payload.expiresAt = new Date(newKeyExpiry).toISOString();
 			}
 
-			const response = await api.post('/auth/api-keys', payload);
+			const response = await api.post<ApiKeyResponse>('/auth/api-keys', payload);
 			createdKey = response.key;
 			showCreateKeyModal = false;
 			await loadAPIKeys();
@@ -660,22 +673,22 @@
 							<span class="stat-label">Storage Used</span>
 							<span class="stat-value">
 								{#if storageQuota}
-									{formatBytes(storageQuota.storage_used || 0)}
+									{formatBytes(storageQuota.storageUsed || 0)}
 								{:else}
 									Loading...
 								{/if}
 							</span>
-							{#if storageQuota && storageQuota.max_storage_bytes}
+							{#if storageQuota && storageQuota.maxStorageBytes}
 								<div class="progress-bar">
-									<div class="progress-fill" style="width: {Math.min((storageQuota.storage_used / storageQuota.max_storage_bytes) * 100, 100)}%"></div>
+									<div class="progress-fill" style="width: {Math.min((storageQuota.storageUsed / storageQuota.maxStorageBytes) * 100, 100)}%"></div>
 								</div>
 								<span class="stat-detail">
-									of {formatBytes(storageQuota.max_storage_bytes)} available
+									of {formatBytes(storageQuota.maxStorageBytes)} available
 								</span>
 							{/if}
 						</div>
 					</div>
-					
+
 					<div class="storage-stat-card">
 						<div class="stat-icon bandwidth-icon">
 							<TrendingUp size={20} />
@@ -684,23 +697,23 @@
 							<span class="stat-label">Bandwidth Used</span>
 							<span class="stat-value">
 								{#if storageQuota}
-									{formatBytes(storageQuota.bandwidth_used || 0)}
+									{formatBytes(storageQuota.bandwidthUsed || 0)}
 								{:else}
 									Loading...
 								{/if}
 							</span>
-							{#if storageQuota && storageQuota.max_bandwidth_bytes}
+							{#if storageQuota && storageQuota.maxBandwidthBytes}
 								<div class="progress-bar">
-									<div class="progress-fill bandwidth" style="width: {Math.min((storageQuota.bandwidth_used / storageQuota.max_bandwidth_bytes) * 100, 100)}%"></div>
+									<div class="progress-fill bandwidth" style="width: {Math.min((storageQuota.bandwidthUsed / storageQuota.maxBandwidthBytes) * 100, 100)}%"></div>
 								</div>
 								<span class="stat-detail">
-									of {formatBytes(storageQuota.max_bandwidth_bytes)} this month
+									of {formatBytes(storageQuota.maxBandwidthBytes)} this month
 								</span>
 							{/if}
 						</div>
 					</div>
 				</div>
-				
+
 				<!-- Storage Details -->
 				{#if storageStats || storageQuota}
 					<div class="storage-details">
@@ -708,21 +721,21 @@
 						<div class="detail-grid">
 							<div class="detail-item">
 								<span class="detail-label">Total Files:</span>
-								<span class="detail-value">{storageStats?.storage?.total_objects || 0}</span>
+								<span class="detail-value">{storageStats?.storage?.totalObjects || 0}</span>
 							</div>
 							<div class="detail-item">
 								<span class="detail-label">Shared Files:</span>
-								<span class="detail-value">{storageStats?.shares?.total_shares || 0}</span>
+								<span class="detail-value">{storageStats?.shares?.totalShares || 0}</span>
 							</div>
-							{#if storageQuota?.reset_bandwidth_at}
+							{#if storageQuota?.resetBandwidthAt}
 								<div class="detail-item">
 									<span class="detail-label">Bandwidth Resets:</span>
 									<span class="detail-value">
-										{new Date(storageQuota.reset_bandwidth_at).toLocaleDateString()}
+										{new Date(storageQuota.resetBandwidthAt).toLocaleDateString()}
 									</span>
 								</div>
 							{/if}
-							{#if storageQuota && storageQuota.storage_used > storageQuota.max_storage_bytes * 0.9}
+							{#if storageQuota && storageQuota.storageUsed > storageQuota.maxStorageBytes * 0.9}
 								<div class="detail-item warning">
 									<span class="detail-label">⚠️ Storage Warning:</span>
 									<span class="detail-value">Over 90% used</span>
@@ -731,14 +744,14 @@
 						</div>
 					</div>
 				{/if}
-				
+
 				<!-- Storage Info -->
 				<div class="storage-tips">
 					<h4>Storage Information</h4>
 					<ul>
 						<li>Your storage quota is managed by your administrator</li>
 						<li>Contact your admin if you need more storage space</li>
-						{#if storageQuota && storageQuota.storage_used > storageQuota.max_storage_bytes * 0.75}
+						{#if storageQuota && storageQuota.storageUsed > storageQuota.maxStorageBytes * 0.75}
 							<li class="warning">Your storage is almost full - please contact your administrator</li>
 						{/if}
 					</ul>
@@ -850,26 +863,26 @@
 									<div class="key-info">
 										<div class="key-name">{key.name}</div>
 										<div class="key-details">
-											<span class="key-prefix" title="Key prefix">{key.key_prefix}...</span>
+											<span class="key-prefix" title="Key prefix">{key.keyPrefix}...</span>
 											<span class="key-separator">•</span>
-											<span class="key-created">Created {formatDate(key.created_at)}</span>
+											<span class="key-created">Created {formatDate(key.createdAt)}</span>
 										</div>
-										{#if key.last_used_at}
+										{#if key.lastUsedAt}
 											<div class="key-last-used">
-												Last used: {formatDate(key.last_used_at)}
-												{#if key.last_used_ip}
-													from {key.last_used_ip}
+												Last used: {formatDate(key.lastUsedAt)}
+												{#if key.lastUsedIp}
+													from {key.lastUsedIp}
 												{/if}
 											</div>
 										{:else}
 											<div class="key-last-used">Never used</div>
 										{/if}
-										{#if key.expires_at}
-											<div class="key-expiry" class:expired={new Date(key.expires_at) < new Date()}>
-												{#if new Date(key.expires_at) < new Date()}
-													Expired {formatDate(key.expires_at)}
+										{#if key.expiresAt}
+											<div class="key-expiry" class:expired={new Date(key.expiresAt) < new Date()}>
+												{#if new Date(key.expiresAt) < new Date()}
+													Expired {formatDate(key.expiresAt)}
 												{:else}
-													Expires {formatDate(key.expires_at)}
+													Expires {formatDate(key.expiresAt)}
 												{/if}
 											</div>
 										{/if}

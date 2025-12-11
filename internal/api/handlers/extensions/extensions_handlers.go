@@ -27,8 +27,8 @@ type Product struct {
 	Sales       int       `json:"sales"`
 	Revenue     float64   `json:"revenue"`
 	Description string    `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 type ProductsStats struct {
@@ -126,8 +126,8 @@ type HugoSite struct {
 	Size      string    `json:"size"`
 	Pages     int       `json:"pages"`
 	Visits    int       `json:"visits"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type HugoStats struct {
@@ -942,8 +942,8 @@ type CloudProvider struct {
 	BucketCount int       `json:"bucketCount"`
 	TotalSize   string    `json:"totalSize"`
 	LastSync    string    `json:"lastSync"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 type CloudStorageActivity struct {

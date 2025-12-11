@@ -6,14 +6,14 @@
 	interface Purchase {
 		id: number;
 		status: string;
-		total_cents: number;
+		totalCents: number;
 		currency: string;
-		created_at: string;
-		line_items: Array<{
-			product_name: string;
+		createdAt: string;
+		lineItems: Array<{
+			productName: string;
 			quantity: number;
-			unit_price: number;
-			total_price: number;
+			unitPrice: number;
+			totalPrice: number;
 		}>;
 	}
 
@@ -24,11 +24,16 @@
 	const limit = 10;
 	let total = 0;
 
+	interface PurchasesResponse {
+		purchases?: Purchase[];
+		total?: number;
+	}
+
 	async function loadPurchases() {
 		loading = true;
 		error = null;
 		try {
-			const data = await api.get(
+			const data = await api.get<PurchasesResponse>(
 				`/ext/products/purchases?limit=${limit}&offset=${currentPage * limit}`
 			);
 			purchases = data.purchases || [];
@@ -130,11 +135,11 @@
 										{getStatusLabel(purchase.status)}
 									</span>
 								</div>
-								<p class="text-sm text-gray-600">{formatDateLong(purchase.created_at)}</p>
+								<p class="text-sm text-gray-600">{formatDateLong(purchase.createdAt)}</p>
 							</div>
 							<div class="text-right">
 								<p class="text-xl font-bold">
-									{formatCurrency(purchase.total_cents, purchase.currency)}
+									{formatCurrency(purchase.totalCents, purchase.currency)}
 								</p>
 								{#if purchase.status === 'pending'}
 									<button
@@ -147,18 +152,18 @@
 							</div>
 						</div>
 
-						{#if purchase.line_items && purchase.line_items.length > 0}
+						{#if purchase.lineItems && purchase.lineItems.length > 0}
 							<div class="border-t pt-4">
 								<h4 class="text-sm font-semibold text-gray-700 mb-2">Items</h4>
 								<div class="space-y-2">
-									{#each purchase.line_items as item}
+									{#each purchase.lineItems as item}
 										<div class="flex justify-between text-sm">
 											<div>
-												<span class="font-medium">{item.product_name}</span>
+												<span class="font-medium">{item.productName}</span>
 												<span class="text-gray-500 ml-2">×{item.quantity}</span>
 											</div>
 											<span class="text-gray-900">
-												{formatCurrency(item.total_price, purchase.currency)}
+												{formatCurrency(item.totalPrice, purchase.currency)}
 											</span>
 										</div>
 									{/each}

@@ -1,54 +1,77 @@
-<script>
+<script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	
-	export let role = null;
-	
+
+	interface RoleMetadata {
+		disabledFeatures?: string[];
+		[key: string]: unknown;
+	}
+
+	interface Role {
+		name: string;
+		displayName?: string;
+		description?: string;
+		type?: string;
+		metadata?: RoleMetadata;
+	}
+
+	export let role: Role | null = null;
+
 	const dispatch = createEventDispatcher();
-	
-	let editedRole = {};
-	
+
+	let editedRole: Role = {
+		name: '',
+		displayName: '',
+		description: '',
+		metadata: {
+			disabledFeatures: []
+		}
+	};
+
 	$: if (role) {
 		editedRole = {
 			...role,
 			metadata: {
 				...role.metadata,
-				disabled_features: role.metadata?.disabled_features || []
+				disabledFeatures: role.metadata?.disabledFeatures || []
 			}
 		};
 	}
-	
+
 	function handleSubmit() {
 		dispatch('save', editedRole);
 	}
-	
+
 	function handleClose() {
 		dispatch('close');
 	}
-	
+
 	function addFeature() {
 		const feature = prompt('Enter feature name to disable:');
-		if (feature && !editedRole.metadata.disabled_features.includes(feature)) {
-			editedRole.metadata.disabled_features = [...editedRole.metadata.disabled_features, feature];
+		const features = editedRole.metadata?.disabledFeatures ?? [];
+		if (feature && editedRole.metadata && !features.includes(feature)) {
+			editedRole.metadata.disabledFeatures = [...features, feature];
 		}
 	}
-	
-	function removeFeature(feature) {
-		editedRole.metadata.disabled_features = editedRole.metadata.disabled_features.filter(f => f !== feature);
+
+	function removeFeature(feature: string) {
+		if (editedRole.metadata) {
+			editedRole.metadata.disabledFeatures = (editedRole.metadata.disabledFeatures ?? []).filter(f => f !== feature);
+		}
 	}
 </script>
 
 {#if role}
 <div class="modal-overlay" on:click={handleClose}>
 	<div class="modal" on:click|stopPropagation>
-		<h2>Edit Role: {role.display_name || role.name}</h2>
-		
+		<h2>Edit Role: {role.displayName || role.name}</h2>
+
 		<div class="form-grid">
 			<div class="form-group">
 				<label for="display-name">Display Name</label>
 				<input
 					id="display-name"
 					type="text"
-					bind:value={editedRole.display_name}
+					bind:value={editedRole.displayName}
 					placeholder="Enter display name"
 					disabled={role.type === 'system'}
 				/>
@@ -74,8 +97,8 @@
 					<button class="btn-small" on:click|preventDefault={addFeature}>+ Add</button>
 				</label>
 				<div class="features-list">
-					{#if editedRole.metadata.disabled_features?.length > 0}
-						{#each editedRole.metadata.disabled_features as feature}
+					{#if (editedRole.metadata?.disabledFeatures?.length ?? 0) > 0}
+						{#each editedRole.metadata?.disabledFeatures ?? [] as feature}
 							<span class="feature-tag">
 								{feature}
 								<button class="remove-btn" on:click={() => removeFeature(feature)}>×</button>

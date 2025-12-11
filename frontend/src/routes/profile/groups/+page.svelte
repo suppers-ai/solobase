@@ -11,19 +11,19 @@
 
 	interface Group {
 		id: string;
-		group_type_id: string;
-		user_id: string;
+		groupTemplateId: string;
+		userId: string;
 		name: string;
-		display_name: string;
+		displayName: string;
 		description?: string;
 		settings?: any;
-		metadata?: any;
-		is_active: boolean;
-		created_at: string;
-		updated_at: string;
+		customFields?: any;
+		active: boolean;
+		createdAt: string;
+		updatedAt: string;
 		// Joined data
-		group_type?: any;
-		products_count?: number;
+		groupTemplate?: any;
+		productsCount?: number;
 	}
 
 	let groups: Group[] = [];
@@ -38,11 +38,11 @@
 	// Form data for new group
 	let newGroup: Partial<Group> = {
 		name: '',
-		display_name: '',
+		displayName: '',
 		description: '',
-		group_type_id: '',
-		is_active: true,
-		metadata: {}
+		groupTemplateId: '',
+		active: true,
+		customFields: {}
 	};
 
 	// Dynamic fields based on group type
@@ -50,9 +50,9 @@
 
 	$: filteredGroups = groups.filter(group => {
 		const matchesSearch = group.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			group.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+			group.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
 			group.description?.toLowerCase().includes(searchQuery.toLowerCase());
-		const matchesType = selectedType === 'all' || group.group_type_id === selectedType;
+		const matchesType = selectedType === 'all' || group.groupTemplateId === selectedType;
 		return matchesSearch && matchesType;
 	});
 
@@ -70,11 +70,11 @@
 		try {
 			loading = true;
 			// Load group types first
-			const typesRes = await api.get('/ext/products/group-types');
+			const typesRes = await api.get<any[]>('/ext/products/group-types');
 			groupTypes = typesRes || [];
-			
+
 			// Load user's groups
-			const groupsRes = await api.get('/ext/products/groups');
+			const groupsRes = await api.get<Group[]>('/ext/products/groups');
 			groups = groupsRes || [];
 		} catch (error) {
 			console.error('Failed to load data:', error);
@@ -102,11 +102,11 @@
 	}
 
 	function onGroupTypeChange() {
-		const selectedType = groupTypes.find(t => t.id === newGroup.group_type_id);
-		if (selectedType && selectedType.fields_schema) {
+		const selectedType = groupTypes.find(t => t.id === newGroup.groupTemplateId);
+		if (selectedType && selectedType.filterFieldsSchema) {
 			// Initialize dynamic fields based on schema
 			dynamicFields = {};
-			Object.entries(selectedType.fields_schema).forEach(([key, field]: [string, any]) => {
+			Object.entries(selectedType.filterFieldsSchema).forEach(([key, field]: [string, any]) => {
 				dynamicFields[key] = field.default || '';
 			});
 		} else {
@@ -116,21 +116,21 @@
 	
 	async function createGroup() {
 		try {
-			// Add dynamic fields to metadata
+			// Add dynamic fields to customFields
 			if (Object.keys(dynamicFields).length > 0) {
-				newGroup.metadata = { ...newGroup.metadata, ...dynamicFields };
+				newGroup.customFields = { ...newGroup.customFields, ...dynamicFields };
 			}
-			
+
 			const result = await api.post('/ext/products/groups', newGroup);
 			if (result) {
 				// Reset form
 				newGroup = {
 					name: '',
-					display_name: '',
+					displayName: '',
 					description: '',
-					group_type_id: '',
-					is_active: true,
-					metadata: {}
+					groupTemplateId: '',
+					active: true,
+					customFields: {}
 				};
 				dynamicFields = {};
 				showCreateModal = false;
@@ -145,11 +145,11 @@
 	async function editGroup(group: Group) {
 		selectedGroup = { ...group };
 		// Load dynamic fields if group type has schema
-		const groupType = getGroupTypeInfo(group.group_type_id);
-		if (groupType && groupType.fields_schema) {
+		const groupType = getGroupTypeInfo(group.groupTemplateId);
+		if (groupType && groupType.filterFieldsSchema) {
 			dynamicFields = {};
-			Object.entries(groupType.fields_schema).forEach(([key, field]: [string, any]) => {
-				dynamicFields[key] = group.metadata?.[key] || field.default || '';
+			Object.entries(groupType.filterFieldsSchema).forEach(([key, field]: [string, any]) => {
+				dynamicFields[key] = group.customFields?.[key] || field.default || '';
 			});
 		}
 		showEditModal = true;
@@ -157,11 +157,11 @@
 	
 	async function updateGroup() {
 		if (!selectedGroup) return;
-		
+
 		try {
-			// Add dynamic fields to metadata
+			// Add dynamic fields to customFields
 			if (Object.keys(dynamicFields).length > 0) {
-				selectedGroup.metadata = { ...selectedGroup.metadata, ...dynamicFields };
+				selectedGroup.customFields = { ...selectedGroup.customFields, ...dynamicFields };
 			}
 			
 			const result = await api.put(`/user/groups/${selectedGroup.id}`, selectedGroup);
@@ -230,7 +230,7 @@
 				<select class="filter-select" bind:value={selectedType}>
 					<option value="all">All Types</option>
 					{#each groupTypes as type}
-						<option value={type.id}>{type.display_name}</option>
+						<option value={type.id}>{type.displayName}</option>
 					{/each}
 				</select>
 			</div>
@@ -254,7 +254,7 @@
 		{:else}
 			<div class="groups-grid">
 				{#each filteredGroups as group}
-					{@const groupType = getGroupTypeInfo(group.group_type_id)}
+					{@const groupType = getGroupTypeInfo(group.groupTemplateId)}
 					<div class="group-card">
 						<div class="group-header">
 							<div class="group-icon">
@@ -273,30 +273,30 @@
 							</div>
 						</div>
 						<div class="group-body">
-							<h3 class="group-name">{group.display_name}</h3>
-							<p class="group-type">{groupType?.display_name || 'Unknown Type'}</p>
+							<h3 class="group-name">{group.displayName}</h3>
+							<p class="group-type">{groupType?.displayName || 'Unknown Type'}</p>
 							{#if group.description}
 								<p class="group-description">{group.description}</p>
 							{/if}
 							
-							{#if group.metadata && Object.keys(group.metadata).length > 0}
+							{#if group.customFields && Object.keys(group.customFields).length > 0}
 								<div class="group-metadata">
-									{#if group.metadata.address}
+									{#if group.customFields.address}
 										<div class="metadata-item">
 											<MapPin size={14} />
-											{group.metadata.address}
+											{group.customFields.address}
 										</div>
 									{/if}
-									{#if group.metadata.phone}
+									{#if group.customFields.phone}
 										<div class="metadata-item">
 											<Phone size={14} />
-											{group.metadata.phone}
+											{group.customFields.phone}
 										</div>
 									{/if}
-									{#if group.metadata.email}
+									{#if group.customFields.email}
 										<div class="metadata-item">
 											<Mail size={14} />
-											{group.metadata.email}
+											{group.customFields.email}
 										</div>
 									{/if}
 								</div>
@@ -305,10 +305,10 @@
 							<div class="group-footer">
 								<div class="group-stats">
 									<span class="stat-item">
-										{group.products_count || 0} products
+										{group.productsCount || 0} products
 									</span>
-									<span class="status-badge {group.is_active ? 'status-active' : 'status-inactive'}">
-										{group.is_active ? 'Active' : 'Inactive'}
+									<span class="status-badge {group.active ? 'status-active' : 'status-inactive'}">
+										{group.active ? 'Active' : 'Inactive'}
 									</span>
 								</div>
 								<button class="btn-link" on:click={() => navigateToProducts(group)}>
@@ -752,10 +752,10 @@
 			<div class="modal-body">
 				<div class="form-group">
 					<label for="group_type">Group Type</label>
-					<select id="group_type" bind:value={newGroup.group_type_id} on:change={onGroupTypeChange}>
+					<select id="group_type" bind:value={newGroup.groupTemplateId} on:change={onGroupTypeChange}>
 						<option value="">Select Group Type</option>
 						{#each groupTypes as type}
-							<option value={type.id}>{type.display_name}</option>
+							<option value={type.id}>{type.displayName}</option>
 						{/each}
 					</select>
 				</div>
@@ -767,8 +767,8 @@
 							placeholder="e.g., my_store, main_office" />
 					</div>
 					<div class="form-group">
-						<label for="display_name">Display Name</label>
-						<input type="text" id="display_name" bind:value={newGroup.display_name} 
+						<label for="displayName">Display Name</label>
+						<input type="text" id="displayName" bind:value={newGroup.displayName} 
 							placeholder="e.g., My Store, Main Office" />
 					</div>
 				</div>
@@ -783,7 +783,7 @@
 					<div class="dynamic-fields">
 						<h4>Additional Information</h4>
 						{#each Object.entries(dynamicFields) as [key, value]}
-							{@const fieldSchema = groupTypes.find(t => t.id === newGroup.group_type_id)?.fields_schema?.[key]}
+							{@const fieldSchema = groupTypes.find(t => t.id === newGroup.groupTemplateId)?.filterFieldsSchema?.[key]}
 							<div class="form-group">
 								<label for="dynamic-{key}">{fieldSchema?.label || key}</label>
 								{#if fieldSchema?.type === 'boolean'}
@@ -805,8 +805,8 @@
 				{/if}
 				
 				<div class="form-group">
-					<label for="is_active">Status</label>
-					<select id="is_active" bind:value={newGroup.is_active}>
+					<label for="active">Status</label>
+					<select id="active" bind:value={newGroup.active}>
 						<option value={true}>Active</option>
 						<option value={false}>Inactive</option>
 					</select>
@@ -837,8 +837,8 @@
 						<input type="text" id="edit-name" bind:value={selectedGroup.name} />
 					</div>
 					<div class="form-group">
-						<label for="edit-display_name">Display Name</label>
-						<input type="text" id="edit-display_name" bind:value={selectedGroup.display_name} />
+						<label for="edit-displayName">Display Name</label>
+						<input type="text" id="edit-displayName" bind:value={selectedGroup.displayName} />
 					</div>
 				</div>
 				
@@ -848,11 +848,11 @@
 				</div>
 				
 				{#if Object.keys(dynamicFields).length > 0}
-					{@const groupType = getGroupTypeInfo(selectedGroup.group_type_id)}
+					{@const groupType = getGroupTypeInfo(selectedGroup.groupTemplateId)}
 					<div class="dynamic-fields">
 						<h4>Additional Information</h4>
 						{#each Object.entries(dynamicFields) as [key, value]}
-							{@const fieldSchema = groupType?.fields_schema?.[key]}
+							{@const fieldSchema = groupType?.filterFieldsSchema?.[key]}
 							<div class="form-group">
 								<label for="edit-dynamic-{key}">{fieldSchema?.label || key}</label>
 								{#if fieldSchema?.type === 'boolean'}
@@ -873,8 +873,8 @@
 				{/if}
 				
 				<div class="form-group">
-					<label for="edit-is_active">Status</label>
-					<select id="edit-is_active" bind:value={selectedGroup.is_active}>
+					<label for="edit-active">Status</label>
+					<select id="edit-active" bind:value={selectedGroup.active}>
 						<option value={true}>Active</option>
 						<option value={false}>Inactive</option>
 					</select>

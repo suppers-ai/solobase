@@ -1,14 +1,27 @@
-<script>
+<script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	
-	export let user;
-	
+
+	interface UserRole {
+		name: string;
+		displayName?: string;
+	}
+
+	interface User {
+		id: string;
+		email: string;
+		firstName?: string;
+		lastName?: string;
+		roles?: UserRole[];
+	}
+
+	export let user: User;
+
 	const dispatch = createEventDispatcher();
-	
-	function handleRemoveRole(roleName) {
+
+	function handleRemoveRole(roleName: string) {
 		dispatch('removeRole', { userId: user.id, roleName });
 	}
-	
+
 	function handleAssignRole() {
 		dispatch('assignRole');
 	}
@@ -22,7 +35,7 @@
 			{#if user.roles && user.roles.length > 0}
 				{#each user.roles as role}
 					<span class="role-tag">
-						{role.display_name || role.name}
+						{role.displayName || role.name}
 						<button class="remove-role" on:click={() => handleRemoveRole(role.name)}>×</button>
 					</span>
 				{/each}

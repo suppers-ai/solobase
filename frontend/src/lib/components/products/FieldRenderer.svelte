@@ -161,7 +161,7 @@
 		{value}
 		on:input={(e) => onUpdate(e.currentTarget.value)}
 		{placeholder}
-		maxlength={constraints.max_length}
+		maxlength={constraints.maxLength}
 		{required}
 	/>
 {/if}

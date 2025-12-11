@@ -3,7 +3,10 @@ import type {
 	DatabaseTable, DatabaseColumn, QueryResult,
 	StorageObject, StorageBucket,
 	AppSettings, DashboardStats,
-	ApiResponse, PaginatedResponse
+	ApiResponse, PaginatedResponse,
+	Extension, ExtensionStatus,
+	Webhook, WebhookCreateRequest,
+	AnalyticsStats, AnalyticsPageview, AnalyticsDailyStats, AnalyticsEvent
 } from './types';
 import { ErrorHandler } from './utils/error-handler';
 
@@ -77,16 +80,11 @@ class ApiClient {
 			let data;
 			try {
 				data = JSON.parse(text);
-			} catch (e) {
-				console.error('Failed to parse response:', text);
+			} catch {
 				throw new Error(`Invalid JSON response: ${text.substring(0, 100)}`);
 			}
 
 			if (!response.ok) {
-				// If we get a 401, the cookie may be expired or invalid
-				if (response.status === 401) {
-					console.log('Authentication failed - cookie may be expired');
-				}
 				throw new Error(data.error || `HTTP ${response.status}`);
 			}
 
@@ -100,28 +98,16 @@ class ApiClient {
 
 	// Auth methods
 	async login(request: LoginRequest): Promise<ApiResponse<LoginResponse>> {
-		console.log('API login request:', request);
-		const response = await this.request<LoginResponse>('/auth/login', {
+		return this.request<LoginResponse>('/auth/login', {
 			method: 'POST',
 			body: JSON.stringify(request)
 		});
-		console.log('API login response:', response);
-
-		// Token is automatically set as httpOnly cookie by backend
-		// No client-side token handling needed
-
-		return response;
 	}
 
 	async logout(): Promise<ApiResponse<void>> {
-		const response = await this.request<void>('/auth/logout', {
+		return this.request<void>('/auth/logout', {
 			method: 'POST'
 		});
-
-		// Token is automatically cleared via httpOnly cookie expiration by backend
-		// No client-side token cleanup needed
-
-		return response;
 	}
 
 	async signup(request: SignupRequest): Promise<ApiResponse<AuthUser>> {
@@ -132,15 +118,12 @@ class ApiClient {
 	}
 
 	async getCurrentUser(): Promise<ApiResponse<UserResponse>> {
-		console.log('Getting current user via httpOnly cookie authentication');
-		const response = await this.request<UserResponse>('/auth/me');
-		console.log('Current user response:', response);
-		return response;
+		return this.request<UserResponse>('/auth/me');
 	}
 
 	// Users methods (admin)
 	async getUsers(page = 1, pageSize = 20): Promise<ApiResponse<PaginatedResponse<AuthUser>>> {
-		return this.request<PaginatedResponse<AuthUser>>(`/admin/users?page=${page}&page_size=${pageSize}`);
+		return this.request<PaginatedResponse<AuthUser>>(`/admin/users?page=${page}&pageSize=${pageSize}`);
 	}
 
 	async getUser(id: string): Promise<ApiResponse<AuthUser>> {
@@ -189,9 +172,9 @@ class ApiClient {
 		const formData = new FormData();
 		formData.append('file', file);
 		
-		// Add parent_folder_id as a separate form field if provided
+		// Add parentFolderId as a separate form field if provided
 		if (parentFolderId) {
-			formData.append('parent_folder_id', parentFolderId);
+			formData.append('parentFolderId', parentFolderId);
 		}
 
 		const response = await fetch(`${API_BASE}/storage/buckets/${bucket}/upload`, {
@@ -216,12 +199,12 @@ class ApiClient {
 		});
 	}
 
-	async createFolder(bucket: string, name: string, parentFolderId?: string | null): Promise<ApiResponse<any>> {
-		return this.request<any>(`/storage/buckets/${bucket}/folders`, {
+	async createFolder(bucket: string, name: string, parentFolderId?: string | null): Promise<ApiResponse<StorageObject>> {
+		return this.request<StorageObject>(`/storage/buckets/${bucket}/folders`, {
 			method: 'POST',
-			body: JSON.stringify({ 
-				name, 
-				parent_folder_id: parentFolderId 
+			body: JSON.stringify({
+				name,
+				parentFolderId: parentFolderId
 			})
 		});
 	}
@@ -245,43 +228,43 @@ class ApiClient {
 	}
 
 	// Extensions methods (admin)
-	async getExtensions(): Promise<ApiResponse<any[]>> {
-		return this.request<any[]>('/admin/extensions');
+	async getExtensions(): Promise<ApiResponse<Extension[]>> {
+		return this.request<Extension[]>('/admin/extensions');
 	}
 
-	async toggleExtension(name: string, enabled: boolean): Promise<ApiResponse<any>> {
-		return this.request<any>(`/admin/extensions/${name}/toggle`, {
+	async toggleExtension(name: string, enabled: boolean): Promise<ApiResponse<Extension>> {
+		return this.request<Extension>(`/admin/extensions/${name}/toggle`, {
 			method: 'POST',
 			body: JSON.stringify({ enabled })
 		});
 	}
 
-	async getExtensionStatus(): Promise<ApiResponse<any[]>> {
-		return this.request<any[]>('/admin/extensions/status');
+	async getExtensionStatus(): Promise<ApiResponse<ExtensionStatus[]>> {
+		return this.request<ExtensionStatus[]>('/admin/extensions/status');
 	}
 
 	// Analytics extension methods
-	async getAnalyticsStats(): Promise<ApiResponse<any>> {
-		return this.request<any>('/ext/analytics/stats');
+	async getAnalyticsStats(): Promise<ApiResponse<AnalyticsStats>> {
+		return this.request<AnalyticsStats>('/ext/analytics/stats');
 	}
 
-	async getAnalyticsPageviews(): Promise<ApiResponse<any>> {
-		return this.request<any>('/ext/analytics/pageviews');
+	async getAnalyticsPageviews(): Promise<ApiResponse<AnalyticsPageview[]>> {
+		return this.request<AnalyticsPageview[]>('/ext/analytics/pageviews');
 	}
 
-	async getAnalyticsDailyStats(days: number = 7): Promise<ApiResponse<any>> {
-		return this.request<any>(`/ext/analytics/daily?days=${days}`);
+	async getAnalyticsDailyStats(days: number = 7): Promise<ApiResponse<AnalyticsDailyStats[]>> {
+		return this.request<AnalyticsDailyStats[]>(`/ext/analytics/daily?days=${days}`);
 	}
 
-	async trackAnalyticsEvent(event: any): Promise<ApiResponse<void>> {
+	async trackAnalyticsEvent(event: AnalyticsEvent): Promise<ApiResponse<void>> {
 		return this.request<void>('/ext/analytics/track', {
 			method: 'POST',
 			body: JSON.stringify(event)
 		});
 	}
 
-	async exportAnalytics(): Promise<ApiResponse<any>> {
-		return this.request<any>('/admin/analytics/export');
+	async exportAnalytics(): Promise<ApiResponse<AnalyticsStats>> {
+		return this.request<AnalyticsStats>('/admin/analytics/export');
 	}
 
 	async clearAnalytics(): Promise<ApiResponse<void>> {
@@ -291,19 +274,19 @@ class ApiClient {
 	}
 
 	// Webhooks extension methods
-	async getWebhooks(): Promise<ApiResponse<any>> {
-		return this.request<any>('/ext/webhooks/webhooks');
+	async getWebhooks(): Promise<ApiResponse<Webhook[]>> {
+		return this.request<Webhook[]>('/ext/webhooks/webhooks');
 	}
 
-	async createWebhook(webhook: any): Promise<ApiResponse<any>> {
-		return this.request<any>('/ext/webhooks/webhooks', {
+	async createWebhook(webhook: WebhookCreateRequest): Promise<ApiResponse<Webhook>> {
+		return this.request<Webhook>('/ext/webhooks/webhooks', {
 			method: 'POST',
 			body: JSON.stringify(webhook)
 		});
 	}
 
-	async toggleWebhook(id: string, active: boolean): Promise<ApiResponse<any>> {
-		return this.request<any>(`/ext/webhooks/webhooks/${id}/toggle`, {
+	async toggleWebhook(id: string, active: boolean): Promise<ApiResponse<Webhook>> {
+		return this.request<Webhook>(`/ext/webhooks/webhooks/${id}/toggle`, {
 			method: 'POST',
 			body: JSON.stringify({ active })
 		});
@@ -318,55 +301,60 @@ class ApiClient {
 
 	// Generic HTTP methods for direct API calls
 	// These throw on error for use with try/catch
-	async get(path: string): Promise<any> {
-		const response = await this.request<any>(path);
+	async get<T = unknown>(path: string): Promise<T> {
+		const response = await this.request<T>(path);
 		if (response.error) {
-			throw new Error(response.error);
+			const errorMsg = typeof response.error === 'string' ? response.error : response.error.message;
+			throw new Error(errorMsg);
 		}
-		return response.data;
+		return response.data as T;
 	}
 
-	async post(path: string, body?: any): Promise<any> {
-		const response = await this.request<any>(path, {
+	async post<T = unknown>(path: string, body?: unknown): Promise<T> {
+		const response = await this.request<T>(path, {
 			method: 'POST',
 			body: body ? JSON.stringify(body) : undefined
 		});
 		if (response.error) {
-			throw new Error(response.error);
+			const errorMsg = typeof response.error === 'string' ? response.error : response.error.message;
+			throw new Error(errorMsg);
 		}
-		return response.data;
+		return response.data as T;
 	}
 
-	async put(path: string, body?: any): Promise<any> {
-		const response = await this.request<any>(path, {
+	async put<T = unknown>(path: string, body?: unknown): Promise<T> {
+		const response = await this.request<T>(path, {
 			method: 'PUT',
 			body: body ? JSON.stringify(body) : undefined
 		});
 		if (response.error) {
-			throw new Error(response.error);
+			const errorMsg = typeof response.error === 'string' ? response.error : response.error.message;
+			throw new Error(errorMsg);
 		}
-		return response.data;
+		return response.data as T;
 	}
 
-	async patch(path: string, body?: any): Promise<any> {
-		const response = await this.request<any>(path, {
+	async patch<T = unknown>(path: string, body?: unknown): Promise<T> {
+		const response = await this.request<T>(path, {
 			method: 'PATCH',
 			body: body ? JSON.stringify(body) : undefined
 		});
 		if (response.error) {
-			throw new Error(response.error);
+			const errorMsg = typeof response.error === 'string' ? response.error : response.error.message;
+			throw new Error(errorMsg);
 		}
-		return response.data;
+		return response.data as T;
 	}
 
-	async delete(path: string): Promise<any> {
-		const response = await this.request<any>(path, {
+	async delete<T = unknown>(path: string): Promise<T> {
+		const response = await this.request<T>(path, {
 			method: 'DELETE'
 		});
 		if (response.error) {
-			throw new Error(response.error);
+			const errorMsg = typeof response.error === 'string' ? response.error : response.error.message;
+			throw new Error(errorMsg);
 		}
-		return response.data;
+		return response.data as T;
 	}
 }
 

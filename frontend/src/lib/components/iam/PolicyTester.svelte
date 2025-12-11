@@ -1,18 +1,28 @@
-<script>
-	import { createEventDispatcher } from 'svelte';
+<script lang="ts">
 	import { authFetch } from '$lib/api';
 
-	const dispatch = createEventDispatcher();
-	
-	let testInput = {
+	interface TestInput {
+		userId: string;
+		resource: string;
+		action: string;
+	}
+
+	interface TestResult {
+		allowed?: boolean;
+		error?: string;
+		matchedPolicies?: string[];
+		userRoles?: string[];
+	}
+
+	let testInput: TestInput = {
 		userId: '',
 		resource: '',
 		action: ''
 	};
-	
-	let testResult = null;
+
+	let testResult: TestResult | null = null;
 	let testing = false;
-	
+
 	async function handleTest() {
 		testing = true;
 		try {
@@ -23,12 +33,12 @@
 
 			testResult = await response.json();
 		} catch (error) {
-			testResult = { error: error.message };
+			testResult = { error: error instanceof Error ? error.message : 'Unknown error' };
 		} finally {
 			testing = false;
 		}
 	}
-	
+
 	function clearResults() {
 		testResult = null;
 	}

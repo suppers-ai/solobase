@@ -5,15 +5,15 @@
 	
 	let role = {
 		name: '',
-		display_name: '',
+		displayName: '',
 		description: '',
 		metadata: {
-			storage_quota: 1073741824, // 1GB default
-			bandwidth_quota: 10737418240, // 10GB default
-			max_upload_size: 104857600, // 100MB default
-			max_requests_per_min: 100,
-			session_timeout: 3600,
-			disabled_features: []
+			storageQuota: 1073741824, // 1GB default
+			bandwidthQuota: 10737418240, // 10GB default
+			maxUploadSize: 104857600, // 100MB default
+			maxRequestsPerMin: 100,
+			sessionTimeout: 3600,
+			disabledFeatures: []
 		}
 	};
 	
@@ -37,7 +37,7 @@
 		
 		<div class="form-group">
 			<label for="role-display">Display Name</label>
-			<input id="role-display" type="text" bind:value={role.display_name} placeholder="Content Editor" />
+			<input id="role-display" type="text" bind:value={role.displayName} placeholder="Content Editor" />
 		</div>
 		
 		<div class="form-group">
@@ -49,22 +49,22 @@
 		
 		<div class="form-group">
 			<label for="storage-quota">Storage Quota (bytes)</label>
-			<input id="storage-quota" type="number" bind:value={role.metadata.storage_quota} />
+			<input id="storage-quota" type="number" bind:value={role.metadata.storageQuota} />
 		</div>
-		
+
 		<div class="form-group">
 			<label for="bandwidth-quota">Bandwidth Quota (bytes)</label>
-			<input id="bandwidth-quota" type="number" bind:value={role.metadata.bandwidth_quota} />
+			<input id="bandwidth-quota" type="number" bind:value={role.metadata.bandwidthQuota} />
 		</div>
-		
+
 		<div class="form-group">
 			<label for="upload-size">Max Upload Size (bytes)</label>
-			<input id="upload-size" type="number" bind:value={role.metadata.max_upload_size} />
+			<input id="upload-size" type="number" bind:value={role.metadata.maxUploadSize} />
 		</div>
-		
+
 		<div class="form-group">
 			<label for="rate-limit">Max Requests per Minute</label>
-			<input id="rate-limit" type="number" bind:value={role.metadata.max_requests_per_min} />
+			<input id="rate-limit" type="number" bind:value={role.metadata.maxRequestsPerMin} />
 		</div>
 		
 		<div class="modal-actions">

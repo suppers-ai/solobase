@@ -47,8 +47,8 @@ type ExtensionMetadata struct {
 	Homepage     string   `json:"homepage,omitempty"`
 	Dependencies []string `json:"dependencies,omitempty"`
 	Tags         []string `json:"tags,omitempty"`
-	MinVersion   string   `json:"min_solobase_version,omitempty"`
-	MaxVersion   string   `json:"max_solobase_version,omitempty"`
+	MinVersion   string   `json:"minSolobaseVersion,omitempty"`
+	MaxVersion   string   `json:"maxSolobaseVersion,omitempty"`
 }
 
 // HealthStatus represents the health of an extension
@@ -56,7 +56,7 @@ type HealthStatus struct {
 	Status      string        `json:"status"` // "healthy", "degraded", "unhealthy"
 	Message     string        `json:"message,omitempty"`
 	Checks      []HealthCheck `json:"checks,omitempty"`
-	LastChecked time.Time     `json:"last_checked"`
+	LastChecked time.Time     `json:"lastChecked"`
 }
 
 // HealthCheck represents a single health check
@@ -75,8 +75,8 @@ type ExtensionStatus struct {
 	Loaded    bool               `json:"loaded"`
 	Health    *HealthStatus      `json:"health,omitempty"`
 	Error     string             `json:"error,omitempty"`
-	EnabledAt *time.Time         `json:"enabled_at,omitempty"`
-	LoadedAt  time.Time          `json:"loaded_at,omitempty"`
+	EnabledAt *time.Time         `json:"enabledAt,omitempty"`
+	LoadedAt  time.Time          `json:"loadedAt,omitempty"`
 	Resources ExtensionResources `json:"resources"`
 	Endpoints []EndpointInfo     `json:"endpoints"`
 	Metrics   ExtensionMetrics   `json:"metrics"`
@@ -88,7 +88,7 @@ type ExtensionResources struct {
 	Middleware int `json:"middleware"`
 	Hooks      int `json:"hooks"`
 	Templates  int `json:"templates"`
-	Assets     int `json:"static_assets"`
+	Assets     int `json:"staticAssets"`
 }
 
 // EndpointInfo describes an API endpoint registered by an extension
@@ -102,26 +102,26 @@ type EndpointInfo struct {
 
 // ExtensionMetrics tracks performance metrics for an extension
 type ExtensionMetrics struct {
-	RequestCount        int64         `json:"request_count"`
-	ErrorCount          int64         `json:"error_count"`
-	AverageLatency      time.Duration `json:"average_latency"`
-	P95Latency          time.Duration `json:"p95_latency"`
-	P99Latency          time.Duration `json:"p99_latency"`
-	MemoryUsage         int64         `json:"memory_bytes"`
-	MemoryUsageMB       int64         `json:"memory_mb"`
-	GoroutineCount      int           `json:"goroutine_count"`
-	DatabaseQueries     int64         `json:"database_queries"`
-	DatabaseConnections int           `json:"database_connections"`
-	CacheHitRate        float64       `json:"cache_hit_rate"`
-	TotalRequestTime    time.Duration `json:"total_request_time"`
-	LastActive          time.Time     `json:"last_active"`
-	HooksExecuted       int64         `json:"hooks_executed"`
-	HookErrors          int64         `json:"hook_errors"`
+	RequestCount        int64         `json:"requestCount"`
+	ErrorCount          int64         `json:"errorCount"`
+	AverageLatency      time.Duration `json:"averageLatency"`
+	P95Latency          time.Duration `json:"p95Latency"`
+	P99Latency          time.Duration `json:"p99Latency"`
+	MemoryUsage         int64         `json:"memoryBytes"`
+	MemoryUsageMB       int64         `json:"memoryMb"`
+	GoroutineCount      int           `json:"goroutineCount"`
+	DatabaseQueries     int64         `json:"databaseQueries"`
+	DatabaseConnections int           `json:"databaseConnections"`
+	CacheHitRate        float64       `json:"cacheHitRate"`
+	TotalRequestTime    time.Duration `json:"totalRequestTime"`
+	LastActive          time.Time     `json:"lastActive"`
+	HooksExecuted       int64         `json:"hooksExecuted"`
+	HookErrors          int64         `json:"hookErrors"`
 	Healthy             bool          `json:"healthy"`
-	LastHealthCheck     time.Time     `json:"last_health_check"`
-	LastError           string        `json:"last_error"`
-	LastErrorTime       time.Time     `json:"last_error_time"`
-	StartTime           time.Time     `json:"start_time"`
+	LastHealthCheck     time.Time     `json:"lastHealthCheck"`
+	LastError           string        `json:"lastError"`
+	LastErrorTime       time.Time     `json:"lastErrorTime"`
+	StartTime           time.Time     `json:"startTime"`
 }
 
 // Permission represents a permission required by an extension

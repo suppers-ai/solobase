@@ -48,7 +48,7 @@
 						<p class="list-title">Items to be deleted:</p>
 						<ul>
 							{#each items as item}
-								<li>{item.object_name || item.name}</li>
+								<li>{item.objectName || item.name}</li>
 							{/each}
 						</ul>
 					</div>

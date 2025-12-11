@@ -1,21 +1,21 @@
 export interface DatabaseTable {
 	name: string;
-	rows_count: number;
+	rowsCount: number;
 	size?: number;
 	schema?: string;
 	type?: 'table' | 'view' | 'system';
-	created_at?: string;
-	updated_at?: string;
+	createdAt?: string;
+	updatedAt?: string;
 }
 
 export interface TableColumn {
 	name: string;
 	type: string;
-	is_nullable: boolean;
-	default_value?: any;
-	is_primary: boolean;
-	is_unique?: boolean;
-	is_indexed?: boolean;
+	isNullable: boolean;
+	defaultValue?: any;
+	isPrimary: boolean;
+	isUnique?: boolean;
+	isIndexed?: boolean;
 	references?: {
 		table: string;
 		column: string;
@@ -25,8 +25,8 @@ export interface TableColumn {
 export interface TableIndex {
 	name: string;
 	columns: string[];
-	is_unique: boolean;
-	is_primary: boolean;
+	isUnique: boolean;
+	isPrimary: boolean;
 	type?: string;
 }
 

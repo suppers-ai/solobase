@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
@@ -427,19 +426,19 @@ func NewAccessLogService(db *gorm.DB) *AccessLogService {
 func (a *AccessLogService) LogAccess(ctx context.Context, objectID string, action StorageAction, opts LogOptions) error {
 	metadata := make(map[string]interface{})
 	if opts.ShareID != "" {
-		metadata["share_id"] = opts.ShareID
+		metadata["shareId"] = opts.ShareID
 	}
 	if opts.Success != nil {
 		metadata["success"] = *opts.Success
 	}
 	if opts.ErrorMsg != "" {
-		metadata["error_msg"] = opts.ErrorMsg
+		metadata["errorMsg"] = opts.ErrorMsg
 	}
 	if opts.BytesSize > 0 {
-		metadata["bytes_size"] = opts.BytesSize
+		metadata["bytesSize"] = opts.BytesSize
 	}
 	if opts.Duration > 0 {
-		metadata["duration_ms"] = opts.Duration.Milliseconds()
+		metadata["durationMs"] = opts.Duration.Milliseconds()
 	}
 
 	metadataJSON, _ := json.Marshal(metadata)
@@ -570,35 +569,9 @@ type StatsFilters struct {
 
 // AccessStats represents access statistics
 type AccessStats struct {
-	TotalAccess     int64            `json:"total_access"`
-	UniqueUsers     int64            `json:"unique_users"`
-	ActionBreakdown map[string]int64 `json:"action_breakdown"`
-}
-
-// Helper function to format bytes
-func formatBytes(bytes int64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
-
-// Helper function to hash password
-func hashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(bytes), err
-}
-
-// Helper function to check password
-func checkPassword(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
+	TotalAccess     int64            `json:"totalAccess"`
+	UniqueUsers     int64            `json:"uniqueUsers"`
+	ActionBreakdown map[string]int64 `json:"actionBreakdown"`
 }
 
 // Helper function to parse IP address

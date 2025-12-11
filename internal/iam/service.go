@@ -177,10 +177,10 @@ func (s *Service) GetUsersWithRoles(ctx context.Context) ([]map[string]interface
 	var users []struct {
 		ID        string     `json:"id"`
 		Email     string     `json:"email"`
-		FirstName string     `json:"first_name"`
-		LastName  string     `json:"last_name"`
-		LastLogin *time.Time `json:"last_login"`
-		CreatedAt time.Time  `json:"created_at"`
+		FirstName string     `json:"firstName"`
+		LastName  string     `json:"lastName"`
+		LastLogin *time.Time `json:"lastLogin"`
+		CreatedAt time.Time  `json:"createdAt"`
 	}
 
 	if err := s.db.Table("auth_users").Select("id, email, first_name, last_name, last_login, created_at").Find(&users).Error; err != nil {

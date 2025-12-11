@@ -9,7 +9,7 @@
 
 	const dispatch = createEventDispatcher();
 
-	$: fileType = getFileType(item?.object_name || '');
+	$: fileType = getFileType(item?.objectName || '');
 	$: isPreviewable = ['image', 'video', 'audio', 'pdf', 'text'].includes(fileType);
 
 	function getFileType(fileName: string): string {
@@ -47,7 +47,7 @@
 	<div class="modal-overlay" on:click={handleClose}>
 		<div class="modal" on:click|stopPropagation>
 			<div class="modal-header">
-				<h3>{item.object_name}</h3>
+				<h3>{item.objectName}</h3>
 				<div class="header-actions">
 					<button class="icon-button" title="Open in new tab" on:click={handleOpenExternal}>
 						<ExternalLink size={20} />
@@ -65,7 +65,7 @@
 				{#if isPreviewable && previewUrl}
 					{#if fileType === 'image'}
 						<div class="preview-container">
-							<img src={previewUrl} alt={item.object_name} />
+							<img src={previewUrl} alt={item.objectName} />
 						</div>
 					{:else if fileType === 'video'}
 						<div class="preview-container">
@@ -83,11 +83,11 @@
 						</div>
 					{:else if fileType === 'pdf'}
 						<div class="preview-container pdf">
-							<iframe src={previewUrl} title={item.object_name}></iframe>
+							<iframe src={previewUrl} title={item.objectName}></iframe>
 						</div>
 					{:else if fileType === 'text'}
 						<div class="preview-container text">
-							<iframe src={previewUrl} title={item.object_name}></iframe>
+							<iframe src={previewUrl} title={item.objectName}></iframe>
 						</div>
 					{/if}
 				{:else}
@@ -104,7 +104,7 @@
 			<div class="modal-footer">
 				<div class="file-info">
 					<span>Size: {formatFileSize(item.size)}</span>
-					<span>Modified: {formatDateShort(item.last_modified)}</span>
+					<span>Modified: {formatDateShort(item.lastModified)}</span>
 				</div>
 			</div>
 		</div>

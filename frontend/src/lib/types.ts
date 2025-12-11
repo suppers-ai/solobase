@@ -24,9 +24,9 @@ export interface NavigationSubItem {
 
 export interface Activity {
 	id: string;
-	type: 'user_signup' | 'user_login' | 'collection_created' | 'file_uploaded' | 'settings_updated';
+	type: 'userSignup' | 'userLogin' | 'collectionCreated' | 'fileUploaded' | 'settingsUpdated';
 	description: string;
-	user_id?: string;
-	user_email?: string;
-	created_at: Date;
+	userId?: string;
+	userEmail?: string;
+	createdAt: Date;
 }

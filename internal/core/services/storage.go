@@ -711,7 +711,7 @@ func (s *StorageService) GetStorageStats(userID string) (map[string]interface{},
 		Count(&fileCount).Error; err != nil {
 		return nil, err
 	}
-	stats["file_count"] = fileCount
+	stats["fileCount"] = fileCount
 
 	// Get total folder count for user
 	var folderCount int64
@@ -720,14 +720,14 @@ func (s *StorageService) GetStorageStats(userID string) (map[string]interface{},
 		Count(&folderCount).Error; err != nil {
 		return nil, err
 	}
-	stats["folder_count"] = folderCount
+	stats["folderCount"] = folderCount
 
 	// Get total storage used
 	totalSize, err := s.GetUserStorageUsed(userID)
 	if err != nil {
 		return nil, err
 	}
-	stats["total_size"] = totalSize
+	stats["totalSize"] = totalSize
 
 	// Get shared files count (if public column exists)
 	var sharedCount int64
@@ -737,7 +737,7 @@ func (s *StorageService) GetStorageStats(userID string) (map[string]interface{},
 		// Ignore error if public column doesn't exist
 		sharedCount = 0
 	}
-	stats["shared_count"] = sharedCount
+	stats["sharedCount"] = sharedCount
 
 	// Get recent uploads (last 7 days)
 	var recentCount int64
@@ -747,7 +747,7 @@ func (s *StorageService) GetStorageStats(userID string) (map[string]interface{},
 		Count(&recentCount).Error; err != nil {
 		recentCount = 0
 	}
-	stats["recent_uploads"] = recentCount
+	stats["recentUploads"] = recentCount
 
 	return stats, nil
 }
@@ -761,7 +761,7 @@ func (s *StorageService) GetAllUsersStorageStats() (map[string]interface{}, erro
 	if err != nil {
 		return nil, err
 	}
-	stats["total_storage_used"] = totalSize
+	stats["totalStorageUsed"] = totalSize
 
 	// Get total file count
 	var totalFiles int64
@@ -770,7 +770,7 @@ func (s *StorageService) GetAllUsersStorageStats() (map[string]interface{}, erro
 		Count(&totalFiles).Error; err != nil {
 		return nil, err
 	}
-	stats["total_files"] = totalFiles
+	stats["totalFiles"] = totalFiles
 
 	// Get total folder count
 	var totalFolders int64
@@ -779,7 +779,7 @@ func (s *StorageService) GetAllUsersStorageStats() (map[string]interface{}, erro
 		Count(&totalFolders).Error; err != nil {
 		return nil, err
 	}
-	stats["total_folders"] = totalFolders
+	stats["totalFolders"] = totalFolders
 
 	// Get number of users with files
 	var activeUsers int64
@@ -788,7 +788,7 @@ func (s *StorageService) GetAllUsersStorageStats() (map[string]interface{}, erro
 		Scan(&activeUsers).Error; err != nil {
 		return nil, err
 	}
-	stats["active_users"] = activeUsers
+	stats["activeUsers"] = activeUsers
 
 	return stats, nil
 }

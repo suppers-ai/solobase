@@ -18,18 +18,18 @@ type Config struct {
 	Database string `json:"database" yaml:"database"`
 	Username string `json:"username" yaml:"username"`
 	Password string `json:"password" yaml:"password"`
-	SSLMode  string `json:"ssl_mode" yaml:"ssl_mode"`
+	SSLMode  string `json:"sslMode" yaml:"sslMode"`
 
 	// Connection pool settings
-	MaxOpenConns    int           `json:"max_open_conns" yaml:"max_open_conns"`
-	MaxIdleConns    int           `json:"max_idle_conns" yaml:"max_idle_conns"`
-	ConnMaxLifetime time.Duration `json:"conn_max_lifetime" yaml:"conn_max_lifetime"`
+	MaxOpenConns    int           `json:"maxOpenConns" yaml:"maxOpenConns"`
+	MaxIdleConns    int           `json:"maxIdleConns" yaml:"maxIdleConns"`
+	ConnMaxLifetime time.Duration `json:"connMaxLifetime" yaml:"connMaxLifetime"`
 
 	// Debug mode enables query logging
 	Debug bool `json:"debug" yaml:"debug"`
 
 	// AutoMigrate runs migrations automatically
-	AutoMigrate bool `json:"auto_migrate" yaml:"auto_migrate"`
+	AutoMigrate bool `json:"autoMigrate" yaml:"autoMigrate"`
 
 	// MigrateModels is a list of models to auto-migrate
 	MigrateModels []interface{} `json:"-" yaml:"-"`

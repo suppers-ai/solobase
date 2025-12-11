@@ -16,29 +16,28 @@ export interface StorageObjectMetadata {
 
 // Helper functions
 export function isFolder(obj: StorageObject): boolean {
-	return obj.content_type === 'application/x-directory';
+	return obj.contentType === 'application/x-directory';
 }
 
 export function isFile(obj: StorageObject): boolean {
-	return obj.content_type !== 'application/x-directory';
+	return obj.contentType !== 'application/x-directory';
 }
 
 export function parseMetadata(obj: StorageObject): StorageObjectMetadata | null {
 	if (!obj.metadata) return null;
 	try {
 		return typeof obj.metadata === 'string' ? JSON.parse(obj.metadata) : obj.metadata;
-	} catch (e) {
-		console.warn('Failed to parse metadata:', e);
+	} catch {
 		return null;
 	}
 }
 
 export function getDisplayName(obj: StorageObject): string {
-	return obj.object_name || 'Unnamed';
+	return obj.objectName || 'Unnamed';
 }
 
 export function getFileExtension(obj: StorageObject): string {
 	if (isFolder(obj)) return '';
-	const parts = obj.object_name.split('.');
+	const parts = obj.objectName.split('.');
 	return parts.length > 1 ? parts[parts.length - 1] : '';
 }
