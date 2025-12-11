@@ -652,7 +652,7 @@
 											<span>{formatBytes(log.metadata.bytes_size)}</span>
 											<span>•</span>
 										{/if}
-										<span>{new Date(log.created_at).toLocaleString()}</span>
+										<span>{new Date(log.createdAt).toLocaleString()}</span>
 									</div>
 								</div>
 							</div>
@@ -1002,7 +1002,7 @@
 										{#if log.metadata?.duration_ms}
 											<span>{log.metadata.duration_ms}ms</span>
 										{/if}
-										<span class="log-time">{new Date(log.created_at).toLocaleString()}</span>
+										<span class="log-time">{new Date(log.createdAt).toLocaleString()}</span>
 									</div>
 								</div>
 							</div>

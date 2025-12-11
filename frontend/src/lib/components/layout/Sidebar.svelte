@@ -7,7 +7,8 @@
 	} from 'lucide-svelte';
 	import { onMount, onDestroy } from 'svelte';
 	
-	export let currentUser: { email?: string; role?: string } | null = null;
+	export let currentUser: { email?: string } | null = null;
+	export let userRoles: string[] = [];
 	export let collapsed: boolean = false;
 	export let navigation: any[] = [];
 	export let currentPath: string = '/';
@@ -174,7 +175,7 @@
 						</div>
 						<div class="profile-menu-info">
 							<div class="profile-menu-email">{currentUser.email}</div>
-							<div class="profile-menu-role">{currentUser.role || 'User'}</div>
+							<div class="profile-menu-role">{userRoles.includes('admin') ? 'Admin' : 'User'}</div>
 						</div>
 					</div>
 					<div class="profile-menu-divider"></div>
@@ -193,7 +194,7 @@
 					{/if}
 					
 					<!-- Admin Panel Link - only for admin users -->
-					{#if currentUser.role === 'admin'}
+					{#if userRoles.includes('admin')}
 						<div class="profile-menu-divider"></div>
 						<a href={adminUrl} class="profile-menu-item" on:click={() => showProfileMenu = false}>
 							<SettingsIcon size={16} />

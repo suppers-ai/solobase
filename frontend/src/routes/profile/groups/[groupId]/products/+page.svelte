@@ -7,7 +7,7 @@
 		ShoppingCart, Box, Calculator, Variable
 	} from 'lucide-svelte';
 	import { api, ErrorHandler } from '$lib/api';
-	import { authStore } from '$lib/stores/auth';
+	import { authStore, userRoles } from '$lib/stores/auth';
 	import { goto } from '$app/navigation';
 
 	interface Product {
@@ -44,7 +44,7 @@
 	let selectedProduct: Product | null = null;
 	
 	// Check if user is admin
-	$: isAdmin = $authStore.user?.role === 'admin';
+	$: isAdmin = $userRoles?.includes('admin') ?? false;
 	
 	// Form data for new product
 	let newProduct: Partial<Product> = {

@@ -756,7 +756,7 @@
 									</div>
 									<div class="activity-details">
 										<span class="activity-action">{activity.action}</span>
-										<span class="activity-time">{new Date(activity.created_at).toLocaleString()}</span>
+										<span class="activity-time">{new Date(activity.createdAt).toLocaleString()}</span>
 									</div>
 								</div>
 							{/each}

@@ -261,11 +261,12 @@
 				console.log('Users loaded:', users.length, 'of', totalUsers, 'total');
 				
 				// Keep original dates for chart generation
+				// API returns camelCase: createdAt, lastLogin
 				users = users.map(user => ({
 					...user,
-					original_created_at: user.created_at, // Keep original for charts
-					created_at: formatDateTime(user.created_at),
-					last_login: user.last_login ? formatDateTime(user.last_login) : 'Never',
+					original_created_at: user.createdAt, // Keep original for charts
+					created_at: formatDateTime(user.createdAt),
+					last_login: user.lastLogin ? formatDateTime(user.lastLogin) : 'Never',
 				}));
 				
 				// Generate chart data after users are loaded

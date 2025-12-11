@@ -15,7 +15,7 @@
 </script>
 
 <tr>
-	<td>{user.first_name} {user.last_name}</td>
+	<td>{user.firstName || ''} {user.lastName || ''}</td>
 	<td>{user.email}</td>
 	<td>
 		<div class="user-roles">

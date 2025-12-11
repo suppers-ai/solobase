@@ -3,7 +3,8 @@
 	import { onMount } from 'svelte';
 	import Sidebar from './Sidebar.svelte';
 
-	export let currentUser: { email?: string; role?: string } | null = null;
+	export let currentUser: { email?: string } | null = null;
+	export let userRoles: string[] = [];
 	export let navigation: any[] = [];
 	export let currentPath: string = '/';
 	export let logoSrc: string = '/logo_long.png';
@@ -56,8 +57,9 @@
 			<div class="sidebar-overlay" role="button" tabindex="-1" on:click={toggleMobileMenu} on:keydown={(e) => e.key === 'Escape' && toggleMobileMenu()}></div>
 		{/if}
 		<div class="sidebar-wrapper">
-			<Sidebar 
+			<Sidebar
 				{currentUser}
+				{userRoles}
 				{navigation}
 				{currentPath}
 				{logoSrc}

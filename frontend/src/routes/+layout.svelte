@@ -234,6 +234,7 @@
 			<!-- Main admin layout - only for admin pages -->
 			<AppLayout
 				currentUser={user}
+				userRoles={roles}
 				{navigation}
 				currentPath={$page.url.pathname}
 				logoSrc="/logo_long.png"
