@@ -11,18 +11,18 @@ type StorageUploadToken struct {
 	ID             string     `gorm:"primaryKey;type:uuid" json:"id"`
 	Token          string     `gorm:"uniqueIndex;not null" json:"token"`
 	Bucket         string     `gorm:"not null" json:"bucket"`
-	ParentFolderID *string    `json:"parent_folder_id,omitempty"`  // Parent folder ID (null for root)
-	ObjectName     string     `gorm:"not null" json:"object_name"` // The file name
-	UserID         string     `gorm:"type:uuid" json:"user_id"`
-	MaxSize        int64      `json:"max_size"`     // Maximum allowed file size
-	ContentType    string     `json:"content_type"` // Expected content type
-	BytesUploaded  int64      `gorm:"default:0" json:"bytes_uploaded"`
+	ParentFolderID *string    `json:"parentFolderId,omitempty"`  // Parent folder ID (null for root)
+	ObjectName     string     `gorm:"not null" json:"objectName"` // The file name
+	UserID         string     `gorm:"type:uuid" json:"userId"`
+	MaxSize        int64      `json:"maxSize"`     // Maximum allowed file size
+	ContentType    string     `json:"contentType"` // Expected content type
+	BytesUploaded  int64      `gorm:"default:0" json:"bytesUploaded"`
 	Completed      bool       `gorm:"default:false" json:"completed"`
-	ObjectID       string     `json:"object_id,omitempty"` // ID of created storage object
-	ExpiresAt      time.Time  `gorm:"not null" json:"expires_at"`
-	CreatedAt      time.Time  `json:"created_at"`
-	CompletedAt    *time.Time `json:"completed_at,omitempty"`
-	ClientIP       string     `json:"client_ip,omitempty"`
+	ObjectID       string     `json:"objectId,omitempty"` // ID of created storage object
+	ExpiresAt      time.Time  `gorm:"not null" json:"expiresAt"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	CompletedAt    *time.Time `json:"completedAt,omitempty"`
+	ClientIP       string     `json:"clientIp,omitempty"`
 }
 
 // TableName sets the table name

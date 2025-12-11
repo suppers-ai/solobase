@@ -12,6 +12,7 @@
 	import { formatBytes } from '$lib/utils/formatters';
 
 	let user: any = null;
+	let roles: string[] = [];
 	let loading = true;
 	let saving = false;
 	let error = '';
@@ -65,25 +66,26 @@
 			goto('/auth/login');
 			return;
 		}
-		
+
 		try {
-			// Fetch current user details
+			// Fetch current user details - returns { user, roles, permissions }
 			const response = await api.get('/auth/me');
-			user = response;
-			
-			// Populate form with current user data
+			user = response.user;
+			roles = response.roles || [];
+
+			// Populate form with current user data (using camelCase from API)
 			profileForm = {
-				firstName: user.first_name || '',
-				lastName: user.last_name || '',
-				displayName: user.display_name || user.email.split('@')[0],
-				email: user.email,
+				firstName: user.firstName || '',
+				lastName: user.lastName || '',
+				displayName: user.displayName || user.email?.split('@')[0] || '',
+				email: user.email || '',
 				phone: user.phone || '',
 				location: user.location || ''
 			};
-			
+
 			// Check if cloud storage extension is enabled and should show in profile
 			await checkStorageSettings();
-			
+
 			loading = false;
 		} catch (err: any) {
 			error = err.message || 'Failed to load user profile';
@@ -95,40 +97,34 @@
 		saving = true;
 		error = '';
 		successMessage = '';
-		
+
 		try {
-			await api.patch(`/users/${user.id}`, {
+			// Use /auth/me endpoint for updating own profile (snake_case for DB fields)
+			await api.patch('/auth/me', {
 				first_name: profileForm.firstName,
 				last_name: profileForm.lastName,
 				display_name: profileForm.displayName,
 				phone: profileForm.phone,
 				location: profileForm.location
 			});
-			
+
 			successMessage = 'Profile updated successfully';
-			
-			// Update auth store
-			authStore.updateUser({
-				...user,
-				first_name: profileForm.firstName,
-				last_name: profileForm.lastName,
-				display_name: profileForm.displayName,
-				phone: profileForm.phone,
-				location: profileForm.location
-			});
-			
-			// Update local user object
+
+			// Update local user object (camelCase to match API response)
 			user = {
 				...user,
-				first_name: profileForm.firstName,
-				last_name: profileForm.lastName,
-				display_name: profileForm.displayName,
+				firstName: profileForm.firstName,
+				lastName: profileForm.lastName,
+				displayName: profileForm.displayName,
 				phone: profileForm.phone,
 				location: profileForm.location
 			};
-			
+
+			// Update auth store
+			authStore.updateUser(user);
+
 			showAccountSettings = false;
-			
+
 			setTimeout(() => {
 				successMessage = '';
 			}, 3000);
@@ -190,15 +186,17 @@
 		}
 	}
 	
-	function getInitials(email: string): string {
+	function getInitials(email: string | undefined | null): string {
+		if (!email) return '??';
 		return email.substring(0, 2).toUpperCase();
 	}
 	
-	function getAvatarColor(email: string): string {
+	function getAvatarColor(email: string | undefined | null): string {
 		const colors = [
 			'#3b82f6', '#ef4444', '#10b981', '#f59e0b',
 			'#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'
 		];
+		if (!email) return colors[0];
 		let hash = 0;
 		for (let i = 0; i < email.length; i++) {
 			hash = email.charCodeAt(i) + ((hash << 5) - hash);
@@ -265,9 +263,10 @@
 	async function loadAPIKeys() {
 		apiKeysLoading = true;
 		keyError = '';
+		apiKeys = []; // Initialize to empty array first
 		try {
 			const response = await api.get('/auth/api-keys');
-			apiKeys = response || [];
+			apiKeys = Array.isArray(response) ? response : [];
 		} catch (err: any) {
 			keyError = err.message || 'Failed to load API keys';
 			apiKeys = [];
@@ -443,7 +442,7 @@
 					{/if}
 					
 					<!-- Admin Dashboard (only for admins) -->
-					{#if user.role === 'admin'}
+					{#if roles.includes('admin')}
 						<a href="/admin" class="action-card">
 							<Shield size={24} />
 							<span>Admin Dashboard</span>
@@ -767,7 +766,7 @@
 			</div>
 			
 			<div class="modal-footer">
-				{#if user && user.role === 'admin'}
+				{#if user && roles.includes('admin')}
 					<a href="/admin/extensions/cloudstorage" class="btn btn-secondary">
 						Extension Settings
 					</a>
@@ -838,7 +837,7 @@
 							<div class="spinner-small"></div>
 							<span>Loading API keys...</span>
 						</div>
-					{:else if apiKeys.length === 0}
+					{:else if !apiKeys || apiKeys.length === 0}
 						<div class="empty-state">
 							<Key size={32} />
 							<p>No API keys yet</p>

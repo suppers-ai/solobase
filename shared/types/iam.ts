@@ -10,10 +10,10 @@ export interface IAMPolicy {
 
 export interface IAMAuditLog {
 	id: string;
-	user_id: string;
+	userId: string;
 	action: string;
 	resource: string;
 	result: 'allowed' | 'denied';
 	metadata?: Record<string, any>;
-	created_at: string;
+	createdAt: string;
 }

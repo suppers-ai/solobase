@@ -11,6 +11,11 @@ import type {
 export type { AuthUser, AuthToken, StorageStorageObject, StorageStorageBucket, IAMRole };
 
 /**
+ * User type - alias for AuthUser (for SDK and backwards compatibility)
+ */
+export type User = AuthUser;
+
+/**
  * UserResponse - API response structure for user data
  * Separates database fields (user) from runtime fields (roles, permissions)
  * Matches Go's auth.UserResponse struct

@@ -15,26 +15,26 @@ export interface ApiError {
 	details?: any;
 	field?: string;
 	timestamp?: string;
-	request_id?: string;
+	requestId?: string;
 }
 
 export interface ResponseMetadata {
 	page?: number;
-	per_page?: number;
+	perPage?: number;
 	total?: number;
-	total_pages?: number;
-	has_next?: boolean;
-	has_prev?: boolean;
+	totalPages?: number;
+	hasNext?: boolean;
+	hasPrev?: boolean;
 }
 
 export interface PaginatedResponse<T> {
 	data: T[];
 	page: number;
-	per_page: number;
+	perPage: number;
 	total: number;
-	total_pages?: number;
-	has_next?: boolean;
-	has_prev?: boolean;
+	totalPages?: number;
+	hasNext?: boolean;
+	hasPrev?: boolean;
 }
 
 export interface UploadProgress {

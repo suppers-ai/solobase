@@ -317,10 +317,13 @@ class ApiClient {
 	}
 
 	// Generic HTTP methods for direct API calls
+	// These throw on error for use with try/catch
 	async get(path: string): Promise<any> {
 		const response = await this.request<any>(path);
-		// Return data directly if it exists, otherwise return the whole response
-		return response.data !== undefined ? response.data : response;
+		if (response.error) {
+			throw new Error(response.error);
+		}
+		return response.data;
 	}
 
 	async post(path: string, body?: any): Promise<any> {
@@ -328,7 +331,10 @@ class ApiClient {
 			method: 'POST',
 			body: body ? JSON.stringify(body) : undefined
 		});
-		return response.data !== undefined ? response.data : response;
+		if (response.error) {
+			throw new Error(response.error);
+		}
+		return response.data;
 	}
 
 	async put(path: string, body?: any): Promise<any> {
@@ -336,7 +342,10 @@ class ApiClient {
 			method: 'PUT',
 			body: body ? JSON.stringify(body) : undefined
 		});
-		return response.data !== undefined ? response.data : response;
+		if (response.error) {
+			throw new Error(response.error);
+		}
+		return response.data;
 	}
 
 	async patch(path: string, body?: any): Promise<any> {
@@ -344,14 +353,20 @@ class ApiClient {
 			method: 'PATCH',
 			body: body ? JSON.stringify(body) : undefined
 		});
-		return response.data !== undefined ? response.data : response;
+		if (response.error) {
+			throw new Error(response.error);
+		}
+		return response.data;
 	}
 
 	async delete(path: string): Promise<any> {
 		const response = await this.request<any>(path, {
 			method: 'DELETE'
 		});
-		return response.data !== undefined ? response.data : response;
+		if (response.error) {
+			throw new Error(response.error);
+		}
+		return response.data;
 	}
 }
 

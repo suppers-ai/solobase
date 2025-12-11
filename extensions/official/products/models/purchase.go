@@ -6,11 +6,11 @@ import (
 
 // LineItem represents a single item in a purchase
 type LineItem struct {
-	ProductID   uint                   `json:"product_id"`
-	ProductName string                 `json:"product_name"`
+	ProductID   uint                   `json:"productId"`
+	ProductName string                 `json:"productName"`
 	Quantity    int                    `json:"quantity"`
-	UnitPrice   int64                  `json:"unit_price"`  // In cents
-	TotalPrice  int64                  `json:"total_price"` // In cents
+	UnitPrice   int64                  `json:"unitPrice"`  // In cents
+	TotalPrice  int64                  `json:"totalPrice"` // In cents
 	Variables   map[string]interface{} `json:"variables"`   // Variable values used for pricing
 	Description string                 `json:"description"` // Item description for display
 	Metadata    map[string]interface{} `json:"metadata"`    // Additional item metadata
@@ -21,44 +21,44 @@ type TaxItem struct {
 	Jurisdiction string  `json:"jurisdiction"` // e.g., "NZ", "CA", "US-NY"
 	Percentage   float64 `json:"percentage"`   // Tax rate as percentage
 	Amount       int64   `json:"amount"`       // Tax amount in cents
-	TaxCode      string  `json:"tax_code"`     // Tax classification code
+	TaxCode      string  `json:"taxCode"`     // Tax classification code
 	Description  string  `json:"description"`  // Human-readable description
 }
 
 // Purchase represents a customer purchase
 type Purchase struct {
 	ID                      uint       `gorm:"primaryKey" json:"id"`
-	UserID                  string     `gorm:"index;size:36;not null" json:"user_id"`
+	UserID                  string     `gorm:"index;size:36;not null" json:"userId"`
 	Provider                string     `gorm:"default:'stripe'" json:"provider"`                       // Payment provider (stripe, paypal, etc.)
-	ProviderSessionID       string     `gorm:"index" json:"provider_session_id"`                       // Stripe Checkout Session ID (cs_xxx)
-	ProviderPaymentIntentID string     `gorm:"index" json:"provider_payment_intent_id"`                // Stripe PaymentIntent ID (pi_xxx)
-	ProviderSubscriptionID  string     `gorm:"index" json:"provider_subscription_id"`                  // For recurring purchases (sub_xxx)
-	LineItems               []LineItem `gorm:"type:jsonb;serializer:json" json:"line_items"`           // Product breakdown
-	ProductMetadata         JSONB      `gorm:"type:jsonb" json:"product_metadata"`                     // Business context (dates, notes, etc.)
-	TaxItems                []TaxItem  `gorm:"type:jsonb;serializer:json" json:"tax_items"`            // Tax breakdowns
-	AmountCents             int64      `json:"amount_cents"`                                           // Subtotal in cents (before tax)
-	TaxCents                int64      `json:"tax_cents"`                                              // Total tax in cents
-	TotalCents              int64      `json:"total_cents"`                                            // Total amount in cents (including tax)
+	ProviderSessionID       string     `gorm:"index" json:"providerSessionId"`                       // Stripe Checkout Session ID (cs_xxx)
+	ProviderPaymentIntentID string     `gorm:"index" json:"providerPaymentIntentId"`                // Stripe PaymentIntent ID (pi_xxx)
+	ProviderSubscriptionID  string     `gorm:"index" json:"providerSubscriptionId"`                  // For recurring purchases (sub_xxx)
+	LineItems               []LineItem `gorm:"type:jsonb;serializer:json" json:"lineItems"`           // Product breakdown
+	ProductMetadata         JSONB      `gorm:"type:jsonb" json:"productMetadata"`                     // Business context (dates, notes, etc.)
+	TaxItems                []TaxItem  `gorm:"type:jsonb;serializer:json" json:"taxItems"`            // Tax breakdowns
+	AmountCents             int64      `json:"amountCents"`                                           // Subtotal in cents (before tax)
+	TaxCents                int64      `json:"taxCents"`                                              // Total tax in cents
+	TotalCents              int64      `json:"totalCents"`                                            // Total amount in cents (including tax)
 	Currency                string     `gorm:"default:'USD'" json:"currency"`                          // Currency code
 	Status                  string     `gorm:"default:'pending';index" json:"status"`                  // pending, paid, refunded, cancelled, requires_approval, paid_pending_approval
-	RequiresApproval        bool       `gorm:"default:false" json:"requires_approval"`                 // Whether approval is needed
-	ApprovedAt              *time.Time `json:"approved_at,omitempty"`                                  // When purchase was approved
-	ApprovedBy              *string    `json:"approved_by,omitempty"`                                  // User who approved
-	RefundedAt              *time.Time `json:"refunded_at,omitempty"`                                  // When refund was processed
-	RefundReason            string     `json:"refund_reason,omitempty"`                                // Reason for refund
-	RefundAmount            int64      `json:"refund_amount,omitempty"`                                // Amount refunded in cents
-	CancelledAt             *time.Time `json:"cancelled_at,omitempty"`                                 // When purchase was cancelled
-	CancelReason            string     `json:"cancel_reason,omitempty"`                                // Reason for cancellation
-	SuccessURL              string     `json:"success_url,omitempty"`                                  // Redirect URL after successful payment
-	CancelURL               string     `json:"cancel_url,omitempty"`                                   // Redirect URL if payment is cancelled
-	CustomerEmail           string     `json:"customer_email,omitempty"`                               // Customer email for receipt
-	CustomerName            string     `json:"customer_name,omitempty"`                                // Customer name
-	BillingAddress          JSONB      `gorm:"type:jsonb" json:"billing_address,omitempty"`            // Billing address details
-	ShippingAddress         JSONB      `gorm:"type:jsonb" json:"shipping_address,omitempty"`           // Shipping address if applicable
-	PaymentMethodTypes      []string   `gorm:"type:jsonb;serializer:json" json:"payment_method_types"` // Allowed payment methods
-	ExpiresAt               *time.Time `json:"expires_at,omitempty"`                                   // When checkout session expires
-	CreatedAt               time.Time  `json:"created_at"`
-	UpdatedAt               time.Time  `json:"updated_at"`
+	RequiresApproval        bool       `gorm:"default:false" json:"requiresApproval"`                 // Whether approval is needed
+	ApprovedAt              *time.Time `json:"approvedAt,omitempty"`                                  // When purchase was approved
+	ApprovedBy              *string    `json:"approvedBy,omitempty"`                                  // User who approved
+	RefundedAt              *time.Time `json:"refundedAt,omitempty"`                                  // When refund was processed
+	RefundReason            string     `json:"refundReason,omitempty"`                                // Reason for refund
+	RefundAmount            int64      `json:"refundAmount,omitempty"`                                // Amount refunded in cents
+	CancelledAt             *time.Time `json:"cancelledAt,omitempty"`                                 // When purchase was cancelled
+	CancelReason            string     `json:"cancelReason,omitempty"`                                // Reason for cancellation
+	SuccessURL              string     `json:"successUrl,omitempty"`                                  // Redirect URL after successful payment
+	CancelURL               string     `json:"cancelUrl,omitempty"`                                   // Redirect URL if payment is cancelled
+	CustomerEmail           string     `json:"customerEmail,omitempty"`                               // Customer email for receipt
+	CustomerName            string     `json:"customerName,omitempty"`                                // Customer name
+	BillingAddress          JSONB      `gorm:"type:jsonb" json:"billingAddress,omitempty"`            // Billing address details
+	ShippingAddress         JSONB      `gorm:"type:jsonb" json:"shippingAddress,omitempty"`           // Shipping address if applicable
+	PaymentMethodTypes      []string   `gorm:"type:jsonb;serializer:json" json:"paymentMethodTypes"` // Allowed payment methods
+	ExpiresAt               *time.Time `json:"expiresAt,omitempty"`                                   // When checkout session expires
+	CreatedAt               time.Time  `json:"createdAt"`
+	UpdatedAt               time.Time  `json:"updatedAt"`
 }
 
 // TableName specifies the table name with extension prefix

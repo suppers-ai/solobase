@@ -7,7 +7,7 @@ import (
 // HugoSite represents a Hugo static site
 type HugoSite struct {
 	ID          string     `json:"id" gorm:"primaryKey"`
-	UserID      string     `json:"user_id" gorm:"index;not null"`
+	UserID      string     `json:"userId" gorm:"index;not null"`
 	Name        string     `json:"name" gorm:"not null"`
 	Domain      string     `json:"domain"`
 	Theme       string     `json:"theme" gorm:"default:'default'"`
@@ -18,8 +18,8 @@ type HugoSite struct {
 	Pages       int        `json:"pages"`
 	Visits      int        `json:"visits"`
 	IsExample   bool       `json:"isExample" gorm:"default:false"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
 // HugoStats represents aggregated statistics
@@ -41,11 +41,11 @@ type HugoFileNode struct {
 
 // HugoConfig represents Hugo configuration
 type HugoConfig struct {
-	HugoBinaryPath   string   `json:"hugo_binary_path"`
-	MaxSitesPerUser  int      `json:"max_sites_per_user"`
-	MaxSiteSize      int64    `json:"max_site_size"`
-	BuildTimeout     string   `json:"build_timeout"`
-	AllowedThemes    []string `json:"allowed_themes"`
-	DefaultTheme     string   `json:"default_theme"`
-	StorageBucket    string   `json:"storage_bucket"`
+	HugoBinaryPath   string   `json:"hugoBinaryPath"`
+	MaxSitesPerUser  int      `json:"maxSitesPerUser"`
+	MaxSiteSize      int64    `json:"maxSiteSize"`
+	BuildTimeout     string   `json:"buildTimeout"`
+	AllowedThemes    []string `json:"allowedThemes"`
+	DefaultTheme     string   `json:"defaultTheme"`
+	StorageBucket    string   `json:"storageBucket"`
 }

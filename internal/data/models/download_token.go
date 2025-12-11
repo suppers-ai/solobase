@@ -10,18 +10,18 @@ import (
 type StorageDownloadToken struct {
 	ID             string     `gorm:"primaryKey;type:uuid" json:"id"`
 	Token          string     `gorm:"uniqueIndex;not null" json:"token"`
-	FileID         string     `gorm:"not null" json:"file_id"`
+	FileID         string     `gorm:"not null" json:"fileId"`
 	Bucket         string     `gorm:"not null" json:"bucket"`
-	ParentFolderID *string    `json:"parent_folder_id,omitempty"`  // Parent folder ID (null for root)
-	ObjectName     string     `gorm:"not null" json:"object_name"` // The file name
-	UserID         string     `gorm:"type:uuid" json:"user_id"`
-	FileSize       int64      `json:"file_size"`
-	BytesServed    int64      `gorm:"default:0" json:"bytes_served"`
+	ParentFolderID *string    `json:"parentFolderId,omitempty"`  // Parent folder ID (null for root)
+	ObjectName     string     `gorm:"not null" json:"objectName"` // The file name
+	UserID         string     `gorm:"type:uuid" json:"userId"`
+	FileSize       int64      `json:"fileSize"`
+	BytesServed    int64      `gorm:"default:0" json:"bytesServed"`
 	Completed      bool       `gorm:"default:false" json:"completed"`
-	ExpiresAt      time.Time  `gorm:"not null" json:"expires_at"`
-	CreatedAt      time.Time  `json:"created_at"`
-	CallbackAt     *time.Time `json:"callback_at,omitempty"`
-	ClientIP       string     `json:"client_ip,omitempty"`
+	ExpiresAt      time.Time  `gorm:"not null" json:"expiresAt"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	CallbackAt     *time.Time `json:"callbackAt,omitempty"`
+	ClientIP       string     `json:"clientIp,omitempty"`
 }
 
 // TableName sets the table name

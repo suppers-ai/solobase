@@ -16,8 +16,8 @@ export interface SignupRequest {
 	email: string;
 	password: string;
 	username?: string;
-	first_name?: string;
-	last_name?: string;
+	firstName?: string;
+	lastName?: string;
 }
 
 export interface LoginCredentials {
@@ -29,18 +29,18 @@ export interface LoginCredentials {
 export interface RegisterCredentials {
 	email: string;
 	password: string;
-	confirm_password?: string;
+	confirmPassword?: string;
 	username?: string;
-	first_name?: string;
-	last_name?: string;
-	terms_accepted?: boolean;
+	firstName?: string;
+	lastName?: string;
+	termsAccepted?: boolean;
 }
 
 export interface OAuthProvider {
 	id: string;
 	name: string;
 	enabled: boolean;
-	client_id?: string;
+	clientId?: string;
 	icon?: string;
 	color?: string;
 }
@@ -51,8 +51,8 @@ export interface PasswordResetRequest {
 
 export interface PasswordReset {
 	token: string;
-	new_password: string;
-	confirm_password: string;
+	newPassword: string;
+	confirmPassword: string;
 }
 
 export interface EmailVerification {
@@ -64,7 +64,7 @@ export interface TwoFactorAuth {
 	enabled: boolean;
 	method: 'totp' | 'sms' | 'email';
 	verified: boolean;
-	backup_codes?: string[];
+	backupCodes?: string[];
 }
 
 export interface Permission {
@@ -73,5 +73,5 @@ export interface Permission {
 	description?: string;
 	resource?: string;
 	action?: string;
-	created_at: string;
+	createdAt: string;
 }

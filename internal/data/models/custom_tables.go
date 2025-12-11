@@ -12,15 +12,15 @@ import (
 type CustomTableDefinition struct {
 	ID          uint                 `gorm:"primaryKey" json:"id"`
 	Name        string               `gorm:"uniqueIndex;not null" json:"name"`        // Actual table name with custom_ prefix
-	DisplayName string               `json:"display_name"`                             // User-friendly name without prefix
+	DisplayName string               `json:"displayName"`                             // User-friendly name without prefix
 	Description string               `json:"description"`
 	Fields      []CustomTableField   `gorm:"type:jsonb;serializer:json" json:"fields"` // Column definitions
 	Indexes     []CustomTableIndex   `gorm:"type:jsonb;serializer:json" json:"indexes"` // Index definitions
 	Options     CustomTableOptions   `gorm:"type:jsonb;serializer:json" json:"options"` // Table options
-	CreatedBy   string               `json:"created_by"`                              // User ID who created the table
+	CreatedBy   string               `json:"createdBy"`                              // User ID who created the table
 	Status      string               `gorm:"default:'active'" json:"status"`          // active, disabled, archived
-	CreatedAt   time.Time            `json:"created_at"`
-	UpdatedAt   time.Time            `json:"updated_at"`
+	CreatedAt   time.Time            `json:"createdAt"`
+	UpdatedAt   time.Time            `json:"updatedAt"`
 }
 
 // TableName specifies the table name
@@ -34,15 +34,15 @@ type CustomTableField struct {
 	Type          string      `json:"type"`           // GORM data type: string, int, float, bool, time, json
 	Size          int         `json:"size,omitempty"` // For varchar(n)
 	Nullable      bool        `json:"nullable"`
-	DefaultValue  interface{} `json:"default_value,omitempty"`
-	IsPrimaryKey  bool        `json:"is_primary_key"`
-	IsUnique      bool        `json:"is_unique"`
-	IsIndexed     bool        `json:"is_indexed"`
-	AutoIncrement bool        `json:"auto_increment"`
+	DefaultValue  interface{} `json:"defaultValue,omitempty"`
+	IsPrimaryKey  bool        `json:"isPrimaryKey"`
+	IsUnique      bool        `json:"isUnique"`
+	IsIndexed     bool        `json:"isIndexed"`
+	AutoIncrement bool        `json:"autoIncrement"`
 	Description   string      `json:"description,omitempty"`
 
 	// Foreign key support
-	ForeignKey    *ForeignKeyDef `json:"foreign_key,omitempty"`
+	ForeignKey    *ForeignKeyDef `json:"foreignKey,omitempty"`
 
 	// Validation rules
 	Validation    FieldValidation `json:"validation,omitempty"`
@@ -50,20 +50,20 @@ type CustomTableField struct {
 
 // ForeignKeyDef defines a foreign key relationship
 type ForeignKeyDef struct {
-	ReferenceTable  string `json:"reference_table"`  // Table to reference (with custom_ prefix)
-	ReferenceColumn string `json:"reference_column"` // Column in reference table
-	OnDelete        string `json:"on_delete"`        // CASCADE, SET NULL, RESTRICT
-	OnUpdate        string `json:"on_update"`        // CASCADE, SET NULL, RESTRICT
+	ReferenceTable  string `json:"referenceTable"`  // Table to reference (with custom_ prefix)
+	ReferenceColumn string `json:"referenceColumn"` // Column in reference table
+	OnDelete        string `json:"onDelete"`        // CASCADE, SET NULL, RESTRICT
+	OnUpdate        string `json:"onUpdate"`        // CASCADE, SET NULL, RESTRICT
 }
 
 // FieldValidation defines validation rules for a field
 type FieldValidation struct {
-	MinLength   *int     `json:"min_length,omitempty"`
-	MaxLength   *int     `json:"max_length,omitempty"`
-	MinValue    *float64 `json:"min_value,omitempty"`
-	MaxValue    *float64 `json:"max_value,omitempty"`
+	MinLength   *int     `json:"minLength,omitempty"`
+	MaxLength   *int     `json:"maxLength,omitempty"`
+	MinValue    *float64 `json:"minValue,omitempty"`
+	MaxValue    *float64 `json:"maxValue,omitempty"`
 	Pattern     string   `json:"pattern,omitempty"`     // Regex pattern
-	EnumValues  []string `json:"enum_values,omitempty"` // Allowed values
+	EnumValues  []string `json:"enumValues,omitempty"` // Allowed values
 	Required    bool     `json:"required"`
 }
 
@@ -77,27 +77,27 @@ type CustomTableIndex struct {
 
 // CustomTableOptions defines additional table options
 type CustomTableOptions struct {
-	SoftDelete     bool `json:"soft_delete"`      // Add deleted_at field
+	SoftDelete     bool `json:"softDelete"`      // Add deleted_at field
 	Timestamps     bool `json:"timestamps"`       // Add created_at, updated_at
 	Versioning     bool `json:"versioning"`       // Add version field for optimistic locking
 	Auditing       bool `json:"auditing"`         // Track changes in audit log
-	CacheEnabled   bool `json:"cache_enabled"`    // Enable query caching
-	MaxRows        int  `json:"max_rows,omitempty"` // Maximum allowed rows
+	CacheEnabled   bool `json:"cacheEnabled"`    // Enable query caching
+	MaxRows        int  `json:"maxRows,omitempty"` // Maximum allowed rows
 }
 
 // CustomTableMigration tracks schema changes to custom tables
 type CustomTableMigration struct {
 	ID            uint                  `gorm:"primaryKey" json:"id"`
-	TableID       uint                  `gorm:"index" json:"table_id"`
+	TableID       uint                  `gorm:"index" json:"tableId"`
 	Version       int                   `json:"version"`
-	MigrationType string                `json:"migration_type"` // create, alter, drop
-	OldSchema     json.RawMessage       `gorm:"type:jsonb" json:"old_schema,omitempty"`
-	NewSchema     json.RawMessage       `gorm:"type:jsonb" json:"new_schema"`
-	ExecutedBy    string                `json:"executed_by"`
-	ExecutedAt    time.Time             `json:"executed_at"`
-	RollbackAt    *time.Time            `json:"rollback_at,omitempty"`
+	MigrationType string                `json:"migrationType"` // create, alter, drop
+	OldSchema     json.RawMessage       `gorm:"type:jsonb" json:"oldSchema,omitempty"`
+	NewSchema     json.RawMessage       `gorm:"type:jsonb" json:"newSchema"`
+	ExecutedBy    string                `json:"executedBy"`
+	ExecutedAt    time.Time             `json:"executedAt"`
+	RollbackAt    *time.Time            `json:"rollbackAt,omitempty"`
 	Status        string                `json:"status"` // pending, completed, failed, rolled_back
-	ErrorMessage  string                `json:"error_message,omitempty"`
+	ErrorMessage  string                `json:"errorMessage,omitempty"`
 }
 
 // TableName specifies the table name

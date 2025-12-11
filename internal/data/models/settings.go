@@ -12,8 +12,8 @@ type Setting struct {
 	Key       string         `gorm:"uniqueIndex;not null" json:"key"`
 	Value     string         `gorm:"type:text" json:"value"`
 	Type      string         `gorm:"default:'string'" json:"type"` // string, bool, int, json
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	CreatedAt time.Time      `json:"createdAt"`
+	UpdatedAt time.Time      `json:"updatedAt"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
@@ -30,28 +30,28 @@ func (s *Setting) BeforeCreate(tx *gorm.DB) error {
 
 // AppSettings represents the structured application settings
 type AppSettings struct {
-	AppName                  string `json:"app_name"`
-	AppURL                   string `json:"app_url"`
-	AllowSignup              bool   `json:"allow_signup"`
-	RequireEmailConfirmation bool   `json:"require_email_confirmation"`
-	SMTPEnabled              bool   `json:"smtp_enabled"`
-	SMTPHost                 string `json:"smtp_host,omitempty"`
-	SMTPPort                 int    `json:"smtp_port,omitempty"`
-	SMTPUser                 string `json:"smtp_user,omitempty"`
+	AppName                  string `json:"appName"`
+	AppURL                   string `json:"appUrl"`
+	AllowSignup              bool   `json:"allowSignup"`
+	RequireEmailConfirmation bool   `json:"requireEmailConfirmation"`
+	SMTPEnabled              bool   `json:"smtpEnabled"`
+	SMTPHost                 string `json:"smtpHost,omitempty"`
+	SMTPPort                 int    `json:"smtpPort,omitempty"`
+	SMTPUser                 string `json:"smtpUser,omitempty"`
 	SMTPPassword             string `json:"-"` // Never expose password in JSON
-	StorageProvider          string `json:"storage_provider"`
-	S3Bucket                 string `json:"s3_bucket,omitempty"`
-	S3Region                 string `json:"s3_region,omitempty"`
+	StorageProvider          string `json:"storageProvider"`
+	S3Bucket                 string `json:"s3Bucket,omitempty"`
+	S3Region                 string `json:"s3Region,omitempty"`
 	S3AccessKey              string `json:"-"` // Never expose in JSON
 	S3SecretKey              string `json:"-"` // Never expose in JSON
-	MaxUploadSize            int64  `json:"max_upload_size"`
-	AllowedFileTypes         string `json:"allowed_file_types"`
-	SessionTimeout           int    `json:"session_timeout"` // in minutes
-	PasswordMinLength        int    `json:"password_min_length"`
-	EnableAPILogs            bool   `json:"enable_api_logs"`
-	EnableDebugMode          bool   `json:"enable_debug_mode"`
-	MaintenanceMode          bool   `json:"maintenance_mode"`
-	MaintenanceMessage       string `json:"maintenance_message,omitempty"`
+	MaxUploadSize            int64  `json:"maxUploadSize"`
+	AllowedFileTypes         string `json:"allowedFileTypes"`
+	SessionTimeout           int    `json:"sessionTimeout"` // in minutes
+	PasswordMinLength        int    `json:"passwordMinLength"`
+	EnableAPILogs            bool   `json:"enableApiLogs"`
+	EnableDebugMode          bool   `json:"enableDebugMode"`
+	MaintenanceMode          bool   `json:"maintenanceMode"`
+	MaintenanceMessage       string `json:"maintenanceMessage,omitempty"`
 	Notification             string `json:"notification,omitempty"`
 }
 

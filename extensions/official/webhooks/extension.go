@@ -31,20 +31,20 @@ type WebhookConfig struct {
 	Headers   map[string]string `json:"headers"`
 	Secret    string            `json:"secret"`
 	Active    bool              `json:"active"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	CreatedAt time.Time         `json:"createdAt"`
+	UpdatedAt time.Time         `json:"updatedAt"`
 }
 
 // WebhookDelivery represents a webhook delivery attempt
 type WebhookDelivery struct {
 	ID          string                 `json:"id"`
-	WebhookID   string                 `json:"webhook_id"`
+	WebhookID   string                 `json:"webhookId"`
 	Event       string                 `json:"event"`
 	Payload     map[string]interface{} `json:"payload"`
 	Status      int                    `json:"status"`
 	Response    string                 `json:"response"`
 	Duration    time.Duration          `json:"duration"`
-	DeliveredAt time.Time              `json:"delivered_at"`
+	DeliveredAt time.Time              `json:"deliveredAt"`
 }
 
 // NewWebhooksExtension creates a new webhooks extension

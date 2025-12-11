@@ -46,9 +46,9 @@ type User struct {
 	Password        string     `gorm:"not null" json:"-"` // Never expose in JSON
 	Username        string     `gorm:"size:255" json:"username,omitempty"`
 	Confirmed       bool       `gorm:"default:false" json:"confirmed"`
-	FirstName       string     `gorm:"size:100" json:"first_name,omitempty"`
-	LastName        string     `gorm:"size:100" json:"last_name,omitempty"`
-	DisplayName     string     `gorm:"size:100" json:"display_name,omitempty"`
+	FirstName       string     `gorm:"size:100" json:"firstName,omitempty"`
+	LastName        string     `gorm:"size:100" json:"lastName,omitempty"`
+	DisplayName     string     `gorm:"size:100" json:"displayName,omitempty"`
 	Phone           string     `gorm:"size:50" json:"phone,omitempty"`
 	Location        string     `gorm:"size:255" json:"location,omitempty"`
 	ConfirmToken    *string    `gorm:"size:255" json:"-"`
@@ -58,11 +58,11 @@ type User struct {
 	RecoverSelector *string    `gorm:"size:255;index" json:"-"`
 	AttemptCount    int        `gorm:"default:0" json:"-"`
 	LastAttempt     *time.Time `json:"-"`
-	LastLogin       *time.Time `json:"last_login,omitempty"`
+	LastLogin       *time.Time `json:"lastLogin,omitempty"`
 	Metadata        string     `gorm:"type:text" json:"metadata,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	DeletedAt       *time.Time `gorm:"index" json:"deleted_at,omitempty"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
+	DeletedAt       *time.Time `gorm:"index" json:"deletedAt,omitempty"`
 
 	// 2FA fields
 	TOTPSecret       *string `gorm:"size:255" json:"-"`
@@ -247,7 +247,7 @@ func (u *User) PutArbitrary(values map[string]string) {
 // Token represents various auth tokens (refresh, reset, confirm, oauth)
 type Token struct {
 	ID        uuid.UUID  `gorm:"type:char(36);primary_key" json:"id"`
-	UserID    uuid.UUID  `gorm:"type:char(36);not null;index" json:"user_id"`
+	UserID    uuid.UUID  `gorm:"type:char(36);not null;index" json:"userId"`
 	TokenHash string     `gorm:"size:64;index" json:"-"`              // SHA-256 hash for secure tokens (refresh)
 	Token     string     `gorm:"size:255;index" json:"-"`             // Plain token for short-lived tokens (reset/confirm)
 	Type      string     `gorm:"not null;size:50;index" json:"type"`  // refresh, reset, confirm, oauth
@@ -262,14 +262,14 @@ type Token struct {
 	OAuthExpiry *time.Time `json:"-"`                                  // OAuth token expiry
 
 	// Lifecycle
-	ExpiresAt time.Time  `gorm:"not null;index" json:"expires_at"`
-	UsedAt    *time.Time `json:"used_at,omitempty"`
-	RevokedAt *time.Time `gorm:"index" json:"revoked_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt time.Time  `gorm:"not null;index" json:"expiresAt"`
+	UsedAt    *time.Time `json:"usedAt,omitempty"`
+	RevokedAt *time.Time `gorm:"index" json:"revokedAt,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
 
 	// Audit fields (for refresh tokens - security tracking)
-	DeviceInfo *string `gorm:"size:255" json:"device_info,omitempty"` // "Chrome on MacOS"
-	IPAddress  *string `gorm:"size:45" json:"ip_address,omitempty"`   // IPv6 max length
+	DeviceInfo *string `gorm:"size:255" json:"deviceInfo,omitempty"` // "Chrome on MacOS"
+	IPAddress  *string `gorm:"size:45" json:"ipAddress,omitempty"`   // IPv6 max length
 
 	// Relationships
 	User User `gorm:"foreignKey:UserID" json:"-"`
@@ -319,17 +319,17 @@ func isHashed(password string) bool {
 // APIKey represents a user's API key for programmatic access
 type APIKey struct {
 	ID          uuid.UUID  `gorm:"type:char(36);primary_key" json:"id"`
-	UserID      uuid.UUID  `gorm:"type:char(36);not null;index" json:"user_id"`
+	UserID      uuid.UUID  `gorm:"type:char(36);not null;index" json:"userId"`
 	Name        string     `gorm:"size:255;not null" json:"name"`                  // User-friendly name like "Production Server"
-	KeyPrefix   string     `gorm:"size:8;not null;index" json:"key_prefix"`        // First 8 chars for identification (e.g., "sb_live_")
+	KeyPrefix   string     `gorm:"size:8;not null;index" json:"keyPrefix"`         // First 8 chars for identification (e.g., "sb_live_")
 	KeyHash     string     `gorm:"size:64;not null;uniqueIndex" json:"-"`          // SHA-256 hash of the full key
 	Scopes      string     `gorm:"type:text" json:"scopes,omitempty"`              // JSON array of scopes (for future use)
-	ExpiresAt   *time.Time `json:"expires_at,omitempty"`                           // Optional expiration
-	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`                         // Track usage
-	LastUsedIP  *string    `gorm:"size:45" json:"last_used_ip,omitempty"`          // Last IP that used this key
-	RevokedAt   *time.Time `gorm:"index" json:"revoked_at,omitempty"`              // Soft revoke
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`                            // Optional expiration
+	LastUsedAt  *time.Time `json:"lastUsedAt,omitempty"`                           // Track usage
+	LastUsedIP  *string    `gorm:"size:45" json:"lastUsedIp,omitempty"`            // Last IP that used this key
+	RevokedAt   *time.Time `gorm:"index" json:"revokedAt,omitempty"`               // Soft revoke
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
 
 	// Relationships
 	User User `gorm:"foreignKey:UserID" json:"-"`
