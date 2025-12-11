@@ -1,9 +1,9 @@
 import { writable, derived } from 'svelte/store';
-import type { User } from '$lib/types';
+import type { AuthUser, UserResponse, LoginResponse } from '$lib/types';
 import { api } from '$lib/api';
 
 interface AuthState {
-	user: User | null;
+	user: AuthUser | null;
 	roles: string[];
 	loading: boolean;
 	error: string | null;
@@ -21,29 +21,31 @@ function createAuthStore() {
 		subscribe,
 		async login(email: string, password: string) {
 			update(state => ({ ...state, loading: true, error: null }));
-			
+
 			console.log('Attempting login for:', email);
 			const response = await api.login({ email, password });
 			console.log('Login response:', response);
-			
+
 			if (response.error) {
 				console.error('Login failed:', response.error);
-				update(state => ({ ...state, loading: false, error: response.error! }));
+				const errorMessage = typeof response.error === 'string'
+					? response.error
+					: response.error.message;
+				update(state => ({ ...state, loading: false, error: errorMessage }));
 				return false;
 			}
 
-			console.log('Login successful, user:', response.data!.user);
-			
-			// Extract roles from JWT token
-			const roles = api.getRolesFromToken();
-			console.log('User roles from token:', roles);
-			
-			// Update both user and roles atomically
-			set({ 
-				user: response.data!.user,
-				roles: roles,
-				loading: false, 
-				error: null 
+			// Login response wraps UserResponse in data: { data: UserResponse, message: string }
+			const loginResponse = response.data as LoginResponse;
+			const userResponse = loginResponse.data;
+			console.log('Login successful, user:', userResponse.user);
+			console.log('User roles:', userResponse.roles);
+
+			set({
+				user: userResponse.user,
+				roles: userResponse.roles || [],
+				loading: false,
+				error: null
 			});
 			return true;
 		},
@@ -55,36 +57,34 @@ function createAuthStore() {
 		},
 		async checkAuth() {
 			update(state => ({ ...state, loading: true }));
-			
+
 			console.log('Checking auth status...');
 			const response = await api.getCurrentUser();
 			console.log('Current user response:', response);
-			
+
 			if (response.error) {
 				console.log('Auth check failed:', response.error);
 				set({ user: null, roles: [], loading: false, error: null });
 				return false;
 			}
 
-			console.log('Auth check successful, user:', response.data);
-			
-			// Extract roles from JWT token
-			const roles = api.getRolesFromToken();
-			console.log('User roles from token:', roles);
-			
-			// Update both user and roles atomically
-			set({ 
-				user: response.data!,
-				roles: roles,
-				loading: false, 
-				error: null 
+			// /api/auth/me returns UserResponse directly (not wrapped in data)
+			const userResponse = response.data as UserResponse;
+			console.log('Auth check successful, user:', userResponse.user);
+			console.log('User roles:', userResponse.roles);
+
+			set({
+				user: userResponse.user,
+				roles: userResponse.roles || [],
+				loading: false,
+				error: null
 			});
 			return true;
 		},
-		setUser(user: User | null) {
+		setUser(user: AuthUser | null) {
 			update(state => ({ ...state, user }));
 		},
-		updateUser(user: User) {
+		updateUser(user: AuthUser) {
 			update(state => ({ ...state, user }));
 		}
 	};

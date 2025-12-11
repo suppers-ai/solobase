@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { api, ErrorHandler, authFetch } from '$lib/api';
 	import RolesManager from '$lib/components/iam/RolesManager.svelte';
 	import PoliciesManager from '$lib/components/iam/PoliciesManager.svelte';
 	import UserRolesManager from '$lib/components/iam/UserRolesManager.svelte';
@@ -14,12 +15,7 @@
 	
 	async function loadRoles() {
 		try {
-			const response = await fetch('/api/admin/iam/roles', {
-				headers: {
-					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-				}
-			});
-			
+			const response = await authFetch('/api/admin/iam/roles');
 			if (response.ok) {
 				roles = await response.json();
 			} else {
@@ -31,15 +27,10 @@
 			roles = [];
 		}
 	}
-	
+
 	async function loadPolicies() {
 		try {
-			const response = await fetch('/api/admin/iam/policies', {
-				headers: {
-					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-				}
-			});
-			
+			const response = await authFetch('/api/admin/iam/policies');
 			if (response.ok) {
 				policies = await response.json();
 			} else {
@@ -51,16 +42,10 @@
 			policies = [];
 		}
 	}
-	
+
 	async function loadUsers() {
 		try {
-			// Use the IAM users endpoint that includes roles
-			const response = await fetch('/api/admin/iam/users', {
-				headers: {
-					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-				}
-			});
-			
+			const response = await authFetch('/api/admin/iam/users');
 			if (response.ok) {
 				users = await response.json();
 			} else {
@@ -82,84 +67,69 @@
 	async function handleRoleCreated(event) {
 		const role = event.detail;
 		try {
-			const response = await fetch('/api/admin/iam/roles', {
+			const response = await authFetch('/api/admin/iam/roles', {
 				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-				},
 				body: JSON.stringify(role)
 			});
-			
+
 			if (response.ok) {
 				await loadRoles();
 			} else {
-				alert('Failed to create role');
+				ErrorHandler.handle('Failed to create role');
 			}
 		} catch (error) {
-			console.error('Failed to create role:', error);
-			alert('Failed to create role');
+			ErrorHandler.handle(error);
 		}
 	}
-	
+
 	async function handleRoleDeleted(event) {
 		const role = event.detail;
 		if (!confirm(`Delete role ${role.display_name || role.name}?`)) {
 			return;
 		}
-		
-		const response = await fetch(`/api/admin/iam/roles/${role.name}`, {
-			method: 'DELETE',
-			headers: {
-				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-			}
+
+		const response = await authFetch(`/api/admin/iam/roles/${role.name}`, {
+			method: 'DELETE'
 		});
-		
+
 		if (response.ok) {
 			await loadRoles();
 		} else {
-			alert('Failed to delete role');
+			ErrorHandler.handle('Failed to delete role');
 		}
 	}
-	
+
 	async function handlePolicyCreated(event) {
 		const policy = event.detail;
-		const response = await fetch('/api/admin/iam/policies', {
+		const response = await authFetch('/api/admin/iam/policies', {
 			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-			},
 			body: JSON.stringify(policy)
 		});
-		
+
 		if (response.ok) {
 			await loadPolicies();
 		} else {
-			alert('Failed to create policy');
+			ErrorHandler.handle('Failed to create policy');
 		}
 	}
-	
+
 	async function handlePolicyDeleted(event) {
 		const policy = event.detail;
 		if (!confirm(`Delete policy for ${policy.subject}?`)) {
 			return;
 		}
-		
-		const response = await fetch(`/api/admin/iam/policies/${policy.id}`, {
-			method: 'DELETE',
-			headers: {
-				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-			}
+
+		const response = await authFetch(`/api/admin/iam/policies/${policy.id}`, {
+			method: 'DELETE'
 		});
-		
+
 		if (response.ok) {
 			await loadPolicies();
 		} else {
-			alert('Failed to delete policy');
+			ErrorHandler.handle('Failed to delete policy');
 		}
 	}
-	
+
 	async function handleRolesChanged() {
 		await loadUsers();
 	}

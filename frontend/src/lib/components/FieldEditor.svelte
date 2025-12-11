@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Plus, Trash2, Edit2, ChevronUp, ChevronDown, GripVertical } from 'lucide-svelte';
+	import { toasts } from '$lib/stores/toast';
 
 	export let fields: any[] = [];
 	export let onFieldsChange: (fields: any[]) => void;
@@ -54,7 +55,7 @@
 	function openAddFieldModal(type: string) {
 		const id = getNextFilterId(type);
 		if (!id) {
-			alert(`Maximum of 5 ${type} fields reached`);
+			toasts.warning(`Maximum of 5 ${type} fields reached`);
 			return;
 		}
 
@@ -91,7 +92,7 @@
 
 	function saveField() {
 		if (!fieldForm.name) {
-			alert('Please provide a field name');
+			toasts.warning('Please provide a field name');
 			return;
 		}
 

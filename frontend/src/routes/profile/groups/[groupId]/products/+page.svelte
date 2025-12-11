@@ -6,7 +6,7 @@
 		DollarSign, Tag, Calendar, ArrowLeft, Settings,
 		ShoppingCart, Box, Calculator, Variable
 	} from 'lucide-svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler } from '$lib/api';
 	import { authStore } from '$lib/stores/auth';
 	import { goto } from '$app/navigation';
 
@@ -194,8 +194,7 @@
 				await loadData();
 			}
 		} catch (error) {
-			console.error('Failed to create product:', error);
-			alert('Failed to create product');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -239,8 +238,7 @@
 				await loadData();
 			}
 		} catch (error) {
-			console.error('Failed to update product:', error);
-			alert('Failed to update product');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -252,8 +250,7 @@
 			// Reload products
 			await loadData();
 		} catch (error) {
-			console.error('Failed to delete product:', error);
-			alert('Failed to delete product');
+			ErrorHandler.handle(error);
 		}
 	}
 

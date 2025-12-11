@@ -3,30 +3,41 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import {
-		User, Lock, LogOut, Shield, ChevronRight,
-		Mail, Phone, Calendar, MapPin, Save, X, Settings,
-		Edit, Home, Package, HardDrive, Database, TrendingUp,
-		Activity, Share2, Download, Upload, ArrowLeft
-	} from 'lucide-svelte';
+		Lock, LogOut, Shield, 
+		Save, X, Settings,
+		Package, HardDrive, TrendingUp,
+		Activity, Share2, Download, Upload, ArrowLeft, Key, Copy, Trash2, Plus	} from 'lucide-svelte';
 	import { api } from '$lib/api';
 	import { authStore } from '$lib/stores/auth';
-	
+	import { formatBytes } from '$lib/utils/formatters';
+
 	let user: any = null;
 	let loading = true;
 	let saving = false;
 	let error = '';
 	let successMessage = '';
-	
+
 	// Modals
 	let showAccountSettings = false;
 	let showPasswordChange = false;
 	let showStorageModal = false;
-	
+	let showAPIKeysModal = false;
+	let showCreateKeyModal = false;
+
 	// Storage data
 	let showStorageCard = false;
 	let storageStats: any = null;
 	let storageQuota: any = null;
 	let recentActivity: any[] = [];
+
+	// API Keys data
+	let apiKeys: any[] = [];
+	let apiKeysLoading = false;
+	let newKeyName = '';
+	let newKeyExpiry: string | null = null;
+	let createdKey: string | null = null;
+	let keyCreating = false;
+	let keyError = '';
 	
 	// Profile form data
 	let profileForm = {
@@ -232,14 +243,6 @@
 		}
 	}
 	
-	function formatBytes(bytes: number): string {
-		if (!bytes || bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-	}
-	
 	function getActionIcon(action: string) {
 		switch (action) {
 			case 'download': return Download;
@@ -256,6 +259,93 @@
 			case 'share': return 'text-cyan-600';
 			default: return 'text-gray-600';
 		}
+	}
+
+	// API Key functions
+	async function loadAPIKeys() {
+		apiKeysLoading = true;
+		keyError = '';
+		try {
+			const response = await api.get('/auth/api-keys');
+			apiKeys = response || [];
+		} catch (err: any) {
+			keyError = err.message || 'Failed to load API keys';
+			apiKeys = [];
+		} finally {
+			apiKeysLoading = false;
+		}
+	}
+
+	async function openAPIKeysModal() {
+		showAPIKeysModal = true;
+		createdKey = null;
+		await loadAPIKeys();
+	}
+
+	function openCreateKeyModal() {
+		showCreateKeyModal = true;
+		newKeyName = '';
+		newKeyExpiry = null;
+		keyError = '';
+	}
+
+	async function createAPIKey() {
+		if (!newKeyName.trim()) {
+			keyError = 'Please enter a name for the API key';
+			return;
+		}
+
+		keyCreating = true;
+		keyError = '';
+
+		try {
+			const payload: any = { name: newKeyName.trim() };
+			if (newKeyExpiry) {
+				payload.expires_at = new Date(newKeyExpiry).toISOString();
+			}
+
+			const response = await api.post('/auth/api-keys', payload);
+			createdKey = response.key;
+			showCreateKeyModal = false;
+			await loadAPIKeys();
+		} catch (err: any) {
+			keyError = err.message || 'Failed to create API key';
+		} finally {
+			keyCreating = false;
+		}
+	}
+
+	async function revokeAPIKey(keyId: string, keyName: string) {
+		if (!confirm(`Are you sure you want to revoke the API key "${keyName}"? This action cannot be undone.`)) {
+			return;
+		}
+
+		try {
+			await api.delete(`/auth/api-keys/${keyId}`);
+			await loadAPIKeys();
+		} catch (err: any) {
+			keyError = err.message || 'Failed to revoke API key';
+		}
+	}
+
+	async function copyToClipboard(text: string) {
+		try {
+			await navigator.clipboard.writeText(text);
+			// Brief visual feedback could be added here
+		} catch (err) {
+			console.error('Failed to copy to clipboard:', err);
+		}
+	}
+
+	function formatDate(dateString: string | null): string {
+		if (!dateString) return 'Never';
+		return new Date(dateString).toLocaleDateString(undefined, {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit'
+		});
 	}
 </script>
 
@@ -324,14 +414,23 @@
 					</button>
 					
 					<!-- Change Password -->
-					<button 
+					<button
 						class="action-card"
 						on:click={() => showPasswordChange = true}
 					>
 						<Lock size={24} />
 						<span>Change Password</span>
 					</button>
-					
+
+					<!-- API Keys -->
+					<button
+						class="action-card"
+						on:click={openAPIKeysModal}
+					>
+						<Key size={24} />
+						<span>API Keys</span>
+					</button>
+
 					<!-- Storage Usage (if enabled) -->
 					{#if showStorageCard}
 						<button 
@@ -676,11 +775,196 @@
 						Manage Files
 					</a>
 				{/if}
-				<button 
+				<button
 					class="btn btn-primary"
 					on:click={() => showStorageModal = false}
 				>
 					Close
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- API Keys Modal -->
+{#if showAPIKeysModal}
+	<div class="modal-overlay" on:click={() => showAPIKeysModal = false}>
+		<div class="modal api-keys-modal" on:click|stopPropagation>
+			<div class="modal-header">
+				<h3>API Keys</h3>
+				<button class="close-btn" on:click={() => showAPIKeysModal = false}>
+					<X size={20} />
+				</button>
+			</div>
+
+			<div class="modal-body">
+				{#if keyError}
+					<div class="alert alert-error">{keyError}</div>
+				{/if}
+
+				<!-- Newly created key alert -->
+				{#if createdKey}
+					<div class="created-key-alert">
+						<div class="alert-header">
+							<Key size={16} />
+							<strong>API Key Created!</strong>
+						</div>
+						<p class="alert-warning">Copy this key now. You won't be able to see it again!</p>
+						<div class="key-display">
+							<code>{createdKey}</code>
+							<button
+								class="copy-btn"
+								on:click={() => copyToClipboard(createdKey || '')}
+								title="Copy to clipboard"
+							>
+								<Copy size={16} />
+							</button>
+						</div>
+					</div>
+				{/if}
+
+				<!-- API Keys List -->
+				<div class="api-keys-section">
+					<div class="section-header">
+						<span>Your API Keys</span>
+						<button class="btn btn-small btn-primary" on:click={openCreateKeyModal}>
+							<Plus size={14} />
+							Create Key
+						</button>
+					</div>
+
+					{#if apiKeysLoading}
+						<div class="loading-state">
+							<div class="spinner-small"></div>
+							<span>Loading API keys...</span>
+						</div>
+					{:else if apiKeys.length === 0}
+						<div class="empty-state">
+							<Key size={32} />
+							<p>No API keys yet</p>
+							<span>Create an API key to access the API programmatically</span>
+						</div>
+					{:else}
+						<div class="api-keys-list">
+							{#each apiKeys as key}
+								<div class="api-key-item">
+									<div class="key-info">
+										<div class="key-name">{key.name}</div>
+										<div class="key-details">
+											<span class="key-prefix" title="Key prefix">{key.key_prefix}...</span>
+											<span class="key-separator">•</span>
+											<span class="key-created">Created {formatDate(key.created_at)}</span>
+										</div>
+										{#if key.last_used_at}
+											<div class="key-last-used">
+												Last used: {formatDate(key.last_used_at)}
+												{#if key.last_used_ip}
+													from {key.last_used_ip}
+												{/if}
+											</div>
+										{:else}
+											<div class="key-last-used">Never used</div>
+										{/if}
+										{#if key.expires_at}
+											<div class="key-expiry" class:expired={new Date(key.expires_at) < new Date()}>
+												{#if new Date(key.expires_at) < new Date()}
+													Expired {formatDate(key.expires_at)}
+												{:else}
+													Expires {formatDate(key.expires_at)}
+												{/if}
+											</div>
+										{/if}
+									</div>
+									<button
+										class="revoke-btn"
+										on:click={() => revokeAPIKey(key.id, key.name)}
+										title="Revoke API key"
+									>
+										<Trash2 size={16} />
+									</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+
+				<!-- Usage instructions -->
+				<div class="api-usage-info">
+					<h4>How to use API Keys</h4>
+					<p>Include your API key in the Authorization header:</p>
+					<code class="code-block">Authorization: Bearer sb_your_api_key_here</code>
+				</div>
+			</div>
+
+			<div class="modal-footer">
+				<button
+					class="btn btn-primary"
+					on:click={() => showAPIKeysModal = false}
+				>
+					Close
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create API Key Modal -->
+{#if showCreateKeyModal}
+	<div class="modal-overlay" on:click={() => showCreateKeyModal = false}>
+		<div class="modal" on:click|stopPropagation>
+			<div class="modal-header">
+				<h3>Create API Key</h3>
+				<button class="close-btn" on:click={() => showCreateKeyModal = false}>
+					<X size={20} />
+				</button>
+			</div>
+
+			<div class="modal-body">
+				{#if keyError}
+					<div class="alert alert-error">{keyError}</div>
+				{/if}
+
+				<div class="form-group">
+					<label for="keyName">Key Name</label>
+					<input
+						type="text"
+						id="keyName"
+						bind:value={newKeyName}
+						placeholder="e.g., Production Server, CI/CD Pipeline"
+					/>
+					<span class="form-hint">A descriptive name to identify this key</span>
+				</div>
+
+				<div class="form-group">
+					<label for="keyExpiry">Expiration (Optional)</label>
+					<input
+						type="datetime-local"
+						id="keyExpiry"
+						bind:value={newKeyExpiry}
+					/>
+					<span class="form-hint">Leave empty for a key that never expires</span>
+				</div>
+			</div>
+
+			<div class="modal-footer">
+				<button
+					class="btn btn-secondary"
+					on:click={() => showCreateKeyModal = false}
+				>
+					Cancel
+				</button>
+				<button
+					class="btn btn-primary"
+					on:click={createAPIKey}
+					disabled={keyCreating}
+				>
+					{#if keyCreating}
+						<span class="spinner-small"></span>
+						Creating...
+					{:else}
+						<Key size={16} />
+						Create Key
+					{/if}
 				</button>
 			</div>
 		</div>
@@ -1282,30 +1566,276 @@
 		color: #dc2626;
 	}
 	
+	/* API Keys Modal Styles */
+	.api-keys-modal {
+		max-width: 600px;
+	}
+
+	.created-key-alert {
+		background: #ecfdf5;
+		border: 1px solid #6ee7b7;
+		border-radius: 8px;
+		padding: 1rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.created-key-alert .alert-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		color: #065f46;
+		margin-bottom: 0.5rem;
+	}
+
+	.created-key-alert .alert-warning {
+		color: #047857;
+		font-size: 0.813rem;
+		margin: 0 0 0.75rem 0;
+	}
+
+	.key-display {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: white;
+		border: 1px solid #d1fae5;
+		border-radius: 6px;
+		padding: 0.5rem 0.75rem;
+	}
+
+	.key-display code {
+		flex: 1;
+		font-family: monospace;
+		font-size: 0.813rem;
+		color: #065f46;
+		word-break: break-all;
+	}
+
+	.copy-btn {
+		background: none;
+		border: none;
+		color: #6b7280;
+		cursor: pointer;
+		padding: 0.25rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
+		transition: all 0.2s;
+	}
+
+	.copy-btn:hover {
+		background: #f3f4f6;
+		color: #1f2937;
+	}
+
+	.api-keys-section {
+		margin-bottom: 1.5rem;
+	}
+
+	.section-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 1rem;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.btn-small {
+		padding: 0.375rem 0.75rem;
+		font-size: 0.75rem;
+	}
+
+	.loading-state {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		padding: 2rem;
+		color: #6b7280;
+	}
+
+	.empty-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 2rem;
+		color: #9ca3af;
+		text-align: center;
+	}
+
+	.empty-state p {
+		margin: 0.75rem 0 0.25rem;
+		color: #6b7280;
+		font-weight: 500;
+	}
+
+	.empty-state span {
+		font-size: 0.813rem;
+	}
+
+	.api-keys-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.api-key-item {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 1rem;
+		background: #f9fafb;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		transition: all 0.2s;
+	}
+
+	.api-key-item:hover {
+		border-color: #d1d5db;
+	}
+
+	.key-info {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.key-name {
+		font-weight: 600;
+		color: #1f2937;
+		margin-bottom: 0.25rem;
+	}
+
+	.key-details {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.75rem;
+		color: #6b7280;
+		flex-wrap: wrap;
+	}
+
+	.key-prefix {
+		font-family: monospace;
+		background: #e5e7eb;
+		padding: 0.125rem 0.375rem;
+		border-radius: 4px;
+	}
+
+	.key-separator {
+		color: #d1d5db;
+	}
+
+	.key-last-used {
+		font-size: 0.75rem;
+		color: #9ca3af;
+		margin-top: 0.25rem;
+	}
+
+	.key-expiry {
+		font-size: 0.75rem;
+		color: #6b7280;
+		margin-top: 0.25rem;
+	}
+
+	.key-expiry.expired {
+		color: #dc2626;
+	}
+
+	.revoke-btn {
+		background: none;
+		border: none;
+		color: #9ca3af;
+		cursor: pointer;
+		padding: 0.5rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 6px;
+		transition: all 0.2s;
+	}
+
+	.revoke-btn:hover {
+		background: #fee2e2;
+		color: #dc2626;
+	}
+
+	.api-usage-info {
+		background: #f0f9ff;
+		border: 1px solid #bae6fd;
+		border-radius: 8px;
+		padding: 1rem;
+	}
+
+	.api-usage-info h4 {
+		margin: 0 0 0.5rem 0;
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #0369a1;
+	}
+
+	.api-usage-info p {
+		margin: 0 0 0.75rem 0;
+		font-size: 0.813rem;
+		color: #0c4a6e;
+	}
+
+	.code-block {
+		display: block;
+		background: white;
+		border: 1px solid #bae6fd;
+		border-radius: 6px;
+		padding: 0.625rem 0.875rem;
+		font-family: monospace;
+		font-size: 0.75rem;
+		color: #0369a1;
+		word-break: break-all;
+	}
+
+	.form-hint {
+		display: block;
+		font-size: 0.75rem;
+		color: #9ca3af;
+		margin-top: 0.375rem;
+	}
+
 	@media (max-width: 640px) {
 		.profile-page {
 			padding: 1rem;
 		}
-		
+
 		.actions-grid {
 			grid-template-columns: 1fr;
 		}
-		
+
 		.form-row {
 			grid-template-columns: 1fr;
 		}
-		
+
 		.modal {
 			max-width: calc(100vw - 2rem);
 		}
-		
+
 		.storage-overview {
 			grid-template-columns: 1fr;
 		}
-		
+
 		.detail-grid {
 			grid-template-columns: 1fr;
 		}
+
+		.key-details {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 0.25rem;
+		}
+
+		.key-separator {
+			display: none;
+		}
 	}
-	
+
 </style>

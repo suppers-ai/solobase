@@ -3,9 +3,10 @@
 	import PolicyTable from './PolicyTable.svelte';
 	import CreatePolicyModal from './CreatePolicyModal.svelte';
 	import EditPolicyModal from './EditPolicyModal.svelte';
-	
+	import { ErrorHandler, authFetch } from '$lib/api';
+
 	export let policies = [];
-	
+
 	const dispatch = createEventDispatcher();
 	
 	let showCreateModal = false;
@@ -14,82 +15,66 @@
 	
 	async function handleCreatePolicy(event) {
 		const policy = event.detail;
-		const response = await fetch('/api/admin/iam/policies', {
+		const response = await authFetch('/api/admin/iam/policies', {
 			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-			},
 			body: JSON.stringify(policy)
 		});
-		
+
 		if (response.ok) {
 			dispatch('policiesChanged');
 			showCreateModal = false;
 		} else {
-			alert('Failed to create policy');
+			ErrorHandler.handle('Failed to create policy');
 		}
 	}
-	
+
 	async function handleDeletePolicy(event) {
 		const policy = event.detail;
 		if (!confirm('Are you sure you want to delete this policy?')) {
 			return;
 		}
-		
-		const response = await fetch('/api/admin/iam/policies', {
+
+		const response = await authFetch('/api/admin/iam/policies', {
 			method: 'DELETE',
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-			},
 			body: JSON.stringify(policy)
 		});
-		
+
 		if (response.ok) {
 			dispatch('policiesChanged');
 		} else {
-			alert('Failed to delete policy');
+			ErrorHandler.handle('Failed to delete policy');
 		}
 	}
-	
+
 	function handleEditPolicy(event) {
 		selectedPolicy = event.detail;
 		showEditModal = true;
 	}
-	
+
 	async function handleSavePolicy(event) {
 		const policy = event.detail;
 		// For policies, we need to delete the old one and create a new one
 		// since Casbin doesn't have a direct update method
-		const deleteResponse = await fetch('/api/admin/iam/policies', {
+		const deleteResponse = await authFetch('/api/admin/iam/policies', {
 			method: 'DELETE',
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-			},
 			body: JSON.stringify(selectedPolicy)
 		});
-		
+
 		if (deleteResponse.ok) {
-			const createResponse = await fetch('/api/admin/iam/policies', {
+			const createResponse = await authFetch('/api/admin/iam/policies', {
 				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-				},
 				body: JSON.stringify(policy)
 			});
-			
+
 			if (createResponse.ok) {
 				dispatch('policiesChanged');
 				showEditModal = false;
 				selectedPolicy = null;
 			} else {
-				alert('Failed to update policy');
+				ErrorHandler.handle('Failed to update policy');
 			}
 		} else {
-			alert('Failed to update policy');
+			ErrorHandler.handle('Failed to update policy');
 		}
 	}
 </script>

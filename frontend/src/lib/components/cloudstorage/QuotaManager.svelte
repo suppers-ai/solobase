@@ -1,7 +1,8 @@
 <script>
 	import { onMount } from 'svelte';
 	import { createEventDispatcher } from 'svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler } from '$lib/api';
+	import { formatBytes } from '$lib/utils/formatters';
 
 	const dispatch = createEventDispatcher();
 	
@@ -97,8 +98,7 @@
 			showEditModal = false;
 			await loadQuotas();
 		} catch (error) {
-			console.error('Failed to save quota:', error);
-			alert('Failed to update quota');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -121,8 +121,7 @@
 				expiresAt: null
 			};
 		} catch (error) {
-			console.error('Failed to create override:', error);
-			alert('Failed to create override');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -135,17 +134,8 @@
 			await api.delete(`/admin/ext/cloudstorage/quotas/overrides/${override.id}`);
 			await loadQuotas();
 		} catch (error) {
-			console.error('Failed to delete override:', error);
-			alert('Failed to delete override');
+			ErrorHandler.handle(error);
 		}
-	}
-	
-	function formatBytes(bytes) {
-		if (bytes === 0) return '0 Bytes';
-		const k = 1024;
-		const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 	}
 	
 	function formatNumber(num) {

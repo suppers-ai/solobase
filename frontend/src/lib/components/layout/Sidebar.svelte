@@ -15,7 +15,7 @@
 	export let logoCollapsedSrc: string = '/logo.png';
 	export let projectName: string = 'Project';
 	export let onLogout: () => void = () => {};
-	export let onOpenSettings: () => void | null = null;
+	export let onOpenSettings: (() => void) | null = null;
 	export let profileUrl: string = '/profile';
 	export let adminUrl: string = '/admin';
 	

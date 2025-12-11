@@ -128,12 +128,8 @@
 
 	async function loadDocuments() {
 		try {
-			const token = localStorage.getItem('auth_token');
-			console.log('Auth token exists:', !!token);
-			console.log('Token value:', token ? token.substring(0, 20) + '...' : 'null');
-
+			// Token is stored in httpOnly cookie
 			const headers = {
-				'Authorization': `Bearer ${token}`,
 				'Content-Type': 'application/json'
 			};
 
@@ -237,11 +233,10 @@
 		const content = editor.getHTML();
 
 		try {
-			const token = localStorage.getItem('auth_token');
+			// Token is stored in httpOnly cookie
 			const response = await fetch(`/api/admin/ext/legalpages/documents/${selectedTab}`, {
 				method: 'POST',
 				headers: {
-					'Authorization': `Bearer ${token}`,
 					'Content-Type': 'application/json',
 				},
 				body: JSON.stringify({ title, content })

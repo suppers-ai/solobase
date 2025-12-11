@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { 
-		X, Play, Info, HelpCircle, AlertCircle, CheckCircle, 
+	import {
+		X, Play, Info, HelpCircle, AlertCircle, CheckCircle,
 		Variable, Calculator, Code2, Copy, Sparkles, Shield, Plus
 	} from 'lucide-svelte';
+	import { toasts } from '$lib/stores/toast';
 	
 	export let show = false;
 	export let title = 'Formula Editor';
@@ -173,7 +174,7 @@
 			
 			validationResult = 'Formula syntax is valid ✓';
 		} catch (error) {
-			validationError = `Syntax error: ${error.message}`;
+			validationError = `Syntax error: ${error instanceof Error ? error.message : 'Unknown error'}`;
 		}
 	}
 	
@@ -202,7 +203,7 @@
 				testResult = `Result: ${typeof result === 'number' ? result.toFixed(2) : result}`;
 			}
 		} catch (error) {
-			testError = `Error: ${error.message}`;
+			testError = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
 		}
 	}
 	
@@ -226,7 +227,7 @@
 	
 	function createVariable() {
 		if (!newVariable.name || !newVariable.displayName) {
-			alert('Please provide both name and display name for the variable');
+			toasts.warning('Please provide both name and display name for the variable');
 			return;
 		}
 		

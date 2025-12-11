@@ -15,6 +15,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import FieldRenderer from './FieldRenderer.svelte';
 	import NineSliceUpload from './NineSliceUpload.svelte';
+	import { toasts } from '$lib/stores/toast';
 
 	export let mode: 'create' | 'edit' = 'create';
 	export let product: any = null;
@@ -177,7 +178,7 @@
 	function handleSubmit() {
 		const validation = validateForm();
 		if (!validation.valid) {
-			alert('Please fix the following errors:\n\n' + validation.errors.join('\n'));
+			toasts.warning('Please fix the following errors:\n' + validation.errors.join('\n'));
 			return;
 		}
 

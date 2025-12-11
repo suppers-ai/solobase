@@ -15,6 +15,10 @@ const config = {
 		}),
 		paths: {
 			base: ''
+		},
+		alias: {
+			'$shared': '../shared',
+			'$shared/*': '../shared/*'
 		}
 	}
 };

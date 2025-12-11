@@ -14,8 +14,12 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "$shared/*": ["../../shared/*"]
+    }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "../../shared/types/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }

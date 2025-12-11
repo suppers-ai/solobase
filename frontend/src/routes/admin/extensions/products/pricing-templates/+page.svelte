@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { Plus, Edit2, Trash2, Code, DollarSign, Filter, Copy, ChevronRight, AlertCircle } from 'lucide-svelte';
+	import { ErrorHandler } from '$lib/api';
 
 	let templates = [];
 	let loading = true;
@@ -118,7 +119,7 @@
 			showEditModal = false;
 			resetForm();
 		} catch (err) {
-			alert('Error saving template: ' + err.message);
+			ErrorHandler.handle(err);
 		}
 	}
 
@@ -136,7 +137,7 @@
 
 			await loadTemplates();
 		} catch (err) {
-			alert('Error deleting template: ' + err.message);
+			ErrorHandler.handle(err);
 		}
 	}
 

@@ -14,6 +14,28 @@
 	// Get redirect parameter from URL
 	$: redirectTo = $page.url.searchParams.get('redirect');
 	
+	// Validate redirect URL to prevent open redirect attacks
+	function isValidRedirectUrl(url: string): boolean {
+		if (!url) return false;
+
+		try {
+			// For relative URLs, they're generally safe
+			if (url.startsWith('/') && !url.startsWith('//')) {
+				return true;
+			}
+
+			// For absolute URLs, ensure they're on the same origin
+			if (url.startsWith('http')) {
+				const urlObj = new URL(url);
+				return urlObj.origin === window.location.origin;
+			}
+
+			return false;
+		} catch {
+			return false;
+		}
+	}
+
 	async function handleLogin(loginEmail: string, loginPassword: string) {
 		loading = true;
 		error = '';
@@ -21,24 +43,16 @@
 		const success = await auth.login(loginEmail, loginPassword);
 
 		if (success) {
-			// Always check for redirect parameter first
-			if (redirectTo) {
+			// Validate and use redirect parameter if present
+			if (redirectTo && isValidRedirectUrl(redirectTo)) {
 				console.log('Redirecting to:', redirectTo);
-				// Handle both absolute and relative URLs
-				if (redirectTo.startsWith('http')) {
-					// Absolute URL - navigate directly
-					window.location.href = redirectTo;
-					return; // Ensure we don't continue
-				} else {
-					// Relative URL - use goto
-					await goto(redirectTo);
-					return; // Ensure we don't continue
-				}
+				await goto(redirectTo);
 			} else {
 				// Default redirect to home page
-				console.log('No redirect param, going to /');
+				if (redirectTo) {
+					console.warn('Invalid redirect URL blocked:', redirectTo);
+				}
 				await goto('/');
-				return;
 			}
 		} else {
 			const authState = get(auth);
@@ -48,13 +62,79 @@
 	}
 
 	function handleOAuthLogin(provider: string) {
-		// Construct OAuth login URL
-		const baseUrl = window.location.origin;
-		const callbackUrl = `${baseUrl}/auth/oauth/callback`;
-		const oauthUrl = `/api/auth/oauth/login?provider=${provider}`;
+		// Set loading state
+		loading = true;
+		error = '';
 
-		// Redirect to OAuth provider
-		window.location.href = oauthUrl;
+		// Construct OAuth login URL with callback
+		const callbackUrl = `${window.location.origin}/auth/oauth/callback`;
+		let oauthUrl = `/api/auth/oauth/login?provider=${provider}&callback=${encodeURIComponent(callbackUrl)}`;
+
+		// Add redirect parameter if present
+		if (redirectTo && isValidRedirectUrl(redirectTo)) {
+			oauthUrl += `&redirect=${encodeURIComponent(redirectTo)}`;
+		}
+
+		// Open popup window for OAuth flow
+		const popup = window.open(
+			oauthUrl,
+			'oauth-login',
+			'width=600,height=700,scrollbars=yes,resizable=yes'
+		);
+
+		if (!popup) {
+			loading = false;
+			error = 'Popup blocked. Please allow popups for this site and try again.';
+			return;
+		}
+
+		// Listen for messages from the popup
+		const handleMessage = (event: MessageEvent) => {
+			// Ensure message is from our domain
+			if (event.origin !== window.location.origin) {
+				return;
+			}
+
+			if (event.data?.type === 'oauth-success') {
+				// OAuth successful - refresh auth state
+				auth.checkAuth().then(async (success) => {
+					if (success) {
+						// Validate and use redirect parameter if present
+						const redirectUrl = event.data.redirect;
+						if (redirectUrl && isValidRedirectUrl(redirectUrl)) {
+							console.log('Redirecting to:', redirectUrl);
+							await goto(redirectUrl);
+						} else {
+							// Default redirect to home page
+							await goto('/');
+						}
+					} else {
+						error = 'Authentication verification failed. Please try again.';
+						loading = false;
+					}
+				});
+				window.removeEventListener('message', handleMessage);
+			} else if (event.data?.type === 'oauth-error') {
+				error = event.data.error || 'OAuth authentication failed';
+				loading = false;
+				window.removeEventListener('message', handleMessage);
+			}
+		};
+
+		window.addEventListener('message', handleMessage);
+
+		// Handle popup being closed without completion
+		const checkClosed = setInterval(() => {
+			if (popup.closed) {
+				clearInterval(checkClosed);
+				window.removeEventListener('message', handleMessage);
+				// Only set error if we haven't already handled success/error
+				if (loading) {
+					error = 'Authentication was cancelled';
+					loading = false;
+				}
+			}
+		}, 1000);
 	}
 </script>
 

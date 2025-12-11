@@ -4,6 +4,7 @@
 	import type { AppSettings } from '$lib/types';
 	import { Save, RefreshCw, AlertCircle, Check, Settings, Shield, Mail, HardDrive } from 'lucide-svelte';
 	import { requireAdmin } from '$lib/utils/auth';
+	import { formatBytes } from '$lib/utils/formatters';
 	
 	let settings: AppSettings | null = null;
 	let loading = true;
@@ -65,19 +66,6 @@
 			error = response.error || 'Failed to reset settings';
 		}
 		saving = false;
-	}
-	
-	function formatBytes(bytes: number): string {
-		const units = ['B', 'KB', 'MB', 'GB'];
-		let size = bytes;
-		let unitIndex = 0;
-		
-		while (size >= 1024 && unitIndex < units.length - 1) {
-			size /= 1024;
-			unitIndex++;
-		}
-		
-		return `${size.toFixed(1)} ${units[unitIndex]}`;
 	}
 	
 	function parseBytes(value: string): number {

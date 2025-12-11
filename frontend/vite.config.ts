@@ -25,7 +25,19 @@ export default defineConfig({
 			'/api': {
 				target: `http://localhost:${API_PORT}`,
 				changeOrigin: true,
-				secure: false
+				secure: false,
+				// Configure cookie rewriting to ensure cookies work through the proxy
+				configure: (proxy) => {
+					proxy.on('proxyRes', (proxyRes) => {
+						// Rewrite Set-Cookie headers to work with the dev server
+						const cookies = proxyRes.headers['set-cookie'];
+						if (cookies) {
+							proxyRes.headers['set-cookie'] = cookies.map((cookie: string) =>
+								cookie.replace(/;\s*SameSite=Strict/gi, '; SameSite=Lax')
+							);
+						}
+					});
+				}
 			}
 		}
 	}

@@ -306,11 +306,10 @@ try {
 The SDK is written in TypeScript and provides full type definitions:
 
 ```typescript
-import type { 
-  User, 
-  StorageObject, 
-  AuthTokens,
-  Collection 
+import type {
+  User,
+  StorageObject,
+  Collection
 } from '@solobase/sdk';
 ```
 

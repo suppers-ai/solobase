@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { 
+	import {
 		Cloud, Upload, Share2, Download, Users, Activity,
 		HardDrive, Shield, Trash2, Eye, Link, UserPlus,
 		Clock, AlertCircle, BarChart3, FileText, Settings,
 		CheckCircle, XCircle, Info, TrendingUp, Database, Folder, BarChart,
 		FolderOpen, File, Lock, Globe, Zap, AlertTriangle
 	} from 'lucide-svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler, authFetch } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
+	import { toasts } from '$lib/stores/toast';
+	import { formatBytes } from '$lib/utils/formatters';
 	import FileExplorer from '$lib/components/FileExplorer.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import QuotaManager from '$lib/components/cloudstorage/QuotaManager.svelte';
@@ -112,12 +114,7 @@
 
 	async function loadRoles() {
 		try {
-			const response = await fetch('/api/admin/iam/roles', {
-				headers: {
-					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-				}
-			});
-			
+			const response = await authFetch('/api/admin/iam/roles');
 			if (response.ok) {
 				roles = await response.json();
 			}
@@ -323,14 +320,14 @@
 			if (response) {
 				showShareModal = false;
 				await loadData();
-				
+
 				// Show share link if token was generated
 				if (response.share_token) {
-					alert(`Share link created: ${window.location.origin}/share/${response.share_token}`);
+					toasts.success(`Share link created: ${window.location.origin}/share/${response.share_token}`);
 				}
 			}
 		} catch (error) {
-			alert('Failed to create share. Please try again.');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -355,7 +352,7 @@
 				await loadData();
 			}
 		} catch (error) {
-			alert('Failed to update quota. Please try again.');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -408,13 +405,12 @@
 			});
 			
 			if (response) {
-				alert('Default quotas updated successfully');
+				toasts.success('Default quotas updated successfully');
 				showDefaultQuotaModal = false;
 				await loadData();
 			}
 		} catch (error) {
-			// API might not be implemented yet
-			alert('Failed to update default quotas. The API endpoint may not be available.');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -430,14 +426,6 @@
 		} catch (error) {
 			// Silently handle error - logs might not be available
 		}
-	}
-	
-	function formatBytes(bytes: number): string {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 	}
 	
 	function formatPercentage(value: number): string {
@@ -816,7 +804,7 @@
 											{#if share.share_token}
 												<button class="btn btn-xs" on:click={() => {
 													navigator.clipboard.writeText(`${window.location.origin}/share/${share.share_token}`);
-													alert('Share link copied!');
+													toasts.success('Share link copied!');
 												}}>
 													<Link size={12} />
 													Copy Link

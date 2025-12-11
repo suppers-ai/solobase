@@ -18,12 +18,8 @@ RUN go mod download
 # Copy everything else
 COPY . .
 
-# Install ui-components dependencies first
-WORKDIR /app/common/ui-components
-RUN npm install
-
-# Build the UI
-WORKDIR /app/ui
+# Build the frontend
+WORKDIR /app/frontend
 RUN npm install && npm run build
 
 # Build the binary with clean cache

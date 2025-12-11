@@ -24,7 +24,7 @@ func NewGormStorage(db *gorm.DB) *GormStorage {
 
 // AutoMigrate runs GORM auto-migration for auth models
 func (s *GormStorage) AutoMigrate() error {
-	return s.db.AutoMigrate(&User{}, &Session{}, &Token{})
+	return s.db.AutoMigrate(&User{}, &Token{}, &APIKey{})
 }
 
 // ServerStorer interface - Load user by key (ID or email)
@@ -126,53 +126,48 @@ func (s *GormStorage) UseRememberToken(ctx context.Context, pid, token string) e
 		Update("used_at", now).Error
 }
 
-// OAuth2ServerStorer interface
-func (s *GormStorage) NewFromOAuth2(ctx context.Context, provider string, details map[string]string) (authboss.OAuth2User, error) {
-	user := &User{}
-
-	// Set OAuth2 fields
-	user.OAuth2Provider = &provider
-	if uid, ok := details["uid"]; ok {
-		user.OAuth2UID = &uid
-	}
-	if email, ok := details["email"]; ok {
-		user.Email = email
-	}
-	if name, ok := details["name"]; ok {
-		user.Username = name
+// FindUserByOAuthToken finds a user by their OAuth token (provider + provider UID)
+func (s *GormStorage) FindUserByOAuthToken(ctx context.Context, provider, providerUID string) (*User, error) {
+	var token Token
+	err := s.db.WithContext(ctx).
+		Where("type = ? AND provider = ? AND provider_uid = ? AND revoked_at IS NULL", TokenTypeOAuth, provider, providerUID).
+		Order("created_at DESC").
+		First(&token).Error
+	if err != nil {
+		return nil, err
 	}
 
-	// OAuth users are automatically confirmed
-	user.Confirmed = true
-
-	return user, nil
+	var user User
+	if err := s.db.WithContext(ctx).Where("id = ?", token.UserID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
-func (s *GormStorage) SaveOAuth2(ctx context.Context, user authboss.OAuth2User) error {
-	u := user.(*User)
+// CreateOrUpdateOAuthToken creates or updates an OAuth token for a user
+func (s *GormStorage) CreateOrUpdateOAuthToken(ctx context.Context, userID uuid.UUID, provider, providerUID, accessToken string, expiry *time.Time) error {
+	// Revoke any existing OAuth tokens for this provider/user combo
+	now := time.Now()
+	s.db.WithContext(ctx).Model(&Token{}).
+		Where("user_id = ? AND type = ? AND provider = ? AND revoked_at IS NULL", userID, TokenTypeOAuth, provider).
+		Update("revoked_at", now)
 
-	// Check if user exists by OAuth2 UID and provider
-	var existing User
-	err := s.db.WithContext(ctx).Where("oauth2_uid = ? AND oauth2_provider = ?", u.OAuth2UID, u.OAuth2Provider).First(&existing).Error
-
-	if err == nil {
-		// Update existing user
-		u.ID = existing.ID
-		u.CreatedAt = existing.CreatedAt
-		return s.Save(ctx, u)
+	// Create new OAuth token
+	token := &Token{
+		ID:          uuid.New(),
+		UserID:      userID,
+		Type:        TokenTypeOAuth,
+		Provider:    &provider,
+		ProviderUID: &providerUID,
+		AccessToken: &accessToken,
+		ExpiresAt:   now.Add(365 * 24 * time.Hour), // OAuth tokens don't expire in our system
+		CreatedAt:   now,
+	}
+	if expiry != nil {
+		token.OAuthExpiry = expiry
 	}
 
-	// Check if user exists by email
-	err = s.db.WithContext(ctx).Where("email = ?", u.Email).First(&existing).Error
-	if err == nil {
-		// Link OAuth to existing user
-		u.ID = existing.ID
-		u.CreatedAt = existing.CreatedAt
-		return s.Save(ctx, u)
-	}
-
-	// Create new user
-	return s.Create(ctx, u)
+	return s.db.WithContext(ctx).Create(token).Error
 }
 
 // Additional helper methods
@@ -234,33 +229,6 @@ func (s *GormStorage) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	return s.db.WithContext(ctx).Delete(&User{}, id).Error
 }
 
-// CreateSession creates a new session
-func (s *GormStorage) CreateSession(ctx context.Context, session *Session) error {
-	return s.db.WithContext(ctx).Create(session).Error
-}
-
-// GetSession retrieves a session
-func (s *GormStorage) GetSession(ctx context.Context, id string) (*Session, error) {
-	var session Session
-	err := s.db.WithContext(ctx).Where("id = ?", id).First(&session).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("session not found")
-		}
-		return nil, err
-	}
-	return &session, nil
-}
-
-// DeleteSession deletes a session
-func (s *GormStorage) DeleteSession(ctx context.Context, id string) error {
-	return s.db.WithContext(ctx).Delete(&Session{}, "id = ?", id).Error
-}
-
-// DeleteExpiredSessions removes expired sessions
-func (s *GormStorage) DeleteExpiredSessions(ctx context.Context) error {
-	return s.db.WithContext(ctx).Where("expires_at < ?", time.Now()).Delete(&Session{}).Error
-}
 
 // CreateToken creates a new token
 func (s *GormStorage) CreateToken(ctx context.Context, token *Token) error {
@@ -289,4 +257,74 @@ func (s *GormStorage) UseToken(ctx context.Context, token string) error {
 // DeleteExpiredTokens removes expired tokens
 func (s *GormStorage) DeleteExpiredTokens(ctx context.Context) error {
 	return s.db.WithContext(ctx).Where("expires_at < ?", time.Now()).Delete(&Token{}).Error
+}
+
+// API Key management methods
+
+// CreateAPIKey creates a new API key for a user
+func (s *GormStorage) CreateAPIKey(ctx context.Context, apiKey *APIKey) error {
+	return s.db.WithContext(ctx).Create(apiKey).Error
+}
+
+// GetAPIKeyByHash retrieves an API key by its hash
+func (s *GormStorage) GetAPIKeyByHash(ctx context.Context, keyHash string) (*APIKey, error) {
+	var apiKey APIKey
+	err := s.db.WithContext(ctx).
+		Where("key_hash = ? AND revoked_at IS NULL", keyHash).
+		First(&apiKey).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("API key not found")
+		}
+		return nil, err
+	}
+	return &apiKey, nil
+}
+
+// GetAPIKeysByUserID retrieves all API keys for a user
+func (s *GormStorage) GetAPIKeysByUserID(ctx context.Context, userID uuid.UUID) ([]APIKey, error) {
+	var apiKeys []APIKey
+	err := s.db.WithContext(ctx).
+		Where("user_id = ? AND revoked_at IS NULL", userID).
+		Order("created_at DESC").
+		Find(&apiKeys).Error
+	return apiKeys, err
+}
+
+// GetAPIKeyByID retrieves an API key by its ID
+func (s *GormStorage) GetAPIKeyByID(ctx context.Context, id uuid.UUID) (*APIKey, error) {
+	var apiKey APIKey
+	err := s.db.WithContext(ctx).Where("id = ?", id).First(&apiKey).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("API key not found")
+		}
+		return nil, err
+	}
+	return &apiKey, nil
+}
+
+// RevokeAPIKey revokes an API key
+func (s *GormStorage) RevokeAPIKey(ctx context.Context, id uuid.UUID, userID uuid.UUID) error {
+	now := time.Now()
+	result := s.db.WithContext(ctx).
+		Model(&APIKey{}).
+		Where("id = ? AND user_id = ? AND revoked_at IS NULL", id, userID).
+		Update("revoked_at", now)
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("API key not found or already revoked")
+	}
+	return result.Error
+}
+
+// UpdateAPIKeyLastUsed updates the last used timestamp and IP
+func (s *GormStorage) UpdateAPIKeyLastUsed(ctx context.Context, id uuid.UUID, ip string) error {
+	now := time.Now()
+	return s.db.WithContext(ctx).
+		Model(&APIKey{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"last_used_at": now,
+			"last_used_ip": ip,
+		}).Error
 }

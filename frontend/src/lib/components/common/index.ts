@@ -6,4 +6,4 @@ export { default as Sidebar } from '../layout/Sidebar.svelte';
 export { default as LoginForm } from '../auth/LoginForm.svelte';
 
 // Export types
-export type { NavigationItem, User } from '$lib/types';
+export type { NavigationItem, AuthUser } from '$lib/types';

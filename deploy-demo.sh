@@ -35,7 +35,18 @@ GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "demo")
 echo "Version: $GIT_HASH"
 
 echo ""
-echo "Step 3: Deploying to Fly.io..."
+echo "Step 3: Setting secrets..."
+echo "--------------------------"
+# Set JWT_SECRET if not already set (check if it exists first)
+if ! fly secrets list --app $APP_NAME 2>/dev/null | grep -q "JWT_SECRET"; then
+    echo "Setting JWT_SECRET..."
+    fly secrets set JWT_SECRET="$(openssl rand -base64 32)" --app $APP_NAME
+else
+    echo "JWT_SECRET already set"
+fi
+
+echo ""
+echo "Step 4: Deploying to Fly.io..."
 echo "-------------------------------"
 
 # Deploy from project root with proper context

@@ -18,6 +18,9 @@ export READONLY_MODE=false
 export DATABASE_URL=file:./demo/deployment/demo.db
 export DEFAULT_ADMIN_EMAIL=admin@example.com
 export DEFAULT_ADMIN_PASSWORD=admin123
+export JWT_SECRET=$(openssl rand -hex 32)
+
+echo "JWT Secret set $JWT_SECRET"
 
 # Build and run solobase to create the database
 echo "Building solobase..."
@@ -35,11 +38,11 @@ sleep 5
 # Create some demo data using the API
 echo "Creating demo data..."
 
-# Login as admin
-ADMIN_TOKEN=$(curl -s -X POST http://localhost:8090/api/auth/login \
+# Login as admin (token is now returned in Set-Cookie header, not response body)
+ADMIN_TOKEN=$(curl -s -i -X POST http://localhost:8090/api/auth/login \
   -H "Content-Type: application/json" \
   -d "{\"email\":\"${DEFAULT_ADMIN_EMAIL}\",\"password\":\"${DEFAULT_ADMIN_PASSWORD}\"}" \
-  | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+  | grep -i 'set-cookie: auth_token=' | sed 's/.*auth_token=\([^;]*\).*/\1/')
 
 if [ -z "$ADMIN_TOKEN" ]; then
   echo "Failed to login as admin"
@@ -49,9 +52,9 @@ fi
 
 echo "Admin token obtained"
 
-# Create some sample settings
+# Create some sample settings (PATCH for bulk update)
 echo "Configuring demo settings..."
-curl -X POST http://localhost:8090/api/admin/settings \
+curl -X PATCH http://localhost:8090/api/admin/settings \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -76,8 +79,8 @@ curl -X POST http://localhost:8090/api/storage/buckets \
 
 # Stop the server
 echo "Stopping server..."
-kill $SOLOBASE_PID
-wait $SOLOBASE_PID 2>/dev/null
+kill $SOLOBASE_PID 2>/dev/null || true
+wait $SOLOBASE_PID 2>/dev/null || true
 
 # Clean up
 rm -f solobase-temp

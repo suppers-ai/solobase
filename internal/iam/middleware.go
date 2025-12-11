@@ -264,13 +264,3 @@ func WriteError(w http.ResponseWriter, status int, message string) {
 		Error: message,
 	})
 }
-
-// WriteErrorWithCode writes an error response with an error code
-func WriteErrorWithCode(w http.ResponseWriter, status int, message string, code string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(ErrorResponse{
-		Error: message,
-		Code:  code,
-	})
-}

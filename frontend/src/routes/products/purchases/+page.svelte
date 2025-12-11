@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler } from '$lib/api';
+	import { formatDateLong } from '$lib/utils/formatters';
 
 	interface Purchase {
 		id: number;
@@ -49,8 +50,7 @@
 			});
 			await loadPurchases();
 		} catch (err) {
-			alert('Failed to cancel purchase');
-			console.error('Cancel error:', err);
+			ErrorHandler.handle(err);
 		}
 	}
 
@@ -59,14 +59,6 @@
 			style: 'currency',
 			currency: currency || 'USD'
 		}).format(cents / 100);
-	}
-
-	function formatDate(dateString: string): string {
-		return new Date(dateString).toLocaleDateString('en-US', {
-			year: 'numeric',
-			month: 'long',
-			day: 'numeric'
-		});
 	}
 
 	function getStatusBadge(status: string): string {
@@ -138,7 +130,7 @@
 										{getStatusLabel(purchase.status)}
 									</span>
 								</div>
-								<p class="text-sm text-gray-600">{formatDate(purchase.created_at)}</p>
+								<p class="text-sm text-gray-600">{formatDateLong(purchase.created_at)}</p>
 							</div>
 							<div class="text-right">
 								<p class="text-xl font-bold">

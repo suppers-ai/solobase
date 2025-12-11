@@ -30,6 +30,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@solobase/types": "file:../../shared/types",
     "axios": "^1.6.0",
     "form-data": "^4.0.0"
   },

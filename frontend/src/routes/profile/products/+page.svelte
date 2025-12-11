@@ -10,7 +10,7 @@
 		Activity, Box, CreditCard, Clock, Check,
 		X, AlertCircle, ArrowLeft, Edit2, Trash2
 	} from 'lucide-svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler } from '$lib/api';
 	import { authStore } from '$lib/stores/auth';
 	import { productPreviewRegistry } from '$lib/stores/productPreviewRegistry';
 	import ProductModal from '$lib/components/products/ProductModal.svelte';
@@ -312,8 +312,7 @@
 			showEditGroupModal = false;
 			editingGroup = null;
 		} catch (error) {
-			console.error('Failed to save group:', error);
-			alert('Failed to save group: ' + (error.message || 'Unknown error'));
+			ErrorHandler.handle(error);
 		}
 	}
 
@@ -379,8 +378,7 @@
 				editingProduct = null;
 			}
 		} catch (error) {
-			console.error('Failed to save product:', error);
-			alert('Failed to save product: ' + (error.message || 'Unknown error'));
+			ErrorHandler.handle(error);
 		}
 	}
 
@@ -399,8 +397,7 @@
 			products = products.filter(p => p.id !== id);
 			await loadData();
 		} catch (error) {
-			console.error('Failed to delete product:', error);
-			alert('Failed to delete product');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -414,8 +411,7 @@
 			groups = groups.filter(e => e.id !== id);
 			await loadData();
 		} catch (error) {
-			console.error('Failed to delete group:', error);
-			alert('Failed to delete group');
+			ErrorHandler.handle(error);
 		}
 	}
 	

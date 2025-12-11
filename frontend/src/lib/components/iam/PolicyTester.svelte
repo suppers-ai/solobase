@@ -1,6 +1,7 @@
 <script>
 	import { createEventDispatcher } from 'svelte';
-	
+	import { authFetch } from '$lib/api';
+
 	const dispatch = createEventDispatcher();
 	
 	let testInput = {
@@ -15,15 +16,11 @@
 	async function handleTest() {
 		testing = true;
 		try {
-			const response = await fetch('/api/admin/iam/test-permission', {
+			const response = await authFetch('/api/admin/iam/test-permission', {
 				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-				},
 				body: JSON.stringify(testInput)
 			});
-			
+
 			testResult = await response.json();
 		} catch (error) {
 			testResult = { error: error.message };

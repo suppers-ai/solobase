@@ -3,9 +3,10 @@
 	import RoleCard from './RoleCard.svelte';
 	import CreateRoleModal from './CreateRoleModal.svelte';
 	import EditRoleModal from './EditRoleModal.svelte';
-	
+	import { ErrorHandler, authFetch } from '$lib/api';
+
 	export let roles = [];
-	
+
 	const dispatch = createEventDispatcher();
 	
 	let showCreateModal = false;
@@ -14,66 +15,55 @@
 	
 	async function handleCreateRole(event) {
 		const role = event.detail;
-		const response = await fetch('/api/admin/iam/roles', {
+		const response = await authFetch('/api/admin/iam/roles', {
 			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-			},
 			body: JSON.stringify(role)
 		});
-		
+
 		if (response.ok) {
 			dispatch('rolesChanged');
 			showCreateModal = false;
 		} else {
-			alert('Failed to create role');
+			ErrorHandler.handle('Failed to create role');
 		}
 	}
-	
+
 	async function handleDeleteRole(event) {
 		const role = event.detail;
 		if (!confirm(`Are you sure you want to delete role "${role.display_name || role.name}"?`)) {
 			return;
 		}
-		
-		const response = await fetch(`/api/admin/iam/roles/${role.name}`, {
-			method: 'DELETE',
-			headers: {
-				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-			}
+
+		const response = await authFetch(`/api/admin/iam/roles/${role.name}`, {
+			method: 'DELETE'
 		});
-		
+
 		if (response.ok) {
 			dispatch('rolesChanged');
 		} else {
 			const error = await response.text();
-			alert(`Failed to delete role: ${error}`);
+			ErrorHandler.handle(`Failed to delete role: ${error}`);
 		}
 	}
-	
+
 	function handleEditRole(event) {
 		selectedRole = event.detail;
 		showEditModal = true;
 	}
-	
+
 	async function handleSaveRole(event) {
 		const role = event.detail;
-		const response = await fetch(`/api/admin/iam/roles/${role.name}`, {
+		const response = await authFetch(`/api/admin/iam/roles/${role.name}`, {
 			method: 'PUT',
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-			},
 			body: JSON.stringify(role)
 		});
-		
+
 		if (response.ok) {
 			dispatch('rolesChanged');
 			showEditModal = false;
 			selectedRole = null;
 		} else {
-			alert('Failed to update role');
+			ErrorHandler.handle('Failed to update role');
 		}
 	}
 </script>

@@ -226,46 +226,6 @@ func (s *Service) ListUsers(ctx context.Context, offset, limit int) ([]User, int
 	return s.storage.ListUsers(ctx, offset, limit)
 }
 
-// Session management
-
-// CreateSession creates a new session
-func (s *Service) CreateSession(ctx context.Context, userID string, duration time.Duration) (*Session, error) {
-	uid, err := ParseUUID(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	session := &Session{
-		ID:        GenerateToken(32),
-		UserID:    uid,
-		Token:     GenerateToken(64),
-		ExpiresAt: time.Now().Add(duration),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	if err := s.storage.CreateSession(ctx, session); err != nil {
-		return nil, err
-	}
-
-	return session, nil
-}
-
-// GetSession retrieves a session
-func (s *Service) GetSession(ctx context.Context, id string) (*Session, error) {
-	return s.storage.GetSession(ctx, id)
-}
-
-// DeleteSession deletes a session
-func (s *Service) DeleteSession(ctx context.Context, id string) error {
-	return s.storage.DeleteSession(ctx, id)
-}
-
-// CleanupSessions removes expired sessions
-func (s *Service) CleanupSessions(ctx context.Context) error {
-	return s.storage.DeleteExpiredSessions(ctx)
-}
-
 // Token management
 
 // CreateToken creates a new token
@@ -275,9 +235,14 @@ func (s *Service) CreateToken(ctx context.Context, userID string, tokenType stri
 		return nil, err
 	}
 
+	tokenStr, err := GenerateToken(64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate token: %w", err)
+	}
+
 	token := &Token{
 		UserID:    uid,
-		Token:     GenerateToken(64),
+		Token:     tokenStr,
 		Type:      tokenType,
 		ExpiresAt: time.Now().Add(duration),
 		CreatedAt: time.Now(),

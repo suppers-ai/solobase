@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { formatDate, formatDuration } from '$lib/utils/formatters';
+	import { authFetch } from '$lib/api';
 	
 	export let limit = 50;
 	
@@ -26,24 +27,11 @@
 				...(filter && { filter }),
 				...(selectedType !== 'all' && { type: selectedType })
 			});
-			
-			const token = localStorage.getItem('auth_token');
-			console.log('AuditLog: Using token:', token ? `${token.substring(0, 20)}...` : 'null');
-			
-			const response = await window.fetch(`/api/admin/iam/audit-logs?${params}`, {
-				method: 'GET',
-				headers: {
-					'Authorization': `Bearer ${token}`,
-					'Content-Type': 'application/json'
-				},
-				credentials: 'same-origin'
-			});
-			
-			console.log('AuditLog: Response status:', response.status);
-			
+
+			const response = await authFetch(`/api/admin/iam/audit-logs?${params}`);
+
 			if (response.ok) {
 				logs = await response.json();
-				console.log('AuditLog: Loaded', logs.length, 'logs');
 			} else {
 				const error = await response.text();
 				console.error('AuditLog: Error response:', response.status, error);

@@ -3,8 +3,9 @@
 	import '$lib/css/variables.css';
 	import { page } from '$app/stores';
 	import AppLayout from '$lib/components/layout/AppLayout.svelte';
-	import { 
-		Home, Users, Database, HardDrive, 
+	import Toast from '$lib/components/Toast.svelte';
+	import {
+		Home, Users, Database, HardDrive,
 		FileText, Puzzle, Settings, Plus, X, Shield
 	} from 'lucide-svelte';
 	import { onMount } from 'svelte';
@@ -135,11 +136,9 @@
 		const observer = observeAndFixInputs();
 
 
-		// First check if we have a stored token before doing auth check
-		const hasStoredToken = typeof window !== 'undefined' && localStorage.getItem('auth_token');
-
-		// If we have a stored token, attempt to validate it
-		if (hasStoredToken) {
+		// Check if auth is available (token stored in httpOnly cookie)
+		// Since we use httpOnly cookies, we'll attempt to validate auth directly
+		if (typeof window !== 'undefined') {
 			// Check if user is authenticated on mount
 			const isAuth = await auth.checkAuth();
 			authChecked = true;
@@ -251,6 +250,8 @@
 		{/if}
 	</div>
 </div>
+
+<Toast />
 
 <style>
 	.app-container {

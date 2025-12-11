@@ -2,10 +2,11 @@
 	import { createEventDispatcher } from 'svelte';
 	import UserRoleRow from './UserRoleRow.svelte';
 	import AssignRoleModal from './AssignRoleModal.svelte';
-	
+	import { ErrorHandler, authFetch } from '$lib/api';
+
 	export let users = [];
 	export let roles = [];
-	
+
 	const dispatch = createEventDispatcher();
 	
 	let selectedUser = null;
@@ -18,40 +19,33 @@
 	
 	async function handleRoleAssigned(event) {
 		const { userId, roleName } = event.detail;
-		const response = await fetch(`/api/admin/iam/users/${userId}/roles`, {
+		const response = await authFetch(`/api/admin/iam/users/${userId}/roles`, {
 			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-			},
 			body: JSON.stringify({ role: roleName })
 		});
-		
+
 		if (response.ok) {
 			dispatch('rolesChanged', userId);
 			showAssignModal = false;
 		} else {
-			alert('Failed to assign role');
+			ErrorHandler.handle('Failed to assign role');
 		}
 	}
-	
+
 	async function handleRoleRemoved(event) {
 		const { userId, roleName } = event.detail;
 		if (!confirm(`Remove role ${roleName} from user?`)) {
 			return;
 		}
-		
-		const response = await fetch(`/api/admin/iam/users/${userId}/roles/${roleName}`, {
-			method: 'DELETE',
-			headers: {
-				'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-			}
+
+		const response = await authFetch(`/api/admin/iam/users/${userId}/roles/${roleName}`, {
+			method: 'DELETE'
 		});
-		
+
 		if (response.ok) {
 			dispatch('rolesChanged', userId);
 		} else {
-			alert('Failed to remove role');
+			ErrorHandler.handle('Failed to remove role');
 		}
 	}
 </script>

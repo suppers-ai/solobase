@@ -1,50 +1,47 @@
-import type { 
-	User, LoginRequest, LoginResponse, SignupRequest,
+import type {
+	AuthUser, UserResponse, LoginRequest, LoginResponse, SignupRequest,
 	DatabaseTable, DatabaseColumn, QueryResult,
 	StorageObject, StorageBucket,
 	AppSettings, DashboardStats,
 	ApiResponse, PaginatedResponse
 } from './types';
+import { ErrorHandler } from './utils/error-handler';
 
 const API_BASE = '/api';
 
+// Re-export ErrorHandler for convenience
+export { ErrorHandler };
+
+/**
+ * Authenticated fetch wrapper that automatically includes credentials (cookies)
+ * Use this instead of raw fetch() for API calls that require authentication
+ */
+export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+	return fetch(url, {
+		...options,
+		credentials: 'include',
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
+	});
+}
+
 class ApiClient {
-	private token: string | null = null;
+	// No longer storing token in memory or localStorage
+	// Authentication is handled via httpOnly cookies
 
 	constructor() {
-		// Try to restore token from localStorage
-		if (typeof window !== 'undefined') {
-			this.token = localStorage.getItem('auth_token');
-		}
+		// Cookies are automatically sent with requests
 	}
 
-	setToken(token: string) {
-		this.token = token;
-		if (typeof window !== 'undefined') {
-			localStorage.setItem('auth_token', token);
-		}
-	}
-
-	// Helper function to decode JWT token
-	decodeToken(token: string): any {
-		try {
-			const base64Url = token.split('.')[1];
-			const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-			const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-				return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-			}).join(''));
-			return JSON.parse(jsonPayload);
-		} catch (e) {
-			console.error('Failed to decode token:', e);
-			return null;
-		}
-	}
-
-	// Get roles from current token
-	getRolesFromToken(): string[] {
-		if (!this.token) return [];
-		const decoded = this.decodeToken(this.token);
-		return decoded?.roles || [];
+	// Roles should now be fetched from the server via /api/auth/me
+	// since we can't decode httpOnly cookies on client side
+	async getCurrentUserRoles(): Promise<string[]> {
+		const result = await this.getCurrentUser();
+		if (result.error || !result.data) return [];
+		// Roles would need to be added to user response from backend
+		return result.data.roles || [];
 	}
 
 	private async request<T>(
@@ -56,10 +53,8 @@ class ApiClient {
 			...options.headers
 		};
 
-		// Only add Authorization header if we have a valid token
-		if (this.token) {
-			headers['Authorization'] = `Bearer ${this.token}`;
-		}
+		// No need to add Authorization header - cookies are sent automatically
+		// The 'include' credentials option ensures cookies are sent
 
 		try {
 			const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -88,23 +83,18 @@ class ApiClient {
 			}
 
 			if (!response.ok) {
-				// If we get a 401, clear the invalid token
-				if (response.status === 401 && this.token) {
-					console.log('Token invalid, clearing from storage');
-					this.token = null;
-					if (typeof window !== 'undefined') {
-						localStorage.removeItem('auth_token');
-					}
+				// If we get a 401, the cookie may be expired or invalid
+				if (response.status === 401) {
+					console.log('Authentication failed - cookie may be expired');
 				}
 				throw new Error(data.error || `HTTP ${response.status}`);
 			}
 
 			return { data: data as T };
 		} catch (error) {
-			console.error('API request failed:', error);
-			return { 
-				error: error instanceof Error ? error.message : 'An error occurred' 
-			};
+			// Use ErrorHandler but don't show toast by default (let caller decide)
+			const message = ErrorHandler.handle(error, false);
+			return { error: message };
 		}
 	}
 
@@ -117,13 +107,8 @@ class ApiClient {
 		});
 		console.log('API login response:', response);
 
-		if (response.data?.token) {
-			this.token = response.data.token;
-			if (typeof window !== 'undefined') {
-				localStorage.setItem('auth_token', this.token);
-				console.log('Token stored in localStorage');
-			}
-		}
+		// Token is automatically set as httpOnly cookie by backend
+		// No client-side token handling needed
 
 		return response;
 	}
@@ -133,39 +118,37 @@ class ApiClient {
 			method: 'POST'
 		});
 
-		this.token = null;
-		if (typeof window !== 'undefined') {
-			localStorage.removeItem('auth_token');
-		}
+		// Token is automatically cleared via httpOnly cookie expiration by backend
+		// No client-side token cleanup needed
 
 		return response;
 	}
 
-	async signup(request: SignupRequest): Promise<ApiResponse<User>> {
-		return this.request<User>('/auth/signup', {
+	async signup(request: SignupRequest): Promise<ApiResponse<AuthUser>> {
+		return this.request<AuthUser>('/auth/signup', {
 			method: 'POST',
 			body: JSON.stringify(request)
 		});
 	}
 
-	async getCurrentUser(): Promise<ApiResponse<User>> {
-		console.log('Getting current user, token:', this.token ? 'present' : 'missing');
-		const response = await this.request<User>('/auth/me');
+	async getCurrentUser(): Promise<ApiResponse<UserResponse>> {
+		console.log('Getting current user via httpOnly cookie authentication');
+		const response = await this.request<UserResponse>('/auth/me');
 		console.log('Current user response:', response);
 		return response;
 	}
 
 	// Users methods (admin)
-	async getUsers(page = 1, pageSize = 20): Promise<ApiResponse<PaginatedResponse<User>>> {
-		return this.request<PaginatedResponse<User>>(`/admin/users?page=${page}&page_size=${pageSize}`);
+	async getUsers(page = 1, pageSize = 20): Promise<ApiResponse<PaginatedResponse<AuthUser>>> {
+		return this.request<PaginatedResponse<AuthUser>>(`/admin/users?page=${page}&page_size=${pageSize}`);
 	}
 
-	async getUser(id: string): Promise<ApiResponse<User>> {
-		return this.request<User>(`/admin/users/${id}`);
+	async getUser(id: string): Promise<ApiResponse<AuthUser>> {
+		return this.request<AuthUser>(`/admin/users/${id}`);
 	}
 
-	async updateUser(id: string, updates: Partial<User>): Promise<ApiResponse<User>> {
-		return this.request<User>(`/admin/users/${id}`, {
+	async updateUser(id: string, updates: Partial<AuthUser>): Promise<ApiResponse<AuthUser>> {
+		return this.request<AuthUser>(`/admin/users/${id}`, {
 			method: 'PATCH',
 			body: JSON.stringify(updates)
 		});
@@ -213,9 +196,7 @@ class ApiClient {
 
 		const response = await fetch(`${API_BASE}/storage/buckets/${bucket}/upload`, {
 			method: 'POST',
-			headers: {
-				'Authorization': this.token ? `Bearer ${this.token}` : ''
-			},
+			// No Authorization header needed - httpOnly cookies sent automatically
 			body: formData,
 			credentials: 'include'
 		});

@@ -6,7 +6,7 @@
 		RefreshCw, Eye, Edit, Trash2, AlertCircle, CheckCircle,
 		Terminal, Download, Package, Rocket
 	} from 'lucide-svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
 	import FileExplorer from '$lib/components/FileExplorer.svelte';
 
@@ -136,8 +136,7 @@
 				await loadSites();
 			}
 		} catch (error) {
-			console.error('Failed to create site:', error);
-			alert('Failed to create site');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -149,8 +148,7 @@
 			// Reload sites
 			await loadSites();
 		} catch (error) {
-			console.error('Failed to delete site:', error);
-			alert('Failed to delete site');
+			ErrorHandler.handle(error);
 		}
 	}
 	

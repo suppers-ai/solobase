@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { Chart, registerables } from 'chart.js';
-	import { 
+	import {
 		Users, Database, HardDrive, Activity,
 		TrendingUp, TrendingDown, Clock, Server,
 		Zap, AlertCircle, CheckCircle, RefreshCw,
@@ -10,6 +10,7 @@
 	} from 'lucide-svelte';
 	import { api } from '$lib/api';
 	import { currentUser, userRoles } from '$lib/stores/auth';
+	import { formatBytes, formatNumber } from '$lib/utils/formatters';
 	
 	Chart.register(...registerables);
 	
@@ -549,20 +550,6 @@
 		if (performanceChart) performanceChart.destroy();
 		if (activityChart) activityChart.destroy();
 	});
-	
-	function formatBytes(bytes: number): string {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-	}
-	
-	function formatNumber(num: number): string {
-		if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-		if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-		return num.toString();
-	}
 	
 	function getTrend(current: number, previous: number): 'up' | 'down' | 'stable' {
 		if (previous === 0) return 'stable';

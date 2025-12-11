@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { 
+	import {
 		Package2, Plus, Edit2, Trash2, Search, Filter,
 		CheckCircle, XCircle, Settings
 	} from 'lucide-svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
 	import IconPicker from '$lib/components/IconPicker.svelte';
 	import FieldEditor from '$lib/components/FieldEditor.svelte';
@@ -12,6 +12,7 @@
 	import ReorderableList from '$lib/components/ReorderableList.svelte';
 	import PricingTemplateModal from '$lib/components/PricingTemplateModal.svelte';
 	import { getIconComponent } from '$lib/utils/icons';
+	import { toasts } from '$lib/stores/toast';
 
 	interface FieldConstraints {
 		required?: boolean;
@@ -167,8 +168,7 @@
 			};
 			showCreatePricingModal = false;
 		} catch (error) {
-			console.error('Failed to create pricing template:', error);
-			alert('Failed to create pricing template: ' + (error.message || 'Unknown error'));
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -191,8 +191,7 @@
 			showEditPricingModal = false;
 			editingPricingTemplate = null;
 		} catch (error) {
-			console.error('Failed to update pricing template:', error);
-			alert('Failed to update pricing template');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -237,8 +236,7 @@
 				await loadProductTypes();
 			}
 		} catch (error) {
-			console.error('Failed to create product type:', error);
-			alert('Failed to create product type');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -278,8 +276,7 @@
 				await loadProductTypes();
 			}
 		} catch (error) {
-			console.error('Failed to save product type:', error);
-			alert('Failed to save product type');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -291,8 +288,7 @@
 			// Reload product types
 			await loadProductTypes();
 		} catch (error) {
-			console.error('Failed to delete product type:', error);
-			alert('Failed to delete product type');
+			ErrorHandler.handle(error);
 		}
 	}
 
@@ -419,7 +415,7 @@
 	function addSchemaField(type: string) {
 		const id = getNextFilterId(type, schemaFields);
 		if (!id) {
-			alert(`Maximum of 5 ${type} fields reached`);
+			toasts.warning(`Maximum of 5 ${type} fields reached`);
 			return;
 		}
 		

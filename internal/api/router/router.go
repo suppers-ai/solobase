@@ -114,8 +114,9 @@ func (a *API) setupRoutesWithAdmin() {
 	apiRouter.Handle("/metrics", system.HandlePrometheusMetrics()).Methods("GET", "OPTIONS")
 
 	// Authentication (public endpoints)
-	apiRouter.HandleFunc("/auth/login", auth.HandleLogin(a.AuthService, a.StorageService, a.ExtensionRegistry, a.IAMService)).Methods("POST", "OPTIONS")
+	apiRouter.HandleFunc("/auth/login", auth.HandleLogin(a.AuthService, a.StorageService, a.ExtensionRegistry, a.IAMService, a.DB)).Methods("POST", "OPTIONS")
 	apiRouter.HandleFunc("/auth/signup", auth.HandleSignup(a.AuthService, a.IAMService)).Methods("POST", "OPTIONS")
+	apiRouter.HandleFunc("/auth/refresh", auth.HandleRefreshToken(a.DB, a.IAMService, a.AuthService)).Methods("POST", "OPTIONS")
 
 	// OAuth endpoints (public)
 	a.setupOAuthRoutes(apiRouter)
@@ -136,10 +137,15 @@ func (a *API) setupRoutesWithAdmin() {
 	// ---- Current User Operations (any authenticated user) ----
 	
 	// Auth operations
-	protected.HandleFunc("/auth/logout", auth.HandleLogout()).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/auth/logout", auth.HandleLogout(a.DB)).Methods("POST", "OPTIONS")
 	protected.HandleFunc("/auth/me", auth.HandleGetCurrentUser()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/auth/me", auth.HandleUpdateCurrentUser(a.UserService)).Methods("PATCH", "OPTIONS")
 	protected.HandleFunc("/auth/change-password", auth.HandleChangePassword(a.AuthService)).Methods("POST", "OPTIONS")
+
+	// API Key management
+	protected.HandleFunc("/auth/api-keys", auth.HandleListAPIKeys(a.DB)).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/auth/api-keys", auth.HandleCreateAPIKey(a.DB)).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/auth/api-keys/{keyId}", auth.HandleRevokeAPIKey(a.DB)).Methods("DELETE", "OPTIONS")
 	
 
 	// ---- User Storage (regular user access) ----

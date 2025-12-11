@@ -9,12 +9,16 @@ import (
 )
 
 // GenerateToken generates a random token of the specified length
-func GenerateToken(length int) string {
+func GenerateToken(length int) (string, error) {
 	b := make([]byte, length)
 	if _, err := rand.Read(b); err != nil {
-		panic(err)
+		return "", fmt.Errorf("failed to generate token: %w", err)
 	}
-	return base64.URLEncoding.EncodeToString(b)[:length]
+	encoded := base64.URLEncoding.EncodeToString(b)
+	if len(encoded) > length {
+		encoded = encoded[:length]
+	}
+	return encoded, nil
 }
 
 // ParseUUID parses a string UUID

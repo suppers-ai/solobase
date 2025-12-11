@@ -12,10 +12,7 @@
 		try {
 			await auth.logout();
 			
-			// Clear any remaining localStorage items
-			if (typeof window !== 'undefined') {
-				localStorage.removeItem('auth_token');
-			}
+			// Token is cleared via httpOnly cookie expiration
 			
 			message = 'You have been logged out successfully.';
 			isLoading = false;
@@ -29,10 +26,7 @@
 			message = 'Logout completed.';
 			isLoading = false;
 			
-			// Even if there's an error, clear session and redirect
-			if (typeof window !== 'undefined') {
-				localStorage.removeItem('auth_token');
-			}
+			// Token is cleared via httpOnly cookie expiration
 			setTimeout(() => {
 				goto('/auth/login');
 			}, 1500);

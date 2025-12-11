@@ -6,8 +6,22 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Configuration
-DATABASE_TYPE="${1:-sqlite}"
+# Load environment file based on ENVIRONMENT variable
+# If ENVIRONMENT is set, load .env.{ENVIRONMENT}, otherwise load .env
+if [ -n "$ENVIRONMENT" ] && [ -f ".env.${ENVIRONMENT}" ]; then
+    echo -e "${YELLOW}Loading environment from .env.${ENVIRONMENT}${NC}"
+    set -a
+    source ".env.${ENVIRONMENT}"
+    set +a
+elif [ -f .env ]; then
+    echo -e "${YELLOW}Loading environment from .env${NC}"
+    set -a
+    source .env
+    set +a
+fi
+
+# Configuration (use env vars if set, otherwise defaults)
+DATABASE_TYPE="${DATABASE_TYPE:-${1:-sqlite}}"
 API_PORT=${API_PORT:-8090}
 FRONTEND_PORT=${FRONTEND_PORT:-5173}
 
@@ -85,12 +99,13 @@ echo -e "${YELLOW}Building solobase...${NC}"
 
 # Start API server
 echo -e "${YELLOW}Starting API server on port $API_PORT...${NC}"
-# ENVIRONMENT=development ensures consistent JWT secret across restarts
-ENVIRONMENT=development \
+# Use env vars if set, otherwise use defaults
+ENVIRONMENT=${ENVIRONMENT:-development} \
 DATABASE_TYPE=$DATABASE_TYPE \
 DATABASE_URL=$DATABASE_URL \
-DEFAULT_ADMIN_EMAIL=admin@example.com \
-DEFAULT_ADMIN_PASSWORD=admin123 \
+DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@example.com} \
+DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-admin123} \
+JWT_SECRET=${JWT_SECRET:-} \
 PORT=$API_PORT \
 ./solobase &
 API_PID=$!

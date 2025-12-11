@@ -5,7 +5,7 @@
 		DollarSign, TrendingUp, BarChart3, Zap, Code2,
 		Variable, FileText, CheckCircle, XCircle, Play, AlertCircle, Settings, ArrowLeft
 	} from 'lucide-svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
 	import FormulaEditor from '$lib/components/FormulaEditor.svelte';
 
@@ -182,8 +182,7 @@
 				await loadPricingData();
 			}
 		} catch (error) {
-			console.error('Failed to create pricing template:', error);
-			alert('Failed to create pricing template');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -210,8 +209,7 @@
 				await loadPricingData();
 			}
 		} catch (error) {
-			console.error('Failed to update pricing template:', error);
-			alert('Failed to update pricing template');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -223,8 +221,7 @@
 			// Reload templates
 			await loadPricingData();
 		} catch (error) {
-			console.error('Failed to delete pricing template:', error);
-			alert('Failed to delete pricing template');
+			ErrorHandler.handle(error);
 		}
 	}
 
@@ -1581,8 +1578,7 @@
 				await loadPricingData();
 			}
 		} catch (error) {
-			console.error('Failed to create variable:', error);
-			alert('Failed to create variable');
+			ErrorHandler.handle(error);
 		}
 	}}
 	on:save={(e) => {

@@ -10,7 +10,7 @@ help:
 
 build:
 	@echo "Building Solobase..."
-	go build -o solobase ./backend
+	go build -o solobase ./cmd/solobase
 
 run:
 	@echo "Running Solobase..."
@@ -23,7 +23,10 @@ test:
 generate-types:
 	@echo "Generating TypeScript types from GORM models..."
 	go run scripts/generate-types.go
-	@echo "Types generated successfully in sdk/typescript/src/types/database/"
+	@echo "Copying types to frontend..."
+	@mkdir -p frontend/src/lib/types/generated
+	@cp sdk/typescript/src/types/database/index.ts frontend/src/lib/types/generated/database.ts
+	@echo "Types generated successfully in sdk/typescript/src/types/database/ and frontend/src/lib/types/generated/"
 
 clean:
 	@echo "Cleaning build artifacts..."

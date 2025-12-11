@@ -207,10 +207,14 @@ func (s *HugoService) GetStats(userID string) (*HugoStats, error) {
 	var stats HugoStats
 
 	// Count total sites
-	s.db.Model(&HugoSite{}).Where("user_id = ?", userID).Count(&stats.TotalSites)
+	var totalSites int64
+	s.db.Model(&HugoSite{}).Where("user_id = ?", userID).Count(&totalSites)
+	stats.TotalSites = int(totalSites)
 
 	// Count active sites
-	s.db.Model(&HugoSite{}).Where("user_id = ? AND status = ?", userID, "published").Count(&stats.ActiveSites)
+	var activeSites int64
+	s.db.Model(&HugoSite{}).Where("user_id = ? AND status = ?", userID, "published").Count(&activeSites)
+	stats.ActiveSites = int(activeSites)
 
 	// Count total builds (sites that have been built at least once)
 	var buildCount int64

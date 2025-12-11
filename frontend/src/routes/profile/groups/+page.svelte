@@ -5,7 +5,7 @@
 		Users, Store, Briefcase, Home, Globe, MapPin,
 		Phone, Mail, Calendar, MoreVertical, ExternalLink
 	} from 'lucide-svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler } from '$lib/api';
 	import { authStore } from '$lib/stores/auth';
 	import { goto } from '$app/navigation';
 
@@ -138,8 +138,7 @@
 				await loadData();
 			}
 		} catch (error) {
-			console.error('Failed to create group:', error);
-			alert('Failed to create group');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -174,8 +173,7 @@
 				await loadData();
 			}
 		} catch (error) {
-			console.error('Failed to update group:', error);
-			alert('Failed to update group');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -187,8 +185,7 @@
 			// Reload groups
 			await loadData();
 		} catch (error) {
-			console.error('Failed to delete group:', error);
-			alert('Failed to delete group');
+			ErrorHandler.handle(error);
 		}
 	}
 

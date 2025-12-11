@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { api } from "$lib/api";
+	import { api, ErrorHandler } from "$lib/api";
 	import { requireAdmin } from "$lib/utils/auth";
 
 	let extensions: any[] = [];
@@ -218,7 +218,7 @@
 			}
 			await loadExtensions();
 		} catch (err: any) {
-			alert(`Error: ${err.message}`);
+			ErrorHandler.handle(err);
 		}
 	}
 

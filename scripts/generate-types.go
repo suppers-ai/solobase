@@ -63,8 +63,8 @@ func main() {
 
 	// Define model file paths
 	modelPaths := []string{
-		"packages/auth/models.go",
-		"packages/storage/models.go",
+		"internal/pkg/auth/models.go",
+		"internal/pkg/storage/models.go",
 		"internal/iam/models.go",
 		"extensions/official/analytics/models.go",
 		"extensions/official/cloudstorage/models.go",
@@ -75,8 +75,6 @@ func main() {
 	// Find additional model files
 	additionalPaths := []string{
 		"internal/data/models",
-		"packages/database",
-		"packages/logger",
 	}
 
 	for _, dir := range additionalPaths {
@@ -266,8 +264,11 @@ func convertToTSType(goType string, isPointer bool) string {
 }
 
 func generateTypeScriptFile(structs []StructInfo) {
-	outputPath := "sdk/typescript/src/types/database/index.ts"
+	// Output to shared folder - single source of truth
+	generateToPath(structs, "shared/types/generated/database.ts")
+}
 
+func generateToPath(structs []StructInfo, outputPath string) {
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(outputPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {

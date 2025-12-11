@@ -10,6 +10,7 @@ export class BaseService {
     this.client = axios.create({
       baseURL: config.url + '/api',
       timeout: config.timeout || 30000,
+      withCredentials: true, // Send cookies with cross-origin requests
       headers: {
         'Content-Type': 'application/json',
         ...config.headers,
@@ -67,12 +68,20 @@ export class BaseService {
     return query.toString();
   }
 
-  public setAuthToken(token: string) {
-    this.config.apiKey = token;
-    this.client.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  /**
+   * Set API key for server-to-server authentication.
+   * In browser environments, cookie-based auth is used automatically.
+   */
+  public setApiKey(apiKey: string) {
+    this.config.apiKey = apiKey;
+    this.client.defaults.headers.common['Authorization'] = `Bearer ${apiKey}`;
   }
 
-  public removeAuthToken() {
+  /**
+   * Remove API key (for server-to-server auth).
+   * In browser environments, use logout() to clear the auth cookie.
+   */
+  public removeApiKey() {
     delete this.config.apiKey;
     delete this.client.defaults.headers.common['Authorization'];
   }

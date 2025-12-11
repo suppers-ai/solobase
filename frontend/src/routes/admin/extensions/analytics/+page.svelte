@@ -1,7 +1,8 @@
 <script>
 	import { onMount, onDestroy } from 'svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
+	import { toasts } from '$lib/stores/toast';
 	import Chart from 'chart.js/auto';
 	import 'chartjs-adapter-date-fns';
 	import { 
@@ -291,7 +292,7 @@
 	
 	async function submitTrackEvent() {
 		if (!trackEventName.trim()) {
-			alert('Please enter an event name');
+			toasts.warning('Please enter an event name');
 			return;
 		}
 		
@@ -312,7 +313,7 @@
 				const additionalProps = JSON.parse(trackEventProperties);
 				eventData = { ...eventData, ...additionalProps };
 			} catch (e) {
-				alert('Invalid JSON in properties field');
+				toasts.warning('Invalid JSON in properties field');
 				return;
 			}
 		}
@@ -328,7 +329,7 @@
 				throw new Error(response.error);
 			}
 		} catch (err) {
-			alert('Failed to track event: ' + err.message);
+			ErrorHandler.handle(err);
 		}
 	}
 	

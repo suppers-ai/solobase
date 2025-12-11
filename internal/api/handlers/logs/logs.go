@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/suppers-ai/solobase/internal/api/response"
 	"github.com/suppers-ai/solobase/internal/core/services"
+	"github.com/suppers-ai/solobase/utils"
 )
 
 // HandleGetLogs returns paginated logs
@@ -36,7 +36,7 @@ func HandleGetLogs(logsService *services.LogsService) http.HandlerFunc {
 		// Get logs
 		logs, total, err := logsService.GetLogs(page, size, level, search, timeRange)
 		if err != nil {
-			response.RespondWithError(w, http.StatusInternalServerError, "Failed to fetch logs")
+			utils.JSONError(w, http.StatusInternalServerError, "Failed to fetch logs")
 			return
 		}
 
@@ -70,7 +70,7 @@ func HandleGetLogs(logsService *services.LogsService) http.HandlerFunc {
 			"size":  size,
 		}
 
-		response.RespondWithJSON(w, http.StatusOK, result)
+		utils.JSONResponse(w, http.StatusOK, result)
 	}
 }
 
@@ -101,7 +101,7 @@ func HandleGetRequestLogs(logsService *services.LogsService) http.HandlerFunc {
 		// Get request logs
 		logs, total, err := logsService.GetRequestLogs(page, size, method, path, timeRange, minStatus, maxStatus)
 		if err != nil {
-			response.RespondWithError(w, http.StatusInternalServerError, "Failed to fetch request logs")
+			utils.JSONError(w, http.StatusInternalServerError, "Failed to fetch request logs")
 			return
 		}
 
@@ -144,7 +144,7 @@ func HandleGetRequestLogs(logsService *services.LogsService) http.HandlerFunc {
 			"size":  size,
 		}
 
-		response.RespondWithJSON(w, http.StatusOK, result)
+		utils.JSONResponse(w, http.StatusOK, result)
 	}
 }
 
@@ -158,11 +158,11 @@ func HandleGetLogStats(logsService *services.LogsService) http.HandlerFunc {
 
 		stats, err := logsService.GetLogStats(timeRange)
 		if err != nil {
-			response.RespondWithError(w, http.StatusInternalServerError, "Failed to fetch log statistics")
+			utils.JSONError(w, http.StatusInternalServerError, "Failed to fetch log statistics")
 			return
 		}
 
-		response.RespondWithJSON(w, http.StatusOK, stats)
+		utils.JSONResponse(w, http.StatusOK, stats)
 	}
 }
 
@@ -171,7 +171,7 @@ func HandleGetLogDetails(logsService *services.LogsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logID := r.URL.Query().Get("id")
 		if logID == "" {
-			response.RespondWithError(w, http.StatusBadRequest, "Log ID is required")
+			utils.JSONError(w, http.StatusBadRequest, "Log ID is required")
 			return
 		}
 
@@ -181,7 +181,7 @@ func HandleGetLogDetails(logsService *services.LogsService) http.HandlerFunc {
 			// Try request log
 			reqLog, err := logsService.GetRequestLogByID(logID)
 			if err != nil {
-				response.RespondWithError(w, http.StatusNotFound, "Log not found")
+				utils.JSONError(w, http.StatusNotFound, "Log not found")
 				return
 			}
 
@@ -215,7 +215,7 @@ func HandleGetLogDetails(logsService *services.LogsService) http.HandlerFunc {
 				result["headers"] = *reqLog.Headers
 			}
 
-			response.RespondWithJSON(w, http.StatusOK, result)
+			utils.JSONResponse(w, http.StatusOK, result)
 			return
 		}
 
@@ -237,7 +237,7 @@ func HandleGetLogDetails(logsService *services.LogsService) http.HandlerFunc {
 			}
 		}
 
-		response.RespondWithJSON(w, http.StatusOK, result)
+		utils.JSONResponse(w, http.StatusOK, result)
 	}
 }
 
@@ -249,7 +249,7 @@ func HandleClearLogs(logsService *services.LogsService) http.HandlerFunc {
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			response.RespondWithError(w, http.StatusBadRequest, "Invalid request body")
+			utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
 			return
 		}
 
@@ -259,7 +259,7 @@ func HandleClearLogs(logsService *services.LogsService) http.HandlerFunc {
 
 		deleted, err := logsService.ClearLogs(request.OlderThan)
 		if err != nil {
-			response.RespondWithError(w, http.StatusInternalServerError, "Failed to clear logs")
+			utils.JSONError(w, http.StatusInternalServerError, "Failed to clear logs")
 			return
 		}
 
@@ -268,7 +268,7 @@ func HandleClearLogs(logsService *services.LogsService) http.HandlerFunc {
 			"deleted": deleted,
 		}
 
-		response.RespondWithJSON(w, http.StatusOK, result)
+		utils.JSONResponse(w, http.StatusOK, result)
 	}
 }
 
@@ -288,7 +288,7 @@ func HandleExportLogs(logsService *services.LogsService) http.HandlerFunc {
 		// Get logs
 		logs, _, err := logsService.GetLogs(page, size, level, search, timeRange)
 		if err != nil {
-			response.RespondWithError(w, http.StatusInternalServerError, "Failed to fetch logs")
+			utils.JSONError(w, http.StatusInternalServerError, "Failed to fetch logs")
 			return
 		}
 

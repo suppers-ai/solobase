@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler } from '$lib/api';
+	import { formatDateTime } from '$lib/utils/formatters';
+	import { toasts } from '$lib/stores/toast';
 
 	// Tab management
 	let activeTab = 'overview';
@@ -208,10 +210,9 @@
 		try {
 			await api.post(`/admin/ext/products/purchases/${purchaseId}/refund`, { amount: 0, reason });
 			await loadPurchases();
-			alert('Refund processed successfully');
+			toasts.success('Refund processed successfully');
 		} catch (err) {
-			alert('Failed to process refund');
-			console.error('Refund error:', err);
+			ErrorHandler.handle(err);
 		}
 	}
 
@@ -221,10 +222,9 @@
 		try {
 			await api.post(`/admin/ext/products/purchases/${purchaseId}/approve`);
 			await loadPurchases();
-			alert('Purchase approved');
+			toasts.success('Purchase approved');
 		} catch (err) {
-			alert('Failed to approve purchase');
-			console.error('Approve error:', err);
+			ErrorHandler.handle(err);
 		}
 	}
 
@@ -234,16 +234,6 @@
 			style: 'currency',
 			currency: currency
 		}).format(cents / 100);
-	}
-
-	function formatDate(dateString: string): string {
-		return new Date(dateString).toLocaleDateString('en-US', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit'
-		});
 	}
 
 	function getStatusColor(status: string): string {
@@ -633,7 +623,7 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 										</span>
 									</td>
 									<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-										{formatDate(purchase.created_at)}
+										{formatDateTime(purchase.created_at)}
 									</td>
 									<td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
 										<div class="flex justify-end gap-2">

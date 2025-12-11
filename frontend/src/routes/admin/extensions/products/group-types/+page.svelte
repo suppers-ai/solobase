@@ -1,14 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { 
+	import {
 		Building2, Plus, Edit2, Trash2, Search, Filter,
 		CheckCircle, XCircle, Settings
 	} from 'lucide-svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
 	import IconPicker from '$lib/components/IconPicker.svelte';
 	import FieldEditor from '$lib/components/FieldEditor.svelte';
 	import { getIconComponent } from '$lib/utils/icons';
+	import { toasts } from '$lib/stores/toast';
 
 	interface FieldConstraints {
 		required?: boolean;
@@ -108,8 +109,7 @@
 				await loadEntityTypes();
 			}
 		} catch (error) {
-			console.error('Failed to create group type:', error);
-			alert('Failed to create group type');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -136,8 +136,7 @@
 				await loadEntityTypes();
 			}
 		} catch (error) {
-			console.error('Failed to save group type:', error);
-			alert('Failed to save group type');
+			ErrorHandler.handle(error);
 		}
 	}
 	
@@ -149,8 +148,7 @@
 			// Reload group types
 			await loadEntityTypes();
 		} catch (error) {
-			console.error('Failed to delete group type:', error);
-			alert('Failed to delete group type');
+			ErrorHandler.handle(error);
 		}
 	}
 
@@ -241,7 +239,7 @@
 	function addSchemaField(type: string) {
 		const id = getNextFilterId(type, schemaFields);
 		if (!id) {
-			alert(`Maximum of 5 ${type} fields reached`);
+			toasts.warning(`Maximum of 5 ${type} fields reached`);
 			return;
 		}
 		

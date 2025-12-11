@@ -59,6 +59,8 @@ func (s *AuthService) GetUserByID(id string) (*auth.User, error) {
 }
 
 func (s *AuthService) CreateDefaultAdmin(email, password string) error {
+	log.Printf("CreateDefaultAdmin called with email: %s, password length: %d", email, len(password))
+
 	// Check if ANY admin user already exists
 	var adminCount int64
 	s.db.Model(&auth.User{}).Count(&adminCount)
@@ -76,11 +78,13 @@ func (s *AuthService) CreateDefaultAdmin(email, password string) error {
 				return err
 			}
 
-			// User exists, update password
+			// User exists, update password using UpdateColumns to skip BeforeUpdate hook
+			// (we're already hashing the password here)
 			log.Printf("Admin user exists, updating password for: %s", email)
-			existingUser.Password = string(hashedPassword)
-			existingUser.Confirmed = true
-			if err := s.db.Save(&existingUser).Error; err != nil {
+			if err := s.db.Model(&existingUser).UpdateColumns(map[string]interface{}{
+				"password":  string(hashedPassword),
+				"confirmed": true,
+			}).Error; err != nil {
 				log.Printf("Failed to update admin password: %v", err)
 				return err
 			}
@@ -119,7 +123,8 @@ func (s *AuthService) CreateDefaultAdmin(email, password string) error {
 }
 
 func (s *AuthService) UpdateUserPassword(userID, hashedPassword string) error {
-	return s.db.Model(&auth.User{}).Where("id = ?", userID).Update("password", hashedPassword).Error
+	// Use UpdateColumn to skip BeforeUpdate hook since password is already hashed
+	return s.db.Model(&auth.User{}).Where("id = ?", userID).UpdateColumn("password", hashedPassword).Error
 }
 
 // CreateUserWithContext creates a new user with context (for handlers)
@@ -152,16 +157,49 @@ func (s *AuthService) FindUserByEmail(email string) (*auth.User, error) {
 	return &user, nil
 }
 
-// FindUserByOAuth finds a user by OAuth provider and user ID
-func (s *AuthService) FindUserByOAuth(provider, uid string) (*auth.User, error) {
+// FindUserByOAuthToken finds a user by OAuth provider and provider UID via Token table
+func (s *AuthService) FindUserByOAuthToken(provider, providerUID string) (*auth.User, error) {
+	var token auth.Token
+	if err := s.db.Where("type = ? AND provider = ? AND provider_uid = ? AND revoked_at IS NULL",
+		auth.TokenTypeOAuth, provider, providerUID).
+		Order("created_at DESC").
+		First(&token).Error; err != nil {
+		return nil, err
+	}
+
 	var user auth.User
-	if err := s.db.Where("oauth2_provider = ? AND oauth2_uid = ?", provider, uid).First(&user).Error; err != nil {
+	if err := s.db.Where("id = ?", token.UserID).First(&user).Error; err != nil {
 		return nil, err
 	}
 	return &user, nil
 }
 
-// UpdateUserOAuth updates a user's OAuth information
-func (s *AuthService) UpdateUserOAuth(user *auth.User) error {
+// CreateOrUpdateOAuthToken creates or updates an OAuth token for a user
+func (s *AuthService) CreateOrUpdateOAuthToken(userID uuid.UUID, provider, providerUID, accessToken string, expiry *time.Time) error {
+	// Revoke any existing OAuth tokens for this provider/user combo
+	s.db.Model(&auth.Token{}).
+		Where("user_id = ? AND type = ? AND provider = ? AND revoked_at IS NULL", userID, auth.TokenTypeOAuth, provider).
+		Update("revoked_at", time.Now())
+
+	// Create new OAuth token
+	token := &auth.Token{
+		ID:          uuid.New(),
+		UserID:      userID,
+		Type:        auth.TokenTypeOAuth,
+		Provider:    &provider,
+		ProviderUID: &providerUID,
+		AccessToken: &accessToken,
+		ExpiresAt:   time.Now().Add(365 * 24 * time.Hour), // OAuth tokens don't expire in our system
+		CreatedAt:   time.Now(),
+	}
+	if expiry != nil {
+		token.OAuthExpiry = expiry
+	}
+
+	return s.db.Create(token).Error
+}
+
+// UpdateUser updates a user's information
+func (s *AuthService) UpdateUser(user *auth.User) error {
 	return s.db.Save(user).Error
 }

@@ -151,7 +151,7 @@ func NewWithOptions(opts *Options) *App {
 	if opts.JWTSecret == "" {
 		opts.JWTSecret = os.Getenv("JWT_SECRET")
 		if opts.JWTSecret == "" {
-			opts.JWTSecret = "your-secret-key-change-in-production"
+			log.Fatal("JWT_SECRET environment variable is required for security. Please set a strong secret key")
 		}
 	}
 	if opts.Port == "" {
@@ -227,8 +227,8 @@ func NewWithOptions(opts *Options) *App {
 		}
 
 		app.config.Database = &database.Config{
-			Type:     "sqlite",
-			Database: dbURL,
+			Type: "sqlite",
+			DSN:  dbURL,
 		}
 	}
 
@@ -290,6 +290,8 @@ func (app *App) Initialize() error {
 		// Auto-migrate models
 		db.AutoMigrate(
 			&auth.User{},
+			&auth.Token{},
+			&auth.APIKey{},
 			&models.Setting{},
 			&models.StorageDownloadToken{},
 			&models.StorageUploadToken{},
@@ -325,6 +327,10 @@ func (app *App) Initialize() error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize IAM service: %w", err)
 	}
+
+	// Set up middleware dependencies for API key authentication
+	middleware.SetAuthDB(db.DB)
+	middleware.SetIAMService(iamService)
 
 	// Initialize services
 	app.services = &AppServices{

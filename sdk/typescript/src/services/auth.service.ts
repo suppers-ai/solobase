@@ -1,5 +1,5 @@
 import { BaseService } from './base.service';
-import { User, AuthTokens } from '../types';
+import { User } from '../types';
 
 export interface SignUpOptions {
   email: string;
@@ -23,21 +23,22 @@ export interface UpdatePasswordOptions {
 
 export class AuthService extends BaseService {
   private currentUser: User | null = null;
-  private tokens: AuthTokens | null = null;
+  // Authentication is handled via httpOnly cookies
+  // No client-side token storage
 
   /**
    * Sign up a new user
    */
-  async signUp(options: SignUpOptions): Promise<{ user: User; tokens: AuthTokens }> {
+  async signUp(options: SignUpOptions): Promise<User> {
     // Signup returns just the user, need to login after
     const user = await this.request<User>({
       method: 'POST',
       url: '/auth/signup',
       data: options,
     });
-    
-    // Now sign in to get the token
-    const loginResponse = await this.request<{ token: string; user: User }>({
+
+    // Now sign in (httpOnly cookie will be set by backend)
+    const loginResponse = await this.request<{ user: User }>({
       method: 'POST',
       url: '/auth/login',
       data: {
@@ -45,41 +46,24 @@ export class AuthService extends BaseService {
         password: options.password,
       },
     });
-    
-    const tokens: AuthTokens = {
-      access_token: loginResponse.token,
-      expires_in: 86400, // 24 hours default
-      token_type: 'Bearer',
-    };
-    
+
     this.currentUser = loginResponse.user;
-    this.tokens = tokens;
-    this.setAuthToken(tokens.access_token);
-    
-    return { user: loginResponse.user, tokens };
+    return loginResponse.user;
   }
 
   /**
    * Sign in an existing user
    */
-  async signIn(options: SignInOptions): Promise<{ user: User; tokens: AuthTokens }> {
-    const response = await this.request<{ token: string; user: User }>({
+  async signIn(options: SignInOptions): Promise<User> {
+    const response = await this.request<{ user: User }>({
       method: 'POST',
       url: '/auth/login',
       data: options,
     });
-    
-    const tokens: AuthTokens = {
-      access_token: response.token,
-      expires_in: 86400, // 24 hours default
-      token_type: 'Bearer',
-    };
-    
+
     this.currentUser = response.user;
-    this.tokens = tokens;
-    this.setAuthToken(tokens.access_token);
-    
-    return { user: response.user, tokens };
+    // Auth token is set as httpOnly cookie by backend
+    return response.user;
   }
 
   /**
@@ -93,8 +77,7 @@ export class AuthService extends BaseService {
       });
     } finally {
       this.currentUser = null;
-      this.tokens = null;
-      this.removeAuthToken();
+      // Cookie will be cleared by backend
     }
   }
 
@@ -102,10 +85,6 @@ export class AuthService extends BaseService {
    * Get the current authenticated user
    */
   async getUser(): Promise<User | null> {
-    if (!this.tokens?.access_token) {
-      return null;
-    }
-
     try {
       const user = await this.request<User>({
         method: 'GET',
@@ -168,25 +147,13 @@ export class AuthService extends BaseService {
   }
 
   /**
-   * Refresh the access token
+   * Refresh the session (cookie-based)
    */
-  async refreshToken(): Promise<AuthTokens> {
-    if (!this.tokens?.refresh_token) {
-      throw new Error('No refresh token available');
-    }
-
-    const tokens = await this.request<AuthTokens>({
+  async refreshSession(): Promise<void> {
+    await this.request<void>({
       method: 'POST',
       url: '/auth/refresh',
-      data: {
-        refresh_token: this.tokens.refresh_token,
-      },
     });
-    
-    this.tokens = tokens;
-    this.setAuthToken(tokens.access_token);
-    
-    return tokens;
   }
 
   /**
@@ -218,25 +185,10 @@ export class AuthService extends BaseService {
   }
 
   /**
-   * Get the current auth tokens from memory
-   */
-  getTokens(): AuthTokens | null {
-    return this.tokens;
-  }
-
-  /**
-   * Set auth tokens (useful for restoring session)
-   */
-  setTokens(tokens: AuthTokens): void {
-    this.tokens = tokens;
-    this.setAuthToken(tokens.access_token);
-  }
-
-  /**
-   * Check if user is authenticated
+   * Check if user is authenticated (based on cached user)
    */
   isAuthenticated(): boolean {
-    return !!this.tokens?.access_token;
+    return this.currentUser !== null;
   }
 
   /**
@@ -252,7 +204,7 @@ export class AuthService extends BaseService {
   /**
    * Sign in with OAuth using popup window
    */
-  async signInWithPopup(provider: 'google' | 'github' | 'facebook' | 'microsoft'): Promise<{ user: User; tokens: AuthTokens }> {
+  async signInWithPopup(provider: 'google' | 'github' | 'facebook' | 'microsoft'): Promise<User> {
     return new Promise(async (resolve, reject) => {
       try {
         // Get OAuth URL from backend
@@ -298,28 +250,19 @@ export class AuthService extends BaseService {
               return;
             }
 
-            if (event.data.token) {
-              // Set the token
-              const tokens: AuthTokens = {
-                access_token: event.data.token,
-                expires_in: 86400, // 24 hours default
-                token_type: 'Bearer',
-              };
-
-              this.tokens = tokens;
-              this.setAuthToken(tokens.access_token);
-
-              // Fetch user info
+            if (event.data.success) {
+              // The auth cookie has been set by the backend
+              // Fetch user info to verify authentication
               this.getUser().then(user => {
                 if (user) {
                   this.currentUser = user;
-                  resolve({ user, tokens });
+                  resolve(user);
                 } else {
                   reject(new Error('Failed to fetch user information'));
                 }
               }).catch(reject);
             } else {
-              reject(new Error('No authentication token received'));
+              reject(new Error('Authentication failed'));
             }
           }
         };
@@ -358,18 +301,15 @@ export class AuthService extends BaseService {
   async handleOAuthCallback(
     provider: string,
     code: string
-  ): Promise<{ user: User; tokens: AuthTokens }> {
-    const response = await this.request<{ user: User; tokens: AuthTokens }>({
+  ): Promise<User> {
+    const response = await this.request<{ user: User }>({
       method: 'POST',
       url: `/auth/oauth/${provider}/callback`,
       data: { code },
     });
-    
+
     this.currentUser = response.user;
-    this.tokens = response.tokens;
-    this.setAuthToken(response.tokens.access_token);
-    
-    return response;
+    return response.user;
   }
 
   /**
@@ -380,9 +320,7 @@ export class AuthService extends BaseService {
       method: 'DELETE',
       url: '/auth/account',
     });
-    
+
     this.currentUser = null;
-    this.tokens = null;
-    this.removeAuthToken();
   }
 }

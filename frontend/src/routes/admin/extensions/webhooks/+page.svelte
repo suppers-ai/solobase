@@ -1,8 +1,10 @@
 <script>
 	import { onMount } from 'svelte';
-	import { api } from '$lib/api';
+	import { api, ErrorHandler } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
-	import { 
+	import { toasts } from '$lib/stores/toast';
+	import { formatDate } from '$lib/utils/formatters';
+	import {
 		Webhook, Plus, RefreshCw, X,
 		CheckCircle, XCircle, Send,
 		Link, Key, Calendar, Activity
@@ -110,24 +112,24 @@
 	
 	async function createWebhook() {
 		if (!newWebhook.name || !newWebhook.url || selectedEvents.length === 0) {
-			alert('Please fill in all required fields');
+			toasts.warning('Please fill in all required fields');
 			return;
 		}
-		
+
 		try {
 			const response = await api.createWebhook({
 				...newWebhook,
 				events: selectedEvents
 			});
-			
+
 			if (response.error) {
 				throw new Error(response.error);
 			}
-			
+
 			closeCreateModal();
 			await loadWebhooks();
 		} catch (err) {
-			alert(`Error: ${err.message}`);
+			ErrorHandler.handle(err);
 		}
 	}
 
@@ -135,48 +137,38 @@
 		try {
 			const response = await api.toggleWebhook(id, active);
 			if (response.error) {
-				alert('Failed to toggle webhook: ' + response.error);
+				ErrorHandler.handle('Failed to toggle webhook: ' + response.error);
 			} else {
 				await loadWebhooks();
 			}
 		} catch (err) {
-			alert('Failed to toggle webhook: ' + err.message);
+			ErrorHandler.handle(err);
 		}
 	}
 
 	async function testWebhook(webhook) {
 		try {
 			// Simulate test
-			alert(`Testing webhook "${webhook.name}"...\nSending test payload to ${webhook.url}`);
+			toasts.info(`Testing webhook "${webhook.name}"...\nSending test payload to ${webhook.url}`);
 		} catch (err) {
-			alert('Test failed: ' + err.message);
+			ErrorHandler.handle(err);
 		}
 	}
 	
 	async function deleteWebhook(id) {
 		if (!confirm('Are you sure you want to delete this webhook?')) return;
-		
+
 		try {
 			// Remove from local array for now
 			webhooks = webhooks.filter(w => w.id !== id);
 			stats.total = webhooks.length;
 			stats.active = webhooks.filter(w => w.active).length;
 		} catch (err) {
-			alert('Failed to delete webhook: ' + err.message);
+			ErrorHandler.handle(err);
 		}
 	}
 	
-	function formatDate(dateStr) {
-		if (!dateStr) return 'Never';
-		const date = new Date(dateStr);
-		const now = new Date();
-		const diff = now - date;
-		
-		if (diff < 3600000) return `${Math.floor(diff / 60000)} minutes ago`;
-		if (diff < 86400000) return `${Math.floor(diff / 3600000)} hours ago`;
-		return `${Math.floor(diff / 86400000)} days ago`;
-	}
-</script>
+	</script>
 
 <div class="page-container">
 	<!-- Header -->

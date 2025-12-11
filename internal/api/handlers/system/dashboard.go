@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/suppers-ai/solobase/internal/api/response"
 	"github.com/suppers-ai/solobase/internal/core/services"
+	"github.com/suppers-ai/solobase/utils"
 )
 
 type DashboardStats struct {
@@ -87,7 +87,7 @@ func HandleGetDashboardStats(
 			RecentActivities: activities,
 		}
 
-		response.RespondWithJSON(w, http.StatusOK, stats)
+		utils.JSONResponse(w, http.StatusOK, stats)
 	}
 }
 
@@ -126,6 +126,6 @@ func HandleGetDashboardStats(
 // 			DBQueries:       dbQueries,
 // 		}
 //
-// 		response.RespondWithJSON(w, http.StatusOK, response)
+// 		utils.JSONResponse(w, http.StatusOK, response)
 // 	}
 // }

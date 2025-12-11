@@ -1,0 +1,13 @@
+{
+  "name": "@solobase/types",
+  "version": "1.0.0",
+  "description": "Shared TypeScript types for Solobase",
+  "main": "index.ts",
+  "types": "index.ts",
+  "scripts": {
+    "generate": "cd ../.. && go run scripts/generate-types.go"
+  },
+  "keywords": ["solobase", "types", "typescript"],
+  "author": "Solobase Team",
+  "license": "MIT"
+}

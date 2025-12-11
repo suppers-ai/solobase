@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { 
-		Users, Search, Plus, Edit2, Trash2, 
+	import {
+		Users, Search, Plus, Edit2, Trash2,
 		Lock, Unlock, Mail, MoreVertical,
 		ChevronLeft, ChevronRight, Filter,
 		UserPlus, Shield, Check, X, CheckCircle, AlertCircle, Info,
@@ -10,6 +10,7 @@
 	import { api } from '$lib/api';
 	import ExportButton from '$lib/components/ExportButton.svelte';
 	import { requireAdmin } from '$lib/utils/auth';
+	import { formatDateTime } from '$lib/utils/formatters';
 	
 	let searchQuery = '';
 	let selectedStatus = 'all';
@@ -263,8 +264,8 @@
 				users = users.map(user => ({
 					...user,
 					original_created_at: user.created_at, // Keep original for charts
-					created_at: formatDate(user.created_at),
-					last_login: user.last_login ? formatDate(user.last_login) : 'Never',
+					created_at: formatDateTime(user.created_at),
+					last_login: user.last_login ? formatDateTime(user.last_login) : 'Never',
 				}));
 				
 				// Generate chart data after users are loaded
@@ -283,18 +284,6 @@
 		} finally {
 			loading = false;
 		}
-	}
-	
-	function formatDate(dateString: string): string {
-		if (!dateString) return 'N/A';
-		const date = new Date(dateString);
-		return date.toLocaleString('en-US', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit'
-		});
 	}
 	
 	// Stats (computed from users)

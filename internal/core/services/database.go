@@ -78,9 +78,12 @@ func (s *DatabaseService) GetTables() ([]interface{}, error) {
 				continue
 			}
 
-			// Get row count for each table
+			// Get row count for each table using safe table reference
 			var count int64
-			s.db.Raw("SELECT COUNT(*) FROM " + name).Scan(&count)
+			if err := s.db.Table(name).Count(&count).Error; err != nil {
+				log.Printf("Error counting rows in table %s: %v", name, err)
+				count = 0
+			}
 
 			tables = append(tables, map[string]interface{}{
 				"name":       name,
@@ -120,7 +123,7 @@ func (s *DatabaseService) GetTotalRowCount() (int64, error) {
 		}
 
 		var count int64
-		if err := s.db.Raw("SELECT COUNT(*) FROM " + tableName).Scan(&count).Error; err != nil {
+		if err := s.db.Table(tableName).Count(&count).Error; err != nil {
 			log.Printf("Error counting rows in table %s: %v", tableName, err)
 			continue
 		}

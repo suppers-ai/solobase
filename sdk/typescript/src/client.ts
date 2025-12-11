@@ -40,54 +40,17 @@ export class SolobaseClient {
     this.cloudStorage = new CloudStorageExtension(this.config);
     this.products = new ProductsExtension(this.config);
 
-    // Bind auth state changes to all services
-    this.setupAuthSync();
+    // Note: With cookie-based auth, no token sync is needed.
+    // The browser automatically sends httpOnly cookies with each request.
   }
 
   /**
-   * Setup auth token synchronization across all services
+   * Set a global API key for all services (for server-side/API key auth)
    */
-  private setupAuthSync() {
-    // Override auth service methods to sync tokens
-    const originalSetTokens = this.auth.setTokens.bind(this.auth);
-    this.auth.setTokens = (tokens) => {
-      originalSetTokens(tokens);
-      this.syncAuthToken(tokens.access_token);
-    };
-
-    const originalSignIn = this.auth.signIn.bind(this.auth);
-    this.auth.signIn = async (options) => {
-      const result = await originalSignIn(options);
-      this.syncAuthToken(result.tokens.access_token);
-      return result;
-    };
-
-    const originalSignUp = this.auth.signUp.bind(this.auth);
-    this.auth.signUp = async (options) => {
-      const result = await originalSignUp(options);
-      this.syncAuthToken(result.tokens.access_token);
-      return result;
-    };
-
-    const originalSignOut = this.auth.signOut.bind(this.auth);
-    this.auth.signOut = async () => {
-      await originalSignOut();
-      this.syncAuthToken(null);
-    };
-
-    const originalRefreshToken = this.auth.refreshToken.bind(this.auth);
-    this.auth.refreshToken = async () => {
-      const tokens = await originalRefreshToken();
-      this.syncAuthToken(tokens.access_token);
-      return tokens;
-    };
-  }
-
-  /**
-   * Sync auth token across all services
-   */
-  private syncAuthToken(token: string | null) {
+  public setApiKey(apiKey: string) {
+    this.config.apiKey = apiKey;
     const services = [
+      this.auth,
       this.storage,
       this.database,
       this.iam,
@@ -95,22 +58,7 @@ export class SolobaseClient {
       this.cloudStorage,
       this.products,
     ];
-
-    services.forEach(service => {
-      if (token) {
-        service.setAuthToken(token);
-      } else {
-        service.removeAuthToken();
-      }
-    });
-  }
-
-  /**
-   * Set a global API key for all services
-   */
-  public setApiKey(apiKey: string) {
-    this.config.apiKey = apiKey;
-    this.syncAuthToken(apiKey);
+    services.forEach(service => service.setApiKey(apiKey));
   }
 
   /**
@@ -118,7 +66,16 @@ export class SolobaseClient {
    */
   public removeApiKey() {
     delete this.config.apiKey;
-    this.syncAuthToken(null);
+    const services = [
+      this.auth,
+      this.storage,
+      this.database,
+      this.iam,
+      this.extensions,
+      this.cloudStorage,
+      this.products,
+    ];
+    services.forEach(service => service.removeApiKey());
   }
 
   /**

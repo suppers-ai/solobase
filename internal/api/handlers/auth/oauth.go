@@ -12,9 +12,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
+	"github.com/suppers-ai/solobase/internal/constants"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/internal/iam"
+	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
 	"github.com/suppers-ai/solobase/utils"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/facebook"
@@ -321,48 +322,57 @@ func (om *OAuthManager) HandleOAuthCallback() http.HandlerFunc {
 			return
 		}
 
-		// Generate JWT token
-		jwtToken, err := generateToken(user, om.iamService)
+		// Generate JWT access token
+		jwtToken, err := generateAccessToken(user, om.iamService)
 		if err != nil {
 			log.Printf("Failed to generate JWT token: %v", err)
 			utils.JSONError(w, http.StatusInternalServerError, "Failed to generate authentication token")
 			return
 		}
 
-		// Return token as JSON or redirect to frontend with token
+		// Set access token as httpOnly cookie for security
+		http.SetCookie(w, &http.Cookie{
+			Name:     "auth_token",
+			Value:    jwtToken,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   r.TLS != nil, // Use Secure flag if HTTPS
+			SameSite: http.SameSiteLaxMode, // Lax for OAuth redirects
+			MaxAge:   int(constants.AccessTokenDuration.Seconds()),
+		})
+
+		// Return token as JSON or redirect to frontend
 		redirectURL := r.URL.Query().Get("redirect_uri")
 		if redirectURL == "" {
-			// Default redirect to frontend
+			// Default redirect to frontend callback page
 			redirectURL = "/auth/oauth/callback"
 		}
 
-		// Redirect to frontend with token in URL fragment (for SPA)
-		finalURL := fmt.Sprintf("%s?token=%s", redirectURL, jwtToken)
+		// Redirect to frontend callback page (no token in URL for security)
+		finalURL := fmt.Sprintf("%s?success=true&provider=%s", redirectURL, provider)
 		http.Redirect(w, r, finalURL, http.StatusTemporaryRedirect)
 	}
 }
 
 // findOrCreateOAuthUser finds an existing OAuth user or creates a new one
 func (om *OAuthManager) findOrCreateOAuthUser(ctx context.Context, provider string, userInfo *OAuthUserInfo, token *oauth2.Token) (*auth.User, error) {
-	// Try to find user by OAuth provider and ID
-	user, err := om.authService.FindUserByOAuth(provider, userInfo.ID)
+	// Try to find user by OAuth provider and ID (via Token table)
+	user, err := om.authService.FindUserByOAuthToken(provider, userInfo.ID)
 	if err == nil && user != nil {
-		// Update OAuth token
-		user.OAuth2Provider = &provider
-		user.OAuth2UID = &userInfo.ID
-		user.OAuth2Token = &token.AccessToken
-		if token.RefreshToken != "" {
-			user.OAuth2Refresh = &token.RefreshToken
-		}
+		// Update OAuth token in Token table
+		var expiry *time.Time
 		if !token.Expiry.IsZero() {
-			user.OAuth2Expiry = &token.Expiry
+			expiry = &token.Expiry
 		}
-		user.LastLogin = &time.Time{}
-		*user.LastLogin = time.Now()
+		if err := om.authService.CreateOrUpdateOAuthToken(user.ID, provider, userInfo.ID, token.AccessToken, expiry); err != nil {
+			return nil, fmt.Errorf("failed to update OAuth token: %w", err)
+		}
 
-		// Update user in database
-		if err := om.authService.UpdateUserOAuth(user); err != nil {
-			return nil, fmt.Errorf("failed to update OAuth user: %w", err)
+		// Update last login
+		now := time.Now()
+		user.LastLogin = &now
+		if err := om.authService.UpdateUser(user); err != nil {
+			log.Printf("Warning: Failed to update last login: %v", err)
 		}
 
 		return user, nil
@@ -371,21 +381,20 @@ func (om *OAuthManager) findOrCreateOAuthUser(ctx context.Context, provider stri
 	// Try to find user by email
 	user, err = om.authService.FindUserByEmail(userInfo.Email)
 	if err == nil && user != nil {
-		// Link OAuth account to existing user
-		user.OAuth2Provider = &provider
-		user.OAuth2UID = &userInfo.ID
-		user.OAuth2Token = &token.AccessToken
-		if token.RefreshToken != "" {
-			user.OAuth2Refresh = &token.RefreshToken
-		}
+		// Link OAuth account to existing user via Token table
+		var expiry *time.Time
 		if !token.Expiry.IsZero() {
-			user.OAuth2Expiry = &token.Expiry
+			expiry = &token.Expiry
 		}
-		user.LastLogin = &time.Time{}
-		*user.LastLogin = time.Now()
-
-		if err := om.authService.UpdateUserOAuth(user); err != nil {
+		if err := om.authService.CreateOrUpdateOAuthToken(user.ID, provider, userInfo.ID, token.AccessToken, expiry); err != nil {
 			return nil, fmt.Errorf("failed to link OAuth account: %w", err)
+		}
+
+		// Update last login
+		now := time.Now()
+		user.LastLogin = &now
+		if err := om.authService.UpdateUser(user); err != nil {
+			log.Printf("Warning: Failed to update last login: %v", err)
 		}
 
 		return user, nil
@@ -393,27 +402,26 @@ func (om *OAuthManager) findOrCreateOAuthUser(ctx context.Context, provider stri
 
 	// Create new user
 	newUser := &auth.User{
-		ID:             uuid.New(),
-		Email:          userInfo.Email,
-		DisplayName:    &userInfo.Name,
-		Confirmed:      true, // OAuth users are confirmed by default
-		OAuth2Provider: &provider,
-		OAuth2UID:      &userInfo.ID,
-		OAuth2Token:    &token.AccessToken,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
-	}
-
-	if token.RefreshToken != "" {
-		newUser.OAuth2Refresh = &token.RefreshToken
-	}
-	if !token.Expiry.IsZero() {
-		newUser.OAuth2Expiry = &token.Expiry
+		ID:          uuid.New(),
+		Email:       userInfo.Email,
+		DisplayName: userInfo.Name,
+		Confirmed:   true, // OAuth users are confirmed by default
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 
 	// Create user in database
 	if err := om.authService.CreateUser(newUser); err != nil {
 		return nil, fmt.Errorf("failed to create OAuth user: %w", err)
+	}
+
+	// Create OAuth token in Token table
+	var expiry *time.Time
+	if !token.Expiry.IsZero() {
+		expiry = &token.Expiry
+	}
+	if err := om.authService.CreateOrUpdateOAuthToken(newUser.ID, provider, userInfo.ID, token.AccessToken, expiry); err != nil {
+		log.Printf("Warning: Failed to store OAuth token: %v", err)
 	}
 
 	// Assign default 'user' role

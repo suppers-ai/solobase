@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Plus, Trash2, GripVertical, Edit2, ChevronUp, ChevronDown } from 'lucide-svelte';
+	import { toasts } from '$lib/stores/toast';
 
 	export let fields: any[] = [];
 	export let onFieldsChange: (fields: any[]) => void;
@@ -56,7 +57,7 @@
 
 	function saveField() {
 		if (!fieldForm.name) {
-			alert('Please provide a field name');
+			toasts.warning('Please provide a field name');
 			return;
 		}
 
