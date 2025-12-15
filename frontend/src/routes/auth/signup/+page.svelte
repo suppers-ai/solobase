@@ -2,6 +2,7 @@
 	import { api } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { Eye, EyeOff, Mail, Lock, UserPlus, User } from 'lucide-svelte';
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
 	
 	let email = '';
 	let password = '';
@@ -209,7 +210,7 @@
 				disabled={loading}
 			>
 				{#if loading}
-					<div class="spinner"></div>
+					<LoadingSpinner size="sm" color="white" />
 					<span>Creating account...</span>
 				{:else}
 					<UserPlus size={20} />
@@ -434,18 +435,6 @@
 		opacity: 0.7;
 	}
 	
-	.spinner {
-		width: 20px;
-		height: 20px;
-		border: 2px solid rgba(255, 255, 255, 0.3);
-		border-top-color: white;
-		border-radius: 50%;
-		animation: spin 0.6s linear infinite;
-	}
-	
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
 	
 	.login-link {
 		text-align: center;

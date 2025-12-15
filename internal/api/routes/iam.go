@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/suppers-ai/solobase/internal/iam"
+	"github.com/suppers-ai/solobase/utils"
 )
 
 // RegisterIAMRoutes registers all IAM-related routes
@@ -58,8 +59,7 @@ func handleGetRoles(iamService *iam.Service) http.HandlerFunc {
 func handleCreateRole(iamService *iam.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var role iam.Role
-		if err := json.NewDecoder(r.Body).Decode(&role); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &role) {
 			return
 		}
 
@@ -93,8 +93,7 @@ func handleUpdateRole(iamService *iam.Service) http.HandlerFunc {
 		roleName := vars["name"]
 
 		var role iam.Role
-		if err := json.NewDecoder(r.Body).Decode(&role); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &role) {
 			return
 		}
 
@@ -149,8 +148,7 @@ func handleCreatePolicy(iamService *iam.Service) http.HandlerFunc {
 			Effect   string `json:"effect"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&policy); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &policy) {
 			return
 		}
 
@@ -177,8 +175,8 @@ func handleDeletePolicy(iamService *iam.Service) http.HandlerFunc {
 			Action   string `json:"action"`
 		}
 
-		// Get the policy details from the request body for deletion
-		if err := json.NewDecoder(r.Body).Decode(&policy); err != nil {
+		// Get the policy details from the request body for deletion - may be empty
+		if !utils.DecodeJSONBody(w, r, &policy) || policy.Subject == "" {
 			// Try to delete by pattern matching - assume "allow" effect by default
 			if err := iamService.RemovePolicy(r.Context(), policyID, "*", "*", "allow"); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -218,8 +216,7 @@ func handleAssignRole(iamService *iam.Service) http.HandlerFunc {
 			Role string `json:"role"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 
@@ -257,8 +254,7 @@ func handleTestPermission(iamService *iam.Service) http.HandlerFunc {
 			Context  map[string]interface{} `json:"context,omitempty"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 

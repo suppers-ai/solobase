@@ -8,6 +8,7 @@
 		Zap, AlertCircle, CheckCircle, RefreshCw,
 		LayoutDashboard
 	} from 'lucide-svelte';
+	import PageHeader from '$lib/components/ui/PageHeader.svelte';
 	import { api } from '$lib/api';
 	import { currentUser, userRoles } from '$lib/stores/auth';
 	import { formatBytes, formatNumber } from '$lib/utils/formatters';
@@ -586,25 +587,20 @@
 
 <div class="dashboard-container">
 	<!-- Header -->
-	<div class="page-header">
-		<div class="header-content">
-			<div class="header-left">
-				<div class="header-title">
-					<LayoutDashboard size={24} />
-					<h1>Dashboard</h1>
-				</div>
-				<div class="header-meta">
-					<span class="meta-item">Uptime: {uptime}</span>
-				</div>
-			</div>
-			<div class="header-actions">
-				<button class="refresh-button" on:click={refreshData} disabled={loading}>
-					<RefreshCw size={16} class={loading ? 'spinning' : ''} />
-					{loading ? 'Refreshing...' : 'Refresh'}
-				</button>
-			</div>
-		</div>
-	</div>
+	<PageHeader
+		title="Dashboard"
+		icon={LayoutDashboard}
+	>
+		<svelte:fragment slot="meta">
+			<span class="meta-item">Uptime: {uptime}</span>
+		</svelte:fragment>
+		<svelte:fragment slot="actions">
+			<button class="refresh-button" on:click={refreshData} disabled={loading}>
+				<RefreshCw size={16} class={loading ? 'spinning' : ''} />
+				{loading ? 'Refreshing...' : 'Refresh'}
+			</button>
+		</svelte:fragment>
+	</PageHeader>
 	
 	<div class="dashboard-content">
 		{#if error}
@@ -829,68 +825,12 @@
 		min-height: 100vh;
 		background: #f3f4f6;
 	}
-	
-	.page-header {
-		background: white;
-		border-bottom: 1px solid #e5e7eb;
-		padding: 1.5rem 2rem;
-	}
-	
-	.header-content {
-		max-width: 1400px;
-		margin: 0 auto;
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-	
-	.header-left {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 0.5rem;
-	}
-	
-	:global(.header-icon) {
-		color: #374151;
-	}
-	
-	.header-title {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-	}
-	
-	.header-title h1 {
-		font-size: 1.5rem;
-		font-weight: 700;
-		color: #111827;
-		margin: 0;
-	}
-	
-	.header-meta {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		color: #6b7280;
-		font-size: 0.875rem;
-		margin-left: 2.25rem;
-	}
-	
+
+	/* PageHeader slot content */
 	.meta-item {
 		color: #6b7280;
 	}
-	
-	.meta-separator {
-		color: #d1d5db;
-	}
-	
-	.header-actions {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-	}
-	
+
 	.refresh-button {
 		display: flex;
 		align-items: center;

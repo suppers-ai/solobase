@@ -151,15 +151,8 @@ func (om *OAuthManager) HandleOAuthLogin() http.HandlerFunc {
 		}
 
 		// Store state in cookie for verification
-		http.SetCookie(w, &http.Cookie{
-			Name:     "oauth_state",
-			Value:    state,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   600, // 10 minutes
-		})
+		stateCookie := createAuthCookie("oauth_state", state, 600) // 10 minutes
+		http.SetCookie(w, stateCookie)
 
 		// Get authorization URL
 		url := providerConfig.Config.AuthCodeURL(state, oauth2.AccessTypeOffline)
@@ -273,13 +266,7 @@ func (om *OAuthManager) HandleOAuthCallback() http.HandlerFunc {
 		}
 
 		// Clear state cookie
-		http.SetCookie(w, &http.Cookie{
-			Name:     "oauth_state",
-			Value:    "",
-			Path:     "/",
-			MaxAge:   -1,
-			HttpOnly: true,
-		})
+		http.SetCookie(w, createAuthCookie("oauth_state", "", -1))
 
 		// Get authorization code
 		code := r.URL.Query().Get("code")
@@ -331,15 +318,7 @@ func (om *OAuthManager) HandleOAuthCallback() http.HandlerFunc {
 		}
 
 		// Set access token as httpOnly cookie for security
-		http.SetCookie(w, &http.Cookie{
-			Name:     "auth_token",
-			Value:    jwtToken,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   r.TLS != nil, // Use Secure flag if HTTPS
-			SameSite: http.SameSiteLaxMode, // Lax for OAuth redirects
-			MaxAge:   int(constants.AccessTokenDuration.Seconds()),
-		})
+		http.SetCookie(w, createAuthCookie("auth_token", jwtToken, int(constants.AccessTokenDuration.Seconds())))
 
 		// Return token as JSON or redirect to frontend
 		redirectURL := r.URL.Query().Get("redirect_uri")

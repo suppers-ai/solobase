@@ -1,7 +1,6 @@
 package database
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -82,28 +81,15 @@ func HandleGetTableColumns(dbService *services.DatabaseService) http.HandlerFunc
 func HandleExecuteQuery(dbService *services.DatabaseService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req QueryRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 
 		// Check if user has permission to execute queries
 		// This should be restricted to admin users only
-		// Temporarily allow queries without auth for development
-		if userValue := r.Context().Value("user"); userValue != nil {
-			// Check if user is admin via roles in context
-			roles, _ := r.Context().Value("user_roles").([]string)
-			isAdmin := false
-			for _, role := range roles {
-				if role == "admin" {
-					isAdmin = true
-					break
-				}
-			}
-			if !isAdmin {
-				utils.JSONError(w, http.StatusForbidden, "Insufficient permissions")
-				return
-			}
+		if !utils.IsAdmin(r) {
+			utils.JSONError(w, http.StatusForbidden, "Insufficient permissions")
+			return
 		}
 
 		result, err := dbService.ExecuteQuery(req.Query)

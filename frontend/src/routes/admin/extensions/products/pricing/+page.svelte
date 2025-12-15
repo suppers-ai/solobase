@@ -1,13 +1,25 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { 
-		Calculator, Plus, Edit2, Trash2, Search, Filter,
+	import {
+		Calculator, Plus, Edit2, Trash2, Filter,
 		DollarSign, TrendingUp, BarChart3, Zap, Code2,
 		Variable, FileText, CheckCircle, XCircle, Play, AlertCircle, Settings, ArrowLeft
 	} from 'lucide-svelte';
+	import SearchInput from '$lib/components/SearchInput.svelte';
 	import { api, ErrorHandler } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
 	import FormulaEditor from '$lib/components/FormulaEditor.svelte';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import TabNavigation from '$lib/components/ui/TabNavigation.svelte';
+	import PageHeader from '$lib/components/ui/PageHeader.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
+
+	const pricingTabs = [
+		{ id: 'templates', label: 'Templates', icon: FileText },
+		{ id: 'variables', label: 'Variables', icon: Variable }
+	];
 
 	interface PricingTemplate {
 		id: string;
@@ -49,8 +61,10 @@
 	let showCreateModal = false;
 	let showEditModal = false;
 	let showTestModal = false;
+	let showDeleteConfirm = false;
 	let selectedTemplate: PricingTemplate | null = null;
 	let selectedRule: PricingRule | null = null;
+	let templateToDelete: string | null = null;
 	
 	// Form data for new template
 	let newTemplate: Partial<PricingTemplate> = {
@@ -217,16 +231,23 @@
 		}
 	}
 	
-	async function deleteTemplate(id: string) {
-		if (!confirm('Are you sure you want to delete this pricing template? Products using this template will need to be updated.')) return;
-		
+	function deleteTemplate(id: string) {
+		templateToDelete = id;
+		showDeleteConfirm = true;
+	}
+
+	async function confirmDeleteTemplate() {
+		if (!templateToDelete) return;
+		showDeleteConfirm = false;
+
 		try {
-			await api.delete(`/products/pricing-templates/${id}`);
+			await api.delete(`/products/pricing-templates/${templateToDelete}`);
 			// Reload templates
 			await loadPricingData();
 		} catch (error) {
 			ErrorHandler.handle(error);
 		}
+		templateToDelete = null;
 	}
 
 	function openTestModal(template: PricingTemplate) {
@@ -284,46 +305,23 @@
 
 <div class="page-container">
 	<!-- Header -->
-	<div class="page-header">
-		<a href="/admin/extensions/products" class="back-button">
-			<ArrowLeft size={20} />
-		</a>
-		<div class="header-content">
-			<div class="header-left">
-				<div class="header-title">
-					<Calculator size={24} />
-					<h1>Pricing & Formulas</h1>
-				</div>
-				<p class="header-subtitle">Configure dynamic pricing rules and formulas for your products</p>
-			</div>
-		</div>
-	</div>
+	<PageHeader
+		title="Pricing & Formulas"
+		subtitle="Configure dynamic pricing rules and formulas for your products"
+		icon={Calculator}
+		backHref="/admin/extensions/products"
+		variant="card"
+	/>
 
 	<!-- Tabs -->
-	<div class="tabs">
-		<button class="tab {activeTab === 'templates' ? 'active' : ''}" on:click={() => activeTab = 'templates'}>
-			<FileText size={16} />
-			Templates
-		</button>
-		<button class="tab {activeTab === 'variables' ? 'active' : ''}" on:click={() => activeTab = 'variables'}>
-			<Variable size={16} />
-			Variables
-		</button>
-	</div>
+	<TabNavigation tabs={pricingTabs} bind:activeTab />
 
 	<!-- Main Content -->
 	<div class="content-card">
 		<!-- Toolbar -->
 		<div class="toolbar">
 			<div class="toolbar-left">
-				<div class="search-box">
-					<Search size={16} />
-					<input 
-						type="text" 
-						placeholder="Search {activeTab}..."
-						bind:value={searchQuery}
-					/>
-				</div>
+				<SearchInput bind:value={searchQuery} placeholder="Search {activeTab}..." maxWidth="320px" />
 				{#if activeTab === 'templates'}
 					<select class="filter-select" bind:value={selectedCategory}>
 						<option value="all">All Categories</option>
@@ -347,15 +345,15 @@
 					<div class="loading loading-spinner loading-lg text-cyan-600"></div>
 				</div>
 			{:else if filteredTemplates.length === 0}
-				<div class="empty-state">
-					<Calculator size={48} class="text-gray-400" />
-					<h3>No pricing templates found</h3>
-					<p>Create your first pricing template to start building dynamic pricing</p>
-					<button class="btn btn-primary mt-4" on:click={() => showCreateModal = true}>
-						<Plus size={16} />
+				<EmptyState
+					icon={Calculator}
+					title="No pricing templates found"
+					message="Create your first pricing template to start building dynamic pricing"
+				>
+					<Button icon={Plus} on:click={() => showCreateModal = true}>
 						Create Template
-					</button>
-				</div>
+					</Button>
+				</EmptyState>
 			{:else}
 				<div class="template-grid">
 					{#each filteredTemplates as template}
@@ -451,104 +449,6 @@
 		margin: 0 auto;
 	}
 
-	.page-header {
-		background: white;
-		border-radius: 0.5rem;
-		padding: 1.5rem;
-		margin-bottom: 1.5rem;
-		border: 1px solid #e5e7eb;
-		position: relative;
-	}
-	
-	.back-button {
-		position: absolute;
-		top: 1.5rem;
-		left: 1.5rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 36px;
-		height: 36px;
-		border: 1px solid #e5e7eb;
-		border-radius: 0.375rem;
-		background: white;
-		color: #6b7280;
-		text-decoration: none;
-		transition: all 0.2s;
-	}
-	
-	.back-button:hover {
-		background: #f9fafb;
-		color: #111827;
-	}
-
-	.header-content {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		margin-left: 48px;
-	}
-
-	.header-title {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		margin-bottom: 0.5rem;
-	}
-
-	.header-title h1 {
-		font-size: 1.5rem;
-		font-weight: 600;
-		color: #111827;
-		margin: 0;
-	}
-
-	.header-subtitle {
-		color: #6b7280;
-		font-size: 0.875rem;
-		margin: 0;
-	}
-
-	.header-actions {
-		display: flex;
-		gap: 0.75rem;
-	}
-
-	.tabs {
-		display: flex;
-		gap: 0.5rem;
-		margin-bottom: 1.5rem;
-		background: white;
-		padding: 0.5rem;
-		border-radius: 0.5rem;
-		border: 1px solid #e5e7eb;
-	}
-
-	.tab {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 1rem;
-		background: transparent;
-		border: none;
-		border-radius: 0.375rem;
-		font-size: 0.875rem;
-		font-weight: 500;
-		color: #6b7280;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.tab:hover {
-		background: #f3f4f6;
-		color: #374151;
-	}
-
-	.tab.active {
-		background: #06b6d4;
-		color: white;
-	}
-
 	.content-card {
 		background: white;
 		border-radius: 0.5rem;
@@ -578,72 +478,12 @@
 		gap: 0.5rem;
 	}
 
-	.search-box {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 0.75rem;
-		border: 1px solid #e5e7eb;
-		border-radius: 0.375rem;
-		background: white;
-		flex: 1;
-		max-width: 320px;
-	}
-
-	.search-box input {
-		border: none;
-		outline: none;
-		flex: 1;
-		font-size: 0.875rem;
-	}
-
 	.filter-select {
 		padding: 0.5rem 0.75rem;
 		border: 1px solid #e5e7eb;
 		border-radius: 0.375rem;
 		font-size: 0.875rem;
 		background: white;
-	}
-
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 1rem;
-		border-radius: 0.375rem;
-		font-size: 0.875rem;
-		font-weight: 500;
-		border: none;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.btn-primary {
-		background: #06b6d4;
-		color: white;
-	}
-
-	.btn-primary:hover {
-		background: #0891b2;
-	}
-
-	.btn-secondary {
-		background: white;
-		color: #374151;
-		border: 1px solid #e5e7eb;
-	}
-	
-	.btn-danger {
-		background: #ef4444;
-		color: white;
-	}
-	
-	.btn-danger:hover {
-		background: #dc2626;
-	}
-
-	.btn-secondary:hover {
-		background: #f9fafb;
 	}
 
 	.btn-icon {
@@ -1090,66 +930,6 @@
 		padding: 4rem;
 	}
 
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 4rem;
-		text-align: center;
-	}
-
-	.empty-state h3 {
-		margin: 1rem 0 0.5rem 0;
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.empty-state p {
-		margin: 0;
-		color: #6b7280;
-		font-size: 0.875rem;
-	}
-
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 9999;
-	}
-
-	.modal {
-		background: white;
-		border-radius: 0.5rem;
-		width: 90%;
-		max-width: 800px;
-		max-height: 90vh;
-		overflow-y: auto;
-	}
-
-	.modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.modal-header h2 {
-		margin: 0;
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.modal-body {
-		padding: 1.5rem;
-	}
-
 	.form-group {
 		margin-bottom: 1rem;
 	}
@@ -1190,19 +970,11 @@
 		gap: 1rem;
 	}
 
-	.modal-footer {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem;
-		border-top: 1px solid #e5e7eb;
-	}
-	
 	.modal-footer-left {
 		display: flex;
 		gap: 0.75rem;
 	}
-	
+
 	.modal-footer-right {
 		display: flex;
 		gap: 0.75rem;
@@ -1321,241 +1093,214 @@
 </style>
 
 <!-- Create Template Modal -->
-{#if showCreateModal}
-	<div class="modal-overlay" on:click={() => showCreateModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Create New Pricing Template</h2>
-				<button class="btn-icon" on:click={() => showCreateModal = false}>
-					×
-				</button>
-			</div>
-			<div class="modal-body">
-				<div class="form-row">
-					<div class="form-group">
-						<label for="name">Template Name</label>
-						<input type="text" id="name" bind:value={newTemplate.name}
-							placeholder="e.g., standard_pricing, bulk_discount" />
-					</div>
-					<div class="form-group">
-						<label for="displayName">Display Name</label>
-						<input type="text" id="displayName" bind:value={newTemplate.displayName}
-							placeholder="e.g., Standard Pricing, Bulk Discount" />
-					</div>
-				</div>
-				<div class="form-group">
-					<label for="description">Description</label>
-					<textarea id="description" bind:value={newTemplate.description} rows="2" 
-						placeholder="Describe what this pricing template does"></textarea>
-				</div>
-				<div class="form-row">
-					<div class="form-group">
-						<label for="category">Category</label>
-						<select id="category" bind:value={newTemplate.category}>
-							{#each templateCategories as cat}
-								<option value={cat.value}>{cat.label}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="form-group">
-						<label>
-							<input type="checkbox" bind:checked={newTemplate.isDefault} />
-							Set as default template
-						</label>
-					</div>
-				</div>
-				<div class="form-group">
-					<label for="formula">Pricing Formula</label>
-					<textarea id="formula" bind:value={newTemplate.formula} rows="4"
-						placeholder="e.g., base_price * quantity * (1 - discount_rate / 100)"></textarea>
-
-					<div class="formula-templates">
-						{#each formulaTemplates as template}
-							<div class="template-option" on:click={() => applyFormulaTemplate(template)}>
-								<h4>{template.name}</h4>
-								<code>{template.formula}</code>
-							</div>
-						{/each}
-					</div>
-				</div>
-				<div class="form-group">
-					<label for="isActive">Status</label>
-					<select id="isActive" bind:value={newTemplate.isActive}>
-						<option value={true}>Active</option>
-						<option value={false}>Inactive</option>
-					</select>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showCreateModal = false}>Cancel</button>
-				<button class="btn btn-primary" on:click={createTemplate}>Create Template</button>
-			</div>
+<Modal show={showCreateModal} title="Create New Pricing Template" maxWidth="700px" on:close={() => showCreateModal = false}>
+	<div class="form-row">
+		<div class="form-group">
+			<label for="name">Template Name</label>
+			<input type="text" id="name" bind:value={newTemplate.name}
+				placeholder="e.g., standard_pricing, bulk_discount" />
+		</div>
+		<div class="form-group">
+			<label for="displayName">Display Name</label>
+			<input type="text" id="displayName" bind:value={newTemplate.displayName}
+				placeholder="e.g., Standard Pricing, Bulk Discount" />
 		</div>
 	</div>
-{/if}
+	<div class="form-group">
+		<label for="description">Description</label>
+		<textarea id="description" bind:value={newTemplate.description} rows="2"
+			placeholder="Describe what this pricing template does"></textarea>
+	</div>
+	<div class="form-row">
+		<div class="form-group">
+			<label for="category">Category</label>
+			<select id="category" bind:value={newTemplate.category}>
+				{#each templateCategories as cat}
+					<option value={cat.value}>{cat.label}</option>
+				{/each}
+			</select>
+		</div>
+		<div class="form-group">
+			<label>
+				<input type="checkbox" bind:checked={newTemplate.isDefault} />
+				Set as default template
+			</label>
+		</div>
+	</div>
+	<div class="form-group">
+		<label for="formula">Pricing Formula</label>
+		<textarea id="formula" bind:value={newTemplate.formula} rows="4"
+			placeholder="e.g., base_price * quantity * (1 - discount_rate / 100)"></textarea>
+
+		<div class="formula-templates">
+			{#each formulaTemplates as template}
+				<div class="template-option" on:click={() => applyFormulaTemplate(template)}>
+					<h4>{template.name}</h4>
+					<code>{template.formula}</code>
+				</div>
+			{/each}
+		</div>
+	</div>
+	<div class="form-group">
+		<label for="isActive">Status</label>
+		<select id="isActive" bind:value={newTemplate.isActive}>
+			<option value={true}>Active</option>
+			<option value={false}>Inactive</option>
+		</select>
+	</div>
+	<svelte:fragment slot="footer">
+		<Button variant="secondary" on:click={() => showCreateModal = false}>Cancel</Button>
+		<Button on:click={createTemplate}>Create Template</Button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Edit Template Modal -->
-{#if showEditModal && selectedTemplate}
-	<div class="modal-overlay" on:click={() => showEditModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Edit Pricing Template</h2>
-				<button class="btn-icon" on:click={() => showEditModal = false}>
-					×
-				</button>
+<Modal show={showEditModal && !!selectedTemplate} title="Edit Pricing Template" maxWidth="700px" on:close={() => showEditModal = false}>
+	{#if selectedTemplate}
+		<div class="form-row">
+			<div class="form-group">
+				<label for="edit-name">Template Name</label>
+				<input type="text" id="edit-name" bind:value={selectedTemplate.name} />
 			</div>
-			<div class="modal-body">
-				<div class="form-row">
-					<div class="form-group">
-						<label for="edit-name">Template Name</label>
-						<input type="text" id="edit-name" bind:value={selectedTemplate.name} />
-					</div>
-					<div class="form-group">
-						<label for="edit-displayName">Display Name</label>
-						<input type="text" id="edit-displayName" bind:value={selectedTemplate.displayName} />
-					</div>
-				</div>
-				<div class="form-group">
-					<label for="edit-description">Description</label>
-					<textarea id="edit-description" bind:value={selectedTemplate.description} rows="2"></textarea>
-				</div>
-				<div class="form-group">
-					<label for="edit-category">Category</label>
-					<select id="edit-category" bind:value={selectedTemplate.category}>
-						{#each templateCategories as cat}
-							<option value={cat.value}>{cat.label}</option>
-						{/each}
-					</select>
-				</div>
-				<div class="form-group">
-					<label>Pricing Formula</label>
-					<div class="formula-display">
-						{#if selectedTemplate.priceFormula}
-							<code class="formula-code">{selectedTemplate.priceFormula}</code>
-						{:else}
-							<span class="formula-placeholder">No formula defined</span>
-						{/if}
-						<button type="button" class="btn-edit-formula" on:click={() => {
-							editingFormulaType = 'price';
-							tempFormula = selectedTemplate?.priceFormula || '';
-							showFormulaEditor = true;
-						}}>
-							<Settings size={16} />
-							Edit Formula
-						</button>
-					</div>
-				</div>
-				<div class="form-group">
-					<label>Condition Formula (Optional)</label>
-					<div class="formula-display">
-						{#if selectedTemplate.conditionFormula}
-							<code class="formula-code condition">{selectedTemplate.conditionFormula}</code>
-						{:else}
-							<span class="formula-placeholder">No condition defined</span>
-						{/if}
-						<button type="button" class="btn-edit-formula" on:click={() => {
-							editingFormulaType = 'condition';
-							tempFormula = selectedTemplate?.conditionFormula || '';
-							showFormulaEditor = true;
-						}}>
-							<Settings size={16} />
-							Edit Condition
-						</button>
-					</div>
-					<p class="help-text">When should this pricing template apply?</p>
-				</div>
-				<div class="form-group">
-					<label for="edit-isActive">Status</label>
-					<select id="edit-isActive" bind:value={selectedTemplate.isActive}>
-						<option value={true}>Active</option>
-						<option value={false}>Inactive</option>
-					</select>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<div class="modal-footer-left">
-					<button class="btn btn-danger" on:click={() => {
-						if (selectedTemplate && confirm('Are you sure you want to delete this pricing template? Products using this template will need to be updated.')) {
-							deleteTemplate(selectedTemplate.id);
-							showEditModal = false;
-						}
-					}}>
-						<Trash2 size={16} />
-						Delete
-					</button>
-				</div>
-				<div class="modal-footer-right">
-					<button class="btn btn-secondary" on:click={() => showEditModal = false}>Cancel</button>
-					<button class="btn btn-primary" on:click={updateTemplate}>Save</button>
-				</div>
+			<div class="form-group">
+				<label for="edit-displayName">Display Name</label>
+				<input type="text" id="edit-displayName" bind:value={selectedTemplate.displayName} />
 			</div>
 		</div>
-	</div>
-{/if}
+		<div class="form-group">
+			<label for="edit-description">Description</label>
+			<textarea id="edit-description" bind:value={selectedTemplate.description} rows="2"></textarea>
+		</div>
+		<div class="form-group">
+			<label for="edit-category">Category</label>
+			<select id="edit-category" bind:value={selectedTemplate.category}>
+				{#each templateCategories as cat}
+					<option value={cat.value}>{cat.label}</option>
+				{/each}
+			</select>
+		</div>
+		<div class="form-group">
+			<label>Pricing Formula</label>
+			<div class="formula-display">
+				{#if selectedTemplate.priceFormula}
+					<code class="formula-code">{selectedTemplate.priceFormula}</code>
+				{:else}
+					<span class="formula-placeholder">No formula defined</span>
+				{/if}
+				<button type="button" class="btn-edit-formula" on:click={() => {
+					editingFormulaType = 'price';
+					tempFormula = selectedTemplate?.priceFormula || '';
+					showFormulaEditor = true;
+				}}>
+					<Settings size={16} />
+					Edit Formula
+				</button>
+			</div>
+		</div>
+		<div class="form-group">
+			<label>Condition Formula (Optional)</label>
+			<div class="formula-display">
+				{#if selectedTemplate.conditionFormula}
+					<code class="formula-code condition">{selectedTemplate.conditionFormula}</code>
+				{:else}
+					<span class="formula-placeholder">No condition defined</span>
+				{/if}
+				<button type="button" class="btn-edit-formula" on:click={() => {
+					editingFormulaType = 'condition';
+					tempFormula = selectedTemplate?.conditionFormula || '';
+					showFormulaEditor = true;
+				}}>
+					<Settings size={16} />
+					Edit Condition
+				</button>
+			</div>
+			<p class="help-text">When should this pricing template apply?</p>
+		</div>
+		<div class="form-group">
+			<label for="edit-isActive">Status</label>
+			<select id="edit-isActive" bind:value={selectedTemplate.isActive}>
+				<option value={true}>Active</option>
+				<option value={false}>Inactive</option>
+			</select>
+		</div>
+	{/if}
+	<svelte:fragment slot="footer">
+		<div class="modal-footer-left">
+			<Button variant="danger" icon={Trash2} on:click={() => {
+				if (selectedTemplate) {
+					deleteTemplate(selectedTemplate.id);
+					showEditModal = false;
+				}
+			}}>Delete</Button>
+		</div>
+		<div class="modal-footer-right">
+			<Button variant="secondary" on:click={() => showEditModal = false}>Cancel</Button>
+			<Button on:click={updateTemplate}>Save</Button>
+		</div>
+	</svelte:fragment>
+</Modal>
 
 <!-- Test Formula Modal -->
-{#if showTestModal && selectedTemplate}
-	<div class="modal-overlay" on:click={() => showTestModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Test Formula - {selectedTemplate.displayName}</h2>
-				<button class="btn-icon" on:click={() => showTestModal = false}>
-					×
-				</button>
+<Modal show={showTestModal && !!selectedTemplate} title="Test Formula - {selectedTemplate?.displayName || ''}" maxWidth="600px" on:close={() => showTestModal = false}>
+	{#if selectedTemplate}
+		<div class="formula-box">
+			<div class="formula-label">
+				<Code2 size={14} />
+				Formula
 			</div>
-			<div class="modal-body">
-				<div class="formula-box">
-					<div class="formula-label">
-						<Code2 size={14} />
-						Formula
-					</div>
-					<code class="formula-text">{selectedTemplate.priceFormula}</code>
-				</div>
-				
-				<div class="test-section">
-					<h3>Test Variables</h3>
-					<div class="test-variables">
-						{#if selectedTemplate.variables?.required && Array.isArray(selectedTemplate.variables.required)}
-							{#each selectedTemplate.variables.required as varName}
-								<div class="test-variable">
-									<label for="test-{varName}">{varName}</label>
-									<input type="number" id="test-{varName}" 
-										bind:value={testVariables[varName]} 
-										placeholder="Enter value" />
-								</div>
-							{/each}
-						{/if}
-					</div>
-					
-					<button class="btn btn-primary" on:click={testFormula}>
-						<Play size={16} />
-						Run Test
-					</button>
-				</div>
-				
-				{#if testResult}
-					<div class="test-result success">
-						<h4>Test Result</h4>
-						<div class="test-output">${testResult.output}</div>
-						<div class="test-details">
-							Execution time: {testResult.executionTime}
-						</div>
-					</div>
-				{/if}
-				
-				{#if testError}
-					<div class="test-result error">
-						<h4>Test Error</h4>
-						<p class="error-message">{testError}</p>
-					</div>
-				{/if}
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showTestModal = false}>Close</button>
-			</div>
+			<code class="formula-text">{selectedTemplate.priceFormula}</code>
 		</div>
-	</div>
-{/if}
+
+		<div class="test-section">
+			<h3>Test Variables</h3>
+			<div class="test-variables">
+				{#if selectedTemplate.variables?.required && Array.isArray(selectedTemplate.variables.required)}
+					{#each selectedTemplate.variables.required as varName}
+						<div class="test-variable">
+							<label for="test-{varName}">{varName}</label>
+							<input type="number" id="test-{varName}"
+								bind:value={testVariables[varName]}
+								placeholder="Enter value" />
+						</div>
+					{/each}
+				{/if}
+			</div>
+
+			<Button icon={Play} on:click={testFormula}>
+				Run Test
+			</Button>
+		</div>
+
+		{#if testResult}
+			<div class="test-result success">
+				<h4>Test Result</h4>
+				<div class="test-output">${testResult.output}</div>
+				<div class="test-details">
+					Execution time: {testResult.executionTime}
+				</div>
+			</div>
+		{/if}
+
+		{#if testError}
+			<div class="test-result error">
+				<h4>Test Error</h4>
+				<p class="error-message">{testError}</p>
+			</div>
+		{/if}
+	{/if}
+	<svelte:fragment slot="footer">
+		<Button variant="secondary" on:click={() => showTestModal = false}>Close</Button>
+	</svelte:fragment>
+</Modal>
+
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title="Delete Pricing Template"
+	message="Are you sure you want to delete this pricing template? Products using this template will need to be updated."
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteTemplate}
+/>
 
 <!-- Formula Editor Modal -->
 <FormulaEditor

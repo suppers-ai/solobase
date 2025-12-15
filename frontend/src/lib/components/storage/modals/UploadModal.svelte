@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { Upload, X, File as FileIcon } from 'lucide-svelte';
 	import { formatFileSize } from '$lib/utils/formatters';
+	import Modal from '$lib/components/ui/Modal.svelte';
 
 	export let show = false;
 	export let bucketName = '';
@@ -41,140 +42,84 @@
 	}
 </script>
 
-{#if show}
-	<div class="modal-overlay" on:click={handleClose}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h3>Upload Files</h3>
-				<button class="icon-button" on:click={handleClose}>
-					<X size={20} />
-				</button>
-			</div>
+<Modal {show} title="Upload Files" maxWidth="600px" on:close={handleClose}>
+	<p class="upload-info">
+		Uploading to: <strong>{bucketName}/{currentPath || 'root'}</strong>
+	</p>
 
-			<div class="modal-body">
-				<p class="upload-info">
-					Uploading to: <strong>{bucketName}/{currentPath || 'root'}</strong>
-				</p>
+	<div class="upload-area">
+		<input
+			type="file"
+			multiple
+			on:change={handleFileSelect}
+			bind:this={fileInputRef}
+			disabled={uploading}
+			id="file-upload"
+			class="file-input"
+		/>
+		<label for="file-upload" class="upload-label">
+			<Upload size={48} />
+			<h4>Click to select files</h4>
+			<p>or drag and drop files here</p>
+		</label>
+	</div>
 
-				<div class="upload-area">
-					<input
-						type="file"
-						multiple
-						on:change={handleFileSelect}
-						bind:this={fileInputRef}
-						disabled={uploading}
-						id="file-upload"
-						class="file-input"
-					/>
-					<label for="file-upload" class="upload-label">
-						<Upload size={48} />
-						<h4>Click to select files</h4>
-						<p>or drag and drop files here</p>
-					</label>
-				</div>
-
-				{#if selectedFiles.length > 0}
-					<div class="selected-files">
-						<h4>Selected Files ({selectedFiles.length})</h4>
-						<div class="file-list">
-							{#each selectedFiles as file, index}
-								<div class="file-item">
-									<div class="file-info">
-										<FileIcon size={16} />
-										<span class="file-name">{file.name}</span>
-										<span class="file-size">({formatFileSize(file.size)})</span>
-									</div>
-									{#if fileUploadProgress.has(file.name)}
-										<div class="progress-bar">
-											<div
-												class="progress-fill"
-												style="width: {fileUploadProgress.get(file.name)}%"
-											></div>
-										</div>
-									{:else if !uploading}
-										<button
-											class="remove-button"
-											on:click={() => removeFile(index)}
-										>
-											<X size={16} />
-										</button>
-									{/if}
-								</div>
-							{/each}
+	{#if selectedFiles.length > 0}
+		<div class="selected-files">
+			<h4>Selected Files ({selectedFiles.length})</h4>
+			<div class="file-list">
+				{#each selectedFiles as file, index}
+					<div class="file-item">
+						<div class="file-info">
+							<FileIcon size={16} />
+							<span class="file-name">{file.name}</span>
+							<span class="file-size">({formatFileSize(file.size)})</span>
 						</div>
+						{#if fileUploadProgress.has(file.name)}
+							<div class="progress-bar">
+								<div
+									class="progress-fill"
+									style="width: {fileUploadProgress.get(file.name)}%"
+								></div>
+							</div>
+						{:else if !uploading}
+							<button
+								class="remove-button"
+								on:click={() => removeFile(index)}
+							>
+								<X size={16} />
+							</button>
+						{/if}
 					</div>
-				{/if}
-
-				{#if uploading}
-					<div class="upload-progress">
-						<p>Uploading... {uploadProgress}%</p>
-						<div class="progress-bar">
-							<div class="progress-fill" style="width: {uploadProgress}%"></div>
-						</div>
-					</div>
-				{/if}
-			</div>
-
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={handleClose} disabled={uploading}>
-					Cancel
-				</button>
-				<button
-					class="btn btn-primary"
-					on:click={handleUpload}
-					disabled={selectedFiles.length === 0 || uploading}
-				>
-					{uploading ? 'Uploading...' : `Upload ${selectedFiles.length} file(s)`}
-				</button>
+				{/each}
 			</div>
 		</div>
-	</div>
-{/if}
+	{/if}
+
+	{#if uploading}
+		<div class="upload-progress">
+			<p>Uploading... {uploadProgress}%</p>
+			<div class="progress-bar">
+				<div class="progress-fill" style="width: {uploadProgress}%"></div>
+			</div>
+		</div>
+	{/if}
+
+	<svelte:fragment slot="footer">
+		<button class="modal-btn modal-btn-secondary" on:click={handleClose} disabled={uploading}>
+			Cancel
+		</button>
+		<button
+			class="modal-btn modal-btn-primary"
+			on:click={handleUpload}
+			disabled={selectedFiles.length === 0 || uploading}
+		>
+			{uploading ? 'Uploading...' : `Upload ${selectedFiles.length} file(s)`}
+		</button>
+	</svelte:fragment>
+</Modal>
 
 <style>
-	.modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 1000;
-	}
-
-	.modal {
-		background: white;
-		border-radius: 0.5rem;
-		width: 90%;
-		max-width: 600px;
-		max-height: 80vh;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.modal-header h3 {
-		margin: 0;
-		font-size: 1.25rem;
-		font-weight: 600;
-	}
-
-	.modal-body {
-		padding: 1.5rem;
-		overflow-y: auto;
-		flex: 1;
-	}
-
 	.upload-info {
 		margin: 0 0 1rem 0;
 		color: #6b7280;
@@ -310,62 +255,6 @@
 		margin: 0 0 0.5rem 0;
 		font-size: 0.875rem;
 		font-weight: 500;
-		color: #374151;
-	}
-
-	.modal-footer {
-		display: flex;
-		justify-content: flex-end;
-		gap: 0.75rem;
-		padding: 1.5rem;
-		border-top: 1px solid #e5e7eb;
-	}
-
-	.btn {
-		padding: 0.5rem 1rem;
-		border: none;
-		border-radius: 0.375rem;
-		font-size: 0.875rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.btn-primary {
-		background: #189AB4;
-		color: white;
-	}
-
-	.btn-primary:hover:not(:disabled) {
-		background: #157a8f;
-	}
-
-	.btn-secondary {
-		background: #f3f4f6;
-		color: #374151;
-	}
-
-	.btn-secondary:hover:not(:disabled) {
-		background: #e5e7eb;
-	}
-
-	.icon-button {
-		padding: 0.25rem;
-		background: transparent;
-		border: none;
-		border-radius: 0.25rem;
-		cursor: pointer;
-		color: #6b7280;
-		transition: all 0.2s;
-	}
-
-	.icon-button:hover {
-		background: #f3f4f6;
 		color: #374151;
 	}
 </style>

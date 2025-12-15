@@ -202,9 +202,10 @@ export class AuthService extends BaseService {
   }
 
   /**
-   * Sign in with OAuth using popup window
+   * Sign in with OAuth using popup window (for specific provider)
+   * @internal Used internally by the Solobase login page
    */
-  async signInWithPopup(provider: 'google' | 'github' | 'facebook' | 'microsoft'): Promise<User> {
+  async signInWithOAuthPopup(provider: 'google' | 'github' | 'facebook' | 'microsoft'): Promise<User> {
     return new Promise(async (resolve, reject) => {
       try {
         // Get OAuth URL from backend
@@ -287,6 +288,121 @@ export class AuthService extends BaseService {
             popup.close();
           }
           reject(new Error('Authentication timeout'));
+        }, 5 * 60 * 1000);
+
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Sign in using popup window that opens the Solobase login page
+   * The login page handles email/password and OAuth options
+   */
+  async signInWithPopup(): Promise<User> {
+    return new Promise((resolve, reject) => {
+      try {
+        // Calculate popup position (centered)
+        const width = 500;
+        const height = 650;
+        const left = window.screenX + (window.innerWidth - width) / 2;
+        const top = window.screenY + (window.innerHeight - height) / 2;
+
+        // Use authUrl if provided, otherwise fall back to url
+        const baseAuthUrl = this.config.authUrl || this.config.url;
+        // Open popup to the Solobase login page with popup=true parameter
+        const loginUrl = `${baseAuthUrl}/auth/login?popup=true`;
+        const popup = window.open(
+          loginUrl,
+          'solobase_auth_popup',
+          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=no,status=no`
+        );
+
+        if (!popup) {
+          throw new Error('Failed to open authentication popup. Please check your popup blocker settings.');
+        }
+
+        // Setup message listener for auth callback
+        const handleMessage = (event: MessageEvent) => {
+          // Validate message origin matches our auth URL or backend URL
+          const expectedAuthOrigin = new URL(baseAuthUrl).origin;
+          const expectedApiOrigin = new URL(this.config.url).origin;
+
+          if (event.origin !== expectedAuthOrigin && event.origin !== expectedApiOrigin) {
+            return;
+          }
+
+          // Check for auth callback data
+          if (event.data?.type === 'auth-success' || event.data?.type === 'oauth-success') {
+            // Clean up
+            window.removeEventListener('message', handleMessage);
+            if (popup && !popup.closed) {
+              popup.close();
+            }
+
+            // The auth cookie has been set by the backend
+            // Fetch user info to verify authentication
+            this.getUser().then(user => {
+              if (user) {
+                this.currentUser = user;
+                resolve(user);
+              } else {
+                reject(new Error('Failed to fetch user information'));
+              }
+            }).catch(reject);
+          } else if (event.data?.type === 'auth-error' || event.data?.type === 'oauth-error') {
+            window.removeEventListener('message', handleMessage);
+            if (popup && !popup.closed) {
+              popup.close();
+            }
+            reject(new Error(event.data.error || 'Authentication failed'));
+          }
+        };
+
+        // Listen for messages from the popup
+        window.addEventListener('message', handleMessage);
+
+        // Track if we've already resolved/rejected
+        let settled = false;
+
+        // Check if popup was closed
+        const checkClosed = setInterval(() => {
+          if (popup.closed && !settled) {
+            clearInterval(checkClosed);
+            window.removeEventListener('message', handleMessage);
+
+            // Popup closed - try to fetch user in case auth succeeded
+            // (cross-origin postMessage may not work, but cookies are set)
+            this.getUser().then(user => {
+              if (user && !settled) {
+                settled = true;
+                this.currentUser = user;
+                resolve(user);
+              } else if (!settled) {
+                settled = true;
+                reject(new Error('Authentication popup was closed'));
+              }
+            }).catch(() => {
+              if (!settled) {
+                settled = true;
+                reject(new Error('Authentication popup was closed'));
+              }
+            });
+          }
+        }, 500);
+
+        // Timeout after 5 minutes
+        setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            clearInterval(checkClosed);
+            window.removeEventListener('message', handleMessage);
+            if (popup && !popup.closed) {
+              popup.close();
+            }
+            reject(new Error('Authentication timeout'));
+          }
         }, 5 * 60 * 1000);
 
       } catch (error) {

@@ -3,6 +3,9 @@
 	import { api, ErrorHandler } from '$lib/api';
 	import { formatDateTime } from '$lib/utils/formatters';
 	import { toasts } from '$lib/stores/toast';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import { Package, Building2, ShoppingCart } from 'lucide-svelte';
 
 	// Tab management
 	let activeTab = 'overview';
@@ -49,6 +52,13 @@
 	let purchasesError: string | null = null;
 	let purchasesCurrentPage = 0;
 	const purchasesLimit = 20;
+
+	// Confirmation dialogs state
+	let showRefundConfirm = false;
+	let showApproveConfirm = false;
+	let purchaseToRefund: number | null = null;
+	let purchaseToApprove: number | null = null;
+	let refundReason = '';
 
 	// Configuration counts
 	let configCounts = {
@@ -237,31 +247,49 @@
 		}
 	}
 
-	async function handleRefund(purchaseId: number) {
-		if (!confirm('Are you sure you want to refund this purchase?')) return;
+	function handleRefund(purchaseId: number) {
+		purchaseToRefund = purchaseId;
+		refundReason = '';
+		showRefundConfirm = true;
+	}
 
-		const reason = prompt('Enter refund reason:');
-		if (!reason) return;
+	async function confirmRefund() {
+		if (!purchaseToRefund) return;
+		showRefundConfirm = false;
+
+		if (!refundReason.trim()) {
+			toasts.error('Please enter a refund reason');
+			return;
+		}
 
 		try {
-			await api.post(`/admin/ext/products/purchases/${purchaseId}/refund`, { amount: 0, reason });
+			await api.post(`/admin/ext/products/purchases/${purchaseToRefund}/refund`, { amount: 0, reason: refundReason });
 			await loadPurchases();
 			toasts.success('Refund processed successfully');
 		} catch (err) {
 			ErrorHandler.handle(err);
 		}
+		purchaseToRefund = null;
+		refundReason = '';
 	}
 
-	async function handleApprove(purchaseId: number) {
-		if (!confirm('Approve this purchase?')) return;
+	function handleApprove(purchaseId: number) {
+		purchaseToApprove = purchaseId;
+		showApproveConfirm = true;
+	}
+
+	async function confirmApprove() {
+		if (!purchaseToApprove) return;
+		showApproveConfirm = false;
 
 		try {
-			await api.post(`/admin/ext/products/purchases/${purchaseId}/approve`);
+			await api.post(`/admin/ext/products/purchases/${purchaseToApprove}/approve`);
 			await loadPurchases();
 			toasts.success('Purchase approved');
 		} catch (err) {
 			ErrorHandler.handle(err);
 		}
+		purchaseToApprove = null;
 	}
 
 
@@ -477,12 +505,15 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 			{:else if productsError}
 				<div class="p-4 text-red-600">{productsError}</div>
 			{:else if products.length === 0}
-				<div class="p-8 text-center text-gray-500">
-					<p>No products found</p>
-					<a href="/admin/extensions/products/product-types" class="mt-4 inline-block text-blue-600 hover:underline">
+				<EmptyState
+					icon={Package}
+					title="No products found"
+					message="Create product types first, then add products to your groups"
+				>
+					<a href="/admin/extensions/products/product-types" class="btn btn-primary">
 						Create your first product type →
 					</a>
-				</div>
+				</EmptyState>
 			{:else}
 				<table class="min-w-full divide-y divide-gray-200">
 					<thead class="bg-gray-50">
@@ -531,12 +562,15 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 			{:else if groupsError}
 				<div class="p-4 text-red-600">{groupsError}</div>
 			{:else if groups.length === 0}
-				<div class="p-8 text-center text-gray-500">
-					<p>No groups found</p>
-					<a href="/admin/extensions/products/group-types" class="mt-4 inline-block text-blue-600 hover:underline">
+				<EmptyState
+					icon={Building2}
+					title="No groups found"
+					message="Create group types first, then add groups"
+				>
+					<a href="/admin/extensions/products/group-types" class="btn btn-primary">
 						Create your first group type →
 					</a>
-				</div>
+				</EmptyState>
 			{:else}
 				<table class="min-w-full divide-y divide-gray-200">
 					<thead class="bg-gray-50">
@@ -697,9 +731,11 @@ STRIPE_PUBLISHABLE_KEY=pk_test_... \
 					</table>
 
 					{#if purchases.length === 0}
-						<div class="text-center py-8 text-gray-500">
-							No purchases found
-						</div>
+						<EmptyState
+							icon={ShoppingCart}
+							title="No purchases found"
+							compact
+						/>
 					{/if}
 
 					{#if purchasesTotal > purchasesLimit}
@@ -857,6 +893,38 @@ stripe trigger checkout.session.completed</pre>
 		</div>
 	{/if}
 </div>
+
+<!-- Refund Confirmation Dialog -->
+<ConfirmDialog
+	bind:show={showRefundConfirm}
+	title="Refund Purchase"
+	message="Are you sure you want to refund this purchase?"
+	confirmText="Refund"
+	variant="danger"
+	on:confirm={confirmRefund}
+	on:close={() => { showRefundConfirm = false; purchaseToRefund = null; refundReason = ''; }}
+>
+	<div class="mt-4">
+		<label for="refund-reason" class="block text-sm font-medium text-gray-700 mb-1">Refund Reason</label>
+		<input
+			id="refund-reason"
+			type="text"
+			bind:value={refundReason}
+			placeholder="Enter refund reason..."
+			class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+		/>
+	</div>
+</ConfirmDialog>
+
+<!-- Approve Confirmation Dialog -->
+<ConfirmDialog
+	bind:show={showApproveConfirm}
+	title="Approve Purchase"
+	message="Are you sure you want to approve this purchase?"
+	confirmText="Approve"
+	variant="success"
+	on:confirm={confirmApprove}
+/>
 
 <style>
 	pre {

@@ -2,6 +2,9 @@
 	import { onMount } from 'svelte';
 	import { api, ErrorHandler } from '$lib/api';
 	import { formatDateLong } from '$lib/utils/formatters';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import { ShoppingBag } from 'lucide-svelte';
 
 	interface Purchase {
 		id: number;
@@ -23,6 +26,8 @@
 	let currentPage = 0;
 	const limit = 10;
 	let total = 0;
+	let showCancelConfirm = false;
+	let purchaseToCancel: number | null = null;
 
 	interface PurchasesResponse {
 		purchases?: Purchase[];
@@ -46,17 +51,24 @@
 		}
 	}
 
-	async function cancelPurchase(purchaseId: number) {
-		if (!confirm('Are you sure you want to cancel this purchase?')) return;
+	function cancelPurchase(purchaseId: number) {
+		purchaseToCancel = purchaseId;
+		showCancelConfirm = true;
+	}
+
+	async function confirmCancelPurchase() {
+		if (!purchaseToCancel) return;
+		showCancelConfirm = false;
 
 		try {
-			await api.post(`/ext/products/purchases/${purchaseId}/cancel`, {
+			await api.post(`/ext/products/purchases/${purchaseToCancel}/cancel`, {
 				reason: 'Customer requested cancellation'
 			});
 			await loadPurchases();
 		} catch (err) {
 			ErrorHandler.handle(err);
 		}
+		purchaseToCancel = null;
 	}
 
 	function formatCurrency(cents: number, currency: string): string {
@@ -107,20 +119,16 @@
 			{error}
 		</div>
 	{:else if purchases.length === 0}
-		<div class="bg-white rounded-lg shadow p-12 text-center">
-			<div class="mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-				<svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
-				</svg>
-			</div>
-			<h2 class="text-xl font-semibold text-gray-900 mb-2">No purchases yet</h2>
-			<p class="text-gray-600 mb-6">When you make a purchase, it will appear here.</p>
-			<a
-				href="/products/checkout"
-				class="inline-block px-6 py-3 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors"
+		<div class="bg-white rounded-lg shadow p-12">
+			<EmptyState
+				icon={ShoppingBag}
+				title="No purchases yet"
+				message="When you make a purchase, it will appear here."
 			>
-				Start Shopping
-			</a>
+				<a href="/products/checkout" class="btn btn-primary">
+					Start Shopping
+				</a>
+			</EmptyState>
 		</div>
 	{:else}
 		<div class="space-y-4">
@@ -198,3 +206,12 @@
 		{/if}
 	{/if}
 </div>
+
+<ConfirmDialog
+	bind:show={showCancelConfirm}
+	title="Cancel Purchase"
+	message="Are you sure you want to cancel this purchase?"
+	confirmText="Cancel"
+	variant="danger"
+	on:confirm={confirmCancelPurchase}
+/>

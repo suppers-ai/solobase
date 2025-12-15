@@ -14,6 +14,7 @@
 	import { observeAndFixInputs } from '$lib/utils/fixTextSelection';
 	import { api } from '$lib/api';
 	import type { AppSettings } from '$lib/types';
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
 	
 	let user: any = null;
 	let authChecked = false;
@@ -226,7 +227,7 @@
 		{:else if !authChecked && !publicPages.some(p => $page.url.pathname === p || $page.url.pathname.startsWith('/auth/'))}
 			<!-- Show loading state while checking auth for protected pages -->
 			<div class="auth-loading">
-				<div class="spinner"></div>
+				<LoadingSpinner size="lg" />
 				<p>Loading...</p>
 			</div>
 		{:else if isProfilePage}
@@ -332,19 +333,6 @@
 		background: #f0f0f0;
 	}
 	
-	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 4px solid #e2e8f0;
-		border-top-color: #3b82f6;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-	}
-	
-	@keyframes spin {
-		0% { transform: rotate(0deg); }
-		100% { transform: rotate(360deg); }
-	}
 	
 	.auth-loading p {
 		margin-top: 1rem;

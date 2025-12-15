@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/suppers-ai/solobase/extensions/core"
+	"github.com/suppers-ai/solobase/utils"
 )
 
 // WebhooksExtension provides webhook management and delivery
@@ -360,8 +361,7 @@ func (e *WebhooksExtension) handleListWebhooks(w http.ResponseWriter, r *http.Re
 
 func (e *WebhooksExtension) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 	var webhook WebhookConfig
-	if err := json.NewDecoder(r.Body).Decode(&webhook); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &webhook) {
 		return
 	}
 

@@ -1,7 +1,6 @@
 package extensions
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -469,8 +468,7 @@ func HandleToggleExtension() http.HandlerFunc {
 			Enabled bool `json:"enabled"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request")
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 
@@ -562,8 +560,7 @@ func HandleWebhooksList() http.HandlerFunc {
 func HandleWebhooksCreate() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var webhook map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&webhook); err != nil {
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request")
+		if !utils.DecodeJSONBody(w, r, &webhook) {
 			return
 		}
 
@@ -585,8 +582,7 @@ func HandleWebhooksToggle() http.HandlerFunc {
 			Active bool `json:"active"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request")
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 

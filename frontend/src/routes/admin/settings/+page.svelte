@@ -5,8 +5,11 @@
 	import { Save, RefreshCw, AlertCircle, Check, Settings, Shield, Mail, HardDrive } from 'lucide-svelte';
 	import { requireAdmin } from '$lib/utils/auth';
 	import { formatBytes } from '$lib/utils/formatters';
-	
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+
 	let settings: AppSettings | null = null;
+	let showResetConfirm = false;
 	let loading = true;
 	let saving = false;
 	let saved = false;
@@ -49,11 +52,12 @@
 		saving = false;
 	}
 
-	async function resetSettings() {
-		if (!confirm('Are you sure you want to reset all settings to default values?')) {
-			return;
-		}
+	function confirmReset() {
+		showResetConfirm = true;
+	}
 
+	async function resetSettings() {
+		showResetConfirm = false;
 		saving = true;
 		error = '';
 
@@ -99,9 +103,9 @@
 					Settings saved
 				</div>
 			{/if}
-			<button 
+			<button
 				class="btn btn-ghost btn-sm"
-				on:click={resetSettings}
+				on:click={confirmReset}
 				disabled={saving || loading}
 			>
 				<RefreshCw size={16} class="mr-2" />
@@ -453,7 +457,7 @@
 					disabled={saving}
 				>
 					{#if saving}
-						<div class="spinner"></div>
+						<LoadingSpinner size="sm" color="white" />
 						Saving...
 					{:else}
 						<Save size={18} />
@@ -470,6 +474,15 @@
 	{/if}
 	</div>
 </div>
+
+<ConfirmDialog
+	bind:show={showResetConfirm}
+	title="Reset Settings"
+	message="Are you sure you want to reset all settings to default values? This action cannot be undone."
+	confirmText="Reset"
+	variant="danger"
+	on:confirm={resetSettings}
+/>
 
 <style>
 	.settings-container {
@@ -814,18 +827,6 @@
 		cursor: not-allowed;
 	}
 	
-	.spinner {
-		width: 16px;
-		height: 16px;
-		border: 2px solid rgba(255, 255, 255, 0.3);
-		border-top-color: white;
-		border-radius: 50%;
-		animation: spin 0.6s linear infinite;
-	}
-	
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
 	
 	/* Skeleton loaders */
 	.skeleton-title {

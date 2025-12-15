@@ -1,35 +1,17 @@
 package users
 
 import (
-	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/gorilla/mux"
-	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
+	"github.com/suppers-ai/solobase/constants"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/utils"
 )
 
-type PaginatedUsersResponse struct {
-	Data       []*auth.User `json:"data"`
-	Total      int          `json:"total"`
-	Page       int          `json:"page"`
-	PageSize   int          `json:"pageSize"`
-	TotalPages int          `json:"totalPages"`
-}
-
 func HandleGetUsers(userService *services.UserService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-		if page < 1 {
-			page = 1
-		}
-
-		pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
-		if pageSize < 1 || pageSize > 100 {
-			pageSize = 20
-		}
+		page, pageSize, _ := utils.GetPaginationParams(r, constants.UsersPageSize)
 
 		users, total, err := userService.GetUsers(page, pageSize)
 		if err != nil {
@@ -37,15 +19,7 @@ func HandleGetUsers(userService *services.UserService) http.HandlerFunc {
 			return
 		}
 
-		totalPages := (total + pageSize - 1) / pageSize
-
-		utils.JSONResponse(w, http.StatusOK, PaginatedUsersResponse{
-			Data:       users,
-			Total:      total,
-			Page:       page,
-			PageSize:   pageSize,
-			TotalPages: totalPages,
-		})
+		utils.SendPaginatedResponse(w, users, total, page, pageSize)
 	}
 }
 
@@ -70,8 +44,7 @@ func HandleUpdateUser(userService *services.UserService) http.HandlerFunc {
 		userID := vars["id"]
 
 		var updates map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+		if !utils.DecodeJSONBody(w, r, &updates) {
 			return
 		}
 

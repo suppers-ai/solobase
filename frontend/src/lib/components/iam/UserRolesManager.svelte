@@ -3,6 +3,7 @@
 	import UserRoleRow from './UserRoleRow.svelte';
 	import AssignRoleModal from './AssignRoleModal.svelte';
 	import { ErrorHandler, authFetch } from '$lib/api';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 
 	interface UserRole {
 		name: string;
@@ -35,6 +36,8 @@
 
 	let selectedUser: User | null = null;
 	let showAssignModal = false;
+	let showRemoveConfirm = false;
+	let roleRemoveData: RoleAssignEvent | null = null;
 
 	function handleAssignRole(user: User) {
 		selectedUser = user;
@@ -56,11 +59,15 @@
 		}
 	}
 
-	async function handleRoleRemoved(event: CustomEvent<RoleAssignEvent>) {
-		const { userId, roleName } = event.detail;
-		if (!confirm(`Remove role ${roleName} from user?`)) {
-			return;
-		}
+	function handleRoleRemoved(event: CustomEvent<RoleAssignEvent>) {
+		roleRemoveData = event.detail;
+		showRemoveConfirm = true;
+	}
+
+	async function confirmRemoveRole() {
+		if (!roleRemoveData) return;
+		showRemoveConfirm = false;
+		const { userId, roleName } = roleRemoveData;
 
 		const response = await authFetch(`/api/admin/iam/users/${userId}/roles/${roleName}`, {
 			method: 'DELETE'
@@ -71,6 +78,7 @@
 		} else {
 			ErrorHandler.handle('Failed to remove role');
 		}
+		roleRemoveData = null;
 	}
 </script>
 
@@ -113,6 +121,15 @@
 		on:close={() => showAssignModal = false}
 	/>
 {/if}
+
+<ConfirmDialog
+	bind:show={showRemoveConfirm}
+	title="Remove Role"
+	message="Are you sure you want to remove role {roleRemoveData?.roleName} from this user?"
+	confirmText="Remove"
+	variant="danger"
+	on:confirm={confirmRemoveRole}
+/>
 
 <style>
 	.section {

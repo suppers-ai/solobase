@@ -1,7 +1,6 @@
 package settings
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -23,23 +22,13 @@ func HandleGetSettings(settingsService *services.SettingsService) http.HandlerFu
 
 func HandleUpdateSettings(settingsService *services.SettingsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Check if user is admin via roles in context
-		roles, _ := r.Context().Value("user_roles").([]string)
-		isAdmin := false
-		for _, role := range roles {
-			if role == "admin" {
-				isAdmin = true
-				break
-			}
-		}
-		if !isAdmin {
+		if !utils.IsAdmin(r) {
 			utils.JSONError(w, http.StatusForbidden, "Insufficient permissions")
 			return
 		}
 
 		var updates map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+		if !utils.DecodeJSONBody(w, r, &updates) {
 			return
 		}
 
@@ -55,16 +44,7 @@ func HandleUpdateSettings(settingsService *services.SettingsService) http.Handle
 
 func HandleResetSettings(settingsService *services.SettingsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Check if user is admin via roles in context
-		roles, _ := r.Context().Value("user_roles").([]string)
-		isAdmin := false
-		for _, role := range roles {
-			if role == "admin" {
-				isAdmin = true
-				break
-			}
-		}
-		if !isAdmin {
+		if !utils.IsAdmin(r) {
 			utils.JSONError(w, http.StatusForbidden, "Insufficient permissions")
 			return
 		}
@@ -106,22 +86,9 @@ func HandleGetSetting(settingsService *services.SettingsService) http.HandlerFun
 // HandleSetSetting creates or updates a single setting
 func HandleSetSetting(settingsService *services.SettingsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Check if user is admin
-		userVal := r.Context().Value("user")
-		if userVal != nil {
-			// Check if user is admin via roles in context
-			roles, _ := r.Context().Value("user_roles").([]string)
-			isAdmin := false
-			for _, role := range roles {
-				if role == "admin" {
-					isAdmin = true
-					break
-				}
-			}
-			if !isAdmin {
-				utils.JSONError(w, http.StatusForbidden, "Insufficient permissions")
-				return
-			}
+		if !utils.IsAdmin(r) {
+			utils.JSONError(w, http.StatusForbidden, "Insufficient permissions")
+			return
 		}
 
 		var req struct {
@@ -130,8 +97,7 @@ func HandleSetSetting(settingsService *services.SettingsService) http.HandlerFun
 			Type  string      `json:"type,omitempty"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 

@@ -94,10 +94,8 @@ func (s *GroupService) ListByUser(userID string) ([]models.Group, error) {
 }
 
 func (s *GroupService) Create(group *models.Group) error {
-	// Start a transaction
 	tx := s.db.Begin()
 
-	// Create the group
 	if err := tx.Create(group).Error; err != nil {
 		tx.Rollback()
 		return err
@@ -110,43 +108,29 @@ func (s *GroupService) Create(group *models.Group) error {
 		if customFields, ok := group.CustomFields["fields"].(map[string]interface{}); ok {
 			for _, field := range groupTemplate.FilterFieldsSchema {
 				if value, exists := customFields[field.Name]; exists {
-					// Map to appropriate filter column based on field ID
-					s.mapToFilterColumn(tx, group, field.ID, value)
+					applyFilterColumnUpdates[models.Group](tx, group.ID, field.ID, value)
 				}
 			}
 		}
 
-		// Create variables for each field using the transaction
-		txVariableService := &VariableService{db: tx}
-		for _, field := range groupTemplate.FilterFieldsSchema {
-			variable := &models.Variable{
-				Name:         field.ID,
-				DisplayName:  field.Name,
-				ValueType:    field.Type,
-				Type:         "user",
-				Description:  field.Description,
-				DefaultValue: field.Constraints.Default,
-				Status:       "active",
-			}
-			txVariableService.Create(variable)
-		}
+		// Create variables for each field
+		createVariablesFromFields(tx, groupTemplate.FilterFieldsSchema)
 	}
 
 	tx.Commit()
 	return nil
 }
 
-// mapToFilterColumn maps a value to the appropriate filter column
-func (s *GroupService) mapToFilterColumn(tx *gorm.DB, group *models.Group, fieldID string, value interface{}) {
-	// Parse the field ID to get type and index (e.g., "filter_numeric_1" -> type: "numeric", index: 1)
+// mapFilterColumnUpdates parses a filter field ID and value into a map of column updates
+// Returns nil if the field ID is invalid or value type doesn't match
+func mapFilterColumnUpdates(fieldID string, value interface{}) map[string]interface{} {
 	parts := strings.Split(fieldID, "_")
 	if len(parts) != 3 || parts[0] != "filter" {
-		return
+		return nil
 	}
 
 	fieldType := parts[1]
 	index := parts[2]
-
 	updates := map[string]interface{}{}
 
 	switch fieldType {
@@ -172,8 +156,32 @@ func (s *GroupService) mapToFilterColumn(tx *gorm.DB, group *models.Group, field
 		}
 	}
 
-	if len(updates) > 0 {
-		tx.Model(&models.Group{}).Where("id = ?", group.ID).Updates(updates)
+	if len(updates) == 0 {
+		return nil
+	}
+	return updates
+}
+
+// applyFilterColumnUpdates applies filter column updates to a model
+func applyFilterColumnUpdates[T any](tx *gorm.DB, id uint, fieldID string, value interface{}) {
+	if updates := mapFilterColumnUpdates(fieldID, value); updates != nil {
+		tx.Model(new(T)).Where("id = ?", id).Updates(updates)
+	}
+}
+
+// createVariablesFromFields creates variables for each field definition
+func createVariablesFromFields(tx *gorm.DB, fields []models.FieldDefinition) {
+	for _, field := range fields {
+		variable := &models.Variable{
+			Name:         field.ID,
+			DisplayName:  field.Name,
+			ValueType:    field.Type,
+			Type:         "user",
+			Description:  field.Description,
+			DefaultValue: field.Constraints.Default,
+			Status:       "active",
+		}
+		tx.Create(variable)
 	}
 }
 
@@ -243,10 +251,8 @@ func (s *ProductService) GetByID(id uint) (*models.Product, error) {
 }
 
 func (s *ProductService) Create(product *models.Product) error {
-	// Start a transaction
 	tx := s.db.Begin()
 
-	// Create the product
 	if err := tx.Create(product).Error; err != nil {
 		tx.Rollback()
 		return err
@@ -259,71 +265,17 @@ func (s *ProductService) Create(product *models.Product) error {
 		if customFields, ok := product.CustomFields["fields"].(map[string]interface{}); ok {
 			for _, field := range productTemplate.FilterFieldsSchema {
 				if value, exists := customFields[field.Name]; exists {
-					// Map to appropriate filter column based on field ID
-					s.mapProductToFilterColumn(tx, product, field.ID, value)
+					applyFilterColumnUpdates[models.Product](tx, product.ID, field.ID, value)
 				}
 			}
 		}
 
-		// Create variables for each field using the transaction
-		txVariableService := &VariableService{db: tx}
-		for _, field := range productTemplate.FilterFieldsSchema {
-			variable := &models.Variable{
-				Name:         field.ID,
-				DisplayName:  field.Name,
-				ValueType:    field.Type,
-				Type:         "user",
-				Description:  field.Description,
-				DefaultValue: field.Constraints.Default,
-				Status:       "active",
-			}
-			txVariableService.Create(variable)
-		}
+		// Create variables for each field
+		createVariablesFromFields(tx, productTemplate.FilterFieldsSchema)
 	}
 
 	tx.Commit()
 	return nil
-}
-
-// mapProductToFilterColumn maps a value to the appropriate filter column for products
-func (s *ProductService) mapProductToFilterColumn(tx *gorm.DB, product *models.Product, fieldID string, value interface{}) {
-	// Parse the field ID to get type and index
-	parts := strings.Split(fieldID, "_")
-	if len(parts) != 3 || parts[0] != "filter" {
-		return
-	}
-
-	fieldType := parts[1]
-	index := parts[2]
-
-	updates := map[string]interface{}{}
-
-	switch fieldType {
-	case "numeric":
-		if v, ok := value.(float64); ok {
-			updates["filter_numeric_"+index] = v
-		}
-	case "text":
-		if v, ok := value.(string); ok {
-			updates["filter_text_"+index] = v
-		}
-	case "boolean":
-		if v, ok := value.(bool); ok {
-			updates["filter_boolean_"+index] = v
-		}
-	case "enum":
-		if v, ok := value.(string); ok {
-			updates["filter_enum_"+index] = v
-		}
-	case "location":
-		if v, ok := value.(string); ok {
-			updates["filter_location_"+index] = v
-		}
-	}
-
-	if len(updates) > 0 {
-		tx.Model(&models.Product{}).Where("id = ?", product.ID).Updates(updates)
-	}
 }
 
 func (s *ProductService) Update(id uint, product *models.Product) error {

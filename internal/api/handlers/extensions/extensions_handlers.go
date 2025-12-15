@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/suppers-ai/solobase/utils"
 )
 
 // Products Extension Handlers
@@ -51,8 +52,7 @@ func HandleProductsList() http.HandlerFunc {
 func HandleProductsCreate() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var product Product
-		if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &product) {
 			return
 		}
 
@@ -61,9 +61,7 @@ func HandleProductsCreate() http.HandlerFunc {
 		product.CreatedAt = time.Now()
 		product.UpdatedAt = time.Now()
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(product)
+		utils.JSONResponse(w, http.StatusCreated, product)
 	}
 }
 
@@ -73,8 +71,7 @@ func HandleProductsUpdate() http.HandlerFunc {
 		id := vars["id"]
 
 		var product Product
-		if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &product) {
 			return
 		}
 
@@ -82,8 +79,7 @@ func HandleProductsUpdate() http.HandlerFunc {
 		product.ID = id
 		product.UpdatedAt = time.Now()
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(product)
+		utils.JSONResponse(w, http.StatusOK, product)
 	}
 }
 
@@ -184,8 +180,7 @@ func HandleHugoSitesCreate() http.HandlerFunc {
 			HugoSite
 			IsExample bool `json:"isExample"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&reqData); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &reqData) {
 			return
 		}
 
@@ -663,8 +658,7 @@ func HandleHugoFileRead() http.HandlerFunc {
 		var reqData struct {
 			Path string `json:"path"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&reqData); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &reqData) {
 			return
 		}
 
@@ -715,8 +709,7 @@ func HandleHugoFileSave() http.HandlerFunc {
 			Path    string `json:"path"`
 			Content string `json:"content"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&reqData); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &reqData) {
 			return
 		}
 
@@ -758,8 +751,7 @@ func HandleHugoFileCreate() http.HandlerFunc {
 			Content string `json:"content"`
 			IsDir   bool   `json:"isDir"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&reqData); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &reqData) {
 			return
 		}
 
@@ -820,8 +812,7 @@ func HandleHugoFileDelete() http.HandlerFunc {
 		var reqData struct {
 			Path string `json:"path"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&reqData); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &reqData) {
 			return
 		}
 
@@ -975,8 +966,7 @@ func HandleCloudStorageProviders() http.HandlerFunc {
 func HandleCloudStorageAddProvider() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var provider CloudProvider
-		if err := json.NewDecoder(r.Body).Decode(&provider); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &provider) {
 			return
 		}
 
@@ -986,9 +976,7 @@ func HandleCloudStorageAddProvider() http.HandlerFunc {
 		provider.CreatedAt = time.Now()
 		provider.UpdatedAt = time.Now()
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(provider)
+		utils.JSONResponse(w, http.StatusCreated, provider)
 	}
 }
 

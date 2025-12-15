@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -62,14 +61,43 @@ func generateRefreshToken() (string, error) {
 	return base64.URLEncoding.EncodeToString(b), nil
 }
 
+// isProduction checks if we're running in production mode
+func isProduction() bool {
+	env := os.Getenv("ENVIRONMENT")
+	return env == "production" || env == "prod"
+}
+
+// createAuthCookie creates a cookie with proper settings for cross-origin auth
+// In production: Secure=true, SameSite=None (required for cross-origin)
+// In development: Secure=false, SameSite=Lax (works on localhost)
+func createAuthCookie(name, value string, maxAge int) *http.Cookie {
+	cookie := &http.Cookie{
+		Name:     name,
+		Value:    value,
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   maxAge,
+	}
+
+	if isProduction() {
+		// Production: cross-origin requires SameSite=None and Secure=true
+		cookie.Secure = true
+		cookie.SameSite = http.SameSiteNoneMode
+	} else {
+		// Development: SameSite=Lax works for localhost
+		cookie.Secure = false
+		cookie.SameSite = http.SameSiteLaxMode
+	}
+
+	return cookie
+}
+
 func HandleLogin(authService *services.AuthService, storageService *services.StorageService, extensionRegistry *core.ExtensionRegistry, iamService *iam.Service, db *database.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Login request received")
 
 		var req LoginRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			log.Printf("Failed to decode login request: %v", err)
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 
@@ -130,15 +158,7 @@ func HandleLogin(authService *services.AuthService, storageService *services.Sto
 		}
 
 		// Set access token as httpOnly cookie (short-lived)
-		http.SetCookie(w, &http.Cookie{
-			Name:     "auth_token",
-			Value:    accessToken,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   int(constants.AccessTokenDuration.Seconds()),
-		})
+		http.SetCookie(w, createAuthCookie("auth_token", accessToken, int(constants.AccessTokenDuration.Seconds())))
 
 		// In read-only mode, skip refresh token storage (database writes are blocked)
 		// Users will need to re-login when access token expires
@@ -174,15 +194,9 @@ func HandleLogin(authService *services.AuthService, storageService *services.Sto
 			}
 
 			// Set refresh token as httpOnly cookie (long-lived)
-			http.SetCookie(w, &http.Cookie{
-				Name:     "refresh_token",
-				Value:    refreshTokenStr,
-				Path:     "/api/auth", // Only sent to auth endpoints
-				HttpOnly: true,
-				Secure:   r.TLS != nil,
-				SameSite: http.SameSiteLaxMode,
-				MaxAge:   int(constants.RefreshTokenDuration.Seconds()),
-			})
+			refreshCookie := createAuthCookie("refresh_token", refreshTokenStr, int(constants.RefreshTokenDuration.Seconds()))
+			refreshCookie.Path = "/api/auth" // Only sent to auth endpoints
+			http.SetCookie(w, refreshCookie)
 		}
 
 		// Get roles for response
@@ -218,26 +232,12 @@ func HandleLogout(db *database.DB) http.HandlerFunc {
 		}
 
 		// Clear the access token cookie
-		http.SetCookie(w, &http.Cookie{
-			Name:     "auth_token",
-			Value:    "",
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   -1,
-		})
+		http.SetCookie(w, createAuthCookie("auth_token", "", -1))
 
 		// Clear the refresh token cookie
-		http.SetCookie(w, &http.Cookie{
-			Name:     "refresh_token",
-			Value:    "",
-			Path:     "/api/auth",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   -1,
-		})
+		clearRefreshCookie := createAuthCookie("refresh_token", "", -1)
+		clearRefreshCookie.Path = "/api/auth"
+		http.SetCookie(w, clearRefreshCookie)
 
 		utils.JSONResponse(w, http.StatusOK, map[string]string{"message": "Logged out successfully"})
 	}
@@ -326,26 +326,12 @@ func HandleRefreshToken(db *database.DB, iamService *iam.Service, authService *s
 		}
 
 		// Set new access token cookie
-		http.SetCookie(w, &http.Cookie{
-			Name:     "auth_token",
-			Value:    accessToken,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   int(constants.AccessTokenDuration.Seconds()),
-		})
+		http.SetCookie(w, createAuthCookie("auth_token", accessToken, int(constants.AccessTokenDuration.Seconds())))
 
 		// Set new refresh token cookie
-		http.SetCookie(w, &http.Cookie{
-			Name:     "refresh_token",
-			Value:    newRefreshTokenStr,
-			Path:     "/api/auth",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   int(constants.RefreshTokenDuration.Seconds()),
-		})
+		newRefreshCookie := createAuthCookie("refresh_token", newRefreshTokenStr, int(constants.RefreshTokenDuration.Seconds()))
+		newRefreshCookie.Path = "/api/auth"
+		http.SetCookie(w, newRefreshCookie)
 
 		utils.JSONResponse(w, http.StatusOK, map[string]string{"message": "Token refreshed"})
 	}
@@ -354,8 +340,7 @@ func HandleRefreshToken(db *database.DB, iamService *iam.Service, authService *s
 func HandleSignup(authService *services.AuthService, iamService *iam.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req SignupRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 
@@ -402,23 +387,13 @@ func HandleGetCurrentUser() http.HandlerFunc {
 // HandleUpdateCurrentUser handles updating the current user's profile
 func HandleUpdateCurrentUser(userService *services.UserService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Get user ID from context (set by auth middleware)
-		userID := r.Context().Value("userID")
-		if userID == nil {
-			utils.JSONError(w, http.StatusUnauthorized, "User not authenticated")
-			return
-		}
-
-		userIDStr, ok := userID.(string)
+		userIDStr, ok := utils.RequireUserID(w, r)
 		if !ok {
-			utils.JSONError(w, http.StatusUnauthorized, "Invalid user ID")
 			return
 		}
 
-		// Parse request body
 		var updates map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+		if !utils.DecodeJSONBody(w, r, &updates) {
 			return
 		}
 
@@ -457,8 +432,7 @@ func HandleChangePassword(authService *services.AuthService) http.HandlerFunc {
 		}
 
 		var req ChangePasswordRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 

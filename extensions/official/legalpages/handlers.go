@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
+	"github.com/suppers-ai/solobase/utils"
 )
 
 type Handlers struct {
@@ -171,8 +172,7 @@ func (h *Handlers) HandleSaveDocument(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -219,8 +219,7 @@ func (h *Handlers) HandlePublishDocument(w http.ResponseWriter, r *http.Request)
 		Version int `json:"version"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 

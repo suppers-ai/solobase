@@ -299,62 +299,44 @@ class ApiClient {
 		});
 	}
 
+	// Helper to extract error message and throw
+	private throwOnError<T>(response: ApiResponse<T>): T {
+		if (response.error) {
+			const errorMsg = typeof response.error === 'string' ? response.error : response.error.message;
+			throw new Error(errorMsg);
+		}
+		return response.data as T;
+	}
+
+	// Generic HTTP method that handles all request types
+	private async makeRequest<T>(path: string, method: string, body?: unknown): Promise<T> {
+		const response = await this.request<T>(path, {
+			method,
+			body: body ? JSON.stringify(body) : undefined
+		});
+		return this.throwOnError(response);
+	}
+
 	// Generic HTTP methods for direct API calls
 	// These throw on error for use with try/catch
 	async get<T = unknown>(path: string): Promise<T> {
-		const response = await this.request<T>(path);
-		if (response.error) {
-			const errorMsg = typeof response.error === 'string' ? response.error : response.error.message;
-			throw new Error(errorMsg);
-		}
-		return response.data as T;
+		return this.makeRequest<T>(path, 'GET');
 	}
 
 	async post<T = unknown>(path: string, body?: unknown): Promise<T> {
-		const response = await this.request<T>(path, {
-			method: 'POST',
-			body: body ? JSON.stringify(body) : undefined
-		});
-		if (response.error) {
-			const errorMsg = typeof response.error === 'string' ? response.error : response.error.message;
-			throw new Error(errorMsg);
-		}
-		return response.data as T;
+		return this.makeRequest<T>(path, 'POST', body);
 	}
 
 	async put<T = unknown>(path: string, body?: unknown): Promise<T> {
-		const response = await this.request<T>(path, {
-			method: 'PUT',
-			body: body ? JSON.stringify(body) : undefined
-		});
-		if (response.error) {
-			const errorMsg = typeof response.error === 'string' ? response.error : response.error.message;
-			throw new Error(errorMsg);
-		}
-		return response.data as T;
+		return this.makeRequest<T>(path, 'PUT', body);
 	}
 
 	async patch<T = unknown>(path: string, body?: unknown): Promise<T> {
-		const response = await this.request<T>(path, {
-			method: 'PATCH',
-			body: body ? JSON.stringify(body) : undefined
-		});
-		if (response.error) {
-			const errorMsg = typeof response.error === 'string' ? response.error : response.error.message;
-			throw new Error(errorMsg);
-		}
-		return response.data as T;
+		return this.makeRequest<T>(path, 'PATCH', body);
 	}
 
 	async delete<T = unknown>(path: string): Promise<T> {
-		const response = await this.request<T>(path, {
-			method: 'DELETE'
-		});
-		if (response.error) {
-			const errorMsg = typeof response.error === 'string' ? response.error : response.error.message;
-			throw new Error(errorMsg);
-		}
-		return response.data as T;
+		return this.makeRequest<T>(path, 'DELETE');
 	}
 }
 

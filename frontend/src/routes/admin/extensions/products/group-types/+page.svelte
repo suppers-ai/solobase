@@ -1,15 +1,21 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import {
-		Building2, Plus, Edit2, Trash2, Search, Filter,
+		Building2, Plus, Edit2, Trash2, Filter,
 		CheckCircle, XCircle, Settings
 	} from 'lucide-svelte';
+	import SearchInput from '$lib/components/SearchInput.svelte';
 	import { api, ErrorHandler } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
 	import IconPicker from '$lib/components/IconPicker.svelte';
 	import FieldEditor from '$lib/components/FieldEditor.svelte';
 	import { getIconComponent } from '$lib/utils/icons';
 	import { toasts } from '$lib/stores/toast';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import PageHeader from '$lib/components/ui/PageHeader.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
 
 	interface FieldConstraints {
 		required?: boolean;
@@ -71,7 +77,9 @@
 	let searchQuery = '';
 	let showCreateModal = false;
 	let showEditModal = false;
+	let showDeleteConfirm = false;
 	let selectedEntityType: EntityType | null = null;
+	let entityTypeToDelete: string | null = null;
 	
 	// Form data for new group type
 	let newEntityType: Partial<EntityType> = {
@@ -162,16 +170,23 @@
 		}
 	}
 	
-	async function deleteEntityType(id: string) {
-		if (!confirm('Are you sure you want to delete this group type? This will affect all groups of this type.')) return;
-		
+	function deleteEntityType(id: string) {
+		entityTypeToDelete = id;
+		showDeleteConfirm = true;
+	}
+
+	async function confirmDeleteEntityType() {
+		if (!entityTypeToDelete) return;
+		showDeleteConfirm = false;
+
 		try {
-			await api.delete(`/admin/ext/products/group-types/${id}`);
+			await api.delete(`/admin/ext/products/group-types/${entityTypeToDelete}`);
 			// Reload group types
 			await loadEntityTypes();
 		} catch (error) {
 			ErrorHandler.handle(error);
 		}
+		entityTypeToDelete = null;
 	}
 
 	// Schema editor state
@@ -283,42 +298,26 @@
 
 <div class="page-container">
 	<!-- Header -->
-	<div class="page-header">
-		<a href="/admin/extensions/products" class="back-button">
-			<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<polyline points="15 18 9 12 15 6"></polyline>
-			</svg>
-		</a>
-		<div class="header-content">
-			<div class="header-left">
-				<div class="header-title">
-					<Building2 size={24} />
-					<h1>Group Types</h1>
-				</div>
-				<p class="header-subtitle">Define types of groups that can own products (e.g., Store, Company, Team)</p>
-			</div>
-			<div class="header-actions">
-				<button class="btn btn-primary" on:click={() => showCreateModal = true}>
-					<Plus size={16} />
-					New Group Type
-				</button>
-			</div>
-		</div>
-	</div>
+	<PageHeader
+		title="Group Types"
+		subtitle="Define types of groups that can own products (e.g., Store, Company, Team)"
+		icon={Building2}
+		backHref="/admin/extensions/products"
+		variant="card"
+	>
+		<svelte:fragment slot="actions">
+			<Button icon={Plus} on:click={() => showCreateModal = true}>
+				New Group Type
+			</Button>
+		</svelte:fragment>
+	</PageHeader>
 
 	<!-- Main Content -->
 	<div class="content-card">
 		<!-- Toolbar -->
 		<div class="toolbar">
 			<div class="toolbar-left">
-				<div class="search-box">
-					<Search size={16} />
-					<input 
-						type="text" 
-						placeholder="Search group types..."
-						bind:value={searchQuery}
-					/>
-				</div>
+				<SearchInput bind:value={searchQuery} placeholder="Search group types..." maxWidth="320px" />
 			</div>
 			<div class="toolbar-right">
 				<button class="btn-icon">
@@ -333,15 +332,15 @@
 				<div class="loading loading-spinner loading-lg text-cyan-600"></div>
 			</div>
 		{:else if filteredEntityTypes.length === 0}
-			<div class="empty-state">
-				<Building2 size={48} class="text-gray-400" />
-				<h3>No group types found</h3>
-				<p>Create your first group type to organize your business structure</p>
-				<button class="btn btn-primary mt-4" on:click={() => showCreateModal = true}>
-					<Plus size={16} />
+			<EmptyState
+				icon={Building2}
+				title="No group types found"
+				message="Create your first group type to organize your business structure"
+			>
+				<Button icon={Plus} on:click={() => showCreateModal = true}>
 					Create Group Type
-				</button>
-			</div>
+				</Button>
+			</EmptyState>
 		{:else}
 			<div class="group-grid">
 				{#each filteredEntityTypes as groupType}
@@ -396,69 +395,6 @@
 		margin: 0 auto;
 	}
 
-	.page-header {
-		background: white;
-		border-radius: 0.5rem;
-		padding: 1.5rem;
-		margin-bottom: 1.5rem;
-		border: 1px solid #e5e7eb;
-		position: relative;
-	}
-
-	.back-button {
-		position: absolute;
-		top: 1.5rem;
-		left: 1.5rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 36px;
-		height: 36px;
-		border: 1px solid #e5e7eb;
-		border-radius: 0.375rem;
-		background: white;
-		color: #6b7280;
-		text-decoration: none;
-		transition: all 0.2s;
-	}
-
-	.back-button:hover {
-		background: #f9fafb;
-		color: #111827;
-	}
-
-	.header-content {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		margin-left: 48px;
-	}
-
-	.header-title {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		margin-bottom: 0.5rem;
-	}
-
-	.header-title h1 {
-		font-size: 1.5rem;
-		font-weight: 600;
-		color: #111827;
-		margin: 0;
-	}
-
-	.header-subtitle {
-		color: #6b7280;
-		font-size: 0.875rem;
-		margin: 0;
-	}
-
-	.header-actions {
-		display: flex;
-		gap: 0.75rem;
-	}
-
 	.content-card {
 		background: white;
 		border-radius: 0.5rem;
@@ -486,66 +422,6 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-	}
-
-	.search-box {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 0.75rem;
-		border: 1px solid #e5e7eb;
-		border-radius: 0.375rem;
-		background: white;
-		flex: 1;
-		max-width: 320px;
-	}
-
-	.search-box input {
-		border: none;
-		outline: none;
-		flex: 1;
-		font-size: 0.875rem;
-	}
-
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 1rem;
-		border-radius: 0.375rem;
-		font-size: 0.875rem;
-		font-weight: 500;
-		border: none;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.btn-primary {
-		background: #06b6d4;
-		color: white;
-	}
-
-	.btn-primary:hover {
-		background: #0891b2;
-	}
-
-	.btn-secondary {
-		background: white;
-		color: #374151;
-		border: 1px solid #e5e7eb;
-	}
-
-	.btn-secondary:hover {
-		background: #f9fafb;
-	}
-	
-	.btn-danger {
-		background: #ef4444;
-		color: white;
-	}
-	
-	.btn-danger:hover {
-		background: #dc2626;
 	}
 
 	.btn-icon {
@@ -740,66 +616,6 @@
 		padding: 4rem;
 	}
 
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 4rem;
-		text-align: center;
-	}
-
-	.empty-state h3 {
-		margin: 1rem 0 0.5rem 0;
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.empty-state p {
-		margin: 0;
-		color: #6b7280;
-		font-size: 0.875rem;
-	}
-
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 9999;
-	}
-
-	.modal {
-		background: white;
-		border-radius: 0.5rem;
-		width: 90%;
-		max-width: 700px;
-		max-height: 90vh;
-		overflow-y: auto;
-	}
-
-	.modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.modal-header h2 {
-		margin: 0;
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.modal-body {
-		padding: 1.5rem;
-	}
-
 	.form-group {
 		margin-bottom: 1rem;
 	}
@@ -836,14 +652,6 @@
 		gap: 1rem;
 	}
 
-	.modal-footer {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem;
-		border-top: 1px solid #e5e7eb;
-	}
-	
 	.modal-footer-right {
 		display: flex;
 		gap: 0.75rem;
@@ -1036,113 +844,100 @@
 </style>
 
 <!-- Create Group Type Modal -->
-{#if showCreateModal}
-	<div class="modal-overlay" on:click={() => showCreateModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Create New Group Type</h2>
-				<button class="btn-icon" on:click={() => showCreateModal = false}>
-					×
-				</button>
-			</div>
-			<div class="modal-body">
-				<div class="form-row">
-					<div class="form-group">
-						<label for="name">Group Type Name</label>
-						<input type="text" id="name" bind:value={newEntityType.name} 
-							placeholder="e.g., store, company, team" />
-					</div>
-					<div class="form-group">
-						<label for="display_name">Display Name</label>
-						<input type="text" id="displayName" bind:value={newEntityType.displayName} 
-							placeholder="e.g., Store, Company, Team" />
-					</div>
-				</div>
-				<div class="form-group">
-					<label for="description">Description</label>
-					<textarea id="description" bind:value={newEntityType.description} rows="2" 
-						placeholder="Describe what this group type represents"></textarea>
-				</div>
-				<div class="form-group">
-					<label for="icon">Icon</label>
-					<IconPicker bind:value={newEntityType.icon} placeholder="Choose an icon" />
-				</div>
-				<div class="form-group">
-					<label for="status">Status</label>
-					<select id="status" bind:value={newEntityType.status}>
-						<option value="active">Active</option>
-						<option value="pending">Pending</option>
-						<option value="deleted">Deleted</option>
-					</select>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showCreateModal = false}>Cancel</button>
-				<button class="btn btn-primary" on:click={createEntityType}>Create Group Type</button>
-			</div>
+<Modal show={showCreateModal} title="Create New Group Type" maxWidth="600px" on:close={() => showCreateModal = false}>
+	<div class="form-row">
+		<div class="form-group">
+			<label for="name">Group Type Name</label>
+			<input type="text" id="name" bind:value={newEntityType.name}
+				placeholder="e.g., store, company, team" />
+		</div>
+		<div class="form-group">
+			<label for="display_name">Display Name</label>
+			<input type="text" id="displayName" bind:value={newEntityType.displayName}
+				placeholder="e.g., Store, Company, Team" />
 		</div>
 	</div>
-{/if}
+	<div class="form-group">
+		<label for="description">Description</label>
+		<textarea id="description" bind:value={newEntityType.description} rows="2"
+			placeholder="Describe what this group type represents"></textarea>
+	</div>
+	<div class="form-group">
+		<label for="icon">Icon</label>
+		<IconPicker bind:value={newEntityType.icon} placeholder="Choose an icon" />
+	</div>
+	<div class="form-group">
+		<label for="status">Status</label>
+		<select id="status" bind:value={newEntityType.status}>
+			<option value="active">Active</option>
+			<option value="pending">Pending</option>
+			<option value="deleted">Deleted</option>
+		</select>
+	</div>
+	<svelte:fragment slot="footer">
+		<Button variant="secondary" on:click={() => showCreateModal = false}>Cancel</Button>
+		<Button on:click={createEntityType}>Create Group Type</Button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Edit Group Type Modal -->
-{#if showEditModal && selectedEntityType}
-	<div class="modal-overlay" on:click={() => showEditModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Edit Group Type</h2>
-				<button class="btn-icon" on:click={() => showEditModal = false}>
-					×
-				</button>
+<Modal show={showEditModal && !!selectedEntityType} title="Edit Group Type" maxWidth="700px" on:close={() => { showEditModal = false; schemaFields = []; }}>
+	{#if selectedEntityType}
+		<div class="form-row">
+			<div class="form-group">
+				<label for="edit-name">Group Type Name</label>
+				<input type="text" id="edit-name" bind:value={selectedEntityType.name} />
 			</div>
-			<div class="modal-body">
-				<div class="form-row">
-					<div class="form-group">
-						<label for="edit-name">Group Type Name</label>
-						<input type="text" id="edit-name" bind:value={selectedEntityType.name} />
-					</div>
-					<div class="form-group">
-						<label for="edit-display_name">Display Name</label>
-						<input type="text" id="edit-displayName" bind:value={selectedEntityType.displayName} />
-					</div>
-				</div>
-				<div class="form-group">
-					<label for="edit-description">Description</label>
-					<textarea id="edit-description" bind:value={selectedEntityType.description} rows="2"></textarea>
-				</div>
-				<div class="form-group">
-					<label for="edit-icon">Icon</label>
-					<IconPicker bind:value={selectedEntityType.icon} placeholder="Choose an icon" />
-				</div>
-				
-				<div class="form-group">
-					<label>Custom Fields Definition</label>
-					<FieldEditor 
-						fields={schemaFields} 
-						onFieldsChange={(newFields) => schemaFields = newFields} 
-					/>
-				</div>
-				
-				<div class="form-group">
-					<label for="edit-status">Status</label>
-					<select id="edit-status" bind:value={selectedEntityType.status}>
-						<option value="active">Active</option>
-						<option value="pending">Pending</option>
-						<option value="deleted">Deleted</option>
-					</select>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-danger" on:click={() => {
-					if (selectedEntityType && confirm('Are you sure you want to delete this group type? This will affect all groups of this type.')) {
-						deleteEntityType(selectedEntityType.id);
-						showEditModal = false;
-					}
-				}}>Delete</button>
-				<div class="modal-footer-right">
-					<button class="btn btn-secondary" on:click={() => { showEditModal = false; schemaFields = []; }}>Cancel</button>
-					<button class="btn btn-primary" on:click={saveEntityType}>Save</button>
-				</div>
+			<div class="form-group">
+				<label for="edit-display_name">Display Name</label>
+				<input type="text" id="edit-displayName" bind:value={selectedEntityType.displayName} />
 			</div>
 		</div>
-	</div>
-{/if}
+		<div class="form-group">
+			<label for="edit-description">Description</label>
+			<textarea id="edit-description" bind:value={selectedEntityType.description} rows="2"></textarea>
+		</div>
+		<div class="form-group">
+			<label for="edit-icon">Icon</label>
+			<IconPicker bind:value={selectedEntityType.icon} placeholder="Choose an icon" />
+		</div>
+
+		<div class="form-group">
+			<label>Custom Fields Definition</label>
+			<FieldEditor
+				fields={schemaFields}
+				onFieldsChange={(newFields) => schemaFields = newFields}
+			/>
+		</div>
+
+		<div class="form-group">
+			<label for="edit-status">Status</label>
+			<select id="edit-status" bind:value={selectedEntityType.status}>
+				<option value="active">Active</option>
+				<option value="pending">Pending</option>
+				<option value="deleted">Deleted</option>
+			</select>
+		</div>
+	{/if}
+	<svelte:fragment slot="footer">
+		<Button variant="danger" on:click={() => {
+			if (selectedEntityType) {
+				deleteEntityType(selectedEntityType.id);
+				showEditModal = false;
+			}
+		}}>Delete</Button>
+		<div class="modal-footer-right">
+			<Button variant="secondary" on:click={() => { showEditModal = false; schemaFields = []; }}>Cancel</Button>
+			<Button on:click={saveEntityType}>Save</Button>
+		</div>
+	</svelte:fragment>
+</Modal>
+
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title="Delete Group Type"
+	message="Are you sure you want to delete this group type? This will affect all groups of this type."
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteEntityType}
+/>

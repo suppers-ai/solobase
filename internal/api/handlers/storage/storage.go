@@ -3,7 +3,6 @@ package storage
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -89,8 +88,7 @@ func (h *StorageHandlers) HandleCreateBucket(w http.ResponseWriter, r *http.Requ
 		Public bool   `json:"public"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &request) {
 		return
 	}
 
@@ -464,8 +462,7 @@ func (h *StorageHandlers) HandleRenameObject(w http.ResponseWriter, r *http.Requ
 		Name string `json:"name"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &request) {
 		return
 	}
 
@@ -529,8 +526,7 @@ func (h *StorageHandlers) HandleCreateFolder(w http.ResponseWriter, r *http.Requ
 		ParentFolderID *string `json:"parentFolderId"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &request) {
 		return
 	}
 
@@ -675,8 +671,7 @@ func (h *StorageHandlers) HandleGenerateUploadURL(w http.ResponseWriter, r *http
 		MaxSize        int64   `json:"maxSize"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &request) {
 		return
 	}
 
@@ -1223,8 +1218,7 @@ func (h *StorageHandlers) HandleUpdateObjectMetadata(w http.ResponseWriter, r *h
 		Metadata string `json:"metadata"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &request) {
 		return
 	}
 

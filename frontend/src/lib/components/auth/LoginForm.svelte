@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Eye, EyeOff, Mail, Lock, LogIn } from 'lucide-svelte';
 	import { onMount } from 'svelte';
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
 
 	export let email: string = '';
 	export let password: string = '';
@@ -210,7 +211,7 @@
 				disabled={loading}
 			>
 				{#if loading}
-					<div class="spinner"></div>
+					<LoadingSpinner size="sm" color="white" />
 					<span>Logging in...</span>
 				{:else}
 					<LogIn size={20} />

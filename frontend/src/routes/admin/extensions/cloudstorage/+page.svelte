@@ -14,6 +14,25 @@
 	import FileExplorer from '$lib/components/FileExplorer.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import QuotaManager from '$lib/components/cloudstorage/QuotaManager.svelte';
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import TabNavigation from '$lib/components/ui/TabNavigation.svelte';
+
+	const cloudStorageTabs = [
+		{ id: 'overview', label: 'Overview' },
+		{ id: 'shares', label: 'Shares' },
+		{ id: 'quotas', label: 'Quotas & Limits' },
+		{ id: 'logs', label: 'Access Logs' },
+		{ id: 'analytics', label: 'Analytics' },
+		{ id: 'settings', label: 'Settings' }
+	];
+
+	function handleTabChange(event: CustomEvent<string>) {
+		if (event.detail === 'logs') {
+			loadAccessLogs();
+		}
+	}
 
 	let loading = true;
 	let activeTab = 'overview';
@@ -481,44 +500,7 @@
 	</div>
 
 	<!-- Tabs -->
-	<div class="tabs">
-		<button 
-			class="tab {activeTab === 'overview' ? 'active' : ''}"
-			on:click={() => activeTab = 'overview'}
-		>
-			Overview
-		</button>
-		<button 
-			class="tab {activeTab === 'shares' ? 'active' : ''}"
-			on:click={() => activeTab = 'shares'}
-		>
-			Shares
-		</button>
-		<button 
-			class="tab {activeTab === 'quotas' ? 'active' : ''}"
-			on:click={() => activeTab = 'quotas'}
-		>
-			Quotas & Limits
-		</button>
-		<button 
-			class="tab {activeTab === 'logs' ? 'active' : ''}"
-			on:click={() => {activeTab = 'logs'; loadAccessLogs()}}
-		>
-			Access Logs
-		</button>
-		<button 
-			class="tab {activeTab === 'analytics' ? 'active' : ''}"
-			on:click={() => activeTab = 'analytics'}
-		>
-			Analytics
-		</button>
-		<button 
-			class="tab {activeTab === 'settings' ? 'active' : ''}"
-			on:click={() => activeTab = 'settings'}
-		>
-			Settings
-		</button>
-	</div>
+	<TabNavigation tabs={cloudStorageTabs} bind:activeTab on:change={handleTabChange} />
 
 	{#if loading}
 		<div class="loading">Loading...</div>
@@ -671,16 +653,11 @@
 				
 				{#if !stats.shares || stats.shares.totalShares === 0}
 					<!-- Empty State for Shares -->
-					<div class="empty-state">
-						<div class="empty-state-icon">
-							<Share2 size={48} />
-						</div>
-						<h3 class="empty-state-title">No files are shared</h3>
-						<p class="empty-state-description">
-							Start sharing files and folders to collaborate with others.
-							You can create public links or share with specific users.
-						</p>
-					</div>
+					<EmptyState
+						icon={Share2}
+						title="No files are shared"
+						message="Start sharing files and folders to collaborate with others. You can create public links or share with specific users."
+					/>
 				{:else}
 					<div class="share-stats-grid">
 						<div class="share-stat-card">
@@ -821,13 +798,14 @@
 						</table>
 					</div>
 				{:else}
-					<div class="empty-state">
-						<Share2 size={48} class="text-gray-400" />
-						<p>No active shares</p>
+					<EmptyState
+						icon={Share2}
+						title="No active shares"
+					>
 						<button class="btn btn-primary" on:click={() => showShareModal = true}>
 							Create First Share
 						</button>
-					</div>
+					</EmptyState>
 				{/if}
 			</div>
 		{/if}
@@ -1009,11 +987,11 @@
 						{/each}
 					</div>
 				{:else}
-					<div class="empty-state">
-						<Activity size={48} class="text-gray-400" />
-						<p>No access logs found</p>
-						<p class="text-sm text-gray-500">Access logs will appear here once users start interacting with files</p>
-					</div>
+					<EmptyState
+						icon={Activity}
+						title="No access logs found"
+						message="Access logs will appear here once users start interacting with files"
+					/>
 				{/if}
 			</div>
 		{/if}
@@ -1154,280 +1132,238 @@
 </div>
 
 <!-- Share Modal -->
-{#if showShareModal}
-	<div class="modal-overlay" on:click={() => showShareModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Create Share</h2>
-				<button class="modal-close" on:click={() => showShareModal = false}>
-					<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-						<path d="M15 5L5 15M5 5L15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-					</svg>
-				</button>
-			</div>
-			<div class="modal-body">
-				<div class="form-group">
-					<label class="form-label">File or Folder</label>
-					<div class="file-picker">
-						<input 
-							type="text" 
-							class="form-input" 
-							value={selectedObject ? selectedObject.name : ''} 
-							placeholder="No file selected" 
-							readonly
-						/>
-						<button 
-							class="btn btn-secondary"
-							on:click={() => showFileExplorer = true}
-						>
-							<Folder size={16} />
-							Pick File/Folder
-						</button>
-					</div>
-				</div>
-				
-				<div class="form-group">
-					<label class="form-label">Share Type</label>
-					<div class="toggle-switch">
-						<button 
-							class="toggle-option {shareForm.generateToken ? 'active' : ''}"
-							on:click={() => shareForm.generateToken = true}
-						>
-							Generate Share Link
-						</button>
-						<button 
-							class="toggle-option {!shareForm.generateToken ? 'active' : ''}"
-							on:click={() => shareForm.generateToken = false}
-						>
-							Share with Email
-						</button>
-					</div>
-				</div>
-				
-				{#if !shareForm.generateToken}
-					<div class="form-group">
-						<label class="form-label">Email Address</label>
-						<input 
-							type="email" 
-							class="form-input" 
-							bind:value={shareForm.sharedWithEmail} 
-							placeholder="user@example.com" 
-						/>
-					</div>
-				{/if}
-				
-				<div class="form-group">
-					<label class="form-label">Permission Level</label>
-					<select class="form-select" bind:value={shareForm.permissionLevel}>
-						<option value="view">View Only</option>
-						<option value="edit">Edit</option>
-						<option value="admin">Admin</option>
-					</select>
-				</div>
-				
-				<div class="checkbox-group">
-					<label class="checkbox-label">
-						<input 
-							type="checkbox" 
-							class="form-checkbox" 
-							bind:checked={shareForm.isPublic} 
-						/>
-						<span>Make Public</span>
-					</label>
-					
-					<label class="checkbox-label">
-						<input 
-							type="checkbox" 
-							class="form-checkbox" 
-							bind:checked={shareForm.inheritToChildren} 
-						/>
-						<span>Apply to Child Objects</span>
-					</label>
-				</div>
-				
-				<div class="form-group">
-					<label class="form-label">Expires In (hours)</label>
-					<input 
-						type="number" 
-						class="form-input" 
-						bind:value={shareForm.expiresIn} 
-						min="0" 
-						placeholder="24" 
-					/>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showShareModal = false}>Cancel</button>
-				<button class="btn btn-primary" on:click={createShare}>Create Share</button>
-			</div>
+<Modal show={showShareModal} title="Create Share" on:close={() => showShareModal = false}>
+	<div class="form-group">
+		<label class="form-label">File or Folder</label>
+		<div class="file-picker">
+			<input
+				type="text"
+				class="form-input"
+				value={selectedObject ? selectedObject.name : ''}
+				placeholder="No file selected"
+				readonly
+			/>
+			<button
+				class="btn btn-secondary"
+				on:click={() => showFileExplorer = true}
+			>
+				<Folder size={16} />
+				Pick File/Folder
+			</button>
 		</div>
 	</div>
-{/if}
+
+	<div class="form-group">
+		<label class="form-label">Share Type</label>
+		<div class="toggle-switch">
+			<button
+				class="toggle-option {shareForm.generateToken ? 'active' : ''}"
+				on:click={() => shareForm.generateToken = true}
+			>
+				Generate Share Link
+			</button>
+			<button
+				class="toggle-option {!shareForm.generateToken ? 'active' : ''}"
+				on:click={() => shareForm.generateToken = false}
+			>
+				Share with Email
+			</button>
+		</div>
+	</div>
+
+	{#if !shareForm.generateToken}
+		<div class="form-group">
+			<label class="form-label">Email Address</label>
+			<input
+				type="email"
+				class="form-input"
+				bind:value={shareForm.sharedWithEmail}
+				placeholder="user@example.com"
+			/>
+		</div>
+	{/if}
+
+	<div class="form-group">
+		<label class="form-label">Permission Level</label>
+		<select class="form-select" bind:value={shareForm.permissionLevel}>
+			<option value="view">View Only</option>
+			<option value="edit">Edit</option>
+			<option value="admin">Admin</option>
+		</select>
+	</div>
+
+	<div class="checkbox-group">
+		<label class="checkbox-label">
+			<input
+				type="checkbox"
+				class="form-checkbox"
+				bind:checked={shareForm.isPublic}
+			/>
+			<span>Make Public</span>
+		</label>
+
+		<label class="checkbox-label">
+			<input
+				type="checkbox"
+				class="form-checkbox"
+				bind:checked={shareForm.inheritToChildren}
+			/>
+			<span>Apply to Child Objects</span>
+		</label>
+	</div>
+
+	<div class="form-group">
+		<label class="form-label">Expires In (hours)</label>
+		<input
+			type="number"
+			class="form-input"
+			bind:value={shareForm.expiresIn}
+			min="0"
+			placeholder="24"
+		/>
+	</div>
+	<svelte:fragment slot="footer">
+		<button class="btn btn-secondary" on:click={() => showShareModal = false}>Cancel</button>
+		<button class="btn btn-primary" on:click={createShare}>Create Share</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Quota Modal -->
-{#if showQuotaModal}
-	<div class="modal-overlay" on:click={() => showQuotaModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Set User Quota</h2>
-				<button class="modal-close" on:click={() => showQuotaModal = false}>
-					<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-						<path d="M15 5L5 15M5 5L15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-					</svg>
-				</button>
-			</div>
-			<div class="modal-body">
-				<div class="form-group">
-					<label class="form-label">Search User</label>
-					<div class="user-search">
-						<SearchInput 
-							bind:value={userSearchQuery}
-							placeholder="Search by email, name or ID..."
-							on:input={searchUsers}
-							on:focus={() => {if (searchResults.length > 0) showSearchDropdown = true}}
-							maxWidth="100%"
-						/>
-						{#if searchingUsers}
-							<div class="search-loading">
-								<div class="spinner"></div>
-							</div>
-						{/if}
-						{#if showSearchDropdown && searchResults.length > 0}
-							<div class="search-results">
-								{#each searchResults as user}
-									<button 
-										class="search-result-item"
-										on:click={() => selectUser(user)}
-									>
-										<div class="user-avatar">
-											{user.email ? user.email[0].toUpperCase() : 'U'}
-										</div>
-										<div class="user-info">
-											<span class="user-email">{user.email}</span>
-											{#if user.name}
-												<span class="user-name">{user.name}</span>
-											{/if}
-										</div>
-										<span class="user-id">ID: {user.id.slice(0, 8)}...</span>
-									</button>
-								{/each}
-							</div>
-						{/if}
-						{#if showSearchDropdown && !searchingUsers && searchResults.length === 0 && userSearchQuery.length >= 2}
-							<div class="search-results">
-								<div class="no-results">No users found</div>
-							</div>
-						{/if}
-					</div>
-					{#if quotaForm.userId}
-						<div class="selected-user">
-							<CheckCircle size={16} class="text-green-600" />
-							Selected: <strong>{userSearchQuery}</strong> (ID: {quotaForm.userId.slice(0, 8)}...)
-						</div>
-					{/if}
+<Modal show={showQuotaModal} title="Set User Quota" on:close={() => { showQuotaModal = false; showSearchDropdown = false; }}>
+	<div class="form-group">
+		<label class="form-label">Search User</label>
+		<div class="user-search">
+			<SearchInput
+				bind:value={userSearchQuery}
+				placeholder="Search by email, name or ID..."
+				on:input={searchUsers}
+				on:focus={() => {if (searchResults.length > 0) showSearchDropdown = true}}
+				maxWidth="100%"
+			/>
+			{#if searchingUsers}
+				<div class="search-loading">
+					<LoadingSpinner size="sm" />
 				</div>
-				
-				<div class="form-group">
-					<label class="form-label">Max Storage (GB)</label>
-					<input 
-						type="number" 
-						class="form-input" 
-						bind:value={quotaForm.maxStorageGB} 
-						min="0.1" 
-						step="0.1" 
-					/>
-					<div class="form-help">Current: {formatBytes(quotaForm.maxStorageGB * 1024 * 1024 * 1024)}</div>
+			{/if}
+			{#if showSearchDropdown && searchResults.length > 0}
+				<div class="search-results">
+					{#each searchResults as user}
+						<button
+							class="search-result-item"
+							on:click={() => selectUser(user)}
+						>
+							<div class="user-avatar">
+								{user.email ? user.email[0].toUpperCase() : 'U'}
+							</div>
+							<div class="user-info">
+								<span class="user-email">{user.email}</span>
+								{#if user.name}
+									<span class="user-name">{user.name}</span>
+								{/if}
+							</div>
+							<span class="user-id">ID: {user.id.slice(0, 8)}...</span>
+						</button>
+					{/each}
 				</div>
-				
-				<div class="form-group">
-					<label class="form-label">Max Bandwidth (GB/month)</label>
-					<input 
-						type="number" 
-						class="form-input" 
-						bind:value={quotaForm.maxBandwidthGB} 
-						min="0.1" 
-						step="0.1" 
-					/>
-					<div class="form-help">Current: {formatBytes(quotaForm.maxBandwidthGB * 1024 * 1024 * 1024)}</div>
+			{/if}
+			{#if showSearchDropdown && !searchingUsers && searchResults.length === 0 && userSearchQuery.length >= 2}
+				<div class="search-results">
+					<div class="no-results">No users found</div>
 				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => {showQuotaModal = false; showSearchDropdown = false;}}>Cancel</button>
-				<button class="btn btn-primary" on:click={updateQuota} disabled={!quotaForm.userId}>Update Quota</button>
-			</div>
+			{/if}
 		</div>
+		{#if quotaForm.userId}
+			<div class="selected-user">
+				<CheckCircle size={16} class="text-green-600" />
+				Selected: <strong>{userSearchQuery}</strong> (ID: {quotaForm.userId.slice(0, 8)}...)
+			</div>
+		{/if}
 	</div>
-{/if}
+
+	<div class="form-group">
+		<label class="form-label">Max Storage (GB)</label>
+		<input
+			type="number"
+			class="form-input"
+			bind:value={quotaForm.maxStorageGB}
+			min="0.1"
+			step="0.1"
+		/>
+		<div class="form-help">Current: {formatBytes(quotaForm.maxStorageGB * 1024 * 1024 * 1024)}</div>
+	</div>
+
+	<div class="form-group">
+		<label class="form-label">Max Bandwidth (GB/month)</label>
+		<input
+			type="number"
+			class="form-input"
+			bind:value={quotaForm.maxBandwidthGB}
+			min="0.1"
+			step="0.1"
+		/>
+		<div class="form-help">Current: {formatBytes(quotaForm.maxBandwidthGB * 1024 * 1024 * 1024)}</div>
+	</div>
+	<svelte:fragment slot="footer">
+		<button class="btn btn-secondary" on:click={() => {showQuotaModal = false; showSearchDropdown = false;}}>Cancel</button>
+		<button class="btn btn-primary" on:click={updateQuota} disabled={!quotaForm.userId}>Update Quota</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Default Quota Modal -->
-{#if showDefaultQuotaModal}
-	<div class="modal-overlay" on:click={() => showDefaultQuotaModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Default Quota Settings</h2>
-				<button class="modal-close" on:click={() => showDefaultQuotaModal = false}>
-					<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-						<path d="M15 5L5 15M5 5L15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-					</svg>
-				</button>
-			</div>
-			<div class="modal-body">
-				<p class="modal-description">
-					Configure default storage and bandwidth quotas for new users. 
-					These settings will be applied automatically when new users are created.
-				</p>
-				
-				<div class="form-group">
-					<label class="form-label">Default Storage Quota (GB)</label>
-					<input 
-						type="number" 
-						class="form-input" 
-						bind:value={defaultQuotas.storage} 
-						min="0.1" 
-						step="0.1" 
-					/>
-					<div class="form-help">Amount of storage allocated to each new user</div>
-				</div>
-				
-				<div class="form-group">
-					<label class="form-label">Default Bandwidth Quota (GB/month)</label>
-					<input 
-						type="number" 
-						class="form-input" 
-						bind:value={defaultQuotas.bandwidth} 
-						min="0.1" 
-						step="0.1" 
-					/>
-					<div class="form-help">Monthly bandwidth limit for each new user</div>
-				</div>
-				
-				<div class="form-group">
-					<label class="checkbox-label">
-						<input 
-							type="checkbox" 
-							class="form-checkbox" 
-							bind:checked={defaultQuotas.applyToExisting} 
-						/>
-						<span>Apply to existing users</span>
-					</label>
-					<div class="form-help">
-						{#if defaultQuotas.applyToExisting}
-							⚠️ This will update quotas for ALL existing users
-						{:else}
-							Only new users will receive these quotas
-						{/if}
-					</div>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showDefaultQuotaModal = false}>Cancel</button>
-				<button class="btn btn-primary" on:click={updateDefaultQuotas}>
-					{defaultQuotas.applyToExisting ? 'Update All Quotas' : 'Save Defaults'}
-				</button>
-			</div>
+<Modal show={showDefaultQuotaModal} title="Default Quota Settings" on:close={() => showDefaultQuotaModal = false}>
+	<p class="modal-description">
+		Configure default storage and bandwidth quotas for new users.
+		These settings will be applied automatically when new users are created.
+	</p>
+
+	<div class="form-group">
+		<label class="form-label">Default Storage Quota (GB)</label>
+		<input
+			type="number"
+			class="form-input"
+			bind:value={defaultQuotas.storage}
+			min="0.1"
+			step="0.1"
+		/>
+		<div class="form-help">Amount of storage allocated to each new user</div>
+	</div>
+
+	<div class="form-group">
+		<label class="form-label">Default Bandwidth Quota (GB/month)</label>
+		<input
+			type="number"
+			class="form-input"
+			bind:value={defaultQuotas.bandwidth}
+			min="0.1"
+			step="0.1"
+		/>
+		<div class="form-help">Monthly bandwidth limit for each new user</div>
+	</div>
+
+	<div class="form-group">
+		<label class="checkbox-label">
+			<input
+				type="checkbox"
+				class="form-checkbox"
+				bind:checked={defaultQuotas.applyToExisting}
+			/>
+			<span>Apply to existing users</span>
+		</label>
+		<div class="form-help">
+			{#if defaultQuotas.applyToExisting}
+				⚠️ This will update quotas for ALL existing users
+			{:else}
+				Only new users will receive these quotas
+			{/if}
 		</div>
 	</div>
-{/if}
+	<svelte:fragment slot="footer">
+		<button class="btn btn-secondary" on:click={() => showDefaultQuotaModal = false}>Cancel</button>
+		<button class="btn btn-primary" on:click={updateDefaultQuotas}>
+			{defaultQuotas.applyToExisting ? 'Update All Quotas' : 'Save Defaults'}
+		</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- File Explorer Modal -->
 {#if showFileExplorer}
@@ -1485,38 +1421,6 @@
 	.header-actions {
 		display: flex;
 		gap: 0.75rem;
-	}
-
-	.tabs {
-		display: flex;
-		gap: 0.5rem;
-		margin-bottom: 1.5rem;
-		background: white;
-		padding: 0.5rem;
-		border-radius: 0.5rem;
-		border: 1px solid #e5e7eb;
-	}
-
-	.tab {
-		padding: 0.5rem 1rem;
-		border: none;
-		background: transparent;
-		color: #6b7280;
-		font-size: 0.875rem;
-		font-weight: 500;
-		border-radius: 0.375rem;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.tab:hover {
-		background: #f3f4f6;
-		color: #111827;
-	}
-
-	.tab.active {
-		background: #06b6d4;
-		color: white;
 	}
 
 	.stats-grid {
@@ -1844,20 +1748,6 @@
 		text-align: right;
 	}
 
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 3rem;
-		text-align: center;
-		color: #6b7280;
-	}
-
-	.empty-state p {
-		margin: 1rem 0;
-	}
-
 	.btn {
 		display: inline-flex;
 		align-items: center;
@@ -1921,64 +1811,6 @@
 		padding: 4rem;
 		color: #6b7280;
 		font-size: 1rem;
-	}
-
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 9999;
-	}
-
-	.modal {
-		background: white;
-		border-radius: 0.75rem;
-		width: 90%;
-		max-width: 480px;
-		max-height: 90vh;
-		overflow-y: auto;
-		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-	}
-
-	.modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem 1.5rem 1rem;
-		border-bottom: none;
-	}
-
-	.modal-header h2 {
-		margin: 0;
-		font-size: 1.375rem;
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.modal-close {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 32px;
-		height: 32px;
-		border: none;
-		background: transparent;
-		cursor: pointer;
-		border-radius: 0.375rem;
-		color: #6b7280;
-		transition: all 0.2s;
-	}
-
-	.modal-close:hover {
-		background: #f3f4f6;
-		color: #111827;
-	}
-
-	.modal-body {
-		padding: 0.5rem 1.5rem 1.5rem;
 	}
 
 	.form-group {
@@ -2106,14 +1938,6 @@
 		margin-top: 0.25rem;
 	}
 
-	.modal-footer {
-		display: flex;
-		justify-content: flex-end;
-		gap: 0.75rem;
-		padding: 1rem 1.5rem 1.5rem;
-		border-top: none;
-	}
-
 	.truncate {
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -2221,18 +2045,6 @@
 		transform: translateY(-50%);
 	}
 
-	.spinner {
-		width: 16px;
-		height: 16px;
-		border: 2px solid #e5e7eb;
-		border-top-color: #06b6d4;
-		border-radius: 50%;
-		animation: spin 0.6s linear infinite;
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
 
 	.search-results {
 		position: absolute;
@@ -2597,46 +2409,6 @@
 		font-size: 0.75rem;
 		color: #6b7280;
 		margin: 0;
-	}
-
-	/* Empty State */
-	.empty-state {
-		text-align: center;
-		padding: 3rem 1.5rem;
-		background: #f9fafb;
-		border-radius: 0.5rem;
-		border: 1px dashed #d1d5db;
-		margin: 1.5rem 0;
-	}
-
-	.empty-state-icon {
-		width: 64px;
-		height: 64px;
-		margin: 0 auto 1rem;
-		color: #9ca3af;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: white;
-		border-radius: 50%;
-		border: 2px solid #e5e7eb;
-	}
-
-	.empty-state-title {
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: #374151;
-		margin: 0 0 0.5rem 0;
-	}
-
-	.empty-state-description {
-		font-size: 0.875rem;
-		color: #6b7280;
-		margin: 0 0 1.5rem 0;
-		max-width: 400px;
-		margin-left: auto;
-		margin-right: auto;
-		line-height: 1.5;
 	}
 
 	/* Usage Summary */

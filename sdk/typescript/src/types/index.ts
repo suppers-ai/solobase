@@ -5,6 +5,8 @@ export * from '@solobase/types';
 
 export interface SolobaseConfig {
 	url: string;
+	/** URL for the auth UI (login page). Defaults to `url` if not specified. */
+	authUrl?: string;
 	apiKey?: string;
 	headers?: Record<string, string>;
 	timeout?: number;

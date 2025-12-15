@@ -255,45 +255,129 @@ POST /database/query
 
 ### Extensions
 
-#### Products & Pricing
+#### Products & Payments
+
+The products extension provides e-commerce capabilities with Stripe integration.
 
 ##### List Products
 ```http
-GET /extensions/products
+GET /ext/products/products
 ```
 
-##### Create Product
+##### Create Purchase
 ```http
-POST /extensions/products
+POST /ext/products/purchase
 ```
 
 **Request Body:**
 ```json
 {
-  "name": "Pro Plan",
-  "description": "Advanced features",
-  "price": 29.99,
-  "currency": "USD",
-  "billing_cycle": "monthly"
+  "items": [
+    {
+      "productId": 1,
+      "quantity": 2,
+      "variables": {"size": "large"}
+    }
+  ],
+  "metadata": {},
+  "successUrl": "https://example.com/success",
+  "cancelUrl": "https://example.com/cancel",
+  "customerEmail": "user@example.com",
+  "requiresApproval": false
 }
 ```
 
-##### Create Subscription
+**Response:**
+```json
+{
+  "purchase": {
+    "id": 1,
+    "status": "pending",
+    "lineItems": [...],
+    "totalCents": 5000,
+    "providerSessionId": "cs_test_..."
+  },
+  "checkoutUrl": "https://checkout.stripe.com/..."
+}
+```
+
+##### List User Purchases
 ```http
-POST /extensions/products/:productId/subscribe
+GET /ext/products/purchases?limit=20&offset=0
+```
+
+##### Get Purchase
+```http
+GET /ext/products/purchases/:id
+```
+
+##### Cancel Purchase
+```http
+POST /ext/products/purchases/:id/cancel
+```
+
+**Request Body:**
+```json
+{
+  "reason": "Changed my mind"
+}
+```
+
+##### Stripe Webhook (Public)
+```http
+POST /ext/products/webhooks
+```
+
+Stripe sends webhook events to this endpoint. Requires `STRIPE_WEBHOOK_SECRET` for signature verification.
+
+**Supported Events:**
+- `checkout.session.completed`
+- `checkout.session.expired`
+- `payment_intent.succeeded`
+- `payment_intent.payment_failed`
+- `charge.refunded`
+
+##### Admin: List All Purchases
+```http
+GET /admin/ext/products/purchases?limit=20&offset=0
+```
+
+##### Admin: Refund Purchase
+```http
+POST /admin/ext/products/purchases/:id/refund
+```
+
+**Request Body:**
+```json
+{
+  "amount": 0,
+  "reason": "requested_by_customer"
+}
+```
+
+##### Admin: Approve Purchase
+```http
+POST /admin/ext/products/purchases/:id/approve
+```
+
+**Environment Variables:**
+```env
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
 ```
 
 #### Analytics
 
 ##### Track Event
 ```http
-POST /extensions/analytics/events
+POST /ext/analytics/events
 ```
 
 **Request Body:**
 ```json
 {
-  "event_name": "page_view",
+  "eventName": "page_view",
   "properties": {
     "page": "/dashboard",
     "referrer": "google.com"
@@ -303,7 +387,7 @@ POST /extensions/analytics/events
 
 ##### Get Analytics
 ```http
-GET /extensions/analytics?start_date=2024-01-01&end_date=2024-01-31
+GET /ext/analytics?startDate=2024-01-01&endDate=2024-01-31
 ```
 
 ### Settings

@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
+	"github.com/suppers-ai/solobase/utils"
 )
 
 // Response structs
@@ -83,8 +84,7 @@ func (e *CloudStorageExtension) handleShares(w http.ResponseWriter, r *http.Requ
 			ExpiresAt         *time.Time `json:"expiresAt,omitempty"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 
@@ -300,8 +300,7 @@ func (e *CloudStorageExtension) handleQuota(w http.ResponseWriter, r *http.Reque
 			MaxBandwidthBytes int64  `json:"maxBandwidthBytes"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 
@@ -905,8 +904,7 @@ func (e *CloudStorageExtension) handleUpdateRoleQuota(w http.ResponseWriter, r *
 	roleID := parts[len(parts)-1]
 
 	var update RoleQuota
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &update) {
 		return
 	}
 
@@ -971,8 +969,7 @@ func (e *CloudStorageExtension) handleCreateUserOverride(w http.ResponseWriter, 
 	user, _ := ctx.Value("user").(*auth.User)
 
 	var override UserQuotaOverride
-	if err := json.NewDecoder(r.Body).Decode(&override); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &override) {
 		return
 	}
 
@@ -1127,8 +1124,7 @@ func (e *CloudStorageExtension) handleDefaultQuotas(w http.ResponseWriter, r *ht
 			DefaultBandwidth int64 `json:"defaultBandwidth"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 

@@ -6,6 +6,8 @@
 		Download, Eye, Edit2, Trash2, Copy, Move
 	} from 'lucide-svelte';
 	import { formatFileSize, formatDateShort } from '$lib/utils/formatters';
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 
 	export let files: any[] = [];
 	export let viewMode: 'grid' | 'list' = 'grid';
@@ -87,15 +89,11 @@
 
 {#if loadingFiles}
 	<div class="loading">
-		<div class="spinner"></div>
+		<LoadingSpinner size="lg" />
 		<p>Loading files...</p>
 	</div>
 {:else if files.length === 0}
-	<div class="empty-state">
-		<File size={48} color="#9ca3af" />
-		<h3>No files yet</h3>
-		<p>Upload some files to get started</p>
-	</div>
+	<EmptyState icon={File} title="No files yet" message="Upload some files to get started" />
 {:else if viewMode === 'grid'}
 	<div class="file-grid">
 		{#each files as item}
@@ -237,41 +235,6 @@
 		color: #6b7280;
 	}
 
-	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 3px solid #e5e7eb;
-		border-top-color: #189AB4;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-		margin-bottom: 1rem;
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 4rem 2rem;
-		text-align: center;
-		color: #6b7280;
-	}
-
-	.empty-state h3 {
-		margin: 1rem 0 0.5rem 0;
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #374151;
-	}
-
-	.empty-state p {
-		margin: 0;
-		font-size: 0.875rem;
-	}
 
 	/* Grid View */
 	.file-grid {

@@ -3,6 +3,7 @@
 	import { auth } from '$lib/stores/auth';
 	import { goto } from '$app/navigation';
 	import { LogOut } from 'lucide-svelte';
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
 	
 	let message = 'Logging out...';
 	let isLoading = true;
@@ -54,7 +55,7 @@
 			
 			{#if isLoading}
 				<div class="spinner-container">
-					<div class="spinner"></div>
+					<LoadingSpinner size="md" color="primary" />
 				</div>
 			{:else}
 				<p class="redirect-message">Redirecting to login...</p>
@@ -145,18 +146,6 @@
 		justify-content: center;
 	}
 	
-	.spinner {
-		width: 32px;
-		height: 32px;
-		border: 3px solid #e2e8f0;
-		border-top-color: #189AB4;
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-	
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
 	
 	.redirect-message {
 		font-size: 0.875rem;

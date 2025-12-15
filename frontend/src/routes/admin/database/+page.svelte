@@ -2,7 +2,6 @@
 	import { onMount } from "svelte";
 	import {
 		Database,
-		Search,
 		ChevronDown,
 		RefreshCw,
 		Download,
@@ -18,8 +17,17 @@
 		Folder,
 		FolderOpen,
 	} from "lucide-svelte";
+	import SearchInput from "$lib/components/SearchInput.svelte";
 	import { api } from "$lib/api";
 	import ExportButton from "$lib/components/ExportButton.svelte";
+	import LoadingSpinner from "$lib/components/ui/LoadingSpinner.svelte";
+	import EmptyState from "$lib/components/ui/EmptyState.svelte";
+	import TabNavigation from "$lib/components/ui/TabNavigation.svelte";
+
+	const databaseTabs = [
+		{ id: 'table', label: 'Table Browser', icon: Table },
+		{ id: 'sql', label: 'SQL Console', icon: Code }
+	];
 	import { requireAdmin } from "$lib/utils/auth";
 
 	interface TableInfo {
@@ -36,7 +44,7 @@
 		rows?: unknown[][];
 		columns?: string[];
 		error?: string;
-		affected_rows?: number;
+		affectedRows?: number;
 	}
 
 	interface DatabaseInfo {
@@ -378,22 +386,7 @@
 	<div class="card">
 		<!-- Tabs -->
 		<div class="tabs-container">
-			<div class="tabs">
-				<button
-					class="tab {activeTab === 'table' ? 'active' : ''}"
-					on:click={() => (activeTab = "table")}
-				>
-					<Table size={18} />
-					<span>Table Browser</span>
-				</button>
-				<button
-					class="tab {activeTab === 'sql' ? 'active' : ''}"
-					on:click={() => (activeTab = "sql")}
-				>
-					<Code size={18} />
-					<span>SQL Console</span>
-				</button>
-			</div>
+			<TabNavigation tabs={databaseTabs} bind:activeTab variant="default" />
 		</div>
 
 		<!-- Content -->
@@ -465,15 +458,7 @@
 								{/if}
 							</div>
 
-							<div class="search-box">
-								<Search size={16} />
-								<input
-									type="text"
-									placeholder="Search files..."
-									bind:value={searchQuery}
-									class="search-input"
-								/>
-							</div>
+							<SearchInput bind:value={searchQuery} placeholder="Search files..." maxWidth="280px" />
 						</div>
 
 						<div class="controls-right">
@@ -501,7 +486,7 @@
 					<div class="table-wrapper">
 						{#if loading}
 							<div class="loading-state">
-								<RefreshCw size={32} class="spinning" />
+								<LoadingSpinner size="lg" />
 								<p>Loading table data...</p>
 							</div>
 						{:else if tableData.length > 0}
@@ -600,13 +585,11 @@
 								</div>
 							</div>
 						{:else}
-							<div class="empty-state">
-								<Database size={48} />
-								<h3>No data available</h3>
-								<p>
-									This table is empty or no table is selected
-								</p>
-							</div>
+							<EmptyState
+								icon={Database}
+								title="No data available"
+								message="This table is empty or no table is selected"
+							/>
 						{/if}
 					</div>
 				</div>
@@ -842,35 +825,6 @@
 		padding: 0 2rem;
 	}
 
-	.tabs {
-		display: flex;
-		gap: 2rem;
-	}
-
-	.tab {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 1rem 0;
-		background: none;
-		border: none;
-		border-bottom: 2px solid transparent;
-		color: #64748b;
-		font-size: 0.9375rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.tab:hover {
-		color: #334155;
-	}
-
-	.tab.active {
-		color: #3b82f6;
-		border-bottom-color: #3b82f6;
-	}
-
 	/* Content Area */
 	.content-area {
 		flex: 1;
@@ -1062,43 +1016,6 @@
 
 	.table-item.selected .table-rows {
 		color: #60a5fa;
-	}
-
-	.search-box {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		max-width: 280px;
-		height: 36px;
-		padding: 0 0.75rem;
-		border: 1px solid #e2e8f0;
-		border-radius: 6px;
-		background: white;
-		transition: all 0.15s;
-	}
-
-	.search-box:focus-within {
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.search-box svg {
-		color: #94a3b8;
-		flex-shrink: 0;
-	}
-
-	.search-input {
-		border: none;
-		background: none;
-		outline: none;
-		flex: 1;
-		font-size: 0.875rem;
-		color: #475569;
-		padding: 0;
-	}
-
-	.search-input::placeholder {
-		color: #94a3b8;
 	}
 
 	.btn-icon {
@@ -1402,8 +1319,7 @@
 	}
 
 	/* States */
-	.loading-state,
-	.empty-state {
+	.loading-state {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -1411,18 +1327,6 @@
 		padding: 5rem 2rem;
 		color: #64748b;
 		gap: 1rem;
-	}
-
-	.empty-state h3 {
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: #334155;
-		margin: 0.5rem 0 0 0;
-	}
-
-	.empty-state p {
-		font-size: 0.875rem;
-		margin: 0;
 	}
 
 	/* Animations */

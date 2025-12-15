@@ -1,14 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { 
-		Package, Plus, Edit2, Trash2, Search, Filter,
+	import {
+		Package, Plus, Edit2, Trash2, Filter,
 		DollarSign, Tag, Calendar, ArrowLeft, Settings,
 		ShoppingCart, Box, Calculator, Variable
 	} from 'lucide-svelte';
+	import SearchInput from '$lib/components/SearchInput.svelte';
 	import { api, ErrorHandler } from '$lib/api';
 	import { authStore, userRoles } from '$lib/stores/auth';
 	import { goto } from '$app/navigation';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 
 	interface Product {
 		id: string;
@@ -41,7 +45,9 @@
 	let showCreateModal = false;
 	let showEditModal = false;
 	let showPricingModal = false;
+	let showDeleteConfirm = false;
 	let selectedProduct: Product | null = null;
+	let productToDelete: string | null = null;
 
 	// Check if user is admin
 	$: isAdmin = $userRoles?.includes('admin') ?? false;
@@ -246,16 +252,23 @@
 		}
 	}
 	
-	async function deleteProduct(id: string) {
-		if (!confirm('Are you sure you want to delete this product?')) return;
-		
+	function deleteProduct(id: string) {
+		productToDelete = id;
+		showDeleteConfirm = true;
+	}
+
+	async function confirmDeleteProduct() {
+		if (!productToDelete) return;
+		showDeleteConfirm = false;
+
 		try {
-			await api.delete(`/user/products/${id}`);
+			await api.delete(`/user/products/${productToDelete}`);
 			// Reload products
 			await loadData();
 		} catch (error) {
 			ErrorHandler.handle(error);
 		}
+		productToDelete = null;
 	}
 
 	async function openPricingModal(product: Product) {
@@ -323,14 +336,7 @@
 		<!-- Toolbar -->
 		<div class="toolbar">
 			<div class="toolbar-left">
-				<div class="search-box">
-					<Search size={16} />
-					<input 
-						type="text" 
-						placeholder="Search products..."
-						bind:value={searchQuery}
-					/>
-				</div>
+					<SearchInput bind:value={searchQuery} placeholder="Search products..." maxWidth="320px" />
 				<select class="filter-select" bind:value={selectedType}>
 					<option value="all">All Types</option>
 					{#each productTypes as type}
@@ -351,20 +357,20 @@
 				<div class="loading loading-spinner loading-lg text-cyan-600"></div>
 			</div>
 		{:else if filteredProducts.length === 0}
-			<div class="empty-state">
-				<Package size={48} class="text-gray-400" />
-				<h3>No products found</h3>
+			<EmptyState
+				icon={Package}
+				title="No products found"
+				message={isAdmin ? "Add your first product to this group" : "Product creation is currently restricted to administrators only."}
+			>
 				{#if isAdmin}
-					<p>Add your first product to this group</p>
-					<button class="btn btn-primary mt-4" on:click={() => showCreateModal = true}>
+					<button class="btn btn-primary" on:click={() => showCreateModal = true}>
 						<Plus size={16} />
 						Add Product
 					</button>
 				{:else}
-					<p>Product creation is currently restricted to administrators only.</p>
-					<p class="text-sm text-gray-500 mt-2">Please contact an administrator if you need to create products.</p>
+					<p class="text-sm text-gray-500">Please contact an administrator if you need to create products.</p>
 				{/if}
-			</div>
+			</EmptyState>
 		{:else}
 			<div class="products-grid">
 				{#each filteredProducts as product}
@@ -519,25 +525,6 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-	}
-
-	.search-box {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 0.75rem;
-		border: 1px solid #e5e7eb;
-		border-radius: 0.375rem;
-		background: white;
-		flex: 1;
-		max-width: 320px;
-	}
-
-	.search-box input {
-		border: none;
-		outline: none;
-		flex: 1;
-		font-size: 0.875rem;
 	}
 
 	.filter-select {
@@ -783,66 +770,6 @@
 		padding: 4rem;
 	}
 
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 4rem;
-		text-align: center;
-	}
-
-	.empty-state h3 {
-		margin: 1rem 0 0.5rem 0;
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.empty-state p {
-		margin: 0;
-		color: #6b7280;
-		font-size: 0.875rem;
-	}
-
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 9999;
-	}
-
-	.modal {
-		background: white;
-		border-radius: 0.5rem;
-		width: 90%;
-		max-width: 700px;
-		max-height: 90vh;
-		overflow-y: auto;
-	}
-
-	.modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.modal-header h2 {
-		margin: 0;
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.modal-body {
-		padding: 1.5rem;
-	}
-
 	.form-group {
 		margin-bottom: 1rem;
 	}
@@ -877,14 +804,6 @@
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: 1rem;
-	}
-
-	.modal-footer {
-		display: flex;
-		justify-content: flex-end;
-		gap: 0.75rem;
-		padding: 1.5rem;
-		border-top: 1px solid #e5e7eb;
 	}
 
 	.dynamic-fields {
@@ -940,280 +859,257 @@
 </style>
 
 <!-- Create Product Modal -->
-{#if showCreateModal}
-	<div class="modal-overlay" on:click={() => showCreateModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Add New Product</h2>
-				<button class="btn-icon" on:click={() => showCreateModal = false}>
-					×
-				</button>
-			</div>
-			<div class="modal-body">
-				<div class="form-group">
-					<label for="product_type">Product Type</label>
-					<select id="product_type" bind:value={newProduct.productTemplateId} on:change={onProductTypeChange}>
-						<option value="">Select Product Type</option>
-						{#each productTypes as type}
-							<option value={type.id}>{type.displayName}</option>
-						{/each}
-					</select>
-				</div>
-				
-				<div class="form-row">
-					<div class="form-group">
-						<label for="name">Product Name</label>
-						<input type="text" id="name" bind:value={newProduct.name} 
-							placeholder="e.g., premium_plan, basic_widget" />
-					</div>
-					<div class="form-group">
-						<label for="displayName">Display Name</label>
-						<input type="text" id="displayName" bind:value={newProduct.displayName} 
-							placeholder="e.g., Premium Plan, Basic Widget" />
-					</div>
-				</div>
-				
-				<div class="form-row">
-					<div class="form-group">
-						<label for="sku">SKU (Optional)</label>
-						<input type="text" id="sku" bind:value={newProduct.sku} 
-							placeholder="e.g., PRD-001" />
-					</div>
-					<div class="form-group">
-						<label for="basePrice">Base Price</label>
-						<input type="number" id="basePrice" bind:value={newProduct.basePrice} 
-							step="0.01" min="0" />
-					</div>
-				</div>
-				
-				<div class="form-group">
-					<label for="description">Description</label>
-					<textarea id="description" bind:value={newProduct.description} rows="2" 
-						placeholder="Describe this product"></textarea>
-				</div>
-				
-				{#if Object.keys(dynamicFields).length > 0}
-					<div class="dynamic-fields">
-						<h4>Product Details</h4>
-						{#each Object.entries(dynamicFields) as [key, value]}
-							{@const fieldSchema = productTypes.find(t => t.id === newProduct.productTemplateId)?.filterFieldsSchema?.[key]}
-							<div class="form-group">
-								<label for="dynamic-{key}">{fieldSchema?.label || key}</label>
-								{#if fieldSchema?.type === 'boolean'}
-									<select id="dynamic-{key}" bind:value={dynamicFields[key]}>
-										<option value={true}>Yes</option>
-										<option value={false}>No</option>
-									</select>
-								{:else if fieldSchema?.type === 'number'}
-									<input type="number" id="dynamic-{key}" bind:value={dynamicFields[key]} />
-								{:else if fieldSchema?.type === 'date'}
-									<input type="date" id="dynamic-{key}" bind:value={dynamicFields[key]} />
-								{:else}
-									<input type="text" id="dynamic-{key}" bind:value={dynamicFields[key]} 
-										placeholder={fieldSchema?.description || ''} />
-								{/if}
-							</div>
-						{/each}
-					</div>
-				{/if}
-				
-				{#if getRelevantVariables().length > 0}
-					<div class="variables-section">
-						<h4>Pricing Variables</h4>
-						{#each getRelevantVariables() as variable}
-							{#if variable.source === 'user_input' || variable.category === 'product'}
-								<div class="form-group">
-									<label for="var-{variable.name}">{variable.displayName}</label>
-									{#if variable.type === 'boolean'}
-										<select id="var-{variable.name}" bind:value={variableValues[variable.name]}>
-											<option value={true}>Yes</option>
-											<option value={false}>No</option>
-										</select>
-									{:else if variable.type === 'number'}
-										<input type="number" id="var-{variable.name}" 
-											bind:value={variableValues[variable.name]} 
-											placeholder="Enter {variable.displayName}" />
-									{:else}
-										<input type="text" id="var-{variable.name}" 
-											bind:value={variableValues[variable.name]} 
-											placeholder="Enter {variable.displayName}" />
-									{/if}
-								</div>
-							{/if}
-						{/each}
-					</div>
-				{/if}
-				
-				<div class="form-group">
-					<label for="active">Status</label>
-					<select id="active" bind:value={newProduct.active}>
-						<option value={true}>Active</option>
-						<option value={false}>Inactive</option>
-					</select>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showCreateModal = false}>Cancel</button>
-				<button class="btn btn-primary" on:click={createProduct}>Add Product</button>
-			</div>
+<Modal show={showCreateModal} title="Add New Product" maxWidth="600px" on:close={() => showCreateModal = false}>
+	<div class="form-group">
+		<label for="product_type">Product Type</label>
+		<select id="product_type" bind:value={newProduct.productTemplateId} on:change={onProductTypeChange}>
+			<option value="">Select Product Type</option>
+			{#each productTypes as type}
+				<option value={type.id}>{type.displayName}</option>
+			{/each}
+		</select>
+	</div>
+
+	<div class="form-row">
+		<div class="form-group">
+			<label for="name">Product Name</label>
+			<input type="text" id="name" bind:value={newProduct.name}
+				placeholder="e.g., premium_plan, basic_widget" />
+		</div>
+		<div class="form-group">
+			<label for="displayName">Display Name</label>
+			<input type="text" id="displayName" bind:value={newProduct.displayName}
+				placeholder="e.g., Premium Plan, Basic Widget" />
 		</div>
 	</div>
-{/if}
+
+	<div class="form-row">
+		<div class="form-group">
+			<label for="sku">SKU (Optional)</label>
+			<input type="text" id="sku" bind:value={newProduct.sku}
+				placeholder="e.g., PRD-001" />
+		</div>
+		<div class="form-group">
+			<label for="basePrice">Base Price</label>
+			<input type="number" id="basePrice" bind:value={newProduct.basePrice}
+				step="0.01" min="0" />
+		</div>
+	</div>
+
+	<div class="form-group">
+		<label for="description">Description</label>
+		<textarea id="description" bind:value={newProduct.description} rows="2"
+			placeholder="Describe this product"></textarea>
+	</div>
+
+	{#if Object.keys(dynamicFields).length > 0}
+		<div class="dynamic-fields">
+			<h4>Product Details</h4>
+			{#each Object.entries(dynamicFields) as [key, value]}
+				{@const fieldSchema = productTypes.find(t => t.id === newProduct.productTemplateId)?.filterFieldsSchema?.[key]}
+				<div class="form-group">
+					<label for="dynamic-{key}">{fieldSchema?.label || key}</label>
+					{#if fieldSchema?.type === 'boolean'}
+						<select id="dynamic-{key}" bind:value={dynamicFields[key]}>
+							<option value={true}>Yes</option>
+							<option value={false}>No</option>
+						</select>
+					{:else if fieldSchema?.type === 'number'}
+						<input type="number" id="dynamic-{key}" bind:value={dynamicFields[key]} />
+					{:else if fieldSchema?.type === 'date'}
+						<input type="date" id="dynamic-{key}" bind:value={dynamicFields[key]} />
+					{:else}
+						<input type="text" id="dynamic-{key}" bind:value={dynamicFields[key]}
+							placeholder={fieldSchema?.description || ''} />
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{/if}
+
+	{#if getRelevantVariables().length > 0}
+		<div class="variables-section">
+			<h4>Pricing Variables</h4>
+			{#each getRelevantVariables() as variable}
+				{#if variable.source === 'user_input' || variable.category === 'product'}
+					<div class="form-group">
+						<label for="var-{variable.name}">{variable.displayName}</label>
+						{#if variable.type === 'boolean'}
+							<select id="var-{variable.name}" bind:value={variableValues[variable.name]}>
+								<option value={true}>Yes</option>
+								<option value={false}>No</option>
+							</select>
+						{:else if variable.type === 'number'}
+							<input type="number" id="var-{variable.name}"
+								bind:value={variableValues[variable.name]}
+								placeholder="Enter {variable.displayName}" />
+						{:else}
+							<input type="text" id="var-{variable.name}"
+								bind:value={variableValues[variable.name]}
+								placeholder="Enter {variable.displayName}" />
+						{/if}
+					</div>
+				{/if}
+			{/each}
+		</div>
+	{/if}
+
+	<div class="form-group">
+		<label for="active">Status</label>
+		<select id="active" bind:value={newProduct.active}>
+			<option value={true}>Active</option>
+			<option value={false}>Inactive</option>
+		</select>
+	</div>
+	<svelte:fragment slot="footer">
+		<button class="btn btn-secondary" on:click={() => showCreateModal = false}>Cancel</button>
+		<button class="btn btn-primary" on:click={createProduct}>Add Product</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Edit Product Modal -->
-{#if showEditModal && selectedProduct}
-	<div class="modal-overlay" on:click={() => showEditModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Edit Product</h2>
-				<button class="btn-icon" on:click={() => showEditModal = false}>
-					×
-				</button>
+<Modal show={showEditModal && !!selectedProduct} title="Edit Product" maxWidth="600px" on:close={() => showEditModal = false}>
+	{#if selectedProduct}
+		<div class="form-row">
+			<div class="form-group">
+				<label for="edit-name">Product Name</label>
+				<input type="text" id="edit-name" bind:value={selectedProduct.name} />
 			</div>
-			<div class="modal-body">
-				<div class="form-row">
-					<div class="form-group">
-						<label for="edit-name">Product Name</label>
-						<input type="text" id="edit-name" bind:value={selectedProduct.name} />
-					</div>
-					<div class="form-group">
-						<label for="edit-displayName">Display Name</label>
-						<input type="text" id="edit-displayName" bind:value={selectedProduct.displayName} />
-					</div>
-				</div>
-				
-				<div class="form-row">
-					<div class="form-group">
-						<label for="edit-sku">SKU</label>
-						<input type="text" id="edit-sku" bind:value={selectedProduct.sku} />
-					</div>
-					<div class="form-group">
-						<label for="edit-basePrice">Base Price</label>
-						<input type="number" id="edit-basePrice" bind:value={selectedProduct.basePrice} 
-							step="0.01" min="0" />
-					</div>
-				</div>
-				
-				<div class="form-group">
-					<label for="edit-description">Description</label>
-					<textarea id="edit-description" bind:value={selectedProduct.description} rows="2"></textarea>
-				</div>
-				
-				{#if Object.keys(dynamicFields).length > 0}
-					{@const productType = getProductTypeInfo(selectedProduct.productTemplateId)}
-					<div class="dynamic-fields">
-						<h4>Product Details</h4>
-						{#each Object.entries(dynamicFields) as [key, value]}
-							{@const fieldSchema = productType?.filterFieldsSchema?.[key]}
-							<div class="form-group">
-								<label for="edit-dynamic-{key}">{fieldSchema?.label || key}</label>
-								{#if fieldSchema?.type === 'boolean'}
-									<select id="edit-dynamic-{key}" bind:value={dynamicFields[key]}>
-										<option value={true}>Yes</option>
-										<option value={false}>No</option>
-									</select>
-								{:else if fieldSchema?.type === 'number'}
-									<input type="number" id="edit-dynamic-{key}" bind:value={dynamicFields[key]} />
-								{:else if fieldSchema?.type === 'date'}
-									<input type="date" id="edit-dynamic-{key}" bind:value={dynamicFields[key]} />
-								{:else}
-									<input type="text" id="edit-dynamic-{key}" bind:value={dynamicFields[key]} />
-								{/if}
-							</div>
-						{/each}
-					</div>
-				{/if}
-				
-				{#if getRelevantVariables().length > 0}
-					<div class="variables-section">
-						<h4>Pricing Variables</h4>
-						{#each getRelevantVariables() as variable}
-							{#if variable.source === 'user_input' || variable.category === 'product'}
-								<div class="form-group">
-									<label for="edit-var-{variable.name}">{variable.displayName}</label>
-									{#if variable.type === 'boolean'}
-										<select id="edit-var-{variable.name}" bind:value={variableValues[variable.name]}>
-											<option value={true}>Yes</option>
-											<option value={false}>No</option>
-										</select>
-									{:else if variable.type === 'number'}
-										<input type="number" id="edit-var-{variable.name}" 
-											bind:value={variableValues[variable.name]} />
-									{:else}
-										<input type="text" id="edit-var-{variable.name}" 
-											bind:value={variableValues[variable.name]} />
-									{/if}
-								</div>
-							{/if}
-						{/each}
-					</div>
-				{/if}
-				
-				<div class="form-group">
-					<label for="edit-active">Status</label>
-					<select id="edit-active" bind:value={selectedProduct.active}>
-						<option value={true}>Active</option>
-						<option value={false}>Inactive</option>
-					</select>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showEditModal = false}>Cancel</button>
-				<button class="btn btn-primary" on:click={updateProduct}>Update Product</button>
+			<div class="form-group">
+				<label for="edit-displayName">Display Name</label>
+				<input type="text" id="edit-displayName" bind:value={selectedProduct.displayName} />
 			</div>
 		</div>
-	</div>
-{/if}
 
-<!-- Pricing Calculator Modal -->
-{#if showPricingModal && selectedProduct}
-	<div class="modal-overlay" on:click={() => showPricingModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Pricing Calculator - {selectedProduct.displayName}</h2>
-				<button class="btn-icon" on:click={() => showPricingModal = false}>
-					×
-				</button>
+		<div class="form-row">
+			<div class="form-group">
+				<label for="edit-sku">SKU</label>
+				<input type="text" id="edit-sku" bind:value={selectedProduct.sku} />
 			</div>
-			<div class="modal-body">
-				<div class="variables-section">
-					<h4>Adjust Variables</h4>
-					{#each getRelevantVariables() as variable}
+			<div class="form-group">
+				<label for="edit-basePrice">Base Price</label>
+				<input type="number" id="edit-basePrice" bind:value={selectedProduct.basePrice}
+					step="0.01" min="0" />
+			</div>
+		</div>
+
+		<div class="form-group">
+			<label for="edit-description">Description</label>
+			<textarea id="edit-description" bind:value={selectedProduct.description} rows="2"></textarea>
+		</div>
+
+		{#if Object.keys(dynamicFields).length > 0}
+			{@const productType = getProductTypeInfo(selectedProduct.productTemplateId)}
+			<div class="dynamic-fields">
+				<h4>Product Details</h4>
+				{#each Object.entries(dynamicFields) as [key, value]}
+					{@const fieldSchema = productType?.filterFieldsSchema?.[key]}
+					<div class="form-group">
+						<label for="edit-dynamic-{key}">{fieldSchema?.label || key}</label>
+						{#if fieldSchema?.type === 'boolean'}
+							<select id="edit-dynamic-{key}" bind:value={dynamicFields[key]}>
+								<option value={true}>Yes</option>
+								<option value={false}>No</option>
+							</select>
+						{:else if fieldSchema?.type === 'number'}
+							<input type="number" id="edit-dynamic-{key}" bind:value={dynamicFields[key]} />
+						{:else if fieldSchema?.type === 'date'}
+							<input type="date" id="edit-dynamic-{key}" bind:value={dynamicFields[key]} />
+						{:else}
+							<input type="text" id="edit-dynamic-{key}" bind:value={dynamicFields[key]} />
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
+
+		{#if getRelevantVariables().length > 0}
+			<div class="variables-section">
+				<h4>Pricing Variables</h4>
+				{#each getRelevantVariables() as variable}
+					{#if variable.source === 'user_input' || variable.category === 'product'}
 						<div class="form-group">
-							<label for="calc-var-{variable.name}">{variable.displayName}</label>
+							<label for="edit-var-{variable.name}">{variable.displayName}</label>
 							{#if variable.type === 'boolean'}
-								<select id="calc-var-{variable.name}" bind:value={variableValues[variable.name]}>
+								<select id="edit-var-{variable.name}" bind:value={variableValues[variable.name]}>
 									<option value={true}>Yes</option>
 									<option value={false}>No</option>
 								</select>
 							{:else if variable.type === 'number'}
-								<input type="number" id="calc-var-{variable.name}" 
-									bind:value={variableValues[variable.name]} 
-									on:change={calculatePrice} />
+								<input type="number" id="edit-var-{variable.name}"
+									bind:value={variableValues[variable.name]} />
 							{:else}
-								<input type="text" id="calc-var-{variable.name}" 
-									bind:value={variableValues[variable.name]} 
-									on:change={calculatePrice} />
+								<input type="text" id="edit-var-{variable.name}"
+									bind:value={variableValues[variable.name]} />
 							{/if}
 						</div>
-					{/each}
-				</div>
-				
-				<button class="btn btn-primary" on:click={calculatePrice}>
-					<Calculator size={16} />
-					Calculate Price
-				</button>
-				
-				{#if selectedProduct.calculatedPrice}
-					<div class="pricing-result">
-						<div class="price">{formatPrice(selectedProduct.calculatedPrice, selectedProduct.currency)}</div>
-						<div class="label">Calculated Price</div>
-					</div>
-				{/if}
+					{/if}
+				{/each}
 			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showPricingModal = false}>Close</button>
-			</div>
+		{/if}
+
+		<div class="form-group">
+			<label for="edit-active">Status</label>
+			<select id="edit-active" bind:value={selectedProduct.active}>
+				<option value={true}>Active</option>
+				<option value={false}>Inactive</option>
+			</select>
 		</div>
-	</div>
-{/if}
+	{/if}
+	<svelte:fragment slot="footer">
+		<button class="btn btn-secondary" on:click={() => showEditModal = false}>Cancel</button>
+		<button class="btn btn-primary" on:click={updateProduct}>Update Product</button>
+	</svelte:fragment>
+</Modal>
+
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title="Delete Product"
+	message="Are you sure you want to delete this product? This action cannot be undone."
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteProduct}
+/>
+
+<!-- Pricing Calculator Modal -->
+<Modal show={showPricingModal && !!selectedProduct} title="Pricing Calculator - {selectedProduct?.displayName || ''}" maxWidth="500px" on:close={() => showPricingModal = false}>
+	{#if selectedProduct}
+		<div class="variables-section">
+			<h4>Adjust Variables</h4>
+			{#each getRelevantVariables() as variable}
+				<div class="form-group">
+					<label for="calc-var-{variable.name}">{variable.displayName}</label>
+					{#if variable.type === 'boolean'}
+						<select id="calc-var-{variable.name}" bind:value={variableValues[variable.name]}>
+							<option value={true}>Yes</option>
+							<option value={false}>No</option>
+						</select>
+					{:else if variable.type === 'number'}
+						<input type="number" id="calc-var-{variable.name}"
+							bind:value={variableValues[variable.name]}
+							on:change={calculatePrice} />
+					{:else}
+						<input type="text" id="calc-var-{variable.name}"
+							bind:value={variableValues[variable.name]}
+							on:change={calculatePrice} />
+					{/if}
+				</div>
+			{/each}
+		</div>
+
+		<button class="btn btn-primary" on:click={calculatePrice}>
+			<Calculator size={16} />
+			Calculate Price
+		</button>
+
+		{#if selectedProduct.calculatedPrice}
+			<div class="pricing-result">
+				<div class="price">{formatPrice(selectedProduct.calculatedPrice, selectedProduct.currency)}</div>
+				<div class="label">Calculated Price</div>
+			</div>
+		{/if}
+	{/if}
+	<svelte:fragment slot="footer">
+		<button class="btn btn-secondary" on:click={() => showPricingModal = false}>Close</button>
+	</svelte:fragment>
+</Modal>

@@ -319,7 +319,7 @@ func (s *DatabaseService) ExecuteQuery(query string) (interface{}, error) {
 		}
 
 		return map[string]interface{}{
-			"affected_rows": result.RowsAffected,
+			"affectedRows": result.RowsAffected,
 		}, nil
 	}
 }

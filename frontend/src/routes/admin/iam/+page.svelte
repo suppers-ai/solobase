@@ -1,11 +1,16 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { Shield } from 'lucide-svelte';
 	import { api, ErrorHandler, authFetch } from '$lib/api';
 	import RolesManager from '$lib/components/iam/RolesManager.svelte';
 	import PoliciesManager from '$lib/components/iam/PoliciesManager.svelte';
 	import UserRolesManager from '$lib/components/iam/UserRolesManager.svelte';
 	import PolicyTester from '$lib/components/iam/PolicyTester.svelte';
 	import AuditLog from '$lib/components/iam/AuditLog.svelte';
+	import PageHeader from '$lib/components/ui/PageHeader.svelte';
+	import TabNavigation from '$lib/components/ui/TabNavigation.svelte';
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 
 	interface RoleMetadata {
 		disabledFeatures?: string[];
@@ -46,6 +51,19 @@
 	let policies: Policy[] = [];
 	let users: User[] = [];
 	let loading = true;
+
+	let showDeleteRoleConfirm = false;
+	let showDeletePolicyConfirm = false;
+	let roleToDelete: Role | null = null;
+	let policyToDelete: Policy | null = null;
+
+	const tabs = [
+		{ id: 'roles', label: 'Roles' },
+		{ id: 'policies', label: 'Policies' },
+		{ id: 'users', label: 'User Assignments' },
+		{ id: 'test', label: 'Test Permissions' },
+		{ id: 'audit', label: 'Audit Log' }
+	];
 	
 	async function loadRoles() {
 		try {
@@ -116,13 +134,16 @@
 		}
 	}
 
-	async function handleRoleDeleted(event: CustomEvent<Role>) {
-		const role = event.detail;
-		if (!confirm(`Delete role ${role.displayName || role.name}?`)) {
-			return;
-		}
+	function handleRoleDeleted(event: CustomEvent<Role>) {
+		roleToDelete = event.detail;
+		showDeleteRoleConfirm = true;
+	}
 
-		const response = await authFetch(`/api/admin/iam/roles/${role.name}`, {
+	async function confirmDeleteRole() {
+		if (!roleToDelete) return;
+		showDeleteRoleConfirm = false;
+
+		const response = await authFetch(`/api/admin/iam/roles/${roleToDelete.name}`, {
 			method: 'DELETE'
 		});
 
@@ -131,6 +152,7 @@
 		} else {
 			ErrorHandler.handle('Failed to delete role');
 		}
+		roleToDelete = null;
 	}
 
 	async function handlePolicyCreated(event: CustomEvent<Policy>) {
@@ -147,13 +169,16 @@
 		}
 	}
 
-	async function handlePolicyDeleted(event: CustomEvent<Policy>) {
-		const policy = event.detail;
-		if (!confirm(`Delete policy for ${policy.subject}?`)) {
-			return;
-		}
+	function handlePolicyDeleted(event: CustomEvent<Policy>) {
+		policyToDelete = event.detail;
+		showDeletePolicyConfirm = true;
+	}
 
-		const response = await authFetch(`/api/admin/iam/policies/${policy.id}`, {
+	async function confirmDeletePolicy() {
+		if (!policyToDelete) return;
+		showDeletePolicyConfirm = false;
+
+		const response = await authFetch(`/api/admin/iam/policies/${policyToDelete.id}`, {
 			method: 'DELETE'
 		});
 
@@ -162,6 +187,7 @@
 		} else {
 			ErrorHandler.handle('Failed to delete policy');
 		}
+		policyToDelete = null;
 	}
 
 	async function handleRolesChanged() {
@@ -174,51 +200,19 @@
 </script>
 
 <div class="iam-container">
-	<div class="page-header">
-		<h1>Identity & Access Management</h1>
-		<p class="subtitle">Manage roles, permissions, and access policies</p>
-	</div>
+	<PageHeader
+		title="Identity & Access Management"
+		subtitle="Manage roles, permissions, and access policies"
+		icon={Shield}
+	/>
 	
 	{#if loading}
-		<div class="loading">Loading IAM configuration...</div>
-	{:else}
-		<div class="tabs">
-			<button 
-				class="tab" 
-				class:active={activeTab === 'roles'}
-				on:click={() => activeTab = 'roles'}
-			>
-				Roles
-			</button>
-			<button 
-				class="tab" 
-				class:active={activeTab === 'policies'}
-				on:click={() => activeTab = 'policies'}
-			>
-				Policies
-			</button>
-			<button 
-				class="tab" 
-				class:active={activeTab === 'users'}
-				on:click={() => activeTab = 'users'}
-			>
-				User Assignments
-			</button>
-			<button 
-				class="tab" 
-				class:active={activeTab === 'test'}
-				on:click={() => activeTab = 'test'}
-			>
-				Test Permissions
-			</button>
-			<button 
-				class="tab" 
-				class:active={activeTab === 'audit'}
-				on:click={() => activeTab = 'audit'}
-			>
-				Audit Log
-			</button>
+		<div class="loading">
+			<LoadingSpinner size="lg" />
+			<p>Loading IAM configuration...</p>
 		</div>
+	{:else}
+		<TabNavigation {tabs} bind:activeTab />
 		
 		<div class="tab-content">
 			{#if activeTab === 'roles'}
@@ -250,74 +244,47 @@
 	{/if}
 </div>
 
+<ConfirmDialog
+	bind:show={showDeleteRoleConfirm}
+	title="Delete Role"
+	message="Are you sure you want to delete role {roleToDelete?.displayName || roleToDelete?.name}? This action cannot be undone."
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteRole}
+/>
+
+<ConfirmDialog
+	bind:show={showDeletePolicyConfirm}
+	title="Delete Policy"
+	message="Are you sure you want to delete the policy for {policyToDelete?.subject}?"
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeletePolicy}
+/>
+
 <style>
 	.iam-container {
-		padding: 2rem;
+		padding: 0;
 		max-width: 1200px;
 		margin: 0 auto;
 	}
-	
-	.page-header {
-		margin-bottom: 2rem;
-	}
-	
-	.page-header h1 {
-		margin: 0 0 0.5rem;
-		color: #333;
-	}
-	
-	.subtitle {
-		margin: 0;
-		color: #666;
-		font-size: 1.1rem;
-	}
-	
+
 	.loading {
-		text-align: center;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
 		padding: 3rem;
 		color: #666;
-	}
-	
-	.tabs {
-		display: flex;
 		gap: 1rem;
-		margin-bottom: 2rem;
-		border-bottom: 2px solid #e0e0e0;
-		overflow-x: auto;
 	}
-	
-	.tab {
-		padding: 0.75rem 1.5rem;
-		background: none;
-		border: none;
-		color: #666;
-		cursor: pointer;
-		font-size: 1rem;
-		font-weight: 500;
-		position: relative;
-		white-space: nowrap;
-		transition: color 0.3s;
+
+	.loading p {
+		margin: 0;
 	}
-	
-	.tab:hover {
-		color: #333;
-	}
-	
-	.tab.active {
-		color: #4CAF50;
-	}
-	
-	.tab.active::after {
-		content: '';
-		position: absolute;
-		bottom: -2px;
-		left: 0;
-		right: 0;
-		height: 2px;
-		background: #4CAF50;
-	}
-	
+
 	.tab-content {
+		margin-top: 2rem;
 		animation: fadeIn 0.3s ease-in;
 	}
 	
@@ -335,15 +302,6 @@
 	@media (max-width: 768px) {
 		.iam-container {
 			padding: 1rem;
-		}
-		
-		.tabs {
-			gap: 0.5rem;
-		}
-		
-		.tab {
-			padding: 0.5rem 1rem;
-			font-size: 0.9rem;
 		}
 	}
 </style>

@@ -1,0 +1,236 @@
+/* Shared Form Styles */
+
+/* Form Group - Container for label + input */
+.form-group {
+	margin-bottom: 1.25rem;
+}
+
+.form-group:last-child {
+	margin-bottom: 0;
+}
+
+/* Form Row - Two columns */
+.form-row {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 1rem;
+}
+
+@media (max-width: 640px) {
+	.form-row {
+		grid-template-columns: 1fr;
+	}
+}
+
+/* Form Labels */
+.form-label {
+	display: block;
+	margin-bottom: 0.5rem;
+	font-size: 0.875rem;
+	font-weight: 500;
+	color: #374151;
+}
+
+.form-label.required::after {
+	content: ' *';
+	color: #ef4444;
+}
+
+/* Form Inputs */
+.form-input,
+.form-select,
+.form-textarea {
+	width: 100%;
+	padding: 0.625rem 0.875rem;
+	border: 1px solid #d1d5db;
+	border-radius: 0.375rem;
+	background: white;
+	color: #111827;
+	font-size: 0.875rem;
+	transition: all 0.15s ease;
+}
+
+.form-input:hover:not(:disabled),
+.form-select:hover:not(:disabled),
+.form-textarea:hover:not(:disabled) {
+	border-color: #9ca3af;
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+	outline: none;
+	border-color: #189AB4;
+	box-shadow: 0 0 0 3px rgba(24, 154, 180, 0.1);
+}
+
+.form-input:disabled,
+.form-select:disabled,
+.form-textarea:disabled {
+	background: #f3f4f6;
+	color: #6b7280;
+	cursor: not-allowed;
+}
+
+.form-input.error,
+.form-select.error,
+.form-textarea.error {
+	border-color: #ef4444;
+}
+
+.form-input.error:focus,
+.form-select.error:focus,
+.form-textarea.error:focus {
+	box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+/* Textarea specific */
+.form-textarea {
+	min-height: 100px;
+	resize: vertical;
+}
+
+/* Select specific */
+.form-select {
+	appearance: none;
+	background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+	background-repeat: no-repeat;
+	background-position: right 0.75rem center;
+	background-size: 1rem;
+	padding-right: 2.5rem;
+	cursor: pointer;
+}
+
+/* Input with icon */
+.form-input-wrapper {
+	position: relative;
+}
+
+.form-input-wrapper .form-input {
+	padding-left: 2.5rem;
+}
+
+.form-input-wrapper .input-icon {
+	position: absolute;
+	left: 0.75rem;
+	top: 50%;
+	transform: translateY(-50%);
+	color: #6b7280;
+	pointer-events: none;
+}
+
+/* Form Hint/Help Text */
+.form-hint {
+	display: block;
+	margin-top: 0.375rem;
+	font-size: 0.75rem;
+	color: #6b7280;
+}
+
+/* Form Error Message */
+.form-error {
+	display: block;
+	margin-top: 0.375rem;
+	font-size: 0.75rem;
+	color: #ef4444;
+}
+
+/* Checkbox and Radio */
+.form-checkbox,
+.form-radio {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	cursor: pointer;
+	font-size: 0.875rem;
+	color: #374151;
+}
+
+.form-checkbox input,
+.form-radio input {
+	width: 1rem;
+	height: 1rem;
+	cursor: pointer;
+	accent-color: #189AB4;
+}
+
+/* Checkbox/Radio Group */
+.form-checkbox-group,
+.form-radio-group {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.form-checkbox-group.horizontal,
+.form-radio-group.horizontal {
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 1rem;
+}
+
+/* Input Group (input with button) */
+.input-group {
+	display: flex;
+	gap: 0.5rem;
+}
+
+.input-group .form-input {
+	flex: 1;
+}
+
+/* Form Section */
+.form-section {
+	margin-bottom: 1.5rem;
+	padding-bottom: 1.5rem;
+	border-bottom: 1px solid #e5e7eb;
+}
+
+.form-section:last-child {
+	margin-bottom: 0;
+	padding-bottom: 0;
+	border-bottom: none;
+}
+
+.form-section-title {
+	font-size: 1rem;
+	font-weight: 600;
+	color: #111827;
+	margin: 0 0 1rem 0;
+}
+
+.form-section-description {
+	font-size: 0.875rem;
+	color: #6b7280;
+	margin: -0.5rem 0 1rem 0;
+}
+
+/* Inline Form */
+.form-inline {
+	display: flex;
+	align-items: flex-end;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+.form-inline .form-group {
+	margin-bottom: 0;
+}
+
+/* Form Actions (footer buttons) */
+.form-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 0.75rem;
+	margin-top: 1.5rem;
+	padding-top: 1.5rem;
+	border-top: 1px solid #e5e7eb;
+}
+
+.form-actions.left {
+	justify-content: flex-start;
+}
+
+.form-actions.space-between {
+	justify-content: space-between;
+}

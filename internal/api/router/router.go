@@ -93,7 +93,7 @@ func (a *API) setupRoutesWithAdmin() {
 	apiRouter.Use(middleware.ReadOnlyMiddleware)
 
 	// Apply CORS and Metrics middleware to all API routes
-	apiRouter.Use(middleware.CORSMiddleware)
+	apiRouter.Use(middleware.CORS(nil))
 	apiRouter.Use(middleware.MetricsMiddleware)
 
 	// Apply rate limiting for demo mode

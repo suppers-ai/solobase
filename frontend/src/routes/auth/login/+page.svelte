@@ -5,14 +5,48 @@
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { page } from '$app/stores';
-	
+	import { onMount } from 'svelte';
+
 	let email = '';
 	let password = '';
 	let loading = false;
 	let error = '';
-	
+
 	// Get redirect parameter from URL
 	$: redirectTo = $page.url.searchParams.get('redirect');
+
+	// Check if we're in popup mode - MUST be captured on mount before any navigation
+	let isPopupMode = false;
+	let popupModeChecked = false;
+
+	onMount(() => {
+		const urlParams = new URLSearchParams(window.location.search);
+		isPopupMode = urlParams.get('popup') === 'true';
+		popupModeChecked = true;
+		console.log('[LOGIN] onMount - isPopupMode:', isPopupMode, 'URL:', window.location.href);
+	});
+
+	// Helper to close popup and notify parent
+	function closePopupWithSuccess(): boolean {
+		console.log('[LOGIN] closePopupWithSuccess - isPopupMode:', isPopupMode, 'popupModeChecked:', popupModeChecked);
+		if (!isPopupMode) return false;
+
+		// Try to notify parent window
+		if (window.opener) {
+			try {
+				console.log('[LOGIN] Posting auth-success to opener');
+				window.opener.postMessage({ type: 'auth-success' }, '*');
+			} catch (e) {
+				console.log('[LOGIN] Could not post message to opener:', e);
+			}
+		} else {
+			console.log('[LOGIN] No window.opener available');
+		}
+		// Close the popup
+		console.log('[LOGIN] Calling window.close()');
+		window.close();
+		return true;
+	}
 	
 	// Validate redirect URL to prevent open redirect attacks
 	function isValidRedirectUrl(url: string): boolean {
@@ -43,6 +77,11 @@
 		const success = await auth.login(loginEmail, loginPassword);
 
 		if (success) {
+			// If in popup mode, notify parent window and close
+			if (closePopupWithSuccess()) {
+				return;
+			}
+
 			// Validate and use redirect parameter if present
 			if (redirectTo && isValidRedirectUrl(redirectTo)) {
 				console.log('Redirecting to:', redirectTo);
@@ -70,9 +109,15 @@
 		const callbackUrl = `${window.location.origin}/auth/oauth/callback`;
 		let oauthUrl = `/api/auth/oauth/login?provider=${provider}&callback=${encodeURIComponent(callbackUrl)}`;
 
-		// Add redirect parameter if present
-		if (redirectTo && isValidRedirectUrl(redirectTo)) {
+		// Add redirect parameter if present (not in popup mode)
+		if (!isPopupMode && redirectTo && isValidRedirectUrl(redirectTo)) {
 			oauthUrl += `&redirect=${encodeURIComponent(redirectTo)}`;
+		}
+
+		// If we're already in popup mode, navigate directly instead of opening another popup
+		if (isPopupMode) {
+			window.location.href = oauthUrl;
+			return;
 		}
 
 		// Open popup window for OAuth flow
@@ -145,12 +190,12 @@
 	{error}
 	logoSrc="/logo_long.png"
 	projectName="Solobase"
-	subtitle="Welcome back! Please login to your account."
-	showSignupLink={true}
+	subtitle={isPopupMode ? "Sign in to continue" : "Welcome back! Please login to your account."}
+	showSignupLink={!isPopupMode}
 	signupUrl="/auth/signup"
-	showForgotPassword={true}
+	showForgotPassword={!isPopupMode}
 	forgotPasswordUrl="/auth/forgot-password"
-	showRememberMe={true}
+	showRememberMe={!isPopupMode}
 	showOAuthButtons={true}
 	onSubmit={handleLogin}
 	onOAuthLogin={handleOAuthLogin}

@@ -1,5 +1,5 @@
 // Auto-generated from GORM models - DO NOT EDIT MANUALLY
-// Generated at: 2025-12-11T20:35:45+13:00
+// Generated at: 2025-12-12T15:04:29+13:00
 // Run 'go run scripts/generate-types.go' to regenerate
 
 // ============================================

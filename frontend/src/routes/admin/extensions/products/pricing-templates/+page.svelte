@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Plus, Edit2, Trash2, Code, DollarSign, Filter, Copy, ChevronRight, AlertCircle } from 'lucide-svelte';
+	import { Plus, Edit2, Trash2, Code, DollarSign, Filter, Copy, ChevronRight, AlertCircle, Calculator } from 'lucide-svelte';
 	import { ErrorHandler } from '$lib/api';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 
 	interface TemplateVariables {
 		required?: string[];
@@ -38,7 +40,9 @@
 	let error: string | null = null;
 	let showCreateModal = false;
 	let showEditModal = false;
+	let showDeleteConfirm = false;
 	let editingTemplate: PricingTemplate | null = null;
+	let templateToDelete: PricingTemplate | null = null;
 	let selectedCategory = 'all';
 
 	// Form data
@@ -153,13 +157,17 @@
 		}
 	}
 
-	async function deleteTemplate(template: PricingTemplate) {
-		if (!confirm(`Are you sure you want to delete the template "${template.displayName}"?`)) {
-			return;
-		}
+	function deleteTemplate(template: PricingTemplate) {
+		templateToDelete = template;
+		showDeleteConfirm = true;
+	}
+
+	async function confirmDeleteTemplate() {
+		if (!templateToDelete) return;
+		showDeleteConfirm = false;
 
 		try {
-			const response = await fetch(`/api/products/pricing-templates/${template.id}`, {
+			const response = await fetch(`/api/products/pricing-templates/${templateToDelete.id}`, {
 				method: 'DELETE'
 			});
 
@@ -169,6 +177,7 @@
 		} catch (err) {
 			ErrorHandler.handle(err);
 		}
+		templateToDelete = null;
 	}
 
 	function getCategoryColor(category: string): string {
@@ -259,8 +268,12 @@
 			<span>{error}</span>
 		</div>
 	{:else if filteredTemplates.length === 0}
-		<div class="card bg-base-200 p-12 text-center">
-			<p class="text-base-content/60">No templates found</p>
+		<div class="card bg-base-200">
+			<EmptyState
+				icon={Calculator}
+				title="No templates found"
+				message="Create your first pricing template to get started"
+			/>
 		</div>
 	{:else}
 		<div class="grid gap-4">
@@ -578,3 +591,12 @@
 		}}></div>
 	</div>
 {/if}
+
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title="Delete Pricing Template"
+	message={`Are you sure you want to delete the template "${templateToDelete?.displayName}"? This action cannot be undone.`}
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteTemplate}
+/>

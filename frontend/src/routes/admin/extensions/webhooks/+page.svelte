@@ -9,6 +9,10 @@
 		CheckCircle, XCircle, Send,
 		Link, Key, Calendar, Activity
 	} from 'lucide-svelte';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import StatCard from '$lib/components/ui/StatCard.svelte';
 
 	interface WebhookItem {
 		id: number;
@@ -25,6 +29,8 @@
 	let loading = true;
 	let error: string | null = null;
 	let showCreateModal = false;
+	let showDeleteConfirm = false;
+	let webhookToDelete: number | null = null;
 	let newWebhook: { name: string; url: string; events: string[]; secret: string } = {
 		name: '',
 		url: '',
@@ -167,17 +173,24 @@
 		}
 	}
 
-	async function deleteWebhook(id: number) {
-		if (!confirm('Are you sure you want to delete this webhook?')) return;
+	function deleteWebhook(id: number) {
+		webhookToDelete = id;
+		showDeleteConfirm = true;
+	}
+
+	async function confirmDeleteWebhook() {
+		if (!webhookToDelete) return;
+		showDeleteConfirm = false;
 
 		try {
 			// Remove from local array for now
-			webhooks = webhooks.filter(w => w.id !== id);
+			webhooks = webhooks.filter(w => w.id !== webhookToDelete);
 			stats.total = webhooks.length;
 			stats.active = webhooks.filter(w => w.active).length;
 		} catch (err) {
 			ErrorHandler.handle(err);
 		}
+		webhookToDelete = null;
 	}
 	
 	</script>
@@ -218,45 +231,34 @@
 	{:else}
 		<!-- Stats Grid -->
 		<div class="stats-grid">
-			<div class="stat-card">
-				<div class="stat-icon bg-purple-100 text-purple-600">
-					<Webhook size={20} />
-				</div>
-				<div class="stat-content">
-					<p class="stat-label">Total Webhooks</p>
-					<p class="stat-value">{stats.total}</p>
-				</div>
-			</div>
-			
-			<div class="stat-card">
-				<div class="stat-icon bg-green-100 text-green-600">
-					<CheckCircle size={20} />
-				</div>
-				<div class="stat-content">
-					<p class="stat-label">Active Webhooks</p>
-					<p class="stat-value">{stats.active}</p>
-				</div>
-			</div>
-			
-			<div class="stat-card">
-				<div class="stat-icon bg-blue-100 text-blue-600">
-					<Send size={20} />
-				</div>
-				<div class="stat-content">
-					<p class="stat-label">Deliveries Today</p>
-					<p class="stat-value">{stats.deliveriesToday}</p>
-				</div>
-			</div>
-			
-			<div class="stat-card">
-				<div class="stat-icon bg-cyan-100 text-cyan-600">
-					<Activity size={20} />
-				</div>
-				<div class="stat-content">
-					<p class="stat-label">Success Rate</p>
-					<p class="stat-value">{stats.successRate}%</p>
-				</div>
-			</div>
+			<StatCard
+				icon={Webhook}
+				value={stats.total}
+				label="Total Webhooks"
+				iconBg="bg-purple-100"
+				iconColor="text-purple-600"
+			/>
+			<StatCard
+				icon={CheckCircle}
+				value={stats.active}
+				label="Active Webhooks"
+				iconBg="bg-green-100"
+				iconColor="text-green-600"
+			/>
+			<StatCard
+				icon={Send}
+				value={stats.deliveriesToday}
+				label="Deliveries Today"
+				iconBg="bg-blue-100"
+				iconColor="text-blue-600"
+			/>
+			<StatCard
+				icon={Activity}
+				value="{stats.successRate}%"
+				label="Success Rate"
+				iconBg="bg-cyan-100"
+				iconColor="text-cyan-600"
+			/>
 		</div>
 
 		<!-- Webhooks List -->
@@ -330,97 +332,93 @@
 					{/each}
 				</div>
 			{:else}
-				<div class="empty-state">
-					<Webhook size={48} class="text-gray-300" />
-					<p class="text-gray-500 mt-3">No webhooks configured yet</p>
-					<p class="text-sm text-gray-400 mt-1">Click "New Webhook" to get started</p>
-				</div>
+				<EmptyState
+					icon={Webhook}
+					title="No webhooks configured yet"
+					message="Click 'New Webhook' to get started"
+				/>
 			{/if}
 		</div>
 	{/if}
 </div>
 
 <!-- Create Webhook Modal -->
-{#if showCreateModal}
-	<div class="modal-overlay">
-		<div class="modal-container">
-			<div class="modal-header">
-				<h3 class="modal-title">Create New Webhook</h3>
-				<button class="modal-close" on:click={closeCreateModal}>
-					<X size={20} />
-				</button>
-			</div>
-			
-			<div class="modal-body">
-				<div class="form-group">
-					<label class="form-label">Webhook Name</label>
-					<input 
-						type="text" 
-						bind:value={newWebhook.name}
-						placeholder="e.g., Order Notifications" 
-						class="form-input" 
-					/>
-					<p class="form-hint">A descriptive name for your webhook</p>
-				</div>
-				
-				<div class="form-group">
-					<label class="form-label">Endpoint URL</label>
-					<input 
-						type="url" 
-						bind:value={newWebhook.url}
-						placeholder="https://api.example.com/webhooks" 
-						class="form-input" 
-					/>
-					<p class="form-hint">The URL where webhook payloads will be sent</p>
-				</div>
-				
-				<div class="form-group">
-					<label class="form-label">Events to Subscribe</label>
-					<div class="events-selector">
-						{#each eventPresets as preset}
-							<div class="event-category">
-								<h4 class="category-title">{preset.category}</h4>
-								<div class="event-options">
-									{#each preset.events as event}
-										<button
-											class="event-option {selectedEvents.includes(event) ? 'selected' : ''}"
-											on:click={() => toggleEvent(event)}
-										>
-											{event}
-										</button>
-									{/each}
-								</div>
-							</div>
+<Modal show={showCreateModal} title="Create New Webhook" maxWidth="600px" on:close={closeCreateModal}>
+	<div class="form-group">
+		<label class="form-label">Webhook Name</label>
+		<input
+			type="text"
+			bind:value={newWebhook.name}
+			placeholder="e.g., Order Notifications"
+			class="form-input"
+		/>
+		<p class="form-hint">A descriptive name for your webhook</p>
+	</div>
+
+	<div class="form-group">
+		<label class="form-label">Endpoint URL</label>
+		<input
+			type="url"
+			bind:value={newWebhook.url}
+			placeholder="https://api.example.com/webhooks"
+			class="form-input"
+		/>
+		<p class="form-hint">The URL where webhook payloads will be sent</p>
+	</div>
+
+	<div class="form-group">
+		<label class="form-label">Events to Subscribe</label>
+		<div class="events-selector">
+			{#each eventPresets as preset}
+				<div class="event-category">
+					<h4 class="category-title">{preset.category}</h4>
+					<div class="event-options">
+						{#each preset.events as event}
+							<button
+								class="event-option {selectedEvents.includes(event) ? 'selected' : ''}"
+								on:click={() => toggleEvent(event)}
+							>
+								{event}
+							</button>
 						{/each}
 					</div>
-					<p class="form-hint">Select the events that will trigger this webhook</p>
 				</div>
-				
-				<div class="form-group">
-					<div class="form-label-row">
-						<label class="form-label">Signing Secret</label>
-						<span class="form-optional">Optional</span>
-					</div>
-					<div class="input-with-icon">
-						<Key size={16} />
-						<input 
-							type="password" 
-							bind:value={newWebhook.secret}
-							placeholder="Enter a secret key for payload verification" 
-							class="form-input with-icon" 
-						/>
-					</div>
-					<p class="form-hint">Used to verify webhook payloads are from your application</p>
-				</div>
-			</div>
-			
-			<div class="modal-footer">
-				<button on:click={closeCreateModal} class="modal-btn modal-btn-secondary">Cancel</button>
-				<button on:click={createWebhook} class="modal-btn modal-btn-primary">Create Webhook</button>
-			</div>
+			{/each}
 		</div>
+		<p class="form-hint">Select the events that will trigger this webhook</p>
 	</div>
-{/if}
+
+	<div class="form-group">
+		<div class="form-label-row">
+			<label class="form-label">Signing Secret</label>
+			<span class="form-optional">Optional</span>
+		</div>
+		<div class="input-with-icon">
+			<Key size={16} />
+			<input
+				type="password"
+				bind:value={newWebhook.secret}
+				placeholder="Enter a secret key for payload verification"
+				class="form-input with-icon"
+			/>
+		</div>
+		<p class="form-hint">Used to verify webhook payloads are from your application</p>
+	</div>
+
+	<svelte:fragment slot="footer">
+		<button on:click={closeCreateModal} class="btn btn-secondary">Cancel</button>
+		<button on:click={createWebhook} class="btn btn-primary">Create Webhook</button>
+	</svelte:fragment>
+</Modal>
+
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title="Delete Webhook"
+	message="Are you sure you want to delete this webhook?"
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteWebhook}
+/>
 
 <style>
 	.page-container {
@@ -495,44 +493,6 @@
 		grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 		gap: 1rem;
 		margin-bottom: 1.5rem;
-	}
-
-	.stat-card {
-		background: white;
-		border-radius: 0.5rem;
-		padding: 1.25rem;
-		border: 1px solid #e5e7eb;
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-	}
-
-	.stat-icon {
-		width: 48px;
-		height: 48px;
-		border-radius: 0.5rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-	}
-
-	.stat-content {
-		flex: 1;
-	}
-
-	.stat-label {
-		font-size: 0.875rem;
-		color: #6b7280;
-		margin: 0 0 0.25rem 0;
-	}
-
-	.stat-value {
-		font-size: 1.75rem;
-		font-weight: 600;
-		color: #111827;
-		line-height: 1;
-		margin: 0;
 	}
 
 	/* Webhooks Section */
@@ -752,88 +712,6 @@
 		color: #ef4444;
 	}
 
-	/* Empty State */
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 3rem 2rem;
-		text-align: center;
-	}
-
-	/* Modal Styles */
-	.modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.5);
-		z-index: 9999;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 1rem;
-		animation: fadeIn 0.2s;
-	}
-
-	.modal-container {
-		background: white;
-		border-radius: 0.75rem;
-		width: 100%;
-		max-width: 600px;
-		max-height: 90vh;
-		overflow-y: auto;
-		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-		animation: slideUp 0.3s;
-	}
-
-	.modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.modal-title {
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #111827;
-		margin: 0;
-	}
-
-	.modal-close {
-		background: transparent;
-		border: none;
-		color: #6b7280;
-		cursor: pointer;
-		padding: 0.25rem;
-		border-radius: 0.375rem;
-		transition: all 0.2s;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.modal-close:hover {
-		color: #374151;
-		background: #f3f4f6;
-	}
-
-	.modal-body {
-		padding: 1.5rem;
-	}
-
-	.modal-footer {
-		display: flex;
-		justify-content: flex-end;
-		gap: 0.75rem;
-		padding: 1.5rem;
-		border-top: 1px solid #e5e7eb;
-	}
-
 	/* Form Styles */
 	.form-group {
 		margin-bottom: 1.5rem;
@@ -956,43 +834,6 @@
 		background: #06b6d4;
 		color: white;
 		border-color: #06b6d4;
-	}
-
-	/* Modal Buttons */
-	.modal-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.625rem 1.25rem;
-		border-radius: 0.375rem;
-		font-size: 0.875rem;
-		font-weight: 500;
-		border: 1px solid transparent;
-		cursor: pointer;
-		transition: all 0.2s;
-		line-height: 1;
-	}
-
-	.modal-btn-primary {
-		background: #06b6d4;
-		color: white;
-		border-color: #06b6d4;
-	}
-
-	.modal-btn-primary:hover {
-		background: #0891b2;
-		border-color: #0891b2;
-	}
-
-	.modal-btn-secondary {
-		background: white;
-		color: #374151;
-		border: 1px solid #d1d5db;
-	}
-
-	.modal-btn-secondary:hover {
-		background: #f9fafb;
-		border-color: #9ca3af;
 	}
 
 	/* Animations */

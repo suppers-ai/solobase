@@ -4,6 +4,7 @@
 	import CreateRoleModal from './CreateRoleModal.svelte';
 	import EditRoleModal from './EditRoleModal.svelte';
 	import { ErrorHandler, authFetch } from '$lib/api';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 
 	interface RoleMetadata {
 		disabledFeatures?: string[];
@@ -24,7 +25,9 @@
 
 	let showCreateModal = false;
 	let showEditModal = false;
+	let showDeleteConfirm = false;
 	let selectedRole: Role | null = null;
+	let roleToDelete: Role | null = null;
 
 	async function handleCreateRole(event: CustomEvent<Role>) {
 		const role = event.detail;
@@ -41,13 +44,16 @@
 		}
 	}
 
-	async function handleDeleteRole(event: CustomEvent<Role>) {
-		const role = event.detail;
-		if (!confirm(`Are you sure you want to delete role "${role.displayName || role.name}"?`)) {
-			return;
-		}
+	function handleDeleteRole(event: CustomEvent<Role>) {
+		roleToDelete = event.detail;
+		showDeleteConfirm = true;
+	}
 
-		const response = await authFetch(`/api/admin/iam/roles/${role.name}`, {
+	async function confirmDeleteRole() {
+		if (!roleToDelete) return;
+		showDeleteConfirm = false;
+
+		const response = await authFetch(`/api/admin/iam/roles/${roleToDelete.name}`, {
 			method: 'DELETE'
 		});
 
@@ -57,6 +63,7 @@
 			const error = await response.text();
 			ErrorHandler.handle(`Failed to delete role: ${error}`);
 		}
+		roleToDelete = null;
 	}
 
 	function handleEditRole(event: CustomEvent<Role>) {
@@ -117,6 +124,15 @@
 		}}
 	/>
 {/if}
+
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title="Delete Role"
+	message={`Are you sure you want to delete role "${roleToDelete?.displayName || roleToDelete?.name}"? This action cannot be undone.`}
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteRole}
+/>
 
 <style>
 	.section {

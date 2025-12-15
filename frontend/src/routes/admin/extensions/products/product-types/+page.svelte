@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import {
-		Package2, Plus, Edit2, Trash2, Search, Filter,
+		Package2, Plus, Edit2, Trash2, Filter,
 		CheckCircle, XCircle, Settings
 	} from 'lucide-svelte';
+	import SearchInput from '$lib/components/SearchInput.svelte';
 	import { api, ErrorHandler } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
 	import IconPicker from '$lib/components/IconPicker.svelte';
@@ -13,6 +14,11 @@
 	import PricingTemplateModal from '$lib/components/PricingTemplateModal.svelte';
 	import { getIconComponent } from '$lib/utils/icons';
 	import { toasts } from '$lib/stores/toast';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import PageHeader from '$lib/components/ui/PageHeader.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
 
 	interface FieldConstraints {
 		required?: boolean;
@@ -106,7 +112,9 @@
 	let searchQuery = '';
 	let showCreateModal = false;
 	let showEditModal = false;
+	let showDeleteConfirm = false;
 	let selectedProductType: ProductType | null = null;
+	let productTypeToDelete: string | null = null;
 	let showCreatePricingModal = false;
 	let showEditPricingModal = false;
 	let editingPricingTemplate: any = null;
@@ -322,16 +330,23 @@
 		}
 	}
 	
-	async function deleteProductType(id: string) {
-		if (!confirm('Are you sure you want to delete this product type? This will affect all products of this type.')) return;
-		
+	function deleteProductType(id: string) {
+		productTypeToDelete = id;
+		showDeleteConfirm = true;
+	}
+
+	async function confirmDeleteProductType() {
+		if (!productTypeToDelete) return;
+		showDeleteConfirm = false;
+
 		try {
-			await api.delete(`/products/product-types/${id}`);
+			await api.delete(`/products/product-types/${productTypeToDelete}`);
 			// Reload product types
 			await loadProductTypes();
 		} catch (error) {
 			ErrorHandler.handle(error);
 		}
+		productTypeToDelete = null;
 	}
 
 	// Schema editor state
@@ -479,42 +494,26 @@
 
 <div class="page-container">
 	<!-- Header -->
-	<div class="page-header">
-		<a href="/admin/extensions/products" class="back-button">
-			<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<polyline points="15 18 9 12 15 6"></polyline>
-			</svg>
-		</a>
-		<div class="header-content">
-			<div class="header-left">
-				<div class="header-title">
-					<Package2 size={24} />
-					<h1>Product Types</h1>
-				</div>
-				<p class="header-subtitle">Define types of entities that can own products (e.g., Store, Company, Team)</p>
-			</div>
-			<div class="header-actions">
-				<button class="btn btn-primary" on:click={() => showCreateModal = true}>
-					<Plus size={16} />
-					New Product Type
-				</button>
-			</div>
-		</div>
-	</div>
+	<PageHeader
+		title="Product Types"
+		subtitle="Define types of entities that can own products (e.g., Store, Company, Team)"
+		icon={Package2}
+		backHref="/admin/extensions/products"
+		variant="card"
+	>
+		<svelte:fragment slot="actions">
+			<Button icon={Plus} on:click={() => showCreateModal = true}>
+				New Product Type
+			</Button>
+		</svelte:fragment>
+	</PageHeader>
 
 	<!-- Main Content -->
 	<div class="content-card">
 		<!-- Toolbar -->
 		<div class="toolbar">
 			<div class="toolbar-left">
-				<div class="search-box">
-					<Search size={16} />
-					<input 
-						type="text" 
-						placeholder="Search product types..."
-						bind:value={searchQuery}
-					/>
-				</div>
+				<SearchInput bind:value={searchQuery} placeholder="Search product types..." maxWidth="320px" />
 			</div>
 			<div class="toolbar-right">
 				<button class="btn-icon">
@@ -529,15 +528,15 @@
 				<div class="loading loading-spinner loading-lg text-cyan-600"></div>
 			</div>
 		{:else if filteredProductTypes.length === 0}
-			<div class="empty-state">
-				<Package2 size={48} class="text-gray-400" />
-				<h3>No product types found</h3>
-				<p>Create your first product type to organize your business structure</p>
-				<button class="btn btn-primary mt-4" on:click={() => showCreateModal = true}>
-					<Plus size={16} />
+			<EmptyState
+				icon={Package2}
+				title="No product types found"
+				message="Create your first product type to organize your business structure"
+			>
+				<Button icon={Plus} on:click={() => showCreateModal = true}>
 					Create Product Type
-				</button>
-			</div>
+				</Button>
+			</EmptyState>
 		{:else}
 			<div class="group-grid">
 				{#each filteredProductTypes as productType}
@@ -626,69 +625,6 @@
 		margin: 0.25rem 0 0.75rem 0;
 	}
 
-	.page-header {
-		background: white;
-		border-radius: 0.5rem;
-		padding: 1.5rem;
-		margin-bottom: 1.5rem;
-		border: 1px solid #e5e7eb;
-		position: relative;
-	}
-
-	.back-button {
-		position: absolute;
-		top: 1.5rem;
-		left: 1.5rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 36px;
-		height: 36px;
-		border: 1px solid #e5e7eb;
-		border-radius: 0.375rem;
-		background: white;
-		color: #6b7280;
-		text-decoration: none;
-		transition: all 0.2s;
-	}
-
-	.back-button:hover {
-		background: #f9fafb;
-		color: #111827;
-	}
-
-	.header-content {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		margin-left: 48px;
-	}
-
-	.header-title {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		margin-bottom: 0.5rem;
-	}
-
-	.header-title h1 {
-		font-size: 1.5rem;
-		font-weight: 600;
-		color: #111827;
-		margin: 0;
-	}
-
-	.header-subtitle {
-		color: #6b7280;
-		font-size: 0.875rem;
-		margin: 0;
-	}
-
-	.header-actions {
-		display: flex;
-		gap: 0.75rem;
-	}
-
 	.content-card {
 		background: white;
 		border-radius: 0.5rem;
@@ -716,66 +652,6 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-	}
-
-	.search-box {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 0.75rem;
-		border: 1px solid #e5e7eb;
-		border-radius: 0.375rem;
-		background: white;
-		flex: 1;
-		max-width: 320px;
-	}
-
-	.search-box input {
-		border: none;
-		outline: none;
-		flex: 1;
-		font-size: 0.875rem;
-	}
-
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 1rem;
-		border-radius: 0.375rem;
-		font-size: 0.875rem;
-		font-weight: 500;
-		border: none;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.btn-primary {
-		background: #06b6d4;
-		color: white;
-	}
-
-	.btn-primary:hover {
-		background: #0891b2;
-	}
-
-	.btn-secondary {
-		background: white;
-		color: #374151;
-		border: 1px solid #e5e7eb;
-	}
-
-	.btn-secondary:hover {
-		background: #f9fafb;
-	}
-	
-	.btn-danger {
-		background: #ef4444;
-		color: white;
-	}
-	
-	.btn-danger:hover {
-		background: #dc2626;
 	}
 
 	.btn-icon {
@@ -976,66 +852,6 @@
 		padding: 4rem;
 	}
 
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 4rem;
-		text-align: center;
-	}
-
-	.empty-state h3 {
-		margin: 1rem 0 0.5rem 0;
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.empty-state p {
-		margin: 0;
-		color: #6b7280;
-		font-size: 0.875rem;
-	}
-
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 9999;
-	}
-
-	.modal {
-		background: white;
-		border-radius: 0.5rem;
-		width: 90%;
-		max-width: 700px;
-		max-height: 90vh;
-		overflow-y: auto;
-	}
-
-	.modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.modal-header h2 {
-		margin: 0;
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.modal-body {
-		padding: 1.5rem;
-	}
-
 	.form-group {
 		margin-bottom: 1rem;
 	}
@@ -1072,14 +888,6 @@
 		gap: 1rem;
 	}
 
-	.modal-footer {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem;
-		border-top: 1px solid #e5e7eb;
-	}
-	
 	.modal-footer-right {
 		display: flex;
 		gap: 0.75rem;
@@ -1459,222 +1267,209 @@
 </style>
 
 <!-- Create Product Type Modal -->
-{#if showCreateModal}
-	<div class="modal-overlay" on:click={() => showCreateModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Create New Product Type</h2>
-				<button class="btn-icon" on:click={() => showCreateModal = false}>
-					×
-				</button>
-			</div>
-			<div class="modal-body">
-				<div class="form-row">
-					<div class="form-group">
-						<label for="name">Product Type Name</label>
-						<input type="text" id="name" bind:value={newProductType.name}
-							placeholder="e.g., store, company, team" />
-					</div>
-					<div class="form-group">
-						<label for="displayName">Display Name</label>
-						<input type="text" id="displayName" bind:value={newProductType.displayName}
-							placeholder="e.g., Store, Company, Team" />
-					</div>
-				</div>
-				<div class="form-group">
-					<label for="description">Description</label>
-					<textarea id="description" bind:value={newProductType.description} rows="2"
-						placeholder="Describe what this product type represents"></textarea>
-				</div>
-				<div class="form-group">
-					<label for="icon">Icon</label>
-					<IconPicker bind:value={newProductType.icon} placeholder="Choose an icon" />
-				</div>
-				<div class="form-row">
-					<div class="form-group">
-						<label for="billingMode">Billing Mode</label>
-						<select id="billingMode" bind:value={newProductType.billingMode}>
-							<option value="instant">Instant</option>
-							<option value="approval">Requires Approval</option>
-						</select>
-					</div>
-					<div class="form-group">
-						<label for="billingType">Billing Type</label>
-						<select id="billingType" bind:value={newProductType.billingType}>
-							<option value="one-time">One-time</option>
-							<option value="recurring">Recurring</option>
-						</select>
-					</div>
-				</div>
-				{#if newProductType.billingType === 'recurring'}
-					<div class="form-row">
-						<div class="form-group">
-							<label for="billingInterval">Recurring Interval</label>
-							<select id="billingInterval" bind:value={newProductType.billingRecurringInterval}>
-								<option value="day">Daily</option>
-								<option value="week">Weekly</option>
-								<option value="month">Monthly</option>
-								<option value="year">Yearly</option>
-							</select>
-						</div>
-						<div class="form-group">
-							<label for="billingIntervalCount">Interval Count</label>
-							<input type="number" id="billingIntervalCount" min="1" bind:value={newProductType.billingRecurringIntervalCount} placeholder="e.g., 2 for bi-weekly" />
-						</div>
-					</div>
-				{/if}
-				<div class="form-group">
-					<label for="status">Status</label>
-					<select id="status" bind:value={newProductType.status}>
-						<option value="active">Active</option>
-						<option value="pending">Pending</option>
-						<option value="deleted">Deleted</option>
-					</select>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showCreateModal = false}>Cancel</button>
-				<button class="btn btn-primary" on:click={createProductType}>Create Product Type</button>
-			</div>
+<Modal show={showCreateModal} title="Create New Product Type" maxWidth="600px" on:close={() => showCreateModal = false}>
+	<div class="form-row">
+		<div class="form-group">
+			<label for="name">Product Type Name</label>
+			<input type="text" id="name" bind:value={newProductType.name}
+				placeholder="e.g., store, company, team" />
+		</div>
+		<div class="form-group">
+			<label for="displayName">Display Name</label>
+			<input type="text" id="displayName" bind:value={newProductType.displayName}
+				placeholder="e.g., Store, Company, Team" />
 		</div>
 	</div>
-{/if}
+	<div class="form-group">
+		<label for="description">Description</label>
+		<textarea id="description" bind:value={newProductType.description} rows="2"
+			placeholder="Describe what this product type represents"></textarea>
+	</div>
+	<div class="form-group">
+		<label for="icon">Icon</label>
+		<IconPicker bind:value={newProductType.icon} placeholder="Choose an icon" />
+	</div>
+	<div class="form-row">
+		<div class="form-group">
+			<label for="billingMode">Billing Mode</label>
+			<select id="billingMode" bind:value={newProductType.billingMode}>
+				<option value="instant">Instant</option>
+				<option value="approval">Requires Approval</option>
+			</select>
+		</div>
+		<div class="form-group">
+			<label for="billingType">Billing Type</label>
+			<select id="billingType" bind:value={newProductType.billingType}>
+				<option value="one-time">One-time</option>
+				<option value="recurring">Recurring</option>
+			</select>
+		</div>
+	</div>
+	{#if newProductType.billingType === 'recurring'}
+		<div class="form-row">
+			<div class="form-group">
+				<label for="billingInterval">Recurring Interval</label>
+				<select id="billingInterval" bind:value={newProductType.billingRecurringInterval}>
+					<option value="day">Daily</option>
+					<option value="week">Weekly</option>
+					<option value="month">Monthly</option>
+					<option value="year">Yearly</option>
+				</select>
+			</div>
+			<div class="form-group">
+				<label for="billingIntervalCount">Interval Count</label>
+				<input type="number" id="billingIntervalCount" min="1" bind:value={newProductType.billingRecurringIntervalCount} placeholder="e.g., 2 for bi-weekly" />
+			</div>
+		</div>
+	{/if}
+	<div class="form-group">
+		<label for="status">Status</label>
+		<select id="status" bind:value={newProductType.status}>
+			<option value="active">Active</option>
+			<option value="pending">Pending</option>
+			<option value="deleted">Deleted</option>
+		</select>
+	</div>
+	<svelte:fragment slot="footer">
+		<Button variant="secondary" on:click={() => showCreateModal = false}>Cancel</Button>
+		<Button on:click={createProductType}>Create Product Type</Button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Edit Product Type Modal -->
-{#if showEditModal && selectedProductType}
-	<div class="modal-overlay" on:click={() => showEditModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Edit Product Type</h2>
-				<button class="btn-icon" on:click={() => showEditModal = false}>
-					×
-				</button>
+<Modal show={showEditModal && !!selectedProductType} title="Edit Product Type" maxWidth="800px" on:close={() => { showEditModal = false; schemaFields = []; customSchemaFields = []; }}>
+	{#if selectedProductType}
+		<div class="form-row">
+			<div class="form-group">
+				<label for="edit-name">Product Type Name</label>
+				<input type="text" id="edit-name" bind:value={selectedProductType.name} />
 			</div>
-			<div class="modal-body">
-				<div class="form-row">
-					<div class="form-group">
-						<label for="edit-name">Product Type Name</label>
-						<input type="text" id="edit-name" bind:value={selectedProductType.name} />
-					</div>
-					<div class="form-group">
-						<label for="edit-displayName">Display Name</label>
-						<input type="text" id="edit-displayName" bind:value={selectedProductType.displayName} />
-					</div>
-				</div>
-				<div class="form-group">
-					<label for="edit-description">Description</label>
-					<textarea id="edit-description" bind:value={selectedProductType.description} rows="2"></textarea>
-				</div>
-				<div class="form-group">
-					<label for="edit-icon">Icon</label>
-					<IconPicker bind:value={selectedProductType.icon} placeholder="Choose an icon" />
-				</div>
-				
-				<div class="form-row">
-					<div class="form-group">
-						<label for="edit-billingMode">Billing Mode</label>
-						<select id="edit-billingMode" bind:value={selectedProductType.billingMode}>
-							<option value="instant">Instant</option>
-							<option value="approval">Requires Approval</option>
-						</select>
-					</div>
-					<div class="form-group">
-						<label for="edit-billingType">Billing Type</label>
-						<select id="edit-billingType" bind:value={selectedProductType.billingType}>
-							<option value="one-time">One-time</option>
-							<option value="recurring">Recurring</option>
-						</select>
-					</div>
-				</div>
-
-				{#if selectedProductType.billingType === 'recurring'}
-					<div class="form-row">
-						<div class="form-group">
-							<label for="edit-billingInterval">Recurring Interval</label>
-							<select id="edit-billingInterval" bind:value={selectedProductType.billingRecurringInterval}>
-								<option value="day">Daily</option>
-								<option value="week">Weekly</option>
-								<option value="month">Monthly</option>
-								<option value="year">Yearly</option>
-							</select>
-						</div>
-						<div class="form-group">
-							<label for="edit-billingIntervalCount">Interval Count</label>
-							<input type="number" id="edit-billingIntervalCount" min="1" bind:value={selectedProductType.billingRecurringIntervalCount} placeholder="e.g., 2 for bi-weekly" />
-						</div>
-					</div>
-				{/if}
-				
-				<div class="form-group">
-					<label>Filter Fields (Searchable/Filterable)</label>
-					<p class="field-description">These fields map to database columns and can be used for filtering products. Limited to 5 of each type.</p>
-					<FieldEditor
-						fields={schemaFields}
-						onFieldsChange={(newFields) => schemaFields = newFields}
-					/>
-				</div>
-
-				<div class="form-group">
-					<label>Custom Fields (Additional Properties)</label>
-					<p class="field-description">These fields are stored as JSON and can hold any additional product data. Unlimited fields allowed.</p>
-					<CustomFieldEditor
-						fields={customSchemaFields}
-						onFieldsChange={(newFields) => customSchemaFields = newFields}
-					/>
-				</div>
-				
-				
-				<div class="form-group">
-					<ReorderableList
-						bind:selectedIds={selectedProductType.pricingTemplates}
-						availableItems={pricingTemplates.map(t => ({
-							id: t.id,
-							name: t.name,
-							displayName: t.displayName,
-							description: t.description,
-							category: t.category,
-							priceFormula: t.priceFormula,
-							conditionFormula: t.conditionFormula,
-							isActive: t.isActive
-						}))}
-						title="Pricing Templates"
-						helpText="Templates will be applied in the order shown. Drag to reorder."
-						emptyMessage="No pricing templates selected"
-						noItemsMessage="No pricing templates available."
-						addButtonText="Add Pricing Template"
-						createLink="/admin/extensions/products/pricing"
-						createLinkText="Create templates first"
-						allowCreateNew={true}
-						allowEdit={true}
-						on:createNew={handleCreatePricingTemplate}
-						on:editItem={handleEditPricingTemplate}
-					/>
-				</div>
-				
-				<div class="form-group">
-					<label for="edit-status">Status</label>
-					<select id="edit-status" bind:value={selectedProductType.status}>
-						<option value="active">Active</option>
-						<option value="pending">Pending</option>
-						<option value="deleted">Deleted</option>
-					</select>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-danger" on:click={() => {
-					if (selectedProductType && confirm('Are you sure you want to delete this product type? This will affect all products of this type.')) {
-						deleteProductType(selectedProductType.id);
-						showEditModal = false;
-					}
-				}}>Delete</button>
-				<div class="modal-footer-right">
-					<button class="btn btn-secondary" on:click={() => { showEditModal = false; schemaFields = []; customSchemaFields = []; }}>Cancel</button>
-					<button class="btn btn-primary" on:click={saveProductType}>Save</button>
-				</div>
+			<div class="form-group">
+				<label for="edit-displayName">Display Name</label>
+				<input type="text" id="edit-displayName" bind:value={selectedProductType.displayName} />
 			</div>
 		</div>
-	</div>
-{/if}
+		<div class="form-group">
+			<label for="edit-description">Description</label>
+			<textarea id="edit-description" bind:value={selectedProductType.description} rows="2"></textarea>
+		</div>
+		<div class="form-group">
+			<label for="edit-icon">Icon</label>
+			<IconPicker bind:value={selectedProductType.icon} placeholder="Choose an icon" />
+		</div>
+
+		<div class="form-row">
+			<div class="form-group">
+				<label for="edit-billingMode">Billing Mode</label>
+				<select id="edit-billingMode" bind:value={selectedProductType.billingMode}>
+					<option value="instant">Instant</option>
+					<option value="approval">Requires Approval</option>
+				</select>
+			</div>
+			<div class="form-group">
+				<label for="edit-billingType">Billing Type</label>
+				<select id="edit-billingType" bind:value={selectedProductType.billingType}>
+					<option value="one-time">One-time</option>
+					<option value="recurring">Recurring</option>
+				</select>
+			</div>
+		</div>
+
+		{#if selectedProductType.billingType === 'recurring'}
+			<div class="form-row">
+				<div class="form-group">
+					<label for="edit-billingInterval">Recurring Interval</label>
+					<select id="edit-billingInterval" bind:value={selectedProductType.billingRecurringInterval}>
+						<option value="day">Daily</option>
+						<option value="week">Weekly</option>
+						<option value="month">Monthly</option>
+						<option value="year">Yearly</option>
+					</select>
+				</div>
+				<div class="form-group">
+					<label for="edit-billingIntervalCount">Interval Count</label>
+					<input type="number" id="edit-billingIntervalCount" min="1" bind:value={selectedProductType.billingRecurringIntervalCount} placeholder="e.g., 2 for bi-weekly" />
+				</div>
+			</div>
+		{/if}
+
+		<div class="form-group">
+			<label>Filter Fields (Searchable/Filterable)</label>
+			<p class="field-description">These fields map to database columns and can be used for filtering products. Limited to 5 of each type.</p>
+			<FieldEditor
+				fields={schemaFields}
+				onFieldsChange={(newFields) => schemaFields = newFields}
+			/>
+		</div>
+
+		<div class="form-group">
+			<label>Custom Fields (Additional Properties)</label>
+			<p class="field-description">These fields are stored as JSON and can hold any additional product data. Unlimited fields allowed.</p>
+			<CustomFieldEditor
+				fields={customSchemaFields}
+				onFieldsChange={(newFields) => customSchemaFields = newFields}
+			/>
+		</div>
+
+
+		<div class="form-group">
+			<ReorderableList
+				bind:selectedIds={selectedProductType.pricingTemplates}
+				availableItems={pricingTemplates.map(t => ({
+					id: t.id,
+					name: t.name,
+					displayName: t.displayName,
+					description: t.description,
+					category: t.category,
+					priceFormula: t.priceFormula,
+					conditionFormula: t.conditionFormula,
+					isActive: t.isActive
+				}))}
+				title="Pricing Templates"
+				helpText="Templates will be applied in the order shown. Drag to reorder."
+				emptyMessage="No pricing templates selected"
+				noItemsMessage="No pricing templates available."
+				addButtonText="Add Pricing Template"
+				createLink="/admin/extensions/products/pricing"
+				createLinkText="Create templates first"
+				allowCreateNew={true}
+				allowEdit={true}
+				on:createNew={handleCreatePricingTemplate}
+				on:editItem={handleEditPricingTemplate}
+			/>
+		</div>
+
+		<div class="form-group">
+			<label for="edit-status">Status</label>
+			<select id="edit-status" bind:value={selectedProductType.status}>
+				<option value="active">Active</option>
+				<option value="pending">Pending</option>
+				<option value="deleted">Deleted</option>
+			</select>
+		</div>
+	{/if}
+	<svelte:fragment slot="footer">
+		<Button variant="danger" on:click={() => {
+			if (selectedProductType) {
+				deleteProductType(selectedProductType.id);
+				showEditModal = false;
+			}
+		}}>Delete</Button>
+		<div class="modal-footer-right">
+			<Button variant="secondary" on:click={() => { showEditModal = false; schemaFields = []; customSchemaFields = []; }}>Cancel</Button>
+			<Button on:click={saveProductType}>Save</Button>
+		</div>
+	</svelte:fragment>
+</Modal>
+
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title="Delete Product Type"
+	message="Are you sure you want to delete this product type? This will affect all products of this type."
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteProductType}
+/>
 
 <!-- Create Pricing Template Modal -->
 <PricingTemplateModal

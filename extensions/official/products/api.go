@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/suppers-ai/solobase/constants"
 	"github.com/suppers-ai/solobase/extensions/official/products/models"
+	"github.com/suppers-ai/solobase/utils"
 	"gorm.io/gorm"
 )
 
@@ -79,8 +80,7 @@ func (a *AdminAPI) ListVariables(w http.ResponseWriter, r *http.Request) {
 
 func (a *AdminAPI) CreateVariable(w http.ResponseWriter, r *http.Request) {
 	var variable models.Variable
-	if err := json.NewDecoder(r.Body).Decode(&variable); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &variable) {
 		return
 	}
 
@@ -103,8 +103,7 @@ func (a *AdminAPI) UpdateVariable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var variable models.Variable
-	if err := json.NewDecoder(r.Body).Decode(&variable); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &variable) {
 		return
 	}
 
@@ -147,8 +146,7 @@ func (a *AdminAPI) ListGroupTypes(w http.ResponseWriter, r *http.Request) {
 
 func (a *AdminAPI) CreateGroupType(w http.ResponseWriter, r *http.Request) {
 	var groupTemplate models.GroupTemplate
-	if err := json.NewDecoder(r.Body).Decode(&groupTemplate); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &groupTemplate) {
 		return
 	}
 
@@ -171,8 +169,7 @@ func (a *AdminAPI) UpdateGroupType(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var groupTemplate models.GroupTemplate
-	if err := json.NewDecoder(r.Body).Decode(&groupTemplate); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &groupTemplate) {
 		return
 	}
 
@@ -235,8 +232,7 @@ func (a *AdminAPI) GetProductTemplate(w http.ResponseWriter, r *http.Request) {
 
 func (a *AdminAPI) CreateProductType(w http.ResponseWriter, r *http.Request) {
 	var productTemplate models.ProductTemplate
-	if err := json.NewDecoder(r.Body).Decode(&productTemplate); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &productTemplate) {
 		return
 	}
 
@@ -259,8 +255,7 @@ func (a *AdminAPI) UpdateProductType(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var productTemplate models.ProductTemplate
-	if err := json.NewDecoder(r.Body).Decode(&productTemplate); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &productTemplate) {
 		return
 	}
 
@@ -303,8 +298,7 @@ func (a *AdminAPI) ListProducts(w http.ResponseWriter, r *http.Request) {
 
 func (a *AdminAPI) CreateProduct(w http.ResponseWriter, r *http.Request) {
 	var product models.Product
-	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &product) {
 		return
 	}
 
@@ -323,8 +317,7 @@ func (a *AdminAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	var product models.Product
-	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &product) {
 		return
 	}
 
@@ -365,8 +358,7 @@ func (a *AdminAPI) ListGroups(w http.ResponseWriter, r *http.Request) {
 
 func (a *AdminAPI) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	var group models.Group
-	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &group) {
 		return
 	}
 
@@ -387,8 +379,7 @@ func (a *AdminAPI) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	var group models.Group
-	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &group) {
 		return
 	}
 
@@ -427,8 +418,7 @@ func (a *AdminAPI) ListPricingTemplates(w http.ResponseWriter, r *http.Request) 
 
 func (a *AdminAPI) CreatePricingTemplate(w http.ResponseWriter, r *http.Request) {
 	var template models.PricingTemplate
-	if err := json.NewDecoder(r.Body).Decode(&template); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &template) {
 		return
 	}
 
@@ -451,8 +441,7 @@ func (a *AdminAPI) UpdatePricingTemplate(w http.ResponseWriter, r *http.Request)
 	}
 
 	var template models.PricingTemplate
-	if err := json.NewDecoder(r.Body).Decode(&template); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &template) {
 		return
 	}
 
@@ -529,8 +518,7 @@ func (u *UserAPI) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var group models.Group
-	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &group) {
 		return
 	}
 
@@ -559,8 +547,7 @@ func (u *UserAPI) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var group models.Group
-	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &group) {
 		return
 	}
 
@@ -716,8 +703,7 @@ func (u *UserAPI) CreateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var product models.Product
-	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &product) {
 		return
 	}
 
@@ -778,8 +764,7 @@ func (u *UserAPI) CalculatePrice(w http.ResponseWriter, r *http.Request) {
 		Variables map[string]interface{} `json:"variables"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -914,8 +899,7 @@ func (u *UserAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var product models.Product
-	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &product) {
 		return
 	}
 
@@ -1007,8 +991,7 @@ func (u *UserAPI) CreatePurchase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req PurchaseRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -1128,7 +1111,7 @@ func (u *UserAPI) CancelPurchase(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Reason string `json:"reason"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	utils.DecodeJSONBody(w, r, &req) // Ignore error - reason is optional
 
 	if err := u.purchaseService.Cancel(uint(id), req.Reason); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1168,8 +1151,7 @@ func (a *AdminAPI) RefundPurchase(w http.ResponseWriter, r *http.Request) {
 		Amount int64  `json:"amount"` // Amount in cents, 0 for full refund
 		Reason string `json:"reason"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 

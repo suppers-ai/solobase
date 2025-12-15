@@ -5,18 +5,30 @@
 	import { page } from '$app/stores';
 	import {
 		TrendingUp, Package, ShoppingCart, Users,
-		Eye, Heart, DollarSign, Search, Filter,
+		Eye, Heart, DollarSign, Filter,
 		Download, Plus, MoreVertical, ChevronDown,
 		Activity, Box, CreditCard, Clock, Check,
 		X, AlertCircle, ArrowLeft, Edit2, Trash2
 	} from 'lucide-svelte';
+	import SearchInput from '$lib/components/SearchInput.svelte';
+	import StatCard from '$lib/components/ui/StatCard.svelte';
 	import { api, ErrorHandler } from '$lib/api';
 	import { authStore } from '$lib/stores/auth';
 	import { productPreviewRegistry } from '$lib/stores/productPreviewRegistry';
 	import ProductModal from '$lib/components/products/ProductModal.svelte';
 	import GroupModal from '$lib/components/products/GroupModal.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 
 	let loading = true;
+
+	// Confirmation dialogs
+	let showDeleteProductConfirm = false;
+	let showDeleteGroupConfirm = false;
+	let productToDelete: string | null = null;
+	let groupToDelete: string | null = null;
 
 	// Get tab from URL
 	function getTabFromURL() {
@@ -397,32 +409,42 @@
 		showEditProductModal = true;
 	}
 	
-	async function deleteProduct(id: string) {
-		if (!confirm('Are you sure you want to delete this product?')) {
-			return;
-		}
-		
-		try {
-			await api.delete(`/ext/products/products/${id}`);
-			products = products.filter(p => p.id !== id);
-			await loadData();
-		} catch (error) {
-			ErrorHandler.handle(error);
-		}
+	function deleteProduct(id: string) {
+		productToDelete = id;
+		showDeleteProductConfirm = true;
 	}
-	
-	async function deleteGroup(id: string) {
-		if (!confirm('Are you sure you want to delete this group? All associated products will also be deleted.')) {
-			return;
-		}
+
+	async function confirmDeleteProduct() {
+		if (!productToDelete) return;
+		showDeleteProductConfirm = false;
 
 		try {
-			await api.delete(`/ext/products/groups/${id}`);
-			groups = groups.filter(e => e.id !== id);
+			await api.delete(`/ext/products/products/${productToDelete}`);
+			products = products.filter(p => p.id !== productToDelete);
 			await loadData();
 		} catch (error) {
 			ErrorHandler.handle(error);
 		}
+		productToDelete = null;
+	}
+
+	function deleteGroup(id: string) {
+		groupToDelete = id;
+		showDeleteGroupConfirm = true;
+	}
+
+	async function confirmDeleteGroup() {
+		if (!groupToDelete) return;
+		showDeleteGroupConfirm = false;
+
+		try {
+			await api.delete(`/ext/products/groups/${groupToDelete}`);
+			groups = groups.filter(e => e.id !== groupToDelete);
+			await loadData();
+		} catch (error) {
+			ErrorHandler.handle(error);
+		}
+		groupToDelete = null;
 	}
 	
 	function openProductCreationForGroup(group: any) {
@@ -528,7 +550,7 @@
 			
 			{#if loading}
 				<div class="loading-container">
-					<div class="spinner"></div>
+					<LoadingSpinner size="md" />
 					<p>Loading dashboard...</p>
 				</div>
 			{:else if currentTab === 'dashboard'}
@@ -536,37 +558,38 @@
 				<div class="dashboard-content">
 					<!-- Compact Stats Grid -->
 					<div class="stats-grid">
-						<div class="stat-card">
-							<div class="stat-icon purple"><Package size={16} /></div>
-							<div class="stat-info">
-								<span class="stat-value">{stats.totalProducts}</span>
-								<span class="stat-label">Products</span>
-							</div>
-						</div>
-						
-						<div class="stat-card">
-							<div class="stat-icon cyan"><ShoppingCart size={16} /></div>
-							<div class="stat-info">
-								<span class="stat-value">{stats.totalSales}</span>
-								<span class="stat-label">Sales</span>
-							</div>
-						</div>
-						
-						<div class="stat-card">
-							<div class="stat-icon green"><DollarSign size={16} /></div>
-							<div class="stat-info">
-								<span class="stat-value">${stats.totalRevenue.toFixed(0)}</span>
-								<span class="stat-label">Revenue</span>
-							</div>
-						</div>
-						
-						<div class="stat-card">
-							<div class="stat-icon blue"><Users size={16} /></div>
-							<div class="stat-info">
-								<span class="stat-value">{stats.totalGroups}</span>
-								<span class="stat-label">Groups</span>
-							</div>
-						</div>
+						<StatCard
+							icon={Package}
+							value={stats.totalProducts}
+							label="Products"
+							iconBg="bg-purple-100"
+							iconColor="text-purple-600"
+							size="sm"
+						/>
+						<StatCard
+							icon={ShoppingCart}
+							value={stats.totalSales}
+							label="Sales"
+							iconBg="bg-cyan-100"
+							iconColor="text-cyan-600"
+							size="sm"
+						/>
+						<StatCard
+							icon={DollarSign}
+							value="${stats.totalRevenue.toFixed(0)}"
+							label="Revenue"
+							iconBg="bg-green-100"
+							iconColor="text-green-600"
+							size="sm"
+						/>
+						<StatCard
+							icon={Users}
+							value={stats.totalGroups}
+							label="Groups"
+							iconBg="bg-blue-100"
+							iconColor="text-blue-600"
+							size="sm"
+						/>
 					</div>
 					
 					<!-- Recent Activity -->
@@ -627,14 +650,7 @@
 				<div class="orders-content">
 					<!-- Search Bar -->
 					<div class="orders-header">
-						<div class="search-box">
-							<Search size={14} />
-							<input 
-								type="text" 
-								placeholder="Search orders..."
-								bind:value={searchQuery}
-							/>
-						</div>
+						<SearchInput bind:value={searchQuery} placeholder="Search orders..." maxWidth="300px" />
 						<button class="btn-export" on:click={exportOrders}>
 							<Download size={14} />
 							Export
@@ -667,9 +683,7 @@
 											<td>{order.productName || 'Unknown'}</td>
 											<td class="amount">${(order.amount || 0).toFixed(2)}</td>
 											<td>
-												<span class="status-badge {getStatusColor(order.status)}">
-													{order.status || 'pending'}
-												</span>
+												<StatusBadge status={order.status || 'pending'} />
 											</td>
 										</tr>
 									{/each}
@@ -685,10 +699,7 @@
 							<span class="stat revenue">Revenue: ${orderStats.totalRevenue.toFixed(2)}</span>
 						</div>
 					{:else}
-						<div class="empty-state">
-							<ShoppingCart size={32} />
-							<p>No orders found</p>
-						</div>
+						<EmptyState icon={ShoppingCart} message="No orders found" compact />
 					{/if}
 				</div>
 			{:else if currentTab === 'products'}
@@ -775,15 +786,12 @@
 						</div>
 					{:else}
 						<!-- No groups yet -->
-						<div class="empty-state">
-							<Box size={32} />
-							<h4>Start by Creating an Group</h4>
-							<p>Groups represent your business units (stores, restaurants, services)</p>
+						<EmptyState icon={Box} title="Start by Creating a Group" message="Groups represent your business units (stores, restaurants, services)">
 							<button class="btn-primary" on:click={() => showCreateGroupModal = true}>
 								<Plus size={14} />
 								Create Your First Group
 							</button>
-						</div>
+						</EmptyState>
 					{/if}
 				</div>
 			{/if}
@@ -838,6 +846,24 @@
 		showEditProductModal = false;
 		editingProduct = null;
 	}}
+/>
+
+<ConfirmDialog
+	bind:show={showDeleteProductConfirm}
+	title="Delete Product"
+	message="Are you sure you want to delete this product?"
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteProduct}
+/>
+
+<ConfirmDialog
+	bind:show={showDeleteGroupConfirm}
+	title="Delete Group"
+	message="Are you sure you want to delete this group? All associated products will also be deleted."
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteGroup}
 />
 
 <style>
@@ -957,20 +983,6 @@
 		text-align: center;
 	}
 	
-	.spinner {
-		width: 32px;
-		height: 32px;
-		border: 3px solid #e5e7eb;
-		border-top-color: #189AB4;
-		border-radius: 50%;
-		margin: 0 auto 1rem;
-		animation: spin 1s linear infinite;
-	}
-	
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-	
 	/* Dashboard Content */
 	.dashboard-content {
 		animation: fadeIn 0.3s ease-out;
@@ -987,63 +999,6 @@
 		grid-template-columns: repeat(4, 1fr);
 		gap: 0.75rem;
 		margin-bottom: 1.5rem;
-	}
-	
-	.stat-card {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.875rem;
-		background: #f9fafb;
-		border-radius: 0.5rem;
-		border: 1px solid #e5e7eb;
-	}
-	
-	.stat-icon {
-		width: 32px;
-		height: 32px;
-		border-radius: 0.375rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-	
-	.stat-icon.purple {
-		background: #f3e8ff;
-		color: #9333ea;
-	}
-	
-	.stat-icon.cyan {
-		background: #e0f2fe;
-		color: #06b6d4;
-	}
-	
-	.stat-icon.green {
-		background: #d1fae5;
-		color: #10b981;
-	}
-	
-	.stat-icon.blue {
-		background: #dbeafe;
-		color: #3b82f6;
-	}
-	
-	.stat-info {
-		display: flex;
-		flex-direction: column;
-	}
-	
-	.stat-value {
-		font-size: 1.125rem;
-		font-weight: 700;
-		color: #111827;
-		line-height: 1;
-	}
-	
-	.stat-label {
-		font-size: 0.75rem;
-		color: #6b7280;
-		margin-top: 0.125rem;
 	}
 	
 	/* Activity Section */
@@ -1175,25 +1130,6 @@
 		gap: 0.75rem;
 	}
 	
-	.search-box {
-		display: flex;
-		align-items: center;
-		gap: 0.375rem;
-		padding: 0.5rem 0.75rem;
-		border: 1px solid #e5e7eb;
-		border-radius: 0.375rem;
-		background: white;
-		flex: 1;
-		max-width: 300px;
-	}
-	
-	.search-box input {
-		border: none;
-		outline: none;
-		flex: 1;
-		font-size: 0.813rem;
-	}
-	
 	.btn-export {
 		display: flex;
 		align-items: center;
@@ -1266,35 +1202,6 @@
 	.amount {
 		font-weight: 600;
 		color: #111827;
-	}
-	
-	.status-badge {
-		display: inline-block;
-		padding: 0.25rem 0.5rem;
-		border-radius: 999px;
-		font-size: 0.688rem;
-		font-weight: 500;
-		text-transform: capitalize;
-	}
-	
-	.status-completed {
-		background: #d1fae5;
-		color: #065f46;
-	}
-	
-	.status-pending {
-		background: #fed7aa;
-		color: #92400e;
-	}
-	
-	.status-cancelled {
-		background: #fee2e2;
-		color: #991b1b;
-	}
-	
-	.status-refunded {
-		background: #cffafe;
-		color: #155e75;
 	}
 	
 	/* Order Stats */
@@ -1493,22 +1400,6 @@
 		color: #189AB4;
 	}
 	
-	/* Empty State */
-	.empty-state {
-		padding: 3rem 2rem;
-		text-align: center;
-		color: #6b7280;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		min-height: 200px;
-	}
-	
-	.empty-state p {
-		margin: 0.5rem 0 1rem;
-		font-size: 0.875rem;
-	}
 	
 	.no-data {
 		text-align: center;

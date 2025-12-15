@@ -1,12 +1,10 @@
 package iam
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/gorilla/mux"
-	"github.com/suppers-ai/solobase/constants"
 	"github.com/suppers-ai/solobase/utils"
 )
 
@@ -61,8 +59,7 @@ func (h *Handlers) GetRoles(w http.ResponseWriter, r *http.Request) {
 // CreateRole creates a new role
 func (h *Handlers) CreateRole(w http.ResponseWriter, r *http.Request) {
 	var role Role
-	if err := json.NewDecoder(r.Body).Decode(&role); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &role) {
 		return
 	}
 
@@ -105,8 +102,7 @@ func (h *Handlers) UpdateRole(w http.ResponseWriter, r *http.Request) {
 	roleID := vars["id"]
 
 	var updates map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &updates) {
 		return
 	}
 
@@ -168,8 +164,7 @@ func (h *Handlers) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 		Effect   string `json:"effect"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -194,8 +189,7 @@ func (h *Handlers) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 		Effect   string `json:"effect"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -262,16 +256,12 @@ func (h *Handlers) AssignRole(w http.ResponseWriter, r *http.Request) {
 		Role string `json:"role"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 
 	// Get the current user ID from context for audit
-	grantedBy := ""
-	if currentUserID, ok := r.Context().Value(constants.ContextKeyUserID).(string); ok {
-		grantedBy = currentUserID
-	}
+	grantedBy := utils.GetUserIDFromContext(r)
 
 	if err := h.service.AssignRole(r.Context(), userID, req.Role, grantedBy); err != nil {
 		utils.JSONError(w, http.StatusInternalServerError, "Failed to assign role")
@@ -304,8 +294,7 @@ func (h *Handlers) EvaluatePermission(w http.ResponseWriter, r *http.Request) {
 		Context  map[string]interface{} `json:"context,omitempty"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 

@@ -1,13 +1,21 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { 
-		Building2, Plus, Edit2, Trash2, Search, Settings,
+	import {
+		Building2, Plus, Edit2, Trash2, Settings,
 		Users, Store, Briefcase, Home, Globe, MapPin,
 		Phone, Mail, Calendar, MoreVertical, ExternalLink
 	} from 'lucide-svelte';
+	import SearchInput from '$lib/components/SearchInput.svelte';
 	import { api, ErrorHandler } from '$lib/api';
 	import { authStore } from '$lib/stores/auth';
 	import { goto } from '$app/navigation';
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
+	import PageHeader from '$lib/components/ui/PageHeader.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
 
 	interface Group {
 		id: string;
@@ -33,7 +41,9 @@
 	let selectedType = 'all';
 	let showCreateModal = false;
 	let showEditModal = false;
+	let showDeleteConfirm = false;
 	let selectedGroup: Group | null = null;
+	let groupToDelete: Group | null = null;
 	
 	// Form data for new group
 	let newGroup: Partial<Group> = {
@@ -177,16 +187,22 @@
 		}
 	}
 	
-	async function deleteGroup(id: string) {
-		if (!confirm('Are you sure you want to delete this group? All associated products will also be deleted.')) return;
-		
+	function deleteGroup(group: Group) {
+		groupToDelete = group;
+		showDeleteConfirm = true;
+	}
+
+	async function confirmDeleteGroup() {
+		if (!groupToDelete) return;
+		showDeleteConfirm = false;
+
 		try {
-			await api.delete(`/user/groups/${id}`);
-			// Reload groups
+			await api.delete(`/user/groups/${groupToDelete.id}`);
 			await loadData();
 		} catch (error) {
 			ErrorHandler.handle(error);
 		}
+		groupToDelete = null;
 	}
 
 	function navigateToProducts(group: Group) {
@@ -196,37 +212,25 @@
 
 <div class="page-container">
 	<!-- Header -->
-	<div class="page-header">
-		<div class="header-content">
-			<div class="header-left">
-				<div class="header-title">
-					<Building2 size={24} />
-					<h1>My Groups</h1>
-				</div>
-				<p class="header-subtitle">Manage your business groups and organizations</p>
-			</div>
-			<div class="header-actions">
-				<button class="btn btn-primary" on:click={() => showCreateModal = true}>
-					<Plus size={16} />
-					New Group
-				</button>
-			</div>
-		</div>
-	</div>
+	<PageHeader
+		title="My Groups"
+		subtitle="Manage your business groups and organizations"
+		icon={Building2}
+		variant="card"
+	>
+		<svelte:fragment slot="actions">
+			<Button icon={Plus} on:click={() => showCreateModal = true}>
+				New Group
+			</Button>
+		</svelte:fragment>
+	</PageHeader>
 
 	<!-- Main Content -->
 	<div class="content-card">
 		<!-- Toolbar -->
 		<div class="toolbar">
 			<div class="toolbar-left">
-				<div class="search-box">
-					<Search size={16} />
-					<input 
-						type="text" 
-						placeholder="Search groups..."
-						bind:value={searchQuery}
-					/>
-				</div>
+				<SearchInput bind:value={searchQuery} placeholder="Search groups..." maxWidth="320px" />
 				<select class="filter-select" bind:value={selectedType}>
 					<option value="all">All Types</option>
 					{#each groupTypes as type}
@@ -239,18 +243,14 @@
 		<!-- Groups Grid -->
 		{#if loading}
 			<div class="loading-container">
-				<div class="loading loading-spinner loading-lg text-cyan-600"></div>
+				<LoadingSpinner size="lg" />
 			</div>
 		{:else if filteredGroups.length === 0}
-			<div class="empty-state">
-				<Building2 size={48} class="text-gray-400" />
-				<h3>No groups found</h3>
-				<p>Create your first group to start managing products</p>
-				<button class="btn btn-primary mt-4" on:click={() => showCreateModal = true}>
-					<Plus size={16} />
+			<EmptyState icon={Building2} title="No groups found" message="Create your first group to start managing products">
+				<Button icon={Plus} on:click={() => showCreateModal = true}>
 					Create Group
-				</button>
-			</div>
+				</Button>
+			</EmptyState>
 		{:else}
 			<div class="groups-grid">
 				{#each filteredGroups as group}
@@ -267,7 +267,7 @@
 								<button class="btn-icon" on:click={() => editGroup(group)} title="Edit">
 									<Edit2 size={16} />
 								</button>
-								<button class="btn-icon btn-icon-danger" on:click={() => deleteGroup(group.id)} title="Delete">
+								<button class="btn-icon btn-icon-danger" on:click={() => deleteGroup(group)} title="Delete">
 									<Trash2 size={16} />
 								</button>
 							</div>
@@ -307,9 +307,7 @@
 									<span class="stat-item">
 										{group.productsCount || 0} products
 									</span>
-									<span class="status-badge {group.active ? 'status-active' : 'status-inactive'}">
-										{group.active ? 'Active' : 'Inactive'}
-									</span>
+									<StatusBadge status={group.active ? 'Active' : 'Inactive'} size="sm" />
 								</div>
 								<button class="btn-link" on:click={() => navigateToProducts(group)}>
 									View Products →
@@ -323,50 +321,20 @@
 	</div>
 </div>
 
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title="Delete Group"
+	message="Are you sure you want to delete this group? All associated products will also be deleted."
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteGroup}
+/>
+
 <style>
 	.page-container {
 		padding: 1.5rem;
 		max-width: 1400px;
 		margin: 0 auto;
-	}
-
-	.page-header {
-		background: white;
-		border-radius: 0.5rem;
-		padding: 1.5rem;
-		margin-bottom: 1.5rem;
-		border: 1px solid #e5e7eb;
-	}
-
-	.header-content {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-	}
-
-	.header-title {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		margin-bottom: 0.5rem;
-	}
-
-	.header-title h1 {
-		font-size: 1.5rem;
-		font-weight: 600;
-		color: #111827;
-		margin: 0;
-	}
-
-	.header-subtitle {
-		color: #6b7280;
-		font-size: 0.875rem;
-		margin: 0;
-	}
-
-	.header-actions {
-		display: flex;
-		gap: 0.75rem;
 	}
 
 	.content-card {
@@ -392,63 +360,12 @@
 		flex: 1;
 	}
 
-	.search-box {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 0.75rem;
-		border: 1px solid #e5e7eb;
-		border-radius: 0.375rem;
-		background: white;
-		flex: 1;
-		max-width: 320px;
-	}
-
-	.search-box input {
-		border: none;
-		outline: none;
-		flex: 1;
-		font-size: 0.875rem;
-	}
-
 	.filter-select {
 		padding: 0.5rem 0.75rem;
 		border: 1px solid #e5e7eb;
 		border-radius: 0.375rem;
 		font-size: 0.875rem;
 		background: white;
-	}
-
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 1rem;
-		border-radius: 0.375rem;
-		font-size: 0.875rem;
-		font-weight: 500;
-		border: none;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.btn-primary {
-		background: #06b6d4;
-		color: white;
-	}
-
-	.btn-primary:hover {
-		background: #0891b2;
-	}
-
-	.btn-secondary {
-		background: white;
-		color: #374151;
-		border: 1px solid #e5e7eb;
-	}
-
-	.btn-secondary:hover {
-		background: #f9fafb;
 	}
 
 	.btn-icon {
@@ -594,89 +511,11 @@
 		color: #6b7280;
 	}
 
-	.status-badge {
-		display: inline-block;
-		padding: 0.25rem 0.75rem;
-		border-radius: 9999px;
-		font-size: 0.75rem;
-		font-weight: 500;
-	}
-
-	.status-active {
-		background: #d1fae5;
-		color: #065f46;
-	}
-
-	.status-inactive {
-		background: #fee2e2;
-		color: #991b1b;
-	}
-
 	.loading-container {
 		display: flex;
 		justify-content: center;
 		align-items: center;
 		padding: 4rem;
-	}
-
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 4rem;
-		text-align: center;
-	}
-
-	.empty-state h3 {
-		margin: 1rem 0 0.5rem 0;
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.empty-state p {
-		margin: 0;
-		color: #6b7280;
-		font-size: 0.875rem;
-	}
-
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 9999;
-	}
-
-	.modal {
-		background: white;
-		border-radius: 0.5rem;
-		width: 90%;
-		max-width: 600px;
-		max-height: 90vh;
-		overflow-y: auto;
-	}
-
-	.modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.modal-header h2 {
-		margin: 0;
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.modal-body {
-		padding: 1.5rem;
 	}
 
 	.form-group {
@@ -715,14 +554,6 @@
 		gap: 1rem;
 	}
 
-	.modal-footer {
-		display: flex;
-		justify-content: flex-end;
-		gap: 0.75rem;
-		padding: 1.5rem;
-		border-top: 1px solid #e5e7eb;
-	}
-
 	.dynamic-fields {
 		background: #f9fafb;
 		border: 1px solid #e5e7eb;
@@ -740,150 +571,130 @@
 </style>
 
 <!-- Create Group Modal -->
-{#if showCreateModal}
-	<div class="modal-overlay" on:click={() => showCreateModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Create New Group</h2>
-				<button class="btn-icon" on:click={() => showCreateModal = false}>
-					×
-				</button>
-			</div>
-			<div class="modal-body">
-				<div class="form-group">
-					<label for="group_type">Group Type</label>
-					<select id="group_type" bind:value={newGroup.groupTemplateId} on:change={onGroupTypeChange}>
-						<option value="">Select Group Type</option>
-						{#each groupTypes as type}
-							<option value={type.id}>{type.displayName}</option>
-						{/each}
-					</select>
-				</div>
-				
-				<div class="form-row">
-					<div class="form-group">
-						<label for="name">Group Name</label>
-						<input type="text" id="name" bind:value={newGroup.name} 
-							placeholder="e.g., my_store, main_office" />
-					</div>
-					<div class="form-group">
-						<label for="displayName">Display Name</label>
-						<input type="text" id="displayName" bind:value={newGroup.displayName} 
-							placeholder="e.g., My Store, Main Office" />
-					</div>
-				</div>
-				
-				<div class="form-group">
-					<label for="description">Description</label>
-					<textarea id="description" bind:value={newGroup.description} rows="2" 
-						placeholder="Describe this group"></textarea>
-				</div>
-				
-				{#if Object.keys(dynamicFields).length > 0}
-					<div class="dynamic-fields">
-						<h4>Additional Information</h4>
-						{#each Object.entries(dynamicFields) as [key, value]}
-							{@const fieldSchema = groupTypes.find(t => t.id === newGroup.groupTemplateId)?.filterFieldsSchema?.[key]}
-							<div class="form-group">
-								<label for="dynamic-{key}">{fieldSchema?.label || key}</label>
-								{#if fieldSchema?.type === 'boolean'}
-									<select id="dynamic-{key}" bind:value={dynamicFields[key]}>
-										<option value={true}>Yes</option>
-										<option value={false}>No</option>
-									</select>
-								{:else if fieldSchema?.type === 'number'}
-									<input type="number" id="dynamic-{key}" bind:value={dynamicFields[key]} />
-								{:else if fieldSchema?.type === 'date'}
-									<input type="date" id="dynamic-{key}" bind:value={dynamicFields[key]} />
-								{:else}
-									<input type="text" id="dynamic-{key}" bind:value={dynamicFields[key]} 
-										placeholder={fieldSchema?.description || ''} />
-								{/if}
-							</div>
-						{/each}
-					</div>
-				{/if}
-				
-				<div class="form-group">
-					<label for="active">Status</label>
-					<select id="active" bind:value={newGroup.active}>
-						<option value={true}>Active</option>
-						<option value={false}>Inactive</option>
-					</select>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showCreateModal = false}>Cancel</button>
-				<button class="btn btn-primary" on:click={createGroup}>Create Group</button>
-			</div>
+<Modal show={showCreateModal} title="Create New Group" on:close={() => showCreateModal = false}>
+	<div class="form-group">
+		<label for="group_type">Group Type</label>
+		<select id="group_type" bind:value={newGroup.groupTemplateId} on:change={onGroupTypeChange}>
+			<option value="">Select Group Type</option>
+			{#each groupTypes as type}
+				<option value={type.id}>{type.displayName}</option>
+			{/each}
+		</select>
+	</div>
+
+	<div class="form-row">
+		<div class="form-group">
+			<label for="name">Group Name</label>
+			<input type="text" id="name" bind:value={newGroup.name}
+				placeholder="e.g., my_store, main_office" />
+		</div>
+		<div class="form-group">
+			<label for="displayName">Display Name</label>
+			<input type="text" id="displayName" bind:value={newGroup.displayName}
+				placeholder="e.g., My Store, Main Office" />
 		</div>
 	</div>
-{/if}
+
+	<div class="form-group">
+		<label for="description">Description</label>
+		<textarea id="description" bind:value={newGroup.description} rows="2"
+			placeholder="Describe this group"></textarea>
+	</div>
+
+	{#if Object.keys(dynamicFields).length > 0}
+		<div class="dynamic-fields">
+			<h4>Additional Information</h4>
+			{#each Object.entries(dynamicFields) as [key, value]}
+				{@const fieldSchema = groupTypes.find(t => t.id === newGroup.groupTemplateId)?.filterFieldsSchema?.[key]}
+				<div class="form-group">
+					<label for="dynamic-{key}">{fieldSchema?.label || key}</label>
+					{#if fieldSchema?.type === 'boolean'}
+						<select id="dynamic-{key}" bind:value={dynamicFields[key]}>
+							<option value={true}>Yes</option>
+							<option value={false}>No</option>
+						</select>
+					{:else if fieldSchema?.type === 'number'}
+						<input type="number" id="dynamic-{key}" bind:value={dynamicFields[key]} />
+					{:else if fieldSchema?.type === 'date'}
+						<input type="date" id="dynamic-{key}" bind:value={dynamicFields[key]} />
+					{:else}
+						<input type="text" id="dynamic-{key}" bind:value={dynamicFields[key]}
+							placeholder={fieldSchema?.description || ''} />
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{/if}
+
+	<div class="form-group">
+		<label for="active">Status</label>
+		<select id="active" bind:value={newGroup.active}>
+			<option value={true}>Active</option>
+			<option value={false}>Inactive</option>
+		</select>
+	</div>
+
+	<svelte:fragment slot="footer">
+		<Button variant="secondary" on:click={() => showCreateModal = false}>Cancel</Button>
+		<Button on:click={createGroup}>Create Group</Button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Edit Group Modal -->
-{#if showEditModal && selectedGroup}
-	<div class="modal-overlay" on:click={() => showEditModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Edit Group</h2>
-				<button class="btn-icon" on:click={() => showEditModal = false}>
-					×
-				</button>
+<Modal show={showEditModal && !!selectedGroup} title="Edit Group" on:close={() => showEditModal = false}>
+	{#if selectedGroup}
+		<div class="form-row">
+			<div class="form-group">
+				<label for="edit-name">Group Name</label>
+				<input type="text" id="edit-name" bind:value={selectedGroup.name} />
 			</div>
-			<div class="modal-body">
-				<div class="form-row">
-					<div class="form-group">
-						<label for="edit-name">Group Name</label>
-						<input type="text" id="edit-name" bind:value={selectedGroup.name} />
-					</div>
-					<div class="form-group">
-						<label for="edit-displayName">Display Name</label>
-						<input type="text" id="edit-displayName" bind:value={selectedGroup.displayName} />
-					</div>
-				</div>
-				
-				<div class="form-group">
-					<label for="edit-description">Description</label>
-					<textarea id="edit-description" bind:value={selectedGroup.description} rows="2"></textarea>
-				</div>
-				
-				{#if Object.keys(dynamicFields).length > 0}
-					{@const groupType = getGroupTypeInfo(selectedGroup.groupTemplateId)}
-					<div class="dynamic-fields">
-						<h4>Additional Information</h4>
-						{#each Object.entries(dynamicFields) as [key, value]}
-							{@const fieldSchema = groupType?.filterFieldsSchema?.[key]}
-							<div class="form-group">
-								<label for="edit-dynamic-{key}">{fieldSchema?.label || key}</label>
-								{#if fieldSchema?.type === 'boolean'}
-									<select id="edit-dynamic-{key}" bind:value={dynamicFields[key]}>
-										<option value={true}>Yes</option>
-										<option value={false}>No</option>
-									</select>
-								{:else if fieldSchema?.type === 'number'}
-									<input type="number" id="edit-dynamic-{key}" bind:value={dynamicFields[key]} />
-								{:else if fieldSchema?.type === 'date'}
-									<input type="date" id="edit-dynamic-{key}" bind:value={dynamicFields[key]} />
-								{:else}
-									<input type="text" id="edit-dynamic-{key}" bind:value={dynamicFields[key]} />
-								{/if}
-							</div>
-						{/each}
-					</div>
-				{/if}
-				
-				<div class="form-group">
-					<label for="edit-active">Status</label>
-					<select id="edit-active" bind:value={selectedGroup.active}>
-						<option value={true}>Active</option>
-						<option value={false}>Inactive</option>
-					</select>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showEditModal = false}>Cancel</button>
-				<button class="btn btn-primary" on:click={updateGroup}>Update Group</button>
+			<div class="form-group">
+				<label for="edit-displayName">Display Name</label>
+				<input type="text" id="edit-displayName" bind:value={selectedGroup.displayName} />
 			</div>
 		</div>
-	</div>
-{/if}
+
+		<div class="form-group">
+			<label for="edit-description">Description</label>
+			<textarea id="edit-description" bind:value={selectedGroup.description} rows="2"></textarea>
+		</div>
+
+		{#if Object.keys(dynamicFields).length > 0}
+			{@const groupType = getGroupTypeInfo(selectedGroup.groupTemplateId)}
+			<div class="dynamic-fields">
+				<h4>Additional Information</h4>
+				{#each Object.entries(dynamicFields) as [key, value]}
+					{@const fieldSchema = groupType?.filterFieldsSchema?.[key]}
+					<div class="form-group">
+						<label for="edit-dynamic-{key}">{fieldSchema?.label || key}</label>
+						{#if fieldSchema?.type === 'boolean'}
+							<select id="edit-dynamic-{key}" bind:value={dynamicFields[key]}>
+								<option value={true}>Yes</option>
+								<option value={false}>No</option>
+							</select>
+						{:else if fieldSchema?.type === 'number'}
+							<input type="number" id="edit-dynamic-{key}" bind:value={dynamicFields[key]} />
+						{:else if fieldSchema?.type === 'date'}
+							<input type="date" id="edit-dynamic-{key}" bind:value={dynamicFields[key]} />
+						{:else}
+							<input type="text" id="edit-dynamic-{key}" bind:value={dynamicFields[key]} />
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
+
+		<div class="form-group">
+			<label for="edit-active">Status</label>
+			<select id="edit-active" bind:value={selectedGroup.active}>
+				<option value={true}>Active</option>
+				<option value={false}>Inactive</option>
+			</select>
+		</div>
+	{/if}
+
+	<svelte:fragment slot="footer">
+		<Button variant="secondary" on:click={() => showEditModal = false}>Cancel</Button>
+		<Button on:click={updateGroup}>Update Group</Button>
+	</svelte:fragment>
+</Modal>

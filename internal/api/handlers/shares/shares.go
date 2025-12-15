@@ -1,7 +1,6 @@
 package shares
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/suppers-ai/solobase/internal/pkg/database"
+	"github.com/suppers-ai/solobase/utils"
 	"gorm.io/gorm"
 )
 
@@ -47,41 +47,32 @@ func NewSharesHandler(db *database.DB) *SharesHandler {
 // HandleGetShares returns all shares created by the current user
 func (h *SharesHandler) HandleGetShares() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Get user ID from context
-		userID, ok := r.Context().Value("userID").(string)
-		if !ok || userID == "" {
-			log.Printf("No user ID in context")
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		userID, ok := utils.RequireUserID(w, r)
+		if !ok {
 			return
 		}
 
 		var shares []StorageShare
 		if err := h.db.Where("created_by = ?", userID).Find(&shares).Error; err != nil {
 			log.Printf("Error fetching shares: %v", err)
-			http.Error(w, "Failed to fetch shares", http.StatusInternalServerError)
+			utils.JSONError(w, http.StatusInternalServerError, "Failed to fetch shares")
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(shares)
+		utils.JSONResponse(w, http.StatusOK, shares)
 	}
 }
 
 // HandleCreateShare creates a new share
 func (h *SharesHandler) HandleCreateShare() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Get user ID from context
-		userID, ok := r.Context().Value("userID").(string)
-		if !ok || userID == "" {
-			log.Printf("No user ID in context")
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		userID, ok := utils.RequireUserID(w, r)
+		if !ok {
 			return
 		}
 
 		var shareData StorageShare
-		if err := json.NewDecoder(r.Body).Decode(&shareData); err != nil {
-			log.Printf("Error decoding share data: %v", err)
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
+		if !utils.DecodeJSONBody(w, r, &shareData) {
 			return
 		}
 
@@ -97,15 +88,12 @@ func (h *SharesHandler) HandleCreateShare() http.HandlerFunc {
 		// Create the share
 		if err := h.db.Create(&shareData).Error; err != nil {
 			log.Printf("Error creating share: %v", err)
-			http.Error(w, "Failed to create share", http.StatusInternalServerError)
+			utils.JSONError(w, http.StatusInternalServerError, "Failed to create share")
 			return
 		}
 
 		log.Printf("Created share: %+v", shareData)
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(shareData)
+		utils.JSONResponse(w, http.StatusCreated, shareData)
 	}
 }
 
@@ -115,27 +103,23 @@ func (h *SharesHandler) HandleGetShareByID() http.HandlerFunc {
 		vars := mux.Vars(r)
 		shareID := vars["id"]
 
-		// Get user ID from context
-		userID, ok := r.Context().Value("userID").(string)
-		if !ok || userID == "" {
-			log.Printf("No user ID in context")
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		userID, ok := utils.RequireUserID(w, r)
+		if !ok {
 			return
 		}
 
 		var share StorageShare
 		if err := h.db.Where("id = ? AND created_by = ?", shareID, userID).First(&share).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				http.Error(w, "Share not found", http.StatusNotFound)
+				utils.JSONError(w, http.StatusNotFound, "Share not found")
 			} else {
 				log.Printf("Error fetching share: %v", err)
-				http.Error(w, "Failed to fetch share", http.StatusInternalServerError)
+				utils.JSONError(w, http.StatusInternalServerError, "Failed to fetch share")
 			}
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(share)
+		utils.JSONResponse(w, http.StatusOK, share)
 	}
 }
 
@@ -145,11 +129,8 @@ func (h *SharesHandler) HandleDeleteShare() http.HandlerFunc {
 		vars := mux.Vars(r)
 		shareID := vars["id"]
 
-		// Get user ID from context
-		userID, ok := r.Context().Value("userID").(string)
-		if !ok || userID == "" {
-			log.Printf("No user ID in context")
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		userID, ok := utils.RequireUserID(w, r)
+		if !ok {
 			return
 		}
 
@@ -157,12 +138,12 @@ func (h *SharesHandler) HandleDeleteShare() http.HandlerFunc {
 		result := h.db.Where("id = ? AND created_by = ?", shareID, userID).Delete(&StorageShare{})
 		if result.Error != nil {
 			log.Printf("Error deleting share: %v", result.Error)
-			http.Error(w, "Failed to delete share", http.StatusInternalServerError)
+			utils.JSONError(w, http.StatusInternalServerError, "Failed to delete share")
 			return
 		}
 
 		if result.RowsAffected == 0 {
-			http.Error(w, "Share not found", http.StatusNotFound)
+			utils.JSONError(w, http.StatusNotFound, "Share not found")
 			return
 		}
 

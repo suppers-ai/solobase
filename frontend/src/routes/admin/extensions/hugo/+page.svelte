@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { 
+	import {
 		Globe, Plus, Hammer, Pause, Settings, ExternalLink,
 		GitBranch, Clock, HardDrive, Zap, MoreVertical,
 		RefreshCw, Eye, Edit, Trash2, AlertCircle, CheckCircle,
@@ -9,6 +9,11 @@
 	import { api, ErrorHandler } from '$lib/api';
 	import { requireAdmin } from '$lib/utils/auth';
 	import FileExplorer from '$lib/components/FileExplorer.svelte';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import StatCard from '$lib/components/ui/StatCard.svelte';
 
 	let sites: any[] = [];
 	let loading = true;
@@ -19,7 +24,9 @@
 	let showRequirements = true;
 	let showDeployModal = false;
 	let deployingSite: any = null;
-	
+	let showDeleteConfirm = false;
+	let siteToDelete: any = null;
+
 	// Form data for new site
 	let newSite = {
 		name: '',
@@ -94,16 +101,7 @@
 	}
 
 
-	function getStatusColor(status: string) {
-		switch (status) {
-			case 'published': return 'bg-green-100 text-green-700';
-			case 'building': return 'bg-yellow-100 text-yellow-700';
-			case 'draft': return 'bg-gray-100 text-gray-700';
-			case 'error': return 'bg-red-100 text-red-700';
-			default: return 'bg-gray-100 text-gray-700';
-		}
-	}
-
+	
 	function confirmDeploy(site: any) {
 		deployingSite = site;
 		showDeployModal = true;
@@ -147,16 +145,22 @@
 		}
 	}
 	
-	async function deleteSite(id: string) {
-		if (!confirm('Are you sure you want to delete this site? This action cannot be undone.')) return;
-		
+	function deleteSite(site: any) {
+		siteToDelete = site;
+		showDeleteConfirm = true;
+	}
+
+	async function confirmDeleteSite() {
+		if (!siteToDelete) return;
+		showDeleteConfirm = false;
+
 		try {
-			await api.delete(`/admin/ext/hugo/sites/${id}`);
-			// Reload sites
+			await api.delete(`/admin/ext/hugo/sites/${siteToDelete.id}`);
 			await loadSites();
 		} catch (error) {
 			ErrorHandler.handle(error);
 		}
+		siteToDelete = null;
 	}
 	
 	async function createExampleSite() {
@@ -660,42 +664,34 @@ document.addEventListener('DOMContentLoaded', function() {
 
 	<!-- Stats Cards -->
 	<div class="stats-grid">
-		<div class="stat-card">
-			<div class="stat-icon bg-cyan-100">
-				<Globe size={20} class="text-cyan-600" />
-			</div>
-			<div class="stat-content">
-				<p class="stat-label">Total Sites</p>
-				<p class="stat-value">{stats.totalSites}</p>
-			</div>
-		</div>
-		<div class="stat-card">
-			<div class="stat-icon bg-green-100">
-				<Zap size={20} class="text-green-600" />
-			</div>
-			<div class="stat-content">
-				<p class="stat-label">Published</p>
-				<p class="stat-value">{stats.activeSites}</p>
-			</div>
-		</div>
-		<div class="stat-card">
-			<div class="stat-icon bg-purple-100">
-				<GitBranch size={20} class="text-purple-600" />
-			</div>
-			<div class="stat-content">
-				<p class="stat-label">Total Builds</p>
-				<p class="stat-value">{stats.totalBuilds}</p>
-			</div>
-		</div>
-		<div class="stat-card">
-			<div class="stat-icon bg-orange-100">
-				<HardDrive size={20} class="text-orange-600" />
-			</div>
-			<div class="stat-content">
-				<p class="stat-label">Storage Used</p>
-				<p class="stat-value">{stats.storageUsed}</p>
-			</div>
-		</div>
+		<StatCard
+			icon={Globe}
+			value={stats.totalSites}
+			label="Total Sites"
+			iconBg="bg-cyan-100"
+			iconColor="text-cyan-600"
+		/>
+		<StatCard
+			icon={Zap}
+			value={stats.activeSites}
+			label="Published"
+			iconBg="bg-green-100"
+			iconColor="text-green-600"
+		/>
+		<StatCard
+			icon={GitBranch}
+			value={stats.totalBuilds}
+			label="Total Builds"
+			iconBg="bg-purple-100"
+			iconColor="text-purple-600"
+		/>
+		<StatCard
+			icon={HardDrive}
+			value={stats.storageUsed}
+			label="Storage Used"
+			iconBg="bg-orange-100"
+			iconColor="text-orange-600"
+		/>
 	</div>
 
 	<!-- Sites Grid -->
@@ -707,20 +703,18 @@ document.addEventListener('DOMContentLoaded', function() {
 			{/if}
 		</div>
 	{:else if sites.length === 0}
-		<div class="empty-state">
-			<Globe size={48} />
-			<h2>No sites yet</h2>
-			<p>Create your first Hugo site to get started</p>
-		</div>
+		<EmptyState
+			icon={Globe}
+			title="No sites yet"
+			message="Create your first Hugo site to get started"
+		/>
 	{:else}
 		<div class="sites-grid">
 			{#each sites as site}
 				<div class="site-card">
 					<div class="site-header">
-						<span class="status-badge {getStatusColor(site.status)}">
-							{site.status}
-						</span>
-						<button class="btn-icon-sm btn-icon-danger" on:click={() => deleteSite(site.id)} title="Delete">
+						<StatusBadge status={site.status} />
+						<button class="btn-icon-sm btn-icon-danger" on:click={() => deleteSite(site)} title="Delete">
 							<Trash2 size={16} />
 						</button>
 					</div>
@@ -788,210 +782,180 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 
 <!-- Create Site Modal -->
-{#if showCreateModal}
-	<div class="modal-overlay" on:click={() => showCreateModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Create New Hugo Site</h2>
-				<button class="close-button" on:click={() => showCreateModal = false}>×</button>
-			</div>
-			<div class="modal-body">
-				<div class="form-group">
-					<label for="siteName">Site Name</label>
-					<input 
-						type="text" 
-						id="siteName" 
-						bind:value={newSite.name} 
-						placeholder="My Awesome Blog"
-						required
-					/>
-				</div>
-				<div class="form-group">
-					<label for="domain">Domain</label>
-					<input 
-						type="text" 
-						id="domain" 
-						bind:value={newSite.domain} 
-						placeholder="example.com"
-					/>
-				</div>
-				<div class="form-group">
-					<label for="theme">Theme</label>
-					<select id="theme" bind:value={newSite.theme}>
-						<option value="default">Default (Built-in)</option>
-						<option value="ananke">Ananke</option>
-						<option value="papermod">PaperMod</option>
-						<option value="stack">Stack</option>
-					</select>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showCreateModal = false}>Cancel</button>
-				<button class="btn btn-primary" on:click={createSite}>
-					<Plus size={16} />
-					Create Site
-				</button>
-			</div>
-		</div>
+<Modal show={showCreateModal} title="Create New Hugo Site" on:close={() => showCreateModal = false}>
+	<div class="form-group">
+		<label for="siteName">Site Name</label>
+		<input
+			type="text"
+			id="siteName"
+			bind:value={newSite.name}
+			placeholder="My Awesome Blog"
+			required
+		/>
 	</div>
-{/if}
+	<div class="form-group">
+		<label for="domain">Domain</label>
+		<input
+			type="text"
+			id="domain"
+			bind:value={newSite.domain}
+			placeholder="example.com"
+		/>
+	</div>
+	<div class="form-group">
+		<label for="theme">Theme</label>
+		<select id="theme" bind:value={newSite.theme}>
+			<option value="default">Default (Built-in)</option>
+			<option value="ananke">Ananke</option>
+			<option value="papermod">PaperMod</option>
+			<option value="stack">Stack</option>
+		</select>
+	</div>
+	<svelte:fragment slot="footer">
+		<button class="btn btn-secondary" on:click={() => showCreateModal = false}>Cancel</button>
+		<button class="btn btn-primary" on:click={createSite}>
+			<Plus size={16} />
+			Create Site
+		</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Edit Site Modal -->
-{#if showEditModal && editingSite}
-	<div class="modal-overlay" on:click={closeEditModal}>
-		<div class="modal edit-modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Edit Site: {editingSite.name}</h2>
-				<button class="close-button" on:click={closeEditModal}>×</button>
-			</div>
-			<div class="modal-body editor-container">
-				<div class="file-explorer-wrapper">
-					<h3>Files</h3>
-					<FileExplorer 
-						files={fileTree}
-						bind:selectedFile
-						loading={loadingFiles}
-						mode="file"
-						on:select={(e) => selectFile(e.detail)}
-					/>
+<Modal show={showEditModal && !!editingSite} title="Edit Site: {editingSite?.name || ''}" maxWidth="1200px" on:close={closeEditModal}>
+	<div class="editor-container">
+		<div class="file-explorer-wrapper">
+			<h3>Files</h3>
+			<FileExplorer
+				files={fileTree}
+				bind:selectedFile
+				loading={loadingFiles}
+				mode="file"
+				on:select={(e) => selectFile(e.detail)}
+			/>
+		</div>
+
+		<div class="file-editor">
+			{#if selectedFile}
+				<div class="editor-header">
+					<span class="file-path">{selectedFile.path}</span>
+					<button
+						class="save-button btn btn-sm btn-primary"
+						on:click={saveFile}
+						disabled={saving}
+					>
+						{saving ? 'Saving...' : 'Save'}
+					</button>
 				</div>
-				
-				<div class="file-editor">
-					{#if selectedFile}
-						<div class="editor-header">
-							<span class="file-path">{selectedFile.path}</span>
-							<button 
-								class="save-button btn btn-sm btn-primary"
-								on:click={saveFile}
-								disabled={saving}
-							>
-								{saving ? 'Saving...' : 'Save'}
-							</button>
-						</div>
-						{#if loadingContent}
-							<div class="loading">Loading content...</div>
-						{:else}
-							<textarea 
-								class="code-editor"
-								bind:value={fileContent}
-								spellcheck="false"
-							></textarea>
-						{/if}
-					{:else}
-						<div class="no-file-selected">
-							Select a file to edit
-						</div>
-					{/if}
+				{#if loadingContent}
+					<div class="loading">Loading content...</div>
+				{:else}
+					<textarea
+						class="code-editor"
+						bind:value={fileContent}
+						spellcheck="false"
+					></textarea>
+				{/if}
+			{:else}
+				<div class="no-file-selected">
+					Select a file to edit
 				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={closeEditModal}>Close</button>
-			</div>
+			{/if}
 		</div>
 	</div>
-{/if}
+	<svelte:fragment slot="footer">
+		<button class="btn btn-secondary" on:click={closeEditModal}>Close</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Deploy Confirmation Modal -->
-{#if showDeployModal && deployingSite}
-	<div class="modal-overlay" on:click={() => showDeployModal = false}>
-		<div class="modal deploy-modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Deploy Site</h2>
-				<button class="close-button" on:click={() => showDeployModal = false}>×</button>
-			</div>
-			<div class="modal-body">
-				<div class="deploy-info">
-					<div class="deploy-icon">
-						<Rocket size={32} />
-					</div>
-					<h3>Ready to deploy "{deployingSite.name}"?</h3>
-					<p class="deploy-description">
-						This will build your Hugo site and deploy it to production.
-					</p>
-				</div>
-				
-				<div class="deploy-details">
-					<div class="detail-item">
-						<span class="detail-label">Domain:</span>
-						<span class="detail-value">{deployingSite.domain}</span>
-					</div>
-					<div class="detail-item">
-						<span class="detail-label">Last build:</span>
-						<span class="detail-value">{deployingSite.lastBuild || 'Never'}</span>
-					</div>
-					<div class="detail-item">
-						<span class="detail-label">Pages:</span>
-						<span class="detail-value">{deployingSite.pages || 0} pages</span>
-					</div>
-				</div>
-				
-				<div class="deploy-notice">
-					<AlertCircle size={16} />
-					<span>The build process may take a few seconds depending on your site size.</span>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showDeployModal = false}>Cancel</button>
-				<button class="btn btn-primary" on:click={() => buildSite(deployingSite.id)}>
-					<Hammer size={16} />
-					Deploy Now
-				</button>
-			</div>
+<Modal show={showDeployModal && !!deployingSite} title="Deploy Site" maxWidth="450px" on:close={() => showDeployModal = false}>
+	<div class="deploy-info">
+		<div class="deploy-icon">
+			<Rocket size={32} />
+		</div>
+		<h3>Ready to deploy "{deployingSite?.name}"?</h3>
+		<p class="deploy-description">
+			This will build your Hugo site and deploy it to production.
+		</p>
+	</div>
+
+	<div class="deploy-details">
+		<div class="detail-item">
+			<span class="detail-label">Domain:</span>
+			<span class="detail-value">{deployingSite?.domain}</span>
+		</div>
+		<div class="detail-item">
+			<span class="detail-label">Last build:</span>
+			<span class="detail-value">{deployingSite?.lastBuild || 'Never'}</span>
+		</div>
+		<div class="detail-item">
+			<span class="detail-label">Pages:</span>
+			<span class="detail-value">{deployingSite?.pages || 0} pages</span>
 		</div>
 	</div>
-{/if}
+
+	<div class="deploy-notice">
+		<AlertCircle size={16} />
+		<span>The build process may take a few seconds depending on your site size.</span>
+	</div>
+	<svelte:fragment slot="footer">
+		<button class="btn btn-secondary" on:click={() => showDeployModal = false}>Cancel</button>
+		<button class="btn btn-primary" on:click={() => deployingSite && buildSite(deployingSite.id)}>
+			<Hammer size={16} />
+			Deploy Now
+		</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Settings Modal -->
-{#if showSettingsModal}
-	<div class="modal-overlay" on:click={() => showSettingsModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Hugo Extension Settings</h2>
-				<button class="close-button" on:click={() => showSettingsModal = false}>×</button>
-			</div>
-			<div class="modal-body">
-				<div class="form-group">
-					<label for="hugoPath">Hugo Binary Path</label>
-					<input 
-						type="text" 
-						id="hugoPath" 
-						bind:value={hugoSettings.hugoPath} 
-						placeholder="/usr/local/bin/hugo"
-					/>
-					<p class="form-help">Path to the Hugo executable on your system</p>
-				</div>
-				<div class="form-group">
-					<label for="defaultTheme">Default Theme</label>
-					<select id="defaultTheme" bind:value={hugoSettings.defaultTheme}>
-						<option value="default">Default (Built-in)</option>
-						<option value="ananke">Ananke</option>
-						<option value="papermod">PaperMod</option>
-						<option value="stack">Stack</option>
-					</select>
-					<p class="form-help">Theme to use for new sites</p>
-				</div>
-				<div class="form-group">
-					<label class="checkbox-label">
-						<input 
-							type="checkbox" 
-							bind:checked={hugoSettings.autoPublish}
-						/>
-						<span>Auto-publish after editing</span>
-					</label>
-					<p class="form-help">Automatically rebuild sites after saving changes</p>
-				</div>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={() => showSettingsModal = false}>Cancel</button>
-				<button class="btn btn-primary" on:click={() => {
-					// Save settings to localStorage
-					localStorage.setItem('hugo_settings', JSON.stringify(hugoSettings));
-					showSettingsModal = false;
-				}}>Save Settings</button>
-			</div>
-		</div>
+<Modal show={showSettingsModal} title="Hugo Extension Settings" on:close={() => showSettingsModal = false}>
+	<div class="form-group">
+		<label for="hugoPath">Hugo Binary Path</label>
+		<input
+			type="text"
+			id="hugoPath"
+			bind:value={hugoSettings.hugoPath}
+			placeholder="/usr/local/bin/hugo"
+		/>
+		<p class="form-help">Path to the Hugo executable on your system</p>
 	</div>
-{/if}
+	<div class="form-group">
+		<label for="defaultTheme">Default Theme</label>
+		<select id="defaultTheme" bind:value={hugoSettings.defaultTheme}>
+			<option value="default">Default (Built-in)</option>
+			<option value="ananke">Ananke</option>
+			<option value="papermod">PaperMod</option>
+			<option value="stack">Stack</option>
+		</select>
+		<p class="form-help">Theme to use for new sites</p>
+	</div>
+	<div class="form-group">
+		<label class="checkbox-label">
+			<input
+				type="checkbox"
+				bind:checked={hugoSettings.autoPublish}
+			/>
+			<span>Auto-publish after editing</span>
+		</label>
+		<p class="form-help">Automatically rebuild sites after saving changes</p>
+	</div>
+	<svelte:fragment slot="footer">
+		<button class="btn btn-secondary" on:click={() => showSettingsModal = false}>Cancel</button>
+		<button class="btn btn-primary" on:click={() => {
+			localStorage.setItem('hugo_settings', JSON.stringify(hugoSettings));
+			showSettingsModal = false;
+		}}>Save Settings</button>
+	</svelte:fragment>
+</Modal>
+
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title="Delete Site"
+	message="Are you sure you want to delete this site? This action cannot be undone."
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteSite}
+/>
 
 <style>
 	.page-container {
@@ -1170,27 +1134,6 @@ document.addEventListener('DOMContentLoaded', function() {
 		margin-bottom: 2rem;
 	}
 
-	.stat-card {
-		background: var(--bg-primary);
-		border: 1px solid var(--border-color);
-		border-radius: 0.5rem;
-		padding: 1rem;
-	}
-
-	.stat-label {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-		margin-bottom: 0.25rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
-
-	.stat-value {
-		font-size: 1.5rem;
-		font-weight: 700;
-		color: var(--text-primary);
-	}
-
 	.sites-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -1245,15 +1188,6 @@ document.addEventListener('DOMContentLoaded', function() {
 	
 	.site-domain:hover {
 		opacity: 0.8;
-	}
-
-	.status-badge {
-		padding: 0.25rem 0.625rem;
-		border-radius: 9999px;
-		font-size: 0.6875rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.025em;
 	}
 
 	.site-stats {
@@ -1385,86 +1319,6 @@ document.addEventListener('DOMContentLoaded', function() {
 		border-color: var(--danger);
 	}
 
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		text-align: center;
-		padding: 4rem 1rem;
-		min-height: 300px;
-		color: var(--text-secondary);
-		background: var(--bg-primary);
-		border: 1px solid var(--border-color);
-		border-radius: 0.5rem;
-	}
-
-	.empty-state h2 {
-		margin: 1rem 0 0.5rem 0;
-		font-size: 1.25rem;
-		color: var(--text-primary);
-	}
-	
-	.empty-state p {
-		margin: 0;
-		font-size: 0.875rem;
-	}
-
-	.modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 1000;
-	}
-
-	.modal {
-		background: var(--bg-primary);
-		border-radius: 0.5rem;
-		width: 90%;
-		max-width: 500px;
-		max-height: 90vh;
-		overflow-y: auto;
-		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-	}
-
-	.modal-header {
-		padding: 1.5rem;
-		border-bottom: 1px solid var(--border-color);
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.modal-header h2 {
-		margin: 0;
-		font-size: 1.25rem;
-		font-weight: 600;
-	}
-
-	.close-button {
-		background: none;
-		border: none;
-		font-size: 1.5rem;
-		cursor: pointer;
-		color: var(--text-secondary);
-		padding: 0;
-		width: 2rem;
-		height: 2rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.modal-body {
-		padding: 1.5rem;
-	}
-
 	.form-group {
 		margin-bottom: 1rem;
 	}
@@ -1493,14 +1347,6 @@ document.addEventListener('DOMContentLoaded', function() {
 		outline: none;
 		border-color: var(--primary);
 		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.modal-footer {
-		padding: 1rem 1.5rem;
-		border-top: 1px solid var(--border-color);
-		display: flex;
-		justify-content: flex-end;
-		gap: 0.75rem;
 	}
 
 	.btn {
@@ -1538,13 +1384,6 @@ document.addEventListener('DOMContentLoaded', function() {
 		animation: spin 1s linear infinite;
 	}
 
-	.edit-modal {
-		width: 90%;
-		max-width: 1200px;
-		height: 80vh;
-		max-height: 800px;
-	}
-	
 	.editor-container {
 		display: flex;
 		gap: 1rem;
@@ -1724,12 +1563,7 @@ document.addEventListener('DOMContentLoaded', function() {
 	.btn-close:hover {
 		background: var(--warning-hover, rgba(217, 119, 6, 0.1));
 	}
-	
-	/* Deploy Modal Styles */
-	.deploy-modal {
-		max-width: 450px;
-	}
-	
+
 	.deploy-info {
 		text-align: center;
 		padding: 1rem 0;

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
 
 	let status = 'processing';
 	let message = 'Processing OAuth authentication...';
@@ -21,10 +22,15 @@
 				// If this is a popup window (OAuth flow), notify parent and close
 				if (window.opener) {
 					// Notify parent window of successful auth
+					// Send both message types so it works with SDK popup and login page popup
 					window.opener.postMessage({
 						type: 'oauth-success',
 						redirect: redirectTo
-					}, window.location.origin);
+					}, '*');
+					window.opener.postMessage({
+						type: 'auth-success',
+						redirect: redirectTo
+					}, '*');
 					window.close();
 					return;
 				}
@@ -92,7 +98,7 @@
 <div class="callback-container">
 	<div class="callback-content">
 		{#if status === 'processing'}
-			<div class="spinner"></div>
+			<LoadingSpinner size="lg" color="primary" centered />
 			<h2>Processing Authentication</h2>
 			<p>{message}</p>
 		{:else if status === 'success'}
@@ -140,15 +146,6 @@
 		margin-bottom: 0;
 	}
 
-	.spinner {
-		width: 40px;
-		height: 40px;
-		margin: 0 auto 1rem;
-		border: 4px solid #f3f3f3;
-		border-top: 4px solid #667eea;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-	}
 
 	.success-icon {
 		width: 60px;

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/suppers-ai/solobase/extensions/core"
+	"github.com/suppers-ai/solobase/utils"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
@@ -365,8 +366,7 @@ func (e *AnalyticsExtension) handleTrack(w http.ResponseWriter, r *http.Request)
 
 	// Parse tracking data
 	var data map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &data) {
 		return
 	}
 

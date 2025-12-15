@@ -3,6 +3,15 @@
 	import { createEventDispatcher } from 'svelte';
 	import { api, ErrorHandler } from '$lib/api';
 	import { formatBytes } from '$lib/utils/formatters';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import TabNavigation from '$lib/components/ui/TabNavigation.svelte';
+
+	const quotaTabs = [
+		{ id: 'roles', label: 'Role Quotas' },
+		{ id: 'overrides', label: 'User Overrides' }
+	];
 
 	interface Role {
 		id: string;
@@ -43,7 +52,9 @@
 	let activeView = 'roles'; // 'roles' or 'overrides'
 	let showEditModal = false;
 	let showOverrideModal = false;
+	let showDeleteConfirm = false;
 	let selectedQuota: RoleQuota | null = null;
+	let overrideToDelete: UserOverride | null = null;
 	
 	// Form data
 	let quotaForm = {
@@ -152,17 +163,22 @@
 		}
 	}
 	
-	async function deleteOverride(override: UserOverride) {
-		if (!confirm('Delete this user quota override?')) {
-			return;
-		}
+	function deleteOverride(override: UserOverride) {
+		overrideToDelete = override;
+		showDeleteConfirm = true;
+	}
+
+	async function confirmDeleteOverride() {
+		if (!overrideToDelete) return;
+		showDeleteConfirm = false;
 
 		try {
-			await api.delete(`/admin/ext/cloudstorage/quotas/overrides/${override.id}`);
+			await api.delete(`/admin/ext/cloudstorage/quotas/overrides/${overrideToDelete.id}`);
 			await loadQuotas();
 		} catch (error) {
 			ErrorHandler.handle(error);
 		}
+		overrideToDelete = null;
 	}
 
 	function formatNumber(num: number | null | undefined): string {
@@ -171,22 +187,7 @@
 </script>
 
 <div class="quota-manager">
-	<div class="tabs">
-		<button 
-			class="tab" 
-			class:active={activeView === 'roles'}
-			on:click={() => activeView = 'roles'}
-		>
-			Role Quotas
-		</button>
-		<button 
-			class="tab" 
-			class:active={activeView === 'overrides'}
-			on:click={() => activeView = 'overrides'}
-		>
-			User Overrides
-		</button>
-	</div>
+	<TabNavigation tabs={quotaTabs} bind:activeTab={activeView} />
 	
 	{#if loading}
 		<div class="loading">Loading quotas...</div>
@@ -243,10 +244,11 @@
 				{/each}
 				
 				{#if roleQuotas.length === 0}
-					<div class="empty-state">
-						<p>No role quotas configured yet.</p>
-						<p class="hint">Role quotas will be initialized when the CloudStorage extension starts.</p>
-					</div>
+					<EmptyState
+						title="No role quotas configured yet"
+						message="Role quotas will be initialized when the CloudStorage extension starts."
+						compact
+					/>
 				{/if}
 			</div>
 		</div>
@@ -295,234 +297,193 @@
 					</table>
 				</div>
 			{:else}
-				<div class="empty-state">
-					<p>No user overrides configured.</p>
-					<p class="hint">User overrides allow you to set custom quotas for specific users.</p>
-				</div>
+				<EmptyState
+					title="No user overrides configured"
+					message="User overrides allow you to set custom quotas for specific users."
+					compact
+				/>
 			{/if}
 		</div>
 	{/if}
 </div>
 
 <!-- Edit Role Quota Modal -->
-{#if showEditModal}
-<div class="modal-overlay" on:click={() => showEditModal = false}>
-	<div class="modal" on:click|stopPropagation>
-		<h2>Edit Quota: {quotaForm.roleName}</h2>
-		
-		<div class="form-grid">
-			<div class="form-group">
-				<label for="storage">Storage Limit (bytes)</label>
-				<input 
-					id="storage" 
-					type="number" 
-					bind:value={quotaForm.maxStorageBytes}
-					min="0"
-				/>
-				<small>{formatBytes(quotaForm.maxStorageBytes)}</small>
-			</div>
-			
-			<div class="form-group">
-				<label for="bandwidth">Bandwidth Limit (bytes)</label>
-				<input 
-					id="bandwidth" 
-					type="number" 
-					bind:value={quotaForm.maxBandwidthBytes}
-					min="0"
-				/>
-				<small>{formatBytes(quotaForm.maxBandwidthBytes)}</small>
-			</div>
-			
-			<div class="form-group">
-				<label for="upload">Max Upload Size (bytes)</label>
-				<input 
-					id="upload" 
-					type="number" 
-					bind:value={quotaForm.maxUploadSize}
-					min="0"
-				/>
-				<small>{formatBytes(quotaForm.maxUploadSize)}</small>
-			</div>
-			
-			<div class="form-group">
-				<label for="files">Max Files Count</label>
-				<input 
-					id="files" 
-					type="number" 
-					bind:value={quotaForm.maxFilesCount}
-					min="0"
-				/>
-			</div>
-			
-			<div class="form-group full-width">
-				<label for="allowed">Allowed Extensions (comma-separated)</label>
-				<input 
-					id="allowed" 
-					type="text" 
-					bind:value={quotaForm.allowedExtensions}
-					placeholder="jpg,png,pdf,doc"
-				/>
-				<small>Leave empty to allow all</small>
-			</div>
-			
-			<div class="form-group full-width">
-				<label for="blocked">Blocked Extensions (comma-separated)</label>
-				<input 
-					id="blocked" 
-					type="text" 
-					bind:value={quotaForm.blockedExtensions}
-					placeholder="exe,bat,sh"
-				/>
-				<small>Leave empty to block none</small>
-			</div>
+<Modal show={showEditModal} title="Edit Quota: {quotaForm.roleName}" maxWidth="600px" on:close={() => showEditModal = false}>
+	<div class="form-grid">
+		<div class="form-group">
+			<label for="storage">Storage Limit (bytes)</label>
+			<input
+				id="storage"
+				type="number"
+				bind:value={quotaForm.maxStorageBytes}
+				min="0"
+			/>
+			<small>{formatBytes(quotaForm.maxStorageBytes)}</small>
 		</div>
-		
-		<div class="modal-actions">
-			<button class="btn" on:click={() => showEditModal = false}>Cancel</button>
-			<button class="btn btn-primary" on:click={saveQuota}>Save Changes</button>
+
+		<div class="form-group">
+			<label for="bandwidth">Bandwidth Limit (bytes)</label>
+			<input
+				id="bandwidth"
+				type="number"
+				bind:value={quotaForm.maxBandwidthBytes}
+				min="0"
+			/>
+			<small>{formatBytes(quotaForm.maxBandwidthBytes)}</small>
+		</div>
+
+		<div class="form-group">
+			<label for="upload">Max Upload Size (bytes)</label>
+			<input
+				id="upload"
+				type="number"
+				bind:value={quotaForm.maxUploadSize}
+				min="0"
+			/>
+			<small>{formatBytes(quotaForm.maxUploadSize)}</small>
+		</div>
+
+		<div class="form-group">
+			<label for="files">Max Files Count</label>
+			<input
+				id="files"
+				type="number"
+				bind:value={quotaForm.maxFilesCount}
+				min="0"
+			/>
+		</div>
+
+		<div class="form-group full-width">
+			<label for="allowed">Allowed Extensions (comma-separated)</label>
+			<input
+				id="allowed"
+				type="text"
+				bind:value={quotaForm.allowedExtensions}
+				placeholder="jpg,png,pdf,doc"
+			/>
+			<small>Leave empty to allow all</small>
+		</div>
+
+		<div class="form-group full-width">
+			<label for="blocked">Blocked Extensions (comma-separated)</label>
+			<input
+				id="blocked"
+				type="text"
+				bind:value={quotaForm.blockedExtensions}
+				placeholder="exe,bat,sh"
+			/>
+			<small>Leave empty to block none</small>
 		</div>
 	</div>
-</div>
-{/if}
+	<svelte:fragment slot="footer">
+		<button class="btn" on:click={() => showEditModal = false}>Cancel</button>
+		<button class="btn btn-primary" on:click={saveQuota}>Save Changes</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Create User Override Modal -->
-{#if showOverrideModal}
-<div class="modal-overlay" on:click={() => showOverrideModal = false}>
-	<div class="modal" on:click|stopPropagation>
-		<h2>Create User Override</h2>
-		
-		<div class="form-grid">
-			<div class="form-group full-width">
-				<label for="user-id">User ID *</label>
-				<input 
-					id="user-id" 
-					type="text" 
-					bind:value={overrideForm.userId}
-					placeholder="Enter user ID"
-					required
-				/>
-			</div>
-			
-			<div class="form-group">
-				<label for="override-storage">Storage Limit (bytes)</label>
-				<input 
-					id="override-storage" 
-					type="number" 
-					bind:value={overrideForm.maxStorageBytes}
-					min="0"
-					placeholder="Leave empty for no override"
-				/>
-			</div>
-			
-			<div class="form-group">
-				<label for="override-bandwidth">Bandwidth Limit (bytes)</label>
-				<input 
-					id="override-bandwidth" 
-					type="number" 
-					bind:value={overrideForm.maxBandwidthBytes}
-					min="0"
-					placeholder="Leave empty for no override"
-				/>
-			</div>
-			
-			<div class="form-group">
-				<label for="override-upload">Max Upload Size (bytes)</label>
-				<input 
-					id="override-upload" 
-					type="number" 
-					bind:value={overrideForm.maxUploadSize}
-					min="0"
-					placeholder="Leave empty for no override"
-				/>
-			</div>
-			
-			<div class="form-group">
-				<label for="override-files">Max Files Count</label>
-				<input 
-					id="override-files" 
-					type="number" 
-					bind:value={overrideForm.maxFilesCount}
-					min="0"
-					placeholder="Leave empty for no override"
-				/>
-			</div>
-			
-			<div class="form-group full-width">
-				<label for="override-reason">Reason *</label>
-				<textarea 
-					id="override-reason" 
-					bind:value={overrideForm.reason}
-					placeholder="Explain why this override is needed"
-					rows="3"
-					required
-				/>
-			</div>
-			
-			<div class="form-group">
-				<label for="override-expires">Expires At</label>
-				<input 
-					id="override-expires" 
-					type="datetime-local" 
-					bind:value={overrideForm.expiresAt}
-				/>
-				<small>Leave empty for permanent override</small>
-			</div>
+<Modal show={showOverrideModal} title="Create User Override" maxWidth="600px" on:close={() => showOverrideModal = false}>
+	<div class="form-grid">
+		<div class="form-group full-width">
+			<label for="user-id">User ID *</label>
+			<input
+				id="user-id"
+				type="text"
+				bind:value={overrideForm.userId}
+				placeholder="Enter user ID"
+				required
+			/>
 		</div>
-		
-		<div class="modal-actions">
-			<button class="btn" on:click={() => showOverrideModal = false}>Cancel</button>
-			<button 
-				class="btn btn-primary" 
-				on:click={createOverride}
-				disabled={!overrideForm.userId || !overrideForm.reason}
-			>
-				Create Override
-			</button>
+
+		<div class="form-group">
+			<label for="override-storage">Storage Limit (bytes)</label>
+			<input
+				id="override-storage"
+				type="number"
+				bind:value={overrideForm.maxStorageBytes}
+				min="0"
+				placeholder="Leave empty for no override"
+			/>
+		</div>
+
+		<div class="form-group">
+			<label for="override-bandwidth">Bandwidth Limit (bytes)</label>
+			<input
+				id="override-bandwidth"
+				type="number"
+				bind:value={overrideForm.maxBandwidthBytes}
+				min="0"
+				placeholder="Leave empty for no override"
+			/>
+		</div>
+
+		<div class="form-group">
+			<label for="override-upload">Max Upload Size (bytes)</label>
+			<input
+				id="override-upload"
+				type="number"
+				bind:value={overrideForm.maxUploadSize}
+				min="0"
+				placeholder="Leave empty for no override"
+			/>
+		</div>
+
+		<div class="form-group">
+			<label for="override-files">Max Files Count</label>
+			<input
+				id="override-files"
+				type="number"
+				bind:value={overrideForm.maxFilesCount}
+				min="0"
+				placeholder="Leave empty for no override"
+			/>
+		</div>
+
+		<div class="form-group full-width">
+			<label for="override-reason">Reason *</label>
+			<textarea
+				id="override-reason"
+				bind:value={overrideForm.reason}
+				placeholder="Explain why this override is needed"
+				rows="3"
+				required
+			/>
+		</div>
+
+		<div class="form-group">
+			<label for="override-expires">Expires At</label>
+			<input
+				id="override-expires"
+				type="datetime-local"
+				bind:value={overrideForm.expiresAt}
+			/>
+			<small>Leave empty for permanent override</small>
 		</div>
 	</div>
-</div>
-{/if}
+	<svelte:fragment slot="footer">
+		<button class="btn" on:click={() => showOverrideModal = false}>Cancel</button>
+		<button
+			class="btn btn-primary"
+			on:click={createOverride}
+			disabled={!overrideForm.userId || !overrideForm.reason}
+		>
+			Create Override
+		</button>
+	</svelte:fragment>
+</Modal>
+
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title="Delete Override"
+	message="Are you sure you want to delete this user quota override?"
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeleteOverride}
+/>
 
 <style>
 	.quota-manager {
 		padding: 1rem;
-	}
-	
-	.tabs {
-		display: flex;
-		gap: 1rem;
-		margin-bottom: 2rem;
-		border-bottom: 2px solid #e0e0e0;
-	}
-	
-	.tab {
-		padding: 0.75rem 1.5rem;
-		background: none;
-		border: none;
-		color: #666;
-		cursor: pointer;
-		font-size: 1rem;
-		font-weight: 500;
-		position: relative;
-		transition: color 0.3s;
-	}
-	
-	.tab:hover {
-		color: #333;
-	}
-	
-	.tab.active {
-		color: #4CAF50;
-	}
-	
-	.tab.active::after {
-		content: '';
-		position: absolute;
-		bottom: -2px;
-		left: 0;
-		right: 0;
-		height: 2px;
-		background: #4CAF50;
 	}
 	
 	.section {
@@ -670,54 +631,10 @@
 		white-space: nowrap;
 	}
 	
-	.empty-state {
-		text-align: center;
-		padding: 3rem 2rem;
-		color: #666;
-	}
-	
-	.empty-state p {
-		margin: 0.5rem 0;
-	}
-	
-	.empty-state .hint {
-		font-size: 0.9rem;
-		color: #999;
-	}
-	
 	.loading {
 		text-align: center;
 		padding: 3rem;
 		color: #666;
-	}
-	
-	/* Modal Styles */
-	.modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0,0,0,0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 1000;
-	}
-	
-	.modal {
-		background: white;
-		border-radius: 8px;
-		padding: 2rem;
-		max-width: 700px;
-		width: 90%;
-		max-height: 90vh;
-		overflow-y: auto;
-	}
-	
-	.modal h2 {
-		margin-top: 0;
-		margin-bottom: 1.5rem;
 	}
 	
 	.form-grid {
@@ -754,15 +671,6 @@
 		margin-top: 0.25rem;
 		color: #666;
 		font-size: 0.85rem;
-	}
-	
-	.modal-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: 1rem;
-		margin-top: 2rem;
-		padding-top: 1rem;
-		border-top: 1px solid #e0e0e0;
 	}
 	
 	.btn {

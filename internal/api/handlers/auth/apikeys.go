@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -47,10 +46,8 @@ type APIKeyResponse struct {
 // HandleCreateAPIKey creates a new API key for the authenticated user
 func HandleCreateAPIKey(db *database.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Get user ID from context (set by auth middleware)
-		userID, ok := r.Context().Value("userID").(string)
-		if !ok || userID == "" {
-			utils.JSONError(w, http.StatusUnauthorized, "Unauthorized")
+		userID, ok := utils.RequireUserID(w, r)
+		if !ok {
 			return
 		}
 
@@ -60,10 +57,8 @@ func HandleCreateAPIKey(db *database.DB) http.HandlerFunc {
 			return
 		}
 
-		// Parse request
 		var req CreateAPIKeyRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 
@@ -115,10 +110,8 @@ func HandleCreateAPIKey(db *database.DB) http.HandlerFunc {
 // HandleListAPIKeys lists all API keys for the authenticated user
 func HandleListAPIKeys(db *database.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Get user ID from context
-		userID, ok := r.Context().Value("userID").(string)
-		if !ok || userID == "" {
-			utils.JSONError(w, http.StatusUnauthorized, "Unauthorized")
+		userID, ok := utils.RequireUserID(w, r)
+		if !ok {
 			return
 		}
 
@@ -158,10 +151,8 @@ func HandleListAPIKeys(db *database.DB) http.HandlerFunc {
 // HandleRevokeAPIKey revokes an API key
 func HandleRevokeAPIKey(db *database.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Get user ID from context
-		userID, ok := r.Context().Value("userID").(string)
-		if !ok || userID == "" {
-			utils.JSONError(w, http.StatusUnauthorized, "Unauthorized")
+		userID, ok := utils.RequireUserID(w, r)
+		if !ok {
 			return
 		}
 

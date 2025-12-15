@@ -1,16 +1,21 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import {
-		Users, Search, Plus, Edit2, Trash2,
+		Users, Plus, Edit2, Trash2,
 		Lock, Unlock, Mail, MoreVertical,
-		ChevronLeft, ChevronRight, Filter,
+		Filter,
 		UserPlus, Shield, Check, X, CheckCircle, AlertCircle, Info,
 		TrendingUp, Calendar, Activity
 	} from 'lucide-svelte';
+	import PageHeader from '$lib/components/ui/PageHeader.svelte';
+	import SearchInput from '$lib/components/SearchInput.svelte';
+	import StatCard from '$lib/components/ui/StatCard.svelte';
+	import Pagination from '$lib/components/ui/Pagination.svelte';
 	import { api } from '$lib/api';
 	import ExportButton from '$lib/components/ExportButton.svelte';
 	import { requireAdmin } from '$lib/utils/auth';
 	import { formatDateTime } from '$lib/utils/formatters';
+	import Modal from '$lib/components/ui/Modal.svelte';
 	
 	let searchQuery = '';
 	let selectedStatus = 'all';
@@ -446,29 +451,24 @@
 
 <div class="users-page">
 	<!-- Header -->
-	<div class="page-header">
-		<div class="header-content">
-			<div class="header-left">
-				<div class="header-title">
-					<Users size={24} />
-					<h1>User Management</h1>
-				</div>
-				<div class="header-meta">
-					<span class="meta-item">{totalUsers} total</span>
-					<span class="meta-separator">•</span>
-					<span class="meta-item">{activeUsers} active</span>
-					<span class="meta-separator">•</span>
-					<span class="meta-item">{unconfirmedUsers} unconfirmed</span>
-				</div>
-			</div>
-			<div class="header-info">
-				<span class="info-item success">
-					<CheckCircle size={14} />
-					Operational
-				</span>
-			</div>
-		</div>
-	</div>
+	<PageHeader
+		title="User Management"
+		icon={Users}
+	>
+		<svelte:fragment slot="meta">
+			<span class="meta-item">{totalUsers} total</span>
+			<span class="meta-separator">•</span>
+			<span class="meta-item">{activeUsers} active</span>
+			<span class="meta-separator">•</span>
+			<span class="meta-item">{unconfirmedUsers} unconfirmed</span>
+		</svelte:fragment>
+		<svelte:fragment slot="info">
+			<span class="info-item success">
+				<CheckCircle size={14} />
+				Operational
+			</span>
+		</svelte:fragment>
+	</PageHeader>
 
 	<!-- Content Area -->
 	<div class="content-area">
@@ -634,49 +634,42 @@
 			
 			<!-- Stats Section -->
 			<div class="stats-section">
-				<div class="stat-card">
-					<div class="stat-icon" style="background: #eff6ff;">
-						<TrendingUp size={16} style="color: #3b82f6;" />
-					</div>
-					<div class="stat-details">
-						<div class="stat-value">{growthRate > 0 ? '+' : ''}{growthRate}%</div>
-						<div class="stat-label">Growth Rate</div>
-						<div class="stat-sublabel">vs last week</div>
-					</div>
-				</div>
-				
-				<div class="stat-card">
-					<div class="stat-icon" style="background: #f0fdf4;">
-						<UserPlus size={16} style="color: #10b981;" />
-					</div>
-					<div class="stat-details">
-						<div class="stat-value">{newToday}</div>
-						<div class="stat-label">New Today</div>
-						<div class="stat-sublabel">signups</div>
-					</div>
-				</div>
-				
-				<div class="stat-card">
-					<div class="stat-icon" style="background: #fef3c7;">
-						<Activity size={16} style="color: #f59e0b;" />
-					</div>
-					<div class="stat-details">
-						<div class="stat-value">{activeNow}</div>
-						<div class="stat-label">Active Users</div>
-						<div class="stat-sublabel">confirmed</div>
-					</div>
-				</div>
-				
-				<div class="stat-card">
-					<div class="stat-icon" style="background: #fce7f3;">
-						<Users size={16} style="color: #ec4899;" />
-					</div>
-					<div class="stat-details">
-						<div class="stat-value">{totalUsers}</div>
-						<div class="stat-label">Total Users</div>
-						<div class="stat-sublabel">all time</div>
-					</div>
-				</div>
+				<StatCard
+					icon={TrendingUp}
+					value="{growthRate > 0 ? '+' : ''}{growthRate}%"
+					label="Growth Rate"
+					sublabel="vs last week"
+					iconBg="bg-blue-100"
+					iconColor="text-blue-600"
+					size="sm"
+				/>
+				<StatCard
+					icon={UserPlus}
+					value={newToday}
+					label="New Today"
+					sublabel="signups"
+					iconBg="bg-green-100"
+					iconColor="text-green-600"
+					size="sm"
+				/>
+				<StatCard
+					icon={Activity}
+					value={activeNow}
+					label="Active Users"
+					sublabel="confirmed"
+					iconBg="bg-yellow-100"
+					iconColor="text-yellow-600"
+					size="sm"
+				/>
+				<StatCard
+					icon={Users}
+					value={totalUsers}
+					label="Total Users"
+					sublabel="all time"
+					iconBg="bg-pink-100"
+					iconColor="text-pink-600"
+					size="sm"
+				/>
 			</div>
 		</div>
 	</div>
@@ -685,15 +678,8 @@
 	<div class="card">
 		<div class="users-header">
 			<div class="users-filters">
-				<div class="search-box">
-					<Search size={16} />
-					<input 
-						type="text" 
-						placeholder="Search users..."
-						bind:value={searchQuery}
-					/>
-				</div>
-				
+				<SearchInput bind:value={searchQuery} placeholder="Search users..." maxWidth="280px" />
+
 				<select class="filter-select" bind:value={selectedStatus}>
 					<option value="all">All Status</option>
 					<option value="active">Active</option>
@@ -768,186 +754,134 @@
 		</div>
 		
 		<!-- Pagination -->
-		<div class="pagination">
-			<div class="pagination-info">
-				Showing {(currentPage - 1) * rowsPerPage + 1} to {Math.min(currentPage * rowsPerPage, totalUsers)} of {totalUsers} users
-			</div>
-			<div class="pagination-controls">
-				<button 
-					class="pagination-btn"
-					disabled={currentPage === 1}
-					on:click={() => goToPage(currentPage - 1)}
-				>
-					<ChevronLeft size={16} />
-				</button>
-				{#each Array(Math.min(5, totalPages)) as _, i}
-					<button 
-						class="pagination-btn {currentPage === i + 1 ? 'active' : ''}"
-						on:click={() => goToPage(i + 1)}
-					>
-						{i + 1}
-					</button>
-				{/each}
-				<button 
-					class="pagination-btn"
-					disabled={currentPage === totalPages}
-					on:click={() => goToPage(currentPage + 1)}
-				>
-					<ChevronRight size={16} />
-				</button>
-			</div>
-		</div>
+		<Pagination
+			{currentPage}
+			{totalPages}
+			totalItems={totalUsers}
+			pageSize={rowsPerPage}
+			on:change={(e) => goToPage(e.detail)}
+		/>
 	</div>
 </div>
 </div>
 
 <!-- Add/Edit User Modal -->
-{#if showAddModal || showEditModal}
-	<div class="modal-overlay" on:click={showAddModal ? closeAddModal : closeEditModal}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h3 class="modal-title">
-					{showAddModal ? 'Add New User' : 'Edit User'}
-				</h3>
-				<button class="modal-close" on:click={showAddModal ? closeAddModal : closeEditModal}>
-					<X size={20} />
-				</button>
-			</div>
-			
-			<div class="modal-body">
-				{#if showAddModal}
-					<div class="form-group">
-						<label class="form-label">Email</label>
-						<input 
-							type="email" 
-							class="form-input" 
-							bind:value={newUser.email}
-							placeholder="user@example.com"
-						/>
+<Modal show={showAddModal || showEditModal} title={showAddModal ? 'Add New User' : 'Edit User'} on:close={showAddModal ? closeAddModal : closeEditModal}>
+	{#if showAddModal}
+		<div class="form-group">
+			<label class="form-label">Email</label>
+			<input
+				type="email"
+				class="form-input"
+				bind:value={newUser.email}
+				placeholder="user@example.com"
+			/>
+		</div>
+
+		<div class="form-group">
+			<label class="form-label">Password</label>
+			<input
+				type="password"
+				class="form-input"
+				bind:value={newUser.password}
+				placeholder="Enter password"
+			/>
+		</div>
+
+
+		<div class="form-group">
+			<label class="checkbox-label">
+				<input
+					type="checkbox"
+					bind:checked={newUser.confirmed}
+				/>
+				Email Confirmed
+			</label>
+		</div>
+	{:else if showEditModal && selectedUser}
+		<div class="form-group">
+			<label class="form-label">Email</label>
+			<input
+				type="email"
+				class="form-input"
+				bind:value={selectedUser.email}
+				placeholder="user@example.com"
+			/>
+		</div>
+
+		<div class="form-group">
+			<label class="form-label">Account Status</label>
+			<div class="status-controls">
+				<div class="status-row">
+					<div class="status-info">
+						{#if selectedUser.confirmed}
+							<span class="status-badge status-active">
+								<Check size={12} />
+								Email Confirmed
+							</span>
+						{:else}
+							<span class="status-badge status-unconfirmed">
+								<Mail size={12} />
+								Email Not Confirmed
+							</span>
+						{/if}
 					</div>
-					
-					<div class="form-group">
-						<label class="form-label">Password</label>
-						<input 
-							type="password" 
-							class="form-input" 
-							bind:value={newUser.password}
-							placeholder="Enter password"
-						/>
+					{#if !selectedUser.confirmed}
+						<button
+							type="button"
+							class="btn btn-sm btn-secondary"
+							on:click={() => resendConfirmation(selectedUser)}
+							disabled={resendingConfirmation}
+						>
+							{resendingConfirmation ? 'Sending...' : 'Resend Confirmation'}
+						</button>
+					{/if}
+				</div>
+
+				<div class="status-row">
+					<div class="status-info">
+						<span class="status-badge status-active">
+							<Check size={12} />
+							Account Active
+						</span>
 					</div>
-					
-					
-					<div class="form-group">
-						<label class="checkbox-label">
-							<input 
-								type="checkbox" 
-								bind:checked={newUser.confirmed}
-							/>
-							Email Confirmed
-						</label>
+					<div class="status-actions">
+						<button
+							type="button"
+							class="btn btn-sm btn-danger"
+							on:click={() => openDeleteModal(selectedUser)}
+						>
+							Delete User
+						</button>
 					</div>
-				{:else if showEditModal && selectedUser}
-					<div class="form-group">
-						<label class="form-label">Email</label>
-						<input 
-							type="email" 
-							class="form-input" 
-							bind:value={selectedUser.email}
-							placeholder="user@example.com"
-						/>
-					</div>
-					
-					<div class="form-group">
-						<label class="form-label">Account Status</label>
-						<div class="status-controls">
-							<div class="status-row">
-								<div class="status-info">
-									{#if selectedUser.confirmed}
-										<span class="status-badge status-active">
-											<Check size={12} />
-											Email Confirmed
-										</span>
-									{:else}
-										<span class="status-badge status-unconfirmed">
-											<Mail size={12} />
-											Email Not Confirmed
-										</span>
-									{/if}
-								</div>
-								{#if !selectedUser.confirmed}
-									<button 
-										type="button"
-										class="btn btn-sm btn-secondary"
-										on:click={() => resendConfirmation(selectedUser)}
-										disabled={resendingConfirmation}
-									>
-										{resendingConfirmation ? 'Sending...' : 'Resend Confirmation'}
-									</button>
-								{/if}
-							</div>
-							
-							<div class="status-row">
-								<div class="status-info">
-									<span class="status-badge status-active">
-										<Check size={12} />
-										Account Active
-									</span>
-								</div>
-								<div class="status-actions">
-									<button 
-										type="button"
-										class="btn btn-sm btn-danger"
-										on:click={() => openDeleteModal(selectedUser)}
-									>
-										Delete User
-									</button>
-								</div>
-							</div>
-						</div>
-					</div>
-				{/if}
-			</div>
-			
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={showAddModal ? closeAddModal : closeEditModal}>
-					Cancel
-				</button>
-				<button class="btn btn-primary" on:click={saveUser}>
-					{showAddModal ? 'Add User' : 'Save Changes'}
-				</button>
+				</div>
 			</div>
 		</div>
-	</div>
-{/if}
+	{/if}
+	<svelte:fragment slot="footer">
+		<button class="btn btn-secondary" on:click={showAddModal ? closeAddModal : closeEditModal}>
+			Cancel
+		</button>
+		<button class="btn btn-primary" on:click={saveUser}>
+			{showAddModal ? 'Add User' : 'Save Changes'}
+		</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Delete Confirmation Modal -->
-{#if showDeleteModal}
-	<div class="modal-overlay" on:click={closeDeleteModal}>
-		<div class="modal modal-sm" on:click|stopPropagation>
-			<div class="modal-header">
-				<h3 class="modal-title">Delete User</h3>
-				<button class="modal-close" on:click={closeDeleteModal}>
-					<X size={20} />
-				</button>
-			</div>
-			
-			<div class="modal-body">
-				<p>Are you sure you want to delete this user?</p>
-				<p class="text-muted">{userToDelete?.email}</p>
-				<p class="text-danger">This action cannot be undone. The user will be permanently deleted from the system.</p>
-			</div>
-			
-			<div class="modal-footer">
-				<button class="btn btn-secondary" on:click={closeDeleteModal}>
-					Cancel
-				</button>
-				<button class="btn btn-danger" on:click={deleteUser}>
-					Delete User
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
+<Modal show={showDeleteModal} title="Delete User" maxWidth="400px" on:close={closeDeleteModal}>
+	<p>Are you sure you want to delete this user?</p>
+	<p class="text-muted">{userToDelete?.email}</p>
+	<p class="text-danger">This action cannot be undone. The user will be permanently deleted from the system.</p>
+	<svelte:fragment slot="footer">
+		<button class="btn btn-secondary" on:click={closeDeleteModal}>
+			Cancel
+		</button>
+		<button class="btn btn-danger" on:click={deleteUser}>
+			Delete User
+		</button>
+	</svelte:fragment>
+</Modal>
 
 <style>
 	/* Page Layout */
@@ -958,45 +892,7 @@
 		background: #f8fafc;
 	}
 
-	/* Header */
-	.page-header {
-		background: white;
-		border-bottom: 1px solid #e2e8f0;
-		padding: 1.5rem 2rem;
-	}
-
-	.header-content {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.header-left {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.header-title {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-	}
-
-	.header-title h1 {
-		font-size: 1.5rem;
-		font-weight: 600;
-		color: #0f172a;
-		margin: 0;
-	}
-
-	.header-meta {
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
-		margin-left: 2.25rem;
-	}
-
+	/* PageHeader slot content */
 	.meta-item {
 		font-size: 0.8125rem;
 		color: #64748b;
@@ -1005,11 +901,6 @@
 	.meta-separator {
 		color: #cbd5e1;
 		margin: 0 0.25rem;
-	}
-
-	.header-info {
-		display: flex;
-		gap: 1.5rem;
 	}
 
 	.info-item {
@@ -1047,43 +938,6 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-	}
-
-	.search-box {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		max-width: 280px;
-		height: 36px;
-		padding: 0 0.75rem;
-		border: 1px solid #e2e8f0;
-		border-radius: 6px;
-		background: white;
-		transition: all 0.15s;
-	}
-	
-	.search-box:focus-within {
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.search-box svg {
-		color: #94a3b8;
-		flex-shrink: 0;
-	}
-	
-	.search-box input {
-		border: none;
-		background: none;
-		outline: none;
-		flex: 1;
-		font-size: 0.875rem;
-		color: #475569;
-		padding: 0;
-	}
-	
-	.search-box input::placeholder {
-		color: #94a3b8;
 	}
 
 	.filter-select {
@@ -1240,79 +1094,6 @@
 	
 	.dropdown-menu button.text-danger {
 		color: var(--danger-color);
-	}
-	
-	/* Modal Styles */
-	.modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 2000;
-	}
-	
-	.modal {
-		background: white;
-		border-radius: 8px;
-		width: 90%;
-		max-width: 500px;
-		max-height: 90vh;
-		overflow: auto;
-	}
-	
-	.modal-sm {
-		max-width: 400px;
-	}
-	
-	.modal-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1.5rem;
-		border-bottom: 1px solid var(--border-color);
-	}
-	
-	.modal-title {
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: var(--text-primary);
-	}
-	
-	.modal-close {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 32px;
-		height: 32px;
-		border: none;
-		background: none;
-		color: var(--text-muted);
-		cursor: pointer;
-		border-radius: 4px;
-		transition: all 0.2s;
-	}
-	
-	.modal-close:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
-	}
-	
-	.modal-body {
-		padding: 1.5rem;
-	}
-	
-	.modal-footer {
-		display: flex;
-		align-items: center;
-		justify-content: flex-end;
-		gap: 0.75rem;
-		padding: 1.5rem;
-		border-top: 1px solid var(--border-color);
 	}
 	
 	.checkbox-label {
@@ -1667,57 +1448,6 @@
 		grid-template-columns: repeat(2, 1fr);
 		gap: 0.75rem;
 		width: 320px;
-	}
-
-	.stat-card {
-		display: flex;
-		gap: 0.75rem;
-		padding: 0.875rem;
-		background: #fafbfc;
-		border: 1px solid #f1f5f9;
-		border-radius: 0.375rem;
-		transition: all 0.15s;
-	}
-
-	.stat-card:hover {
-		background: white;
-		border-color: #e2e8f0;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-	}
-
-	.stat-icon {
-		width: 32px;
-		height: 32px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 0.375rem;
-		flex-shrink: 0;
-	}
-
-	.stat-details {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.stat-value {
-		font-size: 1rem;
-		font-weight: 600;
-		color: #1e293b;
-		line-height: 1.2;
-	}
-
-	.stat-label {
-		font-size: 0.6875rem;
-		font-weight: 500;
-		color: #475569;
-		margin-top: 0.125rem;
-	}
-
-	.stat-sublabel {
-		font-size: 0.625rem;
-		color: #94a3b8;
-		margin-top: 0.125rem;
 	}
 
 	@media (max-width: 1200px) {

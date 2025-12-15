@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { ChevronLeft, ChevronRight, Download } from 'lucide-svelte';
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 
 	export let data: any[] = [];
 	export let columns: any[] = [];
@@ -58,13 +60,11 @@
 
 	{#if loading}
 		<div class="loading">
-			<div class="spinner"></div>
+			<LoadingSpinner size="lg" />
 			<p>Loading data...</p>
 		</div>
 	{:else if data.length === 0}
-		<div class="no-data">
-			<p>No data available</p>
-		</div>
+		<EmptyState message="No data available" compact />
 	{:else}
 		<div class="table-wrapper">
 			<table>
@@ -198,27 +198,6 @@
 		color: #6b7280;
 	}
 
-	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 3px solid #e5e7eb;
-		border-top-color: #189AB4;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-		margin-bottom: 1rem;
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-
-	.no-data {
-		flex: 1;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: #6b7280;
-	}
 
 	.table-wrapper {
 		flex: 1;

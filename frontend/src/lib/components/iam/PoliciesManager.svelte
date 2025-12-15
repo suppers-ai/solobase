@@ -4,6 +4,7 @@
 	import CreatePolicyModal from './CreatePolicyModal.svelte';
 	import EditPolicyModal from './EditPolicyModal.svelte';
 	import { ErrorHandler, authFetch } from '$lib/api';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 
 	interface Policy {
 		subject: string;
@@ -18,7 +19,9 @@
 
 	let showCreateModal = false;
 	let showEditModal = false;
+	let showDeleteConfirm = false;
 	let selectedPolicy: Policy | null = null;
+	let policyToDelete: Policy | null = null;
 
 	async function handleCreatePolicy(event: CustomEvent<Policy>) {
 		const policy = event.detail;
@@ -35,15 +38,18 @@
 		}
 	}
 
-	async function handleDeletePolicy(event: CustomEvent<Policy>) {
-		const policy = event.detail;
-		if (!confirm('Are you sure you want to delete this policy?')) {
-			return;
-		}
+	function handleDeletePolicy(event: CustomEvent<Policy>) {
+		policyToDelete = event.detail;
+		showDeleteConfirm = true;
+	}
+
+	async function confirmDeletePolicy() {
+		if (!policyToDelete) return;
+		showDeleteConfirm = false;
 
 		const response = await authFetch('/api/admin/iam/policies', {
 			method: 'DELETE',
-			body: JSON.stringify(policy)
+			body: JSON.stringify(policyToDelete)
 		});
 
 		if (response.ok) {
@@ -51,6 +57,7 @@
 		} else {
 			ErrorHandler.handle('Failed to delete policy');
 		}
+		policyToDelete = null;
 	}
 
 	function handleEditPolicy(event: CustomEvent<Policy>) {
@@ -118,6 +125,15 @@
 		}}
 	/>
 {/if}
+
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title="Delete Policy"
+	message="Are you sure you want to delete this policy? This action cannot be undone."
+	confirmText="Delete"
+	variant="danger"
+	on:confirm={confirmDeletePolicy}
+/>
 
 <style>
 	.section {

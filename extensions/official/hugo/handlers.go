@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/suppers-ai/solobase/utils"
 )
 
 // listSites handles GET /sites
@@ -34,8 +36,7 @@ func (e *HugoExtension) createSite(w http.ResponseWriter, r *http.Request) {
 		IsExample bool   `json:"isExample"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -149,8 +150,7 @@ func (e *HugoExtension) readFile(w http.ResponseWriter, r *http.Request) {
 		Path string `json:"path"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -184,8 +184,7 @@ func (e *HugoExtension) saveFile(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 

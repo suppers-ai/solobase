@@ -3,13 +3,17 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import {
-		Lock, LogOut, Shield, 
-		Save, X, Settings,
+		Lock, LogOut, Shield,
+		Save, Settings,
 		Package, HardDrive, TrendingUp,
 		Activity, Share2, Download, Upload, ArrowLeft, Key, Copy, Trash2, Plus	} from 'lucide-svelte';
 	import { api } from '$lib/api';
 	import { authStore } from '$lib/stores/auth';
 	import { formatBytes } from '$lib/utils/formatters';
+	import LoadingSpinner from '$lib/components/ui/LoadingSpinner.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
 
 	let user: any = null;
 	let roles: string[] = [];
@@ -39,6 +43,8 @@
 	let createdKey: string | null = null;
 	let keyCreating = false;
 	let keyError = '';
+	let showRevokeConfirm = false;
+	let keyToRevoke: { id: string; name: string } | null = null;
 	
 	// Profile form data
 	let profileForm = {
@@ -327,17 +333,22 @@
 		}
 	}
 
-	async function revokeAPIKey(keyId: string, keyName: string) {
-		if (!confirm(`Are you sure you want to revoke the API key "${keyName}"? This action cannot be undone.`)) {
-			return;
-		}
+	function revokeAPIKey(keyId: string, keyName: string) {
+		keyToRevoke = { id: keyId, name: keyName };
+		showRevokeConfirm = true;
+	}
+
+	async function confirmRevokeKey() {
+		if (!keyToRevoke) return;
+		showRevokeConfirm = false;
 
 		try {
-			await api.delete(`/auth/api-keys/${keyId}`);
+			await api.delete(`/auth/api-keys/${keyToRevoke.id}`);
 			await loadAPIKeys();
 		} catch (err: any) {
 			keyError = err.message || 'Failed to revoke API key';
 		}
+		keyToRevoke = null;
 	}
 
 	async function copyToClipboard(text: string) {
@@ -381,7 +392,7 @@
 			
 			{#if loading}
 				<div class="loading">
-					<div class="spinner"></div>
+					<LoadingSpinner size="lg" />
 					<p>Loading profile...</p>
 				</div>
 			{:else if user}
@@ -474,514 +485,454 @@
 </div>
 
 <!-- Account Settings Modal -->
-{#if showAccountSettings}
-	<div class="modal-overlay" on:click={() => showAccountSettings = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h3>Account Settings</h3>
-				<button class="close-btn" on:click={() => showAccountSettings = false}>
-					<X size={20} />
-				</button>
-			</div>
-			
-			<div class="modal-body">
-				{#if error}
-					<div class="alert alert-error">{error}</div>
-				{/if}
-				
-				<div class="form-row">
-					<div class="form-group">
-						<label for="firstName">First Name</label>
-						<input
-							type="text"
-							id="firstName"
-							bind:value={profileForm.firstName}
-							placeholder="Enter first name"
-						/>
-					</div>
-					
-					<div class="form-group">
-						<label for="lastName">Last Name</label>
-						<input
-							type="text"
-							id="lastName"
-							bind:value={profileForm.lastName}
-							placeholder="Enter last name"
-						/>
-					</div>
-				</div>
-				
-				<div class="form-group">
-					<label for="displayName">Display Name</label>
-					<input
-						type="text"
-						id="displayName"
-						bind:value={profileForm.displayName}
-						placeholder="Enter display name"
-					/>
-				</div>
-				
-				<div class="form-group">
-					<label for="email">Email</label>
-					<input
-						type="email"
-						id="email"
-						value={profileForm.email}
-						disabled
-						class="disabled"
-					/>
-				</div>
-				
-				<div class="form-group">
-					<label for="phone">Phone</label>
-					<input
-						type="tel"
-						id="phone"
-						bind:value={profileForm.phone}
-						placeholder="Enter phone number"
-					/>
-				</div>
-				
-				<div class="form-group">
-					<label for="location">Location</label>
-					<input
-						type="text"
-						id="location"
-						bind:value={profileForm.location}
-						placeholder="Enter location"
-					/>
-				</div>
-			</div>
-			
-			<div class="modal-footer">
-				<button 
-					class="btn btn-secondary"
-					on:click={() => showAccountSettings = false}
-				>
-					Cancel
-				</button>
-				<button 
-					class="btn btn-primary"
-					on:click={saveProfile}
-					disabled={saving}
-				>
-					{#if saving}
-						<span class="spinner-small"></span>
-						Saving...
-					{:else}
-						<Save size={16} />
-						Save Changes
-					{/if}
-				</button>
-			</div>
+<Modal show={showAccountSettings} title="Account Settings" on:close={() => showAccountSettings = false}>
+	{#if error}
+		<div class="alert alert-error">{error}</div>
+	{/if}
+
+	<div class="form-row">
+		<div class="form-group">
+			<label for="firstName">First Name</label>
+			<input
+				type="text"
+				id="firstName"
+				bind:value={profileForm.firstName}
+				placeholder="Enter first name"
+			/>
+		</div>
+
+		<div class="form-group">
+			<label for="lastName">Last Name</label>
+			<input
+				type="text"
+				id="lastName"
+				bind:value={profileForm.lastName}
+				placeholder="Enter last name"
+			/>
 		</div>
 	</div>
-{/if}
+
+	<div class="form-group">
+		<label for="displayName">Display Name</label>
+		<input
+			type="text"
+			id="displayName"
+			bind:value={profileForm.displayName}
+			placeholder="Enter display name"
+		/>
+	</div>
+
+	<div class="form-group">
+		<label for="email">Email</label>
+		<input
+			type="email"
+			id="email"
+			value={profileForm.email}
+			disabled
+			class="disabled"
+		/>
+	</div>
+
+	<div class="form-group">
+		<label for="phone">Phone</label>
+		<input
+			type="tel"
+			id="phone"
+			bind:value={profileForm.phone}
+			placeholder="Enter phone number"
+		/>
+	</div>
+
+	<div class="form-group">
+		<label for="location">Location</label>
+		<input
+			type="text"
+			id="location"
+			bind:value={profileForm.location}
+			placeholder="Enter location"
+		/>
+	</div>
+
+	<svelte:fragment slot="footer">
+		<button
+			class="btn btn-secondary"
+			on:click={() => showAccountSettings = false}
+		>
+			Cancel
+		</button>
+		<button
+			class="btn btn-primary"
+			on:click={saveProfile}
+			disabled={saving}
+		>
+			{#if saving}
+				<LoadingSpinner size="sm" color="white" />
+				Saving...
+			{:else}
+				<Save size={16} />
+				Save Changes
+			{/if}
+		</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Change Password Modal -->
-{#if showPasswordChange}
-	<div class="modal-overlay" on:click={() => showPasswordChange = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h3>Change Password</h3>
-				<button class="close-btn" on:click={() => showPasswordChange = false}>
-					<X size={20} />
-				</button>
-			</div>
-			
-			<div class="modal-body">
-				{#if passwordError}
-					<div class="alert alert-error">{passwordError}</div>
-				{/if}
-				
-				<div class="form-group">
-					<label for="currentPassword">Current Password</label>
-					<input
-						type="password"
-						id="currentPassword"
-						bind:value={passwordForm.currentPassword}
-						placeholder="Enter current password"
-					/>
-				</div>
-				
-				<div class="form-group">
-					<label for="newPassword">New Password</label>
-					<input
-						type="password"
-						id="newPassword"
-						bind:value={passwordForm.newPassword}
-						placeholder="Enter new password (min 8 characters)"
-					/>
-				</div>
-				
-				<div class="form-group">
-					<label for="confirmPassword">Confirm New Password</label>
-					<input
-						type="password"
-						id="confirmPassword"
-						bind:value={passwordForm.confirmPassword}
-						placeholder="Confirm new password"
-					/>
-				</div>
-			</div>
-			
-			<div class="modal-footer">
-				<button 
-					class="btn btn-secondary"
-					on:click={() => {
-						showPasswordChange = false;
-						passwordForm = {
-							currentPassword: '',
-							newPassword: '',
-							confirmPassword: ''
-						};
-						passwordError = '';
-					}}
-				>
-					Cancel
-				</button>
-				<button 
-					class="btn btn-primary"
-					on:click={changePassword}
-				>
-					Change Password
-				</button>
-			</div>
-		</div>
+<Modal show={showPasswordChange} title="Change Password" on:close={() => {
+	showPasswordChange = false;
+	passwordForm = { currentPassword: '', newPassword: '', confirmPassword: '' };
+	passwordError = '';
+}}>
+	{#if passwordError}
+		<div class="alert alert-error">{passwordError}</div>
+	{/if}
+
+	<div class="form-group">
+		<label for="currentPassword">Current Password</label>
+		<input
+			type="password"
+			id="currentPassword"
+			bind:value={passwordForm.currentPassword}
+			placeholder="Enter current password"
+		/>
 	</div>
-{/if}
+
+	<div class="form-group">
+		<label for="newPassword">New Password</label>
+		<input
+			type="password"
+			id="newPassword"
+			bind:value={passwordForm.newPassword}
+			placeholder="Enter new password (min 8 characters)"
+		/>
+	</div>
+
+	<div class="form-group">
+		<label for="confirmPassword">Confirm New Password</label>
+		<input
+			type="password"
+			id="confirmPassword"
+			bind:value={passwordForm.confirmPassword}
+			placeholder="Confirm new password"
+		/>
+	</div>
+
+	<svelte:fragment slot="footer">
+		<button
+			class="btn btn-secondary"
+			on:click={() => {
+				showPasswordChange = false;
+				passwordForm = { currentPassword: '', newPassword: '', confirmPassword: '' };
+				passwordError = '';
+			}}
+		>
+			Cancel
+		</button>
+		<button
+			class="btn btn-primary"
+			on:click={changePassword}
+		>
+			Change Password
+		</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Storage Usage Modal -->
-{#if showStorageModal}
-	<div class="modal-overlay" on:click={() => showStorageModal = false}>
-		<div class="modal storage-modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h3>Storage Usage</h3>
-				<button class="close-btn" on:click={() => showStorageModal = false}>
-					<X size={20} />
-				</button>
+<Modal show={showStorageModal} title="Storage Usage" maxWidth="600px" on:close={() => showStorageModal = false}>
+	<!-- Storage Overview -->
+	<div class="storage-overview">
+		<div class="storage-stat-card">
+			<div class="stat-icon storage-icon">
+				<HardDrive size={20} />
 			</div>
-			
-			<div class="modal-body">
-				<!-- Storage Overview -->
-				<div class="storage-overview">
-					<div class="storage-stat-card">
-						<div class="stat-icon storage-icon">
-							<HardDrive size={20} />
-						</div>
-						<div class="stat-details">
-							<span class="stat-label">Storage Used</span>
-							<span class="stat-value">
-								{#if storageQuota}
-									{formatBytes(storageQuota.storageUsed || 0)}
-								{:else}
-									Loading...
-								{/if}
-							</span>
-							{#if storageQuota && storageQuota.maxStorageBytes}
-								<div class="progress-bar">
-									<div class="progress-fill" style="width: {Math.min((storageQuota.storageUsed / storageQuota.maxStorageBytes) * 100, 100)}%"></div>
-								</div>
-								<span class="stat-detail">
-									of {formatBytes(storageQuota.maxStorageBytes)} available
-								</span>
-							{/if}
-						</div>
+			<div class="stat-details">
+				<span class="stat-label">Storage Used</span>
+				<span class="stat-value">
+					{#if storageQuota}
+						{formatBytes(storageQuota.storageUsed || 0)}
+					{:else}
+						Loading...
+					{/if}
+				</span>
+				{#if storageQuota && storageQuota.maxStorageBytes}
+					<div class="progress-bar">
+						<div class="progress-fill" style="width: {Math.min((storageQuota.storageUsed / storageQuota.maxStorageBytes) * 100, 100)}%"></div>
 					</div>
-
-					<div class="storage-stat-card">
-						<div class="stat-icon bandwidth-icon">
-							<TrendingUp size={20} />
-						</div>
-						<div class="stat-details">
-							<span class="stat-label">Bandwidth Used</span>
-							<span class="stat-value">
-								{#if storageQuota}
-									{formatBytes(storageQuota.bandwidthUsed || 0)}
-								{:else}
-									Loading...
-								{/if}
-							</span>
-							{#if storageQuota && storageQuota.maxBandwidthBytes}
-								<div class="progress-bar">
-									<div class="progress-fill bandwidth" style="width: {Math.min((storageQuota.bandwidthUsed / storageQuota.maxBandwidthBytes) * 100, 100)}%"></div>
-								</div>
-								<span class="stat-detail">
-									of {formatBytes(storageQuota.maxBandwidthBytes)} this month
-								</span>
-							{/if}
-						</div>
-					</div>
-				</div>
-
-				<!-- Storage Details -->
-				{#if storageStats || storageQuota}
-					<div class="storage-details">
-						<h4>Storage Details</h4>
-						<div class="detail-grid">
-							<div class="detail-item">
-								<span class="detail-label">Total Files:</span>
-								<span class="detail-value">{storageStats?.storage?.totalObjects || 0}</span>
-							</div>
-							<div class="detail-item">
-								<span class="detail-label">Shared Files:</span>
-								<span class="detail-value">{storageStats?.shares?.totalShares || 0}</span>
-							</div>
-							{#if storageQuota?.resetBandwidthAt}
-								<div class="detail-item">
-									<span class="detail-label">Bandwidth Resets:</span>
-									<span class="detail-value">
-										{new Date(storageQuota.resetBandwidthAt).toLocaleDateString()}
-									</span>
-								</div>
-							{/if}
-							{#if storageQuota && storageQuota.storageUsed > storageQuota.maxStorageBytes * 0.9}
-								<div class="detail-item warning">
-									<span class="detail-label">⚠️ Storage Warning:</span>
-									<span class="detail-value">Over 90% used</span>
-								</div>
-							{/if}
-						</div>
-					</div>
-				{/if}
-
-				<!-- Storage Info -->
-				<div class="storage-tips">
-					<h4>Storage Information</h4>
-					<ul>
-						<li>Your storage quota is managed by your administrator</li>
-						<li>Contact your admin if you need more storage space</li>
-						{#if storageQuota && storageQuota.storageUsed > storageQuota.maxStorageBytes * 0.75}
-							<li class="warning">Your storage is almost full - please contact your administrator</li>
-						{/if}
-					</ul>
-				</div>
-				
-				<!-- Recent Activity -->
-				{#if recentActivity && recentActivity.length > 0}
-					<div class="recent-activity">
-						<h4>Recent Activity</h4>
-						<div class="activity-list">
-							{#each recentActivity.slice(0, 5) as activity}
-								<div class="activity-item">
-									<div class="activity-icon {getActionColor(activity.action)}">
-										<svelte:component this={getActionIcon(activity.action)} size={14} />
-									</div>
-									<div class="activity-details">
-										<span class="activity-action">{activity.action}</span>
-										<span class="activity-time">{new Date(activity.createdAt).toLocaleString()}</span>
-									</div>
-								</div>
-							{/each}
-						</div>
-					</div>
+					<span class="stat-detail">
+						of {formatBytes(storageQuota.maxStorageBytes)} available
+					</span>
 				{/if}
 			</div>
-			
-			<div class="modal-footer">
-				{#if user && roles.includes('admin')}
-					<a href="/admin/extensions/cloudstorage" class="btn btn-secondary">
-						Extension Settings
-					</a>
-					<a href="/admin/storage" class="btn btn-secondary">
-						Manage Files
-					</a>
+		</div>
+
+		<div class="storage-stat-card">
+			<div class="stat-icon bandwidth-icon">
+				<TrendingUp size={20} />
+			</div>
+			<div class="stat-details">
+				<span class="stat-label">Bandwidth Used</span>
+				<span class="stat-value">
+					{#if storageQuota}
+						{formatBytes(storageQuota.bandwidthUsed || 0)}
+					{:else}
+						Loading...
+					{/if}
+				</span>
+				{#if storageQuota && storageQuota.maxBandwidthBytes}
+					<div class="progress-bar">
+						<div class="progress-fill bandwidth" style="width: {Math.min((storageQuota.bandwidthUsed / storageQuota.maxBandwidthBytes) * 100, 100)}%"></div>
+					</div>
+					<span class="stat-detail">
+						of {formatBytes(storageQuota.maxBandwidthBytes)} this month
+					</span>
 				{/if}
-				<button
-					class="btn btn-primary"
-					on:click={() => showStorageModal = false}
-				>
-					Close
-				</button>
 			</div>
 		</div>
 	</div>
-{/if}
+
+	<!-- Storage Details -->
+	{#if storageStats || storageQuota}
+		<div class="storage-details">
+			<h4>Storage Details</h4>
+			<div class="detail-grid">
+				<div class="detail-item">
+					<span class="detail-label">Total Files:</span>
+					<span class="detail-value">{storageStats?.storage?.totalObjects || 0}</span>
+				</div>
+				<div class="detail-item">
+					<span class="detail-label">Shared Files:</span>
+					<span class="detail-value">{storageStats?.shares?.totalShares || 0}</span>
+				</div>
+				{#if storageQuota?.resetBandwidthAt}
+					<div class="detail-item">
+						<span class="detail-label">Bandwidth Resets:</span>
+						<span class="detail-value">
+							{new Date(storageQuota.resetBandwidthAt).toLocaleDateString()}
+						</span>
+					</div>
+				{/if}
+				{#if storageQuota && storageQuota.storageUsed > storageQuota.maxStorageBytes * 0.9}
+					<div class="detail-item warning">
+						<span class="detail-label">⚠️ Storage Warning:</span>
+						<span class="detail-value">Over 90% used</span>
+					</div>
+				{/if}
+			</div>
+		</div>
+	{/if}
+
+	<!-- Storage Info -->
+	<div class="storage-tips">
+		<h4>Storage Information</h4>
+		<ul>
+			<li>Your storage quota is managed by your administrator</li>
+			<li>Contact your admin if you need more storage space</li>
+			{#if storageQuota && storageQuota.storageUsed > storageQuota.maxStorageBytes * 0.75}
+				<li class="warning">Your storage is almost full - please contact your administrator</li>
+			{/if}
+		</ul>
+	</div>
+
+	<!-- Recent Activity -->
+	{#if recentActivity && recentActivity.length > 0}
+		<div class="recent-activity">
+			<h4>Recent Activity</h4>
+			<div class="activity-list">
+				{#each recentActivity.slice(0, 5) as activity}
+					<div class="activity-item">
+						<div class="activity-icon {getActionColor(activity.action)}">
+							<svelte:component this={getActionIcon(activity.action)} size={14} />
+						</div>
+						<div class="activity-details">
+							<span class="activity-action">{activity.action}</span>
+							<span class="activity-time">{new Date(activity.createdAt).toLocaleString()}</span>
+						</div>
+					</div>
+				{/each}
+			</div>
+		</div>
+	{/if}
+
+	<svelte:fragment slot="footer">
+		{#if user && roles.includes('admin')}
+			<a href="/admin/extensions/cloudstorage" class="btn btn-secondary">
+				Extension Settings
+			</a>
+			<a href="/admin/storage" class="btn btn-secondary">
+				Manage Files
+			</a>
+		{/if}
+		<button
+			class="btn btn-primary"
+			on:click={() => showStorageModal = false}
+		>
+			Close
+		</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- API Keys Modal -->
-{#if showAPIKeysModal}
-	<div class="modal-overlay" on:click={() => showAPIKeysModal = false}>
-		<div class="modal api-keys-modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h3>API Keys</h3>
-				<button class="close-btn" on:click={() => showAPIKeysModal = false}>
-					<X size={20} />
+<Modal show={showAPIKeysModal} title="API Keys" maxWidth="600px" on:close={() => showAPIKeysModal = false}>
+	{#if keyError}
+		<div class="alert alert-error">{keyError}</div>
+	{/if}
+
+	<!-- Newly created key alert -->
+	{#if createdKey}
+		<div class="created-key-alert">
+			<div class="alert-header">
+				<Key size={16} />
+				<strong>API Key Created!</strong>
+			</div>
+			<p class="alert-warning">Copy this key now. You won't be able to see it again!</p>
+			<div class="key-display">
+				<code>{createdKey}</code>
+				<button
+					class="copy-btn"
+					on:click={() => copyToClipboard(createdKey || '')}
+					title="Copy to clipboard"
+				>
+					<Copy size={16} />
 				</button>
 			</div>
+		</div>
+	{/if}
 
-			<div class="modal-body">
-				{#if keyError}
-					<div class="alert alert-error">{keyError}</div>
-				{/if}
+	<!-- API Keys List -->
+	<div class="api-keys-section">
+		<div class="section-header">
+			<span>Your API Keys</span>
+			<button class="btn btn-small btn-primary" on:click={openCreateKeyModal}>
+				<Plus size={14} />
+				Create Key
+			</button>
+		</div>
 
-				<!-- Newly created key alert -->
-				{#if createdKey}
-					<div class="created-key-alert">
-						<div class="alert-header">
-							<Key size={16} />
-							<strong>API Key Created!</strong>
+		{#if apiKeysLoading}
+			<div class="loading-state">
+				<LoadingSpinner size="sm" />
+				<span>Loading API keys...</span>
+			</div>
+		{:else if !apiKeys || apiKeys.length === 0}
+			<EmptyState icon={Key} title="No API keys yet" message="Create an API key to access the API programmatically" compact />
+		{:else}
+			<div class="api-keys-list">
+				{#each apiKeys as key}
+					<div class="api-key-item">
+						<div class="key-info">
+							<div class="key-name">{key.name}</div>
+							<div class="key-details">
+								<span class="key-prefix" title="Key prefix">{key.keyPrefix}...</span>
+								<span class="key-separator">•</span>
+								<span class="key-created">Created {formatDate(key.createdAt)}</span>
+							</div>
+							{#if key.lastUsedAt}
+								<div class="key-last-used">
+									Last used: {formatDate(key.lastUsedAt)}
+									{#if key.lastUsedIp}
+										from {key.lastUsedIp}
+									{/if}
+								</div>
+							{:else}
+								<div class="key-last-used">Never used</div>
+							{/if}
+							{#if key.expiresAt}
+								<div class="key-expiry" class:expired={new Date(key.expiresAt) < new Date()}>
+									{#if new Date(key.expiresAt) < new Date()}
+										Expired {formatDate(key.expiresAt)}
+									{:else}
+										Expires {formatDate(key.expiresAt)}
+									{/if}
+								</div>
+							{/if}
 						</div>
-						<p class="alert-warning">Copy this key now. You won't be able to see it again!</p>
-						<div class="key-display">
-							<code>{createdKey}</code>
-							<button
-								class="copy-btn"
-								on:click={() => copyToClipboard(createdKey || '')}
-								title="Copy to clipboard"
-							>
-								<Copy size={16} />
-							</button>
-						</div>
-					</div>
-				{/if}
-
-				<!-- API Keys List -->
-				<div class="api-keys-section">
-					<div class="section-header">
-						<span>Your API Keys</span>
-						<button class="btn btn-small btn-primary" on:click={openCreateKeyModal}>
-							<Plus size={14} />
-							Create Key
+						<button
+							class="revoke-btn"
+							on:click={() => revokeAPIKey(key.id, key.name)}
+							title="Revoke API key"
+						>
+							<Trash2 size={16} />
 						</button>
 					</div>
-
-					{#if apiKeysLoading}
-						<div class="loading-state">
-							<div class="spinner-small"></div>
-							<span>Loading API keys...</span>
-						</div>
-					{:else if !apiKeys || apiKeys.length === 0}
-						<div class="empty-state">
-							<Key size={32} />
-							<p>No API keys yet</p>
-							<span>Create an API key to access the API programmatically</span>
-						</div>
-					{:else}
-						<div class="api-keys-list">
-							{#each apiKeys as key}
-								<div class="api-key-item">
-									<div class="key-info">
-										<div class="key-name">{key.name}</div>
-										<div class="key-details">
-											<span class="key-prefix" title="Key prefix">{key.keyPrefix}...</span>
-											<span class="key-separator">•</span>
-											<span class="key-created">Created {formatDate(key.createdAt)}</span>
-										</div>
-										{#if key.lastUsedAt}
-											<div class="key-last-used">
-												Last used: {formatDate(key.lastUsedAt)}
-												{#if key.lastUsedIp}
-													from {key.lastUsedIp}
-												{/if}
-											</div>
-										{:else}
-											<div class="key-last-used">Never used</div>
-										{/if}
-										{#if key.expiresAt}
-											<div class="key-expiry" class:expired={new Date(key.expiresAt) < new Date()}>
-												{#if new Date(key.expiresAt) < new Date()}
-													Expired {formatDate(key.expiresAt)}
-												{:else}
-													Expires {formatDate(key.expiresAt)}
-												{/if}
-											</div>
-										{/if}
-									</div>
-									<button
-										class="revoke-btn"
-										on:click={() => revokeAPIKey(key.id, key.name)}
-										title="Revoke API key"
-									>
-										<Trash2 size={16} />
-									</button>
-								</div>
-							{/each}
-						</div>
-					{/if}
-				</div>
-
-				<!-- Usage instructions -->
-				<div class="api-usage-info">
-					<h4>How to use API Keys</h4>
-					<p>Include your API key in the Authorization header:</p>
-					<code class="code-block">Authorization: Bearer sb_your_api_key_here</code>
-				</div>
+				{/each}
 			</div>
-
-			<div class="modal-footer">
-				<button
-					class="btn btn-primary"
-					on:click={() => showAPIKeysModal = false}
-				>
-					Close
-				</button>
-			</div>
-		</div>
+		{/if}
 	</div>
-{/if}
+
+	<!-- Usage instructions -->
+	<div class="api-usage-info">
+		<h4>How to use API Keys</h4>
+		<p>Include your API key in the Authorization header:</p>
+		<code class="code-block">Authorization: Bearer sb_your_api_key_here</code>
+	</div>
+
+	<svelte:fragment slot="footer">
+		<button
+			class="btn btn-primary"
+			on:click={() => showAPIKeysModal = false}
+		>
+			Close
+		</button>
+	</svelte:fragment>
+</Modal>
 
 <!-- Create API Key Modal -->
-{#if showCreateKeyModal}
-	<div class="modal-overlay" on:click={() => showCreateKeyModal = false}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h3>Create API Key</h3>
-				<button class="close-btn" on:click={() => showCreateKeyModal = false}>
-					<X size={20} />
-				</button>
-			</div>
+<Modal show={showCreateKeyModal} title="Create API Key" on:close={() => showCreateKeyModal = false}>
+	{#if keyError}
+		<div class="alert alert-error">{keyError}</div>
+	{/if}
 
-			<div class="modal-body">
-				{#if keyError}
-					<div class="alert alert-error">{keyError}</div>
-				{/if}
-
-				<div class="form-group">
-					<label for="keyName">Key Name</label>
-					<input
-						type="text"
-						id="keyName"
-						bind:value={newKeyName}
-						placeholder="e.g., Production Server, CI/CD Pipeline"
-					/>
-					<span class="form-hint">A descriptive name to identify this key</span>
-				</div>
-
-				<div class="form-group">
-					<label for="keyExpiry">Expiration (Optional)</label>
-					<input
-						type="datetime-local"
-						id="keyExpiry"
-						bind:value={newKeyExpiry}
-					/>
-					<span class="form-hint">Leave empty for a key that never expires</span>
-				</div>
-			</div>
-
-			<div class="modal-footer">
-				<button
-					class="btn btn-secondary"
-					on:click={() => showCreateKeyModal = false}
-				>
-					Cancel
-				</button>
-				<button
-					class="btn btn-primary"
-					on:click={createAPIKey}
-					disabled={keyCreating}
-				>
-					{#if keyCreating}
-						<span class="spinner-small"></span>
-						Creating...
-					{:else}
-						<Key size={16} />
-						Create Key
-					{/if}
-				</button>
-			</div>
-		</div>
+	<div class="form-group">
+		<label for="keyName">Key Name</label>
+		<input
+			type="text"
+			id="keyName"
+			bind:value={newKeyName}
+			placeholder="e.g., Production Server, CI/CD Pipeline"
+		/>
+		<span class="form-hint">A descriptive name to identify this key</span>
 	</div>
-{/if}
+
+	<div class="form-group">
+		<label for="keyExpiry">Expiration (Optional)</label>
+		<input
+			type="datetime-local"
+			id="keyExpiry"
+			bind:value={newKeyExpiry}
+		/>
+		<span class="form-hint">Leave empty for a key that never expires</span>
+	</div>
+
+	<svelte:fragment slot="footer">
+		<button
+			class="btn btn-secondary"
+			on:click={() => showCreateKeyModal = false}
+		>
+			Cancel
+		</button>
+		<button
+			class="btn btn-primary"
+			on:click={createAPIKey}
+			disabled={keyCreating}
+		>
+			{#if keyCreating}
+				<LoadingSpinner size="sm" color="white" />
+				Creating...
+			{:else}
+				<Key size={16} />
+				Create Key
+			{/if}
+		</button>
+	</svelte:fragment>
+</Modal>
+
+<ConfirmDialog
+	bind:show={showRevokeConfirm}
+	title="Revoke API Key"
+	message={`Are you sure you want to revoke the API key "${keyToRevoke?.name}"? This action cannot be undone.`}
+	confirmText="Revoke"
+	variant="danger"
+	on:confirm={confirmRevokeKey}
+/>
 
 <style>
 	.profile-page {
@@ -1059,30 +1010,6 @@
 		text-align: center;
 	}
 	
-	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 4px solid var(--border-color);
-		border-top-color: var(--primary-color);
-		border-radius: 50%;
-		margin: 0 auto 1rem;
-		animation: spin 1s linear infinite;
-	}
-	
-	.spinner-small {
-		display: inline-block;
-		width: 14px;
-		height: 14px;
-		border: 2px solid #ffffff;
-		border-top-color: transparent;
-		border-radius: 50%;
-		animation: spin 0.6s linear infinite;
-		margin-right: 0.5rem;
-	}
-	
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
 	
 	.user-header {
 		padding: 2rem 0;
@@ -1197,76 +1124,6 @@
 	.action-card.logout:hover {
 		background: rgba(239, 68, 68, 0.05);
 		border-color: #ef4444;
-	}
-	
-	/* Modal Styles */
-	.modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 1000;
-		padding: 1rem;
-	}
-	
-	.modal {
-		background: white;
-		border-radius: 12px;
-		width: 100%;
-		max-width: 500px;
-		max-height: 90vh;
-		overflow: auto;
-		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-	}
-	
-	.modal-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1.5rem;
-		border-bottom: 1px solid #e5e7eb;
-	}
-	
-	.modal-header h3 {
-		margin: 0;
-		font-size: 1.25rem;
-		color: #1f2937;
-	}
-	
-	.close-btn {
-		background: none;
-		border: none;
-		color: #6b7280;
-		cursor: pointer;
-		padding: 0.25rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 4px;
-		transition: all 0.2s;
-	}
-	
-	.close-btn:hover {
-		background: #f3f4f6;
-		color: #1f2937;
-	}
-	
-	.modal-body {
-		padding: 1.5rem;
-	}
-	
-	.modal-footer {
-		display: flex;
-		align-items: center;
-		justify-content: flex-end;
-		gap: 0.75rem;
-		padding: 1.5rem;
-		border-top: 1px solid #e5e7eb;
 	}
 	
 	.form-row {
@@ -1668,25 +1525,6 @@
 		color: #6b7280;
 	}
 
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 2rem;
-		color: #9ca3af;
-		text-align: center;
-	}
-
-	.empty-state p {
-		margin: 0.75rem 0 0.25rem;
-		color: #6b7280;
-		font-weight: 500;
-	}
-
-	.empty-state span {
-		font-size: 0.813rem;
-	}
 
 	.api-keys-list {
 		display: flex;
@@ -1825,10 +1663,6 @@
 
 		.form-row {
 			grid-template-columns: 1fr;
-		}
-
-		.modal {
-			max-width: calc(100vw - 2rem);
 		}
 
 		.storage-overview {

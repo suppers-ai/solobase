@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
+	"github.com/suppers-ai/solobase/constants"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/utils"
 )
@@ -15,16 +15,7 @@ import (
 // HandleGetLogs returns paginated logs
 func HandleGetLogs(logsService *services.LogsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Parse query parameters
-		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-		if page < 1 {
-			page = 1
-		}
-
-		size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-		if size < 1 || size > 1000 {
-			size = 100
-		}
+		page, size, _ := utils.GetPaginationParams(r, constants.LogsPageSize)
 
 		level := r.URL.Query().Get("level")
 		search := r.URL.Query().Get("search")
@@ -77,16 +68,7 @@ func HandleGetLogs(logsService *services.LogsService) http.HandlerFunc {
 // HandleGetRequestLogs returns paginated request logs
 func HandleGetRequestLogs(logsService *services.LogsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Parse query parameters
-		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-		if page < 1 {
-			page = 1
-		}
-
-		size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-		if size < 1 || size > 1000 {
-			size = 100
-		}
+		page, size, _ := utils.GetPaginationParams(r, constants.LogsPageSize)
 
 		method := r.URL.Query().Get("method")
 		path := r.URL.Query().Get("path")
@@ -95,8 +77,8 @@ func HandleGetRequestLogs(logsService *services.LogsService) http.HandlerFunc {
 			timeRange = "24h"
 		}
 
-		minStatus, _ := strconv.Atoi(r.URL.Query().Get("minStatus"))
-		maxStatus, _ := strconv.Atoi(r.URL.Query().Get("maxStatus"))
+		minStatus := utils.GetIntQueryParam(r, "minStatus", 0)
+		maxStatus := utils.GetIntQueryParam(r, "maxStatus", 0)
 
 		// Get request logs
 		logs, total, err := logsService.GetRequestLogs(page, size, method, path, timeRange, minStatus, maxStatus)
@@ -248,8 +230,7 @@ func HandleClearLogs(logsService *services.LogsService) http.HandlerFunc {
 			OlderThan string `json:"olderThan"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+		if !utils.DecodeJSONBody(w, r, &request) {
 			return
 		}
 
@@ -263,12 +244,10 @@ func HandleClearLogs(logsService *services.LogsService) http.HandlerFunc {
 			return
 		}
 
-		result := map[string]interface{}{
+		utils.JSONResponse(w, http.StatusOK, map[string]interface{}{
 			"message": fmt.Sprintf("Successfully deleted %d log entries", deleted),
 			"deleted": deleted,
-		}
-
-		utils.JSONResponse(w, http.StatusOK, result)
+		})
 	}
 }
 

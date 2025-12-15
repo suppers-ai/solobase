@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Chart, registerables } from 'chart.js';
-	import { 
-		FileText, Search, Filter, Download,
+	import {
+		FileText, Filter, Download,
 		AlertCircle, Info, AlertTriangle, XCircle,
 		Clock, RefreshCw
 	} from 'lucide-svelte';
+	import SearchInput from '$lib/components/SearchInput.svelte';
 	import ExportButton from '$lib/components/ExportButton.svelte';
+	import PageHeader from '$lib/components/ui/PageHeader.svelte';
 	import { api } from '$lib/api';
 	
 	Chart.register(...registerables);
@@ -393,31 +395,26 @@
 
 <div class="logs-page">
 	<!-- Header -->
-	<div class="page-header">
-		<div class="header-content">
-			<div class="header-left">
-				<div class="header-title">
-					<FileText size={24} />
-					<h1>System Logs</h1>
-				</div>
-				<div class="header-meta">
-					<span class="meta-item">{totalLogs.toLocaleString()} total</span>
-					<span class="meta-separator">•</span>
-					<span class="meta-item error">{errorCount} errors</span>
-					<span class="meta-separator">•</span>
-					<span class="meta-item warning">{warningCount} warnings</span>
-					<span class="meta-separator">•</span>
-					<span class="meta-item info">{infoCount} info</span>
-				</div>
-			</div>
-			<div class="header-info">
-				<span class="info-item {autoRefresh ? 'active' : 'paused'}">
-					<RefreshCw size={14} class={autoRefresh ? 'spinning' : ''} />
-					{autoRefresh ? 'Auto-refresh' : 'Paused'}
-				</span>
-			</div>
-		</div>
-	</div>
+	<PageHeader
+		title="System Logs"
+		icon={FileText}
+	>
+		<svelte:fragment slot="meta">
+			<span class="meta-item">{totalLogs.toLocaleString()} total</span>
+			<span class="meta-separator">•</span>
+			<span class="meta-item error">{errorCount} errors</span>
+			<span class="meta-separator">•</span>
+			<span class="meta-item warning">{warningCount} warnings</span>
+			<span class="meta-separator">•</span>
+			<span class="meta-item info">{infoCount} info</span>
+		</svelte:fragment>
+		<svelte:fragment slot="info">
+			<span class="info-item {autoRefresh ? 'active' : 'paused'}">
+				<RefreshCw size={14} class={autoRefresh ? 'spinning' : ''} />
+				{autoRefresh ? 'Auto-refresh' : 'Paused'}
+			</span>
+		</svelte:fragment>
+	</PageHeader>
 
 	<!-- Content Area -->
 	<div class="content-area">
@@ -458,15 +455,8 @@
 		
 		<div class="logs-header">
 			<div class="logs-filters">
-				<div class="search-box">
-					<Search size={16} />
-					<input 
-						type="text" 
-						placeholder="Search logs..."
-						bind:value={searchQuery}
-					/>
-				</div>
-				
+				<SearchInput bind:value={searchQuery} placeholder="Search logs..." maxWidth="280px" />
+
 				<select class="filter-select" bind:value={selectedLevel} on:change={handleFilterChange}>
 					<option value="">All Levels</option>
 					<option value="error">Errors</option>
@@ -585,88 +575,6 @@
 		background: #f8fafc;
 	}
 
-	/* Header */
-	.page-header {
-		background: white;
-		border-bottom: 1px solid #e2e8f0;
-		padding: 1.5rem 2rem;
-	}
-
-	.header-content {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.header-left {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.header-title {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-	}
-
-	.header-title h1 {
-		font-size: 1.5rem;
-		font-weight: 600;
-		color: #0f172a;
-		margin: 0;
-	}
-
-	.header-meta {
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
-		margin-left: 2.25rem;
-	}
-
-	.meta-item {
-		font-size: 0.8125rem;
-		color: #64748b;
-	}
-
-	.meta-item.error {
-		color: #ef4444;
-	}
-
-	.meta-item.warning {
-		color: #f59e0b;
-	}
-
-	.meta-item.info {
-		color: #3b82f6;
-	}
-
-	.meta-separator {
-		color: #cbd5e1;
-		margin: 0 0.25rem;
-	}
-
-	.header-info {
-		display: flex;
-		gap: 1.5rem;
-	}
-
-	.info-item {
-		display: flex;
-		align-items: center;
-		gap: 0.375rem;
-		font-size: 0.875rem;
-		font-weight: 500;
-	}
-
-	.info-item.active {
-		color: #22c55e;
-	}
-
-	.info-item.paused {
-		color: #94a3b8;
-	}
-
 	/* Content Area */
 	.content-area {
 		flex: 1;
@@ -683,43 +591,6 @@
 	}
 
 	/* Search and Filters */
-	.search-box {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		max-width: 280px;
-		height: 36px;
-		padding: 0 0.75rem;
-		border: 1px solid #e2e8f0;
-		border-radius: 6px;
-		background: white;
-		transition: all 0.15s;
-	}
-	
-	.search-box:focus-within {
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.search-box svg {
-		color: #94a3b8;
-		flex-shrink: 0;
-	}
-	
-	.search-box input {
-		border: none;
-		background: none;
-		outline: none;
-		flex: 1;
-		font-size: 0.875rem;
-		color: #475569;
-		padding: 0;
-	}
-	
-	.search-box input::placeholder {
-		color: #94a3b8;
-	}
-
 	.filter-select {
 		height: 36px;
 		padding: 0 0.75rem;

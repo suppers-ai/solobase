@@ -1,7 +1,6 @@
 package custom_tables
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -38,16 +37,10 @@ type CreateTableRequest struct {
 
 // CreateTable handles POST /api/admin/custom-tables
 func (h *Handler) CreateTable(w http.ResponseWriter, r *http.Request) {
-	// Get user ID from context
-	userID := ""
-	if userValue := r.Context().Value("user_id"); userValue != nil {
-		userID = userValue.(string)
-	}
+	userID := utils.GetUserIDFromContext(r)
 
-	// Parse request
 	var req CreateTableRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -150,16 +143,10 @@ func (h *Handler) AlterTable(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	tableName := vars["name"]
 
-	// Get user ID from context
-	userID := ""
-	if userValue := r.Context().Value("user_id"); userValue != nil {
-		userID = userValue.(string)
-	}
+	userID := utils.GetUserIDFromContext(r)
 
-	// Parse request
 	var req AlterTableRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -188,11 +175,7 @@ func (h *Handler) DropTable(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	tableName := vars["name"]
 
-	// Get user ID from context
-	userID := ""
-	if userValue := r.Context().Value("user_id"); userValue != nil {
-		userID = userValue.(string)
-	}
+	userID := utils.GetUserIDFromContext(r)
 
 	// Check for permanent deletion flag
 	permanent := r.URL.Query().Get("permanent") == "true"
@@ -232,10 +215,8 @@ func (h *Handler) InsertData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse request
 	var req InsertDataRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -384,10 +365,8 @@ func (h *Handler) UpdateRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse request
 	var updates map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		utils.JSONError(w, http.StatusBadRequest, "Invalid request body")
+	if !utils.DecodeJSONBody(w, r, &updates) {
 		return
 	}
 
