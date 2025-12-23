@@ -2,22 +2,7 @@ package logger
 
 import (
 	"context"
-	"fmt"
-	"path/filepath"
-	"runtime"
 )
-
-// getCaller returns the caller information
-func getCaller() string {
-	_, file, line, ok := runtime.Caller(3)
-	if !ok {
-		return ""
-	}
-
-	// Get just the filename
-	file = filepath.Base(file)
-	return fmt.Sprintf("%s:%d", file, line)
-}
 
 // contextKey is a type for context keys
 type contextKey string

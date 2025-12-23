@@ -2,25 +2,26 @@ package extensions
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/suppers-ai/solobase/internal/pkg/logger"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
+	_ "github.com/glebarez/go-sqlite" // Pure Go SQLite driver
 )
 
 func TestExtensionManager(t *testing.T) {
 	// Create in-memory SQLite database for testing
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	sqlDB, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}
+	defer sqlDB.Close()
 
 	// Create test logger
 	testLogger := &testLogger{}
 
 	// Create extension manager
-	manager, err := NewExtensionManager(db, testLogger)
+	manager, err := NewExtensionManager(sqlDB, testLogger)
 	if err != nil {
 		t.Fatalf("Failed to create extension manager: %v", err)
 	}

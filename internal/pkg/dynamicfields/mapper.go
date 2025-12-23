@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // Mapper handles field value transformations and mappings
@@ -24,8 +24,8 @@ func (m *Mapper) MapToDocument(id string, data map[string]interface{}) (*Documen
 		SchemaID:  m.schema.Name,
 		Values:    make(map[string]interface{}),
 		Metadata:  make(map[string]interface{}),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: apptime.NowTime(),
+		UpdatedAt: apptime.NowTime(),
 	}
 
 	for _, field := range m.schema.Fields {
@@ -143,11 +143,11 @@ func (m *Mapper) mapToBoolean(value interface{}) (bool, error) {
 }
 
 // mapToDate converts various types to date
-func (m *Mapper) mapToDate(value interface{}) (time.Time, error) {
+func (m *Mapper) mapToDate(value interface{}) (apptime.Time, error) {
 	switch v := value.(type) {
-	case time.Time:
+	case apptime.Time:
 		// Truncate to date only
-		return time.Date(v.Year(), v.Month(), v.Day(), 0, 0, 0, 0, v.Location()), nil
+		return apptime.Date(v.Year(), v.Month(), v.Day(), 0, 0, 0, 0, v.Location()), nil
 	case string:
 		// Try various date formats
 		formats := []string{
@@ -155,44 +155,44 @@ func (m *Mapper) mapToDate(value interface{}) (time.Time, error) {
 			"2006/01/02",
 			"01/02/2006",
 			"02/01/2006",
-			time.RFC3339,
+			apptime.TimeFormat,
 		}
 		for _, format := range formats {
-			if t, err := time.Parse(format, v); err == nil {
-				return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()), nil
+			if t, err := apptime.ParseWithLayout(format, v); err == nil {
+				return apptime.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()), nil
 			}
 		}
-		return time.Time{}, fmt.Errorf("cannot parse date: %s", v)
+		return apptime.Time{}, fmt.Errorf("cannot parse date: %s", v)
 	default:
-		return time.Time{}, fmt.Errorf("cannot convert %T to date", value)
+		return apptime.Time{}, fmt.Errorf("cannot convert %T to date", value)
 	}
 }
 
 // mapToDateTime converts various types to datetime
-func (m *Mapper) mapToDateTime(value interface{}) (time.Time, error) {
+func (m *Mapper) mapToDateTime(value interface{}) (apptime.Time, error) {
 	switch v := value.(type) {
-	case time.Time:
+	case apptime.Time:
 		return v, nil
 	case string:
 		// Try various datetime formats
 		formats := []string{
-			time.RFC3339,
-			time.RFC3339Nano,
+			apptime.TimeFormat,
+			apptime.TimeFormatNano,
 			"2006-01-02 15:04:05",
 			"2006-01-02T15:04:05",
 			"2006/01/02 15:04:05",
 		}
 		for _, format := range formats {
-			if t, err := time.Parse(format, v); err == nil {
+			if t, err := apptime.ParseWithLayout(format, v); err == nil {
 				return t, nil
 			}
 		}
-		return time.Time{}, fmt.Errorf("cannot parse datetime: %s", v)
+		return apptime.Time{}, fmt.Errorf("cannot parse datetime: %s", v)
 	case int64:
 		// Assume Unix timestamp
-		return time.Unix(v, 0), nil
+		return apptime.Unix(v, 0), nil
 	default:
-		return time.Time{}, fmt.Errorf("cannot convert %T to datetime", value)
+		return apptime.Time{}, fmt.Errorf("cannot convert %T to datetime", value)
 	}
 }
 
@@ -331,12 +331,12 @@ func (m *Mapper) extractValue(field *Field, value interface{}) interface{} {
 
 	switch field.Type {
 	case FieldTypeDate:
-		if t, ok := value.(time.Time); ok {
+		if t, ok := value.(apptime.Time); ok {
 			return t.Format("2006-01-02")
 		}
 	case FieldTypeDateTime:
-		if t, ok := value.(time.Time); ok {
-			return t.Format(time.RFC3339)
+		if t, ok := value.(apptime.Time); ok {
+			return t.Format(apptime.TimeFormat)
 		}
 	case FieldTypeGeo:
 		if point, ok := value.(GeoPoint); ok {

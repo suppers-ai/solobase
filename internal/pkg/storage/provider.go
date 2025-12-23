@@ -3,7 +3,7 @@ package storage
 import (
 	"context"
 	"io"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // Provider defines the interface for storage backends
@@ -22,7 +22,7 @@ type Provider interface {
 	ListObjects(ctx context.Context, bucket, prefix string, opts ListObjectsOptions) ([]ObjectInfo, error)
 
 	// URL operations
-	GeneratePresignedURL(ctx context.Context, bucket, key string, expires time.Duration) (string, error)
+	GeneratePresignedURL(ctx context.Context, bucket, key string, expires apptime.Duration) (string, error)
 
 	// Provider info
 	Name() string
@@ -68,7 +68,7 @@ type ListObjectsOptions struct {
 // BucketInfo contains information about a bucket
 type BucketInfo struct {
 	Name        string
-	CreatedAt   time.Time
+	CreatedAt   apptime.Time
 	Public      bool
 	Region      string
 	ObjectCount int64
@@ -81,7 +81,7 @@ type ObjectInfo struct {
 	Size         int64
 	ETag         string
 	ContentType  string
-	LastModified time.Time
+	LastModified apptime.Time
 	Metadata     map[string]string
 	IsDir        bool
 }
@@ -113,14 +113,4 @@ type Config struct {
 	AzureContainer   string
 }
 
-// NewProvider creates a new storage provider based on the configuration
-func NewProvider(cfg Config) (Provider, error) {
-	switch cfg.Provider {
-	case ProviderLocal:
-		return NewLocalProvider(cfg)
-	case ProviderS3:
-		return NewS3Provider(cfg)
-	default:
-		return NewLocalProvider(cfg) // Default to local
-	}
-}
+// NewProvider is implemented in provider_standard.go and provider_wasm.go

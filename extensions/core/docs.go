@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 	"text/template"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // DocumentationGenerator generates documentation for extensions
@@ -35,7 +35,7 @@ func (dg *DocumentationGenerator) GenerateMarkdown() (string, error) {
 
 	// Header
 	buf.WriteString("# Solobase Extensions Documentation\n\n")
-	buf.WriteString(fmt.Sprintf("Generated: %s\n\n", time.Now().Format(time.RFC3339)))
+	buf.WriteString(fmt.Sprintf("Generated: %s\n\n", apptime.NowTime().Format(apptime.TimeFormat)))
 	buf.WriteString("## Table of Contents\n\n")
 
 	// TOC

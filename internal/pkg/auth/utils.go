@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/google/uuid"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
 )
 
 // GenerateToken generates a random token of the specified length

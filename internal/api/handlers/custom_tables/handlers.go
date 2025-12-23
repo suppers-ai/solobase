@@ -1,6 +1,8 @@
 package custom_tables
 
 import (
+	"database/sql"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -9,17 +11,16 @@ import (
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/internal/data/models"
 	"github.com/suppers-ai/solobase/utils"
-	"gorm.io/gorm"
 )
 
 // Handler handles custom table API requests
 type Handler struct {
 	service *services.CustomTablesService
-	db      *gorm.DB
+	db      *sql.DB
 }
 
 // NewHandler creates a new custom tables handler
-func NewHandler(service *services.CustomTablesService, db *gorm.DB) *Handler {
+func NewHandler(service *services.CustomTablesService, db *sql.DB) *Handler {
 	return &Handler{
 		service: service,
 		db:      db,
@@ -98,7 +99,7 @@ func (h *Handler) ListTables(w http.ResponseWriter, r *http.Request) {
 	for i, table := range tables {
 		// Get row count
 		var count int64
-		h.db.Table(table.Name).Count(&count)
+		h.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table.Name)).Scan(&count)
 
 		response[i] = map[string]interface{}{
 			"id":          table.ID,

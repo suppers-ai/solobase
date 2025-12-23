@@ -3,24 +3,24 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"log"
 	"net/http"
-	"os"
 	"strings"
-	"time"
 
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"github.com/suppers-ai/solobase/extensions/core"
 	commonjwt "github.com/suppers-ai/solobase/internal/common/jwt"
 	"github.com/suppers-ai/solobase/internal/constants"
 	"github.com/suppers-ai/solobase/internal/core/services"
+	"github.com/suppers-ai/solobase/internal/env"
 	"github.com/suppers-ai/solobase/internal/iam"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
-	"github.com/suppers-ai/solobase/internal/pkg/database"
+	"github.com/suppers-ai/solobase/internal/pkg/crypto"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
+	db "github.com/suppers-ai/solobase/internal/sqlc/gen"
 	"github.com/suppers-ai/solobase/utils"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // SetJWTSecret delegates to the common JWT package to ensure consistency
@@ -44,14 +44,6 @@ type SignupRequest struct {
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
-type Claims struct {
-	UserID string   `json:"userId"`
-	Email  string   `json:"email"`
-	Roles  []string `json:"roles"` // Array of role names from IAM
-	jwt.RegisteredClaims
-}
-
-
 // generateRefreshToken creates a secure random refresh token
 func generateRefreshToken() (string, error) {
 	b := make([]byte, 32)
@@ -63,7 +55,7 @@ func generateRefreshToken() (string, error) {
 
 // isProduction checks if we're running in production mode
 func isProduction() bool {
-	env := os.Getenv("ENVIRONMENT")
+	env := env.GetEnv("ENVIRONMENT")
 	return env == "production" || env == "prod"
 }
 
@@ -92,8 +84,20 @@ func createAuthCookie(name, value string, maxAge int) *http.Cookie {
 	return cookie
 }
 
-func HandleLogin(authService *services.AuthService, storageService *services.StorageService, extensionRegistry *core.ExtensionRegistry, iamService *iam.Service, db *database.DB) http.HandlerFunc {
+func HandleLogin(authService *services.AuthService, storageService *services.StorageService, extensionRegistry *core.ExtensionRegistry, iamService *iam.Service, sqlDB *sql.DB) http.HandlerFunc {
+	// Handle WASM mode where services may be nil
+	var queries *db.Queries
+	if sqlDB != nil {
+		queries = db.New(sqlDB)
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Check if auth service is available (WASM mode check)
+		if authService == nil || queries == nil {
+			utils.JSONError(w, http.StatusServiceUnavailable, "Authentication service not available in WASM mode without database")
+			return
+		}
+
 		log.Printf("Login request received")
 
 		var req LoginRequest
@@ -127,7 +131,7 @@ func HandleLogin(authService *services.AuthService, storageService *services.Sto
 					"userID":    user.ID.String(),
 					"userEmail": user.Email,
 					// Role info now comes from IAM system
-					"appID":     appID,
+					"appID": appID,
 				},
 				Services: nil, // Services will be set by the registry
 			}
@@ -162,7 +166,7 @@ func HandleLogin(authService *services.AuthService, storageService *services.Sto
 
 		// In read-only mode, skip refresh token storage (database writes are blocked)
 		// Users will need to re-login when access token expires
-		if os.Getenv("READONLY_MODE") != "true" {
+		if env.GetEnv("READONLY_MODE") != "true" {
 			// Generate refresh token
 			refreshTokenStr, err := generateRefreshToken()
 			if err != nil {
@@ -172,22 +176,25 @@ func HandleLogin(authService *services.AuthService, storageService *services.Sto
 			}
 
 			// Create a token family for rotation tracking
-			familyID := uuid.New()
+			familyID := uuid.New().String()
+			tokenHash := auth.HashToken(refreshTokenStr)
+			ipAddress := getClientIP(r)
+			deviceInfo := getUserAgent(r)
 
-			// Store refresh token in database
-			refreshToken := &auth.Token{
-				ID:         uuid.New(),
-				UserID:     user.ID,
-				TokenHash:  auth.HashToken(refreshTokenStr),
-				Type:       auth.TokenTypeRefresh,
+			// Store refresh token in database using sqlc
+			_, err = queries.CreateToken(r.Context(), db.CreateTokenParams{
+				ID:         uuid.New().String(),
+				UserID:     user.ID.String(),
+				TokenHash:  &tokenHash,
+				Type:       string(auth.TokenTypeRefresh),
 				FamilyID:   &familyID,
-				ExpiresAt:  time.Now().Add(constants.RefreshTokenDuration),
-				CreatedAt:  time.Now(),
-				IPAddress:  getClientIP(r),
-				DeviceInfo: getUserAgent(r),
-			}
+				ExpiresAt:  apptime.NullTime{Time: apptime.NowTime().Add(constants.RefreshTokenDuration), Valid: true},
+				CreatedAt:  apptime.NowString(),
+				IpAddress:  ipAddress,
+				DeviceInfo: deviceInfo,
+			})
 
-			if err := db.Create(refreshToken).Error; err != nil {
+			if err != nil {
 				log.Printf("Failed to store refresh token for %s: %v", req.Email, err)
 				utils.JSONError(w, http.StatusInternalServerError, "Failed to create session")
 				return
@@ -220,15 +227,21 @@ func HandleLogin(authService *services.AuthService, storageService *services.Sto
 	}
 }
 
-func HandleLogout(db *database.DB) http.HandlerFunc {
+func HandleLogout(sqlDB *sql.DB) http.HandlerFunc {
+	queries := db.New(sqlDB)
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Revoke refresh token if present
 		if cookie, err := r.Cookie("refresh_token"); err == nil && cookie.Value != "" {
 			tokenHash := auth.HashToken(cookie.Value)
-			now := time.Now()
-			db.Model(&auth.Token{}).
-				Where("token_hash = ? AND type = ? AND revoked_at IS NULL", tokenHash, auth.TokenTypeRefresh).
-				Update("revoked_at", now)
+			now := apptime.NowTime()
+			// Get token by hash first, then revoke by ID
+			if token, err := queries.GetTokenByHash(r.Context(), &tokenHash); err == nil {
+				_ = queries.RevokeToken(r.Context(), db.RevokeTokenParams{
+					RevokedAt: apptime.NullTime{Time: now, Valid: true},
+					ID:        token.ID,
+				})
+			}
 		}
 
 		// Clear the access token cookie
@@ -244,7 +257,9 @@ func HandleLogout(db *database.DB) http.HandlerFunc {
 }
 
 // HandleRefreshToken handles token refresh requests
-func HandleRefreshToken(db *database.DB, iamService *iam.Service, authService *services.AuthService) http.HandlerFunc {
+func HandleRefreshToken(sqlDB *sql.DB, iamService *iam.Service, authService *services.AuthService) http.HandlerFunc {
+	queries := db.New(sqlDB)
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get refresh token from cookie
 		cookie, err := r.Cookie("refresh_token")
@@ -256,38 +271,53 @@ func HandleRefreshToken(db *database.DB, iamService *iam.Service, authService *s
 		refreshTokenStr := cookie.Value
 		tokenHash := auth.HashToken(refreshTokenStr)
 
-		// Find the refresh token in database
-		var token auth.Token
-		if err := db.Where("token_hash = ? AND type = ? AND revoked_at IS NULL", tokenHash, auth.TokenTypeRefresh).
-			First(&token).Error; err != nil {
+		// Find the refresh token in database using sqlc
+		token, err := queries.GetTokenByHash(r.Context(), &tokenHash)
+		if err != nil {
 			utils.JSONError(w, http.StatusUnauthorized, "Invalid refresh token")
 			return
 		}
 
+		// Check if token is revoked
+		if token.RevokedAt.Valid {
+			utils.JSONError(w, http.StatusUnauthorized, "Token has been revoked")
+			return
+		}
+
+		// Check token type
+		if token.Type != string(auth.TokenTypeRefresh) {
+			utils.JSONError(w, http.StatusUnauthorized, "Invalid token type")
+			return
+		}
+
 		// Check if token is expired
-		if time.Now().After(token.ExpiresAt) {
+		if token.ExpiresAt.Valid && apptime.NowTime().After(token.ExpiresAt.Time) {
 			utils.JSONError(w, http.StatusUnauthorized, "Refresh token expired")
 			return
 		}
 
 		// Check if token was already used (replay attack detection)
-		if token.UsedAt != nil {
+		if token.UsedAt.Valid {
 			// Token reuse detected - revoke entire token family
 			log.Printf("WARNING: Refresh token reuse detected for user %s, revoking token family", token.UserID)
-			now := time.Now()
-			db.Model(&auth.Token{}).
-				Where("family_id = ?", token.FamilyID).
-				Update("revoked_at", now)
+			now := apptime.NowTime()
+			_ = queries.RevokeTokensByFamily(r.Context(), db.RevokeTokensByFamilyParams{
+				RevokedAt: apptime.NullTime{Time: now, Valid: true},
+				FamilyID:  token.FamilyID,
+			})
 			utils.JSONError(w, http.StatusUnauthorized, "Token reuse detected")
 			return
 		}
 
 		// Mark current token as used
-		now := time.Now()
-		db.Model(&token).Update("used_at", now)
+		now := apptime.NowTime()
+		_ = queries.UpdateTokenUsed(r.Context(), db.UpdateTokenUsedParams{
+			UsedAt: apptime.NullTime{Time: now, Valid: true},
+			ID:     token.ID,
+		})
 
 		// Get user
-		user, err := authService.GetUserByID(token.UserID.String())
+		user, err := authService.GetUserByID(token.UserID)
 		if err != nil {
 			utils.JSONError(w, http.StatusUnauthorized, "User not found")
 			return
@@ -308,19 +338,23 @@ func HandleRefreshToken(db *database.DB, iamService *iam.Service, authService *s
 		}
 
 		// Store new refresh token with same family ID
-		newRefreshToken := &auth.Token{
-			ID:        uuid.New(),
-			UserID:    user.ID,
-			TokenHash: auth.HashToken(newRefreshTokenStr),
-			Type:      auth.TokenTypeRefresh,
-			FamilyID:  token.FamilyID, // Same family for rotation tracking
-			ExpiresAt: time.Now().Add(constants.RefreshTokenDuration),
-			CreatedAt: time.Now(),
-			IPAddress: getClientIP(r),
-			DeviceInfo: getUserAgent(r),
-		}
+		newTokenHash := auth.HashToken(newRefreshTokenStr)
+		ipAddress := getClientIP(r)
+		deviceInfo := getUserAgent(r)
 
-		if err := db.Create(newRefreshToken).Error; err != nil {
+		_, err = queries.CreateToken(r.Context(), db.CreateTokenParams{
+			ID:         uuid.New().String(),
+			UserID:     user.ID.String(),
+			TokenHash:  &newTokenHash,
+			Type:       string(auth.TokenTypeRefresh),
+			FamilyID:   token.FamilyID, // Same family for rotation tracking
+			ExpiresAt:  apptime.NullTime{Time: apptime.NowTime().Add(constants.RefreshTokenDuration), Valid: true},
+			CreatedAt:  apptime.NowString(),
+			IpAddress:  ipAddress,
+			DeviceInfo: deviceInfo,
+		})
+
+		if err != nil {
 			utils.JSONError(w, http.StatusInternalServerError, "Failed to create session")
 			return
 		}
@@ -339,26 +373,34 @@ func HandleRefreshToken(db *database.DB, iamService *iam.Service, authService *s
 
 func HandleSignup(authService *services.AuthService, iamService *iam.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Signup request received")
+
 		var req SignupRequest
 		if !utils.DecodeJSONBody(w, r, &req) {
 			return
 		}
 
-		// Hash password
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		log.Printf("Signup attempt for email: %s", req.Email)
+
+		// Hash password using adapter (bcrypt for standard, sha256 for WASM)
+		hashedPassword, err := crypto.HashPassword(req.Password)
 		if err != nil {
+			log.Printf("Failed to hash password for %s: %v", req.Email, err)
 			utils.JSONError(w, http.StatusInternalServerError, "Failed to process password")
 			return
 		}
 
+		log.Printf("Password hashed successfully for %s", req.Email)
+
 		user := &auth.User{
 			Email:    req.Email,
-			Password: string(hashedPassword),
+			Password: hashedPassword,
 			// Role is now handled by IAM system
 			// Metadata can be handled separately if needed
 		}
 
 		if err := authService.CreateUser(user); err != nil {
+			log.Printf("Failed to create user %s: %v", req.Email, err)
 			utils.JSONError(w, http.StatusBadRequest, "Failed to create user")
 			return
 		}
@@ -399,8 +441,8 @@ func HandleUpdateCurrentUser(userService *services.UserService) http.HandlerFunc
 
 		// Remove fields that users shouldn't be able to update themselves
 		delete(updates, "id")
-		delete(updates, "password") // Password should be updated via change-password endpoint
-		delete(updates, "role")     // Role changes should go through IAM
+		delete(updates, "password")  // Password should be updated via change-password endpoint
+		delete(updates, "role")      // Role changes should go through IAM
 		delete(updates, "confirmed") // Email confirmation status
 		delete(updates, "created_at")
 		delete(updates, "deleted_at")
@@ -436,8 +478,8 @@ func HandleChangePassword(authService *services.AuthService) http.HandlerFunc {
 			return
 		}
 
-		// Verify current password
-		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.CurrentPassword)); err != nil {
+		// Verify current password using adapter
+		if err := crypto.ComparePassword(user.Password, req.CurrentPassword); err != nil {
 			utils.JSONError(w, http.StatusUnauthorized, "Current password is incorrect")
 			return
 		}
@@ -448,15 +490,15 @@ func HandleChangePassword(authService *services.AuthService) http.HandlerFunc {
 			return
 		}
 
-		// Hash new password
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+		// Hash new password using adapter
+		hashedPassword, err := crypto.HashPassword(req.NewPassword)
 		if err != nil {
 			utils.JSONError(w, http.StatusInternalServerError, "Failed to process password")
 			return
 		}
 
 		// Update password in database
-		if err := authService.UpdateUserPassword(user.ID.String(), string(hashedPassword)); err != nil {
+		if err := authService.UpdateUserPassword(user.ID.String(), hashedPassword); err != nil {
 			log.Printf("Failed to update password for user %s: %v", user.Email, err)
 			utils.JSONError(w, http.StatusInternalServerError, "Failed to update password")
 			return
@@ -482,18 +524,8 @@ func generateAccessToken(user *auth.User, iamService *iam.Service) (string, erro
 		}
 	}
 
-	claims := &Claims{
-		UserID: user.ID.String(),
-		Email:  user.Email,
-		Roles:  roleNames,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(constants.AccessTokenDuration)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-		},
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(commonjwt.GetJWTSecret())
+	// Use build-tag specific token generation (standard vs WASM)
+	return createSignedToken(user.ID.String(), user.Email, roleNames)
 }
 
 // getClientIP extracts the client IP address from the request

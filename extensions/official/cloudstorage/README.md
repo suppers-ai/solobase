@@ -146,7 +146,7 @@ The extension uses both base storage tables and its own extension tables:
 - `ext_cloudstorage_policies` - Bucket access policies
 - `ext_cloudstorage_webhooks` - Event webhooks
 
-All tables are auto-migrated using GORM when the extension initializes.
+All tables are auto-migrated using raw SQL when the extension initializes.
 
 ## Dashboard
 
@@ -163,7 +163,7 @@ Access the CloudStorage dashboard at `/ext/cloudstorage` when the extension is e
 The extension follows Solobase's extension architecture:
 
 1. Implements the `Extension` interface
-2. Uses GORM for database operations
+2. Uses raw SQL for database operations
 3. Leverages the `packages/storage` module for storage operations
 4. Provides a web dashboard and REST API
 5. Integrates with Solobase's permission system

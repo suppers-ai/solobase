@@ -25,13 +25,7 @@ export {
 	type DashboardStats,
 	type AppSettings,
 	type Extension,
-	type ExtensionStatus,
-	type Webhook,
-	type WebhookCreateRequest,
-	type AnalyticsStats,
-	type AnalyticsPageview,
-	type AnalyticsDailyStats,
-	type AnalyticsEvent
+	type ExtensionStatus
 } from './api.types';
 
 // Re-export database types

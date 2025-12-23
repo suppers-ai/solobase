@@ -4,24 +4,24 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/suppers-ai/solobase/internal/pkg/auth"
-	"github.com/suppers-ai/solobase/internal/pkg/database"
-	"github.com/suppers-ai/solobase/internal/pkg/logger"
 	"github.com/suppers-ai/solobase/internal/config"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/internal/iam"
+	"github.com/suppers-ai/solobase/internal/pkg/auth"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 )
 
 // ExtensionServices provides controlled access to core application services
 type ExtensionServices struct {
 	// Core services with controlled access
-	db          database.Database
-	auth        *auth.Service
-	logger      logger.Logger
-	storage     *services.EnhancedStorageService
-	config      *config.Config
-	stats       *services.StatsService
-	iam         *iam.Service
+	db      database.Database
+	auth    *auth.Service
+	logger  logger.Logger
+	storage *services.EnhancedStorageService
+	config  *config.Config
+	stats   *services.StatsService
+	iam     *iam.Service
 
 	// Extension-specific context
 	extensionName string
@@ -39,13 +39,13 @@ func NewExtensionServices(
 	iamSvc *iam.Service,
 ) *ExtensionServices {
 	return &ExtensionServices{
-		db:          db,
-		auth:        auth,
-		logger:      logger,
-		storage:     storage,
-		config:      config,
-		stats:       stats,
-		iam:         iamSvc,
+		db:      db,
+		auth:    auth,
+		logger:  logger,
+		storage: storage,
+		config:  config,
+		stats:   stats,
+		iam:     iamSvc,
 	}
 }
 
@@ -207,20 +207,14 @@ type extensionAuth struct {
 }
 
 func (a *extensionAuth) GetUser(ctx context.Context, userID string) (interface{}, error) {
-	// Read-only access to user data
-	// TODO: Implement proper user loading through auth service
-	return nil, fmt.Errorf("not implemented")
+	return nil, fmt.Errorf("ExtensionAuth.GetUser: not available for extensions")
 }
 
 func (a *extensionAuth) ValidateToken(ctx context.Context, token string) (interface{}, error) {
-	// Validate JWT token
-	// TODO: Implement token validation
-	return nil, fmt.Errorf("not implemented")
+	return nil, fmt.Errorf("ExtensionAuth.ValidateToken: not available for extensions")
 }
 
 func (a *extensionAuth) CheckPermission(ctx context.Context, userID string, permission string) bool {
-	// Check if user has permission
-	// TODO: Implement permission checking
 	return false
 }
 
@@ -273,23 +267,19 @@ type extensionStorage struct {
 }
 
 func (s *extensionStorage) Upload(ctx context.Context, bucket, path string, content []byte) error {
-	// TODO: Implement file upload through storage service
-	return fmt.Errorf("not implemented")
+	return fmt.Errorf("ExtensionStorage.Upload: not available for extensions")
 }
 
 func (s *extensionStorage) Download(ctx context.Context, bucket, path string) ([]byte, error) {
-	// TODO: Implement file download through storage service
-	return nil, fmt.Errorf("not implemented")
+	return nil, fmt.Errorf("ExtensionStorage.Download: not available for extensions")
 }
 
 func (s *extensionStorage) Delete(ctx context.Context, bucket, path string) error {
-	// TODO: Implement file deletion through storage service
-	return fmt.Errorf("not implemented")
+	return fmt.Errorf("ExtensionStorage.Delete: not available for extensions")
 }
 
 func (s *extensionStorage) List(ctx context.Context, bucket, prefix string) ([]string, error) {
-	// TODO: Implement file listing through storage service
-	return nil, fmt.Errorf("not implemented")
+	return nil, fmt.Errorf("ExtensionStorage.List: not available for extensions")
 }
 
 // ExtensionConfigInterface provides extension configuration
@@ -308,8 +298,7 @@ type extensionConfig struct {
 }
 
 func (c *extensionConfig) Get(key string) interface{} {
-	// Get extension-specific config
-	// TODO: Implement proper config access
+	// Extension config not available - extensions should use their own config
 	return nil
 }
 

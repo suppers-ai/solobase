@@ -1,7 +1,7 @@
 package models
 
 import (
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // LineItem represents a single item in a purchase
@@ -27,43 +27,61 @@ type TaxItem struct {
 
 // Purchase represents a customer purchase
 type Purchase struct {
-	ID                      uint       `gorm:"primaryKey" json:"id"`
-	UserID                  string     `gorm:"index;size:36;not null" json:"userId"`
-	Provider                string     `gorm:"default:'stripe'" json:"provider"`                       // Payment provider (stripe, paypal, etc.)
-	ProviderSessionID       string     `gorm:"index" json:"providerSessionId"`                       // Stripe Checkout Session ID (cs_xxx)
-	ProviderPaymentIntentID string     `gorm:"index" json:"providerPaymentIntentId"`                // Stripe PaymentIntent ID (pi_xxx)
-	ProviderSubscriptionID  string     `gorm:"index" json:"providerSubscriptionId"`                  // For recurring purchases (sub_xxx)
-	LineItems               []LineItem `gorm:"type:jsonb;serializer:json" json:"lineItems"`           // Product breakdown
-	ProductMetadata         JSONB      `gorm:"type:jsonb" json:"productMetadata"`                     // Business context (dates, notes, etc.)
-	TaxItems                []TaxItem  `gorm:"type:jsonb;serializer:json" json:"taxItems"`            // Tax breakdowns
-	AmountCents             int64      `json:"amountCents"`                                           // Subtotal in cents (before tax)
-	TaxCents                int64      `json:"taxCents"`                                              // Total tax in cents
-	TotalCents              int64      `json:"totalCents"`                                            // Total amount in cents (including tax)
-	Currency                string     `gorm:"default:'USD'" json:"currency"`                          // Currency code
-	Status                  string     `gorm:"default:'pending';index" json:"status"`                  // pending, paid, refunded, cancelled, requires_approval, paid_pending_approval
-	RequiresApproval        bool       `gorm:"default:false" json:"requiresApproval"`                 // Whether approval is needed
-	ApprovedAt              *time.Time `json:"approvedAt,omitempty"`                                  // When purchase was approved
-	ApprovedBy              *string    `json:"approvedBy,omitempty"`                                  // User who approved
-	RefundedAt              *time.Time `json:"refundedAt,omitempty"`                                  // When refund was processed
-	RefundReason            string     `json:"refundReason,omitempty"`                                // Reason for refund
-	RefundAmount            int64      `json:"refundAmount,omitempty"`                                // Amount refunded in cents
-	CancelledAt             *time.Time `json:"cancelledAt,omitempty"`                                 // When purchase was cancelled
-	CancelReason            string     `json:"cancelReason,omitempty"`                                // Reason for cancellation
-	SuccessURL              string     `json:"successUrl,omitempty"`                                  // Redirect URL after successful payment
-	CancelURL               string     `json:"cancelUrl,omitempty"`                                   // Redirect URL if payment is cancelled
-	CustomerEmail           string     `json:"customerEmail,omitempty"`                               // Customer email for receipt
-	CustomerName            string     `json:"customerName,omitempty"`                                // Customer name
-	BillingAddress          JSONB      `gorm:"type:jsonb" json:"billingAddress,omitempty"`            // Billing address details
-	ShippingAddress         JSONB      `gorm:"type:jsonb" json:"shippingAddress,omitempty"`           // Shipping address if applicable
-	PaymentMethodTypes      []string   `gorm:"type:jsonb;serializer:json" json:"paymentMethodTypes"` // Allowed payment methods
-	ExpiresAt               *time.Time `json:"expiresAt,omitempty"`                                   // When checkout session expires
-	CreatedAt               time.Time  `json:"createdAt"`
-	UpdatedAt               time.Time  `json:"updatedAt"`
+	ID                      uint             `json:"id"`
+	UserID                  string           `json:"userId"`
+	Provider                string           `json:"provider"`                  // Payment provider (stripe, paypal, etc.)
+	ProviderSessionID       string           `json:"providerSessionId"`         // Stripe Checkout Session ID (cs_xxx)
+	ProviderPaymentIntentID string           `json:"providerPaymentIntentId"`   // Stripe PaymentIntent ID (pi_xxx)
+	ProviderSubscriptionID  string           `json:"providerSubscriptionId"`    // For recurring purchases (sub_xxx)
+	LineItems               []LineItem       `json:"lineItems"`                 // Product breakdown
+	ProductMetadata         JSONB            `json:"productMetadata"`           // Business context (dates, notes, etc.)
+	TaxItems                []TaxItem        `json:"taxItems"`                  // Tax breakdowns
+	AmountCents             int64            `json:"amountCents"`               // Subtotal in cents (before tax)
+	TaxCents                int64            `json:"taxCents"`                  // Total tax in cents
+	TotalCents              int64            `json:"totalCents"`                // Total amount in cents (including tax)
+	Currency                string           `json:"currency"`                  // Currency code
+	Status                  string           `json:"status"`                    // pending, paid, refunded, cancelled, requires_approval, paid_pending_approval
+	RequiresApproval        bool             `json:"requiresApproval"`          // Whether approval is needed
+	ApprovedAt              apptime.NullTime `json:"approvedAt,omitempty"`      // When purchase was approved
+	ApprovedBy              *string          `json:"approvedBy,omitempty"`      // User who approved
+	RefundedAt              apptime.NullTime `json:"refundedAt,omitempty"`      // When refund was processed
+	RefundReason            string           `json:"refundReason,omitempty"`    // Reason for refund
+	RefundAmount            int64            `json:"refundAmount,omitempty"`    // Amount refunded in cents
+	CancelledAt             apptime.NullTime `json:"cancelledAt,omitempty"`     // When purchase was cancelled
+	CancelReason            string           `json:"cancelReason,omitempty"`    // Reason for cancellation
+	SuccessURL              string           `json:"successUrl,omitempty"`      // Redirect URL after successful payment
+	CancelURL               string           `json:"cancelUrl,omitempty"`       // Redirect URL if payment is cancelled
+	CustomerEmail           string           `json:"customerEmail,omitempty"`   // Customer email for receipt
+	CustomerName            string           `json:"customerName,omitempty"`    // Customer name
+	BillingAddress          JSONB            `json:"billingAddress,omitempty"`  // Billing address details
+	ShippingAddress         JSONB            `json:"shippingAddress,omitempty"` // Shipping address if applicable
+	PaymentMethodTypes      []string         `json:"paymentMethodTypes"`        // Allowed payment methods
+	ExpiresAt               apptime.NullTime `json:"expiresAt,omitempty"`       // When checkout session expires
+	CreatedAt               apptime.Time     `json:"createdAt"`
+	UpdatedAt               apptime.Time     `json:"updatedAt"`
 }
 
 // TableName specifies the table name with extension prefix
 func (Purchase) TableName() string {
 	return "ext_products_purchases"
+}
+
+// PrepareForCreate prepares the purchase for insertion
+func (p *Purchase) PrepareForCreate() {
+	now := apptime.NowTime()
+	if p.CreatedAt.IsZero() {
+		p.CreatedAt = now
+	}
+	p.UpdatedAt = now
+	if p.Provider == "" {
+		p.Provider = PaymentProviderStripe
+	}
+	if p.Currency == "" {
+		p.Currency = "USD"
+	}
+	if p.Status == "" {
+		p.Status = PurchaseStatusPending
+	}
 }
 
 // PurchaseStatus constants

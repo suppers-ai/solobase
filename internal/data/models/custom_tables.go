@@ -5,22 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
+
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // CustomTableDefinition stores metadata about admin-created tables
 type CustomTableDefinition struct {
-	ID          uint                 `gorm:"primaryKey" json:"id"`
-	Name        string               `gorm:"uniqueIndex;not null" json:"name"`        // Actual table name with custom_ prefix
-	DisplayName string               `json:"displayName"`                             // User-friendly name without prefix
-	Description string               `json:"description"`
-	Fields      []CustomTableField   `gorm:"type:jsonb;serializer:json" json:"fields"` // Column definitions
-	Indexes     []CustomTableIndex   `gorm:"type:jsonb;serializer:json" json:"indexes"` // Index definitions
-	Options     CustomTableOptions   `gorm:"type:jsonb;serializer:json" json:"options"` // Table options
-	CreatedBy   string               `json:"createdBy"`                              // User ID who created the table
-	Status      string               `gorm:"default:'active'" json:"status"`          // active, disabled, archived
-	CreatedAt   time.Time            `json:"createdAt"`
-	UpdatedAt   time.Time            `json:"updatedAt"`
+	ID          uint               `json:"id"`
+	Name        string             `json:"name"`        // Actual table name with custom_ prefix
+	DisplayName string             `json:"displayName"` // User-friendly name without prefix
+	Description string             `json:"description"`
+	Fields      []CustomTableField `json:"fields"`  // Column definitions
+	Indexes     []CustomTableIndex `json:"indexes"` // Index definitions
+	Options     CustomTableOptions `json:"options"` // Table options
+	CreatedBy   string             `json:"createdBy"`
+	Status      string             `json:"status"` // active, disabled, archived
+	CreatedAt   apptime.Time       `json:"createdAt"`
+	UpdatedAt   apptime.Time       `json:"updatedAt"`
 }
 
 // TableName specifies the table name
@@ -31,7 +32,7 @@ func (CustomTableDefinition) TableName() string {
 // CustomTableField defines a column in a custom table
 type CustomTableField struct {
 	Name          string      `json:"name"`           // Column name
-	Type          string      `json:"type"`           // GORM data type: string, int, float, bool, time, json
+	Type          string      `json:"type"`           // Data type: string, int, float, bool, time, json
 	Size          int         `json:"size,omitempty"` // For varchar(n)
 	Nullable      bool        `json:"nullable"`
 	DefaultValue  interface{} `json:"defaultValue,omitempty"`
@@ -42,10 +43,10 @@ type CustomTableField struct {
 	Description   string      `json:"description,omitempty"`
 
 	// Foreign key support
-	ForeignKey    *ForeignKeyDef `json:"foreignKey,omitempty"`
+	ForeignKey *ForeignKeyDef `json:"foreignKey,omitempty"`
 
 	// Validation rules
-	Validation    FieldValidation `json:"validation,omitempty"`
+	Validation FieldValidation `json:"validation,omitempty"`
 }
 
 // ForeignKeyDef defines a foreign key relationship
@@ -58,13 +59,13 @@ type ForeignKeyDef struct {
 
 // FieldValidation defines validation rules for a field
 type FieldValidation struct {
-	MinLength   *int     `json:"minLength,omitempty"`
-	MaxLength   *int     `json:"maxLength,omitempty"`
-	MinValue    *float64 `json:"minValue,omitempty"`
-	MaxValue    *float64 `json:"maxValue,omitempty"`
-	Pattern     string   `json:"pattern,omitempty"`     // Regex pattern
-	EnumValues  []string `json:"enumValues,omitempty"` // Allowed values
-	Required    bool     `json:"required"`
+	MinLength  *int     `json:"minLength,omitempty"`
+	MaxLength  *int     `json:"maxLength,omitempty"`
+	MinValue   *float64 `json:"minValue,omitempty"`
+	MaxValue   *float64 `json:"maxValue,omitempty"`
+	Pattern    string   `json:"pattern,omitempty"`    // Regex pattern
+	EnumValues []string `json:"enumValues,omitempty"` // Allowed values
+	Required   bool     `json:"required"`
 }
 
 // CustomTableIndex defines an index on a custom table
@@ -77,27 +78,27 @@ type CustomTableIndex struct {
 
 // CustomTableOptions defines additional table options
 type CustomTableOptions struct {
-	SoftDelete     bool `json:"softDelete"`      // Add deleted_at field
-	Timestamps     bool `json:"timestamps"`       // Add created_at, updated_at
-	Versioning     bool `json:"versioning"`       // Add version field for optimistic locking
-	Auditing       bool `json:"auditing"`         // Track changes in audit log
-	CacheEnabled   bool `json:"cacheEnabled"`    // Enable query caching
-	MaxRows        int  `json:"maxRows,omitempty"` // Maximum allowed rows
+	SoftDelete   bool `json:"softDelete"`        // Add deleted_at field
+	Timestamps   bool `json:"timestamps"`        // Add created_at, updated_at
+	Versioning   bool `json:"versioning"`        // Add version field for optimistic locking
+	Auditing     bool `json:"auditing"`          // Track changes in audit log
+	CacheEnabled bool `json:"cacheEnabled"`      // Enable query caching
+	MaxRows      int  `json:"maxRows,omitempty"` // Maximum allowed rows
 }
 
 // CustomTableMigration tracks schema changes to custom tables
 type CustomTableMigration struct {
-	ID            uint                  `gorm:"primaryKey" json:"id"`
-	TableID       uint                  `gorm:"index" json:"tableId"`
-	Version       int                   `json:"version"`
-	MigrationType string                `json:"migrationType"` // create, alter, drop
-	OldSchema     json.RawMessage       `gorm:"type:jsonb" json:"oldSchema,omitempty"`
-	NewSchema     json.RawMessage       `gorm:"type:jsonb" json:"newSchema"`
-	ExecutedBy    string                `json:"executedBy"`
-	ExecutedAt    time.Time             `json:"executedAt"`
-	RollbackAt    *time.Time            `json:"rollbackAt,omitempty"`
-	Status        string                `json:"status"` // pending, completed, failed, rolled_back
-	ErrorMessage  string                `json:"errorMessage,omitempty"`
+	ID            uint            `json:"id"`
+	TableID       uint            `json:"tableId"`
+	Version       int             `json:"version"`
+	MigrationType string          `json:"migrationType"` // create, alter, drop
+	OldSchema     json.RawMessage `json:"oldSchema,omitempty"`
+	NewSchema     json.RawMessage `json:"newSchema"`
+	ExecutedBy    string           `json:"executedBy"`
+	ExecutedAt    apptime.Time    `json:"executedAt"`
+	RollbackAt    apptime.NullTime `json:"rollbackAt,omitempty"`
+	Status        string           `json:"status"` // pending, completed, failed, rolled_back
+	ErrorMessage  string          `json:"errorMessage,omitempty"`
 }
 
 // TableName specifies the table name
@@ -130,8 +131,8 @@ func (c *CustomTableData) Scan(value interface{}) error {
 	return json.Unmarshal(bytes, c)
 }
 
-// MapGORMType converts our simplified types to GORM/SQL types
-func MapGORMType(fieldType string, size int) string {
+// MapSQLType converts our simplified types to SQL types
+func MapSQLType(fieldType string, size int) string {
 	switch fieldType {
 	case "string":
 		if size > 0 && size <= 255 {
@@ -144,7 +145,7 @@ func MapGORMType(fieldType string, size int) string {
 		return "decimal"
 	case "bool":
 		return "boolean"
-	case "time":
+	case "github.com/suppers-ai/solobase/internal/pkg/apptime":
 		return "timestamp"
 	case "date":
 		return "date"
@@ -161,7 +162,7 @@ func MapGORMType(fieldType string, size int) string {
 
 // GetSQLType returns the SQL type definition for a field
 func (f CustomTableField) GetSQLType() string {
-	baseType := MapGORMType(f.Type, f.Size)
+	baseType := MapSQLType(f.Type, f.Size)
 
 	// Add size specification for varchar
 	if baseType == "varchar" && f.Size > 0 {

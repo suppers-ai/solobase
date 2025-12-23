@@ -1,15 +1,15 @@
 package constants
 
-import "time"
+import "github.com/suppers-ai/solobase/internal/pkg/apptime"
 
 // Authentication and Session Constants
 const (
 	// Token expiration durations
-	AccessTokenDuration        = 15 * time.Minute   // Short-lived JWT access token
-	RefreshTokenDuration       = 7 * 24 * time.Hour // 7 days refresh token
-	SessionExpirationDuration  = time.Hour
-	PasswordResetTokenDuration = time.Hour
-	EmailVerificationDuration  = 24 * time.Hour
+	AccessTokenDuration        = 15 * apptime.Minute   // Short-lived JWT access token
+	RefreshTokenDuration       = 7 * 24 * apptime.Hour // 7 days refresh token
+	SessionExpirationDuration  = apptime.Hour
+	PasswordResetTokenDuration = apptime.Hour
+	EmailVerificationDuration  = 24 * apptime.Hour
 
 	// Cookie settings
 	AuthCookieName   = "auth_token"
@@ -40,12 +40,12 @@ const (
 const (
 	// Query limits
 	MaxQueryResults = 10000
-	QueryTimeout    = 30 * time.Second
+	QueryTimeout    = 30 * apptime.Second
 
 	// Connection pool
 	MaxOpenConnections = 25
 	MaxIdleConnections = 5
-	ConnectionLifetime = 5 * time.Minute
+	ConnectionLifetime = 5 * apptime.Minute
 )
 
 // API Rate Limiting

@@ -2,10 +2,10 @@ package middleware
 
 import (
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/suppers-ai/solobase/internal/config"
+	"github.com/suppers-ai/solobase/internal/env"
 )
 
 // Default CORS settings
@@ -17,7 +17,7 @@ var (
 
 // getEnvSlice gets a comma-separated env var as a slice
 func getEnvSlice(key string, defaultValue []string) []string {
-	if value := os.Getenv(key); value != "" {
+	if value := env.GetEnv(key); value != "" {
 		return strings.Split(value, ",")
 	}
 	return defaultValue

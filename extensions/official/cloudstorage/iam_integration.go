@@ -3,19 +3,10 @@ package cloudstorage
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/internal/iam"
 )
-
-// UpdateQuotaFromIAM is deprecated - quotas are now managed directly by CloudStorage extension
-// Kept for backward compatibility but does nothing
-func (q *QuotaService) UpdateQuotaFromIAM(ctx context.Context, userID string, iamService *iam.Service) error {
-	// Quotas are now managed directly by CloudStorage extension, not from IAM metadata
-	// This function is kept for backward compatibility but does nothing
-	return nil
-}
 
 // CheckUploadPermission checks if a user can upload based on IAM policies and CloudStorage quotas
 func (e *CloudStorageExtension) CheckUploadPermission(ctx context.Context, userID string, fileSize int64, iamService *iam.Service) error {
@@ -41,48 +32,6 @@ func (e *CloudStorageExtension) CheckUploadPermission(ctx context.Context, userI
 	}
 
 	return nil
-}
-
-// GetQuotaFromPolicies gets quota values from Casbin policies
-func GetQuotaFromPolicies(iamService *iam.Service, userID string) (storageQuota int64, bandwidthQuota int64, err error) {
-	// Get user's roles
-	roles, err := iamService.GetUserRoles(context.Background(), userID)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get user roles: %w", err)
-	}
-
-	// Get quota policies for each role and take the maximum
-	for _, role := range roles {
-		// Get storage quota policy
-		policies, _ := iamService.GetEnforcer().GetFilteredPolicy(0, role, "storage", "quota")
-		for _, policy := range policies {
-			if len(policy) >= 4 {
-				if quota, err := strconv.ParseInt(policy[3], 10, 64); err == nil && quota > storageQuota {
-					storageQuota = quota
-				}
-			}
-		}
-
-		// Get bandwidth quota policy
-		policies, _ = iamService.GetEnforcer().GetFilteredPolicy(0, role, "bandwidth", "quota")
-		for _, policy := range policies {
-			if len(policy) >= 4 {
-				if quota, err := strconv.ParseInt(policy[3], 10, 64); err == nil && quota > bandwidthQuota {
-					bandwidthQuota = quota
-				}
-			}
-		}
-	}
-
-	// Default quotas if none specified
-	if storageQuota == 0 {
-		storageQuota = 1073741824 // 1GB default
-	}
-	if bandwidthQuota == 0 {
-		bandwidthQuota = 10737418240 // 10GB default
-	}
-
-	return storageQuota, bandwidthQuota, nil
 }
 
 // EnhancedUploadHook checks upload permission with IAM integration

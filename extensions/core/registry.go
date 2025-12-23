@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 
 	"github.com/gorilla/mux"
 	"github.com/suppers-ai/solobase/internal/pkg/logger"
@@ -75,7 +75,7 @@ func (r *ExtensionRegistry) Register(ext Extension) error {
 		Loaded:  false,
 		Health: &HealthStatus{
 			Status:      "uninitialized",
-			LastChecked: time.Now(),
+			LastChecked: apptime.NowTime(),
 		},
 		Resources: ExtensionResources{},
 		Endpoints: []EndpointInfo{},
@@ -117,7 +117,7 @@ func (r *ExtensionRegistry) Enable(name string) error {
 	if health == nil {
 		health = &HealthStatus{
 			Status:      "healthy",
-			LastChecked: time.Now(),
+			LastChecked: apptime.NowTime(),
 		}
 	}
 
@@ -126,7 +126,7 @@ func (r *ExtensionRegistry) Enable(name string) error {
 	r.status[name].Enabled = true
 	r.status[name].Loaded = true
 	r.status[name].Health = health
-	now := time.Now()
+	now := apptime.NowTime()
 	r.status[name].LoadedAt = now
 	r.status[name].EnabledAt = &now
 
@@ -437,7 +437,7 @@ func (r *ExtensionRegistry) wrapExtensionHandler(extension string, handler http.
 		}()
 
 		// Track metrics
-		start := time.Now()
+		start := apptime.NowTime()
 
 		// Create wrapped response writer to capture status
 		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
@@ -446,7 +446,7 @@ func (r *ExtensionRegistry) wrapExtensionHandler(extension string, handler http.
 		handler.ServeHTTP(wrapped, req)
 
 		// Update metrics
-		r.updateMetrics(extension, time.Since(start), wrapped.statusCode)
+		r.updateMetrics(extension, apptime.Since(start), wrapped.statusCode)
 	})
 }
 
@@ -475,7 +475,7 @@ func (r *ExtensionRegistry) matchPath(path string, patterns []string) bool {
 }
 
 // updateMetrics updates metrics for an extension
-func (r *ExtensionRegistry) updateMetrics(extension string, latency time.Duration, statusCode int) {
+func (r *ExtensionRegistry) updateMetrics(extension string, latency apptime.Duration, statusCode int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

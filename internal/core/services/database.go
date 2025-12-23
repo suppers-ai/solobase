@@ -1,33 +1,37 @@
 package services
 
 import (
+	"context"
+	"database/sql"
 	"log"
 	"strings"
-
-	"github.com/suppers-ai/solobase/internal/pkg/database"
 )
 
 type DatabaseService struct {
-	db *database.DB
+	sqlDB  *sql.DB
+	dbType string
 }
 
-func NewDatabaseService(db *database.DB) *DatabaseService {
-	log.Printf("DatabaseService initialized with type: %s", db.GetConfig().Type)
-	return &DatabaseService{db: db}
+func NewDatabaseService(sqlDB *sql.DB, dbType string) *DatabaseService {
+	log.Printf("DatabaseService initialized with type: %s", dbType)
+	return &DatabaseService{
+		sqlDB:  sqlDB,
+		dbType: dbType,
+	}
 }
 
 func (s *DatabaseService) GetTables() ([]interface{}, error) {
+	ctx := context.Background()
 	var tables []interface{}
 
-	// Detect database type
-	dbType := strings.ToLower(s.db.GetConfig().Type)
+	dbType := strings.ToLower(s.dbType)
 	log.Printf("Database type detected: %s", dbType)
 
 	var query string
 	if dbType == "postgres" || dbType == "postgresql" {
 		// PostgreSQL query
 		query = `
-			SELECT 
+			SELECT
 				table_name as name,
 				table_schema as schema,
 				'table' as type
@@ -36,7 +40,7 @@ func (s *DatabaseService) GetTables() ([]interface{}, error) {
 			ORDER BY table_schema, table_name
 		`
 
-		rows, err := s.db.Raw(query).Rows()
+		rows, err := s.sqlDB.QueryContext(ctx, query)
 		if err != nil {
 			return nil, err
 		}
@@ -57,7 +61,7 @@ func (s *DatabaseService) GetTables() ([]interface{}, error) {
 	} else {
 		// SQLite query
 		query = `
-			SELECT 
+			SELECT
 				name,
 				type
 			FROM sqlite_master
@@ -66,7 +70,7 @@ func (s *DatabaseService) GetTables() ([]interface{}, error) {
 			ORDER BY name
 		`
 
-		rows, err := s.db.Raw(query).Rows()
+		rows, err := s.sqlDB.QueryContext(ctx, query)
 		if err != nil {
 			return nil, err
 		}
@@ -78,9 +82,10 @@ func (s *DatabaseService) GetTables() ([]interface{}, error) {
 				continue
 			}
 
-			// Get row count for each table using safe table reference
+			// Get row count for each table
 			var count int64
-			if err := s.db.Table(name).Count(&count).Error; err != nil {
+			countRow := s.sqlDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+name)
+			if err := countRow.Scan(&count); err != nil {
 				log.Printf("Error counting rows in table %s: %v", name, err)
 				count = 0
 			}
@@ -106,6 +111,8 @@ func (s *DatabaseService) GetTotalRowCount() (int64, error) {
 		return 0, err
 	}
 
+	ctx := context.Background()
+
 	for _, table := range tables {
 		tableMap, ok := table.(map[string]interface{})
 		if !ok {
@@ -123,7 +130,8 @@ func (s *DatabaseService) GetTotalRowCount() (int64, error) {
 		}
 
 		var count int64
-		if err := s.db.Table(tableName).Count(&count).Error; err != nil {
+		row := s.sqlDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+tableName)
+		if err := row.Scan(&count); err != nil {
 			log.Printf("Error counting rows in table %s: %v", tableName, err)
 			continue
 		}
@@ -135,25 +143,25 @@ func (s *DatabaseService) GetTotalRowCount() (int64, error) {
 }
 
 func (s *DatabaseService) GetTableColumns(tableName string) ([]interface{}, error) {
+	ctx := context.Background()
 	var columns []interface{}
 
-	// Detect database type
-	dbType := strings.ToLower(s.db.GetConfig().Type)
+	dbType := strings.ToLower(s.dbType)
 
 	if dbType == "postgres" || dbType == "postgresql" {
 		// PostgreSQL query
 		query := `
-			SELECT 
+			SELECT
 				column_name as name,
 				data_type as type,
 				is_nullable = 'YES' as nullable,
 				column_default IS NOT NULL as has_default
 			FROM information_schema.columns
-			WHERE table_name = ?
+			WHERE table_name = $1
 			ORDER BY ordinal_position
 		`
 
-		rows, err := s.db.Raw(query, tableName).Rows()
+		rows, err := s.sqlDB.QueryContext(ctx, query, tableName)
 		if err != nil {
 			return nil, err
 		}
@@ -178,7 +186,7 @@ func (s *DatabaseService) GetTableColumns(tableName string) ([]interface{}, erro
 		// SQLite query using PRAGMA
 		query := "PRAGMA table_info(" + tableName + ")"
 
-		rows, err := s.db.Raw(query).Rows()
+		rows, err := s.sqlDB.QueryContext(ctx, query)
 		if err != nil {
 			return nil, err
 		}
@@ -209,7 +217,7 @@ func (s *DatabaseService) GetTableColumns(tableName string) ([]interface{}, erro
 }
 
 func (s *DatabaseService) GetDatabaseInfo() (string, string) {
-	dbType := strings.ToLower(s.db.GetConfig().Type)
+	dbType := strings.ToLower(s.dbType)
 
 	var displayType, version string
 	switch dbType {
@@ -228,6 +236,8 @@ func (s *DatabaseService) GetDatabaseInfo() (string, string) {
 }
 
 func (s *DatabaseService) ExecuteQuery(query string) (interface{}, error) {
+	ctx := context.Background()
+
 	// WARNING: This is for development/admin use only
 	// In production, this should be heavily restricted or disabled
 
@@ -256,7 +266,7 @@ func (s *DatabaseService) ExecuteQuery(query string) (interface{}, error) {
 
 	if isSelect {
 		// Handle SELECT queries
-		rows, err := s.db.Raw(query).Rows()
+		rows, err := s.sqlDB.QueryContext(ctx, query)
 		if err != nil {
 			return map[string]interface{}{
 				"error": err.Error(),
@@ -311,15 +321,16 @@ func (s *DatabaseService) ExecuteQuery(query string) (interface{}, error) {
 		}, nil
 	} else {
 		// Handle INSERT/UPDATE/DELETE queries
-		result := s.db.DB.Exec(query)
-		if result.Error != nil {
+		result, err := s.sqlDB.ExecContext(ctx, query)
+		if err != nil {
 			return map[string]interface{}{
-				"error": result.Error.Error(),
+				"error": err.Error(),
 			}, nil
 		}
 
+		affected, _ := result.RowsAffected()
 		return map[string]interface{}{
-			"affectedRows": result.RowsAffected,
+			"affectedRows": affected,
 		}, nil
 	}
 }

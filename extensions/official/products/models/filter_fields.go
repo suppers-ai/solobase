@@ -2,7 +2,6 @@ package models
 
 import (
 	"fmt"
-	"reflect"
 )
 
 // FilterFieldID represents the available filter field IDs
@@ -162,17 +161,8 @@ func PreserveNonEditableFields(product *Product, existingProduct *Product, templ
 
 		// Get the struct field name from our mapping
 		if structFieldName, ok := FilterFieldMapping[field.ID]; ok {
-			// Use reflection to copy the value from existing to new product
-			productValue := reflect.ValueOf(product).Elem()
-			existingValue := reflect.ValueOf(existingProduct).Elem()
-
-			productField := productValue.FieldByName(structFieldName)
-			existingField := existingValue.FieldByName(structFieldName)
-
-			// If both fields are valid, copy the value
-			if productField.IsValid() && existingField.IsValid() && productField.CanSet() {
-				productField.Set(existingField)
-			}
+			// Copy the value from existing to new product using explicit accessor
+			CopyProductFilterField(product, existingProduct, structFieldName)
 		}
 	}
 

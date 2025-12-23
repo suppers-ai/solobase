@@ -11,10 +11,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
-	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
+	googleuuid "github.com/google/uuid"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
 	"github.com/suppers-ai/solobase/utils"
 )
 
@@ -23,7 +23,7 @@ type ShareResponse struct {
 	ID              string     `json:"id"`
 	ShareURL        string     `json:"shareUrl,omitempty"`
 	ShareToken      string     `json:"shareToken,omitempty"`
-	ExpiresAt       *time.Time `json:"expiresAt,omitempty"`
+	ExpiresAt       *apptime.Time `json:"expiresAt,omitempty"`
 	PermissionLevel string     `json:"permissionLevel"`
 }
 
@@ -34,7 +34,7 @@ type QuotaResponse struct {
 	BandwidthUsed       int64      `json:"bandwidthUsed"`
 	BandwidthLimit      int64      `json:"bandwidthLimit"`
 	BandwidthPercentage float64    `json:"bandwidthPercentage"`
-	ResetDate           *time.Time `json:"resetDate,omitempty"`
+	ResetDate           *apptime.Time `json:"resetDate,omitempty"`
 }
 
 // handleShares manages file sharing operations
@@ -81,7 +81,7 @@ func (e *CloudStorageExtension) handleShares(w http.ResponseWriter, r *http.Requ
 			InheritToChildren bool       `json:"inheritToChildren"`
 			GenerateToken     bool       `json:"generateToken"`
 			IsPublic          bool       `json:"isPublic"`
-			ExpiresAt         *time.Time `json:"expiresAt,omitempty"`
+			ExpiresAt         *apptime.Time `json:"expiresAt,omitempty"`
 		}
 
 		if !utils.DecodeJSONBody(w, r, &req) {
@@ -115,7 +115,7 @@ func (e *CloudStorageExtension) handleShares(w http.ResponseWriter, r *http.Requ
 
 		response := ShareResponse{
 			ID:              share.ID,
-			ExpiresAt:       share.ExpiresAt,
+			ExpiresAt:       share.ExpiresAt.ToTimePtr(),
 			PermissionLevel: string(share.PermissionLevel),
 		}
 		if share.ShareToken != nil {
@@ -168,8 +168,8 @@ func (e *CloudStorageExtension) handleShareAccess(w http.ResponseWriter, r *http
 	}
 
 	// Get the object
-	var obj pkgstorage.StorageObject
-	if err := e.db.Where("id = ?", share.ObjectID).First(&obj).Error; err != nil {
+	obj, err := e.getStorageObjectByID(share.ObjectID)
+	if err != nil {
 		http.Error(w, "Object not found", http.StatusNotFound)
 		return
 	}
@@ -213,9 +213,9 @@ func (e *CloudStorageExtension) handleShareAccess(w http.ResponseWriter, r *http
 
 		// Update bandwidth usage for the file owner
 		if e.quotaService != nil && e.config.EnableQuotas && obj.UserID != "" {
-			if err := e.quotaService.UpdateBandwidthUsage(ctx, obj.UserID, obj.Size); err != nil {
+			if updateErr := e.quotaService.UpdateBandwidthUsage(ctx, obj.UserID, obj.Size); updateErr != nil {
 				// Log error but don't fail the download
-				fmt.Printf("Failed to update bandwidth usage: %v\n", err)
+				fmt.Printf("Failed to update bandwidth usage: %v\n", updateErr)
 			}
 		}
 
@@ -269,8 +269,8 @@ func (e *CloudStorageExtension) handleQuota(w http.ResponseWriter, r *http.Reque
 			json.NewEncoder(w).Encode(stats)
 		} else if isAdmin && queryUserID == "" {
 			// Admin getting all quotas
-			var quotas []StorageQuota
-			if err := e.db.Find(&quotas).Error; err != nil {
+			quotas, err := e.getAllStorageQuotas()
+			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -312,9 +312,9 @@ func (e *CloudStorageExtension) handleQuota(w http.ResponseWriter, r *http.Reque
 
 		quota.MaxStorageBytes = req.MaxStorageBytes
 		quota.MaxBandwidthBytes = req.MaxBandwidthBytes
-		quota.UpdatedAt = time.Now()
+		quota.UpdatedAt = apptime.NowTime()
 
-		if err := e.db.Save(quota).Error; err != nil {
+		if err := e.saveStorageQuota(quota); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -359,12 +359,12 @@ func (e *CloudStorageExtension) handleAccessLogs(w http.ResponseWriter, r *http.
 
 	// Parse date filters
 	if startStr := r.URL.Query().Get("start_date"); startStr != "" {
-		if start, err := time.Parse(time.RFC3339, startStr); err == nil {
+		if start, err := apptime.ParseWithLayout(apptime.TimeFormat, startStr); err == nil {
 			filters.StartDate = &start
 		}
 	}
 	if endStr := r.URL.Query().Get("end_date"); endStr != "" {
-		if end, err := time.Parse(time.RFC3339, endStr); err == nil {
+		if end, err := apptime.ParseWithLayout(apptime.TimeFormat, endStr); err == nil {
 			filters.EndDate = &end
 		}
 	}
@@ -402,12 +402,12 @@ func (e *CloudStorageExtension) handleAccessStats(w http.ResponseWriter, r *http
 
 	// Parse date filters
 	if startStr := r.URL.Query().Get("start_date"); startStr != "" {
-		if start, err := time.Parse(time.RFC3339, startStr); err == nil {
+		if start, err := apptime.ParseWithLayout(apptime.TimeFormat, startStr); err == nil {
 			filters.StartDate = &start
 		}
 	}
 	if endStr := r.URL.Query().Get("end_date"); endStr != "" {
-		if end, err := time.Parse(time.RFC3339, endStr); err == nil {
+		if end, err := apptime.ParseWithLayout(apptime.TimeFormat, endStr); err == nil {
 			filters.EndDate = &end
 		}
 	}
@@ -474,10 +474,10 @@ func (e *CloudStorageExtension) handleUpload(w http.ResponseWriter, r *http.Requ
 		contentType = "application/octet-stream"
 	}
 
-	// Parse userID as UUID if needed
-	var userUUID *uuid.UUID
+	// Parse userID as UUID if needed (using google/uuid for storage manager compatibility)
+	var userUUID *googleuuid.UUID
 	if userID != "" {
-		id, err := uuid.Parse(userID)
+		id, err := googleuuid.Parse(userID)
 		if err == nil {
 			userUUID = &id
 		}
@@ -509,7 +509,7 @@ func (e *CloudStorageExtension) handleUpload(w http.ResponseWriter, r *http.Requ
 
 	// Log the upload
 	if e.accessLogService != nil && e.config.EnableAccessLogs {
-		startTime := time.Now()
+		startTime := apptime.NowTime()
 		success := true
 		e.accessLogService.LogAccess(ctx, obj.ID, ActionUpload, LogOptions{
 			UserID:    userID,
@@ -517,7 +517,7 @@ func (e *CloudStorageExtension) handleUpload(w http.ResponseWriter, r *http.Requ
 			UserAgent: r.UserAgent(),
 			Success:   &success,
 			BytesSize: header.Size,
-			Duration:  time.Since(startTime),
+			Duration:  apptime.Since(startTime),
 		})
 	}
 
@@ -545,21 +545,13 @@ func (e *CloudStorageExtension) handleStats(w http.ResponseWriter, r *http.Reque
 	stats := make(map[string]interface{})
 
 	// Get storage stats
-	var storageStats struct {
+	totalObjects, totalSize, _ := e.getStorageStats(userID, isAdmin)
+	storageStats := struct {
 		TotalObjects int64 `json:"totalObjects"`
 		TotalSize    int64 `json:"totalSize"`
-	}
-
-	// For admins, show all storage stats; for users, show only their own
-	if isAdmin {
-		e.db.Model(&pkgstorage.StorageObject{}).
-			Select("COUNT(*) as total_objects, COALESCE(SUM(size), 0) as total_size").
-			Scan(&storageStats)
-	} else {
-		e.db.Model(&pkgstorage.StorageObject{}).
-			Where("user_id = ?", userID).
-			Select("COUNT(*) as total_objects, COALESCE(SUM(size), 0) as total_size").
-			Scan(&storageStats)
+	}{
+		TotalObjects: totalObjects,
+		TotalSize:    totalSize,
 	}
 
 	stats["storage"] = storageStats
@@ -588,44 +580,26 @@ func (e *CloudStorageExtension) handleStats(w http.ResponseWriter, r *http.Reque
 	if e.quotaService != nil && e.config.EnableQuotas {
 		if isAdmin {
 			// Get overall quota usage for admin
-			var totalQuotaStats struct {
-				TotalUsers          int64 `json:"totalUsers"`
-				TotalStorageUsed    int64 `json:"totalStorageUsed"`
-				TotalStorageLimit   int64 `json:"totalStorageLimit"`
-				TotalBandwidthUsed  int64 `json:"totalBandwidthUsed"`
-				TotalBandwidthLimit int64 `json:"totalBandwidthLimit"`
-			}
-			e.db.Model(&StorageQuota{}).
-				Select(`
-					COUNT(*) as total_users,
-					COALESCE(SUM(storage_used), 0) as total_storage_used,
-					COALESCE(SUM(max_storage_bytes), 0) as total_storage_limit,
-					COALESCE(SUM(bandwidth_used), 0) as total_bandwidth_used,
-					COALESCE(SUM(max_bandwidth_bytes), 0) as total_bandwidth_limit
-				`).
-				Scan(&totalQuotaStats)
+			totalUsers, totalStorageUsed, totalStorageLimit, totalBandwidthUsed, totalBandwidthLimit, _ := e.getQuotaAggregateStats()
 
 			var storagePercentage, bandwidthPercentage float64
-			if totalQuotaStats.TotalStorageLimit > 0 {
-				storagePercentage = float64(totalQuotaStats.TotalStorageUsed) / float64(totalQuotaStats.TotalStorageLimit) * 100
+			if totalStorageLimit > 0 {
+				storagePercentage = float64(totalStorageUsed) / float64(totalStorageLimit) * 100
 			}
-			if totalQuotaStats.TotalBandwidthLimit > 0 {
-				bandwidthPercentage = float64(totalQuotaStats.TotalBandwidthUsed) / float64(totalQuotaStats.TotalBandwidthLimit) * 100
+			if totalBandwidthLimit > 0 {
+				bandwidthPercentage = float64(totalBandwidthUsed) / float64(totalBandwidthLimit) * 100
 			}
 
 			// Count users near their storage limit (>80%)
-			var usersNearLimit int64
-			e.db.Model(&StorageQuota{}).
-				Where("(storage_used * 100.0 / max_storage_bytes) > 80 OR (bandwidth_used * 100.0 / max_bandwidth_bytes) > 80").
-				Count(&usersNearLimit)
+			usersNearLimit, _ := e.countUsersNearQuotaLimit()
 
 			stats["quota"] = map[string]interface{}{
-				"totalUsers":          totalQuotaStats.TotalUsers,
-				"storageUsed":         totalQuotaStats.TotalStorageUsed,
-				"storageLimit":        totalQuotaStats.TotalStorageLimit,
+				"totalUsers":          totalUsers,
+				"storageUsed":         totalStorageUsed,
+				"storageLimit":        totalStorageLimit,
 				"storagePercentage":   storagePercentage,
-				"bandwidthUsed":       totalQuotaStats.TotalBandwidthUsed,
-				"bandwidthLimit":      totalQuotaStats.TotalBandwidthLimit,
+				"bandwidthUsed":       totalBandwidthUsed,
+				"bandwidthLimit":      totalBandwidthLimit,
 				"bandwidthPercentage": bandwidthPercentage,
 				"usersNearLimit":      usersNearLimit,
 			}
@@ -649,33 +623,28 @@ func (e *CloudStorageExtension) handleStats(w http.ResponseWriter, r *http.Reque
 			ExpiredShares int64 `json:"expiredShares"`
 		}
 
+		now := apptime.NowTime().Format("2006-01-02 15:04:05")
 		if isAdmin {
 			// Get all shares for admin
-			e.db.Model(&StorageShare{}).Count(&shareStats.TotalShares)
-			e.db.Model(&StorageShare{}).Where("is_public = ?", true).Count(&shareStats.PublicShares)
-			e.db.Model(&StorageShare{}).Where("is_public = ?", false).Count(&shareStats.PrivateShares)
-			e.db.Model(&StorageShare{}).Where("expires_at IS NULL OR expires_at > ?", time.Now()).Count(&shareStats.ActiveShares)
-			e.db.Model(&StorageShare{}).Where("expires_at IS NOT NULL AND expires_at <= ?", time.Now()).Count(&shareStats.ExpiredShares)
+			shareStats.TotalShares, _ = e.countShares("", nil)
+			shareStats.PublicShares, _ = e.countShares("is_public = 1")
+			shareStats.PrivateShares, _ = e.countShares("is_public = 0")
+			shareStats.ActiveShares, _ = e.countShares("expires_at IS NULL OR expires_at > ?", now)
+			shareStats.ExpiredShares, _ = e.countShares("expires_at IS NOT NULL AND expires_at <= ?", now)
 
 			// Count shared folders vs files
-			e.db.Table("ext_cloudstorage_storage_shares ss").
-				Joins("JOIN storage_objects so ON ss.object_id = so.id").
-				Where("so.content_type = 'application/x-directory'").
-				Count(&shareStats.FoldersShared)
+			shareStats.FoldersShared, _ = e.countSharedFolders("", true)
 			shareStats.FilesShared = shareStats.TotalShares - shareStats.FoldersShared
 		} else {
 			// Get user's own shares
-			e.db.Model(&StorageShare{}).Where("created_by = ?", userID).Count(&shareStats.TotalShares)
-			e.db.Model(&StorageShare{}).Where("created_by = ? AND is_public = ?", userID, true).Count(&shareStats.PublicShares)
-			e.db.Model(&StorageShare{}).Where("created_by = ? AND is_public = ?", userID, false).Count(&shareStats.PrivateShares)
-			e.db.Model(&StorageShare{}).Where("created_by = ? AND (expires_at IS NULL OR expires_at > ?)", userID, time.Now()).Count(&shareStats.ActiveShares)
-			e.db.Model(&StorageShare{}).Where("created_by = ? AND expires_at IS NOT NULL AND expires_at <= ?", userID, time.Now()).Count(&shareStats.ExpiredShares)
+			shareStats.TotalShares, _ = e.countShares("created_by = ?", userID)
+			shareStats.PublicShares, _ = e.countShares("created_by = ? AND is_public = 1", userID)
+			shareStats.PrivateShares, _ = e.countShares("created_by = ? AND is_public = 0", userID)
+			shareStats.ActiveShares, _ = e.countShares("created_by = ? AND (expires_at IS NULL OR expires_at > ?)", userID, now)
+			shareStats.ExpiredShares, _ = e.countShares("created_by = ? AND expires_at IS NOT NULL AND expires_at <= ?", userID, now)
 
 			// Count shared folders vs files for user
-			e.db.Table("ext_cloudstorage_storage_shares ss").
-				Joins("JOIN storage_objects so ON ss.object_id = so.id").
-				Where("ss.created_by = ? AND so.content_type = 'application/x-directory'", userID).
-				Count(&shareStats.FoldersShared)
+			shareStats.FoldersShared, _ = e.countSharedFolders(userID, false)
 			shareStats.FilesShared = shareStats.TotalShares - shareStats.FoldersShared
 		}
 
@@ -735,8 +704,8 @@ func (e *CloudStorageExtension) handleDownload(w http.ResponseWriter, r *http.Re
 	}
 
 	// Get the object
-	var obj pkgstorage.StorageObject
-	if err := e.db.Where("id = ?", objectID).First(&obj).Error; err != nil {
+	obj, err := e.getStorageObjectByID(objectID)
+	if err != nil {
 		http.Error(w, "Object not found", http.StatusNotFound)
 		return
 	}
@@ -750,19 +719,14 @@ func (e *CloudStorageExtension) handleDownload(w http.ResponseWriter, r *http.Re
 		hasAccess = true
 	} else {
 		// Check for direct share or public access
-		var share StorageShare
-		err := e.db.Where("object_id = ?", objectID).
-			Where("is_public = ? OR shared_with_user_id = ?", true, userID).
-			First(&share).Error
-
-		if err == nil {
+		share, err := e.getShareByObjectAndUser(objectID, userID)
+		if err == nil && share != nil {
 			hasAccess = true
-			accessShare = &share
+			accessShare = share
 		} else if e.shareService != nil {
 			// Check for inherited permissions from parent folders
 			// Get user's email for email-based shares
-			var userEmail string
-			e.db.Table("users").Where("id = ?", userID).Select("email").Scan(&userEmail)
+			userEmail, _ := e.getUserEmail(userID)
 
 			inheritedShare, err := e.shareService.CheckInheritedPermissions(ctx, objectID, userID, userEmail)
 			if err == nil && inheritedShare != nil {
@@ -846,22 +810,13 @@ func (e *CloudStorageExtension) handleUserSearch(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Search for users by email, name, or ID
-	type UserSearchResult struct {
-		ID    string `json:"id"`
-		Email string `json:"email"`
-		Name  string `json:"name,omitempty"`
+	// Search for users by email or ID
+	users, err := e.searchUsers(query)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]"))
+		return
 	}
-
-	var users []UserSearchResult
-
-	// Search in auth_users table
-	e.db.Table("auth_users").
-		Select("id, email, COALESCE(raw_user_meta_data->>'name', '') as name").
-		Where("email ILIKE ? OR id::text ILIKE ? OR raw_user_meta_data->>'name' ILIKE ?",
-			"%"+query+"%", "%"+query+"%", "%"+query+"%").
-		Limit(10).
-		Scan(&users)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(users)
@@ -872,15 +827,15 @@ func (e *CloudStorageExtension) handleGetRoleQuotas(w http.ResponseWriter, r *ht
 	// Note: Admin check is already done by AdminMiddleware in router
 	// This handler is only called for admin routes
 
-	if e.db == nil {
+	if e.sqlDB == nil {
 		// Return empty array if database not initialized
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]RoleQuota{})
 		return
 	}
 
-	var quotas []RoleQuota
-	if err := e.db.Find(&quotas).Error; err != nil {
+	quotas, err := e.getAllRoleQuotas()
+	if err != nil {
 		// Return empty array on error instead of 500
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]RoleQuota{})
@@ -922,11 +877,12 @@ func (e *CloudStorageExtension) handleUpdateRoleQuota(w http.ResponseWriter, r *
 	}
 
 	update.RoleID = roleID
+	if update.ID == "" {
+		update.ID = uuid.New().String()
+	}
 
 	// Update or create role quota
-	if err := e.db.Where("role_id = ?", roleID).
-		Assign(update).
-		FirstOrCreate(&RoleQuota{}).Error; err != nil {
+	if err := e.upsertRoleQuota(&update); err != nil {
 		http.Error(w, "Failed to update role quota", http.StatusInternalServerError)
 		return
 	}
@@ -939,17 +895,15 @@ func (e *CloudStorageExtension) handleUpdateRoleQuota(w http.ResponseWriter, r *
 func (e *CloudStorageExtension) handleGetUserOverrides(w http.ResponseWriter, r *http.Request) {
 	// Note: Admin check is already done by AdminMiddleware in router
 
-	if e.db == nil {
+	if e.sqlDB == nil {
 		// Return empty array if database not initialized
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]UserQuotaOverride{})
 		return
 	}
 
-	var overrides []UserQuotaOverride
-	// Use datetime('now') for SQLite compatibility
-	if err := e.db.Where("expires_at IS NULL OR expires_at > datetime('now')").
-		Find(&overrides).Error; err != nil {
+	overrides, err := e.getActiveUserQuotaOverrides()
+	if err != nil {
 		// Return empty array on error instead of 500
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]UserQuotaOverride{})
@@ -999,8 +953,10 @@ func (e *CloudStorageExtension) handleCreateUserOverride(w http.ResponseWriter, 
 
 	override.CreatedBy = user.ID.String()
 	override.ID = uuid.New().String()
+	override.CreatedAt = apptime.NowTime()
+	override.UpdatedAt = apptime.NowTime()
 
-	if err := e.db.Create(&override).Error; err != nil {
+	if err := e.createUserQuotaOverride(&override); err != nil {
 		http.Error(w, "Failed to create user override", http.StatusInternalServerError)
 		return
 	}
@@ -1022,8 +978,7 @@ func (e *CloudStorageExtension) handleDeleteUserOverride(w http.ResponseWriter, 
 	}
 	overrideID := parts[len(parts)-1]
 
-	if err := e.db.Where("id = ?", overrideID).
-		Delete(&UserQuotaOverride{}).Error; err != nil {
+	if err := e.deleteUserQuotaOverrideByID(overrideID); err != nil {
 		http.Error(w, "Failed to delete user override", http.StatusInternalServerError)
 		return
 	}

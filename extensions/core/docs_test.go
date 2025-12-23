@@ -133,7 +133,7 @@ func TestDocumentationWithComplexExtension(t *testing.T) {
 	assert.Contains(t, markdown, "### Configuration")
 	assert.Contains(t, markdown, "### Required Permissions")
 	assert.Contains(t, markdown, "### Database Schema")
-	assert.Contains(t, markdown, "#### Migrations")
+	// Note: Migrations section removed as extensions use sqlc
 	assert.Contains(t, markdown, "#### Registered Resources")
 }
 

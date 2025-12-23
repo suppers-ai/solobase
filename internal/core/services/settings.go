@@ -1,33 +1,35 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
 
-	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"github.com/suppers-ai/solobase/internal/data/models"
-	"gorm.io/gorm"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
+	"github.com/suppers-ai/solobase/pkg/adapters/repos"
 )
 
 type SettingsService struct {
-	db *database.DB
+	repo repos.SettingsRepository
 }
 
-func NewSettingsService(db *database.DB) *SettingsService {
-	service := &SettingsService{db: db}
+func NewSettingsService(repo repos.SettingsRepository) *SettingsService {
+	service := &SettingsService{repo: repo}
 	// Initialize default settings on first run
-	service.initializeDefaults()
+	service.initializeDefaults(context.Background())
 	// Initialize extension-specific settings
-	service.initializeExtensionSettings()
+	service.initializeExtensionSettings(context.Background())
 	return service
 }
 
 // initializeExtensionSettings creates extension-specific default settings
-func (s *SettingsService) initializeExtensionSettings() error {
+func (s *SettingsService) initializeExtensionSettings(ctx context.Context) error {
 	// Initialize CloudStorage extension setting for showing usage in profile
 	// This is set to true by default when CloudStorage is available
-	err := s.setSetting("ext_cloudstorage_profile_show_usage", true)
+	err := s.setSetting(ctx, "ext_cloudstorage_profile_show_usage", true)
 	if err != nil {
 		// Log but don't fail - setting might already exist
 		return nil
@@ -36,26 +38,27 @@ func (s *SettingsService) initializeExtensionSettings() error {
 }
 
 // initializeDefaults creates default settings if they don't exist
-func (s *SettingsService) initializeDefaults() error {
+func (s *SettingsService) initializeDefaults(ctx context.Context) error {
 	defaults := models.DefaultSettings()
 
 	// Check if any settings exist
-	var count int64
-	s.db.Model(&models.Setting{}).Count(&count)
-	if count > 0 {
+	settings, err := s.repo.List(ctx)
+	if err != nil {
+		return err
+	}
+	if len(settings) > 0 {
 		return nil // Settings already initialized
 	}
 
 	// Convert defaults to individual settings
-	settings := map[string]interface{}{
+	settingsMap := map[string]interface{}{
 		"app_name":                   defaults.AppName,
 		"app_url":                    defaults.AppURL,
 		"allow_signup":               defaults.AllowSignup,
 		"require_email_confirmation": defaults.RequireEmailConfirmation,
-		"smtp_enabled":               defaults.SMTPEnabled,
-		"smtp_host":                  defaults.SMTPHost,
-		"smtp_port":                  defaults.SMTPPort,
-		"smtp_user":                  defaults.SMTPUser,
+		"mailer_provider":            defaults.MailerProvider,
+		"mailgun_domain":             defaults.MailgunDomain,
+		"mailgun_region":             defaults.MailgunRegion,
 		"storage_provider":           defaults.StorageProvider,
 		"s3_bucket":                  defaults.S3Bucket,
 		"s3_region":                  defaults.S3Region,
@@ -71,8 +74,8 @@ func (s *SettingsService) initializeDefaults() error {
 	}
 
 	// Save each setting
-	for key, value := range settings {
-		if err := s.setSetting(key, value); err != nil {
+	for key, value := range settingsMap {
+		if err := s.setSetting(ctx, key, value); err != nil {
 			return err
 		}
 	}
@@ -82,8 +85,9 @@ func (s *SettingsService) initializeDefaults() error {
 
 // GetSettings retrieves all settings as AppSettings struct
 func (s *SettingsService) GetSettings() (*models.AppSettings, error) {
-	var settings []models.Setting
-	if err := s.db.Find(&settings).Error; err != nil {
+	ctx := context.Background()
+	settings, err := s.repo.List(ctx)
+	if err != nil {
 		return nil, err
 	}
 
@@ -101,9 +105,10 @@ func (s *SettingsService) GetSettings() (*models.AppSettings, error) {
 
 // UpdateSettings updates multiple settings at once
 func (s *SettingsService) UpdateSettings(updates map[string]interface{}) (*models.AppSettings, error) {
+	ctx := context.Background()
 	// Validate and update each setting
 	for key, value := range updates {
-		if err := s.setSetting(key, value); err != nil {
+		if err := s.setSetting(ctx, key, value); err != nil {
 			return nil, fmt.Errorf("failed to update setting %s: %w", key, err)
 		}
 	}
@@ -114,9 +119,10 @@ func (s *SettingsService) UpdateSettings(updates map[string]interface{}) (*model
 
 // GetSetting retrieves a single setting value
 func (s *SettingsService) GetSetting(key string) (interface{}, error) {
-	var setting models.Setting
-	if err := s.db.Where("key = ?", key).First(&setting).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+	ctx := context.Background()
+	setting, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		if err == repos.ErrNotFound {
 			return nil, fmt.Errorf("setting not found: %s", key)
 		}
 		return nil, err
@@ -127,34 +133,24 @@ func (s *SettingsService) GetSetting(key string) (interface{}, error) {
 
 // SetSetting updates or creates a single setting (public method)
 func (s *SettingsService) SetSetting(key string, value interface{}) error {
-	return s.setSetting(key, value)
+	return s.setSetting(context.Background(), key, value)
 }
 
 // setSetting updates or creates a single setting
-func (s *SettingsService) setSetting(key string, value interface{}) error {
-	var setting models.Setting
-
+func (s *SettingsService) setSetting(ctx context.Context, key string, value interface{}) error {
 	// Determine type and convert value to string
 	valueStr, valueType := s.serializeValue(value)
 
-	// Check if setting exists
-	err := s.db.Where("key = ?", key).First(&setting).Error
-	if err == gorm.ErrRecordNotFound {
-		// Create new setting
-		setting = models.Setting{
-			Key:   key,
-			Value: valueStr,
-			Type:  valueType,
-		}
-		return s.db.Create(&setting).Error
-	} else if err != nil {
-		return err
+	now := apptime.NowTime()
+	setting := &models.Setting{
+		ID:        uuid.New(),
+		Key:       key,
+		Value:     valueStr,
+		Type:      valueType,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
-
-	// Update existing setting
-	setting.Value = valueStr
-	setting.Type = valueType
-	return s.db.Save(&setting).Error
+	return s.repo.Upsert(ctx, setting)
 }
 
 // serializeValue converts a value to string and determines its type
@@ -201,7 +197,7 @@ func (s *SettingsService) parseValue(value, valueType string) (interface{}, erro
 }
 
 // applySetting applies a setting to the AppSettings struct
-func (s *SettingsService) applySetting(appSettings *models.AppSettings, setting models.Setting) error {
+func (s *SettingsService) applySetting(appSettings *models.AppSettings, setting *models.Setting) error {
 	value, err := s.parseValue(setting.Value, setting.Type)
 	if err != nil {
 		return err
@@ -224,25 +220,21 @@ func (s *SettingsService) applySetting(appSettings *models.AppSettings, setting 
 		if v, ok := value.(bool); ok {
 			appSettings.RequireEmailConfirmation = v
 		}
-	case "smtp_enabled":
-		if v, ok := value.(bool); ok {
-			appSettings.SMTPEnabled = v
-		}
-	case "smtp_host":
+	case "mailer_provider":
 		if v, ok := value.(string); ok {
-			appSettings.SMTPHost = v
+			appSettings.MailerProvider = v
 		}
-	case "smtp_port":
-		if v, ok := value.(int); ok {
-			appSettings.SMTPPort = v
-		}
-	case "smtp_user":
+	case "mailgun_domain":
 		if v, ok := value.(string); ok {
-			appSettings.SMTPUser = v
+			appSettings.MailgunDomain = v
 		}
-	case "smtp_password":
+	case "mailgun_region":
 		if v, ok := value.(string); ok {
-			appSettings.SMTPPassword = v
+			appSettings.MailgunRegion = v
+		}
+	case "mailgun_api_key":
+		if v, ok := value.(string); ok {
+			appSettings.MailgunAPIKey = v
 		}
 	case "storage_provider":
 		if v, ok := value.(string); ok {
@@ -307,16 +299,26 @@ func (s *SettingsService) applySetting(appSettings *models.AppSettings, setting 
 
 // DeleteSetting removes a setting
 func (s *SettingsService) DeleteSetting(key string) error {
-	return s.db.Where("key = ?", key).Delete(&models.Setting{}).Error
+	ctx := context.Background()
+	return s.repo.SoftDeleteByKey(ctx, key)
 }
 
 // ResetToDefaults resets all settings to default values
 func (s *SettingsService) ResetToDefaults() error {
-	// Delete all existing settings
-	if err := s.db.DB.Exec("DELETE FROM settings").Error; err != nil {
+	ctx := context.Background()
+
+	// Get all settings and delete them
+	settings, err := s.repo.List(ctx)
+	if err != nil {
 		return err
 	}
 
+	for _, setting := range settings {
+		if err := s.repo.HardDelete(ctx, setting.ID.String()); err != nil {
+			return err
+		}
+	}
+
 	// Reinitialize defaults
-	return s.initializeDefaults()
+	return s.initializeDefaults(ctx)
 }

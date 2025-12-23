@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"net/http"
 	"strconv"
 
@@ -13,21 +12,30 @@ import (
 )
 
 type Handlers struct {
-	service       *LegalPagesService
-	publicTemplate *template.Template
+	service *LegalPagesService
 }
 
 func NewHandlers(service *LegalPagesService) *Handlers {
-	// Create a simple template for public pages
-	tmpl := template.Must(template.New("legal").Funcs(template.FuncMap{
-		"safe": func(s template.HTML) template.HTML { return s },
-	}).Parse(`
-<!DOCTYPE html>
+	return &Handlers{
+		service: service,
+	}
+}
+
+// renderPublicPageHTML generates the HTML for a public legal page
+func renderPublicPageHTML(title, content, message string) string {
+	contentSection := ""
+	if content != "" {
+		contentSection = content
+	} else {
+		contentSection = fmt.Sprintf(`<div class="not-found"><p>%s</p></div>`, message)
+	}
+
+	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.Title}}</title>
+    <title>%s</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -54,24 +62,12 @@ func NewHandlers(service *LegalPagesService) *Handlers {
     <div class="back-link">
         <a href="/">← Back to Home</a>
     </div>
-    <h1>{{.Title}}</h1>
+    <h1>%s</h1>
     <div class="content">
-        {{if .Content}}
-            {{.Content | safe}}
-        {{else}}
-            <div class="not-found">
-                <p>{{.Message}}</p>
-            </div>
-        {{end}}
+        %s
     </div>
 </body>
-</html>
-	`))
-
-	return &Handlers{
-		service:        service,
-		publicTemplate: tmpl,
-	}
+</html>`, title, title, contentSection)
 }
 
 // Admin API Handlers
@@ -346,25 +342,21 @@ func (h *Handlers) HandlePublicPrivacy(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) renderPublicPage(w http.ResponseWriter, docType, defaultTitle string) {
 	doc, err := h.service.GetDocument(docType)
 
-	data := struct {
-		Title   string
-		Content template.HTML
-		Message string
-	}{
-		Title: defaultTitle,
-	}
+	title := defaultTitle
+	content := ""
+	message := ""
 
 	if err != nil {
 		if errors.Is(err, ErrDocumentNotFound) {
-			data.Message = "This document is not yet available. Please check back later."
+			message = "This document is not yet available. Please check back later."
 		} else {
-			data.Message = "An error occurred while loading this document. Please try again later."
+			message = "An error occurred while loading this document. Please try again later."
 		}
 	} else {
-		data.Title = doc.Title
-		data.Content = template.HTML(doc.Content)
+		title = doc.Title
+		content = doc.Content
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	h.publicTemplate.Execute(w, data)
+	w.Write([]byte(renderPublicPageHTML(title, content, message)))
 }

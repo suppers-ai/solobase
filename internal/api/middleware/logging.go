@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"net/http"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 
 	"github.com/suppers-ai/solobase/internal/pkg/logger"
 )
@@ -11,7 +11,7 @@ import (
 func LoggingMiddleware(log logger.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
+			start := apptime.NowTime()
 
 			// Create a response writer wrapper to capture status code
 			wrapped := &responseWriter{
@@ -23,7 +23,7 @@ func LoggingMiddleware(log logger.Logger) func(http.Handler) http.Handler {
 			next.ServeHTTP(wrapped, r)
 
 			// Calculate duration
-			duration := time.Since(start)
+			duration := apptime.Since(start)
 
 			// Log the request based on status code
 			if wrapped.statusCode >= 500 {

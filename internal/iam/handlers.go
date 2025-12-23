@@ -76,8 +76,8 @@ func (h *Handlers) GetRole(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	roleID := vars["id"]
 
-	var role Role
-	if err := h.service.db.Where("id = ?", roleID).First(&role).Error; err != nil {
+	role, err := h.service.GetRoleByID(r.Context(), roleID)
+	if err != nil {
 		utils.JSONError(w, http.StatusNotFound, "Role not found")
 		return
 	}
@@ -86,14 +86,14 @@ func (h *Handlers) GetRole(w http.ResponseWriter, r *http.Request) {
 	policies, _ := h.service.GetPoliciesForRole(r.Context(), role.Name)
 
 	response := struct {
-		Role
+		*Role
 		Policies [][]string `json:"policies"`
 	}{
 		Role:     role,
 		Policies: policies,
 	}
 
-	utils.JSONResponse(w, http.StatusOK,response)
+	utils.JSONResponse(w, http.StatusOK, response)
 }
 
 // UpdateRole updates a role
@@ -238,13 +238,13 @@ func (h *Handlers) GetUserRoles(w http.ResponseWriter, r *http.Request) {
 	// Get role details
 	roleDetails := make([]Role, 0, len(roles))
 	for _, roleName := range roles {
-		var role Role
-		if err := h.service.db.Where("name = ?", roleName).First(&role).Error; err == nil {
-			roleDetails = append(roleDetails, role)
+		role, err := h.service.GetRoleByName(r.Context(), roleName)
+		if err == nil {
+			roleDetails = append(roleDetails, *role)
 		}
 	}
 
-	utils.JSONResponse(w, http.StatusOK,roleDetails)
+	utils.JSONResponse(w, http.StatusOK, roleDetails)
 }
 
 // AssignRole assigns a role to a user
@@ -365,21 +365,22 @@ func (h *Handlers) EvaluatePermission(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	userID := query.Get("user_id")
-	limit := 100
 
 	var logs []IAMAuditLog
-	q := h.service.db.Order("created_at DESC").Limit(limit)
-	
+	var err error
+
 	if userID != "" {
-		q = q.Where("user_id = ?", userID)
+		logs, err = h.service.GetAuditLogsByUser(r.Context(), userID)
+	} else {
+		logs, err = h.service.GetAuditLogs(r.Context())
 	}
-	
-	if err := q.Find(&logs).Error; err != nil {
+
+	if err != nil {
 		utils.JSONError(w, http.StatusInternalServerError, "Failed to get audit logs")
 		return
 	}
 
-	utils.JSONResponse(w, http.StatusOK,logs)
+	utils.JSONResponse(w, http.StatusOK, logs)
 }
 
 // Helper functions for pattern matching

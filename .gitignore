@@ -58,6 +58,12 @@ build/
 .svelte-kit/
 ui/.svelte-kit/
 
+# WASM build artifacts
+builds/wasm/frontend/build/
+cmd/solobase-spin/solobase-spin.wasm
+cmd/solobase-spin/frontend/build/
+cmd/solobase-spin/.spin/
+
 # Test coverage
 coverage.txt
 coverage.html

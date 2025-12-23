@@ -1,57 +1,60 @@
 package products
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+
 	"github.com/suppers-ai/solobase/extensions/official/products/models"
-	"gorm.io/gorm"
 )
 
 // Seeder interface allows custom seeding implementations
 type Seeder interface {
 	// SeedVariables seeds custom variables
-	SeedVariables(db *gorm.DB) ([]models.Variable, error)
+	SeedVariables(db *sql.DB) ([]models.Variable, error)
 
 	// SeedGroupTemplates seeds custom group templates
-	SeedGroupTemplates(db *gorm.DB) ([]models.GroupTemplate, error)
+	SeedGroupTemplates(db *sql.DB) ([]models.GroupTemplate, error)
 
 	// SeedProductTemplates seeds custom product templates
-	SeedProductTemplates(db *gorm.DB) ([]models.ProductTemplate, error)
+	SeedProductTemplates(db *sql.DB) ([]models.ProductTemplate, error)
 
 	// SeedPricingTemplates seeds custom pricing templates
-	SeedPricingTemplates(db *gorm.DB) ([]models.PricingTemplate, error)
+	SeedPricingTemplates(db *sql.DB) ([]models.PricingTemplate, error)
 
 	// ShouldSeed returns whether seeding should occur
 	// Can be used to check if data already exists
-	ShouldSeed(db *gorm.DB) bool
+	ShouldSeed(db *sql.DB) bool
 }
 
 // DefaultSeeder implements the default seeding behavior
 type DefaultSeeder struct{}
 
 // ShouldSeed checks if seeding should occur
-func (d *DefaultSeeder) ShouldSeed(db *gorm.DB) bool {
+func (d *DefaultSeeder) ShouldSeed(db *sql.DB) bool {
 	var count int64
-	db.Model(&models.Variable{}).Count(&count)
+	db.QueryRow("SELECT COUNT(*) FROM ext_products_variables").Scan(&count)
 	return count == 0 // Only seed if no data exists
 }
 
 // SeedVariables returns the default variables
-func (d *DefaultSeeder) SeedVariables(db *gorm.DB) ([]models.Variable, error) {
+func (d *DefaultSeeder) SeedVariables(db *sql.DB) ([]models.Variable, error) {
 	return DefaultVariables(), nil
 }
 
 // SeedGroupTemplates returns the default group templates
-func (d *DefaultSeeder) SeedGroupTemplates(db *gorm.DB) ([]models.GroupTemplate, error) {
+func (d *DefaultSeeder) SeedGroupTemplates(db *sql.DB) ([]models.GroupTemplate, error) {
 	return DefaultGroupTemplates(), nil
 }
 
 // SeedProductTemplates returns the default product templates
-func (d *DefaultSeeder) SeedProductTemplates(db *gorm.DB) ([]models.ProductTemplate, error) {
+func (d *DefaultSeeder) SeedProductTemplates(db *sql.DB) ([]models.ProductTemplate, error) {
 	return DefaultProductTemplates(), nil
 }
 
 // SeedPricingTemplates returns the default pricing templates
-func (d *DefaultSeeder) SeedPricingTemplates(db *gorm.DB) ([]models.PricingTemplate, error) {
+func (d *DefaultSeeder) SeedPricingTemplates(db *sql.DB) ([]models.PricingTemplate, error) {
 	return DefaultPricingTemplates(), nil
 }
 
@@ -60,15 +63,15 @@ type CustomSeeder struct {
 	DefaultSeeder
 
 	// Optional custom implementations
-	CustomVariables        func(db *gorm.DB) ([]models.Variable, error)
-	CustomGroupTemplates   func(db *gorm.DB) ([]models.GroupTemplate, error)
-	CustomProductTemplates func(db *gorm.DB) ([]models.ProductTemplate, error)
-	CustomPricingTemplates func(db *gorm.DB) ([]models.PricingTemplate, error)
-	CustomShouldSeed      func(db *gorm.DB) bool
+	CustomVariables        func(db *sql.DB) ([]models.Variable, error)
+	CustomGroupTemplates   func(db *sql.DB) ([]models.GroupTemplate, error)
+	CustomProductTemplates func(db *sql.DB) ([]models.ProductTemplate, error)
+	CustomPricingTemplates func(db *sql.DB) ([]models.PricingTemplate, error)
+	CustomShouldSeed       func(db *sql.DB) bool
 }
 
 // SeedVariables returns custom or default variables
-func (c *CustomSeeder) SeedVariables(db *gorm.DB) ([]models.Variable, error) {
+func (c *CustomSeeder) SeedVariables(db *sql.DB) ([]models.Variable, error) {
 	if c.CustomVariables != nil {
 		return c.CustomVariables(db)
 	}
@@ -76,7 +79,7 @@ func (c *CustomSeeder) SeedVariables(db *gorm.DB) ([]models.Variable, error) {
 }
 
 // SeedGroupTemplates returns custom or default group templates
-func (c *CustomSeeder) SeedGroupTemplates(db *gorm.DB) ([]models.GroupTemplate, error) {
+func (c *CustomSeeder) SeedGroupTemplates(db *sql.DB) ([]models.GroupTemplate, error) {
 	if c.CustomGroupTemplates != nil {
 		return c.CustomGroupTemplates(db)
 	}
@@ -84,7 +87,7 @@ func (c *CustomSeeder) SeedGroupTemplates(db *gorm.DB) ([]models.GroupTemplate, 
 }
 
 // SeedProductTemplates returns custom or default product templates
-func (c *CustomSeeder) SeedProductTemplates(db *gorm.DB) ([]models.ProductTemplate, error) {
+func (c *CustomSeeder) SeedProductTemplates(db *sql.DB) ([]models.ProductTemplate, error) {
 	if c.CustomProductTemplates != nil {
 		return c.CustomProductTemplates(db)
 	}
@@ -92,7 +95,7 @@ func (c *CustomSeeder) SeedProductTemplates(db *gorm.DB) ([]models.ProductTempla
 }
 
 // SeedPricingTemplates returns custom or default pricing templates
-func (c *CustomSeeder) SeedPricingTemplates(db *gorm.DB) ([]models.PricingTemplate, error) {
+func (c *CustomSeeder) SeedPricingTemplates(db *sql.DB) ([]models.PricingTemplate, error) {
 	if c.CustomPricingTemplates != nil {
 		return c.CustomPricingTemplates(db)
 	}
@@ -100,7 +103,7 @@ func (c *CustomSeeder) SeedPricingTemplates(db *gorm.DB) ([]models.PricingTempla
 }
 
 // ShouldSeed checks if seeding should occur
-func (c *CustomSeeder) ShouldSeed(db *gorm.DB) bool {
+func (c *CustomSeeder) ShouldSeed(db *sql.DB) bool {
 	if c.CustomShouldSeed != nil {
 		return c.CustomShouldSeed(db)
 	}
@@ -108,11 +111,13 @@ func (c *CustomSeeder) ShouldSeed(db *gorm.DB) bool {
 }
 
 // SeedWithSeeder seeds the database using the provided seeder
-func SeedWithSeeder(db *gorm.DB, seeder Seeder) error {
+func SeedWithSeeder(db *sql.DB, seeder Seeder) error {
 	// Check if we should seed
 	if !seeder.ShouldSeed(db) {
 		return nil
 	}
+
+	now := apptime.NowTime()
 
 	// Seed variables
 	variables, err := seeder.SeedVariables(db)
@@ -120,8 +125,18 @@ func SeedWithSeeder(db *gorm.DB, seeder Seeder) error {
 		return err
 	}
 	for _, v := range variables {
-		if err := db.Create(&v).Error; err != nil {
-			return err
+		v.PrepareForCreate()
+		var defaultValue *string
+		if v.DefaultValue != nil {
+			if s, ok := v.DefaultValue.(string); ok {
+				defaultValue = &s
+			}
+		}
+		_, err := db.Exec(`INSERT INTO ext_products_variables (name, display_name, value_type, type, default_value, description, status, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			v.Name, v.DisplayName, v.ValueType, v.Type, defaultValue, v.Description, v.Status, now, now)
+		if err != nil {
+			return fmt.Errorf("failed to seed variable %s: %w", v.Name, err)
 		}
 	}
 
@@ -131,8 +146,13 @@ func SeedWithSeeder(db *gorm.DB, seeder Seeder) error {
 		return err
 	}
 	for _, gt := range groupTemplates {
-		if err := db.Create(&gt).Error; err != nil {
-			return err
+		gt.PrepareForCreate()
+		filterFieldsJSON, _ := json.Marshal(gt.FilterFieldsSchema)
+		_, err := db.Exec(`INSERT INTO ext_products_group_templates (name, display_name, description, icon, filter_fields_schema, status, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			gt.Name, gt.DisplayName, gt.Description, gt.Icon, filterFieldsJSON, gt.Status, now, now)
+		if err != nil {
+			return fmt.Errorf("failed to seed group template %s: %w", gt.Name, err)
 		}
 	}
 
@@ -144,9 +164,28 @@ func SeedWithSeeder(db *gorm.DB, seeder Seeder) error {
 	fmt.Printf("SeedWithSeeder: Seeding %d product templates\n", len(productTemplates))
 	for _, pt := range productTemplates {
 		fmt.Printf("SeedWithSeeder: Creating product template: %s\n", pt.Name)
-		if err := db.Create(&pt).Error; err != nil {
+		pt.PrepareForCreate()
+		filterFieldsJSON, _ := json.Marshal(pt.FilterFieldsSchema)
+		customFieldsJSON, _ := json.Marshal(pt.CustomFieldsSchema)
+		pricingTemplatesJSON, _ := json.Marshal(pt.PricingTemplates)
+
+		var intervalCount *int64
+		if pt.BillingRecurringIntervalCount != nil {
+			count := int64(*pt.BillingRecurringIntervalCount)
+			intervalCount = &count
+		}
+
+		_, err := db.Exec(`INSERT INTO ext_products_product_templates
+			(name, display_name, description, category, icon, filter_fields_schema, custom_fields_schema,
+			 pricing_templates, billing_mode, billing_type, billing_recurring_interval, billing_recurring_interval_count,
+			 status, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			pt.Name, pt.DisplayName, pt.Description, pt.Category, pt.Icon, filterFieldsJSON, customFieldsJSON,
+			pricingTemplatesJSON, pt.BillingMode, pt.BillingType, pt.BillingRecurringInterval, intervalCount,
+			pt.Status, now, now)
+		if err != nil {
 			fmt.Printf("SeedWithSeeder: Error creating product template %s: %v\n", pt.Name, err)
-			return err
+			return fmt.Errorf("failed to seed product template %s: %w", pt.Name, err)
 		}
 		fmt.Printf("SeedWithSeeder: Successfully created product template: %s\n", pt.Name)
 	}
@@ -157,8 +196,14 @@ func SeedWithSeeder(db *gorm.DB, seeder Seeder) error {
 		return err
 	}
 	for _, pt := range pricingTemplates {
-		if err := db.Create(&pt).Error; err != nil {
-			return err
+		pt.PrepareForCreate()
+		variablesJSON, _ := json.Marshal(pt.Variables)
+		_, err := db.Exec(`INSERT INTO ext_products_pricing_templates
+			(name, display_name, description, price_formula, condition_formula, variables, category, status, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			pt.Name, pt.DisplayName, pt.Description, pt.PriceFormula, pt.ConditionFormula, variablesJSON, pt.Category, pt.Status, now, now)
+		if err != nil {
+			return fmt.Errorf("failed to seed pricing template %s: %w", pt.Name, err)
 		}
 	}
 

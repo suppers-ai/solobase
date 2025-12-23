@@ -380,21 +380,12 @@ func BenchmarkExtension(b *testing.B) {
 
 ### Official Extensions
 
-#### Webhooks Extension
-Located at `extensions/official/webhooks/`
+#### Products Extension
+Located at `extensions/official/products/`
 
 Features:
-- Webhook management and delivery
-- HMAC signature verification
-- Retry logic with exponential backoff
-- Delivery history tracking
-
-#### Analytics Extension
-Located at `extensions/community/analytics/`
-
-Features:
-- Event tracking
-- User analytics
+- Product catalog management
+- Dynamic pricing with formulas
 - Performance metrics
 - Custom dashboards
 

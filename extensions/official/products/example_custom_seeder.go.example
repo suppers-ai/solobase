@@ -1,24 +1,24 @@
 package main
 
 import (
+	"database/sql"
 	"os"
 
 	"github.com/suppers-ai/solobase/extensions/official/products"
 	"github.com/suppers-ai/solobase/extensions/official/products/models"
-	"gorm.io/gorm"
 )
 
 // Example 1: Complete custom seeder implementation
 type MyCustomSeeder struct{}
 
-func (s *MyCustomSeeder) ShouldSeed(db *gorm.DB) bool {
+func (s *MyCustomSeeder) ShouldSeed(db *sql.DB) bool {
 	// Custom logic to determine if seeding should occur
 	var count int64
-	db.Model(&models.Variable{}).Count(&count)
+	db.QueryRow("SELECT COUNT(*) FROM variables").Scan(&count)
 	return count == 0
 }
 
-func (s *MyCustomSeeder) SeedVariables(db *gorm.DB) ([]models.Variable, error) {
+func (s *MyCustomSeeder) SeedVariables(db *sql.DB) ([]models.Variable, error) {
 	return []models.Variable{
 		{
 			Name:         "my_custom_var",
@@ -32,7 +32,7 @@ func (s *MyCustomSeeder) SeedVariables(db *gorm.DB) ([]models.Variable, error) {
 	}, nil
 }
 
-func (s *MyCustomSeeder) SeedGroupTemplates(db *gorm.DB) ([]models.GroupTemplate, error) {
+func (s *MyCustomSeeder) SeedGroupTemplates(db *sql.DB) ([]models.GroupTemplate, error) {
 	return []models.GroupTemplate{
 		{
 			Name:        "saas_company",
@@ -54,7 +54,7 @@ func (s *MyCustomSeeder) SeedGroupTemplates(db *gorm.DB) ([]models.GroupTemplate
 	}, nil
 }
 
-func (s *MyCustomSeeder) SeedProductTemplates(db *gorm.DB) ([]models.ProductTemplate, error) {
+func (s *MyCustomSeeder) SeedProductTemplates(db *sql.DB) ([]models.ProductTemplate, error) {
 	return []models.ProductTemplate{
 		{
 			Name:        "api_access",
@@ -72,7 +72,7 @@ func (s *MyCustomSeeder) SeedProductTemplates(db *gorm.DB) ([]models.ProductTemp
 	}, nil
 }
 
-func (s *MyCustomSeeder) SeedPricingTemplates(db *gorm.DB) ([]models.PricingTemplate, error) {
+func (s *MyCustomSeeder) SeedPricingTemplates(db *sql.DB) ([]models.PricingTemplate, error) {
 	return []models.PricingTemplate{
 		{
 			Name:         "usage_based",
@@ -91,7 +91,7 @@ func (s *MyCustomSeeder) SeedPricingTemplates(db *gorm.DB) ([]models.PricingTemp
 func SetupPartialCustomSeeding(extension *products.ProductsExtension) {
 	extension.SetCustomSeeder(products.CustomSeederOptions{
 		// Only customize variables, use defaults for everything else
-		Variables: func(db *gorm.DB) ([]models.Variable, error) {
+		Variables: func(db *sql.DB) ([]models.Variable, error) {
 			// Get default variables
 			defaults := products.DefaultVariables()
 
@@ -117,7 +117,7 @@ func SetupPartialCustomSeeding(extension *products.ProductsExtension) {
 // Example 3: Conditional seeding
 func SetupConditionalSeeding(extension *products.ProductsExtension) {
 	extension.SetCustomSeeder(products.CustomSeederOptions{
-		ShouldSeed: func(db *gorm.DB) bool {
+		ShouldSeed: func(db *sql.DB) bool {
 			// Only seed in development environment
 			return os.Getenv("ENVIRONMENT") == "development"
 		},

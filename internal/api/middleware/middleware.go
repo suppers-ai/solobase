@@ -2,27 +2,26 @@ package middleware
 
 import (
 	"context"
-	"log"
+	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
 
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"github.com/suppers-ai/solobase/constants"
-	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
 	commonjwt "github.com/suppers-ai/solobase/internal/common/jwt"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/internal/iam"
+	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
 	"github.com/suppers-ai/solobase/utils"
-	"gorm.io/gorm"
 )
 
 // Package-level variable for database access (set during initialization)
-var authDB *gorm.DB
+var authDB *sql.DB
 var iamService *iam.Service
 
 // SetAuthDB sets the database for API key authentication
-func SetAuthDB(db *gorm.DB) {
+func SetAuthDB(db *sql.DB) {
 	authDB = db
 }
 
@@ -40,6 +39,8 @@ func SetJWTSecret(secret string) error {
 func AuthMiddleware(authService *services.AuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Printf("DEBUG: AuthMiddleware called for %s\n", r.URL.Path)
+
 			// Try authentication methods in order:
 			// 1. httpOnly cookie (browsers)
 			// 2. Bearer token in Authorization header (JWT)
@@ -80,14 +81,14 @@ func AuthMiddleware(authService *services.AuthService) func(http.Handler) http.H
 			if isAPIKey {
 				// Authenticate via API key
 				if authDB == nil {
-					log.Printf("API key authentication failed: database not initialized")
+					fmt.Println("API key authentication failed: database not initialized")
 					utils.JSONError(w, http.StatusInternalServerError, "Server configuration error")
 					return
 				}
 
 				// Hash the API key and look it up
 				keyHash := auth.HashToken(tokenString)
-				storage := auth.NewGormStorage(authDB)
+				storage := auth.NewStorage(authDB)
 				apiKey, err := storage.GetAPIKeyByHash(r.Context(), keyHash)
 				if err != nil {
 					utils.JSONError(w, http.StatusUnauthorized, "Invalid API key")
@@ -115,7 +116,7 @@ func AuthMiddleware(authService *services.AuthService) func(http.Handler) http.H
 				if iamService != nil {
 					roles, err := iamService.GetUserRoles(r.Context(), userID)
 					if err != nil {
-						log.Printf("Warning: Failed to fetch roles for API key user: %v", err)
+						fmt.Printf("Warning: Failed to fetch roles for API key user: %v\n", err)
 						userRoles = []string{}
 					} else {
 						userRoles = roles
@@ -129,13 +130,11 @@ func AuthMiddleware(authService *services.AuthService) func(http.Handler) http.H
 				}()
 
 			} else {
-				// Authenticate via JWT
-				claims := &Claims{}
-				token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-					return commonjwt.GetJWTSecret(), nil
-				})
-
-				if err != nil || !token.Valid {
+				// Authenticate via JWT (uses build-tag specific parseToken)
+				fmt.Println("DEBUG: parsing JWT token")
+				claims, err := parseToken(tokenString)
+				fmt.Printf("DEBUG: parseToken returned, err=%v\n", err)
+				if err != nil {
 					utils.JSONError(w, http.StatusUnauthorized, "Invalid token")
 					return
 				}

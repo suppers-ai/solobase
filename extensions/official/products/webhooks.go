@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 
 	"github.com/suppers-ai/solobase/extensions/official/products/models"
 	"github.com/suppers-ai/solobase/extensions/official/products/providers"
@@ -154,8 +154,7 @@ func (h *WebhookHandler) handleCheckoutExpired(event events.CheckoutExpiredEvent
 
 func (h *WebhookHandler) handlePaymentSucceeded(event events.PaymentSucceededEvent) error {
 	// Find purchase by payment intent ID
-	var purchase models.Purchase
-	err := h.purchaseService.db.Where("provider_payment_intent_id = ?", event.PaymentIntentID).First(&purchase).Error
+	purchase, err := h.purchaseService.GetByPaymentIntentID(event.PaymentIntentID)
 	if err != nil {
 		// No purchase found for this payment intent
 		return nil
@@ -175,8 +174,7 @@ func (h *WebhookHandler) handlePaymentSucceeded(event events.PaymentSucceededEve
 
 func (h *WebhookHandler) handlePaymentFailed(event events.PaymentFailedEvent) error {
 	// Find purchase by payment intent ID
-	var purchase models.Purchase
-	err := h.purchaseService.db.Where("provider_payment_intent_id = ?", event.PaymentIntentID).First(&purchase).Error
+	purchase, err := h.purchaseService.GetByPaymentIntentID(event.PaymentIntentID)
 	if err != nil {
 		// No purchase found for this payment intent
 		return nil
@@ -193,8 +191,7 @@ func (h *WebhookHandler) handlePaymentFailed(event events.PaymentFailedEvent) er
 
 func (h *WebhookHandler) handleRefundProcessed(event events.RefundProcessedEvent) error {
 	// Find purchase by payment intent ID
-	var purchase models.Purchase
-	err := h.purchaseService.db.Where("provider_payment_intent_id = ?", event.PaymentIntentID).First(&purchase).Error
+	purchase, err := h.purchaseService.GetByPaymentIntentID(event.PaymentIntentID)
 	if err != nil {
 		// No purchase found for this refund
 		return nil
@@ -203,7 +200,6 @@ func (h *WebhookHandler) handleRefundProcessed(event events.RefundProcessedEvent
 	// Update purchase status to refunded
 	return h.purchaseService.UpdateStatus(purchase.ID, models.PurchaseStatusRefunded, map[string]interface{}{
 		"refund_amount": event.RefundAmount,
-		"refunded_at":   time.Now(),
+		"refunded_at":   apptime.NowTime(),
 	})
 }
-

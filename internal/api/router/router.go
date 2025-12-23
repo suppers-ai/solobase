@@ -1,12 +1,11 @@
 package router
 
 import (
-	"log"
+	"database/sql"
+	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/gorilla/mux"
-	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/extensions/official/cloudstorage"
 	"github.com/suppers-ai/solobase/extensions/official/legalpages"
@@ -25,29 +24,30 @@ import (
 	"github.com/suppers-ai/solobase/internal/api/middleware"
 	"github.com/suppers-ai/solobase/internal/api/routes"
 	"github.com/suppers-ai/solobase/internal/core/services"
+	"github.com/suppers-ai/solobase/internal/env"
 	"github.com/suppers-ai/solobase/internal/iam"
 )
 
 type API struct {
-	Router               *mux.Router
-	DB                   *database.DB
-	AuthService          *services.AuthService
-	UserService          *services.UserService
-	StorageService       *services.StorageService
-	DatabaseService      *services.DatabaseService
-	SettingsService      *services.SettingsService
-	LogsService          *services.LogsService
-	IAMService           *iam.Service
-	CustomTablesService  *services.CustomTablesService
-	storageHandlers      *storage.StorageHandlers
-	sharesHandler        *shares.SharesHandler
-	productHandlers      *products.ProductsExtensionHandlers
-	customTablesHandler  *custom_tables.Handler
-	ExtensionRegistry    *core.ExtensionRegistry
+	Router              *mux.Router
+	SQLDB               *sql.DB
+	AuthService         *services.AuthService
+	UserService         *services.UserService
+	StorageService      *services.StorageService
+	DatabaseService     *services.DatabaseService
+	SettingsService     *services.SettingsService
+	LogsService         *services.LogsService
+	IAMService          *iam.Service
+	CustomTablesService *services.CustomTablesService
+	storageHandlers     *storage.StorageHandlers
+	sharesHandler       *shares.SharesHandler
+	productHandlers     *products.ProductsExtensionHandlers
+	customTablesHandler *custom_tables.Handler
+	ExtensionRegistry   *core.ExtensionRegistry
 }
 
 func NewAPI(
-	db *database.DB,
+	sqlDB *sql.DB,
 	authService *services.AuthService,
 	userService *services.UserService,
 	storageService *services.StorageService,
@@ -59,7 +59,7 @@ func NewAPI(
 ) *API {
 	api := &API{
 		Router:            mux.NewRouter(),
-		DB:                db,
+		SQLDB:             sqlDB,
 		AuthService:       authService,
 		UserService:       userService,
 		StorageService:    storageService,
@@ -71,21 +71,50 @@ func NewAPI(
 	}
 
 	// Initialize storage handlers with hook support
-	api.storageHandlers = storage.NewStorageHandlers(storageService, db, extensionRegistry)
+	// Storage handlers use the repository pattern, so they work in WASM mode too
+	if storageService != nil {
+		api.storageHandlers = storage.NewStorageHandlers(storageService, sqlDB, extensionRegistry)
+	}
 
-	// Initialize shares handler
-	api.sharesHandler = shares.NewSharesHandler(db)
+	// Initialize shares handler (skip if no DB)
+	if sqlDB != nil {
+		api.sharesHandler = shares.NewSharesHandler(sqlDB)
+	}
 
-	// Initialize custom tables service and handler
-	api.CustomTablesService = services.NewCustomTablesService(db.DB)
-	api.customTablesHandler = custom_tables.NewHandler(api.CustomTablesService, db.DB)
+	// TODO: Re-enable CustomTablesService
+	// api.CustomTablesService = services.NewCustomTablesService(sqlDB)
+	// api.customTablesHandler = custom_tables.NewHandler(api.CustomTablesService, sqlDB)
 
+	fmt.Println("NEWAPI: About to call setupRoutesWithAdmin")
 	api.setupRoutesWithAdmin()
+	fmt.Println("NEWAPI: After setupRoutesWithAdmin")
 	return api
 }
 
 // setupRoutesWithAdmin sets up all routes with proper admin namespace
 func (a *API) setupRoutesWithAdmin() {
+	// CRITICAL: Early return test - log that we entered the function
+	fmt.Println("XXXXX ENTERED setupRoutesWithAdmin XXXXX")
+
+	// WASM mode: Skip all route setup if no auth service
+	if a.AuthService == nil {
+		fmt.Println("XXXXX AuthService is NIL - returning XXXXX")
+		// Just return early in WASM mode - no routes needed
+		// Only set up basic public routes
+		apiRouter := a.Router
+		apiRouter.Use(middleware.SecurityHeadersMiddleware)
+		apiRouter.Use(middleware.CORS(nil))
+		apiRouter.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"ok","message":"API running in WASM mode"}`))
+		}).Methods("GET", "OPTIONS")
+		apiRouter.HandleFunc("/debug/time", system.HandleDebugTime()).Methods("GET", "OPTIONS")
+		return
+	}
+
+	fmt.Println("XXXXX AuthService is NOT nil - continuing XXXXX")
+
 	apiRouter := a.Router
 
 	// Apply security middleware first
@@ -103,7 +132,7 @@ func (a *API) setupRoutesWithAdmin() {
 	// ==================================
 	// PUBLIC ROUTES (no auth required)
 	// ==================================
-	
+
 	// Health & Monitoring
 	apiRouter.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -111,76 +140,82 @@ func (a *API) setupRoutesWithAdmin() {
 		w.Write([]byte(`{"status":"ok","message":"API is running"}`))
 	}).Methods("GET", "OPTIONS")
 
-	apiRouter.Handle("/metrics", system.HandlePrometheusMetrics()).Methods("GET", "OPTIONS")
+	// Debug time endpoint (for WASM testing)
+	apiRouter.HandleFunc("/debug/time", system.HandleDebugTime()).Methods("GET", "OPTIONS")
 
 	// Authentication (public endpoints)
-	apiRouter.HandleFunc("/auth/login", auth.HandleLogin(a.AuthService, a.StorageService, a.ExtensionRegistry, a.IAMService, a.DB)).Methods("POST", "OPTIONS")
+	apiRouter.HandleFunc("/auth/login", auth.HandleLogin(a.AuthService, a.StorageService, a.ExtensionRegistry, a.IAMService, a.SQLDB)).Methods("POST", "OPTIONS")
 	apiRouter.HandleFunc("/auth/signup", auth.HandleSignup(a.AuthService, a.IAMService)).Methods("POST", "OPTIONS")
-	apiRouter.HandleFunc("/auth/refresh", auth.HandleRefreshToken(a.DB, a.IAMService, a.AuthService)).Methods("POST", "OPTIONS")
+	apiRouter.HandleFunc("/auth/refresh", auth.HandleRefreshToken(a.SQLDB, a.IAMService, a.AuthService)).Methods("POST", "OPTIONS")
 
 	// OAuth endpoints (public)
 	a.setupOAuthRoutes(apiRouter)
 
 	// Direct download with tokens (public but token-protected)
-	apiRouter.HandleFunc("/storage/direct/{token}", a.storageHandlers.HandleDirectDownload).Methods("GET", "OPTIONS")
+	if a.storageHandlers != nil {
+		apiRouter.HandleFunc("/storage/direct/{token}", a.storageHandlers.HandleDirectDownload).Methods("GET", "OPTIONS")
+	}
 
 	// Payment provider webhook endpoint (public, verified by signature)
-	apiRouter.HandleFunc("/ext/products/webhooks", a.productHandlers.HandleWebhook()).Methods("POST")
+	if a.productHandlers != nil {
+		apiRouter.HandleFunc("/ext/products/webhooks", a.productHandlers.HandleWebhook()).Methods("POST")
+	}
 
 	// ==================================
 	// PROTECTED ROUTES (auth required)
 	// ==================================
-	
+
 	protected := apiRouter.PathPrefix("").Subrouter()
 	protected.Use(middleware.AuthMiddleware(a.AuthService))
 
 	// ---- Current User Operations (any authenticated user) ----
-	
+
 	// Auth operations
-	protected.HandleFunc("/auth/logout", auth.HandleLogout(a.DB)).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/auth/logout", auth.HandleLogout(a.SQLDB)).Methods("POST", "OPTIONS")
 	protected.HandleFunc("/auth/me", auth.HandleGetCurrentUser()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/auth/me", auth.HandleUpdateCurrentUser(a.UserService)).Methods("PATCH", "OPTIONS")
 	protected.HandleFunc("/auth/change-password", auth.HandleChangePassword(a.AuthService)).Methods("POST", "OPTIONS")
 
 	// API Key management
-	protected.HandleFunc("/auth/api-keys", auth.HandleListAPIKeys(a.DB)).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/auth/api-keys", auth.HandleCreateAPIKey(a.DB)).Methods("POST", "OPTIONS")
-	protected.HandleFunc("/auth/api-keys/{keyId}", auth.HandleRevokeAPIKey(a.DB)).Methods("DELETE", "OPTIONS")
-	
+	protected.HandleFunc("/auth/api-keys", auth.HandleListAPIKeys(a.SQLDB)).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/auth/api-keys", auth.HandleCreateAPIKey(a.SQLDB)).Methods("POST", "OPTIONS")
+	protected.HandleFunc("/auth/api-keys/{keyId}", auth.HandleRevokeAPIKey(a.SQLDB)).Methods("DELETE", "OPTIONS")
 
 	// ---- User Storage (regular user access) ----
-	
-	// Buckets
-	protected.HandleFunc("/storage/buckets", a.storageHandlers.HandleGetStorageBuckets).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/storage/buckets", a.storageHandlers.HandleCreateBucket).Methods("POST", "OPTIONS")
-	protected.HandleFunc("/storage/buckets/{bucket}", a.storageHandlers.HandleDeleteBucket).Methods("DELETE", "OPTIONS")
-	
-	// Objects in buckets
-	protected.HandleFunc("/storage/buckets/{bucket}/objects", a.storageHandlers.HandleGetBucketObjects).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/storage/buckets/{bucket}/upload", a.storageHandlers.HandleUploadFile).Methods("POST", "OPTIONS")
-	protected.HandleFunc("/storage/buckets/{bucket}/upload-url", a.storageHandlers.HandleGenerateUploadURL).Methods("POST", "OPTIONS")
-	protected.HandleFunc("/storage/buckets/{bucket}/objects/{id}", a.storageHandlers.HandleGetObject).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/storage/buckets/{bucket}/objects/{id}", a.storageHandlers.HandleDeleteObject).Methods("DELETE", "OPTIONS")
-	protected.HandleFunc("/storage/buckets/{bucket}/objects/{id}/download", a.storageHandlers.HandleDownloadObject).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/storage/buckets/{bucket}/objects/{id}/download-url", a.storageHandlers.HandleGenerateDownloadURL).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/storage/buckets/{bucket}/objects/{id}/rename", a.storageHandlers.HandleRenameObject).Methods("PATCH", "OPTIONS")
-	protected.HandleFunc("/storage/buckets/{bucket}/objects/{id}/metadata", a.storageHandlers.HandleUpdateObjectMetadata).Methods("PATCH", "OPTIONS")
-	protected.HandleFunc("/storage/buckets/{bucket}/folders", a.storageHandlers.HandleCreateFolder).Methods("POST", "OPTIONS")
-	
-	// Storage utilities
-	protected.HandleFunc("/storage/search", a.storageHandlers.HandleSearchStorageObjects).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/storage/recently-viewed", a.storageHandlers.HandleGetRecentlyViewed).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/storage/items/{id}/last-viewed", a.storageHandlers.HandleUpdateLastViewed).Methods("POST", "OPTIONS")
-	protected.HandleFunc("/storage/quota", a.storageHandlers.HandleGetStorageQuota).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/storage/stats", a.storageHandlers.HandleGetStorageStats).Methods("GET", "OPTIONS")
+	// Only register storage routes if handlers are available (require sqlDB)
+	if a.storageHandlers != nil {
+		// Buckets
+		protected.HandleFunc("/storage/buckets", a.storageHandlers.HandleGetStorageBuckets).Methods("GET", "OPTIONS")
+		protected.HandleFunc("/storage/buckets", a.storageHandlers.HandleCreateBucket).Methods("POST", "OPTIONS")
+		protected.HandleFunc("/storage/buckets/{bucket}", a.storageHandlers.HandleDeleteBucket).Methods("DELETE", "OPTIONS")
+
+		// Objects in buckets
+		protected.HandleFunc("/storage/buckets/{bucket}/objects", a.storageHandlers.HandleGetBucketObjects).Methods("GET", "OPTIONS")
+		protected.HandleFunc("/storage/buckets/{bucket}/upload", a.storageHandlers.HandleUploadFile).Methods("POST", "OPTIONS")
+		protected.HandleFunc("/storage/buckets/{bucket}/upload-url", a.storageHandlers.HandleGenerateUploadURL).Methods("POST", "OPTIONS")
+		protected.HandleFunc("/storage/buckets/{bucket}/objects/{id}", a.storageHandlers.HandleGetObject).Methods("GET", "OPTIONS")
+		protected.HandleFunc("/storage/buckets/{bucket}/objects/{id}", a.storageHandlers.HandleDeleteObject).Methods("DELETE", "OPTIONS")
+		protected.HandleFunc("/storage/buckets/{bucket}/objects/{id}/download", a.storageHandlers.HandleDownloadObject).Methods("GET", "OPTIONS")
+		protected.HandleFunc("/storage/buckets/{bucket}/objects/{id}/download-url", a.storageHandlers.HandleGenerateDownloadURL).Methods("GET", "OPTIONS")
+		protected.HandleFunc("/storage/buckets/{bucket}/objects/{id}/rename", a.storageHandlers.HandleRenameObject).Methods("PATCH", "OPTIONS")
+		protected.HandleFunc("/storage/buckets/{bucket}/objects/{id}/metadata", a.storageHandlers.HandleUpdateObjectMetadata).Methods("PATCH", "OPTIONS")
+		protected.HandleFunc("/storage/buckets/{bucket}/folders", a.storageHandlers.HandleCreateFolder).Methods("POST", "OPTIONS")
+
+		// Storage utilities
+		protected.HandleFunc("/storage/search", a.storageHandlers.HandleSearchStorageObjects).Methods("GET", "OPTIONS")
+		protected.HandleFunc("/storage/recently-viewed", a.storageHandlers.HandleGetRecentlyViewed).Methods("GET", "OPTIONS")
+		protected.HandleFunc("/storage/items/{id}/last-viewed", a.storageHandlers.HandleUpdateLastViewed).Methods("POST", "OPTIONS")
+		protected.HandleFunc("/storage/quota", a.storageHandlers.HandleGetStorageQuota).Methods("GET", "OPTIONS")
+		protected.HandleFunc("/storage/stats", a.storageHandlers.HandleGetStorageStats).Methods("GET", "OPTIONS")
+	}
 
 	// ---- Settings (read-only for users) ----
-	
+
 	protected.HandleFunc("/settings", settings.HandleGetSettings(a.SettingsService)).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/settings/{key}", settings.HandleGetSetting(a.SettingsService)).Methods("GET", "OPTIONS")
 
 	// ---- Dashboard (available to all authenticated users) ----
-	
+
 	protected.HandleFunc("/dashboard/stats", system.HandleGetDashboardStats(
 		a.UserService,
 		a.StorageService,
@@ -190,23 +225,23 @@ func (a *API) setupRoutesWithAdmin() {
 	// ==================================
 	// ADMIN ROUTES (admin role required)
 	// ==================================
-	
+
 	admin := apiRouter.PathPrefix("/admin").Subrouter()
 	admin.Use(middleware.AuthMiddleware(a.AuthService))
 	admin.Use(middleware.AdminMiddleware(a.IAMService))
-	
+
 	// ---- User Management ----
 	admin.HandleFunc("/users", users.HandleGetUsers(a.UserService)).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/users/{id}", users.HandleGetUser(a.UserService)).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/users/{id}", users.HandleUpdateUser(a.UserService)).Methods("PATCH", "OPTIONS")
 	admin.HandleFunc("/users/{id}", users.HandleDeleteUser(a.UserService)).Methods("DELETE", "OPTIONS")
-	
+
 	// ---- Database Management ----
 	admin.HandleFunc("/database/info", dbhandlers.HandleGetDatabaseInfo(a.DatabaseService)).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/database/tables", dbhandlers.HandleGetDatabaseTables(a.DatabaseService)).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/database/tables/{table}/columns", dbhandlers.HandleGetTableColumns(a.DatabaseService)).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/database/query", dbhandlers.HandleExecuteQuery(a.DatabaseService)).Methods("POST", "OPTIONS")
-	
+
 	// ---- Logs ----
 	admin.HandleFunc("/logs", logs.HandleGetLogs(a.LogsService)).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/logs/requests", logs.HandleGetRequestLogs(a.LogsService)).Methods("GET", "OPTIONS")
@@ -214,69 +249,83 @@ func (a *API) setupRoutesWithAdmin() {
 	admin.HandleFunc("/logs/details", logs.HandleGetLogDetails(a.LogsService)).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/logs/export", logs.HandleExportLogs(a.LogsService)).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/logs/clear", logs.HandleClearLogs(a.LogsService)).Methods("POST", "OPTIONS")
-	
+
 	// ---- System Metrics ----
 	admin.HandleFunc("/system/metrics", system.HandleGetSystemMetrics()).Methods("GET", "OPTIONS")
-	
+	admin.HandleFunc("/metrics", system.HandleGetAdminMetrics(a.SQLDB)).Methods("GET", "OPTIONS")
+
 	// ---- Settings Management ----
 	admin.HandleFunc("/settings", settings.HandleUpdateSettings(a.SettingsService)).Methods("PATCH", "OPTIONS")
 	admin.HandleFunc("/settings", settings.HandleSetSetting(a.SettingsService)).Methods("POST", "OPTIONS")
 	admin.HandleFunc("/settings/reset", settings.HandleResetSettings(a.SettingsService)).Methods("POST", "OPTIONS")
-	
+
 	// ---- Storage Admin ----
-	admin.HandleFunc("/storage/stats", a.storageHandlers.HandleGetAdminStorageStats).Methods("GET", "OPTIONS")
-	
+	if a.storageHandlers != nil {
+		admin.HandleFunc("/storage/stats", a.storageHandlers.HandleGetAdminStorageStats).Methods("GET", "OPTIONS")
+	}
+
 	// ---- IAM (Identity & Access Management) ----
 	routes.RegisterIAMRoutes(admin, a.IAMService)
 
 	// ---- Custom Tables Management ----
-	admin.HandleFunc("/custom-tables", a.customTablesHandler.CreateTable).Methods("POST", "OPTIONS")
-	admin.HandleFunc("/custom-tables", a.customTablesHandler.ListTables).Methods("GET", "OPTIONS")
-	admin.HandleFunc("/custom-tables/{name}", a.customTablesHandler.GetTableSchema).Methods("GET", "OPTIONS")
-	admin.HandleFunc("/custom-tables/{name}", a.customTablesHandler.AlterTable).Methods("PUT", "OPTIONS")
-	admin.HandleFunc("/custom-tables/{name}", a.customTablesHandler.DropTable).Methods("DELETE", "OPTIONS")
-	admin.HandleFunc("/custom-tables/{name}/migrations", a.customTablesHandler.GetMigrationHistory).Methods("GET", "OPTIONS")
+	// TODO: Re-enable after updating CustomTablesService to use raw SQL
+	// admin.HandleFunc("/custom-tables", a.customTablesHandler.CreateTable).Methods("POST", "OPTIONS")
+	// admin.HandleFunc("/custom-tables", a.customTablesHandler.ListTables).Methods("GET", "OPTIONS")
+	// admin.HandleFunc("/custom-tables/{name}", a.customTablesHandler.GetTableSchema).Methods("GET", "OPTIONS")
+	// admin.HandleFunc("/custom-tables/{name}", a.customTablesHandler.AlterTable).Methods("PUT", "OPTIONS")
+	// admin.HandleFunc("/custom-tables/{name}", a.customTablesHandler.DropTable).Methods("DELETE", "OPTIONS")
+	// admin.HandleFunc("/custom-tables/{name}/migrations", a.customTablesHandler.GetMigrationHistory).Methods("GET", "OPTIONS")
 
 	// Custom table data operations
-	admin.HandleFunc("/custom-tables/{name}/data", a.customTablesHandler.InsertData).Methods("POST", "OPTIONS")
-	admin.HandleFunc("/custom-tables/{name}/data", a.customTablesHandler.QueryData).Methods("GET", "OPTIONS")
-	admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.GetRecord).Methods("GET", "OPTIONS")
-	admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.UpdateRecord).Methods("PUT", "OPTIONS")
-	admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.DeleteRecord).Methods("DELETE", "OPTIONS")
+	// admin.HandleFunc("/custom-tables/{name}/data", a.customTablesHandler.InsertData).Methods("POST", "OPTIONS")
+	// admin.HandleFunc("/custom-tables/{name}/data", a.customTablesHandler.QueryData).Methods("GET", "OPTIONS")
+	// admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.GetRecord).Methods("GET", "OPTIONS")
+	// admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.UpdateRecord).Methods("PUT", "OPTIONS")
+	// admin.HandleFunc("/custom-tables/{name}/data/{id}", a.customTablesHandler.DeleteRecord).Methods("DELETE", "OPTIONS")
 
 	// Initialize handlers if needed
+	fmt.Println("DEBUG: About to initialize product handlers")
 
 	if a.productHandlers == nil {
+		fmt.Println("DEBUG: productHandlers is nil, checking registry")
 		// Get the products extension from the registry instead of creating a new one
-		if ext, exists := a.ExtensionRegistry.Get("products"); exists {
-			if productsExt, ok := ext.(*productsext.ProductsExtension); ok {
-				a.productHandlers = products.NewProductsExtensionHandlersWithExtension(productsExt)
+		if a.ExtensionRegistry != nil {
+			fmt.Println("DEBUG: ExtensionRegistry is not nil")
+			if ext, exists := a.ExtensionRegistry.Get("products"); exists {
+				fmt.Println("DEBUG: products extension found")
+				if productsExt, ok := ext.(*productsext.ProductsExtension); ok {
+					fmt.Println("DEBUG: products extension cast successful")
+					a.productHandlers = products.NewProductsExtensionHandlersWithExtension(productsExt)
+				} else {
+					fmt.Println("DEBUG: products extension cast failed, using empty handler")
+					// Fallback to empty handler
+					a.productHandlers = products.NewProductsExtensionHandlers()
+				}
 			} else {
-				// Fallback to empty handler
+				fmt.Println("DEBUG: products extension not found, using empty handler")
+				// Create empty handlers
 				a.productHandlers = products.NewProductsExtensionHandlers()
 			}
 		} else {
-			// Create empty handlers
+			fmt.Println("DEBUG: ExtensionRegistry is nil, using empty handler")
+			// Create empty handlers when no registry
 			a.productHandlers = products.NewProductsExtensionHandlers()
 		}
 	}
+	fmt.Println("DEBUG: product handlers initialized")
 
 	// ==================================
 	// EXTENSIONS - with admin sub-routes
 	// ==================================
-	
+
 	// Extensions management (admin only)
 	admin.HandleFunc("/extensions", extensions.HandleGetExtensions()).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/extensions/manage", extensions.HandleExtensionsManagement()).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/extensions/{name}/toggle", extensions.HandleToggleExtension()).Methods("POST", "OPTIONS")
 	admin.HandleFunc("/extensions/status", extensions.HandleExtensionsStatus()).Methods("GET", "OPTIONS")
-	
-	// ---- Analytics Extension ----
-	// Analytics routes are now handled by the analytics extension via the extension registry
-	// The extension automatically registers its routes under /ext/analytics/
-	
+
 	// ---- Products Extension ----
-	
+
 	// User endpoints (product browsing and usage)
 	protected.HandleFunc("/ext/products/products", a.productHandlers.HandleProductsList()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/ext/products/products", a.productHandlers.HandleProductsCreate()).Methods("POST", "OPTIONS")
@@ -301,13 +350,13 @@ func (a *API) setupRoutesWithAdmin() {
 	protected.HandleFunc("/ext/products/group-types", a.productHandlers.HandleListGroupTypes()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/ext/products/product-types", a.productHandlers.HandleListProductTypes()).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/ext/products/variables", a.productHandlers.HandleListVariables()).Methods("GET", "OPTIONS")
-	
+
 	// Admin endpoints (product management)
 	admin.HandleFunc("/ext/products/products", a.productHandlers.HandleProductsCreate()).Methods("POST", "OPTIONS")
 	admin.HandleFunc("/ext/products/products/{id}", extensions.HandleProductsUpdate()).Methods("PUT", "OPTIONS")
 	admin.HandleFunc("/ext/products/products/{id}", extensions.HandleProductsDelete()).Methods("DELETE", "OPTIONS")
 	admin.HandleFunc("/ext/products/stats", a.productHandlers.HandleProductsStats()).Methods("GET", "OPTIONS")
-	
+
 	// Admin configuration endpoints
 	admin.HandleFunc("/ext/products/provider/status", a.productHandlers.HandleProviderStatus()).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/ext/products/groups", a.productHandlers.HandleListGroups()).Methods("GET", "OPTIONS")
@@ -315,17 +364,17 @@ func (a *API) setupRoutesWithAdmin() {
 	admin.HandleFunc("/ext/products/variables", a.productHandlers.HandleCreateVariable()).Methods("POST", "OPTIONS")
 	admin.HandleFunc("/ext/products/variables/{id}", a.productHandlers.HandleUpdateVariable()).Methods("PUT", "OPTIONS")
 	admin.HandleFunc("/ext/products/variables/{id}", a.productHandlers.HandleDeleteVariable()).Methods("DELETE", "OPTIONS")
-	
+
 	admin.HandleFunc("/ext/products/group-types", a.productHandlers.HandleListGroupTypes()).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/ext/products/group-types", a.productHandlers.HandleCreateGroupType()).Methods("POST", "OPTIONS")
 	admin.HandleFunc("/ext/products/group-types/{id}", a.productHandlers.HandleUpdateGroupType()).Methods("PUT", "OPTIONS")
 	admin.HandleFunc("/ext/products/group-types/{id}", a.productHandlers.HandleDeleteGroupType()).Methods("DELETE", "OPTIONS")
-	
+
 	admin.HandleFunc("/ext/products/product-types", a.productHandlers.HandleListProductTypes()).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/ext/products/product-types", a.productHandlers.HandleCreateProductType()).Methods("POST", "OPTIONS")
 	admin.HandleFunc("/ext/products/product-types/{id}", a.productHandlers.HandleUpdateProductType()).Methods("PUT", "OPTIONS")
 	admin.HandleFunc("/ext/products/product-types/{id}", a.productHandlers.HandleDeleteProductType()).Methods("DELETE", "OPTIONS")
-	
+
 	admin.HandleFunc("/ext/products/pricing-templates", a.productHandlers.HandleListPricingTemplates()).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/ext/products/pricing-templates", a.productHandlers.HandleCreatePricingTemplate()).Methods("POST", "OPTIONS")
 	admin.HandleFunc("/ext/products/pricing-templates/{id}", a.productHandlers.HandleUpdatePricingTemplate()).Methods("PUT", "OPTIONS")
@@ -335,31 +384,7 @@ func (a *API) setupRoutesWithAdmin() {
 	admin.HandleFunc("/ext/products/purchases", a.productHandlers.HandleListAllPurchases()).Methods("GET", "OPTIONS")
 	admin.HandleFunc("/ext/products/purchases/{id}/refund", a.productHandlers.HandleRefundPurchase()).Methods("POST", "OPTIONS")
 	admin.HandleFunc("/ext/products/purchases/{id}/approve", a.productHandlers.HandleApprovePurchase()).Methods("POST", "OPTIONS")
-	
-	// ---- Webhooks Extension ----
-	
-	// User endpoints (view webhooks)
-	protected.HandleFunc("/ext/webhooks/webhooks", extensions.HandleWebhooksList()).Methods("GET", "OPTIONS")
-	
-	// Admin endpoints (manage webhooks)
-	admin.HandleFunc("/ext/webhooks/dashboard", extensions.HandleWebhooksDashboard()).Methods("GET", "OPTIONS")
-	admin.HandleFunc("/ext/webhooks/webhooks", extensions.HandleWebhooksCreate()).Methods("POST", "OPTIONS")
-	admin.HandleFunc("/ext/webhooks/webhooks/{id}/toggle", extensions.HandleWebhooksToggle()).Methods("POST", "OPTIONS")
-	admin.HandleFunc("/ext/webhooks/webhooks/{id}", extensions.HandleWebhooksDelete()).Methods("DELETE", "OPTIONS")
-	
-	// ---- Hugo Extension (all admin) ----
-	
-	admin.HandleFunc("/ext/hugo/sites", extensions.HandleHugoSitesList()).Methods("GET", "OPTIONS")
-	admin.HandleFunc("/ext/hugo/sites", extensions.HandleHugoSitesCreate()).Methods("POST", "OPTIONS")
-	admin.HandleFunc("/ext/hugo/sites/{id}", extensions.HandleHugoSitesDelete()).Methods("DELETE", "OPTIONS")
-	admin.HandleFunc("/ext/hugo/sites/{id}/build", extensions.HandleHugoSitesBuild()).Methods("POST", "OPTIONS")
-	admin.HandleFunc("/ext/hugo/sites/{id}/files", extensions.HandleHugoSiteFiles()).Methods("GET", "OPTIONS")
-	admin.HandleFunc("/ext/hugo/sites/{id}/files/read", extensions.HandleHugoFileRead()).Methods("POST", "OPTIONS")
-	admin.HandleFunc("/ext/hugo/sites/{id}/files/save", extensions.HandleHugoFileSave()).Methods("POST", "OPTIONS")
-	admin.HandleFunc("/ext/hugo/sites/{id}/files/create", extensions.HandleHugoFileCreate()).Methods("POST", "OPTIONS")
-	admin.HandleFunc("/ext/hugo/sites/{id}/files/delete", extensions.HandleHugoFileDelete()).Methods("POST", "OPTIONS")
-	admin.HandleFunc("/ext/hugo/stats", extensions.HandleHugoStats()).Methods("GET", "OPTIONS")
-	
+
 	// ---- Cloud Storage Extension ----
 	// CloudStorage extension routes need to be registered directly with the Gorilla Mux router
 	// Get the CloudStorage extension from the registry and create handler wrappers
@@ -367,18 +392,18 @@ func (a *API) setupRoutesWithAdmin() {
 	if a.ExtensionRegistry != nil {
 		// Register Legal Pages extension routes
 		if ext, ok := a.ExtensionRegistry.Get("legalpages"); ok {
-			log.Println("Legal Pages extension found in registry")
+			fmt.Println("Legal Pages extension found in registry")
 			if legalPagesExt, ok := ext.(*legalpages.LegalPagesExtension); ok && legalPagesExt != nil {
-				log.Println("Legal Pages extension cast successful")
+				fmt.Println("Legal Pages extension cast successful")
 				// Get handlers
 				handlers := legalPagesExt.GetHandlers()
-				log.Printf("Legal Pages handlers: %v\n", handlers)
+				fmt.Printf("Legal Pages handlers: %v\n", handlers)
 				if handlers != nil {
-					log.Println("Registering Legal Pages routes...")
+					fmt.Println("Registering Legal Pages routes...")
 					// Admin API routes
-					log.Println("Registering route: /ext/legalpages/documents")
+					fmt.Println("Registering route: /ext/legalpages/documents")
 					admin.HandleFunc("/ext/legalpages/documents", handlers.HandleGetDocuments).Methods("GET", "OPTIONS")
-					log.Println("Registering route: /ext/legalpages/documents/{type}")
+					fmt.Println("Registering route: /ext/legalpages/documents/{type}")
 					admin.HandleFunc("/ext/legalpages/documents/{type}", handlers.HandleGetDocument).Methods("GET", "OPTIONS")
 					admin.HandleFunc("/ext/legalpages/documents/{type}", handlers.HandleSaveDocument).Methods("POST", "OPTIONS")
 					admin.HandleFunc("/ext/legalpages/documents/{type}/publish", handlers.HandlePublishDocument).Methods("POST", "OPTIONS")
@@ -391,15 +416,15 @@ func (a *API) setupRoutesWithAdmin() {
 					// Public routes (no auth required)
 					apiRouter.HandleFunc("/ext/legalpages/terms", handlers.HandlePublicTerms).Methods("GET", "OPTIONS")
 					apiRouter.HandleFunc("/ext/legalpages/privacy", handlers.HandlePublicPrivacy).Methods("GET", "OPTIONS")
-					log.Println("Legal Pages routes registered successfully")
+					fmt.Println("Legal Pages routes registered successfully")
 				} else {
-					log.Println("Legal Pages handlers are nil")
+					fmt.Println("Legal Pages handlers are nil")
 				}
 			} else {
-				log.Println("Failed to cast Legal Pages extension")
+				fmt.Println("Failed to cast Legal Pages extension")
 			}
 		} else {
-			log.Println("Legal Pages extension not found in registry")
+			fmt.Println("Legal Pages extension not found in registry")
 		}
 
 		if ext, ok := a.ExtensionRegistry.Get("cloudstorage"); ok {
@@ -426,51 +451,9 @@ func (a *API) setupRoutesWithAdmin() {
 
 }
 
-// setupOAuthRoutes sets up OAuth authentication routes
-func (a *API) setupOAuthRoutes(router *mux.Router) {
-	// Get OAuth configuration from environment
-	oauthManager := auth.NewOAuthManager(a.AuthService, a.IAMService, getBaseURL())
-
-	// Register Google OAuth if configured
-	googleClientID := getEnv("GOOGLE_CLIENT_ID", "")
-	googleClientSecret := getEnv("GOOGLE_CLIENT_SECRET", "")
-	if googleClientID != "" && googleClientSecret != "" {
-		if err := oauthManager.RegisterProvider("google", googleClientID, googleClientSecret, nil); err != nil {
-			log.Printf("Warning: Failed to register Google OAuth: %v", err)
-		}
-	}
-
-	// Register Microsoft OAuth if configured
-	microsoftClientID := getEnv("MICROSOFT_CLIENT_ID", "")
-	microsoftClientSecret := getEnv("MICROSOFT_CLIENT_SECRET", "")
-	if microsoftClientID != "" && microsoftClientSecret != "" {
-		if err := oauthManager.RegisterProvider("microsoft", microsoftClientID, microsoftClientSecret, nil); err != nil {
-			log.Printf("Warning: Failed to register Microsoft OAuth: %v", err)
-		}
-	}
-
-	// Register Facebook OAuth if configured
-	facebookClientID := getEnv("FACEBOOK_CLIENT_ID", "")
-	facebookClientSecret := getEnv("FACEBOOK_CLIENT_SECRET", "")
-	if facebookClientID != "" && facebookClientSecret != "" {
-		if err := oauthManager.RegisterProvider("facebook", facebookClientID, facebookClientSecret, nil); err != nil {
-			log.Printf("Warning: Failed to register Facebook OAuth: %v", err)
-		}
-	}
-
-	// Public endpoint to get available OAuth providers
-	router.HandleFunc("/auth/oauth/providers", oauthManager.HandleGetProviders()).Methods("GET", "OPTIONS")
-
-	// OAuth login endpoint
-	router.HandleFunc("/auth/oauth/login", oauthManager.HandleOAuthLogin()).Methods("GET", "OPTIONS")
-
-	// OAuth callback endpoint
-	router.HandleFunc("/auth/oauth/callback/{provider}", oauthManager.HandleOAuthCallback()).Methods("GET", "OPTIONS")
-}
-
 // getEnv gets an environment variable with a default value
 func getEnv(key, defaultValue string) string {
-	value := os.Getenv(key)
+	value := env.GetEnv(key)
 	if value == "" {
 		return defaultValue
 	}
@@ -479,7 +462,7 @@ func getEnv(key, defaultValue string) string {
 
 // getBaseURL gets the base URL from environment or defaults to localhost
 func getBaseURL() string {
-	baseURL := os.Getenv("BASE_URL")
+	baseURL := env.GetEnv("BASE_URL")
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
 	}

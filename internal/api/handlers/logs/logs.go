@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 
 	"github.com/suppers-ai/solobase/constants"
 	"github.com/suppers-ai/solobase/internal/core/services"
@@ -38,7 +38,7 @@ func HandleGetLogs(logsService *services.LogsService) http.HandlerFunc {
 				"id":        log.ID.String(),
 				"level":     log.Level,
 				"message":   log.Message,
-				"createdAt": log.CreatedAt.Format(time.RFC3339),
+				"createdAt": log.CreatedAt.Format(apptime.TimeFormat),
 				"userID":    log.UserID,
 				"traceID":   log.TraceID,
 			}
@@ -110,7 +110,7 @@ func HandleGetRequestLogs(logsService *services.LogsService) http.HandlerFunc {
 				"userIP":    log.UserIP,
 				"userID":    log.UserID,
 				"message":   fmt.Sprintf("%s %s", log.Method, log.Path),
-				"createdAt": log.CreatedAt.Format(time.RFC3339),
+				"createdAt": log.CreatedAt.Format(apptime.TimeFormat),
 				"error":     log.Error,
 				"userAgent": log.UserAgent,
 				"traceID":   log.TraceID,
@@ -171,7 +171,7 @@ func HandleGetLogDetails(logsService *services.LogsService) http.HandlerFunc {
 			duration := fmt.Sprintf("%dms", reqLog.ExecTimeMs)
 			result := map[string]interface{}{
 				"id":        reqLog.ID.String(),
-				"createdAt": reqLog.CreatedAt.Format(time.RFC3339),
+				"createdAt": reqLog.CreatedAt.Format(apptime.TimeFormat),
 				"level":     getLogLevelFromStatus(reqLog.StatusCode),
 				"method":    reqLog.Method,
 				"path":      reqLog.Path,
@@ -204,7 +204,7 @@ func HandleGetLogDetails(logsService *services.LogsService) http.HandlerFunc {
 		// Format regular log as response
 		result := map[string]interface{}{
 			"id":        log.ID.String(),
-			"createdAt": log.CreatedAt.Format(time.RFC3339),
+			"createdAt": log.CreatedAt.Format(apptime.TimeFormat),
 			"level":     log.Level,
 			"message":   log.Message,
 			"userID":    log.UserID,
@@ -273,7 +273,7 @@ func HandleExportLogs(logsService *services.LogsService) http.HandlerFunc {
 
 		// Set CSV headers
 		w.Header().Set("Content-Type", "text/csv")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=logs_%s.csv", time.Now().Format("20060102_150405")))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=logs_%s.csv", apptime.NowTime().Format("20060102_150405")))
 
 		// Create CSV writer
 		csvWriter := csv.NewWriter(w)
@@ -289,7 +289,7 @@ func HandleExportLogs(logsService *services.LogsService) http.HandlerFunc {
 		for _, log := range logs {
 			record := []string{
 				log.ID.String(),
-				log.CreatedAt.Format(time.RFC3339),
+				log.CreatedAt.Format(apptime.TimeFormat),
 				log.Level,
 				log.Message,
 				"",

@@ -1,83 +1,43 @@
+//go:build !wasm
+
 package storage
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/rhnvrm/simples3"
 )
 
 // S3Provider implements storage using AWS S3 or S3-compatible services
+// Uses simples3 library which works in both standard and WASM builds
 type S3Provider struct {
-	client        *s3.Client
-	presignClient *s3.PresignClient
-	region        string
-	bucketPrefix  string
-	baseURL       string
+	client       *simples3.S3
+	region       string
+	bucketPrefix string
+	baseURL      string
 }
 
 // NewS3Provider creates a new S3 storage provider
 func NewS3Provider(cfg Config) (*S3Provider, error) {
-	// Create AWS config
-	awsCfg, err := createAWSConfig(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create AWS config: %w", err)
+	// Create simples3 client
+	client := simples3.New(cfg.S3Region, cfg.S3AccessKeyID, cfg.S3SecretAccessKey)
+
+	// Set custom endpoint if provided (for MinIO, R2, DigitalOcean Spaces, etc.)
+	if cfg.S3Endpoint != "" {
+		client.SetEndpoint(cfg.S3Endpoint)
 	}
-
-	// Create S3 client
-	client := s3.NewFromConfig(awsCfg, func(opts *s3.Options) {
-		if cfg.S3Endpoint != "" {
-			opts.BaseEndpoint = aws.String(cfg.S3Endpoint)
-		}
-		if cfg.S3PathStyle {
-			opts.UsePathStyle = true
-		}
-	})
-
-	// Create presign client
-	presignClient := s3.NewPresignClient(client)
 
 	return &S3Provider{
-		client:        client,
-		presignClient: presignClient,
-		region:        cfg.S3Region,
-		bucketPrefix:  cfg.S3BucketPrefix,
-		baseURL:       cfg.BaseURL,
+		client:       client,
+		region:       cfg.S3Region,
+		bucketPrefix: cfg.S3BucketPrefix,
+		baseURL:      cfg.BaseURL,
 	}, nil
-}
-
-func createAWSConfig(cfg Config) (aws.Config, error) {
-	// Build config options
-	opts := []func(*config.LoadOptions) error{
-		config.WithRegion(cfg.S3Region),
-	}
-
-	// Add credentials if provided
-	if cfg.S3AccessKeyID != "" && cfg.S3SecretAccessKey != "" {
-		opts = append(opts, config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(
-				cfg.S3AccessKeyID,
-				cfg.S3SecretAccessKey,
-				"",
-			),
-		))
-	}
-
-	// Load config
-	awsCfg, err := config.LoadDefaultConfig(context.Background(), opts...)
-	if err != nil {
-		return aws.Config{}, err
-	}
-
-	return awsCfg, nil
 }
 
 // Name returns the provider name
@@ -94,64 +54,33 @@ func (s *S3Provider) Type() ProviderType {
 func (s *S3Provider) CreateBucket(ctx context.Context, name string, opts CreateBucketOptions) error {
 	bucketName := s.getBucketName(name)
 
-	input := &s3.CreateBucketInput{
-		Bucket: aws.String(bucketName),
-	}
-
-	// Set region-specific configuration
-	if s.region != "" && s.region != "us-east-1" {
-		input.CreateBucketConfiguration = &types.CreateBucketConfiguration{
-			LocationConstraint: types.BucketLocationConstraint(s.region),
-		}
-	}
-
-	// Create the bucket
-	_, err := s.client.CreateBucket(ctx, input)
+	_, err := s.client.CreateBucket(simples3.CreateBucketInput{
+		Bucket: bucketName,
+		Region: s.region,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create bucket: %w", err)
 	}
 
-	// Configure public access if requested
-	if opts.Public {
-		// Remove public access block
-		_, err = s.client.DeletePublicAccessBlock(ctx, &s3.DeletePublicAccessBlockInput{
-			Bucket: aws.String(bucketName),
-		})
-		if err != nil {
-			// Non-fatal: some S3-compatible services don't support this
-		}
-
-		// Set bucket policy for public read
-		policy := fmt.Sprintf(`{
-			"Version": "2012-10-17",
-			"Statement": [{
-				"Sid": "PublicReadGetObject",
-				"Effect": "Allow",
-				"Principal": "*",
-				"Action": "s3:GetObject",
-				"Resource": "arn:aws:s3:::%s/*"
-			}]
-		}`, bucketName)
-
-		_, err = s.client.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{
-			Bucket: aws.String(bucketName),
-			Policy: aws.String(policy),
+	// Enable versioning if requested
+	if opts.Versioning {
+		err = s.client.PutBucketVersioning(simples3.PutBucketVersioningInput{
+			Bucket: bucketName,
+			Status: "Enabled",
 		})
 		if err != nil {
 			// Non-fatal: log but continue
 		}
 	}
 
-	// Enable versioning if requested
-	if opts.Versioning {
-		_, err = s.client.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
-			Bucket: aws.String(bucketName),
-			VersioningConfiguration: &types.VersioningConfiguration{
-				Status: types.BucketVersioningStatusEnabled,
-			},
+	// Set public ACL if requested
+	if opts.Public {
+		err = s.client.PutBucketAcl(simples3.PutBucketAclInput{
+			Bucket:    bucketName,
+			CannedACL: "public-read",
 		})
 		if err != nil {
-			// Non-fatal: log but continue
+			// Non-fatal: some S3-compatible services don't support this
 		}
 	}
 
@@ -169,8 +98,8 @@ func (s *S3Provider) DeleteBucket(ctx context.Context, name string) error {
 	}
 
 	// Delete the bucket
-	_, err = s.client.DeleteBucket(ctx, &s3.DeleteBucketInput{
-		Bucket: aws.String(bucketName),
+	err = s.client.DeleteBucket(simples3.DeleteBucketInput{
+		Bucket: bucketName,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete bucket: %w", err)
@@ -183,61 +112,48 @@ func (s *S3Provider) DeleteBucket(ctx context.Context, name string) error {
 func (s *S3Provider) BucketExists(ctx context.Context, name string) (bool, error) {
 	bucketName := s.getBucketName(name)
 
-	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
-		Bucket: aws.String(bucketName),
-	})
+	// List buckets and check if ours exists
+	result, err := s.client.ListBuckets(simples3.ListBucketsInput{})
 	if err != nil {
-		// Check if it's a not found error
-		if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "NoSuchBucket") {
-			return false, nil
-		}
 		return false, err
 	}
 
-	return true, nil
+	for _, bucket := range result.Buckets {
+		if bucket.Name == bucketName {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // ListBuckets lists all S3 buckets
 func (s *S3Provider) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
-	output, err := s.client.ListBuckets(ctx, &s3.ListBucketsInput{})
+	result, err := s.client.ListBuckets(simples3.ListBucketsInput{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list buckets: %w", err)
 	}
 
 	var buckets []BucketInfo
-	for _, bucket := range output.Buckets {
+	for _, bucket := range result.Buckets {
 		// Filter by prefix if configured
-		if s.bucketPrefix != "" && !strings.HasPrefix(*bucket.Name, s.bucketPrefix) {
+		if s.bucketPrefix != "" && !strings.HasPrefix(bucket.Name, s.bucketPrefix) {
 			continue
 		}
 
-		// Get bucket location
-		location, _ := s.client.GetBucketLocation(ctx, &s3.GetBucketLocationInput{
-			Bucket: bucket.Name,
-		})
-
-		region := "us-east-1"
-		if location != nil && location.LocationConstraint != "" {
-			region = string(location.LocationConstraint)
-		}
-
-		// Get bucket stats (simplified - in production, you'd want to paginate)
-		objectCount, totalSize := s.getBucketStats(ctx, *bucket.Name)
-
-		// Check if bucket is public
-		public := s.isBucketPublic(ctx, *bucket.Name)
+		// Get bucket stats
+		objectCount, totalSize := s.getBucketStats(ctx, bucket.Name)
 
 		// Remove prefix from display name
-		displayName := *bucket.Name
+		displayName := bucket.Name
 		if s.bucketPrefix != "" {
 			displayName = strings.TrimPrefix(displayName, s.bucketPrefix)
 		}
 
 		buckets = append(buckets, BucketInfo{
 			Name:        displayName,
-			CreatedAt:   *bucket.CreationDate,
-			Public:      public,
-			Region:      region,
+			CreatedAt:   bucket.CreationDate,
+			Region:      s.region,
 			ObjectCount: objectCount,
 			TotalSize:   totalSize,
 		})
@@ -250,45 +166,23 @@ func (s *S3Provider) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
 func (s *S3Provider) PutObject(ctx context.Context, bucket, key string, reader io.Reader, size int64, opts PutObjectOptions) error {
 	bucketName := s.getBucketName(bucket)
 
-	// Read all data into memory for S3 upload
-	// For large files, you'd want to use multipart upload
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return fmt.Errorf("failed to read data: %w", err)
-	}
-
-	input := &s3.PutObjectInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String(key),
-		Body:   bytes.NewReader(data),
-	}
-
-	// Set content type
-	if opts.ContentType != "" {
-		input.ContentType = aws.String(opts.ContentType)
-	}
-
-	// Set content encoding
-	if opts.ContentEncoding != "" {
-		input.ContentEncoding = aws.String(opts.ContentEncoding)
-	}
-
-	// Set cache control
-	if opts.CacheControl != "" {
-		input.CacheControl = aws.String(opts.CacheControl)
+	// Use multipart upload for all files since it accepts io.Reader
+	// (regular FilePut requires io.ReadSeeker which we don't have)
+	input := simples3.MultipartUploadInput{
+		Bucket:      bucketName,
+		ObjectKey:   key,
+		ContentType: opts.ContentType,
+		Body:        reader,
+		PartSize:    5 * 1024 * 1024, // 5MB parts (minimum)
+		Concurrency: 1,
 	}
 
 	// Set metadata
 	if len(opts.Metadata) > 0 {
-		input.Metadata = opts.Metadata
+		input.CustomMetadata = opts.Metadata
 	}
 
-	// Set ACL
-	if opts.Public {
-		input.ACL = types.ObjectCannedACLPublicRead
-	}
-
-	_, err = s.client.PutObject(ctx, input)
+	_, err := s.client.FileUploadMultipart(input)
 	if err != nil {
 		return fmt.Errorf("failed to upload object: %w", err)
 	}
@@ -300,51 +194,48 @@ func (s *S3Provider) PutObject(ctx context.Context, bucket, key string, reader i
 func (s *S3Provider) GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, error) {
 	bucketName := s.getBucketName(bucket)
 
-	output, err := s.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String(key),
+	body, err := s.client.FileDownload(simples3.DownloadInput{
+		Bucket:    bucketName,
+		ObjectKey: key,
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "NoSuchKey") {
+		if strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "404") {
 			return nil, fmt.Errorf("object not found")
 		}
 		return nil, fmt.Errorf("failed to get object: %w", err)
 	}
 
-	return output.Body, nil
+	return body, nil
 }
 
 // GetObjectInfo retrieves information about an object
 func (s *S3Provider) GetObjectInfo(ctx context.Context, bucket, key string) (*ObjectInfo, error) {
 	bucketName := s.getBucketName(bucket)
 
-	output, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String(key),
+	details, err := s.client.FileDetails(simples3.DetailsInput{
+		Bucket:    bucketName,
+		ObjectKey: key,
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "NotFound") {
+		if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "404") {
 			return nil, fmt.Errorf("object not found")
 		}
 		return nil, fmt.Errorf("failed to get object info: %w", err)
 	}
 
+	lastModified, _ := apptime.ParseWithLayout(apptime.RFC1123, details.LastModified)
+	contentLength, _ := strconv.ParseInt(details.ContentLength, 10, 64)
+
 	info := &ObjectInfo{
-		Key:         key,
-		Size:        *output.ContentLength,
-		ContentType: aws.ToString(output.ContentType),
+		Key:          key,
+		Size:         contentLength,
+		ContentType:  details.ContentType,
+		ETag:         strings.Trim(details.Etag, "\""),
+		LastModified: lastModified,
 	}
 
-	if output.ETag != nil {
-		info.ETag = strings.Trim(*output.ETag, "\"")
-	}
-
-	if output.LastModified != nil {
-		info.LastModified = *output.LastModified
-	}
-
-	if output.Metadata != nil {
-		info.Metadata = output.Metadata
+	if details.AmzMeta != nil {
+		info.Metadata = details.AmzMeta
 	}
 
 	return info, nil
@@ -354,9 +245,9 @@ func (s *S3Provider) GetObjectInfo(ctx context.Context, bucket, key string) (*Ob
 func (s *S3Provider) DeleteObject(ctx context.Context, bucket, key string) error {
 	bucketName := s.getBucketName(bucket)
 
-	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String(key),
+	err := s.client.FileDelete(simples3.DeleteInput{
+		Bucket:    bucketName,
+		ObjectKey: key,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete object: %w", err)
@@ -369,51 +260,51 @@ func (s *S3Provider) DeleteObject(ctx context.Context, bucket, key string) error
 func (s *S3Provider) ListObjects(ctx context.Context, bucket, prefix string, opts ListObjectsOptions) ([]ObjectInfo, error) {
 	bucketName := s.getBucketName(bucket)
 
-	input := &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucketName),
+	input := simples3.ListInput{
+		Bucket: bucketName,
 	}
 
 	if prefix != "" {
-		input.Prefix = aws.String(prefix)
+		input.Prefix = prefix
 	}
 
 	if opts.MaxKeys > 0 {
-		input.MaxKeys = aws.Int32(int32(opts.MaxKeys))
+		input.MaxKeys = int64(opts.MaxKeys)
 	}
 
 	if opts.Delimiter != "" {
-		input.Delimiter = aws.String(opts.Delimiter)
+		input.Delimiter = opts.Delimiter
 	}
 
 	if opts.Marker != "" {
-		input.StartAfter = aws.String(opts.Marker)
+		input.ContinuationToken = opts.Marker
 	}
 
 	var objects []ObjectInfo
 
-	// Use paginator for complete results
-	paginator := s3.NewListObjectsV2Paginator(s.client, input)
-	for paginator.HasMorePages() {
-		output, err := paginator.NextPage(ctx)
+	// Paginate through results
+	for {
+		result, err := s.client.List(input)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list objects: %w", err)
 		}
 
 		// Add regular objects
-		for _, obj := range output.Contents {
+		for _, obj := range result.Objects {
+			lastModified, _ := apptime.ParseWithLayout(apptime.TimeFormat, obj.LastModified)
 			objects = append(objects, ObjectInfo{
-				Key:          aws.ToString(obj.Key),
-				Size:         *obj.Size,
-				ETag:         strings.Trim(aws.ToString(obj.ETag), "\""),
-				LastModified: *obj.LastModified,
+				Key:          obj.Key,
+				Size:         obj.Size,
+				ETag:         strings.Trim(obj.ETag, "\""),
+				LastModified: lastModified,
 				IsDir:        false,
 			})
 		}
 
 		// Add directories (common prefixes)
-		for _, prefix := range output.CommonPrefixes {
+		for _, prefix := range result.CommonPrefixes {
 			objects = append(objects, ObjectInfo{
-				Key:   aws.ToString(prefix.Prefix),
+				Key:   prefix,
 				IsDir: true,
 			})
 		}
@@ -422,27 +313,30 @@ func (s *S3Provider) ListObjects(ctx context.Context, bucket, prefix string, opt
 		if opts.MaxKeys > 0 && len(objects) >= opts.MaxKeys {
 			break
 		}
+
+		// Check for more pages
+		if !result.IsTruncated || result.NextContinuationToken == "" {
+			break
+		}
+
+		input.ContinuationToken = result.NextContinuationToken
 	}
 
 	return objects, nil
 }
 
 // GeneratePresignedURL generates a presigned URL for temporary access
-func (s *S3Provider) GeneratePresignedURL(ctx context.Context, bucket, key string, expires time.Duration) (string, error) {
+func (s *S3Provider) GeneratePresignedURL(ctx context.Context, bucket, key string, expires apptime.Duration) (string, error) {
 	bucketName := s.getBucketName(bucket)
 
-	request, err := s.presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String(key),
-	}, func(opts *s3.PresignOptions) {
-		opts.Expires = expires
+	url := s.client.GeneratePresignedURL(simples3.PresignedInput{
+		Bucket:        bucketName,
+		ObjectKey:     key,
+		Method:        "GET",
+		ExpirySeconds: int(expires.Seconds()),
 	})
 
-	if err != nil {
-		return "", fmt.Errorf("failed to generate presigned URL: %w", err)
-	}
-
-	return request.URL, nil
+	return url, nil
 }
 
 // Helper functions
@@ -456,39 +350,42 @@ func (s *S3Provider) getBucketName(name string) string {
 
 func (s *S3Provider) emptyBucket(ctx context.Context, bucket string) error {
 	// List all objects
-	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucket),
-	})
+	input := simples3.ListInput{
+		Bucket: bucket,
+	}
 
-	for paginator.HasMorePages() {
-		output, err := paginator.NextPage(ctx)
+	for {
+		result, err := s.client.List(input)
 		if err != nil {
 			return err
 		}
 
-		if len(output.Contents) == 0 {
-			continue
+		if len(result.Objects) == 0 {
+			break
 		}
 
-		// Build delete objects
-		var deleteObjects []types.ObjectIdentifier
-		for _, obj := range output.Contents {
-			deleteObjects = append(deleteObjects, types.ObjectIdentifier{
-				Key: obj.Key,
-			})
+		// Collect keys for batch delete
+		var keys []string
+		for _, obj := range result.Objects {
+			keys = append(keys, obj.Key)
 		}
 
 		// Delete objects in batch
-		_, err = s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
-			Bucket: aws.String(bucket),
-			Delete: &types.Delete{
-				Objects: deleteObjects,
-				Quiet:   aws.Bool(true),
-			},
+		_, err = s.client.DeleteObjects(simples3.DeleteObjectsInput{
+			Bucket:  bucket,
+			Objects: keys,
+			Quiet:   true,
 		})
 		if err != nil {
 			return err
 		}
+
+		// Check for more pages
+		if !result.IsTruncated || result.NextContinuationToken == "" {
+			break
+		}
+
+		input.ContinuationToken = result.NextContinuationToken
 	}
 
 	return nil
@@ -498,51 +395,27 @@ func (s *S3Provider) getBucketStats(ctx context.Context, bucket string) (int64, 
 	var count int64
 	var size int64
 
-	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucket),
-	})
+	input := simples3.ListInput{
+		Bucket: bucket,
+	}
 
-	for paginator.HasMorePages() {
-		output, err := paginator.NextPage(ctx)
+	for {
+		result, err := s.client.List(input)
 		if err != nil {
 			break
 		}
 
-		for _, obj := range output.Contents {
+		for _, obj := range result.Objects {
 			count++
-			size += *obj.Size
+			size += obj.Size
 		}
+
+		if !result.IsTruncated || result.NextContinuationToken == "" {
+			break
+		}
+
+		input.ContinuationToken = result.NextContinuationToken
 	}
 
 	return count, size
-}
-
-func (s *S3Provider) isBucketPublic(ctx context.Context, bucket string) bool {
-	// Check bucket policy
-	policy, err := s.client.GetBucketPolicy(ctx, &s3.GetBucketPolicyInput{
-		Bucket: aws.String(bucket),
-	})
-	if err == nil && policy.Policy != nil {
-		// Simple check for public read policy
-		if strings.Contains(*policy.Policy, "\"Principal\":\"*\"") ||
-			strings.Contains(*policy.Policy, "\"Principal\":{\"AWS\":\"*\"}") {
-			return true
-		}
-	}
-
-	// Check bucket ACL
-	acl, err := s.client.GetBucketAcl(ctx, &s3.GetBucketAclInput{
-		Bucket: aws.String(bucket),
-	})
-	if err == nil && acl.Grants != nil {
-		for _, grant := range acl.Grants {
-			if grant.Grantee != nil && grant.Grantee.Type == types.TypeGroup {
-				if grant.Grantee.URI != nil && strings.Contains(*grant.Grantee.URI, "AllUsers") {
-					return true
-				}
-			}
-		}
-	}
-
-	return false
 }

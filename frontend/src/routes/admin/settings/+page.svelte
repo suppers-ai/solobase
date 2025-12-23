@@ -254,54 +254,53 @@
 						<Mail size={20} />
 						Email Configuration
 					</h2>
-					
+
 					<div class="form-control mb-4">
-						<label class="label cursor-pointer justify-start gap-3">
-							<input
-								type="checkbox"
-								class="toggle toggle-primary"
-								bind:checked={settings.smtpEnabled}
-							/>
-							<span class="label-text font-medium">Enable SMTP</span>
+						<label class="label">
+							<span class="label-text font-medium">Mailer Provider</span>
 						</label>
+						<select class="select select-bordered" bind:value={settings.mailerProvider}>
+							<option value="none">None (Disabled)</option>
+							<option value="mailgun">Mailgun</option>
+						</select>
 					</div>
 
-					{#if settings.smtpEnabled}
+					{#if settings.mailerProvider === 'mailgun'}
 						<div class="grid grid-cols-1 md:grid-cols-2 gap-4 pl-4 border-l-2 border-primary/20">
 							<div class="form-control">
 								<label class="label">
-									<span class="label-text font-medium">SMTP Host</span>
+									<span class="label-text font-medium">Mailgun Domain</span>
 								</label>
 								<input
 									type="text"
 									class="input input-bordered"
-									bind:value={settings.smtpHost}
-									placeholder="smtp.example.com"
+									bind:value={settings.mailgunDomain}
+									placeholder="mg.example.com"
 								/>
 							</div>
 
 							<div class="form-control">
 								<label class="label">
-									<span class="label-text font-medium">SMTP Port</span>
+									<span class="label-text font-medium">Region</span>
 								</label>
-								<input
-									type="number"
-									class="input input-bordered"
-									bind:value={settings.smtpPort}
-									placeholder="587"
-								/>
+								<select class="select select-bordered" bind:value={settings.mailgunRegion}>
+									<option value="us">US</option>
+									<option value="eu">EU</option>
+								</select>
 							</div>
 
 							<div class="form-control md:col-span-2">
 								<label class="label">
-									<span class="label-text font-medium">SMTP Username</span>
+									<span class="label-text font-medium">Mailgun API Key</span>
 								</label>
 								<input
-									type="text"
+									type="password"
 									class="input input-bordered"
-									bind:value={settings.smtpUser}
-									placeholder="user@example.com"
+									placeholder="Enter API key to update"
 								/>
+								<label class="label">
+									<span class="label-text-alt">API key is stored securely and never displayed</span>
+								</label>
 							</div>
 						</div>
 					{/if}

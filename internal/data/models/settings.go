@@ -1,31 +1,33 @@
 package models
 
 import (
-	"time"
-
-	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
 )
 
 type Setting struct {
-	ID        uuid.UUID      `gorm:"type:uuid;primary_key" json:"id"`
-	Key       string         `gorm:"uniqueIndex;not null" json:"key"`
-	Value     string         `gorm:"type:text" json:"value"`
-	Type      string         `gorm:"default:'string'" json:"type"` // string, bool, int, json
-	CreatedAt time.Time      `json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	ID        uuid.UUID        `json:"id"`
+	Key       string           `json:"key"`
+	Value     string           `json:"value"`
+	Type      string           `json:"type"` // string, bool, int, json
+	CreatedAt apptime.Time     `json:"createdAt"`
+	UpdatedAt apptime.Time     `json:"updatedAt"`
+	DeletedAt apptime.NullTime `json:"-"`
 }
 
 func (Setting) TableName() string {
 	return "sys_settings"
 }
 
-func (s *Setting) BeforeCreate(tx *gorm.DB) error {
+// PrepareForCreate prepares the setting for database insertion
+// Prepares model for database insert
+func (s *Setting) PrepareForCreate() {
 	if s.ID == uuid.Nil {
 		s.ID = uuid.New()
 	}
-	return nil
+	now := apptime.NowTime()
+	s.CreatedAt = now
+	s.UpdatedAt = now
 }
 
 // AppSettings represents the structured application settings
@@ -34,11 +36,10 @@ type AppSettings struct {
 	AppURL                   string `json:"appUrl"`
 	AllowSignup              bool   `json:"allowSignup"`
 	RequireEmailConfirmation bool   `json:"requireEmailConfirmation"`
-	SMTPEnabled              bool   `json:"smtpEnabled"`
-	SMTPHost                 string `json:"smtpHost,omitempty"`
-	SMTPPort                 int    `json:"smtpPort,omitempty"`
-	SMTPUser                 string `json:"smtpUser,omitempty"`
-	SMTPPassword             string `json:"-"` // Never expose password in JSON
+	MailerProvider           string `json:"mailerProvider"` // none, mailgun
+	MailgunDomain            string `json:"mailgunDomain,omitempty"`
+	MailgunRegion            string `json:"mailgunRegion,omitempty"` // us, eu
+	MailgunAPIKey            string `json:"-"`                       // Never expose in JSON
 	StorageProvider          string `json:"storageProvider"`
 	S3Bucket                 string `json:"s3Bucket,omitempty"`
 	S3Region                 string `json:"s3Region,omitempty"`
@@ -62,8 +63,8 @@ func DefaultSettings() *AppSettings {
 		AppURL:                   "http://localhost:8080",
 		AllowSignup:              true,
 		RequireEmailConfirmation: false,
-		SMTPEnabled:              false,
-		SMTPPort:                 587,
+		MailerProvider:           "none",
+		MailgunRegion:            "us",
 		StorageProvider:          "local",
 		MaxUploadSize:            10 * 1024 * 1024, // 10MB
 		AllowedFileTypes:         "image/*,application/pdf,text/*",

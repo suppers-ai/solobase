@@ -2,15 +2,11 @@ package utils
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 )
 
 // SQL identifier validation
 var (
-	// PostgreSQL identifier pattern: letters, numbers, underscores, max 63 chars
-	validIdentifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,62}$`)
-
 	// Reserved PostgreSQL keywords that shouldn't be used as identifiers
 	reservedKeywords = map[string]bool{
 		"select": true, "insert": true, "update": true, "delete": true,
@@ -22,15 +18,34 @@ var (
 
 	// Allowed schemas for queries (whitelist approach)
 	allowedSchemas = map[string]bool{
-		"public":        true,
-		"auth":          true,
-		"storage":       true,
-		"collections":   true,
-		"logger":        true,
-		"ext_analytics": true,
-		"ext_webhooks":  true,
+		"public":      true,
+		"auth":        true,
+		"storage":     true,
+		"collections": true,
+		"logger":      true,
 	}
 )
+
+// isValidSQLIdentifier validates identifier format without regexp
+// Pattern: ^[a-zA-Z_][a-zA-Z0-9_]{0,62}$
+func isValidSQLIdentifier(identifier string) bool {
+	if len(identifier) == 0 {
+		return false
+	}
+	// First character must be letter or underscore
+	c := identifier[0]
+	if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
+		return false
+	}
+	// Rest can be letters, digits, or underscores
+	for i := 1; i < len(identifier); i++ {
+		c := identifier[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+	return true
+}
 
 // ValidateSQLIdentifier validates a SQL identifier (table/column/schema name)
 func ValidateSQLIdentifier(identifier string) error {
@@ -43,8 +58,8 @@ func ValidateSQLIdentifier(identifier string) error {
 		return fmt.Errorf("identifier too long (max 63 characters)")
 	}
 
-	// Check pattern
-	if !validIdentifierRegex.MatchString(identifier) {
+	// Check pattern (without regexp for TinyGo compatibility)
+	if !isValidSQLIdentifier(identifier) {
 		return fmt.Errorf("invalid identifier format: must start with letter or underscore, contain only letters, numbers, and underscores")
 	}
 

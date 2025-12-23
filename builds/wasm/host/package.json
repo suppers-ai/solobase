@@ -1,0 +1,20 @@
+{
+  "name": "solobase-wasm-host",
+  "version": "1.0.0",
+  "description": "Solobase WASM host for Cloudflare Workers with D1",
+  "type": "module",
+  "scripts": {
+    "setup": "npm install && npm run copy-assets",
+    "dev": "npm run copy-assets && wrangler dev",
+    "deploy": "npm run copy-assets && wrangler deploy",
+    "copy-assets": "mkdir -p dist static && cp ../../../dist/solobase.wasm dist/ && cp -r ../../../frontend/build/* static/"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "typescript": "^5.0.0",
+    "wrangler": "^3.0.0"
+  }
+}

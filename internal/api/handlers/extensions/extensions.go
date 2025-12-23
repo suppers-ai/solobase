@@ -7,9 +7,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/extensions/official/cloudstorage"
-	// "github.com/suppers-ai/solobase/extensions/official/hugo" // Temporarily disabled - needs API updates
 	"github.com/suppers-ai/solobase/extensions/official/products"
-	"github.com/suppers-ai/solobase/extensions/official/webhooks"
 	"github.com/suppers-ai/solobase/utils"
 )
 
@@ -32,10 +30,7 @@ func HandleGetExtensions() http.HandlerFunc {
 		// Create a list of all available extensions with their metadata
 		tempExtensions := []core.Extension{
 			products.NewProductsExtension(),
-			// hugo.NewHugoExtension(), // Temporarily disabled
-			// analytics.NewAnalyticsExtension(), // Now registered via extension registry
 			cloudstorage.NewCloudStorageExtension(nil),
-			webhooks.NewWebhooksExtension(),
 		}
 
 		extensions := []map[string]interface{}{}
@@ -67,10 +62,7 @@ func HandleExtensionsManagement() http.HandlerFunc {
 		// Create a temporary registry to get metadata
 		tempExtensions := []core.Extension{
 			products.NewProductsExtension(),
-			// hugo.NewHugoExtension(), // Temporarily disabled
-			// analytics.NewAnalyticsExtension(), // Now registered via extension registry
 			cloudstorage.NewCloudStorageExtension(nil),
-			webhooks.NewWebhooksExtension(),
 		}
 
 		for _, ext := range tempExtensions {
@@ -446,10 +438,7 @@ func HandleExtensionsManagement() http.HandlerFunc {
 func getExtensionIcon(name string) string {
 	icons := map[string]string{
 		"Products & Pricing": "📦",
-		// "hugo":               "🌐", // Temporarily disabled
-		"analytics":    "📊",
-		"cloudstorage": "☁️",
-		"webhooks":     "🔗",
+		"cloudstorage":       "☁️",
 	}
 
 	if icon, ok := icons[name]; ok {
@@ -485,128 +474,8 @@ func HandleToggleExtension() http.HandlerFunc {
 // HandleExtensionsStatus returns the status of all extensions
 func HandleExtensionsStatus() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Mock status data
-		statuses := []map[string]interface{}{
-			{
-				"name":    "analytics",
-				"enabled": true,
-				"state":   "running",
-				"health": map[string]interface{}{
-					"status":  "healthy",
-					"message": "Analytics extension is running",
-				},
-			},
-			{
-				"name":    "webhooks",
-				"enabled": true,
-				"state":   "running",
-				"health": map[string]interface{}{
-					"status":  "healthy",
-					"message": "Webhooks extension is running",
-				},
-			},
-		}
-
+		// Return empty status - extensions are managed via the registry
+		statuses := []map[string]interface{}{}
 		utils.JSONResponse(w, http.StatusOK, statuses)
 	}
 }
-
-// Helper function to get extension instances
-func getWebhooksExtension() *webhooks.WebhooksExtension {
-	return webhooks.NewWebhooksExtension()
-}
-
-// Analytics Dashboard Handlers
-
-// Analytics handlers have been moved to the analytics extension
-
-// Webhooks Dashboard Handlers
-
-// HandleWebhooksDashboard returns the webhooks dashboard
-func HandleWebhooksDashboard() http.HandlerFunc {
-	ext := getWebhooksExtension()
-	return ext.DashboardHandler()
-}
-
-// HandleWebhooksList returns the list of webhooks
-func HandleWebhooksList() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Mock webhook data
-		webhooks := []map[string]interface{}{
-			{
-				"id":     "wh_1",
-				"name":   "Order Notifications",
-				"url":    "https://api.example.com/webhooks/orders",
-				"events": []string{"order.created", "order.updated"},
-				"active": true,
-			},
-			{
-				"id":     "wh_2",
-				"name":   "User Updates",
-				"url":    "https://api.example.com/webhooks/users",
-				"events": []string{"user.created", "user.deleted"},
-				"active": false,
-			},
-		}
-
-		utils.JSONResponse(w, http.StatusOK, map[string]interface{}{
-			"webhooks": webhooks,
-			"total":    len(webhooks),
-		})
-	}
-}
-
-// HandleWebhooksCreate creates a new webhook
-func HandleWebhooksCreate() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var webhook map[string]interface{}
-		if !utils.DecodeJSONBody(w, r, &webhook) {
-			return
-		}
-
-		// Mock creation
-		webhook["id"] = "wh_new"
-		webhook["createdAt"] = "2024-01-15T10:00:00Z"
-
-		utils.JSONResponse(w, http.StatusCreated, webhook)
-	}
-}
-
-// HandleWebhooksToggle toggles a webhook on/off
-func HandleWebhooksToggle() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		id := vars["id"]
-
-		var req struct {
-			Active bool `json:"active"`
-		}
-
-		if !utils.DecodeJSONBody(w, r, &req) {
-			return
-		}
-
-		utils.JSONResponse(w, http.StatusOK, map[string]interface{}{
-			"success": true,
-			"id":      id,
-			"active":  req.Active,
-		})
-	}
-}
-
-// HandleWebhooksDelete deletes a webhook
-func HandleWebhooksDelete() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		id := vars["id"]
-
-		// In production, this would delete the webhook from the database
-		// For now, just return success
-		utils.JSONResponse(w, http.StatusOK, map[string]interface{}{
-			"success": true,
-			"message": fmt.Sprintf("Webhook %s deleted successfully", id),
-		})
-	}
-}
-
-// Analytics export and clear handlers have been moved to the analytics extension

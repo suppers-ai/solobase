@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 	"sync"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // ConsoleLogger implements Logger interface for console output
@@ -213,7 +213,7 @@ func (l *ConsoleLogger) writeJSON(level Level, message string, fields map[string
 	entry := map[string]interface{}{
 		"level":     level,
 		"message":   message,
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"timestamp": apptime.NowTime().UTC().Format(apptime.TimeFormat),
 	}
 
 	for k, v := range fields {
@@ -243,7 +243,7 @@ func (l *ConsoleLogger) writeText(level Level, message string, fields map[string
 		levelStr = string(level)
 	}
 
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	timestamp := apptime.NowTime().Format("2006-01-02 15:04:05")
 	fmt.Fprintf(l.writer, "%s [%s] %s", timestamp, levelStr, message)
 
 	// Add fields

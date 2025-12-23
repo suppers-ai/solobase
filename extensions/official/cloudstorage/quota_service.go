@@ -2,27 +2,33 @@ package cloudstorage
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
-	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
-	"gorm.io/gorm"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
+	db "github.com/suppers-ai/solobase/internal/sqlc/gen"
 )
 
 // QuotaService manages storage quotas and limits
 type QuotaService struct {
-	db *gorm.DB
+	sqlDB   *sql.DB
+	queries *db.Queries
 }
 
 // NewQuotaService creates a new quota service
-func NewQuotaService(db *gorm.DB) *QuotaService {
+func NewQuotaService(sqlDB *sql.DB) *QuotaService {
 	return &QuotaService{
-		db: db,
+		sqlDB:   sqlDB,
+		queries: db.New(sqlDB),
 	}
 }
 
 // InitializeDefaultQuotas creates default quotas for system roles
 func (q *QuotaService) InitializeDefaultQuotas() error {
+	ctx := context.Background()
 	defaultQuotas := []RoleQuota{
 		{
 			RoleName:          "admin",
@@ -64,22 +70,43 @@ func (q *QuotaService) InitializeDefaultQuotas() error {
 
 	for _, quota := range defaultQuotas {
 		// Check if quota already exists
-		var existing RoleQuota
-		if err := q.db.Where("role_name = ?", quota.RoleName).First(&existing).Error; err == nil {
+		var count int64
+		err := q.sqlDB.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM ext_cloudstorage_role_quotas WHERE role_name = ?",
+			quota.RoleName).Scan(&count)
+		if err == nil && count > 0 {
 			continue // Already exists
 		}
 
 		// Get role ID from database directly
-		var role struct {
-			ID string
-		}
-		err := q.db.Table("iam_roles").Where("name = ?", quota.RoleName).Select("id").First(&role).Error
+		var roleID string
+		err = q.sqlDB.QueryRowContext(ctx,
+			"SELECT id FROM iam_roles WHERE name = ?",
+			quota.RoleName).Scan(&roleID)
 		if err != nil {
 			continue // Role doesn't exist, skip
 		}
-		quota.RoleID = role.ID
+		quota.RoleID = roleID
 
-		if err := q.db.Create(&quota).Error; err != nil {
+		// Create quota
+		quota.ID = uuid.New().String()
+		quota.CreatedAt = apptime.NowTime()
+		quota.UpdatedAt = apptime.NowTime()
+
+		_, err = q.queries.CreateRoleQuota(ctx, db.CreateRoleQuotaParams{
+			ID:                quota.ID,
+			RoleID:            quota.RoleID,
+			RoleName:          quota.RoleName,
+			MaxStorageBytes:   quota.MaxStorageBytes,
+			MaxBandwidthBytes: quota.MaxBandwidthBytes,
+			MaxUploadSize:     quota.MaxUploadSize,
+			MaxFilesCount:     quota.MaxFilesCount,
+			AllowedExtensions: stringPtrOrNil(quota.AllowedExtensions),
+			BlockedExtensions: stringPtrOrNil(quota.BlockedExtensions),
+			CreatedAt:         apptime.Format(quota.CreatedAt),
+			UpdatedAt:         apptime.Format(quota.UpdatedAt),
+		})
+		if err != nil {
 			return fmt.Errorf("failed to create quota for role %s: %w", quota.RoleName, err)
 		}
 	}
@@ -93,38 +120,45 @@ func (q *QuotaService) GetUserQuota(ctx context.Context, userID string) (*Effect
 	if userID == "" {
 		return nil, fmt.Errorf("user ID is required")
 	}
-	// First check for user-specific override
-	var override UserQuotaOverride
-	hasOverride := false
 
-	err := q.db.Where("user_id = ? AND (expires_at IS NULL OR expires_at > NOW())", userID).
-		First(&override).Error
+	// First check for user-specific override
+	var override *UserQuotaOverride
+	dbOverride, err := q.queries.GetActiveUserQuotaOverride(ctx, db.GetActiveUserQuotaOverrideParams{
+		UserID:    userID,
+		ExpiresAt: apptime.NullTime{Time: apptime.NowTime(), Valid: true},
+	})
 	if err == nil {
-		hasOverride = true
+		override = dbUserQuotaOverrideToModel(dbOverride)
 	}
 
 	// Get user's roles from database directly
-	var userRoles []struct {
-		RoleName string `gorm:"column:role_name"`
-	}
-	err = q.db.Table("iam_user_roles ur").
-		Joins("JOIN iam_roles r ON ur.role_id = r.id").
-		Where("ur.user_id = ?", userID).
-		Select("r.name as role_name").
-		Find(&userRoles).Error
-
+	rows, err := q.sqlDB.QueryContext(ctx, `
+		SELECT r.name as role_name
+		FROM iam_user_roles ur
+		JOIN iam_roles r ON ur.role_id = r.id
+		WHERE ur.user_id = ?
+	`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user roles: %w", err)
+	}
+	defer rows.Close()
+
+	var roleNames []string
+	for rows.Next() {
+		var roleName string
+		if err := rows.Scan(&roleName); err != nil {
+			return nil, err
+		}
+		roleNames = append(roleNames, roleName)
 	}
 
 	// Get quotas for all user's roles and take the maximum values
 	var roleQuotas []RoleQuota
-	if len(userRoles) > 0 {
-		roleNames := make([]string, len(userRoles))
-		for i, r := range userRoles {
-			roleNames[i] = r.RoleName
+	for _, roleName := range roleNames {
+		dbQuota, err := q.queries.GetRoleQuotaByRoleName(ctx, roleName)
+		if err == nil {
+			roleQuotas = append(roleQuotas, dbRoleQuotaToModel(dbQuota))
 		}
-		q.db.Where("role_name IN ?", roleNames).Find(&roleQuotas)
 	}
 
 	// Calculate effective quota (taking max from all roles)
@@ -166,7 +200,7 @@ func (q *QuotaService) GetUserQuota(ctx context.Context, userID string) (*Effect
 	}
 
 	// Apply user-specific overrides if they exist
-	if hasOverride {
+	if override != nil {
 		if override.MaxStorageBytes != nil {
 			effective.MaxStorageBytes = *override.MaxStorageBytes
 		}
@@ -187,27 +221,21 @@ func (q *QuotaService) GetUserQuota(ctx context.Context, userID string) (*Effect
 		}
 	}
 
-	// Get current usage and file count in a single query
-	var usage struct {
-		StorageUsed   int64
-		BandwidthUsed int64
-		FileCount     int64
-	}
-
-	// Get storage usage
-	q.db.Table("ext_cloudstorage_storage_quotas").
-		Where("user_id = ?", userID).
-		Select("storage_used, bandwidth_used").
-		Scan(&usage)
+	// Get current usage and file count
+	var storageUsed, bandwidthUsed int64
+	q.sqlDB.QueryRowContext(ctx,
+		"SELECT COALESCE(storage_used, 0), COALESCE(bandwidth_used, 0) FROM ext_cloudstorage_storage_quotas WHERE user_id = ?",
+		userID).Scan(&storageUsed, &bandwidthUsed)
 
 	// Get file count
-	q.db.Model(&pkgstorage.StorageObject{}).
-		Where("owner_id = ?", userID).
-		Count(&usage.FileCount)
+	var fileCount int64
+	q.sqlDB.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM storage_objects WHERE owner_id = ?",
+		userID).Scan(&fileCount)
 
-	effective.StorageUsed = usage.StorageUsed
-	effective.BandwidthUsed = usage.BandwidthUsed
-	effective.FilesUsed = usage.FileCount
+	effective.StorageUsed = storageUsed
+	effective.BandwidthUsed = bandwidthUsed
+	effective.FilesUsed = fileCount
 
 	return effective, nil
 }
@@ -289,33 +317,51 @@ func (q *QuotaService) CheckUploadAllowed(ctx context.Context, userID string, fi
 
 // UpdateRoleQuota updates quota for a role
 func (q *QuotaService) UpdateRoleQuota(ctx context.Context, roleID string, quota *RoleQuota) error {
-	quota.RoleID = roleID
-	return q.db.Save(quota).Error
+	return q.queries.UpdateRoleQuota(ctx, db.UpdateRoleQuotaParams{
+		RoleName:          quota.RoleName,
+		MaxStorageBytes:   quota.MaxStorageBytes,
+		MaxBandwidthBytes: quota.MaxBandwidthBytes,
+		MaxUploadSize:     quota.MaxUploadSize,
+		MaxFilesCount:     quota.MaxFilesCount,
+		AllowedExtensions: stringPtrOrNil(quota.AllowedExtensions),
+		BlockedExtensions: stringPtrOrNil(quota.BlockedExtensions),
+		UpdatedAt:   apptime.NowString(),
+		ID:                roleID,
+	})
 }
 
 // SyncRoleQuotaFromIAM syncs quota for a role when IAM role is created or updated
 func (q *QuotaService) SyncRoleQuotaFromIAM(ctx context.Context, roleName string, roleID string) error {
 	// Check if quota already exists for this role
-	var existingQuota RoleQuota
-	err := q.db.Where("role_id = ? OR role_name = ?", roleID, roleName).First(&existingQuota).Error
-
+	_, err := q.queries.GetRoleQuotaByRoleID(ctx, roleID)
 	if err == nil {
-		// Quota exists, update role_id if needed
+		return nil // Already exists
+	}
+
+	// Try by role name
+	existingQuota, err := q.queries.GetRoleQuotaByRoleName(ctx, roleName)
+	if err == nil {
+		// Quota exists with different role_id, update it
 		if existingQuota.RoleID != roleID {
-			existingQuota.RoleID = roleID
-			return q.db.Save(&existingQuota).Error
+			_, err = q.sqlDB.ExecContext(ctx,
+				"UPDATE ext_cloudstorage_role_quotas SET role_id = ? WHERE id = ?",
+				roleID, existingQuota.ID)
+			return err
 		}
 		return nil
 	}
 
 	// Create default quota for new role
 	defaultQuota := &RoleQuota{
+		ID:                uuid.New().String(),
 		RoleID:            roleID,
 		RoleName:          roleName,
 		MaxStorageBytes:   5 * 1024 * 1024 * 1024,  // 5GB default
 		MaxBandwidthBytes: 10 * 1024 * 1024 * 1024, // 10GB default
 		MaxUploadSize:     100 * 1024 * 1024,       // 100MB per file
 		MaxFilesCount:     1000,                    // 1000 files default
+		CreatedAt:         apptime.NowTime(),
+		UpdatedAt:         apptime.NowTime(),
 	}
 
 	// Special defaults for admin role
@@ -326,12 +372,46 @@ func (q *QuotaService) SyncRoleQuotaFromIAM(ctx context.Context, roleName string
 		defaultQuota.MaxFilesCount = 0                             // Unlimited files
 	}
 
-	return q.db.Create(defaultQuota).Error
+	_, err = q.queries.CreateRoleQuota(ctx, db.CreateRoleQuotaParams{
+		ID:                defaultQuota.ID,
+		RoleID:            defaultQuota.RoleID,
+		RoleName:          defaultQuota.RoleName,
+		MaxStorageBytes:   defaultQuota.MaxStorageBytes,
+		MaxBandwidthBytes: defaultQuota.MaxBandwidthBytes,
+		MaxUploadSize:     defaultQuota.MaxUploadSize,
+		MaxFilesCount:     defaultQuota.MaxFilesCount,
+		AllowedExtensions: stringPtrOrNil(defaultQuota.AllowedExtensions),
+		BlockedExtensions: stringPtrOrNil(defaultQuota.BlockedExtensions),
+		CreatedAt:         apptime.Format(defaultQuota.CreatedAt),
+		UpdatedAt:         apptime.Format(defaultQuota.UpdatedAt),
+	})
+
+	return err
 }
 
 // CreateUserOverride creates a custom quota override for a user
 func (q *QuotaService) CreateUserOverride(ctx context.Context, override *UserQuotaOverride) error {
-	return q.db.Create(override).Error
+	override.ID = uuid.New().String()
+	override.CreatedAt = apptime.NowTime()
+	override.UpdatedAt = apptime.NowTime()
+
+	_, err := q.queries.CreateUserQuotaOverride(ctx, db.CreateUserQuotaOverrideParams{
+		ID:                override.ID,
+		UserID:            override.UserID,
+		MaxStorageBytes:   override.MaxStorageBytes,
+		MaxBandwidthBytes: override.MaxBandwidthBytes,
+		MaxUploadSize:     override.MaxUploadSize,
+		MaxFilesCount:     override.MaxFilesCount,
+		AllowedExtensions: override.AllowedExtensions,
+		BlockedExtensions: override.BlockedExtensions,
+		Reason:            override.Reason,
+		ExpiresAt:         override.ExpiresAt,
+		CreatedBy:         override.CreatedBy,
+		CreatedAt:         apptime.Format(override.CreatedAt),
+		UpdatedAt:         apptime.Format(override.UpdatedAt),
+	})
+
+	return err
 }
 
 // Helper functions
@@ -390,43 +470,103 @@ func intersectExtensions(ext1, ext2 string) string {
 
 // UpdateStorageUsage updates the storage usage for a user after upload/delete
 func (q *QuotaService) UpdateStorageUsage(ctx context.Context, userID string, sizeChange int64) error {
-	var quota StorageQuota
+	// Check if quota record exists
+	var quotaID string
+	err := q.sqlDB.QueryRowContext(ctx,
+		"SELECT id FROM ext_cloudstorage_storage_quotas WHERE user_id = ?",
+		userID).Scan(&quotaID)
 
-	// Find or create user quota record
-	err := q.db.Where("user_id = ?", userID).FirstOrCreate(&quota, StorageQuota{
-		UserID: userID,
-	}).Error
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
+		// Create new quota record
+		quota := &StorageQuota{
+			ID:                uuid.New().String(),
+			UserID:            userID,
+			MaxStorageBytes:   5368709120,  // 5GB default
+			MaxBandwidthBytes: 10737418240, // 10GB default
+			StorageUsed:       sizeChange,
+			BandwidthUsed:     0,
+			CreatedAt:         apptime.NowTime(),
+			UpdatedAt:         apptime.NowTime(),
+		}
+		if quota.StorageUsed < 0 {
+			quota.StorageUsed = 0
+		}
+
+		_, err := q.queries.CreateStorageQuota(ctx, db.CreateStorageQuotaParams{
+			ID:               quota.ID,
+			UserID:           quota.UserID,
+			MaxStorageBytes:  quota.MaxStorageBytes,
+			MaxBandwidthBytes: quota.MaxBandwidthBytes,
+			StorageUsed:      quota.StorageUsed,
+			BandwidthUsed:    quota.BandwidthUsed,
+			ResetBandwidthAt: apptime.NullTime{},
+			CreatedAt:        apptime.Format(quota.CreatedAt),
+			UpdatedAt:        apptime.Format(quota.UpdatedAt),
+		})
+		return err
+	} else if err != nil {
 		return fmt.Errorf("failed to get user quota: %w", err)
 	}
 
-	// Update storage used
-	quota.StorageUsed += sizeChange
-	if quota.StorageUsed < 0 {
-		quota.StorageUsed = 0
+	// Update existing quota
+	if sizeChange >= 0 {
+		return q.queries.IncrementStorageUsed(ctx, db.IncrementStorageUsedParams{
+			StorageUsed: sizeChange,
+			UpdatedAt:   apptime.NowString(),
+			UserID:      userID,
+		})
+	} else {
+		return q.queries.DecrementStorageUsed(ctx, db.DecrementStorageUsedParams{
+			StorageUsed: -sizeChange,
+			UpdatedAt:   apptime.NowString(),
+			UserID:      userID,
+		})
 	}
-
-	// Save updated quota
-	return q.db.Save(&quota).Error
 }
 
 // UpdateBandwidthUsage updates the bandwidth usage for a user after download
 func (q *QuotaService) UpdateBandwidthUsage(ctx context.Context, userID string, bytes int64) error {
-	var quota StorageQuota
+	// Check if quota record exists
+	var quotaID string
+	err := q.sqlDB.QueryRowContext(ctx,
+		"SELECT id FROM ext_cloudstorage_storage_quotas WHERE user_id = ?",
+		userID).Scan(&quotaID)
 
-	// Find or create user quota record
-	err := q.db.Where("user_id = ?", userID).FirstOrCreate(&quota, StorageQuota{
-		UserID: userID,
-	}).Error
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
+		// Create new quota record
+		quota := &StorageQuota{
+			ID:                uuid.New().String(),
+			UserID:            userID,
+			MaxStorageBytes:   5368709120,  // 5GB default
+			MaxBandwidthBytes: 10737418240, // 10GB default
+			StorageUsed:       0,
+			BandwidthUsed:     bytes,
+			CreatedAt:         apptime.NowTime(),
+			UpdatedAt:         apptime.NowTime(),
+		}
+
+		_, err := q.queries.CreateStorageQuota(ctx, db.CreateStorageQuotaParams{
+			ID:               quota.ID,
+			UserID:           quota.UserID,
+			MaxStorageBytes:  quota.MaxStorageBytes,
+			MaxBandwidthBytes: quota.MaxBandwidthBytes,
+			StorageUsed:      quota.StorageUsed,
+			BandwidthUsed:    quota.BandwidthUsed,
+			ResetBandwidthAt: apptime.NullTime{},
+			CreatedAt:        apptime.Format(quota.CreatedAt),
+			UpdatedAt:        apptime.Format(quota.UpdatedAt),
+		})
+		return err
+	} else if err != nil {
 		return fmt.Errorf("failed to get user quota: %w", err)
 	}
 
-	// Update bandwidth used
-	quota.BandwidthUsed += bytes
-
-	// Save updated quota
-	return q.db.Save(&quota).Error
+	// Update existing quota
+	return q.queries.IncrementBandwidthUsed(ctx, db.IncrementBandwidthUsedParams{
+		BandwidthUsed: bytes,
+		UpdatedAt:   apptime.NowString(),
+		UserID:        userID,
+	})
 }
 
 // CheckStorageQuota checks if user has enough storage quota (compatibility method)
@@ -436,19 +576,45 @@ func (q *QuotaService) CheckStorageQuota(ctx context.Context, userID string, fil
 
 // GetOrCreateQuota gets or creates a default quota for a user (compatibility method)
 func (q *QuotaService) GetOrCreateQuota(ctx context.Context, userID string) (*StorageQuota, error) {
-	var quota StorageQuota
+	// Check if quota exists
+	dbQuota, err := q.queries.GetStorageQuotaByUserID(ctx, userID)
+	if err == nil {
+		return dbStorageQuotaToModel(dbQuota), nil
+	}
 
-	err := q.db.Where("user_id = ?", userID).FirstOrCreate(&quota, StorageQuota{
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("failed to get quota: %w", err)
+	}
+
+	// Create new quota
+	quota := &StorageQuota{
+		ID:                uuid.New().String(),
 		UserID:            userID,
 		MaxStorageBytes:   5368709120,  // 5GB default
 		MaxBandwidthBytes: 10737418240, // 10GB default
-	}).Error
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to get or create quota: %w", err)
+		StorageUsed:       0,
+		BandwidthUsed:     0,
+		CreatedAt:         apptime.NowTime(),
+		UpdatedAt:         apptime.NowTime(),
 	}
 
-	return &quota, nil
+	_, err = q.queries.CreateStorageQuota(ctx, db.CreateStorageQuotaParams{
+		ID:               quota.ID,
+		UserID:           quota.UserID,
+		MaxStorageBytes:  quota.MaxStorageBytes,
+		MaxBandwidthBytes: quota.MaxBandwidthBytes,
+		StorageUsed:      quota.StorageUsed,
+		BandwidthUsed:    quota.BandwidthUsed,
+		ResetBandwidthAt: apptime.NullTime{},
+		CreatedAt:        apptime.Format(quota.CreatedAt),
+		UpdatedAt:        apptime.Format(quota.UpdatedAt),
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create quota: %w", err)
+	}
+
+	return quota, nil
 }
 
 // GetQuotaStats retrieves quota statistics for a user
@@ -487,4 +653,70 @@ type QuotaStats struct {
 	BandwidthUsed       int64   `json:"bandwidthUsed"`
 	BandwidthLimit      int64   `json:"bandwidthLimit"`
 	BandwidthPercentage float64 `json:"bandwidthPercentage"`
+}
+
+// Helper functions for conversions
+func stringPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func timePtr(t apptime.Time) *apptime.Time {
+	return &t
+}
+
+func dbRoleQuotaToModel(dbQuota db.ExtCloudstorageRoleQuota) RoleQuota {
+	quota := RoleQuota{
+		ID:                dbQuota.ID,
+		RoleID:            dbQuota.RoleID,
+		RoleName:          dbQuota.RoleName,
+		MaxStorageBytes:   dbQuota.MaxStorageBytes,
+		MaxBandwidthBytes: dbQuota.MaxBandwidthBytes,
+		MaxUploadSize:     dbQuota.MaxUploadSize,
+		MaxFilesCount:     dbQuota.MaxFilesCount,
+		CreatedAt:         apptime.NewTime(apptime.MustParse(dbQuota.CreatedAt)),
+		UpdatedAt:         apptime.NewTime(apptime.MustParse(dbQuota.UpdatedAt)),
+	}
+	if dbQuota.AllowedExtensions != nil {
+		quota.AllowedExtensions = *dbQuota.AllowedExtensions
+	}
+	if dbQuota.BlockedExtensions != nil {
+		quota.BlockedExtensions = *dbQuota.BlockedExtensions
+	}
+	return quota
+}
+
+func dbUserQuotaOverrideToModel(dbOverride db.ExtCloudstorageUserQuotaOverride) *UserQuotaOverride {
+	override := &UserQuotaOverride{
+		ID:                dbOverride.ID,
+		UserID:            dbOverride.UserID,
+		MaxStorageBytes:   dbOverride.MaxStorageBytes,
+		MaxBandwidthBytes: dbOverride.MaxBandwidthBytes,
+		MaxUploadSize:     dbOverride.MaxUploadSize,
+		MaxFilesCount:     dbOverride.MaxFilesCount,
+		AllowedExtensions: dbOverride.AllowedExtensions,
+		BlockedExtensions: dbOverride.BlockedExtensions,
+		Reason:            dbOverride.Reason,
+		ExpiresAt:         apptime.FromTimePtr(dbOverride.ExpiresAt.ToTimePtr()),
+		CreatedBy:         dbOverride.CreatedBy,
+		CreatedAt:         apptime.NewTime(apptime.MustParse(dbOverride.CreatedAt)),
+		UpdatedAt:         apptime.NewTime(apptime.MustParse(dbOverride.UpdatedAt)),
+	}
+	return override
+}
+
+func dbStorageQuotaToModel(dbQuota db.ExtCloudstorageStorageQuota) *StorageQuota {
+	return &StorageQuota{
+		ID:                dbQuota.ID,
+		UserID:            dbQuota.UserID,
+		MaxStorageBytes:   dbQuota.MaxStorageBytes,
+		MaxBandwidthBytes: dbQuota.MaxBandwidthBytes,
+		StorageUsed:       dbQuota.StorageUsed,
+		BandwidthUsed:     dbQuota.BandwidthUsed,
+		ResetBandwidthAt:  apptime.FromTimePtr(dbQuota.ResetBandwidthAt.ToTimePtr()),
+		CreatedAt:         apptime.NewTime(apptime.MustParse(dbQuota.CreatedAt)),
+		UpdatedAt:         apptime.NewTime(apptime.MustParse(dbQuota.UpdatedAt)),
+	}
 }

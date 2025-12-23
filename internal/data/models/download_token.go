@@ -1,27 +1,26 @@
 package models
 
 import (
-	"time"
-
-	"github.com/google/uuid"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
 )
 
 // StorageDownloadToken represents a temporary token for file downloads
 type StorageDownloadToken struct {
-	ID             string     `gorm:"primaryKey;type:uuid" json:"id"`
-	Token          string     `gorm:"uniqueIndex;not null" json:"token"`
-	FileID         string     `gorm:"not null" json:"fileId"`
-	Bucket         string     `gorm:"not null" json:"bucket"`
-	ParentFolderID *string    `json:"parentFolderId,omitempty"`  // Parent folder ID (null for root)
-	ObjectName     string     `gorm:"not null" json:"objectName"` // The file name
-	UserID         string     `gorm:"type:uuid" json:"userId"`
-	FileSize       int64      `json:"fileSize"`
-	BytesServed    int64      `gorm:"default:0" json:"bytesServed"`
-	Completed      bool       `gorm:"default:false" json:"completed"`
-	ExpiresAt      time.Time  `gorm:"not null" json:"expiresAt"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	CallbackAt     *time.Time `json:"callbackAt,omitempty"`
-	ClientIP       string     `json:"clientIp,omitempty"`
+	ID             string           `json:"id"`
+	Token          string           `json:"token"`
+	FileID         string           `json:"fileId"`
+	Bucket         string           `json:"bucket"`
+	ParentFolderID *string          `json:"parentFolderId,omitempty"` // Parent folder ID (null for root)
+	ObjectName     string           `json:"objectName"`               // The file name
+	UserID         string           `json:"userId"`
+	FileSize       int64            `json:"fileSize"`
+	BytesServed    int64            `json:"bytesServed"`
+	Completed      bool             `json:"completed"`
+	ExpiresAt      apptime.Time     `json:"expiresAt"`
+	CreatedAt      apptime.Time     `json:"createdAt"`
+	CallbackAt     apptime.NullTime `json:"callbackAt,omitempty"`
+	ClientIP       string           `json:"clientIp,omitempty"`
 }
 
 // TableName sets the table name
@@ -30,7 +29,7 @@ func (StorageDownloadToken) TableName() string {
 }
 
 // NewStorageDownloadToken creates a new download token
-func NewStorageDownloadToken(fileID, bucket string, parentFolderID *string, objectName, userID string, fileSize int64, duration time.Duration) *StorageDownloadToken {
+func NewStorageDownloadToken(fileID, bucket string, parentFolderID *string, objectName, userID string, fileSize int64, duration apptime.Duration) *StorageDownloadToken {
 	return &StorageDownloadToken{
 		ID:             uuid.New().String(),
 		Token:          uuid.New().String(), // Simple UUID token for now
@@ -40,14 +39,14 @@ func NewStorageDownloadToken(fileID, bucket string, parentFolderID *string, obje
 		ObjectName:     objectName,
 		UserID:         userID,
 		FileSize:       fileSize,
-		ExpiresAt:      time.Now().Add(duration),
-		CreatedAt:      time.Now(),
+		ExpiresAt:      apptime.NowTime().Add(duration),
+		CreatedAt:      apptime.NowTime(),
 	}
 }
 
 // IsExpired checks if the token has expired
 func (dt *StorageDownloadToken) IsExpired() bool {
-	return time.Now().After(dt.ExpiresAt)
+	return apptime.NowTime().After(dt.ExpiresAt)
 }
 
 // IsValid checks if the token is valid for use

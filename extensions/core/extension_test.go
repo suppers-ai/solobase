@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -202,7 +202,7 @@ func TestExtensionSecurity(t *testing.T) {
 	assert.False(t, secMgr.CheckRateLimit("test-ext"))
 
 	// Wait for tokens to refill
-	time.Sleep(time.Second)
+	apptime.Sleep(apptime.Second)
 	assert.True(t, secMgr.CheckRateLimit("test-ext"))
 
 	// Test resource quotas
@@ -226,19 +226,19 @@ func TestExtensionMetrics(t *testing.T) {
 	collector := NewMetricsCollector()
 
 	// Record some metrics
-	collector.RecordRequest("test-ext", "GET", "/test", time.Second, nil)
-	collector.RecordRequest("test-ext", "POST", "/test", 2*time.Second, nil)
-	collector.RecordRequest("test-ext", "GET", "/test", time.Second, fmt.Errorf("error"))
+	collector.RecordRequest("test-ext", "GET", "/test", apptime.Second, nil)
+	collector.RecordRequest("test-ext", "POST", "/test", 2*apptime.Second, nil)
+	collector.RecordRequest("test-ext", "GET", "/test", apptime.Second, fmt.Errorf("error"))
 
 	// Get metrics
 	metrics, err := collector.GetMetrics("test-ext")
 	assert.NoError(t, err)
 	assert.Equal(t, int64(3), metrics.RequestCount)
 	assert.Equal(t, int64(1), metrics.ErrorCount)
-	assert.Equal(t, 4*time.Second, metrics.TotalRequestTime)
+	assert.Equal(t, 4*apptime.Second, metrics.TotalRequestTime)
 
 	// Test hook metrics
-	collector.RecordHook("test-ext", "test-hook", HookPreRequest, 100*time.Millisecond, nil)
+	collector.RecordHook("test-ext", "test-hook", HookPreRequest, 100*apptime.Millisecond, nil)
 
 	metrics, err = collector.GetMetrics("test-ext")
 	assert.NoError(t, err)
@@ -352,7 +352,7 @@ func (e *UnhealthyExtension) Health(ctx context.Context) (*HealthStatus, error) 
 		Checks: []HealthCheck{
 			{Name: "database", Status: "failed"},
 		},
-		LastChecked: time.Now(),
+		LastChecked: apptime.NowTime(),
 	}, nil
 }
 
@@ -414,6 +414,6 @@ func BenchmarkMetricsCollection(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		collector.RecordRequest("bench", "GET", "/test", time.Millisecond, nil)
+		collector.RecordRequest("bench", "GET", "/test", apptime.Millisecond, nil)
 	}
 }

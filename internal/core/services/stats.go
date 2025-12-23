@@ -1,15 +1,15 @@
 package services
 
 import (
-	"github.com/suppers-ai/solobase/internal/pkg/database"
+	"database/sql"
 )
 
 // StatsService handles statistics and metrics
 type StatsService struct {
-	db *database.DB
+	db *sql.DB
 }
 
-func NewStatsService(db *database.DB) *StatsService {
+func NewStatsService(db *sql.DB) *StatsService {
 	return &StatsService{db: db}
 }
 

@@ -74,14 +74,9 @@ export interface AppSettings {
 	appUrl: string;
 	allowSignup: boolean;
 	requireEmailConfirmation: boolean;
-	smtpEnabled: boolean;
-	smtpHost?: string;
-	smtpPort?: number;
-	smtpUsername?: string;
-	smtpUser?: string;
-	smtpPassword?: string;
-	smtpFromEmail?: string;
-	smtpFromName?: string;
+	mailerProvider: string; // none, mailgun
+	mailgunDomain?: string;
+	mailgunRegion?: string; // us, eu
 	storageProvider: string;
 	maxUploadSize: number;
 	allowedFileTypes?: string;
@@ -117,58 +112,4 @@ export interface ExtensionStatus {
 	enabled: boolean;
 	loaded: boolean;
 	error?: string;
-}
-
-// Webhook types
-export interface Webhook {
-	id: string;
-	name: string;
-	url: string;
-	events: string[];
-	active: boolean;
-	secret?: string;
-	headers?: Record<string, string>;
-	createdAt: string;
-	updatedAt: string;
-}
-
-export interface WebhookCreateRequest {
-	name: string;
-	url: string;
-	events: string[];
-	active?: boolean;
-	secret?: string;
-	headers?: Record<string, string>;
-}
-
-// Analytics types
-export interface AnalyticsStats {
-	totalPageviews: number;
-	uniqueVisitors: number;
-	averageSessionDuration: number;
-	bounceRate: number;
-	topPages: { path: string; views: number }[];
-}
-
-export interface AnalyticsPageview {
-	id: string;
-	path: string;
-	referrer?: string;
-	userAgent?: string;
-	timestamp: string;
-	sessionId?: string;
-}
-
-export interface AnalyticsDailyStats {
-	date: string;
-	pageviews: number;
-	uniqueVisitors: number;
-}
-
-export interface AnalyticsEvent {
-	name: string;
-	category?: string;
-	label?: string;
-	value?: number;
-	properties?: Record<string, unknown>;
 }

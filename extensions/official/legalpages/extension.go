@@ -2,17 +2,19 @@ package legalpages
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 
 	"github.com/suppers-ai/solobase/extensions/core"
-	"gorm.io/gorm"
+	db "github.com/suppers-ai/solobase/internal/sqlc/gen"
 )
 
 type LegalPagesExtension struct {
-	db       *gorm.DB
+	sqlDB    *sql.DB
+	queries  *db.Queries
 	service  *LegalPagesService
 	handlers *Handlers
 	config   *LegalPagesConfig
@@ -47,35 +49,30 @@ func (e *LegalPagesExtension) Metadata() core.ExtensionMetadata {
 
 // Initialize sets up the extension with provided services
 func (e *LegalPagesExtension) Initialize(ctx context.Context, services *core.ExtensionServices) error {
-	// The database is set separately via SetDatabase method
-	if e.db == nil {
+	// The database is set separately via SetSQLDatabase method
+	if e.sqlDB == nil {
 		return nil // Extension can work without database in limited mode
 	}
 
 	return nil
 }
 
-// SetDatabase sets the database and initializes services
-func (e *LegalPagesExtension) SetDatabase(db *gorm.DB) {
-	fmt.Println("LegalPages: SetDatabase called")
-	e.db = db
+// SetSQLDatabase sets the SQL database for sqlc queries and initializes services
+func (e *LegalPagesExtension) SetSQLDatabase(sqlDB *sql.DB) {
+	fmt.Println("LegalPages: SetSQLDatabase called")
+	e.sqlDB = sqlDB
+	e.queries = db.New(sqlDB)
 
-	if e.db != nil {
+	if e.sqlDB != nil {
 		fmt.Println("LegalPages: Database is not nil, initializing...")
-		// Run migrations
-		if err := RegisterModels(e.db); err != nil {
-			fmt.Printf("LegalPages: Failed to register models: %v\n", err)
-			// Log error but don't fail
-			return
-		}
 
 		// Initialize service and handlers
-		e.service = NewLegalPagesService(e.db)
+		e.service = NewLegalPagesService(e.sqlDB)
 		e.handlers = NewHandlers(e.service)
 		fmt.Printf("LegalPages: Handlers initialized: %v\n", e.handlers != nil)
 
 		// Seed initial data
-		if err := SeedData(e.db); err != nil {
+		if err := SeedDataWithSQL(e.sqlDB); err != nil {
 			fmt.Printf("LegalPages: Failed to seed data: %v\n", err)
 			// Don't fail initialization, just log the error
 		}
@@ -101,14 +98,14 @@ func (e *LegalPagesExtension) Health(ctx context.Context) (*core.HealthStatus, e
 	status := &core.HealthStatus{
 		Status:      "healthy",
 		Message:     "Legal pages extension is running",
-		LastChecked: time.Now(),
+		LastChecked: apptime.NowTime(),
 		Checks:      []core.HealthCheck{},
 	}
 
 	// Check database connection
-	if e.db != nil {
-		var count int64
-		if err := e.db.Model(&LegalDocument{}).Count(&count).Error; err != nil {
+	if e.queries != nil {
+		_, err := e.queries.CountLegalDocuments(ctx)
+		if err != nil {
 			status.Status = "unhealthy"
 			status.Message = "Database connection failed"
 			status.Checks = append(status.Checks, core.HealthCheck{

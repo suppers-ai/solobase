@@ -6,43 +6,42 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
-	"log"
 	"net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
-	"gorm.io/gorm"
-	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
-	"github.com/suppers-ai/solobase/internal/pkg/logger"
-	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"github.com/suppers-ai/solobase/extensions"
+	"github.com/suppers-ai/solobase/extensions/core"
 	authHandlers "github.com/suppers-ai/solobase/internal/api/handlers/auth"
 	"github.com/suppers-ai/solobase/internal/api/middleware"
 	"github.com/suppers-ai/solobase/internal/api/router"
 	"github.com/suppers-ai/solobase/internal/config"
+	"github.com/suppers-ai/solobase/internal/env"
 	coremodels "github.com/suppers-ai/solobase/internal/core/models"
 	"github.com/suppers-ai/solobase/internal/core/services"
 	"github.com/suppers-ai/solobase/internal/data/models"
 	"github.com/suppers-ai/solobase/internal/iam"
-	storage "github.com/suppers-ai/solobase/internal/pkg/storage"
+	"github.com/suppers-ai/solobase/internal/pkg/database"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
+	"github.com/suppers-ai/solobase/pkg/adapters"
+	"github.com/suppers-ai/solobase/pkg/adapters/repos"
+	"github.com/suppers-ai/solobase/pkg/interfaces"
 )
 
 // App represents the Solobase application
 type App struct {
 	router           *mux.Router
-	db               *database.DB
+	database         interfaces.Database // Host-provided database implementation
 	config           *config.Config
-	sqlDB            *sql.DB // Store sql.DB reference for Close()
+	sqlDB            *sql.DB // Store sql.DB reference for Close() (optional, may be nil in WASM)
 	appID            string  // Application ID for storage isolation
 	services         *AppServices
 	extensionManager *extensions.ExtensionManager
 	server           *http.Server
 	productsSeeder   interface{} // Custom seeder for Products extension
+	externalUIFS     *embed.FS   // External UI files for TinyGo/WASM builds
+	platform         Platform    // Platform-specific implementations
 
 	// Event hooks
 	onServeHooks     []func(*ServeEvent) error
@@ -56,10 +55,10 @@ type App struct {
 
 // customRoute holds route registration info
 type customRoute struct {
-	path       string
-	handler    http.HandlerFunc
-	methods    []string
-	routeType  routeType
+	path      string
+	handler   http.HandlerFunc
+	methods   []string
+	routeType routeType
 }
 
 // routeType defines the authentication level for a route
@@ -108,8 +107,17 @@ type ModelEvent struct {
 
 // Options for creating a new Solobase app
 type Options struct {
-	DatabaseType         string
-	DatabaseURL          string
+	// Database is the host-provided database implementation.
+	// This is REQUIRED - the host must provide a database that implements interfaces.Database.
+	// Use builds/go/database.NewSQLite() for standard Go builds.
+	// Use builds/tinygo/database.NewHTTPClient() for TinyGo builds.
+	// Use builds/wasm/database.NewHostDB() for WASM builds.
+	Database interfaces.Database
+
+	// DatabaseType is used for SQL dialect selection (sqlite, postgres).
+	// This is only needed for query generation, not connection.
+	DatabaseType string
+
 	StorageType          string
 	AppID                string // Application ID for storage isolation (defaults to "solobase")
 	S3Config             *S3Config
@@ -120,6 +128,16 @@ type Options struct {
 	DisableUI            bool
 	DisableHome          bool        // Disable the root "/" handler while keeping other UI routes
 	ProductsSeeder       interface{} // Custom seeder for Products extension
+
+	// Platform provides platform-specific implementations.
+	// Defaults to StandardPlatform if not specified.
+	// Use WASMPlatform for WASM/WASI deployments.
+	Platform Platform
+
+	// ExternalUIFS allows providing an external embed.FS for UI files
+	// This is useful for TinyGo/WASM builds where cross-package embeds don't work
+	// The FS should contain files at the root level (index.html, _app/, etc.)
+	ExternalUIFS *embed.FS
 }
 
 // S3Config for S3 storage
@@ -153,83 +171,96 @@ type (
 //go:embed all:frontend/build/*
 var uiFiles embed.FS
 
-
-// New creates a new Solobase application instance
+// New creates a new Solobase application instance.
+// DEPRECATED: Use NewWithOptions and provide a Database.
+// This function will panic since Database is now required.
 func New() *App {
-	return NewWithOptions(&Options{})
+	logger.StdLogFatal("New() is deprecated. Use NewWithOptions() with a Database implementation")
+	return nil
 }
 
-// NewWithOptions creates a new Solobase app with custom options
+// NewWithOptions creates a new Solobase app with custom options.
+// The Database field in Options is REQUIRED - the host must provide a database implementation.
 func NewWithOptions(opts *Options) *App {
+	// Validate required database
+	if opts.Database == nil {
+		logger.StdLogFatal("Database is required. Provide a database implementation via Options.Database")
+		return nil
+	}
+
 	// Set defaults
 	if opts.DatabaseType == "" {
-		opts.DatabaseType = os.Getenv("DATABASE_TYPE")
+		opts.DatabaseType = env.GetEnv("DATABASE_TYPE")
 		if opts.DatabaseType == "" {
 			opts.DatabaseType = "sqlite"
 		}
 	}
-	if opts.DatabaseURL == "" {
-		opts.DatabaseURL = os.Getenv("DATABASE_URL")
-		if opts.DatabaseURL == "" {
-			opts.DatabaseURL = "file:./.data/solobase.db"
-		}
-	}
 	if opts.StorageType == "" {
-		opts.StorageType = os.Getenv("STORAGE_TYPE")
+		opts.StorageType = env.GetEnv("STORAGE_TYPE")
 		if opts.StorageType == "" {
 			opts.StorageType = "local"
 		}
 	}
-	// Remove StoragePath as we're using AppID instead
-	// Storage path will be determined based on AppID
 	if opts.AppID == "" {
-		opts.AppID = os.Getenv("APP_ID")
+		opts.AppID = env.GetEnv("APP_ID")
 		if opts.AppID == "" {
 			opts.AppID = "solobase"
 		}
 	}
 	if opts.JWTSecret == "" {
-		opts.JWTSecret = os.Getenv("JWT_SECRET")
+		opts.JWTSecret = env.GetEnv("JWT_SECRET")
 		if opts.JWTSecret == "" {
-			log.Fatal("JWT_SECRET environment variable is required for security. Please set a strong secret key")
+			logger.StdLogFatal("JWT_SECRET environment variable is required for security. Please set a strong secret key")
 		}
 	}
 	if opts.Port == "" {
-		opts.Port = os.Getenv("PORT")
+		opts.Port = env.GetEnv("PORT")
 		if opts.Port == "" {
 			opts.Port = "8090"
 		}
 	}
 	if opts.DefaultAdminEmail == "" {
-		opts.DefaultAdminEmail = os.Getenv("DEFAULT_ADMIN_EMAIL")
-		log.Printf("DEBUG: DEFAULT_ADMIN_EMAIL from env: '%s'", opts.DefaultAdminEmail)
-		// Don't set a default if the env var is not set
-		// This prevents creating unintended admin accounts
+		opts.DefaultAdminEmail = env.GetEnv("DEFAULT_ADMIN_EMAIL")
+		logger.StdLogPrintf("DEBUG: DEFAULT_ADMIN_EMAIL from env: '%s'", opts.DefaultAdminEmail)
 	} else {
-		log.Printf("DEBUG: DefaultAdminEmail already set to: '%s'", opts.DefaultAdminEmail)
+		logger.StdLogPrintf("DEBUG: DefaultAdminEmail already set to: '%s'", opts.DefaultAdminEmail)
 	}
 	if opts.DefaultAdminPassword == "" {
-		opts.DefaultAdminPassword = os.Getenv("DEFAULT_ADMIN_PASSWORD")
-		// Don't set a default password either
+		opts.DefaultAdminPassword = env.GetEnv("DEFAULT_ADMIN_PASSWORD")
 	}
+
+	// Set default platform if not provided
+	platform := opts.Platform
+	if platform == nil {
+		platform = DefaultPlatform()
+	}
+
+	// Register database in the global adapter registry
+	adapters.SetDatabase(opts.Database)
+
+	// Get underlying sql.DB if available (may be nil in WASM)
+	sqlDB := opts.Database.GetDB()
 
 	app := &App{
 		appID:          opts.AppID,
+		database:       opts.Database,
 		productsSeeder: opts.ProductsSeeder,
 		onModelHooks:   make(map[string][]func(*ModelEvent) error),
+		sqlDB:          sqlDB,
+		externalUIFS:   opts.ExternalUIFS,
+		platform:       platform,
 	}
 
 	// Create config
 	app.config = &config.Config{
 		Port:        opts.Port,
-		Environment: os.Getenv("ENVIRONMENT"),
+		Environment: env.GetEnv("ENVIRONMENT"),
 		Database: &database.Config{
 			Type: opts.DatabaseType,
-			// Parse DATABASE_URL based on type
 		},
 		Storage: config.StorageConfig{
 			Type:             opts.StorageType,
-			LocalStoragePath: "./.data/storage", // Default path, AppID will be used for organization
+			LocalStoragePath: "./.data/storage",
 		},
 		JWTSecret:     opts.JWTSecret,
 		AdminEmail:    opts.DefaultAdminEmail,
@@ -247,31 +278,6 @@ func NewWithOptions(opts *Options) *App {
 		app.config.Storage.S3Endpoint = opts.S3Config.Endpoint
 	}
 
-	// Parse database URL
-	if opts.DatabaseType == "postgres" {
-		// Parse PostgreSQL URL
-		app.config.Database = parsePostgresURL(opts.DatabaseURL)
-	} else {
-		// SQLite
-		dbURL := opts.DatabaseURL
-
-		// Add read-only mode if READONLY_MODE is enabled
-		if os.Getenv("READONLY_MODE") == "true" {
-			// Check if URL already has query parameters
-			if strings.Contains(dbURL, "?") {
-				dbURL += "&mode=ro"
-			} else {
-				dbURL += "?mode=ro"
-			}
-			log.Printf("Read-only mode enabled - database will be opened in read-only mode")
-		}
-
-		app.config.Database = &database.Config{
-			Type: "sqlite",
-			DSN:  dbURL,
-		}
-	}
-
 	return app
 }
 
@@ -285,137 +291,123 @@ func (app *App) Initialize() error {
 		return fmt.Errorf("failed to set JWT secret in auth handlers: %w", err)
 	}
 
-	// Ensure .data directory exists for SQLite databases
-	// We need to get the database URL from the parsed config or from NewWithOptions
-	// The database URL is set up during New/NewWithOptions
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		dbURL = "file:./.data/solobase.db"
-	}
+	// Database is now provided by the host - no need to create directories or connections here
+	// The host is responsible for setting up the database before calling NewWithOptions
+	sqlDB := app.sqlDB // May be nil in WASM mode
 
-	if app.config.Database.Type == "sqlite" && dbURL != "" {
-		// Extract directory from database path (e.g., file:./.data/solobase.db -> ./.data)
-		dbPath := dbURL
-		if strings.HasPrefix(dbPath, "file:") {
-			dbPath = strings.TrimPrefix(dbPath, "file:")
-		}
-		if dir := filepath.Dir(dbPath); dir != "" && dir != "." {
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return fmt.Errorf("failed to create database directory: %w", err)
-			}
-		}
-	}
+	readonlyMode := env.GetEnv("READONLY_MODE")
 
-	// Initialize database
-	log.Printf("Initializing database with type: %s", app.config.Database.Type)
-	db, err := database.New(app.config.Database)
-	if err != nil {
-		return fmt.Errorf("failed to connect to database: %w", err)
-	}
-	app.db = db
-
-	// Get underlying sql.DB for connection management
-	sqlDB, err := db.DB.DB()
-	if err != nil {
-		return fmt.Errorf("failed to get sql.DB: %w", err)
-	}
-	app.sqlDB = sqlDB
-
-	// Skip migrations and auto-migrate in read-only mode
-	if os.Getenv("READONLY_MODE") == "true" {
-		log.Printf("Read-only mode: Skipping database migrations and table creation")
+	// Skip migrations in read-only mode or WASM mode (host handles schema)
+	if readonlyMode == "true" {
+		// Read-only mode: skip schema migrations
+	} else if sqlDB == nil {
+		// WASM mode: no direct sql.DB access, host handles schema
 	} else {
-		// Run migrations (handled by AutoMigrate below)
-
-		// Auto-migrate models
-		db.AutoMigrate(
-			&auth.User{},
-			&auth.Token{},
-			&auth.APIKey{},
-			&models.Setting{},
-			&models.StorageDownloadToken{},
-			&models.StorageUploadToken{},
-			&storage.StorageObject{},
-			&storage.StorageBucket{},
-			&logger.LogModel{},
-			&logger.RequestLogModel{},
-			// IAM models
-			&iam.Role{},
-			&iam.UserRole{},
-			&iam.IAMAuditLog{},
-			// Custom Tables models
-			&models.CustomTableDefinition{},
-			&models.CustomTableMigration{},
-		)
+		// Run core schema migrations
+		if err := runCoreSchemas(sqlDB); err != nil {
+			return fmt.Errorf("failed to run core schemas: %w", err)
+		}
 	}
 
 	// Initialize database logger
-	dbLogger := services.NewDBLogger(db)
+	dbLogger := services.NewDBLogger(sqlDB)
 
-	// Setup database metrics callbacks
-	db.DB.Callback().Query().Before("gorm:query").Register("metrics:before_query", beforeQuery)
-	db.DB.Callback().Query().After("gorm:query").Register("metrics:after_query", afterQuery)
-	db.DB.Callback().Create().Before("gorm:create").Register("metrics:before_create", beforeQuery)
-	db.DB.Callback().Create().After("gorm:create").Register("metrics:after_query", afterQuery)
-	db.DB.Callback().Update().Before("gorm:update").Register("metrics:before_update", beforeQuery)
-	db.DB.Callback().Update().After("gorm:update").Register("metrics:after_query", afterQuery)
-	db.DB.Callback().Delete().Before("gorm:delete").Register("metrics:before_delete", beforeQuery)
-	db.DB.Callback().Delete().After("gorm:delete").Register("metrics:after_query", afterQuery)
+	// Adapters are already registered by NewWithOptions (database is set via adapters.SetDatabase)
+	// JWT signer and other adapters are set up by the platform
+	app.platform.InitializeAdapters(&AdapterConfig{
+		JWTSecret: app.config.JWTSecret,
+	})
 
-	// Initialize IAM service with Casbin
-	iamService, err := iam.NewService(db.DB)
-	if err != nil {
-		return fmt.Errorf("failed to initialize IAM service: %w", err)
+	// Run extension schemas (skip in WASM mode - host handles schema)
+	if sqlDB != nil {
+		if err := runExtensionSchemas(sqlDB); err != nil {
+			logger.StdLogPrintf("Warning: Failed to run extension schemas: %v", err)
+		}
 	}
 
-	// Set up middleware dependencies for API key authentication
-	middleware.SetAuthDB(db.DB)
-	middleware.SetIAMService(iamService)
-
-	// Initialize services
-	app.services = &AppServices{
-		Auth: services.NewAuthService(db),
-		User: services.NewUserService(db),
-		Storage: services.NewStorageServiceWithOptions(db, app.config.Storage, &services.StorageOptions{
-			AppID: app.appID,
-		}),
-		Database:     services.NewDatabaseService(db),
-		Settings:     services.NewSettingsService(db),
-		Logs:         services.NewLogsService(db),
-		Logger:       dbLogger,
-		IAM:          iamService,
-		CustomTables: services.NewCustomTablesService(db.DB),
+	// Create repository factory and register with adapters
+	// This must happen before IAM initialization since IAM now uses the repository
+	var repoFactory repos.RepositoryFactory
+	repoFactory = NewRepoFactory(sqlDB)
+	if repoFactory != nil {
+		adapters.SetRepos(repoFactory)
 	}
 
-	// Create default admin (skip in read-only mode)
-	if os.Getenv("READONLY_MODE") == "true" {
-		log.Printf("Read-only mode: Skipping default admin creation")
+	// Initialize IAM service (uses repository pattern)
+	// Initialize when repoFactory is available (works for both standard and WASM builds)
+	var iamService *iam.Service
+	if repoFactory != nil {
+		var err error
+		iamService, err = app.platform.InitIAM(sqlDB, repoFactory.IAM())
+		if err != nil {
+			return fmt.Errorf("failed to initialize IAM service: %w", err)
+		}
+	}
+
+	// Set up middleware dependencies
+	middleware.SetAuthDB(sqlDB)
+	middleware.SetIAMService(iamService) // May be nil in WASM mode
+
+	// Create services - use repoFactory when available (works for both standard and WASM builds)
+	if repoFactory != nil {
+		app.services = &AppServices{
+			Auth: services.NewAuthService(repoFactory.Users(), repoFactory.Tokens()),
+			User: services.NewUserService(repoFactory.Users()),
+			Storage: services.NewStorageServiceWithOptions(repoFactory.Storage(), app.config.Storage, &services.StorageOptions{
+				AppID: app.appID,
+			}),
+			Settings: services.NewSettingsService(repoFactory.Settings()),
+			Logs:     services.NewLogsService(repoFactory.Logs()),
+			Logger:   dbLogger,
+			IAM:      iamService,
+		}
+		// DatabaseService requires sqlDB directly
+		if sqlDB != nil {
+			app.services.Database = services.NewDatabaseService(sqlDB, app.config.Database.Type)
+		}
+	} else {
+		// Fallback: no repoFactory available (shouldn't happen in normal operation)
+		app.services = &AppServices{
+			Logger: dbLogger,
+			IAM:    iamService,
+		}
+	}
+
+	// Create default admin (skip in read-only mode and WASM mode)
+	// In WASM mode, the host should handle admin creation before WASM init
+	if readonlyMode == "true" {
+		// Read-only mode: skip admin creation
+	} else if sqlDB == nil {
+		// WASM mode: host handles admin creation via D1 migrations
+		logger.StdLogPrintf("WASM mode: skipping admin creation (host should handle via D1)")
 	} else if app.config.AdminEmail != "" && app.config.AdminPassword != "" {
-		log.Printf("Creating default admin with email: %s", app.config.AdminEmail)
 		if err := app.services.Auth.CreateDefaultAdmin(app.config.AdminEmail, app.config.AdminPassword); err != nil {
-			log.Printf("Warning: Failed to create default admin: %v", err)
-		} else {
+			logger.StdLogPrintf("Warning: Failed to create default admin: %v", err)
+		} else if iamService != nil {
 			// Assign admin role in IAM to the default admin user
-			var adminUser auth.User
-			if err := db.DB.Where("email = ?", app.config.AdminEmail).First(&adminUser).Error; err == nil {
-				if err := iamService.AssignRoleToUser(context.Background(), adminUser.ID.String(), "admin"); err != nil {
-					log.Printf("Warning: Failed to assign admin role to default admin: %v", err)
+			var userID string
+			err := sqlDB.QueryRow("SELECT id FROM auth_users WHERE email = ? AND deleted_at IS NULL", app.config.AdminEmail).Scan(&userID)
+			if err == nil && userID != "" {
+				if err := iamService.AssignRoleToUser(context.Background(), userID, "admin"); err != nil {
+					logger.StdLogPrintf("Warning: Failed to assign admin role: %v", err)
 				}
 			}
 		}
 	}
 
-	// Initialize extension system
-	extensionManager, err := extensions.NewExtensionManagerWithOptions(db.DB, dbLogger, app.productsSeeder)
-	if err != nil {
-		return fmt.Errorf("failed to create extension manager: %w", err)
-	}
-	app.extensionManager = extensionManager
+	// Initialize extension system (skip in WASM mode without DB)
+	if sqlDB != nil {
+		extensionManager, err := extensions.NewExtensionManagerWithOptions(sqlDB, dbLogger, app.productsSeeder)
+		if err != nil {
+			return fmt.Errorf("failed to create extension manager: %w", err)
+		}
+		app.extensionManager = extensionManager
 
-	// Initialize extensions
-	ctx := context.Background()
-	if err := extensionManager.Initialize(ctx); err != nil {
-		log.Printf("Warning: Failed to initialize some extensions: %v", err)
+		// Initialize extensions
+		ctx := context.Background()
+		if err := extensionManager.Initialize(ctx); err != nil {
+			logger.StdLogPrintf("Warning: Failed to initialize some extensions: %v", err)
+		}
 	}
 
 	return nil
@@ -479,7 +471,7 @@ func (h *ModelHook) BindFunc(fn func(*ModelEvent) error) *ModelHook {
 // Start initializes and starts the server
 func (app *App) Start() error {
 	// Initialize if not already done
-	if app.db == nil {
+	if app.services == nil {
 		if err := app.Initialize(); err != nil {
 			return err
 		}
@@ -488,24 +480,34 @@ func (app *App) Start() error {
 	// Setup router
 	app.router = mux.NewRouter()
 
-	// Apply middleware
-	app.router.Use(services.HTTPLoggingMiddleware(app.services.Logger))
-	// TODO: Setup Prometheus middleware
-	// app.router.Use(router.PrometheusMiddleware)
+	// Apply middleware (only if services are available)
+	if app.services != nil && app.services.Logger != nil {
+		app.router.Use(services.HTTPLoggingMiddleware(app.services.Logger))
+	}
 
-	// Apply IAM middleware for authorization
-	iamMiddleware := iam.NewMiddleware(app.services.IAM)
-	app.router.Use(iamMiddleware.EnforceQuota())
-	app.router.Use(iamMiddleware.RateLimit())
+	// Apply IAM middleware for authorization (only if IAM is available)
+	if app.services != nil && app.services.IAM != nil {
+		iamMiddleware := iam.NewMiddleware(app.services.IAM)
+		app.router.Use(iamMiddleware.EnforceQuota())
+		app.router.Use(iamMiddleware.RateLimit())
+	}
 
-	// Apply extension middleware
-	app.router.Use(func(next http.Handler) http.Handler {
-		return app.extensionManager.ApplyMiddleware(next)
-	})
+	// Apply extension middleware (only if extension manager is available)
+	if app.extensionManager != nil {
+		app.router.Use(func(next http.Handler) http.Handler {
+			return app.extensionManager.ApplyMiddleware(next)
+		})
+	}
 
 	// Setup API router
+	// Get extension registry (nil if no extension manager)
+	var extRegistry *core.ExtensionRegistry
+	if app.extensionManager != nil {
+		extRegistry = app.extensionManager.GetRegistry()
+	}
+
 	apiRouter := router.NewAPI(
-		app.db,
+		app.sqlDB,
 		app.services.Auth,
 		app.services.User,
 		app.services.Storage,
@@ -513,35 +515,36 @@ func (app *App) Start() error {
 		app.services.Settings,
 		app.services.Logs,
 		app.services.IAM,
-		app.extensionManager.GetRegistry(),
+		extRegistry,
 	)
 
 	// IMPORTANT: Register more specific routes first
 
-	// Register IAM routes
-	iamHandlers := iam.NewHandlers(app.services.IAM)
-	iamHandlers.RegisterRoutes(app.router)
+	// Register IAM routes (only if IAM is available)
+	if app.services != nil && app.services.IAM != nil {
+		iamHandlers := iam.NewHandlers(app.services.IAM)
+		iamHandlers.RegisterRoutes(app.router)
+	}
 
 	// Extension routes - register on apiRouter so they're under /api/ext/
-	log.Println("DEBUG: About to register extension routes")
+	logger.StdLogPrintln("DEBUG: About to register extension routes")
 	if app.extensionManager != nil {
-		log.Println("Registering extension routes...")
+		logger.StdLogPrintln("Registering extension routes...")
 		app.extensionManager.RegisterRoutes(apiRouter.Router)
 	} else {
-		log.Println("WARNING: Extension manager is nil, cannot register extension routes")
+		logger.StdLogPrintln("WARNING: Extension manager is nil, cannot register extension routes")
 	}
 
 	// Register custom routes
 	app.registerCustomRoutes(apiRouter)
 
 	// API routes
-	log.Println("DEBUG: Setting up API routes")
+	logger.StdLogPrintln("DEBUG: Setting up API routes")
 	app.router.PathPrefix("/api").Handler(http.StripPrefix("/api", apiRouter))
 
 	// Storage files
 	storageDir := "./.data/storage/"
 	app.router.PathPrefix("/storage/").Handler(http.StripPrefix("/storage/", http.FileServer(http.Dir(storageDir))))
-
 
 	// Admin UI routes (if not disabled) - These are catch-all routes so must come LAST
 	if !app.config.DisableUI {
@@ -552,6 +555,7 @@ func (app *App) Start() error {
 
 		// Serve UI assets - MUST come before page routes
 		app.router.PathPrefix("/_app/").Handler(app.ServeUI())
+		app.router.PathPrefix("/app/").Handler(app.ServeUI()) // TinyGo compatibility
 
 		// Serve auth pages at root level
 		app.router.PathPrefix("/auth/").Handler(app.ServeUI())
@@ -589,10 +593,25 @@ func (app *App) Start() error {
 	}
 
 	// Setup graceful shutdown
-	go app.handleShutdown()
+	app.platform.SetupShutdownHandler(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := app.Shutdown(ctx); err != nil {
+			logger.StdLogPrintf("Shutdown error: %v", err)
+		}
+	})
+
+	// Start scheduled log cleanup (runs daily, keeps logs for 7 days)
+	app.platform.StartLogCleanupScheduler(func() {
+		if app.services != nil && app.services.Logs != nil {
+			if _, err := app.services.Logs.CleanupOldLogs(7); err != nil {
+				logger.StdLogPrintf("Log cleanup error: %v", err)
+			}
+		}
+	})
 
 	// Start server
-	log.Printf("🚀 Solobase server starting on port %s", app.config.Port)
+	logger.StdLogPrintf("🚀 Solobase server starting on port %s", app.config.Port)
 	if err := app.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("server failed to start: %w", err)
 	}
@@ -605,9 +624,130 @@ func (app *App) Router() *mux.Router {
 	return app.router
 }
 
+// Handler returns the HTTP handler for the app
+// This is useful for WASM/Spin environments where you need to provide the handler
+// to an external HTTP runtime instead of starting a server
+func (app *App) Handler() http.Handler {
+	return app.router
+}
+
+// SetupRouter initializes the app and sets up the router without starting the server
+// This is useful for WASM/Spin environments
+func (app *App) SetupRouter() error {
+	// Initialize if not already done
+	if app.sqlDB == nil {
+		if err := app.Initialize(); err != nil {
+			return err
+		}
+	} else if app.services == nil {
+		// External DB provided but services not initialized
+		if err := app.Initialize(); err != nil {
+			return err
+		}
+	}
+
+	// Setup router
+	app.router = mux.NewRouter()
+
+	// Apply middleware (only if services are available)
+	if app.services != nil && app.services.Logger != nil {
+		app.router.Use(services.HTTPLoggingMiddleware(app.services.Logger))
+	}
+
+	// Apply IAM middleware for authorization (only if IAM is available)
+	if app.services != nil && app.services.IAM != nil {
+		iamMiddleware := iam.NewMiddleware(app.services.IAM)
+		app.router.Use(iamMiddleware.EnforceQuota())
+		app.router.Use(iamMiddleware.RateLimit())
+	}
+
+	// Apply extension middleware (only if extension manager is available)
+	if app.extensionManager != nil {
+		app.router.Use(func(next http.Handler) http.Handler {
+			return app.extensionManager.ApplyMiddleware(next)
+		})
+	}
+
+	// Setup API router
+	// Get extension registry (nil if no extension manager)
+	var extRegistry *core.ExtensionRegistry
+	if app.extensionManager != nil {
+		extRegistry = app.extensionManager.GetRegistry()
+	}
+
+	apiRouter := router.NewAPI(
+		app.sqlDB,
+		app.services.Auth,
+		app.services.User,
+		app.services.Storage,
+		app.services.Database,
+		app.services.Settings,
+		app.services.Logs,
+		app.services.IAM,
+		extRegistry,
+	)
+
+	// Register IAM routes (only if IAM is available)
+	if app.services != nil && app.services.IAM != nil {
+		iamHandlers := iam.NewHandlers(app.services.IAM)
+		iamHandlers.RegisterRoutes(app.router)
+	}
+
+	// Extension routes
+	if app.extensionManager != nil {
+		app.extensionManager.RegisterRoutes(apiRouter.Router)
+	}
+
+	// Register custom routes
+	app.registerCustomRoutes(apiRouter)
+
+	// API routes
+	app.router.PathPrefix("/api").Handler(http.StripPrefix("/api", apiRouter))
+
+	// Storage files
+	storageDir := "./.data/storage/"
+	app.router.PathPrefix("/storage/").Handler(http.StripPrefix("/storage/", http.FileServer(http.Dir(storageDir))))
+
+	// Admin UI routes (if not disabled)
+	if !app.config.DisableUI {
+		app.router.HandleFunc("/logo.png", app.ServeStaticAsset("logo.png"))
+		app.router.HandleFunc("/logo_long.png", app.ServeStaticAsset("logo_long.png"))
+		app.router.HandleFunc("/favicon.ico", app.ServeStaticAsset("favicon.ico"))
+		app.router.PathPrefix("/_app/").Handler(app.ServeUI())
+		app.router.PathPrefix("/app/").Handler(app.ServeUI()) // TinyGo compatibility
+		app.router.PathPrefix("/auth/").Handler(app.ServeUI())
+		app.router.PathPrefix("/profile").Handler(app.ServeUI())
+		app.router.PathPrefix("/ui/").Handler(app.ServeUI())
+		if !app.config.DisableHome {
+			app.router.PathPrefix("/").Handler(app.ServeUI())
+		}
+	} else {
+		// When UI is disabled, provide a basic API info endpoint at root
+		app.router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"name":"Solobase","status":"running","api":"/api"}`))
+		}).Methods("GET")
+	}
+
+	// Run OnServe hooks
+	serveEvent := &ServeEvent{
+		App:    app,
+		Router: app.router,
+		Next:   func() error { return nil },
+	}
+
+	for _, hook := range app.onServeHooks {
+		if err := hook(serveEvent); err != nil {
+			return fmt.Errorf("OnServe hook failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // DB returns the database connection
-func (app *App) DB() *database.DB {
-	return app.db
+func (app *App) DB() interfaces.Database {
+	return app.database
 }
 
 // Services returns the app services
@@ -704,7 +844,13 @@ func (app *App) registerCustomRoutes(apiRouter *router.API) {
 		return
 	}
 
-	log.Printf("Registering %d custom routes...", len(app.customRoutes))
+	// Skip custom routes if auth service is not available (WASM mode without database)
+	if app.services == nil || app.services.Auth == nil {
+		logger.StdLogPrintf("WASM mode: Skipping %d custom routes (auth service not available)", len(app.customRoutes))
+		return
+	}
+
+	logger.StdLogPrintf("Registering %d custom routes...", len(app.customRoutes))
 
 	// Create subrouters for protected and admin routes
 	protectedRouter := apiRouter.Router.PathPrefix("").Subrouter()
@@ -720,13 +866,13 @@ func (app *App) registerCustomRoutes(apiRouter *router.API) {
 		switch route.routeType {
 		case routeTypePublic:
 			apiRouter.Router.HandleFunc(route.path, route.handler).Methods(methods...)
-			log.Printf("  Registered public route: %s %v", route.path, route.methods)
+			logger.StdLogPrintf("  Registered public route: %s %v", route.path, route.methods)
 		case routeTypeProtected:
 			protectedRouter.HandleFunc(route.path, route.handler).Methods(methods...)
-			log.Printf("  Registered protected route: %s %v", route.path, route.methods)
+			logger.StdLogPrintf("  Registered protected route: %s %v", route.path, route.methods)
 		case routeTypeAdmin:
 			adminRouter.HandleFunc(route.path, route.handler).Methods(methods...)
-			log.Printf("  Registered admin route: %s %v", route.path, route.methods)
+			logger.StdLogPrintf("  Registered admin route: %s %v", route.path, route.methods)
 		}
 	}
 }
@@ -776,11 +922,26 @@ func (app *App) ServeStaticAsset(assetName string) http.HandlerFunc {
 // ServeUI returns the UI handler
 func (app *App) ServeUI() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Try embedded files first
-		uiFS, err := fs.Sub(uiFiles, "frontend/build")
-		if err != nil {
-			http.Error(w, "Admin interface not available", http.StatusNotFound)
-			return
+		var uiFS fs.FS
+		var err error
+
+		// Check if external UI FS is provided (for TinyGo/WASM builds)
+		if app.externalUIFS != nil {
+			// External FS uses the same path structure: frontend/build/*
+			uiFS, err = fs.Sub(*app.externalUIFS, "frontend/build")
+			if err != nil {
+				logger.StdLogPrintf("DEBUG: External fs.Sub failed: %v", err)
+				http.Error(w, "Admin interface not available", http.StatusNotFound)
+				return
+			}
+		} else {
+			// Try embedded files from the default location
+			uiFS, err = fs.Sub(uiFiles, "frontend/build")
+			if err != nil {
+				logger.StdLogPrintf("DEBUG: fs.Sub failed: %v", err)
+				http.Error(w, "Admin interface not available", http.StatusNotFound)
+				return
+			}
 		}
 
 		// For SPA routing, always serve index.html for non-asset paths
@@ -794,6 +955,7 @@ func (app *App) ServeUI() http.Handler {
 			// Serve index.html for all routes (SPA routing)
 			indexData, err := fs.ReadFile(uiFS, "index.html")
 			if err != nil {
+				logger.StdLogPrintf("DEBUG: Failed to read index.html: %v", err)
 				http.Error(w, "Admin interface not available", http.StatusNotFound)
 				return
 			}
@@ -808,7 +970,7 @@ func (app *App) Shutdown(ctx context.Context) error {
 	// Shutdown extensions
 	if app.extensionManager != nil {
 		if err := app.extensionManager.Shutdown(ctx); err != nil {
-			log.Printf("Extension shutdown error: %v", err)
+			logger.StdLogPrintf("Extension shutdown error: %v", err)
 		}
 	}
 
@@ -829,21 +991,6 @@ func (app *App) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (app *App) handleShutdown() {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
-
-	log.Println("Shutdown signal received, starting graceful shutdown")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := app.Shutdown(ctx); err != nil {
-		log.Printf("Shutdown error: %v", err)
-	}
-}
-
 func parsePostgresURL(url string) *database.Config {
 	// Simple URL parsing for postgres://user:pass@host:port/dbname
 	// This is a simplified version, you might want to use a proper URL parser
@@ -858,29 +1005,442 @@ func parsePostgresURL(url string) *database.Config {
 	}
 }
 
-// Database query callback functions
-func beforeQuery(db *gorm.DB) {
-	db.Set("query_start_time", time.Now())
-}
+// runCoreSchemas executes the core schema SQL to create tables.
+// Uses raw SQL for TinyGo/WASI compatibility.
+func runCoreSchemas(db *sql.DB) error {
+	schemas := []string{
+		// Auth tables
+		`CREATE TABLE IF NOT EXISTS auth_users (
+			id TEXT PRIMARY KEY,
+			email TEXT NOT NULL UNIQUE,
+			password TEXT NOT NULL,
+			username TEXT,
+			confirmed INTEGER DEFAULT 0,
+			first_name TEXT,
+			last_name TEXT,
+			display_name TEXT,
+			phone TEXT,
+			location TEXT,
+			confirm_token TEXT,
+			confirm_selector TEXT,
+			recover_token TEXT,
+			recover_token_exp DATETIME,
+			recover_selector TEXT,
+			attempt_count INTEGER DEFAULT 0,
+			last_attempt DATETIME,
+			last_login DATETIME,
+			metadata TEXT,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			deleted_at DATETIME,
+			totp_secret TEXT,
+			totp_secret_backup TEXT,
+			sms_phone_number TEXT,
+			recovery_codes TEXT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_users_confirm_selector ON auth_users(confirm_selector)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_users_recover_selector ON auth_users(recover_selector)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_users_deleted_at ON auth_users(deleted_at)`,
+		`CREATE TABLE IF NOT EXISTS auth_tokens (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			token_hash TEXT,
+			token TEXT,
+			type TEXT NOT NULL,
+			family_id TEXT,
+			provider TEXT,
+			provider_uid TEXT,
+			access_token TEXT,
+			oauth_expiry DATETIME,
+			expires_at DATETIME NOT NULL,
+			used_at DATETIME,
+			revoked_at DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			device_info TEXT,
+			ip_address TEXT,
+			FOREIGN KEY (user_id) REFERENCES auth_users(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_tokens_user_id ON auth_tokens(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_tokens_token_hash ON auth_tokens(token_hash)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_tokens_token ON auth_tokens(token)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_tokens_type ON auth_tokens(type)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_tokens_family_id ON auth_tokens(family_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_tokens_provider_uid ON auth_tokens(provider_uid)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_tokens_expires_at ON auth_tokens(expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_tokens_revoked_at ON auth_tokens(revoked_at)`,
+		`CREATE TABLE IF NOT EXISTS api_keys (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			key_prefix TEXT NOT NULL,
+			key_hash TEXT NOT NULL UNIQUE,
+			scopes TEXT,
+			expires_at DATETIME,
+			last_used_at DATETIME,
+			last_used_ip TEXT,
+			revoked_at DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES auth_users(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix ON api_keys(key_prefix)`,
+		`CREATE INDEX IF NOT EXISTS idx_api_keys_revoked_at ON api_keys(revoked_at)`,
 
-func afterQuery(db *gorm.DB) {
-	if startTime, ok := db.Get("query_start_time"); ok {
-		if start, ok := startTime.(time.Time); ok {
-			duration := time.Since(start)
+		// IAM tables
+		`CREATE TABLE IF NOT EXISTS iam_roles (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			display_name TEXT,
+			description TEXT,
+			type TEXT,
+			metadata TEXT,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS iam_user_roles (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			role_id TEXT NOT NULL,
+			granted_by TEXT,
+			granted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			expires_at DATETIME,
+			UNIQUE(user_id, role_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_iam_user_roles_user_id ON iam_user_roles(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_iam_user_roles_role_id ON iam_user_roles(role_id)`,
+		`CREATE TABLE IF NOT EXISTS iam_policies (
+			id TEXT PRIMARY KEY,
+			ptype TEXT NOT NULL,
+			v0 TEXT,
+			v1 TEXT,
+			v2 TEXT,
+			v3 TEXT,
+			v4 TEXT,
+			v5 TEXT,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_iam_policies_ptype ON iam_policies(ptype)`,
+		`CREATE INDEX IF NOT EXISTS idx_iam_policies_v0 ON iam_policies(v0)`,
+		`CREATE TABLE IF NOT EXISTS iam_audit_logs (
+			id TEXT PRIMARY KEY,
+			user_id TEXT,
+			action TEXT,
+			resource TEXT,
+			result TEXT,
+			reason TEXT,
+			ip_address TEXT,
+			user_agent TEXT,
+			metadata TEXT,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_iam_audit_logs_user_id ON iam_audit_logs(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_iam_audit_logs_created_at ON iam_audit_logs(created_at)`,
 
-			// Get operation type
-			operation := "query"
-			if db.Statement != nil && db.Statement.Schema != nil {
-				operation = strings.ToLower(db.Statement.Schema.Table)
-			}
+		// Settings
+		`CREATE TABLE IF NOT EXISTS sys_settings (
+			id TEXT PRIMARY KEY,
+			key TEXT NOT NULL UNIQUE,
+			value TEXT,
+			type TEXT DEFAULT 'string',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			deleted_at DATETIME
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sys_settings_deleted_at ON sys_settings(deleted_at)`,
 
-			// Record in metrics collector
-			middleware.RecordDBQuery(operation, duration.Seconds(), db.Error != nil)
+		// Storage
+		`CREATE TABLE IF NOT EXISTS storage_buckets (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			public INTEGER DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS storage_objects (
+			id TEXT PRIMARY KEY,
+			bucket_name TEXT NOT NULL,
+			object_name TEXT NOT NULL,
+			parent_folder_id TEXT,
+			size INTEGER,
+			content_type TEXT,
+			checksum TEXT,
+			metadata TEXT,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_viewed DATETIME,
+			user_id TEXT,
+			app_id TEXT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_storage_objects_bucket_name ON storage_objects(bucket_name)`,
+		`CREATE INDEX IF NOT EXISTS idx_storage_objects_object_name ON storage_objects(object_name)`,
+		`CREATE INDEX IF NOT EXISTS idx_storage_objects_parent_folder_id ON storage_objects(parent_folder_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_storage_objects_checksum ON storage_objects(checksum)`,
+		`CREATE INDEX IF NOT EXISTS idx_storage_objects_last_viewed ON storage_objects(last_viewed)`,
+		`CREATE INDEX IF NOT EXISTS idx_storage_objects_user_id ON storage_objects(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_storage_objects_app_id ON storage_objects(app_id)`,
+		`CREATE TABLE IF NOT EXISTS storage_upload_tokens (
+			id TEXT PRIMARY KEY,
+			token TEXT NOT NULL UNIQUE,
+			bucket TEXT NOT NULL,
+			parent_folder_id TEXT,
+			object_name TEXT NOT NULL,
+			user_id TEXT,
+			max_size INTEGER,
+			content_type TEXT,
+			bytes_uploaded INTEGER DEFAULT 0,
+			completed INTEGER DEFAULT 0,
+			object_id TEXT,
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			completed_at DATETIME,
+			client_ip TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS storage_download_tokens (
+			id TEXT PRIMARY KEY,
+			token TEXT NOT NULL UNIQUE,
+			file_id TEXT NOT NULL,
+			bucket TEXT NOT NULL,
+			parent_folder_id TEXT,
+			object_name TEXT NOT NULL,
+			user_id TEXT,
+			file_size INTEGER,
+			bytes_served INTEGER DEFAULT 0,
+			completed INTEGER DEFAULT 0,
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			callback_at DATETIME,
+			client_ip TEXT
+		)`,
 
-			// Log slow queries (optional)
-			if duration > 100*time.Millisecond {
-				log.Printf("Slow query (%v): %s\n", duration, db.Statement.SQL.String())
-			}
+		// Logging
+		`CREATE TABLE IF NOT EXISTS sys_logs (
+			id TEXT PRIMARY KEY,
+			level TEXT NOT NULL,
+			message TEXT NOT NULL,
+			fields TEXT,
+			user_id TEXT,
+			trace_id TEXT,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sys_logs_level ON sys_logs(level)`,
+		`CREATE INDEX IF NOT EXISTS idx_sys_logs_user_id ON sys_logs(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sys_logs_trace_id ON sys_logs(trace_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sys_logs_created_at ON sys_logs(created_at)`,
+		`CREATE TABLE IF NOT EXISTS sys_request_logs (
+			id TEXT PRIMARY KEY,
+			level TEXT NOT NULL,
+			method TEXT NOT NULL,
+			path TEXT NOT NULL,
+			query TEXT,
+			status_code INTEGER NOT NULL,
+			exec_time_ms INTEGER NOT NULL,
+			user_ip TEXT NOT NULL,
+			user_agent TEXT,
+			user_id TEXT,
+			trace_id TEXT,
+			error TEXT,
+			request_body TEXT,
+			response_body TEXT,
+			headers TEXT,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sys_request_logs_method ON sys_request_logs(method)`,
+		`CREATE INDEX IF NOT EXISTS idx_sys_request_logs_path ON sys_request_logs(path)`,
+		`CREATE INDEX IF NOT EXISTS idx_sys_request_logs_status_code ON sys_request_logs(status_code)`,
+		`CREATE INDEX IF NOT EXISTS idx_sys_request_logs_user_id ON sys_request_logs(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sys_request_logs_created_at ON sys_request_logs(created_at)`,
+
+		// Custom tables
+		`CREATE TABLE IF NOT EXISTS custom_table_definitions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			display_name TEXT,
+			description TEXT,
+			fields TEXT,
+			indexes TEXT,
+			options TEXT,
+			created_by TEXT,
+			status TEXT DEFAULT 'active',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS custom_table_migrations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			table_id INTEGER,
+			version INTEGER,
+			migration_type TEXT,
+			old_schema TEXT,
+			new_schema TEXT,
+			executed_by TEXT,
+			executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			rollback_at DATETIME,
+			status TEXT,
+			error_message TEXT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_custom_table_migrations_table_id ON custom_table_migrations(table_id)`,
+	}
+
+	for _, schema := range schemas {
+		if _, err := db.Exec(schema); err != nil {
+			return fmt.Errorf("failed to execute schema: %w", err)
 		}
 	}
+
+	return nil
+}
+
+// runExtensionSchemas executes the SQL schema files for extensions.
+// Uses raw SQL for TinyGo/WASI compatibility.
+func runExtensionSchemas(db *sql.DB) error {
+	schemas := []string{
+		// Products extension
+		`CREATE TABLE IF NOT EXISTS ext_products_variables (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			display_name TEXT,
+			value_type TEXT,
+			type TEXT,
+			default_value TEXT,
+			description TEXT,
+			status TEXT DEFAULT 'active',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS ext_products_group_templates (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			display_name TEXT,
+			description TEXT,
+			icon TEXT,
+			filter_fields_schema TEXT,
+			status TEXT DEFAULT 'active',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS ext_products_groups (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id TEXT NOT NULL,
+			group_template_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			description TEXT,
+			filter_numeric_1 REAL, filter_numeric_2 REAL, filter_numeric_3 REAL, filter_numeric_4 REAL, filter_numeric_5 REAL,
+			filter_text_1 TEXT, filter_text_2 TEXT, filter_text_3 TEXT, filter_text_4 TEXT, filter_text_5 TEXT,
+			filter_boolean_1 INTEGER, filter_boolean_2 INTEGER, filter_boolean_3 INTEGER, filter_boolean_4 INTEGER, filter_boolean_5 INTEGER,
+			filter_enum_1 TEXT, filter_enum_2 TEXT, filter_enum_3 TEXT, filter_enum_4 TEXT, filter_enum_5 TEXT,
+			filter_location_1 TEXT, filter_location_2 TEXT, filter_location_3 TEXT, filter_location_4 TEXT, filter_location_5 TEXT,
+			custom_fields TEXT,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (group_template_id) REFERENCES ext_products_group_templates(id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS ext_products_product_templates (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			display_name TEXT,
+			description TEXT,
+			category TEXT,
+			icon TEXT,
+			filter_fields_schema TEXT,
+			custom_fields_schema TEXT,
+			pricing_templates TEXT,
+			billing_mode TEXT DEFAULT 'instant' NOT NULL,
+			billing_type TEXT DEFAULT 'one-time' NOT NULL,
+			billing_recurring_interval TEXT,
+			billing_recurring_interval_count INTEGER DEFAULT 1,
+			status TEXT DEFAULT 'active',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS ext_products_products (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			group_id INTEGER NOT NULL,
+			product_template_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			description TEXT,
+			base_price REAL,
+			base_price_cents INTEGER,
+			currency TEXT DEFAULT 'USD',
+			filter_numeric_1 REAL, filter_numeric_2 REAL, filter_numeric_3 REAL, filter_numeric_4 REAL, filter_numeric_5 REAL,
+			filter_text_1 TEXT, filter_text_2 TEXT, filter_text_3 TEXT, filter_text_4 TEXT, filter_text_5 TEXT,
+			filter_boolean_1 INTEGER, filter_boolean_2 INTEGER, filter_boolean_3 INTEGER, filter_boolean_4 INTEGER, filter_boolean_5 INTEGER,
+			filter_enum_1 TEXT, filter_enum_2 TEXT, filter_enum_3 TEXT, filter_enum_4 TEXT, filter_enum_5 TEXT,
+			filter_location_1 TEXT, filter_location_2 TEXT, filter_location_3 TEXT, filter_location_4 TEXT, filter_location_5 TEXT,
+			custom_fields TEXT,
+			variables TEXT,
+			pricing_formula TEXT,
+			active INTEGER DEFAULT 1,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (group_id) REFERENCES ext_products_groups(id),
+			FOREIGN KEY (product_template_id) REFERENCES ext_products_product_templates(id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS ext_products_pricing_templates (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			display_name TEXT,
+			description TEXT,
+			price_formula TEXT NOT NULL,
+			condition_formula TEXT,
+			variables TEXT,
+			category TEXT,
+			status TEXT DEFAULT 'active',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS ext_products_purchases (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id TEXT NOT NULL,
+			provider TEXT DEFAULT 'stripe',
+			provider_session_id TEXT,
+			provider_payment_intent_id TEXT,
+			provider_subscription_id TEXT,
+			line_items TEXT,
+			product_metadata TEXT,
+			tax_items TEXT,
+			amount_cents INTEGER,
+			tax_cents INTEGER,
+			total_cents INTEGER,
+			currency TEXT DEFAULT 'USD',
+			status TEXT DEFAULT 'pending',
+			requires_approval INTEGER DEFAULT 0,
+			approved_at DATETIME,
+			approved_by TEXT,
+			refunded_at DATETIME,
+			refund_reason TEXT,
+			refund_amount INTEGER,
+			cancelled_at DATETIME,
+			cancel_reason TEXT,
+			success_url TEXT,
+			cancel_url TEXT,
+			customer_email TEXT,
+			customer_name TEXT,
+			billing_address TEXT,
+			shipping_address TEXT,
+			payment_method_types TEXT,
+			expires_at DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		// LegalPages extension
+		`CREATE TABLE IF NOT EXISTS ext_legalpages_legal_documents (
+			id TEXT PRIMARY KEY,
+			document_type TEXT NOT NULL,
+			title TEXT NOT NULL,
+			content TEXT,
+			version INTEGER NOT NULL DEFAULT 1,
+			status TEXT DEFAULT 'draft',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			created_by TEXT
+		)`,
+	}
+
+	for _, schema := range schemas {
+		if _, err := db.Exec(schema); err != nil {
+			return fmt.Errorf("failed to execute schema: %w", err)
+		}
+	}
+
+	return nil
 }

@@ -3,25 +3,25 @@ package storage
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/suppers-ai/solobase/internal/pkg/logger"
-	"gorm.io/gorm"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // Manager handles storage operations with database tracking
 type Manager struct {
 	provider Provider
-	db       *gorm.DB
+	db       *sql.DB
 	logger   logger.Logger
 	config   Config
 }
 
 // NewManager creates a new storage manager
-func NewManager(cfg Config, db *gorm.DB, logger logger.Logger) (*Manager, error) {
+func NewManager(cfg Config, db *sql.DB, logger logger.Logger) (*Manager, error) {
 	provider, err := NewProvider(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage provider: %w", err)
@@ -53,11 +53,15 @@ func (m *Manager) CreateBucket(ctx context.Context, name string, public bool) (*
 
 	// Create in database
 	bucket := &StorageBucket{
-		Name:   name,
-		Public: public,
+		Name:      name,
+		Public:    public,
+		CreatedAt: apptime.NowTime(),
 	}
 
-	if err := m.db.WithContext(ctx).Create(bucket).Error; err != nil {
+	_, err = m.db.ExecContext(ctx,
+		"INSERT INTO storage_buckets (name, public, created_at) VALUES (?, ?, ?)",
+		bucket.Name, bucket.Public, bucket.CreatedAt)
+	if err != nil {
 		// Try to clean up the storage bucket
 		m.provider.DeleteBucket(ctx, name)
 		return nil, fmt.Errorf("failed to create bucket in database: %w", err)
@@ -75,9 +79,11 @@ func (m *Manager) CreateBucket(ctx context.Context, name string, public bool) (*
 func (m *Manager) DeleteBucket(ctx context.Context, name string) error {
 	// Get bucket from database
 	var bucket StorageBucket
-	err := m.db.WithContext(ctx).Where("name = ?", name).First(&bucket).Error
+	err := m.db.QueryRowContext(ctx,
+		"SELECT name, public, created_at FROM storage_buckets WHERE name = ?", name).
+		Scan(&bucket.Name, &bucket.Public, &bucket.CreatedAt)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if err == sql.ErrNoRows {
 			return fmt.Errorf("bucket not found")
 		}
 		return fmt.Errorf("failed to get bucket: %w", err)
@@ -92,8 +98,12 @@ func (m *Manager) DeleteBucket(ctx context.Context, name string) error {
 		// Continue to delete from database anyway
 	}
 
-	// Delete from database (cascade will delete objects)
-	if err := m.db.WithContext(ctx).Delete(&bucket).Error; err != nil {
+	// Delete objects first (cascade)
+	_, _ = m.db.ExecContext(ctx, "DELETE FROM storage_objects WHERE bucket_name = ?", name)
+
+	// Delete from database
+	_, err = m.db.ExecContext(ctx, "DELETE FROM storage_buckets WHERE name = ?", name)
+	if err != nil {
 		return fmt.Errorf("failed to delete bucket from database: %w", err)
 	}
 
@@ -106,9 +116,11 @@ func (m *Manager) DeleteBucket(ctx context.Context, name string) error {
 // GetBucket retrieves a bucket by name
 func (m *Manager) GetBucket(ctx context.Context, name string) (*StorageBucket, error) {
 	var bucket StorageBucket
-	err := m.db.WithContext(ctx).Where("name = ?", name).First(&bucket).Error
+	err := m.db.QueryRowContext(ctx,
+		"SELECT name, public, created_at FROM storage_buckets WHERE name = ?", name).
+		Scan(&bucket.Name, &bucket.Public, &bucket.CreatedAt)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("bucket not found")
 		}
 		return nil, fmt.Errorf("failed to get bucket: %w", err)
@@ -128,15 +140,14 @@ func (m *Manager) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
 
 	// Sync with database
 	for _, pb := range providerBuckets {
-		var bucket StorageBucket
-		err := m.db.WithContext(ctx).Where("name = ?", pb.Name).First(&bucket).Error
-		if err == gorm.ErrRecordNotFound {
+		var exists int
+		err := m.db.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM storage_buckets WHERE name = ?", pb.Name).Scan(&exists)
+		if err == nil && exists == 0 {
 			// Create missing bucket in database
-			bucket = StorageBucket{
-				Name:   pb.Name,
-				Public: pb.Public,
-			}
-			m.db.WithContext(ctx).Create(&bucket)
+			_, _ = m.db.ExecContext(ctx,
+				"INSERT INTO storage_buckets (name, public, created_at) VALUES (?, ?, ?)",
+				pb.Name, pb.Public, apptime.NowTime())
 		}
 	}
 
@@ -145,34 +156,39 @@ func (m *Manager) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
 
 // listBucketsFromDB lists buckets from database as fallback
 func (m *Manager) listBucketsFromDB(ctx context.Context) ([]BucketInfo, error) {
-	var buckets []StorageBucket
-	err := m.db.WithContext(ctx).Order("name").Find(&buckets).Error
+	rows, err := m.db.QueryContext(ctx,
+		"SELECT name, public, created_at FROM storage_buckets ORDER BY name")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list buckets: %w", err)
 	}
+	defer rows.Close()
 
-	bucketInfos := make([]BucketInfo, len(buckets))
-	for i, bucket := range buckets {
+	var bucketInfos []BucketInfo
+	for rows.Next() {
+		var bucket StorageBucket
+		if err := rows.Scan(&bucket.Name, &bucket.Public, &bucket.CreatedAt); err != nil {
+			continue
+		}
+
 		// Get file count and total size for this bucket
 		var fileCount int64
 		var totalSize int64
 
-		m.db.WithContext(ctx).Model(&StorageObject{}).
-			Where("bucket_name = ?", bucket.Name).
-			Count(&fileCount)
+		m.db.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM storage_objects WHERE bucket_name = ?", bucket.Name).
+			Scan(&fileCount)
 
-		m.db.WithContext(ctx).Model(&StorageObject{}).
-			Where("bucket_name = ?", bucket.Name).
-			Select("COALESCE(SUM(size), 0)").
+		m.db.QueryRowContext(ctx,
+			"SELECT COALESCE(SUM(size), 0) FROM storage_objects WHERE bucket_name = ?", bucket.Name).
 			Scan(&totalSize)
 
-		bucketInfos[i] = BucketInfo{
+		bucketInfos = append(bucketInfos, BucketInfo{
 			Name:        bucket.Name,
 			Public:      bucket.Public,
 			ObjectCount: fileCount,
 			TotalSize:   totalSize,
 			CreatedAt:   bucket.CreatedAt,
-		}
+		})
 	}
 
 	return bucketInfos, nil
@@ -208,6 +224,7 @@ func (m *Manager) UploadObject(ctx context.Context, bucketName, filename string,
 		userIDStr = userID.String()
 	}
 
+	now := apptime.NowTime()
 	// Create new object in database
 	object := &StorageObject{
 		ID:             objectID,
@@ -218,11 +235,17 @@ func (m *Manager) UploadObject(ctx context.Context, bucketName, filename string,
 		ContentType:    mimeType,
 		UserID:         userIDStr,
 		AppID:          appID,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
-	if err := m.db.WithContext(ctx).Create(object).Error; err != nil {
+	_, err = m.db.ExecContext(ctx,
+		`INSERT INTO storage_objects (id, bucket_name, object_name, parent_folder_id, size, content_type, user_id, app_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		object.ID, object.BucketName, object.ObjectName, object.ParentFolderID,
+		object.Size, object.ContentType, object.UserID, object.AppID,
+		object.CreatedAt, object.UpdatedAt)
+	if err != nil {
 		// Try to clean up from storage
 		m.provider.DeleteObject(ctx, bucketName, storageKey)
 		return nil, fmt.Errorf("failed to create object in database: %w", err)
@@ -239,17 +262,29 @@ func (m *Manager) UploadObject(ctx context.Context, bucketName, filename string,
 
 // GetObject retrieves an object by its unique ID
 func (m *Manager) GetObject(ctx context.Context, objectID string) (*StorageObject, error) {
-	// Get object from database by ID
 	var object StorageObject
-	err := m.db.WithContext(ctx).
-		Where("id = ?", objectID).
-		First(&object).Error
+	var parentFolderID sql.NullString
+	var appID sql.NullString
+
+	err := m.db.QueryRowContext(ctx,
+		`SELECT id, bucket_name, object_name, parent_folder_id, size, content_type, user_id, app_id, created_at, updated_at
+		 FROM storage_objects WHERE id = ?`, objectID).
+		Scan(&object.ID, &object.BucketName, &object.ObjectName, &parentFolderID,
+			&object.Size, &object.ContentType, &object.UserID, &appID,
+			&object.CreatedAt, &object.UpdatedAt)
 
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("object not found")
 		}
 		return nil, fmt.Errorf("failed to get object: %w", err)
+	}
+
+	if parentFolderID.Valid {
+		object.ParentFolderID = &parentFolderID.String
+	}
+	if appID.Valid {
+		object.AppID = &appID.String
 	}
 
 	return &object, nil
@@ -258,13 +293,9 @@ func (m *Manager) GetObject(ctx context.Context, objectID string) (*StorageObjec
 // DeleteObject deletes an object by its unique ID
 func (m *Manager) DeleteObject(ctx context.Context, objectID string) error {
 	// Get object from database first
-	var object StorageObject
-	err := m.db.WithContext(ctx).Where("id = ?", objectID).First(&object).Error
+	object, err := m.GetObject(ctx, objectID)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return fmt.Errorf("object not found")
-		}
-		return fmt.Errorf("failed to get object: %w", err)
+		return err
 	}
 
 	// Build storage key for the provider
@@ -281,9 +312,9 @@ func (m *Manager) DeleteObject(ctx context.Context, objectID string) error {
 	}
 
 	// Delete from database
-	result := m.db.WithContext(ctx).Delete(&object)
-	if result.Error != nil {
-		return fmt.Errorf("failed to delete object from database: %w", result.Error)
+	_, err = m.db.ExecContext(ctx, "DELETE FROM storage_objects WHERE id = ?", objectID)
+	if err != nil {
+		return fmt.Errorf("failed to delete object from database: %w", err)
 	}
 
 	m.logger.Info(ctx, "Object deleted",
@@ -296,32 +327,57 @@ func (m *Manager) DeleteObject(ctx context.Context, objectID string) error {
 
 // ListObjects lists objects in a bucket, optionally filtered by parent folder
 func (m *Manager) ListObjects(ctx context.Context, bucketName string, parentFolderID *string, limit int) ([]StorageObject, error) {
-	// Build query
-	query := m.db.WithContext(ctx).Where("bucket_name = ?", bucketName)
+	var query string
+	var args []interface{}
 
-	// Filter by parent folder
 	if parentFolderID != nil {
-		query = query.Where("parent_folder_id = ?", *parentFolderID)
+		query = `SELECT id, bucket_name, object_name, parent_folder_id, size, content_type, user_id, app_id, created_at, updated_at
+				 FROM storage_objects WHERE bucket_name = ? AND parent_folder_id = ? ORDER BY object_name`
+		args = []interface{}{bucketName, *parentFolderID}
 	} else {
-		// Get root items (no parent folder)
-		query = query.Where("parent_folder_id IS NULL")
+		query = `SELECT id, bucket_name, object_name, parent_folder_id, size, content_type, user_id, app_id, created_at, updated_at
+				 FROM storage_objects WHERE bucket_name = ? AND parent_folder_id IS NULL ORDER BY object_name`
+		args = []interface{}{bucketName}
 	}
 
 	if limit > 0 {
-		query = query.Limit(limit)
+		query += " LIMIT ?"
+		args = append(args, limit)
 	}
 
-	var objects []StorageObject
-	err := query.Order("object_name").Find(&objects).Error
+	rows, err := m.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list objects: %w", err)
+	}
+	defer rows.Close()
+
+	var objects []StorageObject
+	for rows.Next() {
+		var obj StorageObject
+		var parentFolder sql.NullString
+		var appID sql.NullString
+
+		if err := rows.Scan(&obj.ID, &obj.BucketName, &obj.ObjectName, &parentFolder,
+			&obj.Size, &obj.ContentType, &obj.UserID, &appID,
+			&obj.CreatedAt, &obj.UpdatedAt); err != nil {
+			continue
+		}
+
+		if parentFolder.Valid {
+			obj.ParentFolderID = &parentFolder.String
+		}
+		if appID.Valid {
+			obj.AppID = &appID.String
+		}
+
+		objects = append(objects, obj)
 	}
 
 	return objects, nil
 }
 
 // GenerateSignedURL generates a signed URL for temporary access by object ID
-func (m *Manager) GenerateSignedURL(ctx context.Context, objectID string, expiresIn time.Duration) (string, error) {
+func (m *Manager) GenerateSignedURL(ctx context.Context, objectID string, expiresIn apptime.Duration) (string, error) {
 	// Get object by ID
 	obj, err := m.GetObject(ctx, objectID)
 	if err != nil {
@@ -382,8 +438,10 @@ func (m *Manager) UpdateFile(ctx context.Context, objectID string, content []byt
 	}
 
 	// Update database
-	obj.Size = int64(len(content))
-	obj.UpdatedAt = time.Now()
+	now := apptime.NowTime()
+	_, err = m.db.ExecContext(ctx,
+		"UPDATE storage_objects SET size = ?, updated_at = ? WHERE id = ?",
+		len(content), now, objectID)
 
-	return m.db.WithContext(ctx).Save(obj).Error
+	return err
 }

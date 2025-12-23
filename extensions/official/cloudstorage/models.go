@@ -2,10 +2,11 @@ package cloudstorage
 
 import (
 	"database/sql/driver"
-	"github.com/google/uuid"
-	"gorm.io/datatypes"
-	"gorm.io/gorm"
-	"time"
+	"encoding/json"
+	"errors"
+
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
 )
 
 // PermissionLevel represents the level of permission for a share
@@ -47,20 +48,23 @@ func (a StorageAction) Value() (driver.Value, error) {
 	return string(a), nil
 }
 
+// ErrInvalidShareData indicates invalid share configuration
+var ErrInvalidShareData = errors.New("invalid share data: must specify user ID, email, or token, but not both user ID and email")
+
 // StorageShare represents a shared storage object with granular permissions
 type StorageShare struct {
-	ID                string          `gorm:"type:uuid;primaryKey" json:"id"`
-	ObjectID          string          `gorm:"type:uuid;not null;index" json:"objectId"`
-	SharedWithUserID  *string         `gorm:"type:uuid;index" json:"sharedWithUserId,omitempty"`
-	SharedWithEmail   *string         `gorm:"type:text" json:"sharedWithEmail,omitempty"`
-	PermissionLevel   PermissionLevel `gorm:"type:text;not null;default:'view'" json:"permissionLevel"`
-	InheritToChildren bool            `gorm:"default:true;not null" json:"inheritToChildren"`
-	ShareToken        *string         `gorm:"type:text;uniqueIndex" json:"shareToken,omitempty"`
-	IsPublic          bool            `gorm:"default:false;not null" json:"isPublic"`
-	ExpiresAt         *time.Time      `gorm:"type:timestamptz" json:"expiresAt,omitempty"`
-	CreatedBy         string          `gorm:"type:uuid;not null" json:"createdBy"`
-	CreatedAt         time.Time       `gorm:"autoCreateTime" json:"createdAt"`
-	UpdatedAt         time.Time       `gorm:"autoUpdateTime" json:"updatedAt"`
+	ID                string           `json:"id"`
+	ObjectID          string           `json:"objectId"`
+	SharedWithUserID  *string          `json:"sharedWithUserId,omitempty"`
+	SharedWithEmail   *string          `json:"sharedWithEmail,omitempty"`
+	PermissionLevel   PermissionLevel  `json:"permissionLevel"`
+	InheritToChildren bool             `json:"inheritToChildren"`
+	ShareToken        *string          `json:"shareToken,omitempty"`
+	IsPublic          bool             `json:"isPublic"`
+	ExpiresAt         apptime.NullTime `json:"expiresAt,omitempty"`
+	CreatedBy         string           `json:"createdBy"`
+	CreatedAt         apptime.Time     `json:"createdAt"`
+	UpdatedAt         apptime.Time     `json:"updatedAt"`
 }
 
 // TableName specifies the table name with extension prefix
@@ -68,33 +72,40 @@ func (StorageShare) TableName() string {
 	return "ext_cloudstorage_storage_shares"
 }
 
-// BeforeCreate hook to validate share constraints and generate UUID
-func (s *StorageShare) BeforeCreate(tx *gorm.DB) error {
-	// Generate UUID if not set
+// PrepareForCreate prepares the share for insertion and validates constraints
+func (s *StorageShare) PrepareForCreate() error {
 	if s.ID == "" {
 		s.ID = uuid.New().String()
 	}
+	now := apptime.NowTime()
+	if s.CreatedAt.IsZero() {
+		s.CreatedAt = now
+	}
+	s.UpdatedAt = now
+	if s.PermissionLevel == "" {
+		s.PermissionLevel = PermissionView
+	}
 	// Ensure at least one sharing method is specified
 	if s.SharedWithUserID == nil && s.SharedWithEmail == nil && s.ShareToken == nil {
-		return gorm.ErrInvalidData
+		return ErrInvalidShareData
 	}
 	// Ensure not both user_id and email are set
 	if s.SharedWithUserID != nil && s.SharedWithEmail != nil {
-		return gorm.ErrInvalidData
+		return ErrInvalidShareData
 	}
 	return nil
 }
 
 // StorageAccessLog tracks all access to storage objects
 type StorageAccessLog struct {
-	ID        string         `gorm:"type:uuid;primaryKey" json:"id"`
-	ObjectID  string         `gorm:"type:uuid;not null;index" json:"objectId"`
-	UserID    *string        `gorm:"type:uuid;index" json:"userId,omitempty"`
-	IPAddress *string        `gorm:"type:inet" json:"ipAddress,omitempty"`
-	Action    StorageAction  `gorm:"type:text;not null" json:"action"`
-	UserAgent *string        `gorm:"type:text" json:"userAgent,omitempty"`
-	Metadata  datatypes.JSON `gorm:"type:jsonb;default:'{}'" json:"metadata"`
-	CreatedAt time.Time      `gorm:"autoCreateTime" json:"createdAt"` // Use GORM's auto create time
+	ID        string          `json:"id"`
+	ObjectID  string          `json:"objectId"`
+	UserID    *string         `json:"userId,omitempty"`
+	IPAddress *string         `json:"ipAddress,omitempty"`
+	Action    StorageAction   `json:"action"`
+	UserAgent *string         `json:"userAgent,omitempty"`
+	Metadata  json.RawMessage `json:"metadata"`
+	CreatedAt apptime.Time    `json:"createdAt"`
 }
 
 // TableName specifies the table name with extension prefix
@@ -102,25 +113,30 @@ func (StorageAccessLog) TableName() string {
 	return "ext_cloudstorage_storage_access_logs"
 }
 
-// BeforeCreate hook to generate UUID
-func (s *StorageAccessLog) BeforeCreate(tx *gorm.DB) error {
+// PrepareForCreate prepares the access log for insertion
+func (s *StorageAccessLog) PrepareForCreate() {
 	if s.ID == "" {
 		s.ID = uuid.New().String()
 	}
-	return nil
+	if s.CreatedAt.IsZero() {
+		s.CreatedAt = apptime.NowTime()
+	}
+	if s.Metadata == nil {
+		s.Metadata = json.RawMessage("{}")
+	}
 }
 
 // StorageQuota defines storage and bandwidth limits for users
 type StorageQuota struct {
-	ID                string     `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID            string     `gorm:"type:uuid;not null;uniqueIndex" json:"userId"`
-	MaxStorageBytes   int64      `gorm:"type:bigint;not null;default:5368709120" json:"maxStorageBytes"`    // 5GB default
-	MaxBandwidthBytes int64      `gorm:"type:bigint;not null;default:10737418240" json:"maxBandwidthBytes"` // 10GB default
-	StorageUsed       int64      `gorm:"type:bigint;not null;default:0" json:"storageUsed"`
-	BandwidthUsed     int64      `gorm:"type:bigint;not null;default:0" json:"bandwidthUsed"`
-	ResetBandwidthAt  *time.Time `gorm:"type:timestamptz" json:"resetBandwidthAt,omitempty"`
-	CreatedAt         time.Time  `gorm:"autoCreateTime" json:"createdAt"`
-	UpdatedAt         time.Time  `gorm:"autoUpdateTime" json:"updatedAt"`
+	ID                string           `json:"id"`
+	UserID            string           `json:"userId"`
+	MaxStorageBytes   int64            `json:"maxStorageBytes"`
+	MaxBandwidthBytes int64            `json:"maxBandwidthBytes"`
+	StorageUsed       int64            `json:"storageUsed"`
+	BandwidthUsed     int64            `json:"bandwidthUsed"`
+	ResetBandwidthAt  apptime.NullTime `json:"resetBandwidthAt,omitempty"`
+	CreatedAt         apptime.Time     `json:"createdAt"`
+	UpdatedAt         apptime.Time     `json:"updatedAt"`
 }
 
 // TableName specifies the table name with extension prefix
@@ -128,20 +144,31 @@ func (StorageQuota) TableName() string {
 	return "ext_cloudstorage_storage_quotas"
 }
 
-// BeforeCreate hook to generate UUID
-func (s *StorageQuota) BeforeCreate(tx *gorm.DB) error {
+// PrepareForCreate prepares the quota for insertion with defaults
+func (s *StorageQuota) PrepareForCreate() {
 	if s.ID == "" {
 		s.ID = uuid.New().String()
 	}
-	return nil
+	now := apptime.NowTime()
+	if s.CreatedAt.IsZero() {
+		s.CreatedAt = now
+	}
+	s.UpdatedAt = now
+	// Set defaults
+	if s.MaxStorageBytes == 0 {
+		s.MaxStorageBytes = 5368709120 // 5GB default
+	}
+	if s.MaxBandwidthBytes == 0 {
+		s.MaxBandwidthBytes = 10737418240 // 10GB default
+	}
 }
 
 // StorageShareWithObject combines share data with object information
 type StorageShareWithObject struct {
 	StorageShare
-	ObjectName      string         `json:"objectName"`
-	ContentType     string         `json:"contentType"`
-	Size            int64          `json:"size"`
-	ObjectCreatedAt time.Time      `json:"objectCreatedAt"`
-	ObjectMetadata  datatypes.JSON `json:"objectMetadata"`
+	ObjectName      string          `json:"objectName"`
+	ContentType     string          `json:"contentType"`
+	Size            int64           `json:"size"`
+	ObjectCreatedAt apptime.Time    `json:"objectCreatedAt"`
+	ObjectMetadata  json.RawMessage `json:"objectMetadata"`
 }

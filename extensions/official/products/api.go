@@ -1,11 +1,11 @@
 package products
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"reflect"
 	"strconv"
 	"strings"
 
@@ -13,7 +13,6 @@ import (
 	"github.com/suppers-ai/solobase/constants"
 	"github.com/suppers-ai/solobase/extensions/official/products/models"
 	"github.com/suppers-ai/solobase/utils"
-	"gorm.io/gorm"
 )
 
 // getUserIDFromContext extracts the user ID from the request context
@@ -27,7 +26,7 @@ func getUserIDFromContext(r *http.Request) (string, error) {
 
 // AdminAPI handles admin operations
 type AdminAPI struct {
-	db              *gorm.DB
+	db              *sql.DB
 	variableService *VariableService
 	groupService    *GroupService
 	productService  *ProductService
@@ -35,7 +34,7 @@ type AdminAPI struct {
 	extension       *ProductsExtension // Reference to extension for provider status
 }
 
-func NewAdminAPI(db *gorm.DB, vs *VariableService, es *GroupService, ps *ProductService, prs *PricingService) *AdminAPI {
+func NewAdminAPI(db *sql.DB, vs *VariableService, es *GroupService, ps *ProductService, prs *PricingService) *AdminAPI {
 	return &AdminAPI{
 		db:              db,
 		variableService: vs,
@@ -134,10 +133,25 @@ func (a *AdminAPI) DeleteVariable(w http.ResponseWriter, r *http.Request) {
 
 // Group Template management
 func (a *AdminAPI) ListGroupTypes(w http.ResponseWriter, r *http.Request) {
-	var groupTemplates []models.GroupTemplate
-	if err := a.db.Find(&groupTemplates).Error; err != nil {
+	rows, err := a.db.Query("SELECT id, name, description, fields_schema, created_at, updated_at FROM group_templates")
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	defer rows.Close()
+
+	var groupTemplates []models.GroupTemplate
+	for rows.Next() {
+		var gt models.GroupTemplate
+		var fieldsSchema []byte
+		if err := rows.Scan(&gt.ID, &gt.Name, &gt.Description, &fieldsSchema, &gt.CreatedAt, &gt.UpdatedAt); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if len(fieldsSchema) > 0 {
+			json.Unmarshal(fieldsSchema, &gt.FilterFieldsSchema)
+		}
+		groupTemplates = append(groupTemplates, gt)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -150,10 +164,15 @@ func (a *AdminAPI) CreateGroupType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.db.Create(&groupTemplate).Error; err != nil {
+	fieldsSchema, _ := json.Marshal(groupTemplate.FilterFieldsSchema)
+	result, err := a.db.Exec("INSERT INTO group_templates (name, description, fields_schema) VALUES (?, ?, ?)",
+		groupTemplate.Name, groupTemplate.Description, fieldsSchema)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	id, _ := result.LastInsertId()
+	groupTemplate.ID = uint(id)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -173,11 +192,15 @@ func (a *AdminAPI) UpdateGroupType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.db.Model(&models.GroupTemplate{}).Where("id = ?", id).Updates(&groupTemplate).Error; err != nil {
+	fieldsSchema, _ := json.Marshal(groupTemplate.FilterFieldsSchema)
+	_, err = a.db.Exec("UPDATE group_templates SET name = ?, description = ?, fields_schema = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		groupTemplate.Name, groupTemplate.Description, fieldsSchema, id)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	groupTemplate.ID = uint(id)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(groupTemplate)
 }
@@ -190,7 +213,8 @@ func (a *AdminAPI) DeleteGroupType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.db.Delete(&models.GroupTemplate{}, id).Error; err != nil {
+	_, err = a.db.Exec("DELETE FROM group_templates WHERE id = ?", id)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -200,8 +224,8 @@ func (a *AdminAPI) DeleteGroupType(w http.ResponseWriter, r *http.Request) {
 
 // Product Template management
 func (a *AdminAPI) ListProductTypes(w http.ResponseWriter, r *http.Request) {
-	var productTemplates []models.ProductTemplate
-	if err := a.db.Find(&productTemplates).Error; err != nil {
+	productTemplates, err := a.productService.ListTemplates()
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -214,9 +238,9 @@ func (a *AdminAPI) GetProductTemplate(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	templateID := vars["id"]
 
-	var productTemplate models.ProductTemplate
-	if err := a.db.Where("id = ? OR name = ?", templateID, templateID).First(&productTemplate).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	productTemplate, err := a.productService.GetTemplateByIDOrName(templateID)
+	if err != nil {
+		if err == sql.ErrNoRows {
 			http.Error(w, "Template not found", http.StatusNotFound)
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -236,7 +260,7 @@ func (a *AdminAPI) CreateProductType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.db.Create(&productTemplate).Error; err != nil {
+	if err := a.productService.CreateTemplate(&productTemplate); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -259,7 +283,8 @@ func (a *AdminAPI) UpdateProductType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.db.Model(&models.ProductTemplate{}).Where("id = ?", id).Updates(&productTemplate).Error; err != nil {
+	productTemplate.ID = uint(id)
+	if err := a.productService.UpdateTemplate(&productTemplate); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -276,7 +301,7 @@ func (a *AdminAPI) DeleteProductType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.db.Delete(&models.ProductTemplate{}, id).Error; err != nil {
+	if err := a.productService.DeleteTemplate(uint(id)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -286,8 +311,8 @@ func (a *AdminAPI) DeleteProductType(w http.ResponseWriter, r *http.Request) {
 
 // Product management (Admin)
 func (a *AdminAPI) ListProducts(w http.ResponseWriter, r *http.Request) {
-	var products []models.Product
-	if err := a.db.Preload("Group").Preload("ProductTemplate").Find(&products).Error; err != nil {
+	products, err := a.productService.ListAll()
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -302,7 +327,7 @@ func (a *AdminAPI) CreateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.db.Create(&product).Error; err != nil {
+	if err := a.productService.Create(&product); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -321,7 +346,8 @@ func (a *AdminAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.db.Model(&models.Product{}).Where("id = ?", id).Updates(&product).Error; err != nil {
+	idInt, _ := strconv.ParseUint(id, 10, 32)
+	if err := a.productService.Update(uint(idInt), &product); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -334,7 +360,8 @@ func (a *AdminAPI) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	if err := a.db.Delete(&models.Product{}, "id = ?", id).Error; err != nil {
+	idInt, _ := strconv.ParseUint(id, 10, 32)
+	if err := a.productService.Delete(uint(idInt)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -344,8 +371,8 @@ func (a *AdminAPI) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 
 // Group management (Admin)
 func (a *AdminAPI) ListGroups(w http.ResponseWriter, r *http.Request) {
-	var groups []models.Group
-	if err := a.db.Find(&groups).Error; err != nil {
+	groups, err := a.groupService.ListAll()
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -362,7 +389,7 @@ func (a *AdminAPI) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.db.Create(&group).Error; err != nil {
+	if err := a.groupService.Create(&group); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -383,7 +410,8 @@ func (a *AdminAPI) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.db.Model(&models.Group{}).Where("id = ?", id).Updates(&group).Error; err != nil {
+	idInt, _ := strconv.ParseUint(id, 10, 32)
+	if err := a.groupService.UpdateAdmin(uint(idInt), &group); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -396,7 +424,8 @@ func (a *AdminAPI) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	if err := a.db.Delete(&models.Group{}, "id = ?", id).Error; err != nil {
+	idInt, _ := strconv.ParseUint(id, 10, 32)
+	if err := a.groupService.DeleteAdmin(uint(idInt)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -406,8 +435,8 @@ func (a *AdminAPI) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 
 // Pricing Template management
 func (a *AdminAPI) ListPricingTemplates(w http.ResponseWriter, r *http.Request) {
-	var templates []models.PricingTemplate
-	if err := a.db.Find(&templates).Error; err != nil {
+	templates, err := a.pricingService.ListTemplates()
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -422,7 +451,7 @@ func (a *AdminAPI) CreatePricingTemplate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := a.db.Create(&template).Error; err != nil {
+	if err := a.pricingService.CreateTemplate(&template); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -448,7 +477,7 @@ func (a *AdminAPI) UpdatePricingTemplate(w http.ResponseWriter, r *http.Request)
 	// Ensure the ID matches
 	template.ID = uint(templateID)
 
-	if err := a.db.Save(&template).Error; err != nil {
+	if err := a.pricingService.UpdateTemplate(&template); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -465,7 +494,7 @@ func (a *AdminAPI) DeletePricingTemplate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := a.db.Delete(&models.PricingTemplate{}, uint(templateID)).Error; err != nil {
+	if err := a.pricingService.DeleteTemplate(uint(templateID)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -475,14 +504,14 @@ func (a *AdminAPI) DeletePricingTemplate(w http.ResponseWriter, r *http.Request)
 
 // UserAPI handles user operations
 type UserAPI struct {
-	db              *gorm.DB
+	db              *sql.DB
 	groupService    *GroupService
 	productService  *ProductService
 	pricingService  *PricingService
 	purchaseService *PurchaseService
 }
 
-func NewUserAPI(db *gorm.DB, es *GroupService, ps *ProductService, prs *PricingService, purchaseService *PurchaseService) *UserAPI {
+func NewUserAPI(db *sql.DB, es *GroupService, ps *ProductService, prs *PricingService, purchaseService *PurchaseService) *UserAPI {
 	return &UserAPI{
 		db:              db,
 		groupService:    es,
@@ -638,10 +667,8 @@ func (u *UserAPI) ListProducts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var products []models.Product
-	// List all active products
-	query := u.db.Preload("Group").Preload("ProductTemplate").Where("active = ?", true)
-	if err := query.Find(&products).Error; err != nil {
+	products, err := u.productService.ListActive()
+	if err != nil {
 		fmt.Printf("ERROR finding products: %v\n", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -664,9 +691,10 @@ func (u *UserAPI) GetProduct(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	var product models.Product
-	if err := u.db.Preload("Group").Preload("ProductTemplate").Where("id = ?", id).First(&product).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	idInt, _ := strconv.ParseUint(id, 10, 32)
+	product, err := u.productService.GetByID(uint(idInt))
+	if err != nil {
+		if err == sql.ErrNoRows {
 			http.Error(w, "Product not found", http.StatusNotFound)
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -724,25 +752,26 @@ func (u *UserAPI) CreateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify user owns the group
-	var group models.Group
-	if err := u.db.Where("id = ? AND user_id = ?", product.GroupID, userID).First(&group).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+	group, err := u.groupService.GetByID(product.GroupID, userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
 			http.Error(w, "Forbidden: You don't own this group", http.StatusForbidden)
 		} else {
 			http.Error(w, "Failed to verify group ownership", http.StatusInternalServerError)
 		}
 		return
 	}
+	_ = group // group validated
 
 	// Get the product template to validate required fields
-	var productTemplate models.ProductTemplate
-	if err := u.db.First(&productTemplate, product.ProductTemplateID).Error; err != nil {
+	productTemplate, err := u.productService.GetTemplateByID(product.ProductTemplateID)
+	if err != nil {
 		http.Error(w, "Product template not found", http.StatusBadRequest)
 		return
 	}
 
 	// Validate required filter fields that are editable by users
-	validationErrors := u.validateRequiredFields(&product, &productTemplate)
+	validationErrors := u.validateRequiredFields(&product, productTemplate)
 	if len(validationErrors) > 0 {
 		http.Error(w, "Validation failed: "+strings.Join(validationErrors, ", "), http.StatusBadRequest)
 		return
@@ -785,9 +814,8 @@ func (u *UserAPI) CalculatePrice(w http.ResponseWriter, r *http.Request) {
 // validateRequiredFields validates that all required fields editable by users are filled
 func (u *UserAPI) validateRequiredFields(product *models.Product, template *models.ProductTemplate) []string {
 	var errors []string
-	productValue := reflect.ValueOf(product).Elem()
 
-	// Check filter fields using reflection and the existing mapping
+	// Check filter fields using explicit accessors (no reflection)
 	for _, field := range template.FilterFieldsSchema {
 		// Only validate fields that are required and editable by users
 		if field.Required && field.Constraints.EditableByUser {
@@ -797,43 +825,14 @@ func (u *UserAPI) validateRequiredFields(product *models.Product, template *mode
 				continue // Skip if field ID not in mapping
 			}
 
-			// Use reflection to get the field value
-			fieldValue := productValue.FieldByName(structFieldName)
-			if !fieldValue.IsValid() {
-				continue
-			}
-
-			// Check if the field is empty based on its type
-			isEmpty := false
-			if fieldValue.Kind() == reflect.Ptr {
-				if fieldValue.IsNil() {
-					isEmpty = true
-				} else {
-					// For string pointers, also check if the string is empty
-					if fieldValue.Elem().Kind() == reflect.String && fieldValue.Elem().String() == "" {
-						isEmpty = true
-					}
-				}
-			}
-
-			if isEmpty {
+			// Check if the field is empty using explicit accessor
+			if models.IsFilterFieldEmpty(product, structFieldName) {
 				// Check if field has a default value
 				if field.Constraints.Default == nil {
 					errors = append(errors, field.Name+" is required")
 				} else {
-					// Apply the default value using reflection
-					defaultValue := field.Constraints.Default
-					switch v := defaultValue.(type) {
-					case string:
-						strPtr := &v
-						fieldValue.Set(reflect.ValueOf(strPtr))
-					case bool:
-						boolPtr := &v
-						fieldValue.Set(reflect.ValueOf(boolPtr))
-					case float64:
-						float64Ptr := &v
-						fieldValue.Set(reflect.ValueOf(float64Ptr))
-					}
+					// Apply the default value using explicit accessor
+					models.SetFilterFieldFromDefault(product, structFieldName, field.Constraints.Default)
 				}
 			}
 		}
@@ -888,15 +887,16 @@ func (u *UserAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify user owns the product's group
-	var group models.Group
-	if err := u.db.Where("id = ? AND user_id = ?", existingProduct.GroupID, userID).First(&group).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+	group, err := u.groupService.GetByID(existingProduct.GroupID, userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
 			http.Error(w, "Forbidden: You don't own this product", http.StatusForbidden)
 		} else {
 			http.Error(w, "Failed to verify ownership", http.StatusInternalServerError)
 		}
 		return
 	}
+	_ = group // group validated
 
 	var product models.Product
 	if !utils.DecodeJSONBody(w, r, &product) {
@@ -910,17 +910,17 @@ func (u *UserAPI) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the product template to check field constraints
-	var productTemplate models.ProductTemplate
-	if err := u.db.First(&productTemplate, existingProduct.ProductTemplateID).Error; err != nil {
+	productTemplate, err := u.productService.GetTemplateByID(existingProduct.ProductTemplateID)
+	if err != nil {
 		http.Error(w, "Product template not found", http.StatusInternalServerError)
 		return
 	}
 
 	// Preserve non-editable fields (both filter fields and custom fields)
-	models.PreserveNonEditableFields(&product, existingProduct, &productTemplate)
+	models.PreserveNonEditableFields(&product, existingProduct, productTemplate)
 
 	// Validate required fields that are editable by users
-	validationErrors := u.validateRequiredFields(&product, &productTemplate)
+	validationErrors := u.validateRequiredFields(&product, productTemplate)
 	if len(validationErrors) > 0 {
 		http.Error(w, "Validation failed: "+strings.Join(validationErrors, ", "), http.StatusBadRequest)
 		return
@@ -945,15 +945,12 @@ func (u *UserAPI) GetProductStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get counts
+	// Get counts using raw SQL
 	var groupCount int64
-	u.db.Model(&models.Group{}).Where("user_id = ?", userID).Count(&groupCount)
+	u.db.QueryRow("SELECT COUNT(*) FROM groups WHERE user_id = ?", userID).Scan(&groupCount)
 
 	var productCount int64
-	u.db.Model(&models.Product{}).
-		Joins("JOIN groups ON products.group_id = groups.id").
-		Where("groups.user_id = ?", userID).
-		Count(&productCount)
+	u.db.QueryRow("SELECT COUNT(*) FROM products p JOIN groups g ON p.group_id = g.id WHERE g.user_id = ?", userID).Scan(&productCount)
 
 	stats := map[string]interface{}{
 		"totalProducts":  productCount,
@@ -969,11 +966,11 @@ func (u *UserAPI) GetProductStats(w http.ResponseWriter, r *http.Request) {
 
 // PublicAPI handles public operations
 type PublicAPI struct {
-	db             *gorm.DB
+	db             *sql.DB
 	productService *ProductService
 }
 
-func NewPublicAPI(db *gorm.DB, ps *ProductService) *PublicAPI {
+func NewPublicAPI(db *sql.DB, ps *ProductService) *PublicAPI {
 	return &PublicAPI{
 		db:             db,
 		productService: ps,
@@ -1200,17 +1197,9 @@ func (a *AdminAPI) ListAllPurchases(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var purchases []models.Purchase
-	var total int64
-
-	// Count total
-	if err := a.db.Model(&models.Purchase{}).Count(&total).Error; err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Fetch purchases
-	if err := a.db.Order("created_at DESC").Limit(limit).Offset(offset).Find(&purchases).Error; err != nil {
+	purchaseService := NewPurchaseService(a.db, a.productService, a.pricingService, nil)
+	purchases, total, err := purchaseService.ListAll(limit, offset)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1226,28 +1215,24 @@ func (a *AdminAPI) ListAllPurchases(w http.ResponseWriter, r *http.Request) {
 
 // GetProductStats returns global product statistics for admins
 func (a *AdminAPI) GetProductStats(w http.ResponseWriter, r *http.Request) {
-	// Get total counts across all users
+	// Get total counts across all users using raw SQL
 	var groupCount int64
-	a.db.Model(&models.Group{}).Count(&groupCount)
+	a.db.QueryRow("SELECT COUNT(*) FROM groups").Scan(&groupCount)
 
 	var productCount int64
-	a.db.Model(&models.Product{}).Count(&productCount)
+	a.db.QueryRow("SELECT COUNT(*) FROM products").Scan(&productCount)
 
 	var activeProductCount int64
-	a.db.Model(&models.Product{}).Where("active = ?", true).Count(&activeProductCount)
+	a.db.QueryRow("SELECT COUNT(*) FROM products WHERE active = 1").Scan(&activeProductCount)
 
 	// Get total revenue from purchases
 	var totalRevenue float64
-	a.db.Model(&models.Purchase{}).
-		Where("status IN ?", []string{string(models.PurchaseStatusPaid), string(models.PurchaseStatusPaidPendingApproval)}).
-		Select("COALESCE(SUM(total_cents), 0) / 100.0").
-		Scan(&totalRevenue)
+	a.db.QueryRow("SELECT COALESCE(SUM(total_cents), 0) / 100.0 FROM purchases WHERE status IN (?, ?)",
+		models.PurchaseStatusPaid, models.PurchaseStatusPaidPendingApproval).Scan(&totalRevenue)
 
 	// Calculate average price
 	var avgPrice float64
-	a.db.Model(&models.Product{}).
-		Select("COALESCE(AVG(base_price_cents), 0) / 100.0").
-		Scan(&avgPrice)
+	a.db.QueryRow("SELECT COALESCE(AVG(base_price_cents), 0) / 100.0 FROM products").Scan(&avgPrice)
 
 	stats := map[string]interface{}{
 		"totalProducts":  productCount,

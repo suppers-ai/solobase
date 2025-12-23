@@ -3,7 +3,7 @@ package dynamicfields
 import (
 	"encoding/json"
 	"fmt"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // FieldType represents the type of a dynamic field
@@ -63,8 +63,8 @@ type ValidationRules struct {
 	Precision *int     `json:"precision,omitempty"` // Decimal places
 
 	// Date validations
-	MinDate *time.Time `json:"minDate,omitempty"`
-	MaxDate *time.Time `json:"maxDate,omitempty"`
+	MinDate *apptime.Time `json:"minDate,omitempty"`
+	MaxDate *apptime.Time `json:"maxDate,omitempty"`
 
 	// Array validations
 	MinItems *int `json:"minItems,omitempty"`
@@ -99,7 +99,7 @@ type Value struct {
 	Value     interface{} `json:"value"`
 	IsValid   bool        `json:"isValid"`
 	Error     string      `json:"error,omitempty"`
-	UpdatedAt time.Time   `json:"updatedAt"`
+	UpdatedAt apptime.Time   `json:"updatedAt"`
 }
 
 // Document represents a collection of field values
@@ -108,8 +108,8 @@ type Document struct {
 	SchemaID  string                 `json:"schemaId"`
 	Values    map[string]interface{} `json:"values"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt time.Time              `json:"createdAt"`
-	UpdatedAt time.Time              `json:"updatedAt"`
+	CreatedAt apptime.Time              `json:"createdAt"`
+	UpdatedAt apptime.Time              `json:"updatedAt"`
 }
 
 // ValidationError represents a field validation error

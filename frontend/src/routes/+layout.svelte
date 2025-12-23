@@ -66,25 +66,13 @@
 			icon: Puzzle,
 			expandable: true,
 			children: [
-				{ 
-					title: 'Products & Pricing', 
+				{
+					title: 'Products & Pricing',
 					href: '/admin/extensions/products'
 				},
-				{ 
-					title: 'Hugo Sites', 
-					href: '/admin/extensions/hugo'
-				},
-				{ 
-					title: 'Analytics', 
-					href: '/admin/extensions/analytics'
-				},
-				{ 
-					title: 'Cloud Storage', 
-					href: '/admin/extensions/cloudstorage'
-				},
 				{
-					title: 'Webhooks',
-					href: '/admin/extensions/webhooks'
+					title: 'Cloud Storage',
+					href: '/admin/extensions/cloudstorage'
 				},
 				{
 					title: 'Legal Pages',

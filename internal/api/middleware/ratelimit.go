@@ -3,11 +3,11 @@ package middleware
 import (
 	"net/http"
 	"sync"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 type visitor struct {
-	lastSeen time.Time
+	lastSeen apptime.Time
 	count    int
 }
 
@@ -21,10 +21,10 @@ func RateLimit(requestsPerMinute int) func(http.Handler) http.Handler {
 	// Cleanup old visitors periodically
 	go func() {
 		for {
-			time.Sleep(time.Minute)
+			apptime.Sleep(apptime.Minute)
 			mu.Lock()
 			for ip, v := range visitors {
-				if time.Since(v.lastSeen) > time.Minute {
+				if apptime.Since(v.lastSeen) > apptime.Minute {
 					delete(visitors, ip)
 				}
 			}
@@ -43,16 +43,16 @@ func RateLimit(requestsPerMinute int) func(http.Handler) http.Handler {
 			mu.Lock()
 			v, exists := visitors[ip]
 			if !exists {
-				visitors[ip] = &visitor{lastSeen: time.Now(), count: 1}
+				visitors[ip] = &visitor{lastSeen: apptime.NowTime(), count: 1}
 				mu.Unlock()
 				next.ServeHTTP(w, r)
 				return
 			}
 
 			// Reset count if more than a minute has passed
-			if time.Since(v.lastSeen) > time.Minute {
+			if apptime.Since(v.lastSeen) > apptime.Minute {
 				v.count = 1
-				v.lastSeen = time.Now()
+				v.lastSeen = apptime.NowTime()
 				mu.Unlock()
 				next.ServeHTTP(w, r)
 				return
@@ -66,7 +66,7 @@ func RateLimit(requestsPerMinute int) func(http.Handler) http.Handler {
 			}
 
 			v.count++
-			v.lastSeen = time.Now()
+			v.lastSeen = apptime.NowTime()
 			mu.Unlock()
 
 			next.ServeHTTP(w, r)

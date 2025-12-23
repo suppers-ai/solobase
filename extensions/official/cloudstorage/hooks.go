@@ -2,18 +2,19 @@ package cloudstorage
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 
-	"github.com/google/uuid"
 	"github.com/suppers-ai/solobase/extensions/core"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
-	"gorm.io/gorm"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
 )
 
 // checkStorageQuotaHook checks if user has enough storage quota before upload
 func (e *CloudStorageExtension) checkStorageQuotaHook(ctx context.Context, hookCtx *core.HookContext) error {
-	if e.db == nil || e.quotaService == nil {
+	if e.sqlDB == nil || e.quotaService == nil {
 		return nil // Skip if not properly initialized
 	}
 
@@ -46,7 +47,7 @@ func (e *CloudStorageExtension) checkStorageQuotaHook(ctx context.Context, hookC
 
 // updateStorageUsageHook updates storage usage after successful upload
 func (e *CloudStorageExtension) updateStorageUsageHook(ctx context.Context, hookCtx *core.HookContext) error {
-	if e.db == nil || e.quotaService == nil {
+	if e.sqlDB == nil || e.quotaService == nil {
 		return nil
 	}
 
@@ -80,7 +81,7 @@ func (e *CloudStorageExtension) updateStorageUsageHook(ctx context.Context, hook
 
 // updateBandwidthUsageHook updates bandwidth usage after download
 func (e *CloudStorageExtension) updateBandwidthUsageHook(ctx context.Context, hookCtx *core.HookContext) error {
-	if e.db == nil || e.quotaService == nil {
+	if e.sqlDB == nil || e.quotaService == nil {
 		return nil
 	}
 
@@ -114,7 +115,7 @@ func (e *CloudStorageExtension) updateBandwidthUsageHook(ctx context.Context, ho
 
 // logUploadAccessHook logs upload access
 func (e *CloudStorageExtension) logUploadAccessHook(ctx context.Context, hookCtx *core.HookContext) error {
-	if e.db == nil || e.accessLogService == nil {
+	if e.sqlDB == nil || e.accessLogService == nil {
 		return nil
 	}
 
@@ -132,13 +133,14 @@ func (e *CloudStorageExtension) logUploadAccessHook(ctx context.Context, hookCtx
 		}
 
 		accessLog := &StorageAccessLog{
-			ID:       uuid.New().String(),
-			ObjectID: objectID,
-			UserID:   userIDPtr,
-			Action:   "upload",
+			ID:        uuid.New().String(),
+			ObjectID:  objectID,
+			UserID:    userIDPtr,
+			Action:    "upload",
+			CreatedAt: apptime.NowTime(),
 		}
 
-		if err := e.db.Create(accessLog).Error; err != nil {
+		if err := e.createAccessLog(accessLog); err != nil {
 			log.Printf("Failed to log upload access: %v", err)
 		}
 	}()
@@ -148,7 +150,7 @@ func (e *CloudStorageExtension) logUploadAccessHook(ctx context.Context, hookCtx
 
 // logDownloadAccessHook logs download access
 func (e *CloudStorageExtension) logDownloadAccessHook(ctx context.Context, hookCtx *core.HookContext) error {
-	if e.db == nil || e.accessLogService == nil {
+	if e.sqlDB == nil || e.accessLogService == nil {
 		return nil
 	}
 
@@ -166,13 +168,14 @@ func (e *CloudStorageExtension) logDownloadAccessHook(ctx context.Context, hookC
 		}
 
 		accessLog := &StorageAccessLog{
-			ID:       uuid.New().String(),
-			ObjectID: objectID,
-			UserID:   userIDPtr,
-			Action:   "download",
+			ID:        uuid.New().String(),
+			ObjectID:  objectID,
+			UserID:    userIDPtr,
+			Action:    "download",
+			CreatedAt: apptime.NowTime(),
 		}
 
-		if err := e.db.Create(accessLog).Error; err != nil {
+		if err := e.createAccessLog(accessLog); err != nil {
 			log.Printf("Failed to log download access: %v", err)
 		}
 	}()
@@ -198,25 +201,22 @@ func (e *CloudStorageExtension) setupUserResourcesHook(ctx context.Context, hook
 	log.Printf("setupUserResourcesHook: Starting for userID=%s, appID=%s", userID, appID)
 
 	// Ensure database is available
-	if e.db == nil {
+	if e.sqlDB == nil {
 		log.Printf("ERROR: setupUserResourcesHook: Database is nil, cannot create My Files folder")
 		return fmt.Errorf("database not available")
 	}
 
 	// Check if user already has a "My Files" folder (root folder with no parent) for this app
-	var existingFolder pkgstorage.StorageObject
-	err := e.db.Where("bucket_name = ? AND user_id = ? AND app_id = ? AND object_name = ? AND content_type = ? AND parent_folder_id IS NULL",
-		"int_storage", userID, appID, "My Files", "application/x-directory").
-		First(&existingFolder).Error
+	existingFolder, err := e.getMyFilesFolder(userID, appID)
 
-	if err != nil && err != gorm.ErrRecordNotFound {
+	if err != nil && err != sql.ErrNoRows {
 		// Log any unexpected error
 		log.Printf("WARNING: Error checking for existing My Files folder: %v", err)
 	}
 
-	if err == gorm.ErrRecordNotFound || err == nil && existingFolder.ID == "" {
+	if err == sql.ErrNoRows || (err == nil && existingFolder.ID == "") {
 		// Folder doesn't exist, create it
-		// Note: We check both gorm.ErrRecordNotFound and empty ID for extra safety
+		// Note: We check both sql.ErrNoRows and empty ID for extra safety
 
 		// Create the "My Files" folder
 		myFilesFolder := &pkgstorage.StorageObject{
@@ -232,14 +232,11 @@ func (e *CloudStorageExtension) setupUserResourcesHook(ctx context.Context, hook
 		log.Printf("Creating My Files folder with ID=%s, appID=%s for user %s", myFilesFolder.ID, appID, userID)
 
 		// Try to create the folder
-		if createErr := e.db.Create(myFilesFolder).Error; createErr != nil {
+		if createErr := e.createMyFilesFolder(myFilesFolder); createErr != nil {
 			// Check if the error is due to a duplicate (might have been created concurrently)
-			var checkAgain pkgstorage.StorageObject
-			checkErr := e.db.Where("bucket_name = ? AND user_id = ? AND app_id = ? AND object_name = ? AND content_type = ? AND parent_folder_id IS NULL",
-				"int_storage", userID, appID, "My Files", "application/x-directory").
-				First(&checkAgain).Error
+			checkAgain, checkErr := e.getMyFilesFolder(userID, appID)
 
-			if checkErr == nil {
+			if checkErr == nil && checkAgain != nil {
 				// Folder was created concurrently, that's fine
 				log.Printf("My Files folder was created concurrently for user %s with ID %s", userID, checkAgain.ID)
 
@@ -290,8 +287,8 @@ func (e *CloudStorageExtension) checkSharePermissionsHook(ctx context.Context, h
 	}
 
 	// Get the object to check ownership and access
-	var obj pkgstorage.StorageObject
-	if err := e.db.Where("id = ?", objectID).First(&obj).Error; err != nil {
+	obj, err := e.getStorageObjectByID(objectID)
+	if err != nil {
 		// Object not found, let the main handler deal with it
 		return nil
 	}
@@ -302,28 +299,25 @@ func (e *CloudStorageExtension) checkSharePermissionsHook(ctx context.Context, h
 	}
 
 	// Check for direct share or public access
-	var directShare StorageShare
-	query := e.db.Where("object_id = ?", objectID)
-
+	var directShare *StorageShare
 	if userID != "" {
 		// Check for user-specific share or public share
-		query = query.Where("is_public = ? OR shared_with_user_id = ?", true, userID)
+		directShare, err = e.getShareByObjectAndUser(objectID, userID)
 	} else {
 		// Anonymous user, only check public shares
-		query = query.Where("is_public = ?", true)
+		directShare, err = e.getShareByObjectPublicOnly(objectID)
 	}
 
-	err := query.First(&directShare).Error
-	if err == nil {
+	if err == nil && directShare != nil {
 		// Found direct share, store it in context for permission checking
-		hookCtx.Data["share"] = directShare
+		hookCtx.Data["share"] = *directShare
 		return nil
 	}
 
 	// No direct share found, check for inherited permissions
 	var userEmail string
 	if userID != "" {
-		e.db.Table("users").Where("id = ?", userID).Select("email").Scan(&userEmail)
+		userEmail, _ = e.getUserEmail(userID)
 	}
 
 	inheritedShare, err := e.shareService.CheckInheritedPermissions(ctx, objectID, userID, userEmail)

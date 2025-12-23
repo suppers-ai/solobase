@@ -1,16 +1,24 @@
 package legalpages
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
-	"time"
-	"gorm.io/gorm"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+
+	db "github.com/suppers-ai/solobase/internal/sqlc/gen"
 )
 
-// SeedData seeds initial legal documents for the legalpages extension
-func SeedData(db *gorm.DB) error {
+// SeedDataWithSQL seeds initial legal documents for the legalpages extension using sqlc
+func SeedDataWithSQL(sqlDB *sql.DB) error {
+	ctx := context.Background()
+	queries := db.New(sqlDB)
+
 	// Check if data already exists
-	var count int64
-	db.Model(&LegalDocument{}).Where("document_type = ?", "terms").Count(&count)
+	count, err := queries.CountLegalDocumentsByType(ctx, "terms")
+	if err != nil {
+		return fmt.Errorf("failed to check existing data: %w", err)
+	}
 	if count > 0 {
 		return nil // Data already seeded
 	}
@@ -46,19 +54,20 @@ func SeedData(db *gorm.DB) error {
 <h2>8. Governing Law</h2>
 <p>These terms and conditions are governed by and construed in accordance with the laws and you irrevocably submit to the exclusive jurisdiction of the courts in that location.</p>`
 
-	terms := LegalDocument{
-		ID:           fmt.Sprintf("terms-%d", time.Now().Unix()),
+	now := apptime.NowTime()
+	status := StatusPublished
+	createdBy := "system"
+
+	_, err = queries.CreateLegalDocument(ctx, db.CreateLegalDocumentParams{
+		ID:           fmt.Sprintf("terms-%d", now.Unix()),
 		DocumentType: "terms",
 		Title:        "Terms and Conditions",
-		Content:      termsContent,
+		Content:      &termsContent,
 		Version:      1,
-		Status:       StatusPublished,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-		CreatedBy:    "system",
-	}
-
-	if err := db.Create(&terms).Error; err != nil {
+		Status:       &status,
+		CreatedBy:    &createdBy,
+	})
+	if err != nil {
 		return fmt.Errorf("failed to create terms document: %w", err)
 	}
 
@@ -120,19 +129,16 @@ func SeedData(db *gorm.DB) error {
 <h2>10. Contact Us</h2>
 <p>If you have any questions about this Privacy Policy, please contact us through the contact information provided on our website.</p>`
 
-	privacy := LegalDocument{
-		ID:           fmt.Sprintf("privacy-%d", time.Now().Unix()),
+	_, err = queries.CreateLegalDocument(ctx, db.CreateLegalDocumentParams{
+		ID:           fmt.Sprintf("privacy-%d", now.Unix()),
 		DocumentType: "privacy",
 		Title:        "Privacy Policy",
-		Content:      privacyContent,
+		Content:      &privacyContent,
 		Version:      1,
-		Status:       StatusPublished,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-		CreatedBy:    "system",
-	}
-
-	if err := db.Create(&privacy).Error; err != nil {
+		Status:       &status,
+		CreatedBy:    &createdBy,
+	})
+	if err != nil {
 		return fmt.Errorf("failed to create privacy document: %w", err)
 	}
 

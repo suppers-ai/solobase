@@ -1,179 +1,120 @@
 package services
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"time"
 
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 	"github.com/suppers-ai/solobase/internal/pkg/logger"
-	"github.com/suppers-ai/solobase/internal/pkg/database"
+	"github.com/suppers-ai/solobase/pkg/adapters/repos"
 )
 
 type LogsService struct {
-	db *database.DB
+	repo repos.LogsRepository
 }
 
-func NewLogsService(db *database.DB) *LogsService {
-	return &LogsService{db: db}
+func NewLogsService(repo repos.LogsRepository) *LogsService {
+	return &LogsService{repo: repo}
 }
 
 // GetLogs retrieves logs with filters
 func (s *LogsService) GetLogs(page, size int, level, search, timeRange string) ([]logger.LogModel, int64, error) {
-	var logs []logger.LogModel
-	var total int64
+	ctx := context.Background()
 
-	query := s.db.Model(&logger.LogModel{})
-
-	// Apply filters
-	if level != "" {
-		query = query.Where("level = ?", level)
-	}
-
-	if search != "" {
-		query = query.Where("message LIKE ?", "%"+search+"%")
-	}
-
-	// Apply time range filter
-	if timeRange != "" {
-		var startTime time.Time
-		now := time.Now()
-
-		switch timeRange {
-		case "1h":
-			startTime = now.Add(-1 * time.Hour)
-		case "24h":
-			startTime = now.Add(-24 * time.Hour)
-		case "7d":
-			startTime = now.Add(-7 * 24 * time.Hour)
-		case "30d":
-			startTime = now.Add(-30 * 24 * time.Hour)
-		default:
-			startTime = now.Add(-24 * time.Hour)
-		}
-
-		query = query.Where("created_at >= ?", startTime)
-	}
-
-	// Get total count
-	query.Count(&total)
-
-	// Apply pagination
+	// Calculate start time based on range
+	startTime := calculateStartTime(timeRange)
 	offset := (page - 1) * size
-	query = query.Order("created_at DESC").Limit(size).Offset(offset)
 
-	// Execute query
-	if err := query.Find(&logs).Error; err != nil {
+	var levelPtr *string
+	if level != "" {
+		levelPtr = &level
+	}
+	var searchPtr *string
+	if search != "" {
+		searchPtr = &search
+	}
+
+	result, err := s.repo.ListLogs(ctx, repos.LogQueryOptions{
+		Level:     levelPtr,
+		Search:    searchPtr,
+		StartTime: startTime,
+		Pagination: repos.Pagination{
+			Limit:  size,
+			Offset: offset,
+		},
+	})
+	if err != nil {
 		return nil, 0, err
 	}
 
-	return logs, total, nil
+	// Convert pointers to values
+	logs := make([]logger.LogModel, len(result.Items))
+	for i, log := range result.Items {
+		logs[i] = *log
+	}
+
+	return logs, result.Total, nil
 }
 
 // GetRequestLogs retrieves request logs with filters
 func (s *LogsService) GetRequestLogs(page, size int, method, path, timeRange string, minStatus, maxStatus int) ([]logger.RequestLogModel, int64, error) {
-	var logs []logger.RequestLogModel
-	var total int64
+	ctx := context.Background()
 
-	query := s.db.Model(&logger.RequestLogModel{})
-
-	// Apply filters
-	if method != "" {
-		query = query.Where("method = ?", method)
-	}
-
-	if path != "" {
-		query = query.Where("path LIKE ?", "%"+path+"%")
-	}
-
-	if minStatus > 0 && maxStatus > 0 {
-		query = query.Where("status_code >= ? AND status_code <= ?", minStatus, maxStatus)
-	}
-
-	// Apply time range filter
-	if timeRange != "" {
-		var startTime time.Time
-		now := time.Now()
-
-		switch timeRange {
-		case "1h":
-			startTime = now.Add(-1 * time.Hour)
-		case "24h":
-			startTime = now.Add(-24 * time.Hour)
-		case "7d":
-			startTime = now.Add(-7 * 24 * time.Hour)
-		case "30d":
-			startTime = now.Add(-30 * 24 * time.Hour)
-		default:
-			startTime = now.Add(-24 * time.Hour)
-		}
-
-		query = query.Where("created_at >= ?", startTime)
-	}
-
-	// Get total count
-	query.Count(&total)
-
-	// Apply pagination
+	// Calculate start time based on range
+	startTime := calculateStartTime(timeRange)
 	offset := (page - 1) * size
-	query = query.Order("created_at DESC").Limit(size).Offset(offset)
 
-	// Execute query
-	if err := query.Find(&logs).Error; err != nil {
+	var methodPtr, pathPtr *string
+	if method != "" {
+		methodPtr = &method
+	}
+	if path != "" {
+		pathPtr = &path
+	}
+
+	var minStatusPtr, maxStatusPtr *int
+	if minStatus > 0 {
+		minStatusPtr = &minStatus
+	}
+	if maxStatus > 0 {
+		maxStatusPtr = &maxStatus
+	}
+
+	result, err := s.repo.ListRequestLogs(ctx, repos.RequestLogQueryOptions{
+		Method:    methodPtr,
+		Path:      pathPtr,
+		MinStatus: minStatusPtr,
+		MaxStatus: maxStatusPtr,
+		StartTime: startTime,
+		Pagination: repos.Pagination{
+			Limit:  size,
+			Offset: offset,
+		},
+	})
+	if err != nil {
 		return nil, 0, err
 	}
 
-	return logs, total, nil
+	// Convert pointers to values
+	logs := make([]logger.RequestLogModel, len(result.Items))
+	for i, log := range result.Items {
+		logs[i] = *log
+	}
+
+	return logs, result.Total, nil
 }
 
 // GetLogStats returns aggregated log statistics for charts
 func (s *LogsService) GetLogStats(timeRange string) (map[string]interface{}, error) {
-	var startTime time.Time
-	now := time.Now()
+	ctx := context.Background()
+	startTime := calculateStartTime(timeRange)
+	now := apptime.NowTime()
 
-	switch timeRange {
-	case "1h":
-		startTime = now.Add(-1 * time.Hour)
-	case "24h":
-		startTime = now.Add(-24 * time.Hour)
-	case "7d":
-		startTime = now.Add(-7 * 24 * time.Hour)
-	case "30d":
-		startTime = now.Add(-30 * 24 * time.Hour)
-	default:
-		startTime = now.Add(-24 * time.Hour)
+	stats, err := s.repo.GetLogStats(ctx, startTime)
+	if err != nil {
+		return nil, err
 	}
-
-	// Get counts by level
-	var results []struct {
-		Level string
-		Count int
-		Hour  int
-	}
-
-	query := `
-		SELECT 
-			level,
-			COUNT(*) as count,
-			EXTRACT(HOUR FROM created_at) as hour
-		FROM logs
-		WHERE created_at >= ?
-		GROUP BY level, EXTRACT(HOUR FROM created_at)
-		ORDER BY hour
-	`
-
-	if s.db.GetConfig().Type == "sqlite" {
-		query = `
-			SELECT 
-				level,
-				COUNT(*) as count,
-				strftime('%H', created_at) as hour
-			FROM logs
-			WHERE created_at >= ?
-			GROUP BY level, strftime('%H', created_at)
-			ORDER BY hour
-		`
-	}
-
-	s.db.Raw(query, startTime).Scan(&results)
 
 	// Process results into chart data
 	labels := []string{}
@@ -192,32 +133,31 @@ func (s *LogsService) GetLogStats(timeRange string) (map[string]interface{}, err
 		if hour < 0 {
 			hour += 24
 		}
-		labels = append(labels, fmt.Sprintf("%02d:00", hour))
+		hourStr := fmt.Sprintf("%02d", hour)
+		labels = append(labels, hourStr+":00")
 
 		// Initialize counters
 		success := 0
 		warning := 0
-		error := 0
+		errorCount := 0
 
-		// Count logs for this hour
-		for _, r := range results {
-			hourInt := 0
-			fmt.Sscanf(fmt.Sprintf("%v", r.Hour), "%d", &hourInt)
-			if hourInt == hour {
-				switch r.Level {
+		// Count logs for this hour from stats
+		for level, hourCounts := range stats.ByLevelAndHour {
+			if count, ok := hourCounts[hourStr]; ok {
+				switch level {
 				case "info", "debug":
-					success += r.Count
+					success += int(count)
 				case "warn", "warning":
-					warning += r.Count
+					warning += int(count)
 				case "error", "fatal", "panic":
-					error += r.Count
+					errorCount += int(count)
 				}
 			}
 		}
 
 		successData = append(successData, success)
 		warningData = append(warningData, warning)
-		errorData = append(errorData, error)
+		errorData = append(errorData, errorCount)
 	}
 
 	return map[string]interface{}{
@@ -230,53 +170,100 @@ func (s *LogsService) GetLogStats(timeRange string) (map[string]interface{}, err
 
 // ClearLogs deletes logs older than specified duration
 func (s *LogsService) ClearLogs(olderThan string) (int64, error) {
-	var cutoffTime time.Time
-	now := time.Now()
+	ctx := context.Background()
+	now := apptime.NowTime()
 
+	var cutoffTime apptime.Time
 	switch olderThan {
 	case "1h":
-		cutoffTime = now.Add(-1 * time.Hour)
+		cutoffTime = now.Add(-1 * apptime.Hour)
 	case "24h":
-		cutoffTime = now.Add(-24 * time.Hour)
+		cutoffTime = now.Add(-24 * apptime.Hour)
 	case "7d":
-		cutoffTime = now.Add(-7 * 24 * time.Hour)
+		cutoffTime = now.Add(-7 * 24 * apptime.Hour)
 	case "30d":
-		cutoffTime = now.Add(-30 * 24 * time.Hour)
+		cutoffTime = now.Add(-30 * 24 * apptime.Hour)
 	case "all":
-		cutoffTime = now.Add(1 * time.Hour) // Future time to delete all
+		cutoffTime = now.Add(1 * apptime.Hour) // Future time to delete all
 	default:
 		return 0, fmt.Errorf("invalid duration: %s", olderThan)
 	}
 
 	// Delete logs
-	result := s.db.Where("created_at < ?", cutoffTime).Delete(&logger.LogModel{})
-	if result.Error != nil {
-		return 0, result.Error
+	if err := s.repo.DeleteLogsOlderThan(ctx, cutoffTime); err != nil {
+		return 0, err
 	}
 
-	// Also delete request logs
-	result2 := s.db.Where("created_at < ?", cutoffTime).Delete(&logger.RequestLogModel{})
-	if result2.Error != nil {
-		return result.RowsAffected, result2.Error
+	// Delete request logs
+	if err := s.repo.DeleteRequestLogsOlderThan(ctx, cutoffTime); err != nil {
+		return 0, err
 	}
 
-	return result.RowsAffected + result2.RowsAffected, nil
+	return 0, nil
 }
 
 // GetLogByID retrieves a single log by ID
 func (s *LogsService) GetLogByID(id string) (*logger.LogModel, error) {
-	var log logger.LogModel
-	if err := s.db.Where("id = ?", id).First(&log).Error; err != nil {
+	ctx := context.Background()
+	log, err := s.repo.GetLog(ctx, id)
+	if err != nil {
+		if err == repos.ErrNotFound {
+			return nil, errors.New("log not found")
+		}
 		return nil, err
 	}
-	return &log, nil
+	return log, nil
 }
 
 // GetRequestLogByID retrieves a single request log by ID
 func (s *LogsService) GetRequestLogByID(id string) (*logger.RequestLogModel, error) {
-	var log logger.RequestLogModel
-	if err := s.db.Where("id = ?", id).First(&log).Error; err != nil {
+	ctx := context.Background()
+	log, err := s.repo.GetRequestLog(ctx, id)
+	if err != nil {
+		if err == repos.ErrNotFound {
+			return nil, errors.New("request log not found")
+		}
 		return nil, err
 	}
-	return &log, nil
+	return log, nil
+}
+
+// Helper function to calculate start time based on time range
+func calculateStartTime(timeRange string) apptime.Time {
+	now := apptime.NowTime()
+	switch timeRange {
+	case "1h":
+		return now.Add(-1 * apptime.Hour)
+	case "24h":
+		return now.Add(-24 * apptime.Hour)
+	case "7d":
+		return now.Add(-7 * 24 * apptime.Hour)
+	case "30d":
+		return now.Add(-30 * 24 * apptime.Hour)
+	default:
+		return now.Add(-24 * apptime.Hour)
+	}
+}
+
+// CleanupOldLogs deletes logs older than the specified retention period
+// Default retention is 7 days
+func (s *LogsService) CleanupOldLogs(retentionDays int) (int64, error) {
+	if retentionDays <= 0 {
+		retentionDays = 7
+	}
+
+	ctx := context.Background()
+	cutoffTime := apptime.NowTime().Add(-apptime.Duration(retentionDays) * 24 * apptime.Hour)
+
+	// Delete old logs
+	if err := s.repo.DeleteLogsOlderThan(ctx, cutoffTime); err != nil {
+		return 0, err
+	}
+
+	// Delete old request logs
+	if err := s.repo.DeleteRequestLogsOlderThan(ctx, cutoffTime); err != nil {
+		return 0, err
+	}
+
+	return 0, nil
 }

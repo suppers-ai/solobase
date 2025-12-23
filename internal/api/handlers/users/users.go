@@ -1,6 +1,7 @@
 package users
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -15,6 +16,7 @@ func HandleGetUsers(userService *services.UserService) http.HandlerFunc {
 
 		users, total, err := userService.GetUsers(page, pageSize)
 		if err != nil {
+			log.Printf("GetUsers error: %v", err)
 			utils.JSONError(w, http.StatusInternalServerError, "Failed to fetch users")
 			return
 		}

@@ -7,9 +7,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 
-	"github.com/google/uuid"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
 )
 
 // HTTPMiddleware creates middleware for HTTP request logging
@@ -94,13 +94,13 @@ func HTTPMiddleware(logger Logger, config *MiddlewareConfig) func(http.Handler) 
 			}
 
 			// Start timer
-			start := time.Now()
+			start := apptime.NowTime()
 
 			// Serve request
 			next.ServeHTTP(rw, r)
 
 			// Calculate execution time
-			duration := time.Since(start)
+			duration := apptime.Since(start)
 
 			// Create request log
 			reqLog := &RequestLog{

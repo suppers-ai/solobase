@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // SecurityManager handles extension security and permissions
@@ -47,7 +47,7 @@ type RateLimiter struct {
 	tokens     float64
 	maxTokens  float64
 	refillRate float64
-	lastRefill time.Time
+	lastRefill apptime.Time
 	mu         sync.Mutex
 }
 
@@ -57,7 +57,7 @@ func NewRateLimiter(requestsPerSecond int) *RateLimiter {
 		tokens:     float64(requestsPerSecond),
 		maxTokens:  float64(requestsPerSecond),
 		refillRate: float64(requestsPerSecond),
-		lastRefill: time.Now(),
+		lastRefill: apptime.NowTime(),
 	}
 }
 
@@ -67,7 +67,7 @@ func (r *RateLimiter) Allow() bool {
 	defer r.mu.Unlock()
 
 	// Refill tokens
-	now := time.Now()
+	now := apptime.NowTime()
 	elapsed := now.Sub(r.lastRefill).Seconds()
 	r.tokens = min(r.maxTokens, r.tokens+elapsed*r.refillRate)
 	r.lastRefill = now
@@ -90,7 +90,7 @@ func min(a, b float64) float64 {
 
 // AuditEntry represents a security audit log entry
 type AuditEntry struct {
-	Timestamp time.Time              `json:"timestamp"`
+	Timestamp apptime.Time              `json:"timestamp"`
 	Extension string                 `json:"extension"`
 	Action    string                 `json:"action"`
 	Resource  string                 `json:"resource"`
@@ -123,7 +123,7 @@ func (sm *SecurityManager) GrantPermission(extension, permission string) {
 	sm.permissions[extension][permission] = true
 
 	sm.addAuditEntry(AuditEntry{
-		Timestamp: time.Now(),
+		Timestamp: apptime.NowTime(),
 		Extension: extension,
 		Action:    "grant_permission",
 		Resource:  permission,
@@ -141,7 +141,7 @@ func (sm *SecurityManager) RevokePermission(extension, permission string) {
 	}
 
 	sm.addAuditEntry(AuditEntry{
-		Timestamp: time.Now(),
+		Timestamp: apptime.NowTime(),
 		Extension: extension,
 		Action:    "revoke_permission",
 		Resource:  permission,
@@ -233,7 +233,7 @@ func (sm *SecurityManager) AuditLog(ctx context.Context, extension, action, reso
 	defer sm.mu.Unlock()
 
 	entry := AuditEntry{
-		Timestamp: time.Now(),
+		Timestamp: apptime.NowTime(),
 		Extension: extension,
 		Action:    action,
 		Resource:  resource,

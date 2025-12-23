@@ -5,9 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/suppers-ai/solobase/constants"
-	commonjwt "github.com/suppers-ai/solobase/internal/common/jwt"
 )
 
 // Storage ownership errors
@@ -16,14 +14,6 @@ var (
 	ErrAppIDMismatch  = errors.New("access denied: app ID mismatch")
 	ErrObjectNotFound = errors.New("object not found")
 )
-
-// StorageClaims represents JWT claims for storage operations
-type StorageClaims struct {
-	UserID string `json:"userId"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
-	jwt.RegisteredClaims
-}
 
 // GetUserIDFromRequest extracts user ID from request context or JWT token
 func GetUserIDFromRequest(r *http.Request) string {
@@ -53,16 +43,13 @@ func extractUserIDFromToken(r *http.Request) string {
 		return ""
 	}
 
-	claims := &StorageClaims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		return commonjwt.GetJWTSecret(), nil
-	})
-
-	if err != nil || !token.Valid {
+	// Use build-tag specific token parsing
+	userID, err := parseStorageToken(tokenString)
+	if err != nil {
 		return ""
 	}
 
-	return claims.UserID
+	return userID
 }
 
 // NormalizeBucket converts user-facing bucket names to internal bucket names

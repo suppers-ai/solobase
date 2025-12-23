@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 
 	"github.com/suppers-ai/solobase/internal/pkg/storage"
 )
@@ -114,7 +114,7 @@ func (s *ExtensionStorageService) GetPublicURL(bucket, key string) string {
 }
 
 // GetSignedURL generates a signed URL for temporary access
-func (s *ExtensionStorageService) GetSignedURL(bucket, key string, expiry time.Duration) (string, error) {
+func (s *ExtensionStorageService) GetSignedURL(bucket, key string, expiry apptime.Duration) (string, error) {
 	if s.provider == nil {
 		return "", fmt.Errorf("storage not initialized")
 	}

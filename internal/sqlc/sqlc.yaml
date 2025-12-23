@@ -1,0 +1,156 @@
+version: "2"
+sql:
+  - engine: "sqlite"
+    queries: "queries/"
+    schema: "schema/"
+    gen:
+      go:
+        package: "db"
+        out: "gen"
+        emit_json_tags: true
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        overrides:
+          # Global datetime columns - use string for cross-platform compatibility
+          # The Spin SDK doesn't properly call driver.Valuer.Value(), so we use strings
+          # and format them in the service layer
+          - column: "*.created_at"
+            go_type: "string"
+          - column: "*.updated_at"
+            go_type: "string"
+          - column: "*.deleted_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.expires_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.granted_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "Time"
+          - column: "*.last_login"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.last_used_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.last_viewed"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.last_attempt"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.used_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.revoked_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.recover_token_exp"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.oauth_expiry"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.completed_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.callback_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.reset_bandwidth_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          # Custom table migrations
+          - column: "*.executed_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "Time"
+          - column: "*.rollback_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          # Products extension - purchase timestamps
+          - column: "*.approved_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.refunded_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          - column: "*.cancelled_at"
+            go_type:
+              import: "github.com/suppers-ai/solobase/internal/pkg/apptime"
+              type: "NullTime"
+          # Columns that can be NULL need pointer types for Spin SQLite compatibility
+          - column: "auth_users.metadata"
+            go_type:
+              type: "string"
+              pointer: true
+          - column: "auth_users.recovery_codes"
+            go_type:
+              type: "string"
+              pointer: true
+          - column: "iam_roles.metadata"
+            go_type:
+              type: "string"
+              pointer: true
+          - column: "iam_audit_logs.metadata"
+            go_type:
+              type: "string"
+              pointer: true
+          # JSON/JSONB fields - use raw JSON
+          - column: "*.custom_fields"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.metadata"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.variables"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.filter_fields_schema"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.custom_fields_schema"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.line_items"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.tax_items"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.product_metadata"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.billing_address"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.shipping_address"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.payment_method_types"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.pricing_templates"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.fields"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.indexes"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.options"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.old_schema"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.new_schema"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.event_data"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.scopes"
+            go_type: "encoding/json.RawMessage"
+          - column: "*.recovery_codes"
+            go_type: "encoding/json.RawMessage"

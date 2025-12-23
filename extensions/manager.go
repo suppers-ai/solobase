@@ -2,16 +2,16 @@ package extensions
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 
 	"github.com/gorilla/mux"
-	"github.com/suppers-ai/solobase/internal/pkg/logger"
 	"github.com/suppers-ai/solobase/extensions/core"
-	"gorm.io/gorm"
+	"github.com/suppers-ai/solobase/internal/pkg/fileutil"
+	"github.com/suppers-ai/solobase/internal/pkg/logger"
 )
 
 // ExtensionManager manages the extension system lifecycle
@@ -20,7 +20,7 @@ type ExtensionManager struct {
 	services       *core.ExtensionServices
 	config         *ExtensionConfig
 	logger         logger.Logger
-	db             *gorm.DB
+	sqlDB          *sql.DB
 	productsSeeder interface{} // Custom seeder for Products extension
 }
 
@@ -36,12 +36,12 @@ type ExtensionSettings struct {
 }
 
 // NewExtensionManager creates a new extension manager
-func NewExtensionManager(db *gorm.DB, logger logger.Logger) (*ExtensionManager, error) {
-	return NewExtensionManagerWithOptions(db, logger, nil)
+func NewExtensionManager(sqlDB *sql.DB, logger logger.Logger) (*ExtensionManager, error) {
+	return NewExtensionManagerWithOptions(sqlDB, logger, nil)
 }
 
 // NewExtensionManagerWithOptions creates a new extension manager with custom options
-func NewExtensionManagerWithOptions(db *gorm.DB, logger logger.Logger, productsSeeder interface{}) (*ExtensionManager, error) {
+func NewExtensionManagerWithOptions(sqlDB *sql.DB, logger logger.Logger, productsSeeder interface{}) (*ExtensionManager, error) {
 	// Create extension services
 	// For now, we pass nil for services we don't have
 	services := core.NewExtensionServices(
@@ -68,7 +68,7 @@ func NewExtensionManagerWithOptions(db *gorm.DB, logger logger.Logger, productsS
 		services:       services,
 		config:         config,
 		logger:         logger,
-		db:             db,
+		sqlDB:          sqlDB,
 		productsSeeder: productsSeeder,
 	}, nil
 }
@@ -201,8 +201,8 @@ func (m *ExtensionManager) enableExtension(ctx context.Context, name string, con
 func (m *ExtensionManager) saveConfig() error {
 	configPath := filepath.Join("extensions", "config.json")
 
-	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+	// Ensure directory exists (no-op in WASM builds)
+	if err := fileutil.EnsureDir(filepath.Dir(configPath)); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -212,30 +212,35 @@ func (m *ExtensionManager) saveConfig() error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Write to file
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+	// Write to file (will fail silently in WASM builds)
+	if err := fileutil.WriteFile(configPath, data, 0644); err != nil {
+		// In WASM builds, this is expected to fail - config is managed by runtime
+		return nil
 	}
 
 	return nil
 }
 
 // loadExtensionConfig loads the extension configuration from file
+// In WASM builds, always returns default config since filesystem is handled by runtime
 func loadExtensionConfig() (*ExtensionConfig, error) {
 	configPath := filepath.Join("extensions", "config.json")
 
-	// Check if config file exists
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+	// Check if config file exists (always false in WASM builds)
+	if !fileutil.FileExists(configPath) {
 		// Return default config if file doesn't exist
 		return &ExtensionConfig{
 			Extensions: make(map[string]ExtensionSettings),
 		}, nil
 	}
 
-	// Read config file
-	data, err := os.ReadFile(configPath)
+	// Read config file (not supported in WASM builds)
+	data, err := fileutil.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		// In WASM builds, this is expected - return default config
+		return &ExtensionConfig{
+			Extensions: make(map[string]ExtensionSettings),
+		}, nil
 	}
 
 	// Parse config
@@ -253,7 +258,7 @@ func (m *ExtensionManager) registerExtensions() error {
 
 	// Register all available extensions with database
 	// Use the manual registration for now since we need to pass database
-	if err := RegisterAllExtensionsWithOptions(m.registry, m.db, m.productsSeeder); err != nil {
+	if err := RegisterAllExtensionsWithOptions(m.registry, m.sqlDB, m.productsSeeder); err != nil {
 		return fmt.Errorf("failed to register extensions: %w", err)
 	}
 

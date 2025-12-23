@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 
 	"github.com/suppers-ai/solobase/constants"
 )
@@ -244,7 +244,7 @@ func getCurrentMinute() int64 {
 }
 
 // timeNow is a variable to allow mocking in tests
-var timeNow = func() time.Time {
-	return time.Now()
+var timeNow = func() apptime.Time {
+	return apptime.NowTime()
 }
 

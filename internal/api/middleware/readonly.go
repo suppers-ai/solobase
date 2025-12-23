@@ -3,15 +3,16 @@ package middleware
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"strings"
+
+	"github.com/suppers-ai/solobase/internal/env"
 )
 
 // ReadOnlyMiddleware blocks all write operations when READONLY_MODE is enabled
 func ReadOnlyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if read-only mode is enabled
-		if os.Getenv("READONLY_MODE") != "true" {
+		if env.GetEnv("READONLY_MODE") != "true" {
 			next.ServeHTTP(w, r)
 			return
 		}

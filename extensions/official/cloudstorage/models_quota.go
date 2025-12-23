@@ -1,24 +1,23 @@
 package cloudstorage
 
 import (
-	"github.com/google/uuid"
-	"gorm.io/gorm"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
 )
 
 // RoleQuota defines storage quotas and limits for a specific IAM role
 type RoleQuota struct {
-	ID                string    `gorm:"type:uuid;primaryKey" json:"id"`
-	RoleID            string    `gorm:"type:uuid;uniqueIndex;not null" json:"roleId"`
-	RoleName          string    `gorm:"not null;index" json:"roleName"`                                    // Indexed for faster lookups
-	MaxStorageBytes   int64     `gorm:"type:bigint;not null;default:5368709120" json:"maxStorageBytes"`    // 5GB default
-	MaxBandwidthBytes int64     `gorm:"type:bigint;not null;default:10737418240" json:"maxBandwidthBytes"` // 10GB default
-	MaxUploadSize     int64     `gorm:"type:bigint;not null;default:104857600" json:"maxUploadSize"`       // 100MB default
-	MaxFilesCount     int64     `gorm:"type:bigint;not null;default:1000" json:"maxFilesCount"`            // 1000 files default
-	AllowedExtensions string    `gorm:"type:text" json:"allowedExtensions"`                                // Comma-separated list
-	BlockedExtensions string    `gorm:"type:text" json:"blockedExtensions"`                                // Comma-separated list
-	CreatedAt         time.Time `gorm:"autoCreateTime" json:"createdAt"`
-	UpdatedAt         time.Time `gorm:"autoUpdateTime" json:"updatedAt"`
+	ID                string       `json:"id"`
+	RoleID            string       `json:"roleId"`
+	RoleName          string       `json:"roleName"`
+	MaxStorageBytes   int64        `json:"maxStorageBytes"`
+	MaxBandwidthBytes int64        `json:"maxBandwidthBytes"`
+	MaxUploadSize     int64        `json:"maxUploadSize"`
+	MaxFilesCount     int64        `json:"maxFilesCount"`
+	AllowedExtensions string       `json:"allowedExtensions"`
+	BlockedExtensions string       `json:"blockedExtensions"`
+	CreatedAt         apptime.Time `json:"createdAt"`
+	UpdatedAt         apptime.Time `json:"updatedAt"`
 }
 
 // TableName specifies the table name with extension prefix
@@ -26,29 +25,46 @@ func (RoleQuota) TableName() string {
 	return "ext_cloudstorage_role_quotas"
 }
 
-// BeforeCreate hook to generate UUID
-func (r *RoleQuota) BeforeCreate(tx *gorm.DB) error {
+// PrepareForCreate prepares the role quota for insertion with defaults
+func (r *RoleQuota) PrepareForCreate() {
 	if r.ID == "" {
 		r.ID = uuid.New().String()
 	}
-	return nil
+	now := apptime.NowTime()
+	if r.CreatedAt.IsZero() {
+		r.CreatedAt = now
+	}
+	r.UpdatedAt = now
+	// Set defaults
+	if r.MaxStorageBytes == 0 {
+		r.MaxStorageBytes = 5368709120 // 5GB default
+	}
+	if r.MaxBandwidthBytes == 0 {
+		r.MaxBandwidthBytes = 10737418240 // 10GB default
+	}
+	if r.MaxUploadSize == 0 {
+		r.MaxUploadSize = 104857600 // 100MB default
+	}
+	if r.MaxFilesCount == 0 {
+		r.MaxFilesCount = 1000 // 1000 files default
+	}
 }
 
 // UserQuotaOverride allows specific users to have custom quotas different from their role
 type UserQuotaOverride struct {
-	ID                string     `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID            string     `gorm:"type:uuid;uniqueIndex;not null" json:"userId"` // Unique index for fast lookups
-	MaxStorageBytes   *int64     `gorm:"type:bigint" json:"maxStorageBytes,omitempty"`
-	MaxBandwidthBytes *int64     `gorm:"type:bigint" json:"maxBandwidthBytes,omitempty"`
-	MaxUploadSize     *int64     `gorm:"type:bigint" json:"maxUploadSize,omitempty"`
-	MaxFilesCount     *int64     `gorm:"type:bigint" json:"maxFilesCount,omitempty"`
-	AllowedExtensions *string    `gorm:"type:text" json:"allowedExtensions,omitempty"`
-	BlockedExtensions *string    `gorm:"type:text" json:"blockedExtensions,omitempty"`
-	Reason            string     `gorm:"type:text" json:"reason"`                           // Why this override was created
-	ExpiresAt         *time.Time `gorm:"type:timestamptz;index" json:"expiresAt,omitempty"` // Indexed for expiry queries
-	CreatedBy         string     `gorm:"type:uuid;not null;index" json:"createdBy"`         // Indexed for admin queries
-	CreatedAt         time.Time  `gorm:"autoCreateTime" json:"createdAt"`
-	UpdatedAt         time.Time  `gorm:"autoUpdateTime" json:"updatedAt"`
+	ID                string           `json:"id"`
+	UserID            string           `json:"userId"`
+	MaxStorageBytes   *int64           `json:"maxStorageBytes,omitempty"`
+	MaxBandwidthBytes *int64           `json:"maxBandwidthBytes,omitempty"`
+	MaxUploadSize     *int64           `json:"maxUploadSize,omitempty"`
+	MaxFilesCount     *int64           `json:"maxFilesCount,omitempty"`
+	AllowedExtensions *string          `json:"allowedExtensions,omitempty"`
+	BlockedExtensions *string          `json:"blockedExtensions,omitempty"`
+	Reason            *string          `json:"reason,omitempty"`
+	ExpiresAt         apptime.NullTime `json:"expiresAt,omitempty"`
+	CreatedBy         string           `json:"createdBy"`
+	CreatedAt         apptime.Time     `json:"createdAt"`
+	UpdatedAt         apptime.Time     `json:"updatedAt"`
 }
 
 // TableName specifies the table name with extension prefix
@@ -56,10 +72,14 @@ func (UserQuotaOverride) TableName() string {
 	return "ext_cloudstorage_user_quota_overrides"
 }
 
-// BeforeCreate hook to generate UUID
-func (u *UserQuotaOverride) BeforeCreate(tx *gorm.DB) error {
+// PrepareForCreate prepares the user quota override for insertion
+func (u *UserQuotaOverride) PrepareForCreate() {
 	if u.ID == "" {
 		u.ID = uuid.New().String()
 	}
-	return nil
+	now := apptime.NowTime()
+	if u.CreatedAt.IsZero() {
+		u.CreatedAt = now
+	}
+	u.UpdatedAt = now
 }

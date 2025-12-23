@@ -3,49 +3,62 @@ package storage
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strconv"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/suppers-ai/solobase/constants"
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/internal/core/services"
-	"github.com/suppers-ai/solobase/internal/data/models"
-	"github.com/suppers-ai/solobase/internal/pkg/database"
-	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
+	db "github.com/suppers-ai/solobase/internal/sqlc/gen"
 	"github.com/suppers-ai/solobase/utils"
 )
-
 
 // StorageHandlers contains all storage-related handlers with hook support
 type StorageHandlers struct {
 	storageService *services.StorageService
-	db             *database.DB
+	sqlDB          *sql.DB
+	queries        *db.Queries
 	hookRegistry   *core.ExtensionRegistry
 }
 
 // NewStorageHandlers creates new storage handlers with hook support
-func NewStorageHandlers(storageService *services.StorageService, db *database.DB, hookRegistry *core.ExtensionRegistry) *StorageHandlers {
-	return &StorageHandlers{
+func NewStorageHandlers(storageService *services.StorageService, sqlDB *sql.DB, hookRegistry *core.ExtensionRegistry) *StorageHandlers {
+	h := &StorageHandlers{
 		storageService: storageService,
-		db:             db,
+		sqlDB:          sqlDB,
 		hookRegistry:   hookRegistry,
 	}
+	// Only create queries if sqlDB is available (not in WASM mode)
+	if sqlDB != nil {
+		h.queries = db.New(sqlDB)
+	}
+	return h
 }
 
 // HandleGetStorageBuckets handles bucket listing
 func (h *StorageHandlers) HandleGetStorageBuckets(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("DEBUG: HandleGetStorageBuckets called")
+	if h.storageService == nil {
+		fmt.Println("DEBUG: storageService is nil")
+		utils.JSONResponse(w, http.StatusOK, []interface{}{})
+		return
+	}
+	fmt.Println("DEBUG: calling GetBuckets")
 	buckets, err := h.storageService.GetBuckets()
+	fmt.Printf("DEBUG: GetBuckets returned, err=%v\n", err)
 	if err != nil {
 		utils.JSONError(w, http.StatusInternalServerError, "Failed to fetch buckets")
 		return
 	}
 
+	fmt.Printf("DEBUG: returning %d buckets\n", len(buckets))
 	utils.JSONResponse(w, http.StatusOK, buckets)
 }
 
@@ -549,8 +562,8 @@ func (h *StorageHandlers) HandleCreateFolder(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Get the created folder object to return full details
-	var folder pkgstorage.StorageObject
-	if err := h.storageService.GetDB().Where("id = ?", folderID).First(&folder).Error; err != nil {
+	folder, err := h.storageService.GetObjectInfo(actualBucket, folderID)
+	if err != nil {
 		utils.JSONResponse(w, http.StatusCreated, map[string]interface{}{
 			"id":      folderID,
 			"name":    request.Name,
@@ -608,19 +621,25 @@ func (h *StorageHandlers) HandleGenerateDownloadURL(w http.ResponseWriter, r *ht
 		}
 
 		// Create download token for tracking
-		token := &models.StorageDownloadToken{
+		tokenStr := uuid.New().String()
+		var userIDPtr *string
+		if userID != "" {
+			userIDPtr = &userID
+		}
+		fileSize := object.Size
+
+		token, err := h.queries.CreateDownloadToken(r.Context(), db.CreateDownloadTokenParams{
 			ID:             uuid.New().String(),
-			Token:          uuid.New().String(),
+			Token:          tokenStr,
 			FileID:         objectID,
 			Bucket:         bucket,
 			ParentFolderID: object.ParentFolderID,
 			ObjectName:     object.ObjectName,
-			UserID:         userID,
-			FileSize:       object.Size,
-			ExpiresAt:      time.Now().Add(time.Hour),
-		}
-
-		if err := h.db.Create(token).Error; err != nil {
+			UserID:         userIDPtr,
+			FileSize:       &fileSize,
+			ExpiresAt:      apptime.NullTime{Time: apptime.NowTime().Add(apptime.Hour), Valid: true},
+		})
+		if err != nil {
 			log.Printf("Failed to create download token: %v", err)
 		}
 
@@ -632,19 +651,25 @@ func (h *StorageHandlers) HandleGenerateDownloadURL(w http.ResponseWriter, r *ht
 		}
 	} else {
 		// Generate token for local storage
-		token := &models.StorageDownloadToken{
+		tokenStr := uuid.New().String()
+		var userIDPtr *string
+		if userID != "" {
+			userIDPtr = &userID
+		}
+		fileSize := object.Size
+
+		token, err := h.queries.CreateDownloadToken(r.Context(), db.CreateDownloadTokenParams{
 			ID:             uuid.New().String(),
-			Token:          uuid.New().String(),
+			Token:          tokenStr,
 			FileID:         objectID,
 			Bucket:         bucket,
 			ParentFolderID: object.ParentFolderID,
 			ObjectName:     object.ObjectName,
-			UserID:         userID,
-			FileSize:       object.Size,
-			ExpiresAt:      time.Now().Add(time.Hour),
-		}
-
-		if err := h.db.Create(token).Error; err != nil {
+			UserID:         userIDPtr,
+			FileSize:       &fileSize,
+			ExpiresAt:      apptime.NullTime{Time: apptime.NowTime().Add(apptime.Hour), Valid: true},
+		})
+		if err != nil {
 			utils.JSONError(w, http.StatusInternalServerError, "Failed to create download token")
 			return
 		}
@@ -726,21 +751,24 @@ func (h *StorageHandlers) HandleGenerateUploadURL(w http.ResponseWriter, r *http
 		}
 
 		// Create upload token for tracking
-		objectName := request.Filename
-
-		token := &models.StorageUploadToken{
-			ID:             uuid.New().String(),
-			Token:          uuid.New().String(),
-			Bucket:         bucket,
-			ParentFolderID: request.ParentFolderID,
-			ObjectName:     objectName,
-			UserID:         userID,
-			MaxSize:        request.MaxSize,
-			ContentType:    request.ContentType,
-			ExpiresAt:      time.Now().Add(time.Hour),
+		tokenStr := uuid.New().String()
+		var userIDPtr *string
+		if userID != "" {
+			userIDPtr = &userID
 		}
 
-		if err := h.db.Create(token).Error; err != nil {
+		token, err := h.queries.CreateUploadToken(r.Context(), db.CreateUploadTokenParams{
+			ID:             uuid.New().String(),
+			Token:          tokenStr,
+			Bucket:         bucket,
+			ParentFolderID: request.ParentFolderID,
+			ObjectName:     request.Filename,
+			UserID:         userIDPtr,
+			MaxSize:        &request.MaxSize,
+			ContentType:    &request.ContentType,
+			ExpiresAt:      apptime.NullTime{Time: apptime.NowTime().Add(apptime.Hour), Valid: true},
+		})
+		if err != nil {
 			log.Printf("Failed to create upload token: %v", err)
 		}
 
@@ -752,21 +780,24 @@ func (h *StorageHandlers) HandleGenerateUploadURL(w http.ResponseWriter, r *http
 		}
 	} else {
 		// Generate token for local storage
-		objectName := request.Filename
-
-		token := &models.StorageUploadToken{
-			ID:             uuid.New().String(),
-			Token:          uuid.New().String(),
-			Bucket:         bucket,
-			ParentFolderID: request.ParentFolderID,
-			ObjectName:     objectName,
-			UserID:         userID,
-			MaxSize:        request.MaxSize,
-			ContentType:    request.ContentType,
-			ExpiresAt:      time.Now().Add(time.Hour),
+		tokenStr := uuid.New().String()
+		var userIDPtr *string
+		if userID != "" {
+			userIDPtr = &userID
 		}
 
-		if err := h.db.Create(token).Error; err != nil {
+		token, err := h.queries.CreateUploadToken(r.Context(), db.CreateUploadTokenParams{
+			ID:             uuid.New().String(),
+			Token:          tokenStr,
+			Bucket:         bucket,
+			ParentFolderID: request.ParentFolderID,
+			ObjectName:     request.Filename,
+			UserID:         userIDPtr,
+			MaxSize:        &request.MaxSize,
+			ContentType:    &request.ContentType,
+			ExpiresAt:      apptime.NullTime{Time: apptime.NowTime().Add(apptime.Hour), Valid: true},
+		})
+		if err != nil {
 			utils.JSONError(w, http.StatusInternalServerError, "Failed to create upload token")
 			return
 		}
@@ -787,14 +818,14 @@ func (h *StorageHandlers) HandleDirectDownload(w http.ResponseWriter, r *http.Re
 	tokenStr := vars["token"]
 
 	// Get download token
-	var token models.StorageDownloadToken
-	if err := h.db.Where("token = ?", tokenStr).First(&token).Error; err != nil {
+	token, err := h.queries.GetDownloadTokenByToken(r.Context(), tokenStr)
+	if err != nil {
 		utils.JSONError(w, http.StatusNotFound, "Invalid or expired token")
 		return
 	}
 
 	// Check if token is expired
-	if time.Now().After(token.ExpiresAt) {
+	if token.ExpiresAt.Valid && apptime.NowTime().After(token.ExpiresAt.Time) {
 		utils.JSONError(w, http.StatusUnauthorized, "Token has expired")
 		return
 	}
@@ -808,9 +839,10 @@ func (h *StorageHandlers) HandleDirectDownload(w http.ResponseWriter, r *http.Re
 
 	// Track bandwidth
 	tracker := &DirectDownloadTracker{
-		reader: reader,
-		token:  &token,
-		db:     h.db,
+		reader:  reader,
+		tokenID: token.ID,
+		queries: h.queries,
+		ctx:     r.Context(),
 	}
 	defer tracker.Close()
 
@@ -830,26 +862,32 @@ func (h *StorageHandlers) HandleDirectUpload(w http.ResponseWriter, r *http.Requ
 	tokenStr := vars["token"]
 
 	// Get upload token
-	var token models.StorageUploadToken
-	if err := h.db.Where("token = ?", tokenStr).First(&token).Error; err != nil {
+	token, err := h.queries.GetUploadTokenByToken(r.Context(), tokenStr)
+	if err != nil {
 		utils.JSONError(w, http.StatusNotFound, "Invalid or expired token")
 		return
 	}
 
 	// Check if token is expired
-	if time.Now().After(token.ExpiresAt) {
+	if token.ExpiresAt.Valid && apptime.NowTime().After(token.ExpiresAt.Time) {
 		utils.JSONError(w, http.StatusUnauthorized, "Token has expired")
 		return
 	}
 
 	// Check if already used
-	if token.Completed {
+	if token.Completed != nil && *token.Completed != 0 {
 		utils.JSONError(w, http.StatusConflict, "Token has already been used")
 		return
 	}
 
+	// Get max size
+	maxSize := int64(constants.DefaultMaxFileSize)
+	if token.MaxSize != nil {
+		maxSize = *token.MaxSize
+	}
+
 	// Read file from request body
-	fileContent, err := io.ReadAll(io.LimitReader(r.Body, token.MaxSize+1))
+	fileContent, err := io.ReadAll(io.LimitReader(r.Body, maxSize+1))
 	if err != nil {
 		utils.JSONError(w, http.StatusBadRequest, "Failed to read file")
 		return
@@ -858,13 +896,23 @@ func (h *StorageHandlers) HandleDirectUpload(w http.ResponseWriter, r *http.Requ
 	fileSize := int64(len(fileContent))
 
 	// Check file size
-	if fileSize > token.MaxSize {
+	if fileSize > maxSize {
 		utils.JSONError(w, http.StatusRequestEntityTooLarge, "File exceeds maximum size")
 		return
 	}
 
+	// Get userID and contentType
+	userID := ""
+	if token.UserID != nil {
+		userID = *token.UserID
+	}
+	contentType := "application/octet-stream"
+	if token.ContentType != nil {
+		contentType = *token.ContentType
+	}
+
 	// Upload the file
-	object, err := h.storageService.UploadFile(token.Bucket, token.ObjectName, token.UserID, bytes.NewReader(fileContent), fileSize, token.ContentType, nil)
+	object, err := h.storageService.UploadFile(token.Bucket, token.ObjectName, userID, bytes.NewReader(fileContent), fileSize, contentType, nil)
 	if err != nil {
 		utils.JSONError(w, http.StatusInternalServerError, "Failed to upload file")
 		return
@@ -879,18 +927,24 @@ func (h *StorageHandlers) HandleDirectUpload(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Mark token as completed
-	token.Completed = true
-	token.BytesUploaded = fileSize
-	token.ObjectID = objectIDStr
-	h.db.Save(&token)
+	now := apptime.NowTime()
+	h.queries.CompleteUploadToken(r.Context(), db.CompleteUploadTokenParams{
+		ObjectID:    &objectIDStr,
+		CompletedAt: apptime.NullTime{Time: now, Valid: true},
+		ID:          token.ID,
+	})
+	h.queries.UpdateUploadTokenProgress(r.Context(), db.UpdateUploadTokenProgressParams{
+		BytesUploaded: &fileSize,
+		ID:            token.ID,
+	})
 
 	// Execute after upload hooks
-	if h.hookRegistry != nil && token.UserID != "" {
+	if h.hookRegistry != nil && userID != "" {
 		hookCtx := &core.HookContext{
 			Request:  r,
 			Response: w,
 			Data: map[string]interface{}{
-				"userID":   token.UserID,
+				"userID":   userID,
 				"bucket":   token.Bucket,
 				"objectID": objectIDStr,
 				"filename": token.ObjectName,
@@ -925,8 +979,9 @@ func (b *BandwidthTracker) Close() error {
 // DirectDownloadTracker tracks bandwidth for direct downloads
 type DirectDownloadTracker struct {
 	reader    io.ReadCloser
-	token     *models.StorageDownloadToken
-	db        *database.DB
+	tokenID   string
+	queries   *db.Queries
+	ctx       context.Context
 	bytesRead int64
 }
 
@@ -938,12 +993,17 @@ func (d *DirectDownloadTracker) Read(p []byte) (n int, err error) {
 
 func (d *DirectDownloadTracker) Close() error {
 	// Update token with bytes served
-	d.token.BytesServed = d.bytesRead
-	d.token.Completed = (d.bytesRead >= d.token.FileSize)
-	d.db.Save(d.token)
+	d.queries.UpdateDownloadTokenProgress(d.ctx, db.UpdateDownloadTokenProgressParams{
+		BytesServed: &d.bytesRead,
+		ID:          d.tokenID,
+	})
 
-	// Execute after download hooks if we have the registry
-	// Note: This would need the hook registry to be accessible
+	// Mark as complete
+	now := apptime.NowTime()
+	d.queries.CompleteDownloadToken(d.ctx, db.CompleteDownloadTokenParams{
+		CallbackAt: apptime.NullTime{Time: now, Valid: true},
+		ID:         d.tokenID,
+	})
 
 	return d.reader.Close()
 }
@@ -971,46 +1031,42 @@ func (h *StorageHandlers) HandleGetStorageQuota(w http.ResponseWriter, r *http.R
 	maxBandwidth := int64(constants.DefaultMaxBandwidthBytes)
 
 	// Check if there's a storage quota record for this user
-	var quota struct {
-		MaxStorageBytes   int64 `json:"maxStorageBytes"`
-		MaxBandwidthBytes int64 `json:"maxBandwidthBytes"`
-		StorageUsed       int64 `json:"storageUsed"`
-		BandwidthUsed     int64 `json:"bandwidthUsed"`
-	}
+	var quotaMaxStorage, quotaMaxBandwidth, quotaStorageUsed, quotaBandwidthUsed int64
 
 	// Try to get quota from ext_cloudstorage_storage_quotas table if it exists
-	err = h.db.Raw(`
-		SELECT 
+	row := h.sqlDB.QueryRowContext(r.Context(), `
+		SELECT
 			COALESCE(max_storage_bytes, ?) as max_storage_bytes,
 			COALESCE(max_bandwidth_bytes, ?) as max_bandwidth_bytes,
 			COALESCE(storage_used, 0) as storage_used,
 			COALESCE(bandwidth_used, 0) as bandwidth_used
-		FROM ext_cloudstorage_storage_quotas 
+		FROM ext_cloudstorage_storage_quotas
 		WHERE user_id = ?
-	`, maxStorage, maxBandwidth, userID).Scan(&quota).Error
+	`, maxStorage, maxBandwidth, userID)
 
+	err = row.Scan(&quotaMaxStorage, &quotaMaxBandwidth, &quotaStorageUsed, &quotaBandwidthUsed)
 	if err != nil {
 		// Table doesn't exist or user has no quota record, use defaults
-		quota.MaxStorageBytes = maxStorage
-		quota.MaxBandwidthBytes = maxBandwidth
-		quota.StorageUsed = storageUsed
-		quota.BandwidthUsed = 0
+		quotaMaxStorage = maxStorage
+		quotaMaxBandwidth = maxBandwidth
+		quotaStorageUsed = storageUsed
+		quotaBandwidthUsed = 0
 	}
 
 	// Calculate percentage
 	percentage := float64(0)
-	if quota.MaxStorageBytes > 0 {
-		percentage = (float64(quota.StorageUsed) / float64(quota.MaxStorageBytes)) * 100
+	if quotaMaxStorage > 0 {
+		percentage = (float64(quotaStorageUsed) / float64(quotaMaxStorage)) * 100
 	}
 
 	response := map[string]interface{}{
-		"used":            quota.StorageUsed,
-		"total":           quota.MaxStorageBytes,
+		"used":            quotaStorageUsed,
+		"total":           quotaMaxStorage,
 		"percentage":      percentage,
-		"storage_used":    quota.StorageUsed,
-		"storage_limit":   quota.MaxStorageBytes,
-		"bandwidth_used":  quota.BandwidthUsed,
-		"bandwidth_limit": quota.MaxBandwidthBytes,
+		"storage_used":    quotaStorageUsed,
+		"storage_limit":   quotaMaxStorage,
+		"bandwidth_used":  quotaBandwidthUsed,
+		"bandwidth_limit": quotaMaxBandwidth,
 	}
 
 	utils.JSONResponse(w, http.StatusOK, response)
@@ -1076,36 +1132,33 @@ func (h *StorageHandlers) HandleGetRecentlyViewed(w http.ResponseWriter, r *http
 		}
 	}
 
-	// Get recently viewed items from database
-	var items []pkgstorage.StorageObject
-	query := h.storageService.GetDB().
-		Where("user_id = ? AND last_viewed IS NOT NULL", userID).
-		Order("last_viewed DESC").
-		Limit(limit)
-
-	if err := query.Find(&items).Error; err != nil {
+	objects, err := h.storageService.GetRecentlyViewed(userID, limit)
+	if err != nil {
 		utils.JSONError(w, http.StatusInternalServerError, "Failed to get recently viewed items")
 		return
 	}
 
-	// Return raw StorageObject data
-	response := make([]map[string]interface{}, len(items))
-	for i, item := range items {
-		response[i] = map[string]interface{}{
-			"id":               item.ID,
-			"bucket_name":      item.BucketName,
-			"object_name":      item.ObjectName,
-			"parent_folder_id": item.ParentFolderID,
-			"size":             item.Size,
-			"content_type":     item.ContentType,
-			"checksum":         item.Checksum,
-			"metadata":         item.Metadata,
-			"created_at":       item.CreatedAt,
-			"updated_at":       item.UpdatedAt,
-			"last_viewed":      item.LastViewed,
-			"user_id":          item.UserID,
-			"app_id":           item.AppID,
-		}
+	var response []map[string]interface{}
+	for _, obj := range objects {
+		response = append(response, map[string]interface{}{
+			"id":               obj.ID,
+			"bucket_name":      obj.BucketName,
+			"object_name":      obj.ObjectName,
+			"parent_folder_id": obj.ParentFolderID,
+			"size":             obj.Size,
+			"content_type":     obj.ContentType,
+			"checksum":         obj.Checksum,
+			"metadata":         obj.Metadata,
+			"created_at":       obj.CreatedAt,
+			"updated_at":       obj.UpdatedAt,
+			"last_viewed":      obj.LastViewed,
+			"user_id":          obj.UserID,
+			"app_id":           obj.AppID,
+		})
+	}
+
+	if response == nil {
+		response = []map[string]interface{}{}
 	}
 
 	utils.JSONResponse(w, http.StatusOK, response)
@@ -1122,19 +1175,15 @@ func (h *StorageHandlers) HandleUpdateLastViewed(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Update last_viewed timestamp
-	now := time.Now()
-	if err := h.storageService.GetDB().
-		Model(&pkgstorage.StorageObject{}).
-		Where("id = ? AND user_id = ?", itemID, userID).
-		Update("last_viewed", now).Error; err != nil {
+	err := h.storageService.UpdateLastViewed(itemID, userID)
+	if err != nil {
 		utils.JSONError(w, http.StatusInternalServerError, "Failed to update last viewed")
 		return
 	}
 
 	utils.JSONResponse(w, http.StatusOK, map[string]interface{}{
 		"message":     "Last viewed updated successfully",
-		"last_viewed": now,
+		"last_viewed": apptime.NowTime(),
 	})
 }
 
@@ -1161,38 +1210,33 @@ func (h *StorageHandlers) HandleSearchStorageObjects(w http.ResponseWriter, r *h
 		appID = "default"
 	}
 
-	// Search for items matching the query
-	var items []pkgstorage.StorageObject
-	searchPattern := "%" + query + "%"
-
-	dbQuery := h.storageService.GetDB().
-		Where("user_id = ? AND app_id = ? AND name LIKE ?", userID, appID, searchPattern).
-		Order("updated_at DESC").
-		Limit(50)
-
-	if err := dbQuery.Find(&items).Error; err != nil {
+	objects, err := h.storageService.SearchStorageObjects(userID, appID, query, 50)
+	if err != nil {
 		utils.JSONError(w, http.StatusInternalServerError, "Failed to search items")
 		return
 	}
 
-	// Return raw StorageObject data
 	var result []map[string]interface{}
-	for _, item := range items {
+	for _, obj := range objects {
 		result = append(result, map[string]interface{}{
-			"id":               item.ID,
-			"bucket_name":      item.BucketName,
-			"object_name":      item.ObjectName,
-			"parent_folder_id": item.ParentFolderID,
-			"size":             item.Size,
-			"content_type":     item.ContentType,
-			"checksum":         item.Checksum,
-			"metadata":         item.Metadata,
-			"created_at":       item.CreatedAt,
-			"updated_at":       item.UpdatedAt,
-			"last_viewed":      item.LastViewed,
-			"user_id":          item.UserID,
-			"app_id":           item.AppID,
+			"id":               obj.ID,
+			"bucket_name":      obj.BucketName,
+			"object_name":      obj.ObjectName,
+			"parent_folder_id": obj.ParentFolderID,
+			"size":             obj.Size,
+			"content_type":     obj.ContentType,
+			"checksum":         obj.Checksum,
+			"metadata":         obj.Metadata,
+			"created_at":       obj.CreatedAt,
+			"updated_at":       obj.UpdatedAt,
+			"last_viewed":      obj.LastViewed,
+			"user_id":          obj.UserID,
+			"app_id":           obj.AppID,
 		})
+	}
+
+	if result == nil {
+		result = []map[string]interface{}{}
 	}
 
 	utils.JSONResponse(w, http.StatusOK, map[string]interface{}{

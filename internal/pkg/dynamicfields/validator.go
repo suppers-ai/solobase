@@ -1,10 +1,12 @@
+//go:build !wasm
+
 package dynamicfields
 
 import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // Validator validates field values against their definitions
@@ -122,15 +124,15 @@ func (v *Validator) validateType(field *Field, value interface{}) error {
 
 	case FieldTypeDate, FieldTypeDateTime:
 		switch v := value.(type) {
-		case time.Time:
+		case apptime.Time:
 			// Valid
 		case string:
 			// Try to parse string as date
 			var err error
 			if field.Type == FieldTypeDate {
-				_, err = time.Parse("2006-01-02", v)
+				_, err = apptime.ParseWithLayout("2006-01-02", v)
 			} else {
-				_, err = time.Parse(time.RFC3339, v)
+				_, err = apptime.ParseWithLayout(apptime.TimeFormat, v)
 			}
 			if err != nil {
 				return &ValidationError{
@@ -367,16 +369,16 @@ func (v *Validator) validateRules(field *Field, value interface{}) error {
 		}
 
 	case FieldTypeDate, FieldTypeDateTime:
-		var t time.Time
+		var t apptime.Time
 		switch v := value.(type) {
-		case time.Time:
+		case apptime.Time:
 			t = v
 		case string:
 			var err error
 			if field.Type == FieldTypeDate {
-				t, err = time.Parse("2006-01-02", v)
+				t, err = apptime.ParseWithLayout("2006-01-02", v)
 			} else {
-				t, err = time.Parse(time.RFC3339, v)
+				t, err = apptime.ParseWithLayout(apptime.TimeFormat, v)
 			}
 			if err != nil {
 				return &ValidationError{

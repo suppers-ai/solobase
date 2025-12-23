@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // LiteralExpression represents a literal value
@@ -447,18 +447,18 @@ func compareEqual(left, right interface{}) bool {
 }
 
 // parseDateString attempts to parse a date string
-func parseDateString(s string) (time.Time, error) {
+func parseDateString(s string) (apptime.Time, error) {
 	formats := []string{
 		"2006-01-02",
 		"2006-01-02 15:04:05",
-		time.RFC3339,
+		apptime.TimeFormat,
 	}
 
 	for _, format := range formats {
-		if t, err := time.Parse(format, s); err == nil {
+		if t, err := apptime.ParseWithLayout(format, s); err == nil {
 			return t, nil
 		}
 	}
 
-	return time.Time{}, fmt.Errorf("cannot parse date: %s", s)
+	return apptime.Time{}, fmt.Errorf("cannot parse date: %s", s)
 }

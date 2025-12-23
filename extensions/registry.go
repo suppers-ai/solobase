@@ -1,24 +1,22 @@
 package extensions
 
 import (
+	"database/sql"
 	"fmt"
+
 	"github.com/suppers-ai/solobase/extensions/core"
-	"github.com/suppers-ai/solobase/extensions/official/analytics"
 	"github.com/suppers-ai/solobase/extensions/official/cloudstorage"
-	"github.com/suppers-ai/solobase/extensions/official/hugo"
 	"github.com/suppers-ai/solobase/extensions/official/legalpages"
 	"github.com/suppers-ai/solobase/extensions/official/products"
-	"github.com/suppers-ai/solobase/extensions/official/webhooks"
-	"gorm.io/gorm"
 )
 
 // RegisterAllExtensions registers all discovered extensions with the registry
-func RegisterAllExtensions(registry *core.ExtensionRegistry, db *gorm.DB) error {
-	return RegisterAllExtensionsWithOptions(registry, db, nil)
+func RegisterAllExtensions(registry *core.ExtensionRegistry, sqlDB *sql.DB) error {
+	return RegisterAllExtensionsWithOptions(registry, sqlDB, nil)
 }
 
 // RegisterAllExtensionsWithOptions registers all extensions with custom options
-func RegisterAllExtensionsWithOptions(registry *core.ExtensionRegistry, db *gorm.DB, productsSeeder interface{}) error {
+func RegisterAllExtensionsWithOptions(registry *core.ExtensionRegistry, sqlDB *sql.DB, productsSeeder interface{}) error {
 	// Register Products extension WITHOUT database first
 	productsExt := products.NewProductsExtension()
 
@@ -33,8 +31,10 @@ func RegisterAllExtensionsWithOptions(registry *core.ExtensionRegistry, db *gorm
 	if err := registry.Register(productsExt); err != nil {
 		return fmt.Errorf("failed to register products extension: %w", err)
 	}
-	// NOW set the database which will trigger migrations and seeding with our custom seeder
-	productsExt.SetDatabase(db)
+	// Set the SQL database for sqlc operations
+	if sqlDB != nil {
+		productsExt.SetSQLDatabase(sqlDB)
+	}
 
 	// Enable Products extension by default
 	fmt.Printf("Enabling Products extension...\n")
@@ -45,46 +45,16 @@ func RegisterAllExtensionsWithOptions(registry *core.ExtensionRegistry, db *gorm
 		fmt.Printf("Products extension enabled successfully\n")
 	}
 
-	// Register Hugo extension with database
-	hugoExt := hugo.NewHugoExtension()
-	// Set the database to enable GORM operations
-	hugoExt.SetDatabase(db)
-	if err := registry.Register(hugoExt); err != nil {
-		return fmt.Errorf("failed to register hugo extension: %w", err)
-	}
-
-	// Enable Hugo extension by default
-	fmt.Printf("Enabling Hugo extension...\n")
-	if err := registry.Enable("hugo"); err != nil {
-		// Log but don't fail - extension can still work without being enabled
-		fmt.Printf("Warning: Failed to enable Hugo extension: %v\n", err)
-	} else {
-		fmt.Printf("Hugo extension enabled successfully\n")
-	}
-
-	// Register Analytics extension with database
-	analyticsExt := analytics.NewAnalyticsExtension()
-	// Set the database to enable GORM operations
-	analyticsExt.SetDatabase(db)
-	if err := registry.Register(analyticsExt); err != nil {
-		return fmt.Errorf("failed to register analytics extension: %w", err)
-	}
-
-	// Enable Analytics extension by default
-	fmt.Printf("Enabling Analytics extension...\n")
-	if err := registry.Enable("analytics"); err != nil {
-		// Log but don't fail - extension can still work without being enabled
-		fmt.Printf("Warning: Failed to enable Analytics extension: %v\n", err)
-	} else {
-		fmt.Printf("Analytics extension enabled successfully\n")
-		// Debug: check if routes were registered
-		fmt.Printf("DEBUG: Analytics extension should have registered routes\n")
-	}
-
 	// Register Cloud Storage extension with database
-	cloudStorageExt := cloudstorage.NewCloudStorageExtensionWithDB(db, nil)
-	// Set the database first to trigger migrations before registration
-	cloudStorageExt.SetDatabase(db)
+	cloudStorageExtRaw := cloudstorage.NewCloudStorageExtension(nil)
+	cloudStorageExt, ok := cloudStorageExtRaw.(*cloudstorage.CloudStorageExtension)
+	if !ok {
+		return fmt.Errorf("failed to cast cloud storage extension")
+	}
+	// Set the SQL database for sqlc operations
+	if sqlDB != nil {
+		cloudStorageExt.SetSQLDatabase(sqlDB)
+	}
 
 	if err := registry.Register(cloudStorageExt); err != nil {
 		return fmt.Errorf("failed to register cloud storage extension: %w", err)
@@ -99,15 +69,12 @@ func RegisterAllExtensionsWithOptions(registry *core.ExtensionRegistry, db *gorm
 		fmt.Printf("CloudStorage extension enabled successfully\n")
 	}
 
-	// Register Webhooks extension
-	if err := registry.Register(webhooks.NewWebhooksExtension()); err != nil {
-		return fmt.Errorf("failed to register webhooks extension: %w", err)
-	}
-
 	// Register Legal Pages extension
 	legalPagesExt := legalpages.NewLegalPagesExtension()
-	// Set the database first to trigger migrations
-	legalPagesExt.SetDatabase(db)
+	// Set the SQL database for sqlc operations
+	if sqlDB != nil {
+		legalPagesExt.SetSQLDatabase(sqlDB)
+	}
 
 	if err := registry.Register(legalPagesExt); err != nil {
 		return fmt.Errorf("failed to register legal pages extension: %w", err)
@@ -129,10 +96,7 @@ func RegisterAllExtensionsWithOptions(registry *core.ExtensionRegistry, db *gorm
 func GetAvailableExtensions() []string {
 	return []string{
 		"products",
-		"hugo",
-		"analytics",
 		"cloudstorage",
-		"webhooks",
 		"legalpages",
 	}
 }

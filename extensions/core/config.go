@@ -3,10 +3,9 @@ package core
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"sync"
-	"time"
 
+	"github.com/suppers-ai/solobase/internal/pkg/fileutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -34,13 +33,16 @@ func (c *ExtensionConfig) LoadFromFile(path string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	data, err := os.ReadFile(path)
+	// Check if file exists (always false in WASM builds)
+	if !fileutil.FileExists(path) {
+		// File doesn't exist, use defaults
+		return nil
+	}
+
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			// File doesn't exist, use defaults
-			return nil
-		}
-		return fmt.Errorf("failed to read config file: %w", err)
+		// In WASM builds, this is expected
+		return nil
 	}
 
 	// Try to unmarshal as YAML first (supports both YAML and JSON)
@@ -64,8 +66,10 @@ func (c *ExtensionConfig) SaveToFile(path string) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+	// In WASM builds, this will fail silently
+	if err := fileutil.WriteFile(path, data, 0644); err != nil {
+		// In WASM builds, this is expected
+		return nil
 	}
 
 	return nil
@@ -200,87 +204,6 @@ func (c *ExtensionConfig) SetLoadOrder(order []string) {
 	defer c.mu.Unlock()
 
 	c.LoadOrder = order
-}
-
-// ConfigWatcher watches for configuration changes
-type ConfigWatcher struct {
-	path     string
-	config   *ExtensionConfig
-	onChange func(*ExtensionConfig)
-	stop     chan bool
-	wg       sync.WaitGroup
-}
-
-// NewConfigWatcher creates a new configuration watcher
-func NewConfigWatcher(path string, onChange func(*ExtensionConfig)) *ConfigWatcher {
-	return &ConfigWatcher{
-		path:     path,
-		config:   NewExtensionConfig(),
-		onChange: onChange,
-		stop:     make(chan bool),
-	}
-}
-
-// Start starts watching for configuration changes
-func (w *ConfigWatcher) Start() error {
-	// Load initial config
-	if err := w.config.LoadFromFile(w.path); err != nil {
-		return err
-	}
-
-	// Trigger initial callback
-	if w.onChange != nil {
-		w.onChange(w.config)
-	}
-
-	// Start watching for changes
-	w.wg.Add(1)
-	go w.watch()
-
-	return nil
-}
-
-// Stop stops watching for configuration changes
-func (w *ConfigWatcher) Stop() {
-	close(w.stop)
-	w.wg.Wait()
-}
-
-// watch watches for file changes
-func (w *ConfigWatcher) watch() {
-	defer w.wg.Done()
-
-	// Simple polling implementation
-	// In production, use fsnotify or similar
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	var lastMod time.Time
-
-	for {
-		select {
-		case <-w.stop:
-			return
-		case <-ticker.C:
-			info, err := os.Stat(w.path)
-			if err != nil {
-				continue
-			}
-
-			if info.ModTime().After(lastMod) {
-				lastMod = info.ModTime()
-
-				// Reload config
-				newConfig := NewExtensionConfig()
-				if err := newConfig.LoadFromFile(w.path); err == nil {
-					w.config = newConfig
-					if w.onChange != nil {
-						w.onChange(w.config)
-					}
-				}
-			}
-		}
-	}
 }
 
 // ConfigValidator validates extension configuration

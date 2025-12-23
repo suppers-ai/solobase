@@ -1,3 +1,5 @@
+//go:build !wasm && !tinygo
+
 package core
 
 import (
@@ -9,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/glebarez/go-sqlite"
 	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"github.com/suppers-ai/solobase/internal/pkg/logger"
 )
@@ -34,7 +36,7 @@ func NewExtensionTestSuite(t *testing.T) *ExtensionTestSuite {
 	})
 
 	// Create in-memory SQLite database
-	sqlDB, err := sql.Open("sqlite3", ":memory:")
+	sqlDB, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}

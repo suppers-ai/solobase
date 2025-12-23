@@ -3,93 +3,123 @@ package services
 import (
 	"context"
 	"errors"
-	"time"
-	"github.com/google/uuid"
-	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
-	"github.com/suppers-ai/solobase/internal/pkg/database"
-	"golang.org/x/crypto/bcrypt"
 	"log"
+
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
+	"github.com/suppers-ai/solobase/internal/pkg/crypto"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
+	"github.com/suppers-ai/solobase/pkg/adapters/repos"
 )
 
 type AuthService struct {
-	db *database.DB
+	users  repos.UserRepository
+	tokens repos.TokenRepository
 }
 
-func NewAuthService(db *database.DB) *AuthService {
-	return &AuthService{db: db}
+func NewAuthService(users repos.UserRepository, tokens repos.TokenRepository) *AuthService {
+	return &AuthService{
+		users:  users,
+		tokens: tokens,
+	}
 }
 
 func (s *AuthService) AuthenticateUser(email, password string) (*auth.User, error) {
-	var user auth.User
-	if err := s.db.Where("email = ?", email).First(&user).Error; err != nil {
-		log.Printf("User not found for email: %s, error: %v", email, err)
+	ctx := context.Background()
+
+	user, err := s.users.GetByEmail(ctx, email)
+	if err != nil {
+		if err == repos.ErrNotFound {
+			log.Printf("User not found for email: %s", email)
+			return nil, errors.New("invalid credentials")
+		}
+		log.Printf("Error finding user: %v", err)
 		return nil, errors.New("invalid credentials")
 	}
 
 	log.Printf("Found user: %s", user.Email)
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+	if err := crypto.ComparePassword(user.Password, password); err != nil {
 		log.Printf("Password comparison failed for user: %s, error: %v", email, err)
 		return nil, errors.New("invalid credentials")
 	}
 
 	// Update last login time
-	now := time.Now()
-	user.LastLogin = &now
-	if err := s.db.Model(&user).Update("last_login", now).Error; err != nil {
+	now := apptime.NowTime()
+	if err := s.users.UpdateLastLogin(ctx, user.ID.String(), now); err != nil {
 		// Log the error but don't fail the authentication
 		log.Printf("Failed to update last_login for user %s: %v", email, err)
 	}
 
 	log.Printf("Authentication successful for user: %s", email)
-	return &user, nil
+	return user, nil
 }
 
 func (s *AuthService) CreateUser(user *auth.User) error {
-	user.ID = uuid.New()
-	return s.db.Create(user).Error
+	ctx := context.Background()
+	if user.ID == uuid.Nil {
+		user.ID = uuid.New()
+	}
+
+	_, err := s.users.Create(ctx, user)
+	return err
 }
 
 func (s *AuthService) GetUserByID(id string) (*auth.User, error) {
-	var user auth.User
-	if err := s.db.Where("id = ?", id).First(&user).Error; err != nil {
+	ctx := context.Background()
+	user, err := s.users.GetByID(ctx, id)
+	if err != nil {
+		if err == repos.ErrNotFound {
+			return nil, errors.New("user not found")
+		}
 		return nil, err
 	}
-	return &user, nil
+	return user, nil
 }
 
 func (s *AuthService) CreateDefaultAdmin(email, password string) error {
+	ctx := context.Background()
 	log.Printf("CreateDefaultAdmin called with email: %s, password length: %d", email, len(password))
 
 	// Check if ANY admin user already exists
-	var adminCount int64
-	s.db.Model(&auth.User{}).Count(&adminCount)
+	count, err := s.users.Count(ctx)
+	if err != nil {
+		log.Printf("Error counting users: %v", err)
+		return err
+	}
 
-	if adminCount > 0 {
+	if count > 0 {
 		// If any users exist, only update if this specific email exists
-		var existingUser auth.User
-		result := s.db.Where("email = ?", email).First(&existingUser)
+		existingUser, err := s.users.GetByEmail(ctx, email)
 
-		if result.Error == nil {
-			// Hash password
-			hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err == nil {
+			// Hash password using adapter
+			hashedPassword, err := crypto.HashPassword(password)
 			if err != nil {
 				log.Printf("Failed to hash password: %v", err)
 				return err
 			}
 
-			// User exists, update password using UpdateColumns to skip BeforeUpdate hook
-			// (we're already hashing the password here)
+			// User exists, update password
 			log.Printf("Admin user exists, updating password for: %s", email)
-			if err := s.db.Model(&existingUser).UpdateColumns(map[string]interface{}{
-				"password":  string(hashedPassword),
-				"confirmed": true,
-			}).Error; err != nil {
+			err = s.users.UpdatePassword(ctx, existingUser.ID.String(), hashedPassword)
+			if err != nil {
 				log.Printf("Failed to update admin password: %v", err)
 				return err
 			}
+
+			// Also confirm the user
+			err = s.users.ClearConfirmToken(ctx, existingUser.ID.String())
+			if err != nil {
+				log.Printf("Failed to confirm admin: %v", err)
+				return err
+			}
+
 			log.Printf("Successfully updated admin password for: %s", email)
 			return nil
+		} else if err != repos.ErrNotFound {
+			log.Printf("Error checking for existing user: %v", err)
+			return err
 		} else {
 			log.Printf("Users already exist in database, skipping creation of %s", email)
 			return nil
@@ -97,7 +127,7 @@ func (s *AuthService) CreateDefaultAdmin(email, password string) error {
 	}
 
 	// Hash password for new user
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := crypto.HashPassword(password)
 	if err != nil {
 		log.Printf("Failed to hash password: %v", err)
 		return err
@@ -106,14 +136,18 @@ func (s *AuthService) CreateDefaultAdmin(email, password string) error {
 	log.Printf("Creating default admin user: %s", email)
 
 	// Create admin user
-	admin := &auth.User{
+	now := apptime.NowTime()
+	user := &auth.User{
 		ID:        uuid.New(),
 		Email:     email,
-		Password:  string(hashedPassword),
+		Password:  hashedPassword,
 		Confirmed: true,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
-	if err := s.db.Create(admin).Error; err != nil {
+	_, err = s.users.Create(ctx, user)
+	if err != nil {
 		log.Printf("Failed to create admin user: %v", err)
 		return err
 	}
@@ -123,83 +157,87 @@ func (s *AuthService) CreateDefaultAdmin(email, password string) error {
 }
 
 func (s *AuthService) UpdateUserPassword(userID, hashedPassword string) error {
-	// Use UpdateColumn to skip BeforeUpdate hook since password is already hashed
-	return s.db.Model(&auth.User{}).Where("id = ?", userID).UpdateColumn("password", hashedPassword).Error
+	ctx := context.Background()
+	return s.users.UpdatePassword(ctx, userID, hashedPassword)
 }
 
 // CreateUserWithContext creates a new user with context (for handlers)
 func (s *AuthService) CreateUserWithContext(ctx context.Context, email, password string) (*auth.User, error) {
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := crypto.HashPassword(password)
 	if err != nil {
 		return nil, err
 	}
 
+	now := apptime.NowTime()
 	user := &auth.User{
 		ID:        uuid.New(),
 		Email:     email,
-		Password:  string(hashedPassword),
+		Password:  hashedPassword,
 		Confirmed: true, // Auto-confirm for API signup
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
-	if err := s.db.Create(user).Error; err != nil {
-		return nil, err
-	}
-
-	return user, nil
+	return s.users.Create(ctx, user)
 }
 
 // FindUserByEmail finds a user by email address
 func (s *AuthService) FindUserByEmail(email string) (*auth.User, error) {
-	var user auth.User
-	if err := s.db.Where("email = ?", email).First(&user).Error; err != nil {
-		return nil, err
-	}
-	return &user, nil
+	ctx := context.Background()
+	return s.users.GetByEmail(ctx, email)
 }
 
 // FindUserByOAuthToken finds a user by OAuth provider and provider UID via Token table
 func (s *AuthService) FindUserByOAuthToken(provider, providerUID string) (*auth.User, error) {
-	var token auth.Token
-	if err := s.db.Where("type = ? AND provider = ? AND provider_uid = ? AND revoked_at IS NULL",
-		auth.TokenTypeOAuth, provider, providerUID).
-		Order("created_at DESC").
-		First(&token).Error; err != nil {
+	ctx := context.Background()
+
+	// Get token by provider UID
+	token, err := s.tokens.GetByProviderUID(ctx, provider, providerUID)
+	if err != nil {
 		return nil, err
 	}
 
-	var user auth.User
-	if err := s.db.Where("id = ?", token.UserID).First(&user).Error; err != nil {
-		return nil, err
-	}
-	return &user, nil
+	// Get user by ID
+	return s.users.GetByID(ctx, token.UserID.String())
 }
 
 // CreateOrUpdateOAuthToken creates or updates an OAuth token for a user
-func (s *AuthService) CreateOrUpdateOAuthToken(userID uuid.UUID, provider, providerUID, accessToken string, expiry *time.Time) error {
+func (s *AuthService) CreateOrUpdateOAuthToken(userID uuid.UUID, provider, providerUID, accessToken string, expiry *apptime.Time) error {
+	ctx := context.Background()
+
 	// Revoke any existing OAuth tokens for this provider/user combo
-	s.db.Model(&auth.Token{}).
-		Where("user_id = ? AND type = ? AND provider = ? AND revoked_at IS NULL", userID, auth.TokenTypeOAuth, provider).
-		Update("revoked_at", time.Now())
+	err := s.tokens.RevokeByType(ctx, userID.String(), string(auth.TokenTypeOAuth))
+	if err != nil {
+		log.Printf("Warning: failed to revoke existing tokens: %v", err)
+	}
 
 	// Create new OAuth token
+	now := apptime.NowTime()
+	expiresAt := now.Add(365 * 24 * apptime.Hour) // OAuth tokens don't expire in our system
+
+	var oauthExpiry apptime.NullTime
+	if expiry != nil {
+		oauthExpiry = apptime.NewNullTime(*expiry)
+	}
+
 	token := &auth.Token{
 		ID:          uuid.New(),
 		UserID:      userID,
-		Type:        auth.TokenTypeOAuth,
+		Type:        string(auth.TokenTypeOAuth),
 		Provider:    &provider,
 		ProviderUID: &providerUID,
 		AccessToken: &accessToken,
-		ExpiresAt:   time.Now().Add(365 * 24 * time.Hour), // OAuth tokens don't expire in our system
-		CreatedAt:   time.Now(),
-	}
-	if expiry != nil {
-		token.OAuthExpiry = expiry
+		ExpiresAt:   expiresAt,
+		OAuthExpiry: oauthExpiry,
+		CreatedAt:   now,
 	}
 
-	return s.db.Create(token).Error
+	_, err = s.tokens.Create(ctx, token)
+	return err
 }
 
 // UpdateUser updates a user's information
 func (s *AuthService) UpdateUser(user *auth.User) error {
-	return s.db.Save(user).Error
+	ctx := context.Background()
+	return s.users.Update(ctx, user)
 }

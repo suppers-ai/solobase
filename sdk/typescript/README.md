@@ -46,7 +46,7 @@ const products = await solobase.database
 
 ## Type Safety
 
-The SDK includes auto-generated TypeScript types from the backend GORM models, ensuring type safety across your application:
+The SDK includes auto-generated TypeScript types from the backend models, ensuring type safety across your application:
 
 ```typescript
 import { AuthUser, StorageObject, IAMRole } from '@solobase/sdk/types';

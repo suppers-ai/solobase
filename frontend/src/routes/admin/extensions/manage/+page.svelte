@@ -12,10 +12,7 @@
 	// Extension icons mapping
 	const extensionIcons: Record<string, string> = {
 		"Products & Pricing": "📦",
-		hugo: "🌐",
-		analytics: "📊",
 		cloudstorage: "☁️",
-		webhooks: "🔗",
 	};
 
 	// Extension configuration details
@@ -47,66 +44,6 @@
 				"POST /api/products - Create new product",
 				"GET /api/pricing/{id} - Get pricing rules",
 				"POST /api/sales - Record a sale",
-			],
-		},
-		hugo: {
-			features: [
-				"Static site generation with Hugo",
-				"Multiple site management",
-				"Theme customization",
-				"Automated builds and deployments",
-				"Version control integration",
-				"SEO optimization tools",
-			],
-			configuration: {
-				"Hugo Binary Path": "/usr/local/bin/hugo",
-				"Max Sites Per User": "10",
-				"Build Timeout": "10 minutes",
-				"Default Theme": "default",
-				"Storage Bucket": "hugo-sites",
-			},
-			usage: `
-				1. Create a new Hugo site from the dashboard
-				2. Choose a theme or upload custom theme
-				3. Add content through the editor
-				4. Build and preview your site
-				5. Deploy to production with one click
-			`,
-			apiEndpoints: [
-				"GET /api/hugo/sites - List all sites",
-				"POST /api/hugo/sites - Create new site",
-				"POST /api/hugo/build/{id} - Build site",
-				"GET /api/hugo/preview/{id} - Preview site",
-			],
-		},
-		analytics: {
-			features: [
-				"Real-time visitor tracking",
-				"Page view analytics",
-				"User behavior insights",
-				"Custom event tracking",
-				"Conversion funnels",
-				"Detailed reports and exports",
-			],
-			configuration: {
-				"Tracking Enabled": "Yes",
-				"Data Retention": "90 days",
-				"Sample Rate": "100%",
-				"Track Authenticated Users": "Yes",
-				"Cookie Duration": "30 days",
-			},
-			usage: `
-				1. Include tracking script in your pages
-				2. View real-time analytics dashboard
-				3. Set up custom events for tracking
-				4. Create conversion goals
-				5. Export reports for analysis
-			`,
-			apiEndpoints: [
-				"POST /api/analytics/track - Track event",
-				"GET /api/analytics/pageviews - Get pageviews",
-				"GET /api/analytics/stats - Get statistics",
-				"GET /api/analytics/reports - Generate reports",
 			],
 		},
 		cloudstorage: {
@@ -149,36 +86,6 @@
 				"GET /ext/cloudstorage/access-logs - View access logs",
 				"GET /ext/cloudstorage/stats - Get usage statistics",
 				"GET /share/{token} - Access shared content",
-			],
-		},
-		webhooks: {
-			features: [
-				"HTTP webhook management",
-				"Event-driven triggers",
-				"Retry logic with backoff",
-				"Request/response logging",
-				"Custom headers and auth",
-				"Webhook testing tools",
-			],
-			configuration: {
-				"Max Retries": "3",
-				Timeout: "30 seconds",
-				"Retry Delay": "5 seconds",
-				"Log Retention": "7 days",
-				"Max Webhooks Per User": "50",
-			},
-			usage: `
-				1. Create webhook endpoints
-				2. Configure trigger events
-				3. Set authentication if needed
-				4. Test webhook with sample data
-				5. Monitor webhook activity logs
-			`,
-			apiEndpoints: [
-				"GET /api/webhooks - List webhooks",
-				"POST /api/webhooks - Create webhook",
-				"POST /api/webhooks/{id}/test - Test webhook",
-				"GET /api/webhooks/{id}/logs - View logs",
 			],
 		},
 	};

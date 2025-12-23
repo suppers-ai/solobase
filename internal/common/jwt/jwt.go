@@ -3,8 +3,9 @@ package jwt
 import (
 	"fmt"
 	"log"
-	"os"
 	"sync"
+
+	"github.com/suppers-ai/solobase/internal/env"
 )
 
 var (
@@ -26,11 +27,11 @@ func InitJWTSecret() {
 func SetJWTSecret(secret string) error {
 	if secret == "" {
 		// Use environment variable as fallback
-		secret = os.Getenv("JWT_SECRET")
+		secret = env.GetEnv("JWT_SECRET")
 	}
 	if secret == "" {
 		// Use a default for development only
-		if os.Getenv("ENVIRONMENT") == "development" {
+		if env.GetEnv("ENVIRONMENT") == "development" {
 			secret = "dev-secret-key-do-not-use-in-production"
 			log.Println("WARNING: Using default JWT secret for development. DO NOT use in production!")
 		}

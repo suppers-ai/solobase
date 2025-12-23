@@ -2,9 +2,9 @@ package providers
 
 import (
 	"fmt"
-	"os"
 	"sync"
 
+	"github.com/suppers-ai/solobase/internal/env"
 	stripeProvider "github.com/suppers-ai/solobase/extensions/official/products/providers/stripe"
 )
 
@@ -78,7 +78,7 @@ func GetProviderByString(providerName string) (PaymentProvider, error) {
 // GetConfiguredProviderType returns the provider type from environment variable
 // Defaults to Stripe if not set or invalid
 func GetConfiguredProviderType() ProviderType {
-	providerEnv := os.Getenv("PAYMENT_PROVIDER")
+	providerEnv := env.GetEnv("PAYMENT_PROVIDER")
 	if providerEnv == "" {
 		// Default to Stripe if not set
 		return ProviderStripe
@@ -137,4 +137,3 @@ func ResetProviders() {
 	defer providersMutex.Unlock()
 	providers = make(map[ProviderType]PaymentProvider)
 }
-

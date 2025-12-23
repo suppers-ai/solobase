@@ -2,7 +2,7 @@ package logger
 
 import (
 	"context"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // Logger is the main interface for logging
@@ -51,7 +51,7 @@ type Log struct {
 	Fields    map[string]interface{} `json:"fields" db:"fields"`
 	UserID    *string                `json:"userId,omitempty" db:"user_id"`
 	TraceID   *string                `json:"traceId,omitempty" db:"trace_id"`
-	Timestamp time.Time              `json:"timestamp" db:"created_at"`
+	Timestamp apptime.Time              `json:"timestamp" db:"created_at"`
 }
 
 // RequestLog represents an HTTP request log entry
@@ -71,7 +71,7 @@ type RequestLog struct {
 	RequestBody  *string   `json:"requestBody,omitempty" db:"request_body"`
 	ResponseBody *string   `json:"responseBody,omitempty" db:"response_body"`
 	Headers      *string   `json:"headers,omitempty" db:"headers"`
-	CreatedAt    time.Time `json:"createdAt" db:"created_at"`
+	CreatedAt    apptime.Time `json:"createdAt" db:"created_at"`
 }
 
 // Field represents a structured logging field
@@ -85,8 +85,8 @@ type LogFilter struct {
 	Level     *Level     `json:"level,omitempty"`
 	UserID    *string    `json:"userId,omitempty"`
 	TraceID   *string    `json:"traceId,omitempty"`
-	StartTime *time.Time `json:"startTime,omitempty"`
-	EndTime   *time.Time `json:"endTime,omitempty"`
+	StartTime *apptime.Time `json:"startTime,omitempty"`
+	EndTime   *apptime.Time `json:"endTime,omitempty"`
 	Limit     int        `json:"limit,omitempty"`
 	Offset    int        `json:"offset,omitempty"`
 	OrderBy   string     `json:"orderBy,omitempty"`
@@ -105,8 +105,8 @@ type RequestLogFilter struct {
 	UserIP      *string    `json:"userIp,omitempty"`
 	TraceID     *string    `json:"traceId,omitempty"`
 	HasError    *bool      `json:"hasError,omitempty"`
-	StartTime   *time.Time `json:"startTime,omitempty"`
-	EndTime     *time.Time `json:"endTime,omitempty"`
+	StartTime   *apptime.Time `json:"startTime,omitempty"`
+	EndTime     *apptime.Time `json:"endTime,omitempty"`
 	Limit       int        `json:"limit,omitempty"`
 	Offset      int        `json:"offset,omitempty"`
 	OrderBy     string     `json:"orderBy,omitempty"`
@@ -119,7 +119,7 @@ type Config struct {
 	Output         string                 `json:"output"` // console, database, file, multi
 	Format         string                 `json:"format"` // json, text
 	BufferSize     int                    `json:"bufferSize"`
-	FlushInterval  time.Duration          `json:"flushInterval"`
+	FlushInterval  apptime.Duration          `json:"flushInterval"`
 	MaxBatchSize   int                    `json:"maxBatchSize"`
 	AsyncMode      bool                   `json:"asyncMode"`
 	IncludeStack   bool                   `json:"includeStack"`
@@ -189,12 +189,12 @@ func Bool(key string, value bool) Field {
 }
 
 // Time creates a time field
-func Time(key string, value time.Time) Field {
+func Time(key string, value apptime.Time) Field {
 	return Field{Key: key, Value: value}
 }
 
 // Duration creates a duration field
-func Duration(key string, value time.Duration) Field {
+func Duration(key string, value apptime.Duration) Field {
 	return Field{Key: key, Value: value.String()}
 }
 

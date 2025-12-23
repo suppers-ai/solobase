@@ -3,38 +3,50 @@ package cloudstorage
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
-	"time"
 
-	"github.com/google/uuid"
-	pkgstorage "github.com/suppers-ai/solobase/internal/pkg/storage"
-	"gorm.io/datatypes"
-	"gorm.io/gorm"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
+	db "github.com/suppers-ai/solobase/internal/sqlc/gen"
+)
+
+var (
+	ErrShareNotFound = errors.New("share not found")
+	ErrShareExpired  = errors.New("share has expired")
+	ErrObjectNotFound = errors.New("object not found")
 )
 
 // ShareService manages file sharing functionality
 type ShareService struct {
-	db      *gorm.DB
+	sqlDB   *sql.DB
+	queries *db.Queries
 	manager interface{} // Storage manager interface, can be nil
 }
 
 // NewShareService creates a new share service
-func NewShareService(db *gorm.DB, manager interface{}) *ShareService {
+func NewShareService(sqlDB *sql.DB, manager interface{}) *ShareService {
 	return &ShareService{
-		db:      db,
+		sqlDB:   sqlDB,
+		queries: db.New(sqlDB),
 		manager: manager,
 	}
 }
 
 // CreateShare creates a shareable link for a storage object
 func (s *ShareService) CreateShare(ctx context.Context, objectID, userID string, opts ShareOptions) (*StorageShare, error) {
-	// Verify object exists
-	var obj pkgstorage.StorageObject
-	if err := s.db.Where("id = ?", objectID).First(&obj).Error; err != nil {
-		return nil, fmt.Errorf("object not found: %w", err)
+	// Verify object exists using raw SQL
+	var objID string
+	err := s.sqlDB.QueryRowContext(ctx, "SELECT id FROM storage_objects WHERE id = ? LIMIT 1", objectID).Scan(&objID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrObjectNotFound
+		}
+		return nil, fmt.Errorf("failed to verify object: %w", err)
 	}
 
 	share := &StorageShare{
@@ -44,7 +56,9 @@ func (s *ShareService) CreateShare(ctx context.Context, objectID, userID string,
 		PermissionLevel:   opts.PermissionLevel,
 		InheritToChildren: opts.InheritToChildren,
 		IsPublic:          opts.IsPublic,
-		ExpiresAt:         opts.ExpiresAt,
+		ExpiresAt:         apptime.FromTimePtr(opts.ExpiresAt),
+		CreatedAt:         apptime.NowTime(),
+		UpdatedAt:         apptime.NowTime(),
 	}
 
 	// Set sharing target
@@ -62,7 +76,31 @@ func (s *ShareService) CreateShare(ctx context.Context, objectID, userID string,
 		share.ShareToken = &token
 	}
 
-	if err := s.db.Create(share).Error; err != nil {
+	// Convert bool to int for SQLite
+	inheritInt := int64(0)
+	if share.InheritToChildren {
+		inheritInt = 1
+	}
+	publicInt := int64(0)
+	if share.IsPublic {
+		publicInt = 1
+	}
+
+	_, err = s.queries.CreateStorageShare(ctx, db.CreateStorageShareParams{
+		ID:               share.ID,
+		ObjectID:         share.ObjectID,
+		SharedWithUserID: share.SharedWithUserID,
+		SharedWithEmail:  share.SharedWithEmail,
+		PermissionLevel:  string(share.PermissionLevel),
+		InheritToChildren: inheritInt,
+		ShareToken:       share.ShareToken,
+		IsPublic:         publicInt,
+		ExpiresAt:        share.ExpiresAt,
+		CreatedBy:        share.CreatedBy,
+		CreatedAt:        apptime.Format(share.CreatedAt),
+		UpdatedAt:        apptime.Format(share.UpdatedAt),
+	})
+	if err != nil {
 		return nil, fmt.Errorf("failed to create share: %w", err)
 	}
 
@@ -71,25 +109,57 @@ func (s *ShareService) CreateShare(ctx context.Context, objectID, userID string,
 
 // GetShareByToken retrieves a share by its token
 func (s *ShareService) GetShareByToken(ctx context.Context, token string) (*StorageShare, error) {
-	var share StorageShare
-	if err := s.db.Where("share_token = ?", token).First(&share).Error; err != nil {
+	dbShare, err := s.queries.GetStorageShareByToken(ctx, &token)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrShareNotFound
+		}
 		return nil, fmt.Errorf("share not found: %w", err)
 	}
 
+	share := dbShareToStorageShare(dbShare)
+
 	// Check expiration
-	if share.ExpiresAt != nil && share.ExpiresAt.Before(time.Now()) {
-		return nil, fmt.Errorf("share has expired")
+	if share.ExpiresAt.Valid && share.ExpiresAt.Time.Before(apptime.NowTime()) {
+		return nil, ErrShareExpired
 	}
 
-	return &share, nil
+	return share, nil
 }
 
 // GetUserShares retrieves all shares for a user's objects
 func (s *ShareService) GetUserShares(ctx context.Context, userID string) ([]StorageShare, error) {
-	var shares []StorageShare
-	if err := s.db.Where("created_by = ?", userID).Find(&shares).Error; err != nil {
+	// Query shares created by the user
+	rows, err := s.sqlDB.QueryContext(ctx, `
+		SELECT id, object_id, shared_with_user_id, shared_with_email, permission_level,
+		       inherit_to_children, share_token, is_public, expires_at, created_by, created_at, updated_at
+		FROM ext_cloudstorage_storage_shares
+		WHERE created_by = ?
+		ORDER BY created_at DESC
+	`, userID)
+	if err != nil {
 		return nil, fmt.Errorf("failed to get user shares: %w", err)
 	}
+	defer rows.Close()
+
+	var shares []StorageShare
+	for rows.Next() {
+		var share StorageShare
+		var permLevel string
+		var inheritInt, publicInt int64
+		if err := rows.Scan(
+			&share.ID, &share.ObjectID, &share.SharedWithUserID, &share.SharedWithEmail,
+			&permLevel, &inheritInt, &share.ShareToken, &publicInt, &share.ExpiresAt,
+			&share.CreatedBy, &share.CreatedAt, &share.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		share.PermissionLevel = PermissionLevel(permLevel)
+		share.InheritToChildren = inheritInt == 1
+		share.IsPublic = publicInt == 1
+		shares = append(shares, share)
+	}
+
 	return shares, nil
 }
 
@@ -97,9 +167,10 @@ func (s *ShareService) GetUserShares(ctx context.Context, userID string) ([]Stor
 func (s *ShareService) GetSharedWithMe(ctx context.Context, userID string) ([]StorageShareWithObject, error) {
 	// Get user's email for email-based shares
 	var userEmail string
-	s.db.Table("users").Where("id = ?", userID).Select("email").Scan(&userEmail)
+	s.sqlDB.QueryRowContext(ctx, "SELECT email FROM users WHERE id = ?", userID).Scan(&userEmail)
 
 	// Use a CTE to find both direct shares and inherited shares
+	now := apptime.NowTime()
 	query := `
 		WITH RECURSIVE shared_items AS (
 			-- Direct shares: items directly shared with the user
@@ -116,7 +187,7 @@ func (s *ShareService) GetSharedWithMe(ctx context.Context, userID string) ([]St
 				ss.created_by,
 				ss.created_at,
 				ss.updated_at,
-				false as is_inherited,
+				0 as is_inherited,
 				so.object_name,
 				so.content_type,
 				so.size,
@@ -125,7 +196,7 @@ func (s *ShareService) GetSharedWithMe(ctx context.Context, userID string) ([]St
 			FROM ext_cloudstorage_storage_shares ss
 			JOIN storage_objects so ON ss.object_id = so.id
 			WHERE (ss.shared_with_user_id = ? OR ss.shared_with_email = ?)
-				AND (ss.expires_at IS NULL OR ss.expires_at > datetime('now'))
+				AND (ss.expires_at IS NULL OR ss.expires_at > ?)
 
 			UNION
 
@@ -143,7 +214,7 @@ func (s *ShareService) GetSharedWithMe(ctx context.Context, userID string) ([]St
 				ss.created_by,
 				ss.created_at,
 				ss.updated_at,
-				true as is_inherited,
+				1 as is_inherited,
 				child.object_name,
 				child.content_type,
 				child.size,
@@ -152,18 +223,38 @@ func (s *ShareService) GetSharedWithMe(ctx context.Context, userID string) ([]St
 			FROM ext_cloudstorage_storage_shares ss
 			JOIN storage_objects parent ON ss.object_id = parent.id
 			JOIN storage_objects child ON child.parent_folder_id = parent.id
-			WHERE ss.inherit_to_children = true
+			WHERE ss.inherit_to_children = 1
 				AND (ss.shared_with_user_id = ? OR ss.shared_with_email = ?)
-				AND (ss.expires_at IS NULL OR ss.expires_at > datetime('now'))
+				AND (ss.expires_at IS NULL OR ss.expires_at > ?)
 		)
 		SELECT * FROM shared_items
 		ORDER BY object_name
 	`
 
-	var shares []StorageShareWithObject
-	if err := s.db.Raw(query, userID, userEmail, userID, userEmail).Scan(&shares).Error; err != nil {
+	rows, err := s.sqlDB.QueryContext(ctx, query, userID, userEmail, now, userID, userEmail, now)
+	if err != nil {
 		// Fallback to simple query if CTE fails
 		return s.getSharedWithMeSimple(ctx, userID, userEmail)
+	}
+	defer rows.Close()
+
+	var shares []StorageShareWithObject
+	for rows.Next() {
+		var share StorageShareWithObject
+		var permLevel string
+		var inheritInt, publicInt, isInheritedInt int64
+		if err := rows.Scan(
+			&share.ID, &share.ObjectID, &share.SharedWithUserID, &share.SharedWithEmail,
+			&permLevel, &inheritInt, &share.ShareToken, &publicInt, &share.ExpiresAt,
+			&share.CreatedBy, &share.CreatedAt, &share.UpdatedAt, &isInheritedInt,
+			&share.ObjectName, &share.ContentType, &share.Size, &share.ObjectCreatedAt, &share.ObjectMetadata,
+		); err != nil {
+			return nil, err
+		}
+		share.PermissionLevel = PermissionLevel(permLevel)
+		share.InheritToChildren = inheritInt == 1
+		share.IsPublic = publicInt == 1
+		shares = append(shares, share)
 	}
 
 	return shares, nil
@@ -171,17 +262,40 @@ func (s *ShareService) GetSharedWithMe(ctx context.Context, userID string) ([]St
 
 // getSharedWithMeSimple is the fallback for databases without CTE support
 func (s *ShareService) getSharedWithMeSimple(ctx context.Context, userID string, userEmail string) ([]StorageShareWithObject, error) {
-	var shares []StorageShareWithObject
+	query := `
+		SELECT ss.id, ss.object_id, ss.shared_with_user_id, ss.shared_with_email,
+		       ss.permission_level, ss.inherit_to_children, ss.share_token, ss.is_public,
+		       ss.expires_at, ss.created_by, ss.created_at, ss.updated_at,
+		       so.object_name, so.content_type, so.size, so.created_at, so.metadata
+		FROM ext_cloudstorage_storage_shares ss
+		JOIN storage_objects so ON ss.object_id = so.id
+		WHERE (ss.shared_with_user_id = ? OR ss.shared_with_email = ?)
+		  AND (ss.expires_at IS NULL OR ss.expires_at > ?)
+	`
 
-	// Query direct shares with joined storage objects
-	query := s.db.Table("ext_cloudstorage_storage_shares ss").
-		Select("ss.*, so.id as object_id, so.object_name, so.content_type, so.size, so.created_at as object_created_at, so.metadata as object_metadata").
-		Joins("JOIN storage_objects so ON ss.object_id = so.id").
-		Where("(ss.shared_with_user_id = ? OR ss.shared_with_email = ?) AND (ss.expires_at IS NULL OR ss.expires_at > ?)",
-			userID, userEmail, time.Now())
-
-	if err := query.Scan(&shares).Error; err != nil {
+	rows, err := s.sqlDB.QueryContext(ctx, query, userID, userEmail, apptime.NowTime())
+	if err != nil {
 		return nil, fmt.Errorf("failed to get shared items: %w", err)
+	}
+	defer rows.Close()
+
+	var shares []StorageShareWithObject
+	for rows.Next() {
+		var share StorageShareWithObject
+		var permLevel string
+		var inheritInt, publicInt int64
+		if err := rows.Scan(
+			&share.ID, &share.ObjectID, &share.SharedWithUserID, &share.SharedWithEmail,
+			&permLevel, &inheritInt, &share.ShareToken, &publicInt, &share.ExpiresAt,
+			&share.CreatedBy, &share.CreatedAt, &share.UpdatedAt,
+			&share.ObjectName, &share.ContentType, &share.Size, &share.ObjectCreatedAt, &share.ObjectMetadata,
+		); err != nil {
+			return nil, err
+		}
+		share.PermissionLevel = PermissionLevel(permLevel)
+		share.InheritToChildren = inheritInt == 1
+		share.IsPublic = publicInt == 1
+		shares = append(shares, share)
 	}
 
 	return shares, nil
@@ -189,16 +303,39 @@ func (s *ShareService) getSharedWithMeSimple(ctx context.Context, userID string,
 
 // GetSharedByMe retrieves all items shared by the current user
 func (s *ShareService) GetSharedByMe(ctx context.Context, userID string) ([]StorageShareWithObject, error) {
-	var shares []StorageShareWithObject
+	query := `
+		SELECT ss.id, ss.object_id, ss.shared_with_user_id, ss.shared_with_email,
+		       ss.permission_level, ss.inherit_to_children, ss.share_token, ss.is_public,
+		       ss.expires_at, ss.created_by, ss.created_at, ss.updated_at,
+		       so.object_name, so.content_type, so.size, so.created_at, so.metadata
+		FROM ext_cloudstorage_storage_shares ss
+		JOIN storage_objects so ON ss.object_id = so.id
+		WHERE ss.created_by = ?
+	`
 
-	// Query shares with joined storage objects
-	query := s.db.Table("ext_cloudstorage_storage_shares ss").
-		Select("ss.*, so.id as object_id, so.name as object_name, so.content_type, so.size, so.created_at as object_created_at, so.metadata as object_metadata").
-		Joins("JOIN storage_objects so ON ss.object_id = so.id").
-		Where("ss.created_by = ?", userID)
-
-	if err := query.Scan(&shares).Error; err != nil {
+	rows, err := s.sqlDB.QueryContext(ctx, query, userID)
+	if err != nil {
 		return nil, fmt.Errorf("failed to get shared items: %w", err)
+	}
+	defer rows.Close()
+
+	var shares []StorageShareWithObject
+	for rows.Next() {
+		var share StorageShareWithObject
+		var permLevel string
+		var inheritInt, publicInt int64
+		if err := rows.Scan(
+			&share.ID, &share.ObjectID, &share.SharedWithUserID, &share.SharedWithEmail,
+			&permLevel, &inheritInt, &share.ShareToken, &publicInt, &share.ExpiresAt,
+			&share.CreatedBy, &share.CreatedAt, &share.UpdatedAt,
+			&share.ObjectName, &share.ContentType, &share.Size, &share.ObjectCreatedAt, &share.ObjectMetadata,
+		); err != nil {
+			return nil, err
+		}
+		share.PermissionLevel = PermissionLevel(permLevel)
+		share.InheritToChildren = inheritInt == 1
+		share.IsPublic = publicInt == 1
+		shares = append(shares, share)
 	}
 
 	return shares, nil
@@ -206,20 +343,23 @@ func (s *ShareService) GetSharedByMe(ctx context.Context, userID string) ([]Stor
 
 // RevokeShare revokes a share
 func (s *ShareService) RevokeShare(ctx context.Context, shareID, userID string) error {
-	result := s.db.Where("id = ? AND created_by = ?", shareID, userID).Delete(&StorageShare{})
-	if result.Error != nil {
-		return fmt.Errorf("failed to revoke share: %w", result.Error)
+	result, err := s.sqlDB.ExecContext(ctx,
+		"DELETE FROM ext_cloudstorage_storage_shares WHERE id = ? AND created_by = ?",
+		shareID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to revoke share: %w", err)
 	}
-	if result.RowsAffected == 0 {
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
 		return fmt.Errorf("share not found or unauthorized")
 	}
 	return nil
 }
 
 // CheckInheritedPermissions checks if a user has access to an object through parent folder shares
-// This uses a recursive CTE query for better performance
 func (s *ShareService) CheckInheritedPermissions(ctx context.Context, objectID string, userID string, userEmail string) (*StorageShare, error) {
 	// Build the recursive CTE query to find all parent folders and their shares
+	now := apptime.NowTime()
 	query := `
 		WITH RECURSIVE parent_hierarchy AS (
 			-- Base case: start with the object itself
@@ -233,146 +373,170 @@ func (s *ShareService) CheckInheritedPermissions(ctx context.Context, objectID s
 			SELECT so.id, so.parent_folder_id, ph.depth + 1
 			FROM storage_objects so
 			INNER JOIN parent_hierarchy ph ON so.id = ph.parent_folder_id
-			WHERE ph.depth < 20  -- Prevent infinite recursion
+			WHERE ph.depth < 20
 		)
 		SELECT
-			ss.*,
+			ss.id, ss.object_id, ss.shared_with_user_id, ss.shared_with_email,
+			ss.permission_level, ss.inherit_to_children, ss.share_token, ss.is_public,
+			ss.expires_at, ss.created_by, ss.created_at, ss.updated_at,
 			ph.depth
 		FROM parent_hierarchy ph
 		INNER JOIN ext_cloudstorage_storage_shares ss ON ss.object_id = ph.id
-		WHERE ss.inherit_to_children = true
-			AND (ss.expires_at IS NULL OR ss.expires_at > datetime('now'))
+		WHERE ss.inherit_to_children = 1
+			AND (ss.expires_at IS NULL OR ss.expires_at > ?)
 	`
 
-	// Add user-specific conditions
+	// Build conditions based on user info
 	var args []interface{}
-	args = append(args, objectID)
+	args = append(args, objectID, now)
 
-	conditions := []string{}
-	if userID != "" || userEmail != "" {
-		if userID != "" {
-			conditions = append(conditions, "(ss.is_public = true OR ss.shared_with_user_id = ?)")
-			args = append(args, userID)
-		}
-		if userEmail != "" {
-			if len(conditions) > 0 {
-				conditions = append(conditions, "ss.shared_with_email = ?")
-			} else {
-				conditions = append(conditions, "(ss.is_public = true OR ss.shared_with_email = ?)")
-			}
-			args = append(args, userEmail)
-		}
-	} else {
-		conditions = append(conditions, "ss.is_public = true")
+	if userID != "" {
+		query += " AND (ss.is_public = 1 OR ss.shared_with_user_id = ?)"
+		args = append(args, userID)
+	}
+	if userEmail != "" {
+		query += " OR ss.shared_with_email = ?"
+		args = append(args, userEmail)
+	}
+	if userID == "" && userEmail == "" {
+		query += " AND ss.is_public = 1"
 	}
 
-	if len(conditions) > 0 {
-		query += " AND (" + conditions[0]
-		for i := 1; i < len(conditions); i++ {
-			query += " OR " + conditions[i]
-		}
-		query += ")"
-	}
+	query += ` ORDER BY ph.depth ASC,
+		CASE ss.permission_level
+		WHEN 'admin' THEN 3
+		WHEN 'edit' THEN 2
+		WHEN 'view' THEN 1
+		ELSE 0 END DESC`
 
-	query += " ORDER BY ph.depth ASC, " +
-		"CASE ss.permission_level " +
-		"WHEN 'admin' THEN 3 " +
-		"WHEN 'edit' THEN 2 " +
-		"WHEN 'view' THEN 1 " +
-		"ELSE 0 END DESC"
-
-	// Execute the query
-	var shares []struct {
-		StorageShare
-		Depth int
-	}
-
-	if err := s.db.Raw(query, args...).Scan(&shares).Error; err != nil {
-		// Fallback to the iterative approach if CTE is not supported
+	rows, err := s.sqlDB.QueryContext(ctx, query, args...)
+	if err != nil {
+		// Fallback to iterative approach
 		return s.checkInheritedPermissionsIterative(ctx, objectID, userID, userEmail)
 	}
+	defer rows.Close()
 
-	// Return the best share (first one due to our ordering)
-	if len(shares) > 0 {
-		return &shares[0].StorageShare, nil
+	if rows.Next() {
+		var share StorageShare
+		var permLevel string
+		var inheritInt, publicInt int64
+		var depth int
+		if err := rows.Scan(
+			&share.ID, &share.ObjectID, &share.SharedWithUserID, &share.SharedWithEmail,
+			&permLevel, &inheritInt, &share.ShareToken, &publicInt, &share.ExpiresAt,
+			&share.CreatedBy, &share.CreatedAt, &share.UpdatedAt, &depth,
+		); err != nil {
+			return nil, err
+		}
+		share.PermissionLevel = PermissionLevel(permLevel)
+		share.InheritToChildren = inheritInt == 1
+		share.IsPublic = publicInt == 1
+		return &share, nil
 	}
 
 	return nil, nil
 }
 
-// checkInheritedPermissionsIterative is the fallback implementation for databases without CTE support
+// checkInheritedPermissionsIterative is the fallback implementation
 func (s *ShareService) checkInheritedPermissionsIterative(ctx context.Context, objectID string, userID string, userEmail string) (*StorageShare, error) {
-	// First, get the object to find its parent
-	var obj pkgstorage.StorageObject
-	if err := s.db.Where("id = ?", objectID).First(&obj).Error; err != nil {
-		return nil, fmt.Errorf("object not found: %w", err)
+	// Get the object to find its parent
+	var parentFolderID *string
+	err := s.sqlDB.QueryRowContext(ctx,
+		"SELECT parent_folder_id FROM storage_objects WHERE id = ?", objectID).Scan(&parentFolderID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrObjectNotFound
+		}
+		return nil, err
 	}
 
 	// If object has no parent, no inheritance to check
-	if obj.ParentFolderID == nil || *obj.ParentFolderID == "" {
+	if parentFolderID == nil || *parentFolderID == "" {
 		return nil, nil
 	}
 
 	// Recursively check parent folders for shares
-	currentParentID := obj.ParentFolderID
-	maxDepth := 20 // Prevent infinite loops
+	currentParentID := parentFolderID
+	maxDepth := 20
 	depth := 0
 
 	var bestShare *StorageShare
-	var bestPermissionLevel PermissionLevel = PermissionView // Start with lowest permission
+	var bestPermissionLevel PermissionLevel = PermissionView
 
 	for currentParentID != nil && *currentParentID != "" && depth < maxDepth {
-		// Check for shares on this parent folder
-		var shares []StorageShare
-		query := s.db.Where("object_id = ? AND inherit_to_children = ?", *currentParentID, true)
+		// Build query for shares on this parent folder
+		query := `
+			SELECT id, object_id, shared_with_user_id, shared_with_email, permission_level,
+			       inherit_to_children, share_token, is_public, expires_at, created_by, created_at, updated_at
+			FROM ext_cloudstorage_storage_shares
+			WHERE object_id = ? AND inherit_to_children = 1
+		`
+		args := []interface{}{*currentParentID}
 
-		// Check for public shares, user-specific shares, or email-based shares
 		if userID != "" || userEmail != "" {
-			subQuery := query.Where("is_public = ?", true)
+			query += " AND (is_public = 1"
 			if userID != "" {
-				subQuery = subQuery.Or("shared_with_user_id = ?", userID)
+				query += " OR shared_with_user_id = ?"
+				args = append(args, userID)
 			}
 			if userEmail != "" {
-				subQuery = subQuery.Or("shared_with_email = ?", userEmail)
+				query += " OR shared_with_email = ?"
+				args = append(args, userEmail)
 			}
-			query = subQuery
+			query += ")"
 		} else {
-			// Only check public shares if no user info provided
-			query = query.Where("is_public = ?", true)
+			query += " AND is_public = 1"
 		}
 
-		if err := query.Find(&shares).Error; err != nil {
+		rows, err := s.sqlDB.QueryContext(ctx, query, args...)
+		if err != nil {
 			return nil, fmt.Errorf("failed to check parent shares: %w", err)
 		}
 
-		// Find the most permissive share
-		for _, share := range shares {
+		for rows.Next() {
+			var share StorageShare
+			var permLevel string
+			var inheritInt, publicInt int64
+			if err := rows.Scan(
+				&share.ID, &share.ObjectID, &share.SharedWithUserID, &share.SharedWithEmail,
+				&permLevel, &inheritInt, &share.ShareToken, &publicInt, &share.ExpiresAt,
+				&share.CreatedBy, &share.CreatedAt, &share.UpdatedAt,
+			); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			share.PermissionLevel = PermissionLevel(permLevel)
+			share.InheritToChildren = inheritInt == 1
+			share.IsPublic = publicInt == 1
+
 			// Check if share is expired
-			if share.ExpiresAt != nil && share.ExpiresAt.Before(time.Now()) {
+			if share.ExpiresAt.Valid && share.ExpiresAt.Time.Before(apptime.NowTime()) {
 				continue
 			}
 
-			// Compare permission levels (Admin > Edit > View)
+			// Compare permission levels
 			if comparePermissionLevel(share.PermissionLevel, bestPermissionLevel) > 0 {
 				shareCopy := share
 				bestShare = &shareCopy
 				bestPermissionLevel = share.PermissionLevel
 
-				// If we found admin permission, no need to check further
 				if bestPermissionLevel == PermissionAdmin {
+					rows.Close()
 					return bestShare, nil
 				}
 			}
 		}
+		rows.Close()
 
 		// Get the parent folder to continue traversing up
-		var parentFolder pkgstorage.StorageObject
-		if err := s.db.Where("id = ?", *currentParentID).First(&parentFolder).Error; err != nil {
-			// Parent not found, stop traversing
+		var nextParentID *string
+		err = s.sqlDB.QueryRowContext(ctx,
+			"SELECT parent_folder_id FROM storage_objects WHERE id = ?", *currentParentID).Scan(&nextParentID)
+		if err != nil {
 			break
 		}
 
-		currentParentID = parentFolder.ParentFolderID
+		currentParentID = nextParentID
 		depth++
 	}
 
@@ -406,20 +570,21 @@ type ShareOptions struct {
 	InheritToChildren bool
 	GenerateToken     bool
 	IsPublic          bool
-	ExpiresAt         *time.Time
+	ExpiresAt         *apptime.Time
 }
-
-// NOTE: QuotaService has been moved to quota_service.go with enhanced functionality
-// including role-based quotas and user overrides
 
 // AccessLogService manages access logging for storage operations
 type AccessLogService struct {
-	db *gorm.DB
+	sqlDB   *sql.DB
+	queries *db.Queries
 }
 
 // NewAccessLogService creates a new access log service
-func NewAccessLogService(db *gorm.DB) *AccessLogService {
-	return &AccessLogService{db: db}
+func NewAccessLogService(sqlDB *sql.DB) *AccessLogService {
+	return &AccessLogService{
+		sqlDB:   sqlDB,
+		queries: db.New(sqlDB),
+	}
 }
 
 // LogAccess logs an access event for a storage object
@@ -443,55 +608,89 @@ func (a *AccessLogService) LogAccess(ctx context.Context, objectID string, actio
 
 	metadataJSON, _ := json.Marshal(metadata)
 
-	log := &StorageAccessLog{
-		ID:        uuid.New().String(),
-		ObjectID:  objectID,
-		Action:    action,
-		Metadata:  datatypes.JSON(metadataJSON),
-		CreatedAt: time.Now(),
-	}
+	id := uuid.New().String()
+	now := apptime.NowTime()
 
+	var userIDPtr, ipAddrPtr, userAgentPtr *string
 	if opts.UserID != "" {
-		log.UserID = &opts.UserID
+		userIDPtr = &opts.UserID
 	}
 	if opts.IPAddress != "" {
-		log.IPAddress = &opts.IPAddress
+		ipAddrPtr = &opts.IPAddress
 	}
 	if opts.UserAgent != "" {
-		log.UserAgent = &opts.UserAgent
+		userAgentPtr = &opts.UserAgent
 	}
 
-	return a.db.Create(log).Error
+	_, err := a.queries.CreateStorageAccessLog(ctx, db.CreateStorageAccessLogParams{
+		ID:        id,
+		ObjectID:  objectID,
+		UserID:    userIDPtr,
+		IpAddress: ipAddrPtr,
+		Action:    string(action),
+		UserAgent: userAgentPtr,
+		Metadata:  metadataJSON,
+		CreatedAt: apptime.Format(now),
+	})
+
+	return err
 }
 
 // GetAccessLogs retrieves access logs with filters
 func (a *AccessLogService) GetAccessLogs(ctx context.Context, filters AccessLogFilters) ([]StorageAccessLog, error) {
-	query := a.db.Model(&StorageAccessLog{})
+	query := `
+		SELECT id, object_id, user_id, ip_address, action, user_agent, metadata, created_at
+		FROM ext_cloudstorage_storage_access_logs
+		WHERE 1=1
+	`
+	args := []interface{}{}
 
 	if filters.ObjectID != "" {
-		query = query.Where("object_id = ?", filters.ObjectID)
+		query += " AND object_id = ?"
+		args = append(args, filters.ObjectID)
 	}
 	if filters.UserID != "" {
-		query = query.Where("user_id = ?", filters.UserID)
+		query += " AND user_id = ?"
+		args = append(args, filters.UserID)
 	}
 	if filters.Action != "" {
-		query = query.Where("action = ?", filters.Action)
+		query += " AND action = ?"
+		args = append(args, filters.Action)
 	}
 	if filters.StartDate != nil {
-		query = query.Where("created_at >= ?", filters.StartDate)
+		query += " AND created_at >= ?"
+		args = append(args, filters.StartDate)
 	}
 	if filters.EndDate != nil {
-		query = query.Where("created_at <= ?", filters.EndDate)
+		query += " AND created_at <= ?"
+		args = append(args, filters.EndDate)
 	}
 
-	if filters.Limit <= 0 {
-		filters.Limit = 100
+	limit := filters.Limit
+	if limit <= 0 {
+		limit = 100
 	}
-	query = query.Order("created_at DESC").Limit(filters.Limit)
+	query += " ORDER BY created_at DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := a.sqlDB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get access logs: %w", err)
+	}
+	defer rows.Close()
 
 	var logs []StorageAccessLog
-	if err := query.Find(&logs).Error; err != nil {
-		return nil, fmt.Errorf("failed to get access logs: %w", err)
+	for rows.Next() {
+		var log StorageAccessLog
+		var actionStr string
+		if err := rows.Scan(
+			&log.ID, &log.ObjectID, &log.UserID, &log.IPAddress,
+			&actionStr, &log.UserAgent, &log.Metadata, &log.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		log.Action = StorageAction(actionStr)
+		logs = append(logs, log)
 	}
 
 	return logs, nil
@@ -499,40 +698,58 @@ func (a *AccessLogService) GetAccessLogs(ctx context.Context, filters AccessLogF
 
 // GetAccessStats retrieves access statistics for an object or user
 func (a *AccessLogService) GetAccessStats(ctx context.Context, filters StatsFilters) (*AccessStats, error) {
-	query := a.db.Model(&StorageAccessLog{})
+	baseQuery := `FROM ext_cloudstorage_storage_access_logs WHERE 1=1`
+	args := []interface{}{}
 
 	if filters.ObjectID != "" {
-		query = query.Where("object_id = ?", filters.ObjectID)
+		baseQuery += " AND object_id = ?"
+		args = append(args, filters.ObjectID)
 	}
 	if filters.UserID != "" {
-		query = query.Where("user_id = ?", filters.UserID)
+		baseQuery += " AND user_id = ?"
+		args = append(args, filters.UserID)
 	}
 	if filters.StartDate != nil {
-		query = query.Where("created_at >= ?", filters.StartDate)
+		baseQuery += " AND created_at >= ?"
+		args = append(args, filters.StartDate)
 	}
 	if filters.EndDate != nil {
-		query = query.Where("created_at <= ?", filters.EndDate)
+		baseQuery += " AND created_at <= ?"
+		args = append(args, filters.EndDate)
 	}
 
 	var stats AccessStats
 
 	// Get total access count
-	query.Count(&stats.TotalAccess)
+	var totalAccess int64
+	err := a.sqlDB.QueryRowContext(ctx, "SELECT COUNT(*) "+baseQuery, args...).Scan(&totalAccess)
+	if err != nil {
+		return nil, err
+	}
+	stats.TotalAccess = totalAccess
 
 	// Get action breakdown
-	var actionCounts []struct {
-		Action StorageAction
-		Count  int64
+	rows, err := a.sqlDB.QueryContext(ctx, "SELECT action, COUNT(*) as count "+baseQuery+" GROUP BY action", args...)
+	if err != nil {
+		return nil, err
 	}
-	query.Select("action, COUNT(*) as count").Group("action").Scan(&actionCounts)
+	defer rows.Close()
 
 	stats.ActionBreakdown = make(map[string]int64)
-	for _, ac := range actionCounts {
-		stats.ActionBreakdown[string(ac.Action)] = ac.Count
+	for rows.Next() {
+		var action string
+		var count int64
+		if err := rows.Scan(&action, &count); err != nil {
+			return nil, err
+		}
+		stats.ActionBreakdown[action] = count
 	}
 
 	// Get unique users count
-	query.Select("COUNT(DISTINCT user_id)").Scan(&stats.UniqueUsers)
+	err = a.sqlDB.QueryRowContext(ctx, "SELECT COUNT(DISTINCT user_id) "+baseQuery, args...).Scan(&stats.UniqueUsers)
+	if err != nil {
+		return nil, err
+	}
 
 	return &stats, nil
 }
@@ -546,7 +763,7 @@ type LogOptions struct {
 	Success   *bool
 	ErrorMsg  string
 	BytesSize int64
-	Duration  time.Duration
+	Duration  apptime.Duration
 }
 
 // AccessLogFilters defines filters for access log queries
@@ -554,8 +771,8 @@ type AccessLogFilters struct {
 	ObjectID  string
 	UserID    string
 	Action    string
-	StartDate *time.Time
-	EndDate   *time.Time
+	StartDate *apptime.Time
+	EndDate   *apptime.Time
 	Limit     int
 }
 
@@ -563,8 +780,8 @@ type AccessLogFilters struct {
 type StatsFilters struct {
 	ObjectID  string
 	UserID    string
-	StartDate *time.Time
-	EndDate   *time.Time
+	StartDate *apptime.Time
+	EndDate   *apptime.Time
 }
 
 // AccessStats represents access statistics
@@ -581,4 +798,23 @@ func parseIPAddress(addr string) string {
 		return addr
 	}
 	return host
+}
+
+// dbShareToStorageShare converts a sqlc generated share to our model
+func dbShareToStorageShare(dbShare db.ExtCloudstorageStorageShare) *StorageShare {
+	share := &StorageShare{
+		ID:                dbShare.ID,
+		ObjectID:          dbShare.ObjectID,
+		SharedWithUserID:  dbShare.SharedWithUserID,
+		SharedWithEmail:   dbShare.SharedWithEmail,
+		PermissionLevel:   PermissionLevel(dbShare.PermissionLevel),
+		InheritToChildren: dbShare.InheritToChildren == 1,
+		ShareToken:        dbShare.ShareToken,
+		IsPublic:          dbShare.IsPublic == 1,
+		ExpiresAt:         apptime.FromTimePtr(dbShare.ExpiresAt.ToTimePtr()),
+		CreatedBy:         dbShare.CreatedBy,
+		CreatedAt:         apptime.NewTime(apptime.MustParse(dbShare.CreatedAt)),
+		UpdatedAt:         apptime.NewTime(apptime.MustParse(dbShare.UpdatedAt)),
+	}
+	return share
 }

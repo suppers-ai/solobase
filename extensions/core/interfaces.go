@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // Extension is the primary interface that all extensions must implement
@@ -56,7 +56,7 @@ type HealthStatus struct {
 	Status      string        `json:"status"` // "healthy", "degraded", "unhealthy"
 	Message     string        `json:"message,omitempty"`
 	Checks      []HealthCheck `json:"checks,omitempty"`
-	LastChecked time.Time     `json:"lastChecked"`
+	LastChecked apptime.Time     `json:"lastChecked"`
 }
 
 // HealthCheck represents a single health check
@@ -75,8 +75,8 @@ type ExtensionStatus struct {
 	Loaded    bool               `json:"loaded"`
 	Health    *HealthStatus      `json:"health,omitempty"`
 	Error     string             `json:"error,omitempty"`
-	EnabledAt *time.Time         `json:"enabledAt,omitempty"`
-	LoadedAt  time.Time          `json:"loadedAt,omitempty"`
+	EnabledAt *apptime.Time         `json:"enabledAt,omitempty"`
+	LoadedAt  apptime.Time          `json:"loadedAt,omitempty"`
 	Resources ExtensionResources `json:"resources"`
 	Endpoints []EndpointInfo     `json:"endpoints"`
 	Metrics   ExtensionMetrics   `json:"metrics"`
@@ -104,24 +104,24 @@ type EndpointInfo struct {
 type ExtensionMetrics struct {
 	RequestCount        int64         `json:"requestCount"`
 	ErrorCount          int64         `json:"errorCount"`
-	AverageLatency      time.Duration `json:"averageLatency"`
-	P95Latency          time.Duration `json:"p95Latency"`
-	P99Latency          time.Duration `json:"p99Latency"`
+	AverageLatency      apptime.Duration `json:"averageLatency"`
+	P95Latency          apptime.Duration `json:"p95Latency"`
+	P99Latency          apptime.Duration `json:"p99Latency"`
 	MemoryUsage         int64         `json:"memoryBytes"`
 	MemoryUsageMB       int64         `json:"memoryMb"`
 	GoroutineCount      int           `json:"goroutineCount"`
 	DatabaseQueries     int64         `json:"databaseQueries"`
 	DatabaseConnections int           `json:"databaseConnections"`
 	CacheHitRate        float64       `json:"cacheHitRate"`
-	TotalRequestTime    time.Duration `json:"totalRequestTime"`
-	LastActive          time.Time     `json:"lastActive"`
+	TotalRequestTime    apptime.Duration `json:"totalRequestTime"`
+	LastActive          apptime.Time     `json:"lastActive"`
 	HooksExecuted       int64         `json:"hooksExecuted"`
 	HookErrors          int64         `json:"hookErrors"`
 	Healthy             bool          `json:"healthy"`
-	LastHealthCheck     time.Time     `json:"lastHealthCheck"`
+	LastHealthCheck     apptime.Time     `json:"lastHealthCheck"`
 	LastError           string        `json:"lastError"`
-	LastErrorTime       time.Time     `json:"lastErrorTime"`
-	StartTime           time.Time     `json:"startTime"`
+	LastErrorTime       apptime.Time     `json:"lastErrorTime"`
+	StartTime           apptime.Time     `json:"startTime"`
 }
 
 // Permission represents a permission required by an extension
@@ -222,7 +222,7 @@ type ExtensionError struct {
 	Type      string                 `json:"type"`
 	Message   string                 `json:"message"`
 	Context   map[string]interface{} `json:"context,omitempty"`
-	Timestamp time.Time              `json:"timestamp"`
+	Timestamp apptime.Time              `json:"timestamp"`
 }
 
 func (e *ExtensionError) Error() string {

@@ -4,9 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"runtime"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 	"sync"
-	"time"
 
 	"github.com/suppers-ai/solobase/internal/pkg/database"
 )
@@ -18,7 +17,7 @@ type DatabaseLogger struct {
 	level   Level
 	fields  map[string]interface{}
 	buffer  chan interface{}
-	wg      sync.WaitGroup
+	wg      *sync.WaitGroup
 	closing chan bool
 	closed  bool
 	mu      sync.RWMutex
@@ -37,6 +36,7 @@ func NewDatabase(config Config, db interface{}) (*DatabaseLogger, error) {
 		level:   config.Level,
 		fields:  make(map[string]interface{}),
 		buffer:  make(chan interface{}, config.BufferSize),
+		wg:      &sync.WaitGroup{},
 		closing: make(chan bool),
 	}
 
@@ -45,7 +45,7 @@ func NewDatabase(config Config, db interface{}) (*DatabaseLogger, error) {
 	}
 
 	if config.FlushInterval <= 0 {
-		config.FlushInterval = 5 * time.Second
+		config.FlushInterval = 5 * apptime.Second
 	}
 
 	if config.MaxBatchSize <= 0 {
@@ -395,7 +395,7 @@ func (l *DatabaseLogger) log(ctx context.Context, level Level, message string, f
 		Level:     level,
 		Message:   message,
 		Fields:    l.mergeFields(fields...),
-		Timestamp: time.Now(),
+		Timestamp: apptime.NowTime(),
 	}
 
 	// Extract special fields
@@ -411,9 +411,8 @@ func (l *DatabaseLogger) log(ctx context.Context, level Level, message string, f
 
 	// Add caller info if configured
 	if l.config.IncludeCaller {
-		if pc, file, line, ok := runtime.Caller(2); ok {
-			fn := runtime.FuncForPC(pc)
-			log.Fields["caller"] = fmt.Sprintf("%s:%d %s", file, line, fn.Name())
+		if caller := getCallerInfo(2); caller != "" {
+			log.Fields["caller"] = caller
 		}
 	}
 
@@ -498,7 +497,7 @@ func (l *DatabaseLogger) insertRequestLog(ctx context.Context, req *RequestLog) 
 func (l *DatabaseLogger) worker() {
 	defer l.wg.Done()
 
-	ticker := time.NewTicker(l.config.FlushInterval)
+	ticker := apptime.NewTicker(l.config.FlushInterval)
 	defer ticker.Stop()
 
 	batch := make([]interface{}, 0, l.config.MaxBatchSize)
@@ -617,8 +616,4 @@ func (l *DatabaseLogger) runMigrations(ctx context.Context) error {
 	return nil
 }
 
-func getStackTrace() string {
-	buf := make([]byte, 1024*64)
-	n := runtime.Stack(buf, false)
-	return string(buf[:n])
-}
+// getStackTrace is defined in runtime_standard.go / runtime_wasi.go

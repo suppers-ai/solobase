@@ -2,10 +2,11 @@ package middleware
 
 import (
 	"net/http"
-	"os"
 	"strconv"
 	"sync"
-	"time"
+
+	"github.com/suppers-ai/solobase/internal/env"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // SecurityHeadersMiddleware adds security headers to all responses
@@ -27,7 +28,7 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "same-origin")
 
 		// Force HTTPS in production
-		if os.Getenv("ENVIRONMENT") == "production" {
+		if env.GetEnv("ENVIRONMENT") == "production" {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 
@@ -42,9 +43,9 @@ type RateLimitMiddleware struct {
 }
 
 type userRateLimit struct {
-	count      int
-	resetTime  time.Time
-	maxPerMin  int
+	count     int
+	resetTime apptime.Time
+	maxPerMin int
 }
 
 // NewRateLimitMiddleware creates a new rate limiter
@@ -55,7 +56,7 @@ func NewRateLimitMiddleware() *RateLimitMiddleware {
 
 	// Clean up old entries every minute
 	go func() {
-		ticker := time.NewTicker(1 * time.Minute)
+		ticker := apptime.NewTicker(1 * apptime.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
 			rl.cleanup()
@@ -69,7 +70,7 @@ func NewRateLimitMiddleware() *RateLimitMiddleware {
 func (rl *RateLimitMiddleware) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Only apply aggressive rate limiting in readonly mode
-		if os.Getenv("READONLY_MODE") != "true" {
+		if env.GetEnv("READONLY_MODE") != "true" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -109,14 +110,14 @@ func (rl *RateLimitMiddleware) checkLimit(clientIP string, maxPerMin int) (bool,
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	now := time.Now()
+	now := apptime.NowTime()
 
 	// Get or create rate limit entry
 	limit, exists := rl.requests[clientIP]
 	if !exists || now.After(limit.resetTime) {
 		rl.requests[clientIP] = &userRateLimit{
 			count:     1,
-			resetTime: now.Add(1 * time.Minute),
+			resetTime: now.Add(1 * apptime.Minute),
 			maxPerMin: maxPerMin,
 		}
 		return true, maxPerMin - 1
@@ -137,7 +138,7 @@ func (rl *RateLimitMiddleware) cleanup() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	now := time.Now()
+	now := apptime.NowTime()
 	for ip, limit := range rl.requests {
 		if now.After(limit.resetTime) {
 			delete(rl.requests, ip)

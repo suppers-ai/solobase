@@ -2,7 +2,8 @@ package mailer
 
 import (
 	"context"
-	"time"
+	"strings"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // Mailer is the main interface for sending emails
@@ -59,27 +60,12 @@ type Config struct {
 	From           Address                `json:"from"`
 	ReplyTo        *Address               `json:"replyTo,omitempty"`
 	MaxRetries     int                    `json:"maxRetries"`
-	RetryDelay     time.Duration          `json:"retryDelay"`
-	Timeout        time.Duration          `json:"timeout"`
+	RetryDelay     apptime.Duration          `json:"retryDelay"`
+	Timeout        apptime.Duration          `json:"timeout"`
 	RateLimit      int                    `json:"rateLimit"`      // emails per second
 	TemplateEngine string                 `json:"templateEngine"` // go, handlebars, etc
 	TemplatesPath  string                 `json:"templatesPath"`
 	Extra          map[string]interface{} `json:"extra"`
-}
-
-// SMTPConfig holds SMTP-specific configuration
-type SMTPConfig struct {
-	Host         string        `json:"host"`
-	Port         int           `json:"port"`
-	Username     string        `json:"username"`
-	Password     string        `json:"password"`
-	AuthType     string        `json:"authType"` // plain, login, cram-md5, oauth2
-	TLS          bool          `json:"tls"`
-	StartTLS     bool          `json:"startTls"`
-	InsecureSkip bool          `json:"insecureSkip"`
-	PoolSize     int           `json:"poolSize"`
-	MaxIdleConns int           `json:"maxIdleConns"`
-	IdleTimeout  time.Duration `json:"idleTimeout"`
 }
 
 // SendGridConfig holds SendGrid-specific configuration
@@ -105,11 +91,9 @@ type SESConfig struct {
 // New creates a new mailer instance based on the provider
 func New(config Config) (Mailer, error) {
 	switch config.Provider {
-	case "smtp":
-		return NewSMTP(config)
-	case "sendgrid":
-		return nil, ErrProviderNotImplemented
 	case "mailgun":
+		return nil, ErrProviderNotImplemented // TODO: implement via mailer extension
+	case "sendgrid":
 		return nil, ErrProviderNotImplemented
 	case "ses":
 		return nil, ErrProviderNotImplemented
@@ -133,11 +117,63 @@ func (a Address) Validate() error {
 	if a.Email == "" {
 		return ErrInvalidEmail
 	}
-	// Basic email validation
-	if !emailRegex.MatchString(a.Email) {
+	// Basic email validation without regexp
+	if !isValidEmail(a.Email) {
 		return ErrInvalidEmail
 	}
 	return nil
+}
+
+// isValidEmail performs basic email validation without using regexp
+// Checks for: local@domain.tld format
+func isValidEmail(email string) bool {
+	// Must contain exactly one @
+	atIndex := strings.Index(email, "@")
+	if atIndex == -1 || atIndex == 0 || atIndex == len(email)-1 {
+		return false
+	}
+	// Check for another @
+	if strings.Index(email[atIndex+1:], "@") != -1 {
+		return false
+	}
+	local := email[:atIndex]
+	domain := email[atIndex+1:]
+
+	// Local part must not be empty
+	if len(local) == 0 || len(local) > 64 {
+		return false
+	}
+
+	// Domain must contain at least one dot
+	dotIndex := strings.LastIndex(domain, ".")
+	if dotIndex == -1 || dotIndex == 0 || dotIndex == len(domain)-1 {
+		return false
+	}
+
+	// TLD must be at least 2 characters
+	tld := domain[dotIndex+1:]
+	if len(tld) < 2 {
+		return false
+	}
+
+	// Check for invalid characters in local part
+	for _, c := range local {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '.' || c == '_' ||
+			c == '%' || c == '+' || c == '-') {
+			return false
+		}
+	}
+
+	// Check for invalid characters in domain
+	for _, c := range domain {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '.' || c == '-') {
+			return false
+		}
+	}
+
+	return true
 }
 
 // Validate validates an email

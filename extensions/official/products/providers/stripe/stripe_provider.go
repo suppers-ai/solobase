@@ -1,18 +1,17 @@
+// Package stripe provides a Stripe payment provider that works in both
+// standard Go and TinyGo WASM builds using direct REST API calls.
 package stripe
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"time"
 
-	"github.com/stripe/stripe-go/v79"
-	"github.com/stripe/stripe-go/v79/checkout/session"
-	"github.com/stripe/stripe-go/v79/refund"
-	"github.com/stripe/stripe-go/v79/webhook"
+	"github.com/suppers-ai/solobase/internal/env"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+
 	"github.com/suppers-ai/solobase/extensions/official/products/models"
 	"github.com/suppers-ai/solobase/extensions/official/products/providers/events"
+	"github.com/suppers-ai/solobase/extensions/official/products/providers/stripe/client"
 )
 
 // Provider implements the PaymentProvider interface for Stripe
@@ -20,32 +19,29 @@ type Provider struct {
 	name           string
 	testMode       bool
 	configured     bool
-	apiKey         string
-	webhookSecret  string
+	client         *client.Client
 	publishableKey string
 }
 
 // New creates a new Stripe provider
 func New() *Provider {
-	apiKey := os.Getenv("STRIPE_SECRET_KEY")
-	webhookSecret := os.Getenv("STRIPE_WEBHOOK_SECRET")
-	publishableKey := os.Getenv("STRIPE_PUBLISHABLE_KEY")
+	apiKey := env.GetEnv("STRIPE_SECRET_KEY")
+	webhookSecret := env.GetEnv("STRIPE_WEBHOOK_SECRET")
+	publishableKey := env.GetEnv("STRIPE_PUBLISHABLE_KEY")
 
 	// Detect if using test mode
-	isTestMode := len(apiKey) > 3 && apiKey[:3] == "sk_test"
+	isTestMode := len(apiKey) > 7 && apiKey[:7] == "sk_test"
 
 	provider := &Provider{
 		name:           "stripe",
 		testMode:       isTestMode,
 		configured:     apiKey != "",
-		apiKey:         apiKey,
-		webhookSecret:  webhookSecret,
 		publishableKey: publishableKey,
 	}
 
-	// Set the API key for the Stripe client if configured
+	// Create the client if configured
 	if provider.configured {
-		stripe.Key = apiKey
+		provider.client = client.New(apiKey, webhookSecret)
 	}
 
 	return provider
@@ -57,21 +53,16 @@ func (p *Provider) CreateCheckoutSession(purchase *models.Purchase) (string, err
 		return "", errors.New("stripe provider not enabled")
 	}
 
-	// Convert line items to Stripe format
-	var lineItems []*stripe.CheckoutSessionLineItemParams
+	// Convert line items to client format
+	var lineItems []client.LineItemParams
 	for _, item := range purchase.LineItems {
-		lineItem := &stripe.CheckoutSessionLineItemParams{
-			PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
-				Currency: stripe.String(purchase.Currency),
-				ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
-					Name:        stripe.String(item.ProductName),
-					Description: stripe.String(item.Description),
-				},
-				UnitAmount: stripe.Int64(item.UnitPrice),
-			},
-			Quantity: stripe.Int64(int64(item.Quantity)),
-		}
-		lineItems = append(lineItems, lineItem)
+		lineItems = append(lineItems, client.LineItemParams{
+			Name:        item.ProductName,
+			Description: item.Description,
+			UnitAmount:  item.UnitPrice,
+			Currency:    purchase.Currency,
+			Quantity:    int64(item.Quantity),
+		})
 	}
 
 	// Default payment methods if not specified
@@ -80,58 +71,44 @@ func (p *Provider) CreateCheckoutSession(purchase *models.Purchase) (string, err
 		paymentMethods = []string{"card"}
 	}
 
-	params := &stripe.CheckoutSessionParams{
-		Mode:               stripe.String(string(stripe.CheckoutSessionModePayment)),
-		LineItems:          lineItems,
-		PaymentMethodTypes: stripe.StringSlice(paymentMethods),
-		SuccessURL:         stripe.String(purchase.SuccessURL),
-		CancelURL:          stripe.String(purchase.CancelURL),
-		ClientReferenceID:  stripe.String(fmt.Sprintf("%d", purchase.ID)),
+	// Set expiration (default 24 hours)
+	var expiresAt *apptime.Time
+	if purchase.ExpiresAt.Valid {
+		expiresAt = &purchase.ExpiresAt.Time
+	} else {
+		exp := purchase.CreatedAt.Add(24 * apptime.Hour)
+		expiresAt = &exp
+	}
+
+	params := &client.CheckoutSessionParams{
+		Mode:              "payment",
+		SuccessURL:        purchase.SuccessURL,
+		CancelURL:         purchase.CancelURL,
+		ClientReferenceID: fmt.Sprintf("%d", purchase.ID),
+		CustomerEmail:     purchase.CustomerEmail,
 		Metadata: map[string]string{
 			"purchase_id": fmt.Sprintf("%d", purchase.ID),
 			"user_id":     purchase.UserID,
 		},
+		LineItems:          lineItems,
+		PaymentMethodTypes: paymentMethods,
+		ExpiresAt:          expiresAt,
 	}
 
-	// Add customer email if provided
-	if purchase.CustomerEmail != "" {
-		params.CustomerEmail = stripe.String(purchase.CustomerEmail)
-	}
-
-	// TODO: Add automatic tax collection when CollectTax field is added to Purchase model
-	// if purchase.CollectTax {
-	//     params.AutomaticTax = &stripe.CheckoutSessionAutomaticTaxParams{
-	//         Enabled: stripe.Bool(true),
-	//     }
-	// }
-
-	// Set expiration (default 24 hours)
-	if purchase.ExpiresAt != nil {
-		params.ExpiresAt = stripe.Int64(purchase.ExpiresAt.Unix())
-	} else {
-		params.ExpiresAt = stripe.Int64(purchase.CreatedAt.Add(24 * time.Hour).Unix())
-	}
-
-	// Create the session
-	sess, err := session.New(params)
+	session, err := p.client.CreateCheckoutSession(params)
 	if err != nil {
 		return "", fmt.Errorf("failed to create Stripe checkout session: %w", err)
 	}
 
-	return sess.ID, nil
+	return session.ID, nil
 }
 
 // GetCheckoutURL generates the checkout URL for a given session ID
 func (p *Provider) GetCheckoutURL(sessionID string) string {
-	if sessionID == "" {
+	if p.client == nil {
 		return ""
 	}
-	if p.testMode {
-		// Test mode URL format
-		return fmt.Sprintf("https://checkout.stripe.com/c/pay/%s#", sessionID)
-	}
-	// Production URL format
-	return fmt.Sprintf("https://checkout.stripe.com/pay/%s", sessionID)
+	return p.client.GetCheckoutURL(sessionID)
 }
 
 // ExpireCheckoutSession expires a checkout session
@@ -140,18 +117,7 @@ func (p *Provider) ExpireCheckoutSession(sessionID string) error {
 		return errors.New("stripe provider not enabled")
 	}
 
-	params := &stripe.CheckoutSessionExpireParams{}
-	_, err := session.Expire(sessionID, params)
-	if err != nil {
-		// Check if session is already expired or completed
-		stripeErr, ok := err.(*stripe.Error)
-		if ok && (stripeErr.Code == "resource_missing" || stripeErr.HTTPStatusCode == 404) {
-			// Session doesn't exist or already expired, not an error
-			return nil
-		}
-		return fmt.Errorf("failed to expire checkout session: %w", err)
-	}
-	return nil
+	return p.client.ExpireCheckoutSession(sessionID)
 }
 
 // GetCheckoutSession retrieves a checkout session by ID
@@ -160,17 +126,15 @@ func (p *Provider) GetCheckoutSession(sessionID string) (interface{}, error) {
 		return nil, errors.New("stripe provider not enabled")
 	}
 
-	params := &stripe.CheckoutSessionParams{}
-	params.AddExpand("line_items")
-	params.AddExpand("payment_intent")
-	params.AddExpand("subscription")
-
-	sess, err := session.Get(sessionID, params)
+	session, err := p.client.GetCheckoutSession(sessionID, []string{
+		"line_items",
+		"payment_intent",
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get checkout session: %w", err)
 	}
 
-	return sess, nil
+	return session, nil
 }
 
 // RefundPayment creates a refund for a payment
@@ -179,29 +143,22 @@ func (p *Provider) RefundPayment(paymentIntentID string, amountCents int64, reas
 		return errors.New("stripe provider not enabled")
 	}
 
-	params := &stripe.RefundParams{
-		PaymentIntent: stripe.String(paymentIntentID),
-	}
-
-	// If amount is specified, do partial refund
-	if amountCents > 0 {
-		params.Amount = stripe.Int64(amountCents)
-	}
-
 	// Map reason to Stripe refund reason
+	stripeReason := "requested_by_customer"
 	switch reason {
 	case "duplicate":
-		params.Reason = stripe.String(string(stripe.RefundReasonDuplicate))
+		stripeReason = "duplicate"
 	case "fraudulent":
-		params.Reason = stripe.String(string(stripe.RefundReasonFraudulent))
+		stripeReason = "fraudulent"
 	case "requested_by_customer":
-		params.Reason = stripe.String(string(stripe.RefundReasonRequestedByCustomer))
-	default:
-		// Use requested_by_customer as default
-		params.Reason = stripe.String(string(stripe.RefundReasonRequestedByCustomer))
+		stripeReason = "requested_by_customer"
 	}
 
-	_, err := refund.New(params)
+	_, err := p.client.CreateRefund(&client.RefundParams{
+		PaymentIntent: paymentIntentID,
+		Amount:        amountCents,
+		Reason:        stripeReason,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create refund: %w", err)
 	}
@@ -215,7 +172,7 @@ func (p *Provider) ValidateWebhook(payload []byte, signature string) (interface{
 		return nil, errors.New("stripe provider not enabled")
 	}
 
-	event, err := webhook.ConstructEvent(payload, signature, p.webhookSecret)
+	event, err := p.client.ConstructEvent(payload, signature)
 	if err != nil {
 		return nil, fmt.Errorf("webhook signature verification failed: %w", err)
 	}
@@ -224,7 +181,10 @@ func (p *Provider) ValidateWebhook(payload []byte, signature string) (interface{
 
 // GetWebhookSigningSecret returns the webhook signing secret
 func (p *Provider) GetWebhookSigningSecret() string {
-	return p.webhookSecret
+	if p.client == nil {
+		return ""
+	}
+	return p.client.WebhookSecret
 }
 
 // GetWebhookPath returns the webhook path for Stripe
@@ -244,7 +204,7 @@ func (p *Provider) GetProviderName() string {
 
 // IsEnabled returns whether the provider is configured and enabled
 func (p *Provider) IsEnabled() bool {
-	return p.configured
+	return p.configured && p.client != nil
 }
 
 // IsTestMode returns whether the provider is in test mode
@@ -259,7 +219,7 @@ func (p *Provider) HandleWebhook(payload []byte, signature string, handler func(
 	}
 
 	// Validate and parse the webhook
-	event, err := webhook.ConstructEvent(payload, signature, p.webhookSecret)
+	event, err := p.client.ConstructEvent(payload, signature)
 	if err != nil {
 		return fmt.Errorf("webhook signature verification failed: %w", err)
 	}
@@ -308,50 +268,49 @@ func (p *Provider) HandleWebhook(payload []byte, signature string, handler func(
 	}
 }
 
-// Event conversion methods - convert Stripe events to generic provider events
-func (p *Provider) convertCheckoutCompleted(event stripe.Event) (events.CheckoutCompletedEvent, error) {
-	var session stripe.CheckoutSession
-	if err := json.Unmarshal(event.Data.Raw, &session); err != nil {
+// Event conversion methods
+
+func (p *Provider) convertCheckoutCompleted(event *client.Event) (events.CheckoutCompletedEvent, error) {
+	session, err := client.ParseCheckoutSession(event.Data.Raw)
+	if err != nil {
 		return events.CheckoutCompletedEvent{}, fmt.Errorf("failed to parse checkout session: %w", err)
 	}
 
-	// Get full session details
-	fullSession, err := p.GetCheckoutSession(session.ID)
+	// Get full session details with expanded fields
+	fullSession, err := p.client.GetCheckoutSession(session.ID, []string{
+		"line_items",
+		"payment_intent",
+	})
 	if err != nil {
 		return events.CheckoutCompletedEvent{}, fmt.Errorf("failed to retrieve full session: %w", err)
 	}
 
-	stripeSession, ok := fullSession.(*stripe.CheckoutSession)
-	if !ok {
-		return events.CheckoutCompletedEvent{}, fmt.Errorf("invalid session type")
-	}
-
 	genericEvent := events.CheckoutCompletedEvent{
-		SessionID:       session.ID,
-		AmountTotal:     stripeSession.AmountTotal,
-		Currency:        string(stripeSession.Currency),
-		Metadata:        stripeSession.Metadata,
+		SessionID:   session.ID,
+		AmountTotal: fullSession.AmountTotal,
+		Currency:    fullSession.Currency,
+		Metadata:    fullSession.Metadata,
 	}
 
-	if stripeSession.PaymentIntent != nil {
-		genericEvent.PaymentIntentID = stripeSession.PaymentIntent.ID
+	if fullSession.PaymentIntent != nil {
+		genericEvent.PaymentIntentID = fullSession.PaymentIntent.ID
 	}
 
-	if stripeSession.CustomerDetails != nil {
-		genericEvent.CustomerEmail = stripeSession.CustomerDetails.Email
-		genericEvent.CustomerName = stripeSession.CustomerDetails.Name
+	if fullSession.CustomerDetails != nil {
+		genericEvent.CustomerEmail = fullSession.CustomerDetails.Email
+		genericEvent.CustomerName = fullSession.CustomerDetails.Name
 	}
 
-	if stripeSession.TotalDetails != nil && stripeSession.TotalDetails.AmountTax > 0 {
-		genericEvent.TaxAmount = stripeSession.TotalDetails.AmountTax
+	if fullSession.TotalDetails != nil && fullSession.TotalDetails.AmountTax > 0 {
+		genericEvent.TaxAmount = fullSession.TotalDetails.AmountTax
 	}
 
 	return genericEvent, nil
 }
 
-func (p *Provider) convertCheckoutExpired(event stripe.Event) (events.CheckoutExpiredEvent, error) {
-	var session stripe.CheckoutSession
-	if err := json.Unmarshal(event.Data.Raw, &session); err != nil {
+func (p *Provider) convertCheckoutExpired(event *client.Event) (events.CheckoutExpiredEvent, error) {
+	session, err := client.ParseCheckoutSession(event.Data.Raw)
+	if err != nil {
 		return events.CheckoutExpiredEvent{}, fmt.Errorf("failed to parse checkout session: %w", err)
 	}
 
@@ -361,23 +320,23 @@ func (p *Provider) convertCheckoutExpired(event stripe.Event) (events.CheckoutEx
 	}, nil
 }
 
-func (p *Provider) convertPaymentSucceeded(event stripe.Event) (events.PaymentSucceededEvent, error) {
-	var intent stripe.PaymentIntent
-	if err := json.Unmarshal(event.Data.Raw, &intent); err != nil {
+func (p *Provider) convertPaymentSucceeded(event *client.Event) (events.PaymentSucceededEvent, error) {
+	intent, err := client.ParsePaymentIntent(event.Data.Raw)
+	if err != nil {
 		return events.PaymentSucceededEvent{}, fmt.Errorf("failed to parse payment intent: %w", err)
 	}
 
 	return events.PaymentSucceededEvent{
 		PaymentIntentID: intent.ID,
 		Amount:          intent.Amount,
-		Currency:        string(intent.Currency),
+		Currency:        intent.Currency,
 		Metadata:        intent.Metadata,
 	}, nil
 }
 
-func (p *Provider) convertPaymentFailed(event stripe.Event) (events.PaymentFailedEvent, error) {
-	var intent stripe.PaymentIntent
-	if err := json.Unmarshal(event.Data.Raw, &intent); err != nil {
+func (p *Provider) convertPaymentFailed(event *client.Event) (events.PaymentFailedEvent, error) {
+	intent, err := client.ParsePaymentIntent(event.Data.Raw)
+	if err != nil {
 		return events.PaymentFailedEvent{}, fmt.Errorf("failed to parse payment intent: %w", err)
 	}
 
@@ -388,30 +347,27 @@ func (p *Provider) convertPaymentFailed(event stripe.Event) (events.PaymentFaile
 	}
 
 	if intent.LastPaymentError != nil {
-		if intent.LastPaymentError.Msg != "" {
-			genericEvent.FailureReason = intent.LastPaymentError.Msg
+		if intent.LastPaymentError.Message != "" {
+			genericEvent.FailureReason = intent.LastPaymentError.Message
 		}
 		if intent.LastPaymentError.Code != "" {
-			genericEvent.FailureCode = string(intent.LastPaymentError.Code)
+			genericEvent.FailureCode = intent.LastPaymentError.Code
 		}
 	}
 
 	return genericEvent, nil
 }
 
-func (p *Provider) convertChargeRefunded(event stripe.Event) (events.RefundProcessedEvent, error) {
-	var charge stripe.Charge
-	if err := json.Unmarshal(event.Data.Raw, &charge); err != nil {
+func (p *Provider) convertChargeRefunded(event *client.Event) (events.RefundProcessedEvent, error) {
+	charge, err := client.ParseCharge(event.Data.Raw)
+	if err != nil {
 		return events.RefundProcessedEvent{}, fmt.Errorf("failed to parse charge: %w", err)
 	}
 
 	genericEvent := events.RefundProcessedEvent{
-		RefundAmount: charge.AmountRefunded,
-		Metadata:     charge.Metadata,
-	}
-
-	if charge.PaymentIntent != nil {
-		genericEvent.PaymentIntentID = charge.PaymentIntent.ID
+		PaymentIntentID: charge.PaymentIntent,
+		RefundAmount:    charge.AmountRefunded,
+		Metadata:        charge.Metadata,
 	}
 
 	// Get the refund reason if available
@@ -419,11 +375,9 @@ func (p *Provider) convertChargeRefunded(event stripe.Event) (events.RefundProce
 		latestRefund := charge.Refunds.Data[0]
 		genericEvent.RefundID = latestRefund.ID
 		if latestRefund.Reason != "" {
-			genericEvent.Reason = string(latestRefund.Reason)
+			genericEvent.Reason = latestRefund.Reason
 		}
 	}
 
 	return genericEvent, nil
 }
-
-

@@ -1,33 +1,25 @@
 package legalpages
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/microcosm-cc/bluemonday"
-	"gorm.io/gorm"
+
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+	db "github.com/suppers-ai/solobase/internal/sqlc/gen"
 )
 
 var (
-	ErrDocumentNotFound     = errors.New("document not found")
-	ErrInvalidDocumentType  = errors.New("invalid document type")
-	ErrValidationFailed     = errors.New("content validation failed")
+	ErrDocumentNotFound    = errors.New("document not found")
+	ErrInvalidDocumentType = errors.New("invalid document type")
+	ErrValidationFailed    = errors.New("content validation failed")
 )
 
 type LegalPagesService struct {
-	db         *gorm.DB
-	sanitizer  *bluemonday.Policy
-}
-
-func NewLegalPagesService(db *gorm.DB) *LegalPagesService {
-	// Create HTML sanitizer with allowed tags
-	p := bluemonday.UGCPolicy()
-	p.AllowElements("p", "br", "strong", "em", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6")
-	p.AllowAttrs("href").OnElements("a")
-
-	return &LegalPagesService{
-		db:        db,
-		sanitizer: p,
-	}
+	queries   *db.Queries
+	sqlDB     *sql.DB
+	sanitizer htmlSanitizer
 }
 
 func (s *LegalPagesService) validateDocumentType(docType string) error {
@@ -42,19 +34,16 @@ func (s *LegalPagesService) GetDocument(docType string) (*LegalDocument, error) 
 		return nil, err
 	}
 
-	var doc LegalDocument
-	err := s.db.Where("document_type = ? AND status = ?", docType, StatusPublished).
-		Order("version DESC").
-		First(&doc).Error
-
+	ctx := context.Background()
+	dbDoc, err := s.queries.GetPublishedDocumentByType(ctx, docType)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrDocumentNotFound
 		}
 		return nil, err
 	}
 
-	return &doc, nil
+	return dbDocToLegalDocument(dbDoc), nil
 }
 
 func (s *LegalPagesService) GetLatestDocument(docType string) (*LegalDocument, error) {
@@ -62,19 +51,16 @@ func (s *LegalPagesService) GetLatestDocument(docType string) (*LegalDocument, e
 		return nil, err
 	}
 
-	var doc LegalDocument
-	err := s.db.Where("document_type = ?", docType).
-		Order("version DESC").
-		First(&doc).Error
-
+	ctx := context.Background()
+	dbDoc, err := s.queries.GetLatestDocumentByType(ctx, docType)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrDocumentNotFound
 		}
 		return nil, err
 	}
 
-	return &doc, nil
+	return dbDocToLegalDocument(dbDoc), nil
 }
 
 func (s *LegalPagesService) SaveDocument(docType, title, content string, userID string) (*LegalDocument, error) {
@@ -89,20 +75,41 @@ func (s *LegalPagesService) SaveDocument(docType, title, content string, userID 
 	// Sanitize HTML content
 	sanitizedContent := s.sanitizer.Sanitize(content)
 
-	// Create new document version
+	ctx := context.Background()
+
+	// Get the next version number
+	maxVersion, err := s.queries.GetMaxVersionByType(ctx, docType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get max version: %w", err)
+	}
+	nextVersion := maxVersion + 1
+
+	// Prepare the document
 	doc := &LegalDocument{
 		DocumentType: docType,
 		Title:        title,
 		Content:      sanitizedContent,
+		Version:      int(nextVersion),
 		CreatedBy:    userID,
 	}
+	doc.PrepareForCreate()
 
-	// The BeforeCreate hook will handle version incrementing
-	if err := s.db.Create(doc).Error; err != nil {
+	// Create the document
+	status := doc.Status
+	dbDoc, err := s.queries.CreateLegalDocument(ctx, db.CreateLegalDocumentParams{
+		ID:           doc.ID,
+		DocumentType: doc.DocumentType,
+		Title:        doc.Title,
+		Content:      &doc.Content,
+		Version:      int64(doc.Version),
+		Status:       &status,
+		CreatedBy:    &doc.CreatedBy,
+	})
+	if err != nil {
 		return nil, fmt.Errorf("failed to save document: %w", err)
 	}
 
-	return doc, nil
+	return dbDocToLegalDocument(dbDoc), nil
 }
 
 func (s *LegalPagesService) PublishDocument(docType string, version int) error {
@@ -110,30 +117,45 @@ func (s *LegalPagesService) PublishDocument(docType string, version int) error {
 		return err
 	}
 
+	ctx := context.Background()
+
 	// Start a transaction
-	return s.db.Transaction(func(tx *gorm.DB) error {
-		// Archive all previously published versions
-		if err := tx.Model(&LegalDocument{}).
-			Where("document_type = ? AND status = ?", docType, StatusPublished).
-			Update("status", StatusArchived).Error; err != nil {
-			return err
-		}
+	tx, err := s.sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
 
-		// Publish the specified version
-		result := tx.Model(&LegalDocument{}).
-			Where("document_type = ? AND version = ?", docType, version).
-			Update("status", StatusPublished)
+	qtx := s.queries.WithTx(tx)
 
-		if result.Error != nil {
-			return result.Error
-		}
+	// Archive all previously published versions
+	if err := qtx.ArchivePublishedDocumentsByType(ctx, docType); err != nil {
+		return err
+	}
 
-		if result.RowsAffected == 0 {
+	// Publish the specified version
+	published := StatusPublished
+	if err := qtx.UpdateDocumentStatusByTypeAndVersion(ctx, db.UpdateDocumentStatusByTypeAndVersionParams{
+		Status:       &published,
+		DocumentType: docType,
+		Version:      int64(version),
+	}); err != nil {
+		return err
+	}
+
+	// Verify the document was updated
+	_, err = qtx.GetDocumentByTypeAndVersion(ctx, db.GetDocumentByTypeAndVersionParams{
+		DocumentType: docType,
+		Version:      int64(version),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			return ErrDocumentNotFound
 		}
+		return err
+	}
 
-		return nil
-	})
+	return tx.Commit()
 }
 
 func (s *LegalPagesService) GetDocumentHistory(docType string) ([]*LegalDocument, error) {
@@ -141,13 +163,15 @@ func (s *LegalPagesService) GetDocumentHistory(docType string) ([]*LegalDocument
 		return nil, err
 	}
 
-	var documents []*LegalDocument
-	err := s.db.Where("document_type = ?", docType).
-		Order("version DESC").
-		Find(&documents).Error
-
+	ctx := context.Background()
+	dbDocs, err := s.queries.ListLegalDocumentsByType(ctx, docType)
 	if err != nil {
 		return nil, err
+	}
+
+	documents := make([]*LegalDocument, len(dbDocs))
+	for i, dbDoc := range dbDocs {
+		documents[i] = dbDocToLegalDocument(dbDoc)
 	}
 
 	return documents, nil
@@ -158,18 +182,19 @@ func (s *LegalPagesService) GetDocumentByVersion(docType string, version int) (*
 		return nil, err
 	}
 
-	var doc LegalDocument
-	err := s.db.Where("document_type = ? AND version = ?", docType, version).
-		First(&doc).Error
-
+	ctx := context.Background()
+	dbDoc, err := s.queries.GetDocumentByTypeAndVersion(ctx, db.GetDocumentByTypeAndVersionParams{
+		DocumentType: docType,
+		Version:      int64(version),
+	})
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrDocumentNotFound
 		}
 		return nil, err
 	}
 
-	return &doc, nil
+	return dbDocToLegalDocument(dbDoc), nil
 }
 
 // SetDocumentStatus updates the status of a specific document version
@@ -180,7 +205,7 @@ func (s *LegalPagesService) SetDocumentStatus(docType string, version int, statu
 
 	// Validate status
 	if status != StatusDraft && status != StatusPublished &&
-	   status != StatusArchived && status != StatusReview {
+		status != StatusArchived && status != StatusReview {
 		return fmt.Errorf("invalid status: %s", status)
 	}
 
@@ -189,18 +214,46 @@ func (s *LegalPagesService) SetDocumentStatus(docType string, version int, statu
 		return s.PublishDocument(docType, version)
 	}
 
+	ctx := context.Background()
+
+	// First check if document exists
+	_, err := s.queries.GetDocumentByTypeAndVersion(ctx, db.GetDocumentByTypeAndVersionParams{
+		DocumentType: docType,
+		Version:      int64(version),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrDocumentNotFound
+		}
+		return err
+	}
+
 	// Update the document status
-	result := s.db.Model(&LegalDocument{}).
-		Where("document_type = ? AND version = ?", docType, version).
-		Update("status", status)
+	return s.queries.UpdateDocumentStatusByTypeAndVersion(ctx, db.UpdateDocumentStatusByTypeAndVersionParams{
+		Status:       &status,
+		DocumentType: docType,
+		Version:      int64(version),
+	})
+}
 
-	if result.Error != nil {
-		return result.Error
+// dbDocToLegalDocument converts a sqlc generated document to our model
+func dbDocToLegalDocument(dbDoc db.ExtLegalpagesLegalDocument) *LegalDocument {
+	doc := &LegalDocument{
+		ID:           dbDoc.ID,
+		DocumentType: dbDoc.DocumentType,
+		Title:        dbDoc.Title,
+		Version:      int(dbDoc.Version),
+		CreatedAt:    apptime.NewTime(apptime.MustParse(dbDoc.CreatedAt)),
+		UpdatedAt:    apptime.NewTime(apptime.MustParse(dbDoc.UpdatedAt)),
 	}
-
-	if result.RowsAffected == 0 {
-		return ErrDocumentNotFound
+	if dbDoc.Content != nil {
+		doc.Content = *dbDoc.Content
 	}
-
-	return nil
+	if dbDoc.Status != nil {
+		doc.Status = *dbDoc.Status
+	}
+	if dbDoc.CreatedBy != nil {
+		doc.CreatedBy = *dbDoc.CreatedBy
+	}
+	return doc
 }

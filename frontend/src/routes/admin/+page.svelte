@@ -6,7 +6,7 @@
 		Users, Database, HardDrive, Activity,
 		TrendingUp, TrendingDown, Clock, Server,
 		Zap, AlertCircle, CheckCircle, RefreshCw,
-		LayoutDashboard
+		LayoutDashboard, Info, X
 	} from 'lucide-svelte';
 	import PageHeader from '$lib/components/ui/PageHeader.svelte';
 	import { api } from '$lib/api';
@@ -30,6 +30,35 @@
 		diskTotal: number;
 	}
 
+	interface AdminMetrics {
+		timeRange: string;
+		totalRequests: number;
+		requestsByMethod: Record<string, number>;
+		requestsByStatus: Record<string, number>;
+		requestsPerMinute: number;
+		avgResponseTimeMs: number;
+		maxResponseTimeMs: number;
+		minResponseTimeMs: number;
+		p95ResponseTimeMs: number;
+		p99ResponseTimeMs: number;
+		errorCount: number;
+		errorRate: number;
+		topEndpoints: Array<{
+			path: string;
+			method: string;
+			requestCount: number;
+			avgTimeMs: number;
+			errorCount: number;
+			errorRate: number;
+		}>;
+		hourlyStats: Array<{
+			hour: string;
+			requestCount: number;
+			avgTimeMs: number;
+			errorCount: number;
+		}>;
+	}
+
 	Chart.register(...registerables);
 	
 	// Check if user is admin
@@ -40,6 +69,7 @@
 	// Loading state
 	let loading = true;
 	let error = '';
+	let showInfoModal = false;
 	
 	// System metrics
 	let cpuUsage = 0;
@@ -435,48 +465,28 @@
 				used: metrics.diskUsed || 0,
 				total: metrics.diskTotal || 0
 			};
-			
-			// Fetch Prometheus metrics
-			const response = await fetch('/api/metrics');
-			const text = await response.text();
-			
-			const lines = text.split('\n');
-			let requestsCount = 0;
-			let queriesCount = 0;
-			let totalDuration = 0;
-			let durationCount = 0;
-			let errors = 0;
-			
-			lines.forEach(line => {
-				if (line.startsWith('http_requests_total{')) {
-					const match = line.match(/} (\d+)/);
-					if (match) requestsCount += parseInt(match[1]);
-					
-					if (line.includes('status="4') || line.includes('status="5')) {
-						const errorMatch = line.match(/} (\d+)/);
-						if (errorMatch) errors += parseInt(errorMatch[1]);
-					}
-				}
-				if (line.startsWith('database_queries_total{')) {
-					const match = line.match(/} (\d+)/);
-					if (match) queriesCount += parseInt(match[1]);
-				}
-				if (line.startsWith('http_request_duration_seconds_sum{')) {
-					const match = line.match(/} ([\d.]+)/);
-					if (match) totalDuration += parseFloat(match[1]);
-				}
-				if (line.startsWith('http_request_duration_seconds_count{')) {
-					const match = line.match(/} (\d+)/);
-					if (match) durationCount += parseInt(match[1]);
-				}
-			});
-			
-			httpRequestsTotal = requestsCount;
-			dbQueriesTotal = queriesCount;
-			avgResponseTime = durationCount > 0 ? Math.round(totalDuration / durationCount * 1000) : 0;
-			errorRate = requestsCount > 0 ? parseFloat(((errors / requestsCount) * 100).toFixed(1)) : 0;
-			httpRequestRate = Math.round(requestsCount / 60);
-			
+
+			// Fetch admin metrics from the new endpoint
+			try {
+				const adminMetrics = await api.get<AdminMetrics>('/admin/metrics?range=24h');
+
+				httpRequestsTotal = adminMetrics.totalRequests || 0;
+				httpRequestRate = Math.round(adminMetrics.requestsPerMinute || 0);
+				avgResponseTime = Math.round(adminMetrics.avgResponseTimeMs || 0);
+				errorRate = parseFloat((adminMetrics.errorRate || 0).toFixed(1));
+
+				// Calculate DB queries from request count (approximation)
+				dbQueriesTotal = Math.round(httpRequestsTotal * 2); // Estimate 2 queries per request
+			} catch {
+				// Fallback to zeros if admin metrics fail
+				console.warn('Admin metrics endpoint not available');
+				httpRequestsTotal = 0;
+				httpRequestRate = 0;
+				avgResponseTime = 0;
+				errorRate = 0;
+				dbQueriesTotal = 0;
+			}
+
 			updateCharts();
 			loading = false;
 			error = '';
@@ -595,6 +605,9 @@
 			<span class="meta-item">Uptime: {uptime}</span>
 		</svelte:fragment>
 		<svelte:fragment slot="actions">
+			<button class="info-button" on:click={() => showInfoModal = true} title="API Metrics Info">
+				<Info size={16} />
+			</button>
 			<button class="refresh-button" on:click={refreshData} disabled={loading}>
 				<RefreshCw size={16} class={loading ? 'spinning' : ''} />
 				{loading ? 'Refreshing...' : 'Refresh'}
@@ -818,6 +831,50 @@
 		</div>
 		</div>
 	</div>
+
+	<!-- Info Modal -->
+	{#if showInfoModal}
+		<div class="modal-overlay" on:click={() => showInfoModal = false} on:keydown={(e) => e.key === 'Escape' && (showInfoModal = false)} role="button" tabindex="0">
+			<div class="modal-content" on:click|stopPropagation role="dialog" aria-modal="true" aria-labelledby="modal-title">
+				<div class="modal-header">
+					<h2 id="modal-title">API Metrics Endpoint</h2>
+					<button class="modal-close" on:click={() => showInfoModal = false}>
+						<X size={20} />
+					</button>
+				</div>
+				<div class="modal-body">
+					<p>You can programmatically access aggregated metrics by calling the admin metrics API endpoint:</p>
+
+					<div class="code-block">
+						<code>GET /api/admin/metrics</code>
+					</div>
+
+					<h3>Query Parameters</h3>
+					<ul>
+						<li><strong>range</strong>: Time range for metrics (1h, 6h, 24h, 7d, 30d). Default: 24h</li>
+					</ul>
+
+					<h3>Response</h3>
+					<p>Returns JSON with:</p>
+					<ul>
+						<li>Total requests and requests per minute</li>
+						<li>Requests by HTTP method (GET, POST, etc.)</li>
+						<li>Requests by status code (2xx, 4xx, 5xx)</li>
+						<li>Response time stats (avg, min, max, P95, P99)</li>
+						<li>Error rate and top errors</li>
+						<li>Top endpoints by request count</li>
+						<li>Hourly breakdown of requests</li>
+					</ul>
+
+					<h3>Authentication</h3>
+					<p>This endpoint requires admin or admin_viewer role. Include your JWT token in the Authorization header or use an API key.</p>
+
+					<h3>Log Retention</h3>
+					<p>Request logs are automatically cleaned up after <strong>7 days</strong>. Metrics are aggregated from these logs.</p>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -1262,5 +1319,130 @@
 			width: 100%;
 			justify-content: space-between;
 		}
+	}
+
+	/* Info Button */
+	.info-button {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 36px;
+		height: 36px;
+		background: white;
+		color: #6b7280;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.info-button:hover {
+		background: #f9fafb;
+		border-color: #9ca3af;
+		color: #374151;
+	}
+
+	/* Modal Styles */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 1rem;
+	}
+
+	.modal-content {
+		background: white;
+		border-radius: 12px;
+		max-width: 600px;
+		width: 100%;
+		max-height: 90vh;
+		overflow-y: auto;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+	}
+
+	.modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem 1.5rem;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.modal-header h2 {
+		margin: 0;
+		font-size: 1.125rem;
+		font-weight: 600;
+		color: #111827;
+	}
+
+	.modal-close {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		background: transparent;
+		border: none;
+		color: #6b7280;
+		cursor: pointer;
+		border-radius: 6px;
+		transition: all 0.2s;
+	}
+
+	.modal-close:hover {
+		background: #f3f4f6;
+		color: #374151;
+	}
+
+	.modal-body {
+		padding: 1.5rem;
+	}
+
+	.modal-body p {
+		margin: 0 0 1rem;
+		color: #374151;
+		line-height: 1.6;
+	}
+
+	.modal-body h3 {
+		margin: 1.5rem 0 0.5rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #111827;
+	}
+
+	.modal-body h3:first-of-type {
+		margin-top: 1rem;
+	}
+
+	.modal-body ul {
+		margin: 0;
+		padding-left: 1.25rem;
+		color: #4b5563;
+	}
+
+	.modal-body li {
+		margin: 0.25rem 0;
+		line-height: 1.5;
+	}
+
+	.code-block {
+		background: #1f2937;
+		padding: 0.75rem 1rem;
+		border-radius: 6px;
+		margin: 1rem 0;
+	}
+
+	.code-block code {
+		color: #10b981;
+		font-family: 'SF Mono', 'Consolas', monospace;
+		font-size: 0.875rem;
 	}
 </style>

@@ -228,7 +228,7 @@ func WrapDBError(err error, notFoundMsg string) *APIError {
 	if err == nil {
 		return nil
 	}
-	// Check for common GORM errors
+	// Check for common database errors
 	errStr := err.Error()
 	if errStr == "record not found" {
 		return NewNotFound(notFoundMsg)

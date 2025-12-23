@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // MetricsCollector collects application metrics
@@ -28,14 +28,14 @@ type MetricsCollector struct {
 	userLogins        int64
 	apiCalls          map[string]int64 // endpoint -> count
 
-	startTime time.Time
+	startTime apptime.Time
 }
 
 var metricsCollector = &MetricsCollector{
 	httpRequests: make(map[string]map[string]int64),
 	dbQueries:    make(map[string]int64),
 	apiCalls:     make(map[string]int64),
-	startTime:    time.Now(),
+	startTime:    apptime.NowTime(),
 }
 
 // RecordHTTPRequest records an HTTP request
@@ -143,7 +143,7 @@ func HandleGetMetrics() http.HandlerFunc {
 		}
 
 		// Uptime metric
-		uptime := time.Since(metricsCollector.startTime).Seconds()
+		uptime := apptime.Since(metricsCollector.startTime).Seconds()
 		fmt.Fprintln(w, "# HELP uptime_seconds Number of seconds since the application started")
 		fmt.Fprintln(w, "# TYPE uptime_seconds gauge")
 		fmt.Fprintf(w, "uptime_seconds{} %f\n", uptime)
@@ -153,7 +153,7 @@ func HandleGetMetrics() http.HandlerFunc {
 // MetricsMiddleware is middleware to track HTTP metrics
 func MetricsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
+		start := apptime.NowTime()
 
 		// Wrap ResponseWriter to capture status code
 		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
@@ -162,7 +162,7 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(wrapped, r)
 
 		// Record metrics
-		duration := time.Since(start).Seconds()
+		duration := apptime.Since(start).Seconds()
 		status := fmt.Sprintf("%d", wrapped.statusCode)
 		RecordHTTPRequest(r.Method, status, duration)
 		RecordAPICall(r.URL.Path)

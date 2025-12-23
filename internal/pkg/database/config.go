@@ -1,7 +1,7 @@
 package database
 
 import (
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // Config holds database configuration
@@ -20,10 +20,14 @@ type Config struct {
 	Password string `json:"password" yaml:"password"`
 	SSLMode  string `json:"sslMode" yaml:"sslMode"`
 
+	// Schema for PostgreSQL - sets search_path for project isolation
+	// Each project can have its own schema (e.g., "project_abc123")
+	Schema string `json:"schema" yaml:"schema"`
+
 	// Connection pool settings
 	MaxOpenConns    int           `json:"maxOpenConns" yaml:"maxOpenConns"`
 	MaxIdleConns    int           `json:"maxIdleConns" yaml:"maxIdleConns"`
-	ConnMaxLifetime time.Duration `json:"connMaxLifetime" yaml:"connMaxLifetime"`
+	ConnMaxLifetime apptime.Duration `json:"connMaxLifetime" yaml:"connMaxLifetime"`
 
 	// Debug mode enables query logging
 	Debug bool `json:"debug" yaml:"debug"`
@@ -48,7 +52,7 @@ func NewConfig() *Config {
 		SSLMode:         "disable",
 		MaxOpenConns:    100,
 		MaxIdleConns:    10,
-		ConnMaxLifetime: time.Hour,
+		ConnMaxLifetime: apptime.Hour,
 		Debug:           false,
 		AutoMigrate:     true,
 	}
@@ -82,7 +86,7 @@ func NewPostgresConfig(host string, port int, database, username, password strin
 		SSLMode:         "disable",
 		MaxOpenConns:    100,
 		MaxIdleConns:    10,
-		ConnMaxLifetime: time.Hour,
+		ConnMaxLifetime: apptime.Hour,
 		Debug:           false,
 		AutoMigrate:     true,
 	}
@@ -117,5 +121,11 @@ func (c *Config) WithAutoMigrate(auto bool, models ...interface{}) *Config {
 // WithDSN sets the DSN
 func (c *Config) WithDSN(dsn string) *Config {
 	c.DSN = dsn
+	return c
+}
+
+// WithSchema sets the PostgreSQL schema for project isolation
+func (c *Config) WithSchema(schema string) *Config {
+	c.Schema = schema
 	return c
 }

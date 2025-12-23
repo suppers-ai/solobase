@@ -2,7 +2,7 @@ package routes
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -12,7 +12,7 @@ import (
 
 // RegisterIAMRoutes registers all IAM-related routes
 func RegisterIAMRoutes(router *mux.Router, iamService *iam.Service) {
-	log.Printf("RegisterIAMRoutes: Registering IAM routes")
+	fmt.Println("RegisterIAMRoutes: Registering IAM routes")
 	// Apply auth middleware to all IAM routes
 	iamRouter := router.PathPrefix("/iam").Subrouter()
 	// Note: Auth middleware is already applied in the parent router
@@ -38,9 +38,9 @@ func RegisterIAMRoutes(router *mux.Router, iamService *iam.Service) {
 	iamRouter.HandleFunc("/test-permission", handleTestPermission(iamService)).Methods("POST", "OPTIONS")
 
 	// Audit logs
-	log.Printf("RegisterIAMRoutes: Registering audit-logs endpoint")
+	fmt.Println("RegisterIAMRoutes: Registering audit-logs endpoint")
 	iamRouter.HandleFunc("/audit-logs", handleGetAuditLogs(iamService)).Methods("GET", "OPTIONS")
-	log.Printf("RegisterIAMRoutes: audit-logs endpoint registered")
+	fmt.Println("RegisterIAMRoutes: audit-logs endpoint registered")
 }
 
 func handleGetRoles(iamService *iam.Service) http.HandlerFunc {
@@ -279,28 +279,28 @@ func handleTestPermission(iamService *iam.Service) http.HandlerFunc {
 
 func handleGetAuditLogs(iamService *iam.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("handleGetAuditLogs: Called for path %s, method %s", r.URL.Path, r.Method)
-		
+		fmt.Printf("handleGetAuditLogs: Called for path %s, method %s\n", r.URL.Path, r.Method)
+
 		// Handle OPTIONS for CORS
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		
+
 		limit := r.URL.Query().Get("limit")
 		filter := r.URL.Query().Get("filter")
 		logType := r.URL.Query().Get("type")
 
-		log.Printf("handleGetAuditLogs: Getting audit logs with limit=%s, filter=%s, type=%s", limit, filter, logType)
-		
-		logs, err := iamService.GetAuditLogs(r.Context(), limit, filter, logType)
+		fmt.Printf("handleGetAuditLogs: Getting audit logs with limit=%s, filter=%s, type=%s\n", limit, filter, logType)
+
+		logs, err := iamService.GetAuditLogsFiltered(r.Context(), limit, filter, logType)
 		if err != nil {
-			log.Printf("handleGetAuditLogs: Error getting audit logs: %v", err)
+			fmt.Printf("handleGetAuditLogs: Error getting audit logs: %v\n", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		log.Printf("handleGetAuditLogs: Successfully retrieved %d audit logs", len(logs))
+		fmt.Printf("handleGetAuditLogs: Successfully retrieved %d audit logs\n", len(logs))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(logs)
 	}

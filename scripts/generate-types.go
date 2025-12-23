@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 type StructInfo struct {
@@ -25,7 +25,6 @@ type FieldInfo struct {
 	Name       string
 	Type       string
 	JSONTag    string
-	GormTag    string
 	IsPointer  bool
 	IsOptional bool
 	Comment    string
@@ -46,7 +45,7 @@ var typeMapping = map[string]string{
 	"float32":                   "number",
 	"float64":                   "number",
 	"bool":                      "boolean",
-	"time.Time":                 "string | Date",
+	"apptime.Time":                 "string | Date",
 	"uuid.UUID":                 "string",
 	"[]byte":                    "Uint8Array",
 	"map[string]interface{}":    "Record<string, any>",
@@ -66,7 +65,6 @@ func main() {
 		"internal/pkg/auth/models.go",
 		"internal/pkg/storage/models.go",
 		"internal/iam/models.go",
-		"extensions/official/analytics/models.go",
 		"extensions/official/cloudstorage/models.go",
 		"extensions/official/cloudstorage/models_quota.go",
 		"extensions/official/products/models/models.go",
@@ -171,7 +169,6 @@ func parseField(field *ast.Field) *FieldInfo {
 	if field.Tag != nil {
 		tag := strings.Trim(field.Tag.Value, "`")
 		fieldInfo.JSONTag = parseTag(tag, "json")
-		fieldInfo.GormTag = parseTag(tag, "gorm")
 
 		// Check if field is optional based on tags
 		if strings.Contains(fieldInfo.JSONTag, "omitempty") {
@@ -287,8 +284,8 @@ func generateToPath(structs []StructInfo, outputPath string) {
 	defer writer.Flush()
 
 	// Write header
-	fmt.Fprintf(writer, "// Auto-generated from GORM models - DO NOT EDIT MANUALLY\n")
-	fmt.Fprintf(writer, "// Generated at: %s\n", time.Now().Format(time.RFC3339))
+	fmt.Fprintf(writer, "// Auto-generated from Go models - DO NOT EDIT MANUALLY\n")
+	fmt.Fprintf(writer, "// Generated at: %s\n", apptime.NowTime().Format(apptime.TimeFormat))
 	fmt.Fprintf(writer, "// Run 'go run scripts/generate-types.go' to regenerate\n\n")
 
 	// Group structs by package
@@ -369,8 +366,6 @@ func generateInterface(writer *bufio.Writer, structInfo StructInfo) {
 		interfaceName = "CloudStorage" + structInfo.Name
 	case "products", "models":
 		interfaceName = "Product" + structInfo.Name
-	case "analytics":
-		interfaceName = "Analytics" + structInfo.Name
 	}
 
 	fmt.Fprintf(writer, "export interface %s {\n", interfaceName)

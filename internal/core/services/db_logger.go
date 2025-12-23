@@ -2,26 +2,25 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
-	"time"
 
-	"github.com/google/uuid"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 	"github.com/suppers-ai/solobase/internal/pkg/logger"
-	"github.com/suppers-ai/solobase/internal/pkg/database"
-	"gorm.io/datatypes"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
 )
 
 // DBLogger implements the logger.Logger interface and writes to database
 type DBLogger struct {
-	db       *database.DB
+	db       *sql.DB
 	logChan  chan *logger.LogModel
 	reqChan  chan *logger.RequestLogModel
 	shutdown chan bool
 }
 
 // NewDBLogger creates a new database logger with buffered async writing
-func NewDBLogger(db *database.DB) *DBLogger {
+func NewDBLogger(db *sql.DB) *DBLogger {
 	l := &DBLogger{
 		db:       db,
 		logChan:  make(chan *logger.LogModel, 100),        // Buffer up to 100 logs
@@ -38,7 +37,7 @@ func NewDBLogger(db *database.DB) *DBLogger {
 
 // logWriter processes logs in batches for better performance
 func (l *DBLogger) logWriter() {
-	ticker := time.NewTicker(1 * time.Second) // Batch write every second
+	ticker := apptime.NewTicker(1 * apptime.Second) // Batch write every second
 	batch := make([]*logger.LogModel, 0, 10)
 
 	for {
@@ -48,29 +47,46 @@ func (l *DBLogger) logWriter() {
 			// Write immediately if batch is full
 			if len(batch) >= 10 {
 				if len(batch) > 0 {
-					l.db.CreateInBatches(batch, len(batch))
+					l.insertLogs(batch)
 					batch = batch[:0] // Clear batch
 				}
 			}
 		case <-ticker.C:
 			// Write any pending logs
 			if len(batch) > 0 {
-				l.db.CreateInBatches(batch, len(batch))
+				l.insertLogs(batch)
 				batch = batch[:0] // Clear batch
 			}
 		case <-l.shutdown:
 			// Write any remaining logs before shutdown
 			if len(batch) > 0 {
-				l.db.CreateInBatches(batch, len(batch))
+				l.insertLogs(batch)
 			}
 			return
 		}
 	}
 }
 
+// insertLogs inserts a batch of logs into the database
+func (l *DBLogger) insertLogs(logs []*logger.LogModel) {
+	for _, log := range logs {
+		var userID, traceID interface{} = nil, nil
+		if log.UserID != nil {
+			userID = *log.UserID
+		}
+		if log.TraceID != nil {
+			traceID = *log.TraceID
+		}
+		_, _ = l.db.Exec(
+			`INSERT INTO sys_logs (id, level, message, fields, user_id, trace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			log.ID.String(), log.Level, log.Message, string(log.Fields), userID, traceID, log.CreatedAt,
+		)
+	}
+}
+
 // requestLogWriter processes request logs in batches
 func (l *DBLogger) requestLogWriter() {
-	ticker := time.NewTicker(1 * time.Second) // Batch write every second
+	ticker := apptime.NewTicker(1 * apptime.Second) // Batch write every second
 	batch := make([]*logger.RequestLogModel, 0, 10)
 
 	for {
@@ -80,23 +96,43 @@ func (l *DBLogger) requestLogWriter() {
 			// Write immediately if batch is full
 			if len(batch) >= 10 {
 				if len(batch) > 0 {
-					l.db.CreateInBatches(batch, len(batch))
+					l.insertRequestLogs(batch)
 					batch = batch[:0] // Clear batch
 				}
 			}
 		case <-ticker.C:
 			// Write any pending logs
 			if len(batch) > 0 {
-				l.db.CreateInBatches(batch, len(batch))
+				l.insertRequestLogs(batch)
 				batch = batch[:0] // Clear batch
 			}
 		case <-l.shutdown:
 			// Write any remaining logs before shutdown
 			if len(batch) > 0 {
-				l.db.CreateInBatches(batch, len(batch))
+				l.insertRequestLogs(batch)
 			}
 			return
 		}
+	}
+}
+
+// insertRequestLogs inserts a batch of request logs into the database
+func (l *DBLogger) insertRequestLogs(logs []*logger.RequestLogModel) {
+	for _, log := range logs {
+		var userAgent, userID, errorStr interface{} = nil, nil, nil
+		if log.UserAgent != nil {
+			userAgent = *log.UserAgent
+		}
+		if log.UserID != nil {
+			userID = *log.UserID
+		}
+		if log.Error != nil {
+			errorStr = *log.Error
+		}
+		_, _ = l.db.Exec(
+			`INSERT INTO sys_request_logs (id, level, method, path, status_code, exec_time_ms, user_ip, user_agent, user_id, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			log.ID.String(), log.Level, log.Method, log.Path, log.StatusCode, log.ExecTimeMs, log.UserIP, userAgent, userID, errorStr, log.CreatedAt,
+		)
 	}
 }
 
@@ -139,10 +175,10 @@ func (l *DBLogger) Log(ctx context.Context, level logger.Level, msg string, fiel
 		ID:        uuid.New(),
 		Level:     levelStr,
 		Message:   msg,
-		Fields:    datatypes.JSON(fieldsJSON),
+		Fields:    json.RawMessage(fieldsJSON),
 		UserID:    userID,
 		TraceID:   traceID,
-		CreatedAt: time.Now(),
+		CreatedAt: apptime.NowTime(),
 	}
 
 	// Send to channel for async batch processing (non-blocking)
@@ -193,7 +229,7 @@ func (l *DBLogger) Close() error {
 	close(l.shutdown)
 
 	// Give workers time to flush pending logs
-	time.Sleep(100 * time.Millisecond)
+	apptime.Sleep(100 * apptime.Millisecond)
 
 	return nil
 }
@@ -221,10 +257,25 @@ func (l *DBLogger) LogRequest(ctx context.Context, req *logger.RequestLog) error
 		UserAgent:  &req.UserAgent,
 		UserID:     req.UserID,
 		Error:      req.Error,
-		CreatedAt:  req.CreatedAt,
+		CreatedAt:  apptime.NewTime(req.CreatedAt),
 	}
 
-	return l.db.Create(requestLog).Error
+	var userAgent, userID, errorStr interface{} = nil, nil, nil
+	if requestLog.UserAgent != nil {
+		userAgent = *requestLog.UserAgent
+	}
+	if requestLog.UserID != nil {
+		userID = *requestLog.UserID
+	}
+	if requestLog.Error != nil {
+		errorStr = *requestLog.Error
+	}
+
+	_, err := l.db.Exec(
+		`INSERT INTO sys_request_logs (id, level, method, path, status_code, exec_time_ms, user_ip, user_agent, user_id, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		requestLog.ID.String(), requestLog.Level, requestLog.Method, requestLog.Path, requestLog.StatusCode, requestLog.ExecTimeMs, requestLog.UserIP, userAgent, userID, errorStr, requestLog.CreatedAt,
+	)
+	return err
 }
 
 // GetLogs retrieves logs based on filter
@@ -240,7 +291,7 @@ func (l *DBLogger) GetRequestLogs(ctx context.Context, filter logger.RequestLogF
 }
 
 // LogHTTPRequest logs an HTTP request to the request_logs table
-func (l *DBLogger) LogHTTPRequest(ctx context.Context, method, path string, statusCode int, duration time.Duration, userIP, userAgent string, userID *string, err error) {
+func (l *DBLogger) LogHTTPRequest(ctx context.Context, method, path string, statusCode int, duration apptime.Duration, userIP, userAgent string, userID *string, err error) {
 	var errorStr *string
 	if err != nil {
 		errMsg := err.Error()
@@ -266,7 +317,7 @@ func (l *DBLogger) LogHTTPRequest(ctx context.Context, method, path string, stat
 		UserAgent:  &userAgent,
 		UserID:     userID,
 		Error:      errorStr,
-		CreatedAt:  time.Now(),
+		CreatedAt:  apptime.NowTime(),
 	}
 
 	// Send to channel for async batch processing (non-blocking)
@@ -282,7 +333,7 @@ func (l *DBLogger) LogHTTPRequest(ctx context.Context, method, path string, stat
 func HTTPLoggingMiddleware(dbLogger *DBLogger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
+			start := apptime.NowTime()
 
 			// Create a response writer wrapper to capture status code
 			wrapped := &responseWriter{
@@ -300,7 +351,7 @@ func HTTPLoggingMiddleware(dbLogger *DBLogger) func(http.Handler) http.Handler {
 			next.ServeHTTP(wrapped, r)
 
 			// Calculate duration
-			duration := time.Since(start)
+			duration := apptime.Since(start)
 
 			// Log the request to database
 			dbLogger.LogHTTPRequest(

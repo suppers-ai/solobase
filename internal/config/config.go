@@ -2,10 +2,10 @@ package config
 
 import (
 	"log"
-	"os"
 	"strconv"
 	"strings"
 
+	"github.com/suppers-ai/solobase/internal/env"
 	"github.com/suppers-ai/solobase/internal/pkg/database"
 	"github.com/suppers-ai/solobase/utils"
 )
@@ -46,9 +46,9 @@ type Config struct {
 	EnableAPI    bool
 
 	// Admin
-	AdminEmail     string
-	AdminPassword  string
-	
+	AdminEmail    string
+	AdminPassword string
+
 	// UI
 	DisableUI      bool
 	DisableAdminUI bool
@@ -213,14 +213,14 @@ func parseDatabaseURL(cfg *Config, url string) {
 }
 
 func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
+	if value := env.GetEnv(key); value != "" {
 		return value
 	}
 	return defaultValue
 }
 
 func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
+	if value := env.GetEnv(key); value != "" {
 		if i, err := strconv.Atoi(value); err == nil {
 			return i
 		}
@@ -229,7 +229,7 @@ func getEnvInt(key string, defaultValue int) int {
 }
 
 func getEnvBool(key string, defaultValue bool) bool {
-	if value := os.Getenv(key); value != "" {
+	if value := env.GetEnv(key); value != "" {
 		if b, err := strconv.ParseBool(value); err == nil {
 			return b
 		}
@@ -238,7 +238,7 @@ func getEnvBool(key string, defaultValue bool) bool {
 }
 
 func getEnvSlice(key string, defaultValue []string) []string {
-	if value := os.Getenv(key); value != "" {
+	if value := env.GetEnv(key); value != "" {
 		return strings.Split(value, ",")
 	}
 	return defaultValue
@@ -247,7 +247,7 @@ func getEnvSlice(key string, defaultValue []string) []string {
 // getJWTSecret returns a consistent JWT secret for development or generates one for production
 func getJWTSecret() string {
 	// Check if explicitly set
-	if value := os.Getenv("JWT_SECRET"); value != "" {
+	if value := env.GetEnv("JWT_SECRET"); value != "" {
 		return value
 	}
 
@@ -271,7 +271,7 @@ func getJWTSecret() string {
 
 // getSecureAdminPassword requires admin password to be set or generates one
 func getSecureAdminPassword() string {
-	password := os.Getenv("DEFAULT_ADMIN_PASSWORD")
+	password := env.GetEnv("DEFAULT_ADMIN_PASSWORD")
 
 	if password == "" {
 		// Generate secure password

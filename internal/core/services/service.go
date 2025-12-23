@@ -2,19 +2,21 @@ package services
 
 import (
 	"context"
-	"github.com/google/uuid"
+	"database/sql"
+
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
 	auth "github.com/suppers-ai/solobase/internal/pkg/auth"
 	"github.com/suppers-ai/solobase/internal/pkg/logger"
-	"gorm.io/gorm"
 )
 
 // Service provides a unified interface for middleware to access individual services
 type Service struct {
-	auth       *AuthService
-	user       *UserService
-	database   *DatabaseService
-	logger     *DBLogger
-	config     *Config
+	auth     *AuthService
+	user     *UserService
+	database *DatabaseService
+	logger   *DBLogger
+	config   *Config
+	sqlDB    *sql.DB
 }
 
 // Config represents the configuration needed by handlers
@@ -34,14 +36,14 @@ type SessionsInterface interface {
 	GetSession(ctx context.Context, sessionID string) (*Session, error)
 }
 
-// UsersInterface defines the interface for user management  
+// UsersInterface defines the interface for user management
 type UsersInterface interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (*auth.User, error)
 }
 
 // simpleSessionService provides a minimal session implementation
 type simpleSessionService struct {
-	db *gorm.DB
+	sqlDB *sql.DB
 }
 
 // simpleUserService wraps the UserService for the interface
@@ -50,19 +52,20 @@ type simpleUserService struct {
 }
 
 // NewService creates a unified service wrapper
-func NewService(auth *AuthService, user *UserService, database *DatabaseService, logger *DBLogger, config *Config) *Service {
+func NewService(auth *AuthService, user *UserService, database *DatabaseService, logger *DBLogger, config *Config, sqlDB *sql.DB) *Service {
 	return &Service{
-		auth:       auth,
-		user:       user,
-		database:   database,
-		logger:     logger,
-		config:     config,
+		auth:     auth,
+		user:     user,
+		database: database,
+		logger:   logger,
+		config:   config,
+		sqlDB:    sqlDB,
 	}
 }
 
-// DB returns the database connection
-func (s *Service) DB() *gorm.DB {
-	return s.database.db.DB
+// SQLDB returns the SQL database connection
+func (s *Service) SQLDB() *sql.DB {
+	return s.sqlDB
 }
 
 // Logger returns the logger
@@ -72,7 +75,7 @@ func (s *Service) Logger() logger.Logger {
 
 // Sessions returns a session service interface
 func (s *Service) Sessions() SessionsInterface {
-	return &simpleSessionService{db: s.database.db.DB}
+	return &simpleSessionService{sqlDB: s.sqlDB}
 }
 
 // Users returns a user service interface
@@ -100,7 +103,7 @@ func (s *simpleSessionService) GetSession(ctx context.Context, sessionID string)
 	// This is a simplified implementation - in a real app you'd have a sessions table
 	// For now, we'll treat this as a JWT or simple session token
 	// You might want to implement proper session storage later
-	return nil, gorm.ErrRecordNotFound // Force fallback to other auth methods
+	return nil, sql.ErrNoRows // Force fallback to other auth methods
 }
 
 // GetUserByID retrieves a user by UUID

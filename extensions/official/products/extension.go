@@ -2,17 +2,20 @@ package products
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+
 	"github.com/suppers-ai/solobase/extensions/core"
 	"github.com/suppers-ai/solobase/extensions/official/products/models"
 	"github.com/suppers-ai/solobase/extensions/official/products/providers"
-	"gorm.io/gorm"
+	db "github.com/suppers-ai/solobase/internal/sqlc/gen"
 )
 
 // ProductsExtension implements the products and pricing extension
 type ProductsExtension struct {
-	db              *gorm.DB
+	sqlDB           *sql.DB
+	queries         *db.Queries
 	adminAPI        *AdminAPI
 	userAPI         *UserAPI
 	publicAPI       *PublicAPI
@@ -29,12 +32,13 @@ func NewProductsExtension() *ProductsExtension {
 }
 
 // NewProductsExtensionWithDB creates a new products extension with database
-func NewProductsExtensionWithDB(db *gorm.DB) *ProductsExtension {
+func NewProductsExtensionWithDB(sqlDB *sql.DB) *ProductsExtension {
 	ext := &ProductsExtension{
-		db:     db,
+		sqlDB:  sqlDB,
 		seeder: &DefaultSeeder{}, // Initialize with default seeder
 	}
-	if db != nil {
+	if sqlDB != nil {
+		ext.queries = db.New(sqlDB)
 		ext.initializeAPIs()
 	}
 	return ext
@@ -55,20 +59,15 @@ func (e *ProductsExtension) Description() string {
 	return "Complete products and pricing management with dynamic fields and formula-based pricing"
 }
 
-// SetDatabase sets the database and initializes APIs
-func (e *ProductsExtension) SetDatabase(db *gorm.DB) {
-	e.db = db
+// SetDatabase sets the SQL database and initializes APIs (kept for compatibility)
+func (e *ProductsExtension) SetDatabase(sqlDB *sql.DB) {
+	e.sqlDB = sqlDB
+	e.queries = db.New(sqlDB)
 	e.initializeAPIs()
-
-	// Register models for auto-migration (tables have prefix in TableName methods)
-	if err := models.RegisterModels(e.db); err != nil {
-		// Log error but don't fail
-		return
-	}
 
 	// Run seed data using the configured seeder
 	fmt.Printf("Products extension: Running SeedWithSeeder with seeder: %T\n", e.seeder)
-	if err := SeedWithSeeder(e.db, e.seeder); err != nil {
+	if err := SeedWithSeeder(e.sqlDB, e.seeder); err != nil {
 		// Log error but don't fail
 		fmt.Printf("Products extension: SeedWithSeeder error: %v\n", err)
 		return
@@ -76,17 +75,24 @@ func (e *ProductsExtension) SetDatabase(db *gorm.DB) {
 	fmt.Printf("Products extension: SeedWithSeeder completed successfully\n")
 }
 
+// SetSQLDatabase sets the SQL database for sqlc queries
+func (e *ProductsExtension) SetSQLDatabase(sqlDB *sql.DB) {
+	e.sqlDB = sqlDB
+	e.queries = db.New(sqlDB)
+	e.initializeAPIs()
+}
+
 // initializeAPIs initializes all API handlers
 func (e *ProductsExtension) initializeAPIs() {
-	if e.db == nil {
+	if e.sqlDB == nil {
 		return
 	}
 
-	// Initialize services
-	variableService := NewVariableService(e.db)
-	groupService := NewGroupService(e.db)
-	productService := NewProductService(e.db, variableService)
-	pricingService := NewPricingService(e.db, variableService)
+	// Initialize services with sqlDB
+	variableService := NewVariableService(e.sqlDB)
+	groupService := NewGroupService(e.sqlDB)
+	productService := NewProductService(e.sqlDB, variableService)
+	pricingService := NewPricingService(e.sqlDB, variableService)
 
 	// Get the default payment provider
 	provider, err := providers.GetDefaultProvider()
@@ -96,14 +102,14 @@ func (e *ProductsExtension) initializeAPIs() {
 	}
 	e.paymentProvider = provider
 
-	// Initialize purchase service with provider
-	purchaseService := NewPurchaseService(e.db, productService, pricingService, provider)
+	// Initialize purchase service with sqlDB
+	purchaseService := NewPurchaseService(e.sqlDB, productService, pricingService, provider)
 
-	// Initialize APIs with services
-	e.adminAPI = NewAdminAPI(e.db, variableService, groupService, productService, pricingService)
+	// Initialize APIs with sqlDB
+	e.adminAPI = NewAdminAPI(e.sqlDB, variableService, groupService, productService, pricingService)
 	e.adminAPI.SetExtension(e) // Set extension reference for provider status
-	e.userAPI = NewUserAPI(e.db, groupService, productService, pricingService, purchaseService)
-	e.publicAPI = NewPublicAPI(e.db, productService)
+	e.userAPI = NewUserAPI(e.sqlDB, groupService, productService, pricingService, purchaseService)
+	e.publicAPI = NewPublicAPI(e.sqlDB, productService)
 
 	// Initialize webhook handler
 	e.webhookHandler = NewWebhookHandler(provider, purchaseService)
@@ -141,18 +147,18 @@ func (e *ProductsExtension) SetCustomSeeder(options CustomSeederOptions) {
 		CustomGroupTemplates:   options.GroupTemplates,
 		CustomProductTemplates: options.ProductTemplates,
 		CustomPricingTemplates: options.PricingTemplates,
-		CustomShouldSeed:      options.ShouldSeed,
+		CustomShouldSeed:       options.ShouldSeed,
 	}
 	e.seeder = customSeeder
 }
 
 // CustomSeederOptions provides options for custom seeding
 type CustomSeederOptions struct {
-	Variables        func(db *gorm.DB) ([]models.Variable, error)
-	GroupTemplates   func(db *gorm.DB) ([]models.GroupTemplate, error)
-	ProductTemplates func(db *gorm.DB) ([]models.ProductTemplate, error)
-	PricingTemplates func(db *gorm.DB) ([]models.PricingTemplate, error)
-	ShouldSeed      func(db *gorm.DB) bool
+	Variables        func(db *sql.DB) ([]models.Variable, error)
+	GroupTemplates   func(db *sql.DB) ([]models.GroupTemplate, error)
+	ProductTemplates func(db *sql.DB) ([]models.ProductTemplate, error)
+	PricingTemplates func(db *sql.DB) ([]models.PricingTemplate, error)
+	ShouldSeed       func(db *sql.DB) bool
 }
 
 // GetPaymentProvider returns the configured payment provider
@@ -214,7 +220,7 @@ func (e *ProductsExtension) Stop(ctx context.Context) error {
 
 // Health returns the health status of the extension
 func (e *ProductsExtension) Health(ctx context.Context) (*core.HealthStatus, error) {
-	if e.db == nil {
+	if e.sqlDB == nil {
 		return &core.HealthStatus{
 			Status:  "unhealthy",
 			Message: "Database not initialized",
@@ -223,7 +229,7 @@ func (e *ProductsExtension) Health(ctx context.Context) (*core.HealthStatus, err
 
 	// Check if we can query the database
 	var count int64
-	if err := e.db.WithContext(ctx).Table("variables").Count(&count).Error; err != nil {
+	if err := e.sqlDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM variables").Scan(&count); err != nil {
 		return &core.HealthStatus{
 			Status:  "unhealthy",
 			Message: "Failed to query database: " + err.Error(),

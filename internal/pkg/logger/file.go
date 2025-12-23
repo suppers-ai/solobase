@@ -1,3 +1,5 @@
+//go:build !wasm
+
 package logger
 
 import (
@@ -7,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
 )
 
 // FileLogger implements Logger interface for file output
@@ -242,7 +244,7 @@ func (l *FileLogger) log(ctx context.Context, level Level, message string, field
 		entry := map[string]interface{}{
 			"level":     level,
 			"message":   message,
-			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"timestamp": apptime.NowTime().UTC().Format(apptime.TimeFormat),
 		}
 
 		for k, v := range fieldMap {
@@ -252,7 +254,7 @@ func (l *FileLogger) log(ctx context.Context, level Level, message string, field
 		data, _ = json.Marshal(entry)
 		data = append(data, '\n')
 	} else {
-		timestamp := time.Now().Format("2006-01-02 15:04:05")
+		timestamp := apptime.NowTime().Format("2006-01-02 15:04:05")
 		text := fmt.Sprintf("%s [%s] %s", timestamp, level, message)
 
 		if len(fieldMap) > 0 {
@@ -319,7 +321,7 @@ func (l *FileLogger) cleanOldFiles() {
 		return
 	}
 
-	cutoff := time.Now().AddDate(0, 0, -l.config.MaxAge)
+	cutoff := apptime.NowTime().AddDate(0, 0, -l.config.MaxAge)
 
 	// Find and remove old backup files
 	dir := filepath.Dir(l.config.FilePath)

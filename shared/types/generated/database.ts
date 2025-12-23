@@ -1,48 +1,6 @@
-// Auto-generated from GORM models - DO NOT EDIT MANUALLY
-// Generated at: 2025-12-12T15:04:29+13:00
+// Auto-generated from Go models - DO NOT EDIT MANUALLY
+// Generated at: 2025-12-16T13:13:17+13:00
 // Run 'go run scripts/generate-types.go' to regenerate
-
-// ============================================
-// Package: analytics
-// ============================================
-
-export interface AnalyticsAnalyticsStats {
-  totalViews: number;
-  uniqueUsers: number;
-  todayViews: number;
-  activeNow: number;
-}
-
-export interface AnalyticsDailyStats {
-  date: string | Date;
-  pageViews: number;
-  uniqueUsers: number;
-  events: number;
-}
-
-export interface AnalyticsEvent {
-  id: string;
-  userId?: string | null;
-  eventName: string;
-  eventData: any;
-  createdAt: string | Date;
-}
-
-export interface AnalyticsPageView {
-  id: string;
-  userId?: string | null;
-  sessionId: string;
-  pageUrl: string;
-  referrer?: string | null;
-  userAgent?: string | null;
-  ipAddress?: string | null;
-  createdAt: string | Date;
-}
-
-export interface AnalyticsPageViewStats {
-  pageUrl: string;
-  views: number;
-}
 
 // ============================================
 // Package: auth
@@ -116,19 +74,12 @@ export interface AuthUserResponse {
 export interface CloudStorageRoleQuota {
   id: string;
   roleId: string;
-  // Indexed for faster lookups
   roleName: string;
-  // 5GB default
   maxStorageBytes: number;
-  // 10GB default
   maxBandwidthBytes: number;
-  // 100MB default
   maxUploadSize: number;
-  // 1000 files default
   maxFilesCount: number;
-  // Comma-separated list
   allowedExtensions: string;
-  // Comma-separated list
   blockedExtensions: string;
   createdAt: string | Date;
   updatedAt: string | Date;
@@ -142,16 +93,13 @@ export interface CloudStorageStorageAccessLog {
   action: any;
   userAgent?: string | null;
   metadata: any;
-  // Use GORM's auto create time
   createdAt: string | Date;
 }
 
 export interface CloudStorageStorageQuota {
   id: string;
   userId: string;
-  // 5GB default
   maxStorageBytes: number;
-  // 10GB default
   maxBandwidthBytes: number;
   storageUsed: number;
   bandwidthUsed: number;
@@ -185,7 +133,6 @@ export interface CloudStorageStorageShareWithObject {
 
 export interface CloudStorageUserQuotaOverride {
   id: string;
-  // Unique index for fast lookups
   userId: string;
   maxStorageBytes?: number | null;
   maxBandwidthBytes?: number | null;
@@ -193,11 +140,8 @@ export interface CloudStorageUserQuotaOverride {
   maxFilesCount?: number | null;
   allowedExtensions?: string | null;
   blockedExtensions?: string | null;
-  // Why this override was created
-  reason: string;
-  // Indexed for expiry queries
+  reason?: string | null;
   expiresAt?: string | Date | null;
-  // Indexed for admin queries
   createdBy: string;
   createdAt: string | Date;
   updatedAt: string | Date;
@@ -218,6 +162,18 @@ export interface IAMIAMAuditLog {
   ipAddress: string;
   userAgent: string;
   metadata: Record<string, any>;
+  createdAt: string | Date;
+}
+
+export interface IAMIAMPolicy {
+  id: string;
+  ptype: string;
+  v0?: string | null;
+  v1?: string | null;
+  v2?: string | null;
+  v3?: string | null;
+  v4?: string | null;
+  v5?: string | null;
   createdAt: string | Date;
 }
 
@@ -290,7 +246,6 @@ export interface ProductCustomTableDefinition {
   indexes: any[];
   // Table options
   options: any;
-  // User ID who created the table
   createdBy: string;
   // active, disabled, archived
   status: string;
@@ -301,7 +256,7 @@ export interface ProductCustomTableDefinition {
 export interface ProductCustomTableField {
   // Column name
   name: string;
-  // GORM data type: string, int, float, bool, time, json
+  // Data type: string, int, float, bool, time, json
   type: string;
   // For varchar(n)
   size: number;
@@ -479,11 +434,8 @@ export interface ProductPricingTemplate {
   name: string;
   displayName: string;
   description: string;
-  // Formula to calculate price
   priceFormula: string;
-  // Formula to determine if template applies
   conditionFormula: string;
-  // Required variables for this template
   variables: Record<string, any>;
   category: string;
   // active, pending, deleted
@@ -532,7 +484,6 @@ export interface ProductProduct {
   customFields: Record<string, any>;
   // Product-specific variable values
   variables: Record<string, any>;
-  // Override formula
   pricingFormula: string;
   active: boolean;
   createdAt: string | Date;
@@ -556,7 +507,6 @@ export interface ProductProductTemplate {
   billingMode: string;
   // one-time, recurring
   billingType: string;
-  // day, week, month, year
   billingRecurringInterval?: string | null;
   billingRecurringIntervalCount?: number | null;
   // active, pending, deleted

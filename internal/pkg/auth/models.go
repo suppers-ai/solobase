@@ -2,14 +2,11 @@ package auth
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
-	"time"
 
-	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
+	"github.com/suppers-ai/solobase/internal/pkg/apptime"
+	"github.com/suppers-ai/solobase/internal/pkg/crypto"
+	"github.com/suppers-ai/solobase/internal/pkg/uuid"
 )
 
 // Token type constants
@@ -41,273 +38,154 @@ func NewUserResponse(user *User, roles []string) *UserResponse {
 
 // User represents a user account
 type User struct {
-	ID              uuid.UUID  `gorm:"type:char(36);primary_key" json:"id"`
-	Email           string     `gorm:"uniqueIndex;not null;size:255" json:"email"`
-	Password        string     `gorm:"not null" json:"-"` // Never expose in JSON
-	Username        string     `gorm:"size:255" json:"username,omitempty"`
-	Confirmed       bool       `gorm:"default:false" json:"confirmed"`
-	FirstName       string     `gorm:"size:100" json:"firstName,omitempty"`
-	LastName        string     `gorm:"size:100" json:"lastName,omitempty"`
-	DisplayName     string     `gorm:"size:100" json:"displayName,omitempty"`
-	Phone           string     `gorm:"size:50" json:"phone,omitempty"`
-	Location        string     `gorm:"size:255" json:"location,omitempty"`
-	ConfirmToken    *string    `gorm:"size:255" json:"-"`
-	ConfirmSelector *string    `gorm:"size:255;index" json:"-"`
-	RecoverToken    *string    `gorm:"size:255" json:"-"`
-	RecoverTokenExp *time.Time `json:"-"`
-	RecoverSelector *string    `gorm:"size:255;index" json:"-"`
-	AttemptCount    int        `gorm:"default:0" json:"-"`
-	LastAttempt     *time.Time `json:"-"`
-	LastLogin       *time.Time `json:"lastLogin,omitempty"`
-	Metadata        string     `gorm:"type:text" json:"metadata,omitempty"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
-	DeletedAt       *time.Time `gorm:"index" json:"deletedAt,omitempty"`
+	ID              uuid.UUID        `json:"id"`
+	Email           string           `json:"email"`
+	Password        string           `json:"-"` // Never expose in JSON
+	Username        string           `json:"username,omitempty"`
+	Confirmed       bool             `json:"confirmed"`
+	FirstName       string           `json:"firstName,omitempty"`
+	LastName        string           `json:"lastName,omitempty"`
+	DisplayName     string           `json:"displayName,omitempty"`
+	Phone           string           `json:"phone,omitempty"`
+	Location        string           `json:"location,omitempty"`
+	ConfirmToken    *string          `json:"-"`
+	ConfirmSelector *string          `json:"-"`
+	RecoverToken    *string          `json:"-"`
+	RecoverTokenExp apptime.NullTime `json:"-"`
+	RecoverSelector *string          `json:"-"`
+	AttemptCount    int              `json:"-"`
+	LastAttempt     apptime.NullTime `json:"-"`
+	LastLogin       apptime.NullTime `json:"lastLogin,omitempty"`
+	Metadata        string           `json:"metadata,omitempty"`
+	CreatedAt       apptime.Time     `json:"createdAt"`
+	UpdatedAt       apptime.Time     `json:"updatedAt"`
+	DeletedAt       apptime.NullTime `json:"deletedAt,omitempty"`
 
 	// 2FA fields
-	TOTPSecret       *string `gorm:"size:255" json:"-"`
-	TOTPSecretBackup *string `gorm:"size:255" json:"-"`
-	SMSPhoneNumber   *string `gorm:"size:50" json:"-"`
-	RecoveryCodes    *string `gorm:"type:text" json:"-"`
+	TOTPSecret       *string `json:"-"`
+	TOTPSecretBackup *string `json:"-"`
+	SMSPhoneNumber   *string `json:"-"`
+	RecoveryCodes    *string `json:"-"`
 
-	// Relationships
-	Tokens []Token `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"-"`
+	// Note: Relationships are handled at the service layer
 }
 
-// TableName specifies the table name
+// TableName returns the table name for auth users
 func (User) TableName() string {
 	return "auth_users"
 }
 
-// BeforeCreate hook
-func (u *User) BeforeCreate(tx *gorm.DB) error {
+// PrepareForCreate prepares the user for database insertion
+// Prepares model for database insert
+func (u *User) PrepareForCreate() error {
 	if u.ID == uuid.Nil {
 		u.ID = uuid.New()
 	}
 
 	// Hash password if it's plain text
 	if u.Password != "" && !isHashed(u.Password) {
-		hashed, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
+		hashed, err := crypto.HashPassword(u.Password)
 		if err != nil {
 			return err
 		}
-		u.Password = string(hashed)
+		u.Password = hashed
 	}
+
+	now := apptime.NowTime()
+	u.CreatedAt = now
+	u.UpdatedAt = now
 
 	return nil
 }
 
-// BeforeUpdate hook
-func (u *User) BeforeUpdate(tx *gorm.DB) error {
-	// Hash password if it changed and is plain text
-	if tx.Statement.Changed("Password") && u.Password != "" && !isHashed(u.Password) {
-		hashed, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
+// PreparePasswordUpdate hashes the password if needed before update
+// Prepares model for database update for password changes
+func (u *User) PreparePasswordUpdate() error {
+	if u.Password != "" && !isHashed(u.Password) {
+		hashed, err := crypto.HashPassword(u.Password)
 		if err != nil {
 			return err
 		}
-		u.Password = string(hashed)
+		u.Password = hashed
 	}
+	u.UpdatedAt = apptime.NowTime()
 	return nil
 }
 
-// CheckPassword verifies a password
+// CheckPassword verifies a password against the stored hash
 func (u *User) CheckPassword(password string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password))
-	return err == nil
+	return crypto.ComparePassword(u.Password, password) == nil
 }
 
 // SetPassword hashes and sets the password
 func (u *User) SetPassword(password string) error {
-	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashed, err := crypto.HashPassword(password)
 	if err != nil {
 		return err
 	}
-	u.Password = string(hashed)
+	u.Password = hashed
 	return nil
 }
 
-// Authboss interface implementations
-func (u *User) GetPID() string { return u.ID.String() }
-func (u *User) PutPID(id string) {
-	if uid, err := uuid.Parse(id); err == nil {
-		u.ID = uid
-	}
-}
-func (u *User) GetEmail() string            { return u.Email }
-func (u *User) PutEmail(email string)       { u.Email = email }
-func (u *User) GetUsername() string         { return u.Username }
-func (u *User) PutUsername(username string) { u.Username = username }
-func (u *User) GetPassword() string         { return u.Password }
-func (u *User) PutPassword(password string) { u.Password = password }
-func (u *User) GetConfirmed() bool          { return u.Confirmed }
-func (u *User) PutConfirmed(confirmed bool) { u.Confirmed = confirmed }
-
-// Authboss confirm interface
-func (u *User) GetConfirmSelector() string {
-	if u.ConfirmSelector != nil {
-		return *u.ConfirmSelector
-	}
-	return ""
-}
-func (u *User) PutConfirmSelector(selector string) {
-	u.ConfirmSelector = &selector
-}
-func (u *User) GetConfirmVerifier() string {
-	if u.ConfirmToken != nil {
-		return *u.ConfirmToken
-	}
-	return ""
-}
-func (u *User) PutConfirmVerifier(verifier string) {
-	u.ConfirmToken = &verifier
-}
-
-// Authboss recover interface
-func (u *User) GetRecoverSelector() string {
-	if u.RecoverSelector != nil {
-		return *u.RecoverSelector
-	}
-	return ""
-}
-func (u *User) PutRecoverSelector(selector string) {
-	u.RecoverSelector = &selector
-}
-func (u *User) GetRecoverVerifier() string {
-	if u.RecoverToken != nil {
-		return *u.RecoverToken
-	}
-	return ""
-}
-func (u *User) PutRecoverVerifier(verifier string) {
-	u.RecoverToken = &verifier
-}
-func (u *User) GetRecoverExpiry() time.Time {
-	if u.RecoverTokenExp != nil {
-		return *u.RecoverTokenExp
-	}
-	return time.Time{}
-}
-func (u *User) PutRecoverExpiry(expiry time.Time) {
-	u.RecoverTokenExp = &expiry
-}
-
-// Authboss lock interface
-func (u *User) GetAttemptCount() int      { return u.AttemptCount }
-func (u *User) PutAttemptCount(count int) { u.AttemptCount = count }
-func (u *User) GetLastAttempt() time.Time {
-	if u.LastAttempt != nil {
-		return *u.LastAttempt
-	}
-	return time.Time{}
-}
-func (u *User) PutLastAttempt(attempt time.Time) {
-	u.LastAttempt = &attempt
-}
-
-// Authboss 2FA interface
-func (u *User) GetTOTPSecretKey() string {
-	if u.TOTPSecret != nil {
-		return *u.TOTPSecret
-	}
-	return ""
-}
-func (u *User) PutTOTPSecretKey(secret string) {
-	u.TOTPSecret = &secret
-}
-func (u *User) GetSMSPhoneNumber() string {
-	if u.SMSPhoneNumber != nil {
-		return *u.SMSPhoneNumber
-	}
-	return ""
-}
-func (u *User) PutSMSPhoneNumber(phone string) {
-	u.SMSPhoneNumber = &phone
-}
-func (u *User) GetRecoveryCodes() string {
-	if u.RecoveryCodes != nil {
-		return *u.RecoveryCodes
-	}
-	return ""
-}
-func (u *User) PutRecoveryCodes(codes string) {
-	u.RecoveryCodes = &codes
-}
-
-// Authboss arbitrary interface
-func (u *User) GetArbitrary() map[string]string {
-	return map[string]string{
-		"created_at": u.CreatedAt.Format(time.RFC3339),
-		"updated_at": u.UpdatedAt.Format(time.RFC3339),
-	}
-}
-func (u *User) PutArbitrary(values map[string]string) {
-	// No additional fields to update
-}
+// GetID returns the user ID as a string
+func (u *User) GetID() string { return u.ID.String() }
 
 // Token represents various auth tokens (refresh, reset, confirm, oauth)
 type Token struct {
-	ID        uuid.UUID  `gorm:"type:char(36);primary_key" json:"id"`
-	UserID    uuid.UUID  `gorm:"type:char(36);not null;index" json:"userId"`
-	TokenHash string     `gorm:"size:64;index" json:"-"`              // SHA-256 hash for secure tokens (refresh)
-	Token     string     `gorm:"size:255;index" json:"-"`             // Plain token for short-lived tokens (reset/confirm)
-	Type      string     `gorm:"not null;size:50;index" json:"type"`  // refresh, reset, confirm, oauth
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"userId"`
+	TokenHash string    `json:"-"`    // SHA-256 hash for secure tokens (refresh)
+	Token     string    `json:"-"`    // Plain token for short-lived tokens (reset/confirm)
+	Type      string    `json:"type"` // refresh, reset, confirm, oauth
 
 	// For refresh token rotation detection
-	FamilyID *uuid.UUID `gorm:"type:char(36);index" json:"-"`
+	FamilyID *uuid.UUID `json:"-"`
 
 	// For OAuth tokens
-	Provider    *string    `gorm:"size:50" json:"provider,omitempty"`  // google, github, microsoft, etc.
-	ProviderUID *string    `gorm:"size:255;index" json:"-"`            // Provider's user ID
-	AccessToken *string    `gorm:"type:text" json:"-"`                 // OAuth access token (encrypted in production)
-	OAuthExpiry *time.Time `json:"-"`                                  // OAuth token expiry
+	Provider    *string          `json:"provider,omitempty"` // google, github, microsoft, etc.
+	ProviderUID *string          `json:"-"`                  // Provider's user ID
+	AccessToken *string          `json:"-"`                  // OAuth access token (encrypted in production)
+	OAuthExpiry apptime.NullTime `json:"-"`                  // OAuth token expiry
 
 	// Lifecycle
-	ExpiresAt time.Time  `gorm:"not null;index" json:"expiresAt"`
-	UsedAt    *time.Time `json:"usedAt,omitempty"`
-	RevokedAt *time.Time `gorm:"index" json:"revokedAt,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
+	ExpiresAt apptime.Time     `json:"expiresAt"`
+	UsedAt    apptime.NullTime `json:"usedAt,omitempty"`
+	RevokedAt apptime.NullTime `json:"revokedAt,omitempty"`
+	CreatedAt apptime.Time     `json:"createdAt"`
 
 	// Audit fields (for refresh tokens - security tracking)
-	DeviceInfo *string `gorm:"size:255" json:"deviceInfo,omitempty"` // "Chrome on MacOS"
-	IPAddress  *string `gorm:"size:45" json:"ipAddress,omitempty"`   // IPv6 max length
-
-	// Relationships
-	User User `gorm:"foreignKey:UserID" json:"-"`
+	DeviceInfo *string `json:"deviceInfo,omitempty"` // "Chrome on MacOS"
+	IPAddress  *string `json:"ipAddress,omitempty"`  // IPv6 max length
 }
 
-// TableName specifies the table name
+// TableName returns the table name for auth tokens
 func (Token) TableName() string {
 	return "auth_tokens"
 }
 
-// BeforeCreate hook
-func (t *Token) BeforeCreate(tx *gorm.DB) error {
+// PrepareForCreate prepares the token for database insertion
+// Prepares model for database insert
+func (t *Token) PrepareForCreate() {
 	if t.ID == uuid.Nil {
 		t.ID = uuid.New()
 	}
-	return nil
+	t.CreatedAt = apptime.NowTime()
 }
 
 // IsValid checks if the token is still valid (not expired, not revoked, not used for single-use tokens)
 func (t *Token) IsValid() bool {
-	now := time.Now()
+	now := apptime.NowTime()
 	if t.ExpiresAt.Before(now) {
 		return false
 	}
-	if t.RevokedAt != nil {
+	if t.RevokedAt.Valid {
 		return false
 	}
 	// For reset/confirm tokens, check if already used
-	if (t.Type == TokenTypeReset || t.Type == TokenTypeConfirm) && t.UsedAt != nil {
+	if (t.Type == TokenTypeReset || t.Type == TokenTypeConfirm) && t.UsedAt.Valid {
 		return false
 	}
 	return true
-}
-
-// HashToken creates a SHA-256 hash of a token string
-func HashToken(token string) string {
-	hash := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(hash[:])
 }
 
 // Helper function to check if password is already hashed
@@ -318,42 +196,42 @@ func isHashed(password string) bool {
 
 // APIKey represents a user's API key for programmatic access
 type APIKey struct {
-	ID          uuid.UUID  `gorm:"type:char(36);primary_key" json:"id"`
-	UserID      uuid.UUID  `gorm:"type:char(36);not null;index" json:"userId"`
-	Name        string     `gorm:"size:255;not null" json:"name"`                  // User-friendly name like "Production Server"
-	KeyPrefix   string     `gorm:"size:8;not null;index" json:"keyPrefix"`         // First 8 chars for identification (e.g., "sb_live_")
-	KeyHash     string     `gorm:"size:64;not null;uniqueIndex" json:"-"`          // SHA-256 hash of the full key
-	Scopes      string     `gorm:"type:text" json:"scopes,omitempty"`              // JSON array of scopes (for future use)
-	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`                            // Optional expiration
-	LastUsedAt  *time.Time `json:"lastUsedAt,omitempty"`                           // Track usage
-	LastUsedIP  *string    `gorm:"size:45" json:"lastUsedIp,omitempty"`            // Last IP that used this key
-	RevokedAt   *time.Time `gorm:"index" json:"revokedAt,omitempty"`               // Soft revoke
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
-
-	// Relationships
-	User User `gorm:"foreignKey:UserID" json:"-"`
+	ID         uuid.UUID        `json:"id"`
+	UserID     uuid.UUID        `json:"userId"`
+	Name       string           `json:"name"`                 // User-friendly name like "Production Server"
+	KeyPrefix  string           `json:"keyPrefix"`            // First 8 chars for identification (e.g., "sb_live_")
+	KeyHash    string           `json:"-"`                    // SHA-256 hash of the full key
+	Scopes     string           `json:"scopes,omitempty"`     // JSON array of scopes (for future use)
+	ExpiresAt  apptime.NullTime `json:"expiresAt,omitempty"`  // Optional expiration
+	LastUsedAt apptime.NullTime `json:"lastUsedAt,omitempty"` // Track usage
+	LastUsedIP *string          `json:"lastUsedIp,omitempty"` // Last IP that used this key
+	RevokedAt  apptime.NullTime `json:"revokedAt,omitempty"`  // Soft revoke
+	CreatedAt  apptime.Time     `json:"createdAt"`
+	UpdatedAt  apptime.Time     `json:"updatedAt"`
 }
 
-// TableName specifies the table name
+// TableName returns the table name for API keys
 func (APIKey) TableName() string {
 	return "api_keys"
 }
 
-// BeforeCreate hook
-func (k *APIKey) BeforeCreate(tx *gorm.DB) error {
+// PrepareForCreate prepares the API key for database insertion
+// Prepares model for database insert
+func (k *APIKey) PrepareForCreate() {
 	if k.ID == uuid.Nil {
 		k.ID = uuid.New()
 	}
-	return nil
+	now := apptime.NowTime()
+	k.CreatedAt = now
+	k.UpdatedAt = now
 }
 
 // IsValid checks if the API key is still valid
 func (k *APIKey) IsValid() bool {
-	if k.RevokedAt != nil {
+	if k.RevokedAt.Valid {
 		return false
 	}
-	if k.ExpiresAt != nil && k.ExpiresAt.Before(time.Now()) {
+	if k.ExpiresAt.Valid && k.ExpiresAt.Time.Before(apptime.NowTime()) {
 		return false
 	}
 	return true

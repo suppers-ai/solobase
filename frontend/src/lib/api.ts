@@ -4,9 +4,7 @@ import type {
 	StorageObject, StorageBucket,
 	AppSettings, DashboardStats,
 	ApiResponse, PaginatedResponse,
-	Extension, ExtensionStatus,
-	Webhook, WebhookCreateRequest,
-	AnalyticsStats, AnalyticsPageview, AnalyticsDailyStats, AnalyticsEvent
+	Extension, ExtensionStatus
 } from './types';
 import { ErrorHandler } from './utils/error-handler';
 
@@ -243,60 +241,13 @@ class ApiClient {
 		return this.request<ExtensionStatus[]>('/admin/extensions/status');
 	}
 
-	// Analytics extension methods
-	async getAnalyticsStats(): Promise<ApiResponse<AnalyticsStats>> {
-		return this.request<AnalyticsStats>('/ext/analytics/stats');
+	// Cloud Storage extension methods
+	async getCloudStorageStats(): Promise<ApiResponse<unknown>> {
+		return this.request<unknown>('/ext/cloudstorage/stats');
 	}
 
-	async getAnalyticsPageviews(): Promise<ApiResponse<AnalyticsPageview[]>> {
-		return this.request<AnalyticsPageview[]>('/ext/analytics/pageviews');
-	}
-
-	async getAnalyticsDailyStats(days: number = 7): Promise<ApiResponse<AnalyticsDailyStats[]>> {
-		return this.request<AnalyticsDailyStats[]>(`/ext/analytics/daily?days=${days}`);
-	}
-
-	async trackAnalyticsEvent(event: AnalyticsEvent): Promise<ApiResponse<void>> {
-		return this.request<void>('/ext/analytics/track', {
-			method: 'POST',
-			body: JSON.stringify(event)
-		});
-	}
-
-	async exportAnalytics(): Promise<ApiResponse<AnalyticsStats>> {
-		return this.request<AnalyticsStats>('/admin/analytics/export');
-	}
-
-	async clearAnalytics(): Promise<ApiResponse<void>> {
-		return this.request<void>('/admin/analytics/clear', {
-			method: 'DELETE'
-		});
-	}
-
-	// Webhooks extension methods
-	async getWebhooks(): Promise<ApiResponse<Webhook[]>> {
-		return this.request<Webhook[]>('/ext/webhooks/webhooks');
-	}
-
-	async createWebhook(webhook: WebhookCreateRequest): Promise<ApiResponse<Webhook>> {
-		return this.request<Webhook>('/ext/webhooks/webhooks', {
-			method: 'POST',
-			body: JSON.stringify(webhook)
-		});
-	}
-
-	async toggleWebhook(id: string, active: boolean): Promise<ApiResponse<Webhook>> {
-		return this.request<Webhook>(`/ext/webhooks/webhooks/${id}/toggle`, {
-			method: 'POST',
-			body: JSON.stringify({ active })
-		});
-	}
-
-	async deleteWebhooks(ids: string[]): Promise<ApiResponse<void>> {
-		return this.request<void>('/admin/webhooks/delete', {
-			method: 'DELETE',
-			body: JSON.stringify({ ids })
-		});
+	async getCloudStorageShares(): Promise<ApiResponse<unknown[]>> {
+		return this.request<unknown[]>('/ext/cloudstorage/shares');
 	}
 
 	// Helper to extract error message and throw
