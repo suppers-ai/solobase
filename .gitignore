@@ -1,7 +1,32 @@
+# Rust
 /target
+
+# Node
 node_modules/
 dist/
+
+# Data & test artifacts
 .data/
-.env
 test-results/
 playwright-report/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Misc build artifacts
+.bin/
