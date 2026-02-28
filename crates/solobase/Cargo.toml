@@ -1,0 +1,55 @@
+[package]
+name = "solobase"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Solobase — self-hosted backend platform powered by the WAFER runtime"
+
+[[bin]]
+name = "solobase"
+path = "src/main.rs"
+
+[features]
+default = ["full"]
+storage-s3 = ["wafer-run/storage-s3"]
+postgres = ["wafer-run/postgres"]
+full = ["wafer-run/full", "storage-s3", "postgres"]
+
+[dependencies]
+# WAFER runtime and shared blocks
+wafer-run = { workspace = true }
+wafer-core = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# HTTP server
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Crypto
+argon2 = { workspace = true }
+password-hash = { workspace = true }
+jsonwebtoken = { workspace = true }
+chrono = { workspace = true }
+
+# Embedded frontend assets
+rust-embed = { workspace = true }
+
+# Network
+reqwest = { workspace = true }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,216 @@
+{
+  "name": "solobase/products",
+  "version": "0.0.1",
+  "services": {
+    "database": {
+      "collections": {
+        "ext_products_variables": {
+          "fields": {
+            "id": { "type": "int", "primary": true, "auto": true },
+            "name": { "type": "string", "unique": true },
+            "display_name": { "type": "string", "optional": true },
+            "value_type": { "type": "string", "optional": true },
+            "type": { "type": "string", "optional": true },
+            "default_value": { "type": "string", "optional": true },
+            "description": { "type": "text", "optional": true },
+            "status": { "type": "string", "default": "active" },
+            "created_at": { "type": "datetime", "auto": true },
+            "updated_at": { "type": "datetime", "auto": true }
+          }
+        },
+        "ext_products_group_templates": {
+          "fields": {
+            "id": { "type": "int", "primary": true, "auto": true },
+            "name": { "type": "string", "unique": true },
+            "display_name": { "type": "string", "optional": true },
+            "description": { "type": "text", "optional": true },
+            "icon": { "type": "string", "optional": true },
+            "filter_fields_schema": { "type": "json", "optional": true },
+            "status": { "type": "string", "default": "active" },
+            "created_at": { "type": "datetime", "auto": true },
+            "updated_at": { "type": "datetime", "auto": true }
+          }
+        },
+        "ext_products_groups": {
+          "fields": {
+            "id": { "type": "int", "primary": true, "auto": true },
+            "user_id": { "type": "string" },
+            "group_template_id": { "type": "int", "ref": "ext_products_group_templates.id" },
+            "name": { "type": "string" },
+            "description": { "type": "text", "optional": true },
+            "filter_numeric_1": { "type": "float", "optional": true },
+            "filter_numeric_2": { "type": "float", "optional": true },
+            "filter_numeric_3": { "type": "float", "optional": true },
+            "filter_numeric_4": { "type": "float", "optional": true },
+            "filter_numeric_5": { "type": "float", "optional": true },
+            "filter_text_1": { "type": "string", "optional": true },
+            "filter_text_2": { "type": "string", "optional": true },
+            "filter_text_3": { "type": "string", "optional": true },
+            "filter_text_4": { "type": "string", "optional": true },
+            "filter_text_5": { "type": "string", "optional": true },
+            "filter_boolean_1": { "type": "bool", "optional": true },
+            "filter_boolean_2": { "type": "bool", "optional": true },
+            "filter_boolean_3": { "type": "bool", "optional": true },
+            "filter_boolean_4": { "type": "bool", "optional": true },
+            "filter_boolean_5": { "type": "bool", "optional": true },
+            "filter_enum_1": { "type": "string", "optional": true },
+            "filter_enum_2": { "type": "string", "optional": true },
+            "filter_enum_3": { "type": "string", "optional": true },
+            "filter_enum_4": { "type": "string", "optional": true },
+            "filter_enum_5": { "type": "string", "optional": true },
+            "filter_location_1": { "type": "string", "optional": true },
+            "filter_location_2": { "type": "string", "optional": true },
+            "filter_location_3": { "type": "string", "optional": true },
+            "filter_location_4": { "type": "string", "optional": true },
+            "filter_location_5": { "type": "string", "optional": true },
+            "custom_fields": { "type": "json", "optional": true },
+            "created_at": { "type": "datetime", "auto": true },
+            "updated_at": { "type": "datetime", "auto": true }
+          },
+          "indexes": [
+            { "fields": ["user_id"] },
+            { "fields": ["group_template_id"] },
+            { "fields": ["filter_numeric_1"] },
+            { "fields": ["filter_numeric_2"] },
+            { "fields": ["filter_text_1"] },
+            { "fields": ["filter_text_2"] },
+            { "fields": ["filter_boolean_1"] },
+            { "fields": ["filter_enum_1"] }
+          ]
+        },
+        "ext_products_product_templates": {
+          "fields": {
+            "id": { "type": "int", "primary": true, "auto": true },
+            "name": { "type": "string", "unique": true },
+            "display_name": { "type": "string", "optional": true },
+            "description": { "type": "text", "optional": true },
+            "category": { "type": "string", "optional": true },
+            "icon": { "type": "string", "optional": true },
+            "filter_fields_schema": { "type": "json", "optional": true },
+            "custom_fields_schema": { "type": "json", "optional": true },
+            "pricing_templates": { "type": "json", "optional": true },
+            "billing_mode": { "type": "string", "default": "instant" },
+            "billing_type": { "type": "string", "default": "one-time" },
+            "billing_recurring_interval": { "type": "string", "optional": true },
+            "billing_recurring_interval_count": { "type": "int", "default": 1 },
+            "status": { "type": "string", "default": "active" },
+            "created_at": { "type": "datetime", "auto": true },
+            "updated_at": { "type": "datetime", "auto": true }
+          }
+        },
+        "ext_products_products": {
+          "fields": {
+            "id": { "type": "int", "primary": true, "auto": true },
+            "group_id": { "type": "int", "ref": "ext_products_groups.id" },
+            "product_template_id": { "type": "int", "ref": "ext_products_product_templates.id" },
+            "name": { "type": "string" },
+            "description": { "type": "text", "optional": true },
+            "base_price": { "type": "float", "optional": true },
+            "base_price_cents": { "type": "int", "optional": true },
+            "currency": { "type": "string", "default": "USD" },
+            "filter_numeric_1": { "type": "float", "optional": true },
+            "filter_numeric_2": { "type": "float", "optional": true },
+            "filter_numeric_3": { "type": "float", "optional": true },
+            "filter_numeric_4": { "type": "float", "optional": true },
+            "filter_numeric_5": { "type": "float", "optional": true },
+            "filter_text_1": { "type": "string", "optional": true },
+            "filter_text_2": { "type": "string", "optional": true },
+            "filter_text_3": { "type": "string", "optional": true },
+            "filter_text_4": { "type": "string", "optional": true },
+            "filter_text_5": { "type": "string", "optional": true },
+            "filter_boolean_1": { "type": "bool", "optional": true },
+            "filter_boolean_2": { "type": "bool", "optional": true },
+            "filter_boolean_3": { "type": "bool", "optional": true },
+            "filter_boolean_4": { "type": "bool", "optional": true },
+            "filter_boolean_5": { "type": "bool", "optional": true },
+            "filter_enum_1": { "type": "string", "optional": true },
+            "filter_enum_2": { "type": "string", "optional": true },
+            "filter_enum_3": { "type": "string", "optional": true },
+            "filter_enum_4": { "type": "string", "optional": true },
+            "filter_enum_5": { "type": "string", "optional": true },
+            "filter_location_1": { "type": "string", "optional": true },
+            "filter_location_2": { "type": "string", "optional": true },
+            "filter_location_3": { "type": "string", "optional": true },
+            "filter_location_4": { "type": "string", "optional": true },
+            "filter_location_5": { "type": "string", "optional": true },
+            "custom_fields": { "type": "json", "optional": true },
+            "variables": { "type": "json", "optional": true },
+            "pricing_formula": { "type": "text", "optional": true },
+            "active": { "type": "bool", "default": true },
+            "created_at": { "type": "datetime", "auto": true },
+            "updated_at": { "type": "datetime", "auto": true }
+          },
+          "indexes": [
+            { "fields": ["group_id"] },
+            { "fields": ["product_template_id"] },
+            { "fields": ["active"] },
+            { "fields": ["filter_numeric_1"] },
+            { "fields": ["filter_numeric_2"] },
+            { "fields": ["filter_text_1"] },
+            { "fields": ["filter_text_2"] },
+            { "fields": ["filter_boolean_1"] },
+            { "fields": ["filter_enum_1"] }
+          ]
+        },
+        "ext_products_pricing_templates": {
+          "fields": {
+            "id": { "type": "int", "primary": true, "auto": true },
+            "name": { "type": "string", "unique": true },
+            "display_name": { "type": "string", "optional": true },
+            "description": { "type": "text", "optional": true },
+            "price_formula": { "type": "text" },
+            "condition_formula": { "type": "text", "optional": true },
+            "variables": { "type": "json", "optional": true },
+            "category": { "type": "string", "optional": true },
+            "status": { "type": "string", "default": "active" },
+            "created_at": { "type": "datetime", "auto": true },
+            "updated_at": { "type": "datetime", "auto": true }
+          }
+        },
+        "ext_products_purchases": {
+          "fields": {
+            "id": { "type": "int", "primary": true, "auto": true },
+            "user_id": { "type": "string" },
+            "provider": { "type": "string", "default": "stripe" },
+            "provider_session_id": { "type": "string", "optional": true },
+            "provider_payment_intent_id": { "type": "string", "optional": true },
+            "provider_subscription_id": { "type": "string", "optional": true },
+            "line_items": { "type": "json", "optional": true },
+            "product_metadata": { "type": "json", "optional": true },
+            "tax_items": { "type": "json", "optional": true },
+            "amount_cents": { "type": "int", "optional": true },
+            "tax_cents": { "type": "int", "optional": true },
+            "total_cents": { "type": "int", "optional": true },
+            "currency": { "type": "string", "default": "USD" },
+            "status": { "type": "string", "default": "pending" },
+            "requires_approval": { "type": "bool", "default": false },
+            "approved_at": { "type": "datetime", "optional": true },
+            "approved_by": { "type": "string", "optional": true },
+            "refunded_at": { "type": "datetime", "optional": true },
+            "refund_reason": { "type": "text", "optional": true },
+            "refund_amount": { "type": "int", "optional": true },
+            "cancelled_at": { "type": "datetime", "optional": true },
+            "cancel_reason": { "type": "text", "optional": true },
+            "success_url": { "type": "string", "optional": true },
+            "cancel_url": { "type": "string", "optional": true },
+            "customer_email": { "type": "string", "optional": true },
+            "customer_name": { "type": "string", "optional": true },
+            "billing_address": { "type": "json", "optional": true },
+            "shipping_address": { "type": "json", "optional": true },
+            "payment_method_types": { "type": "json", "optional": true },
+            "expires_at": { "type": "datetime", "optional": true },
+            "created_at": { "type": "datetime", "auto": true },
+            "updated_at": { "type": "datetime", "auto": true }
+          },
+          "indexes": [
+            { "fields": ["user_id"] },
+            { "fields": ["provider_session_id"] },
+            { "fields": ["provider_payment_intent_id"] },
+            { "fields": ["provider_subscription_id"] },
+            { "fields": ["status"] }
+          ]
+        }
+      }
+    }
+  }
+}

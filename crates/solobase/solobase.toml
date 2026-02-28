@@ -1,0 +1,39 @@
+# Solobase Configuration
+#
+# This file configures the solobase backend. All values can be overridden
+# by environment variables (e.g. DB_TYPE, DATABASE_URL, STORAGE_TYPE, etc.)
+#
+# Config loading: SOLOBASE_CONFIG env var sets the path (default: solobase.toml)
+
+[server]
+bind = "0.0.0.0:8090"
+# log_format = "json"   # "text" (default) or "json"
+
+[database]
+type = "sqlite"           # "sqlite" or "postgres"
+path = "data/solobase.db" # SQLite file path (when type = "sqlite")
+# url = "postgres://user:pass@localhost:5432/solobase"  # (when type = "postgres")
+
+[storage]
+type = "local"            # "local" or "s3"
+root = "data/storage"     # Local filesystem root (when type = "local")
+# bucket = "my-bucket"    # S3 bucket name (when type = "s3")
+# region = "us-east-1"    # S3 region
+# endpoint = ""           # Custom S3 endpoint for MinIO/Tigris/R2
+# prefix = ""             # S3 key prefix for tenant isolation
+
+[auth]
+jwt_secret = ""           # Auto-generated if empty (tokens won't survive restarts)
+# enable_signup = true
+
+[features]
+auth = true
+admin = true
+files = true
+products = true
+monitoring = true
+legalpages = true
+profile = true
+system = true
+userportal = true
+web = true

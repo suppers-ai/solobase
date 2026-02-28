@@ -1,0 +1,32 @@
+{
+  "name": "solobase",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Solobase - Backend as a Service",
+  "workspaces": [
+    "shared/types",
+    "shared/utils",
+    "shared/ui",
+    "frontend"
+  ],
+  "scripts": {
+    "build": "npm run build -w @solobase/admin",
+    "build:admin": "npm run build -w @solobase/admin",
+    "dev:admin": "npm run dev -w @solobase/admin",
+    "generate:types": "echo 'Type generation not yet ported to Rust — manually maintain shared/types for now'",
+    "check": "npm run check -w @solobase/admin",
+    "test:e2e": "npx playwright test",
+    "test:e2e:ui": "npx playwright test --ui",
+    "test:e2e:update": "npx playwright test --update-snapshots"
+  },
+  "keywords": [
+    "solobase",
+    "backend",
+    "baas"
+  ],
+  "author": "Solobase Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

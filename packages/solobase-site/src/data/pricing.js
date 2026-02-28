@@ -1,0 +1,116 @@
+export const plans = [
+  {
+    name: 'Free',
+    price: 0,
+    description: 'Try Solobase with zero commitment',
+    features: [
+      { text: '1 Solobase instance', included: true },
+      { text: '100MB PostgreSQL database', included: true },
+      { text: '512MB storage', included: true },
+      { text: '100K API requests/month', included: true },
+      { text: 'Custom subdomain', included: true },
+      { text: 'Auto-sleep after 15min idle', included: true, warning: true },
+      { text: 'Community support', included: true },
+    ],
+    cta: 'Get Started Free',
+    ctaUrl: 'https://app.solobase.app/?plan=free',
+    popular: false,
+  },
+  {
+    name: 'Hobby',
+    price: 5,
+    description: 'Perfect for side projects and experimentation',
+    features: [
+      { text: '1 Solobase instance', included: true },
+      { text: '500MB PostgreSQL database', included: true },
+      { text: '2GB storage (Backblaze B2)', included: true },
+      { text: '1M API requests/month', included: true },
+      { text: 'Custom subdomain', included: true },
+      { text: 'Auto-sleep after 15min idle', included: true, warning: true },
+      { text: 'Community support', included: true },
+    ],
+    cta: 'Get Started',
+    ctaUrl: 'https://app.solobase.app/?plan=hobby',
+    popular: false,
+  },
+  {
+    name: 'Starter',
+    price: 15,
+    description: 'For small projects and MVPs',
+    features: [
+      { text: '1 Solobase instance', included: true },
+      { text: '5GB PostgreSQL database', included: true },
+      { text: '10GB storage (Backblaze B2)', included: true },
+      { text: '10M API requests/month', included: true },
+      { text: 'Custom subdomain', included: true },
+      { text: 'Always-on (no sleep)', included: true },
+      { text: 'Email support (48h)', included: true },
+    ],
+    cta: 'Get Started',
+    ctaUrl: 'https://app.solobase.app/?plan=starter',
+    popular: false,
+  },
+  {
+    name: 'Professional',
+    price: 79,
+    description: 'For growing startups and production apps',
+    features: [
+      { text: '3 Solobase instances', included: true, bold: true },
+      { text: '20GB PostgreSQL database', included: true },
+      { text: '50GB storage (Backblaze B2)', included: true },
+      { text: '100M API requests/month', included: true },
+      { text: 'Custom domain support', included: true },
+      { text: 'Always-on (no cold starts)', included: true },
+      { text: 'Daily backups', included: true },
+      { text: 'Email support (24h)', included: true },
+    ],
+    cta: 'Get Started',
+    ctaUrl: 'https://app.solobase.app/?plan=professional',
+    popular: true,
+  },
+  {
+    name: 'Business',
+    price: 199,
+    description: 'For established businesses at scale',
+    features: [
+      { text: '10 Solobase instances', included: true, bold: true },
+      { text: '100GB dedicated PostgreSQL', included: true },
+      { text: '200GB storage (Backblaze B2)', included: true },
+      { text: 'Unlimited API requests', included: true },
+      { text: 'Custom domains', included: true },
+      { text: 'Real-time backups', included: true },
+      { text: '99.9% SLA', included: true },
+      { text: 'Priority support (12h)', included: true },
+    ],
+    cta: 'Get Started',
+    ctaUrl: 'https://app.solobase.app/?plan=business',
+    popular: false,
+  },
+];
+
+export const enterpriseFeatures = [
+  'Unlimited instances',
+  'Multi-AZ database cluster',
+  'Custom extensions',
+  '99.99% SLA',
+  'On-premise option',
+];
+
+export const faqs = [
+  {
+    question: 'What happens when I exceed my plan limits?',
+    answer: "We'll notify you before you hit your limits. You can upgrade your plan anytime, or we'll temporarily throttle requests to keep your costs predictable.",
+  },
+  {
+    question: 'Can I change plans later?',
+    answer: "Yes! You can upgrade or downgrade your plan at any time. Changes take effect immediately, and we'll prorate your billing accordingly.",
+  },
+  {
+    question: "What's the difference between shared and dedicated databases?",
+    answer: 'Free, Hobby, Starter, and Professional plans use a shared PostgreSQL instance (separate databases per instance). Business and Enterprise get dedicated database servers for better performance and isolation.',
+  },
+  {
+    question: 'Is my data backed up?',
+    answer: 'Yes! Professional+ plans include daily backups. Business and Enterprise plans have real-time replication and point-in-time recovery.',
+  },
+];

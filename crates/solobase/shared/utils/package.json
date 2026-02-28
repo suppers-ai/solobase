@@ -1,0 +1,16 @@
+{
+  "name": "@solobase/utils",
+  "version": "1.0.0",
+  "description": "Shared utilities for Solobase frontends",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./formatters": "./formatters.ts",
+    "./colors": "./colors.ts"
+  },
+  "keywords": ["solobase", "utils", "typescript"],
+  "author": "Solobase Team",
+  "license": "MIT"
+}

@@ -1,0 +1,35 @@
+# fly.toml configuration for Solobase Demo
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+
+# App name will be set via command line or FLY_APP_NAME env var
+# app = 'solobase-demo'
+
+primary_region = 'syd'
+
+[build]
+  # Dockerfile path is relative to the build context
+  # When running from root: fly deploy --config demo/deployment/fly.toml --dockerfile demo/deployment/Dockerfile
+  # When running from demo/deployment: fly deploy --dockerfile Dockerfile
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[checks]
+  [checks.demo_health]
+    grace_period = "60s"
+    interval = "30s"
+    method = "get"
+    path = "/api/health"
+    port = 8080
+    timeout = "10s"
+    type = "http"
+
+[[vm]]
+  memory = '256MB'
+  cpu_kind = 'shared'
+  cpus = 1

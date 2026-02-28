@@ -1,0 +1,23 @@
+{
+  "name": "solobase/monitoring",
+  "version": "0.0.1",
+  "services": {
+    "database": {
+      "collections": {
+        "sys_monitoring_snapshots": {
+          "fields": {
+            "id": { "type": "string", "primary": true },
+            "period_start": { "type": "datetime" },
+            "period_end": { "type": "datetime" },
+            "total_messages": { "type": "int" },
+            "total_errors": { "type": "int" },
+            "per_block_json": { "type": "text", "optional": true },
+            "per_chain_json": { "type": "text", "optional": true },
+            "per_kind_json": { "type": "text", "optional": true },
+            "created_at": { "type": "datetime", "auto": true }
+          }
+        }
+      }
+    }
+  }
+}

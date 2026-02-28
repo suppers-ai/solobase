@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Solobase Cloud</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; }
+    .nav { background: #0f172a; color: white; padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; }
+    .nav h1 { font-size: 18px; font-weight: 600; }
+    .nav .user { font-size: 14px; opacity: 0.8; }
+    .container { max-width: 1024px; margin: 32px auto; padding: 0 20px; }
+    .card { background: white; border-radius: 8px; border: 1px solid #e2e8f0; padding: 24px; margin-bottom: 16px; }
+    .card h2 { font-size: 16px; margin-bottom: 12px; color: #334155; }
+    .btn { display: inline-block; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    .btn:hover { background: #2563eb; }
+    .btn-danger { background: #ef4444; }
+    .btn-danger:hover { background: #dc2626; }
+    .tenant-list { list-style: none; }
+    .tenant-list li { padding: 12px 0; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; }
+    .tenant-list li:last-child { border-bottom: none; }
+    .tenant-name { font-weight: 500; }
+    .tenant-status { font-size: 12px; padding: 2px 8px; border-radius: 12px; }
+    .status-running { background: #dcfce7; color: #166534; }
+    .status-paused { background: #fef3c7; color: #92400e; }
+    .status-error { background: #fecaca; color: #991b1b; }
+    #app { min-height: 80vh; }
+    .empty { text-align: center; padding: 40px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <h1>Solobase Cloud</h1>
+    <span class="user" id="user-info">Loading...</span>
+  </div>
+  <div class="container" id="app">
+    <div class="card">
+      <h2>Your Instances</h2>
+      <div id="tenant-list"><div class="empty">Loading...</div></div>
+    </div>
+    <button class="btn" onclick="createTenant()">+ New Instance</button>
+  </div>
+  <script>
+    const API = '/api';
+    async function loadTenants() {
+      try {
+        const resp = await fetch(API + '/tenants', { credentials: 'include' });
+        if (!resp.ok) { window.location.href = '/auth/login'; return; }
+        const tenants = await resp.json();
+        const el = document.getElementById('tenant-list');
+        if (!tenants || tenants.length === 0) {
+          el.innerHTML = '<div class="empty">No instances yet. Create one to get started.</div>';
+          return;
+        }
+        el.innerHTML = '<ul class="tenant-list">' + tenants.map(t =>
+          '<li><span class="tenant-name">' + t.subdomain + '.solobase.app</span>' +
+          '<span class="tenant-status status-' + t.state + '">' + t.state + '</span></li>'
+        ).join('') + '</ul>';
+      } catch (e) { console.error(e); }
+    }
+    async function createTenant() {
+      const subdomain = prompt('Choose a subdomain (e.g. myapp):');
+      if (!subdomain) return;
+      try {
+        const resp = await fetch(API + '/tenants', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subdomain: subdomain, plan: 'free' })
+        });
+        if (resp.ok) loadTenants();
+        else alert('Failed: ' + await resp.text());
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+    loadTenants();
+  </script>
+</body>
+</html>
