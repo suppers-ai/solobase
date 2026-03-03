@@ -4,10 +4,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_run::services::database::{self, Filter, FilterOp, ListOptions, SortField};
 use super::get_db;
-
-const PURCHASES_COLLECTION: &str = "ext_products_purchases";
-const LINE_ITEMS_COLLECTION: &str = "ext_products_line_items";
-const PRODUCTS_COLLECTION: &str = "ext_products_products";
+use super::{PURCHASES_COLLECTION, LINE_ITEMS_COLLECTION, PRODUCTS_COLLECTION};
 
 pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
@@ -43,6 +40,9 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let mut line_items_data = Vec::new();
 
     for item in &body.items {
+        if item.quantity <= 0 {
+            return err_bad_request(msg.clone(), "Quantity must be positive");
+        }
         let product = match db.get(PRODUCTS_COLLECTION, &item.product_id) {
             Ok(p) => p,
             Err(_) => return err_not_found(msg.clone(), &format!("Product {} not found", item.product_id)),
@@ -98,7 +98,9 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         item_data.insert("total_price".to_string(), serde_json::json!(line_total));
         item_data.insert("variables".to_string(), serde_json::json!(variables));
         item_data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
-        let _ = db.create(LINE_ITEMS_COLLECTION, item_data);
+        if let Err(e) = db.create(LINE_ITEMS_COLLECTION, item_data) {
+            tracing::warn!("Failed to create purchase line item: {e}");
+        }
     }
 
     json_respond(msg.clone(), 201, &serde_json::json!({

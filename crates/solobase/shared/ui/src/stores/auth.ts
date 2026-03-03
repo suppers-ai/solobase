@@ -87,7 +87,3 @@ export async function checkAuth(): Promise<boolean> {
 export function setUser(user: AuthUser | null): void {
 	authState.value = { ...authState.value, user };
 }
-
-export function updateUser(user: AuthUser): void {
-	authState.value = { ...authState.value, user };
-}

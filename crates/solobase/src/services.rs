@@ -275,12 +275,18 @@ fn build_crypto_service(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| {
             tracing::warn!("JWT_SECRET not set — generating a random secret (tokens will not survive restarts)");
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
             use std::time::{SystemTime, UNIX_EPOCH};
-            let seed = SystemTime::now()
+            let mut hasher = DefaultHasher::new();
+            SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            format!("solobase-dev-secret-{}", seed)
+                .unwrap_or_default()
+                .as_nanos()
+                .hash(&mut hasher);
+            std::process::id().hash(&mut hasher);
+            let random_part = hasher.finish();
+            format!("solobase-dev-secret-{:016x}", random_part)
         });
 
     Some(Arc::new(SolobaseCryptoService::new(jwt_secret)))
@@ -381,11 +387,17 @@ impl wafer_run::services::crypto::CryptoService for SolobaseCryptoService {
 // ---------------------------------------------------------------------------
 
 fn build_network_service() -> Option<Arc<dyn wafer_run::services::network::NetworkService>> {
-    Some(Arc::new(HttpNetworkService))
+    Some(Arc::new(HttpNetworkService {
+        client: std::sync::OnceLock::new(),
+    }))
 }
 
 /// Simple reqwest-based network service for outbound HTTP calls.
-struct HttpNetworkService;
+/// The client is lazily initialized on first use (from a blocking context)
+/// because `reqwest::blocking::Client` cannot be created inside a tokio runtime.
+struct HttpNetworkService {
+    client: std::sync::OnceLock<reqwest::blocking::Client>,
+}
 
 impl wafer_run::services::network::NetworkService for HttpNetworkService {
     fn do_request(
@@ -393,8 +405,6 @@ impl wafer_run::services::network::NetworkService for HttpNetworkService {
         req: &wafer_run::services::network::Request,
     ) -> Result<wafer_run::services::network::Response, wafer_run::services::network::NetworkError>
     {
-        let client = reqwest::blocking::Client::new();
-
         let method = req.method.parse::<reqwest::Method>().map_err(|e| {
             wafer_run::services::network::NetworkError::RequestError(format!(
                 "invalid method: {}",
@@ -402,6 +412,7 @@ impl wafer_run::services::network::NetworkService for HttpNetworkService {
             ))
         })?;
 
+        let client = self.client.get_or_init(|| reqwest::blocking::Client::new());
         let mut builder = client.request(method, &req.url);
 
         for (key, value) in &req.headers {

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
@@ -7,6 +6,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_run::services::database::{self, DatabaseService, Filter, FilterOp, ListOptions, SortField};
 use wafer_run::services::crypto::CryptoService;
+use super::helpers::{get_db, get_db_and_crypto as get_services, hex_encode, sha256_hex};
 
 pub struct AuthBlock;
 
@@ -65,12 +65,11 @@ impl AuthBlock {
         // Update last login
         let mut upd = HashMap::new();
         upd.insert("last_login_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-        let _ = db.update(USERS_COLLECTION, &user.id, upd);
+        if let Err(e) = db.update(USERS_COLLECTION, &user.id, upd) {
+            tracing::warn!("Failed to update last login time: {e}");
+        }
 
-        let cookie = format!(
-            "auth_token={}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400",
-            access_token
-        );
+        let cookie = build_auth_cookie(&access_token, 86400, ctx);
 
         ResponseBuilder::new(msg.clone(), 200)
             .set_cookie(&cookie)
@@ -102,11 +101,15 @@ impl AuthBlock {
         };
 
         let email_lower = body.email.trim().to_lowercase();
-        if email_lower.is_empty() || !email_lower.contains('@') {
+        let parts: Vec<&str> = email_lower.splitn(2, '@').collect();
+        if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() || !parts[1].contains('.') {
             return err_bad_request(msg.clone(), "Invalid email address");
         }
         if body.password.len() < 8 {
             return err_bad_request(msg.clone(), "Password must be at least 8 characters");
+        }
+        if body.password.len() > 1024 {
+            return err_bad_request(msg.clone(), "Password must not exceed 1024 characters");
         }
 
         // Check if user exists
@@ -141,7 +144,9 @@ impl AuthBlock {
         role_data.insert("user_id".to_string(), serde_json::Value::String(user.id.clone()));
         role_data.insert("role".to_string(), serde_json::Value::String(default_role.to_string()));
         role_data.insert("assigned_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-        let _ = db.create(USER_ROLES_COLLECTION, role_data);
+        if let Err(e) = db.create(USER_ROLES_COLLECTION, role_data) {
+            tracing::warn!("Failed to assign default role during signup: {e}");
+        }
 
         let roles = vec![default_role.to_string()];
 
@@ -153,10 +158,7 @@ impl AuthBlock {
 
         store_refresh_token(db.as_ref(), &user.id, &refresh_token);
 
-        let cookie = format!(
-            "auth_token={}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400",
-            access_token
-        );
+        let cookie = build_auth_cookie(&access_token, 86400, ctx);
 
         ResponseBuilder::new(msg.clone(), 201)
             .set_cookie(&cookie)
@@ -230,10 +232,7 @@ impl AuthBlock {
 
         store_refresh_token(db.as_ref(), &user_id, &refresh_token);
 
-        let cookie = format!(
-            "auth_token={}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400",
-            access_token
-        );
+        let cookie = build_auth_cookie(&access_token, 86400, ctx);
 
         ResponseBuilder::new(msg.clone(), 200)
             .set_cookie(&cookie)
@@ -253,9 +252,9 @@ impl AuthBlock {
             }
         }
 
-        let cookie = "auth_token=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0";
+        let cookie = build_auth_cookie("", 0, ctx);
         ResponseBuilder::new(msg.clone(), 200)
-            .set_cookie(cookie)
+            .set_cookie(&cookie)
             .json(&serde_json::json!({"message": "Logged out successfully"}))
     }
 
@@ -343,6 +342,9 @@ impl AuthBlock {
         if body.new_password.len() < 8 {
             return err_bad_request(msg.clone(), "New password must be at least 8 characters");
         }
+        if body.new_password.len() > 1024 {
+            return err_bad_request(msg.clone(), "Password must not exceed 1024 characters");
+        }
 
         let user = match db.get(USERS_COLLECTION, user_id) {
             Ok(u) => u,
@@ -420,10 +422,8 @@ impl AuthBlock {
         };
         let key_string = format!("sb_{}", hex_encode(&random_bytes));
 
-        let key_hash = match crypto.hash(&key_string) {
-            Ok(h) => h,
-            Err(e) => return err_internal(msg.clone(), &format!("Hash failed: {e}")),
-        };
+        // Use deterministic SHA-256 hash for key lookup (not argon2, which is non-deterministic)
+        let key_hash = sha256_hex(key_string.as_bytes());
 
         let now = chrono::Utc::now().to_rfc3339();
         let mut data = HashMap::new();
@@ -517,18 +517,31 @@ impl AuthBlock {
 
         let redirect_uri = config.get_default("OAUTH_REDIRECT_URI", "http://localhost:8090/auth/oauth/callback");
 
+        // Generate CSRF state token (signed JWT containing the provider name)
+        let crypto = match ctx.services().and_then(|s| s.crypto.as_ref()) {
+            Some(c) => c,
+            None => return err_internal(msg.clone(), "Crypto service unavailable"),
+        };
+        let mut state_claims = HashMap::new();
+        state_claims.insert("provider".to_string(), serde_json::Value::String(provider.to_string()));
+        state_claims.insert("type".to_string(), serde_json::Value::String("oauth_state".to_string()));
+        let state = match crypto.sign(state_claims, Duration::from_secs(600)) {
+            Ok(s) => s,
+            Err(e) => return err_internal(msg.clone(), &format!("Failed to generate state: {e}")),
+        };
+
         let auth_url = match provider {
             "google" => format!(
                 "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}",
-                client_id, redirect_uri, provider
+                client_id, redirect_uri, urlencode(&state)
             ),
             "github" => format!(
                 "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope=user:email&state={}",
-                client_id, redirect_uri, provider
+                client_id, redirect_uri, urlencode(&state)
             ),
             "microsoft" => format!(
                 "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}",
-                client_id, redirect_uri, provider
+                client_id, redirect_uri, urlencode(&state)
             ),
             _ => return err_bad_request(msg.clone(), &format!("Unsupported provider: {}", provider)),
         };
@@ -554,12 +567,25 @@ impl AuthBlock {
         };
 
         let code = msg.query("code");
-        let state = msg.query("state"); // provider name
+        let state = msg.query("state");
         if code.is_empty() || state.is_empty() {
             return err_bad_request(msg.clone(), "Missing code or state parameter");
         }
 
-        let provider = state;
+        // Verify CSRF state token and extract provider name
+        let state_claims = match crypto.verify(state) {
+            Ok(c) => c,
+            Err(_) => return err_bad_request(msg.clone(), "Invalid or expired OAuth state"),
+        };
+        let state_type = state_claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        if state_type != "oauth_state" {
+            return err_bad_request(msg.clone(), "Invalid OAuth state token");
+        }
+        let provider = state_claims.get("provider").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if provider.is_empty() {
+            return err_bad_request(msg.clone(), "Missing provider in OAuth state");
+        }
+
         let client_id = config.get_default(&format!("OAUTH_{}_CLIENT_ID", provider.to_uppercase()), "");
         let client_secret = config.get_default(&format!("OAUTH_{}_CLIENT_SECRET", provider.to_uppercase()), "");
         let redirect_uri = config.get_default("OAUTH_REDIRECT_URI", "http://localhost:8090/auth/oauth/callback");
@@ -568,15 +594,17 @@ impl AuthBlock {
             return err_internal(msg.clone(), "OAuth provider not fully configured");
         }
 
-        // Exchange code for token
-        let (token_url, token_body) = match provider {
+        // Exchange code for token (URL-encode all values)
+        let (token_url, token_body) = match provider.as_str() {
             "google" => (
                 "https://oauth2.googleapis.com/token".to_string(),
-                format!("code={}&client_id={}&client_secret={}&redirect_uri={}&grant_type=authorization_code", code, client_id, client_secret, redirect_uri),
+                format!("code={}&client_id={}&client_secret={}&redirect_uri={}&grant_type=authorization_code",
+                    urlencode(code), urlencode(&client_id), urlencode(&client_secret), urlencode(&redirect_uri)),
             ),
             "github" => (
                 "https://github.com/login/oauth/access_token".to_string(),
-                format!("code={}&client_id={}&client_secret={}&redirect_uri={}", code, client_id, client_secret, redirect_uri),
+                format!("code={}&client_id={}&client_secret={}&redirect_uri={}",
+                    urlencode(code), urlencode(&client_id), urlencode(&client_secret), urlencode(&redirect_uri)),
             ),
             _ => return err_bad_request(msg.clone(), "Unsupported OAuth provider"),
         };
@@ -606,7 +634,7 @@ impl AuthBlock {
         }
 
         // Get user info
-        let (userinfo_url, auth_header) = match provider {
+        let (userinfo_url, auth_header) = match provider.as_str() {
             "google" => ("https://www.googleapis.com/oauth2/v2/userinfo".to_string(), format!("Bearer {}", access_token_oauth)),
             "github" => ("https://api.github.com/user".to_string(), format!("token {}", access_token_oauth)),
             _ => return err_internal(msg.clone(), "Unsupported provider"),
@@ -651,7 +679,9 @@ impl AuthBlock {
                 if !name.is_empty() { upd.insert("name".to_string(), serde_json::Value::String(name.clone())); }
                 if !avatar.is_empty() { upd.insert("avatar_url".to_string(), serde_json::Value::String(avatar.clone())); }
                 upd.insert("oauth_provider".to_string(), serde_json::Value::String(provider.to_string()));
-                let _ = db.update(USERS_COLLECTION, &existing.id, upd);
+                if let Err(e) = db.update(USERS_COLLECTION, &existing.id, upd) {
+                    tracing::warn!("Failed to update OAuth user profile: {e}");
+                }
                 existing
             }
             Err(_) => {
@@ -673,7 +703,9 @@ impl AuthBlock {
                         role_data.insert("user_id".to_string(), serde_json::Value::String(u.id.clone()));
                         role_data.insert("role".to_string(), serde_json::Value::String(role.to_string()));
                         role_data.insert("assigned_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-                        let _ = db.create(USER_ROLES_COLLECTION, role_data);
+                        if let Err(e) = db.create(USER_ROLES_COLLECTION, role_data) {
+                            tracing::warn!("Failed to assign default role during OAuth signup: {e}");
+                        }
                         u
                     }
                     Err(e) => return err_internal(msg.clone(), &format!("Failed to create user: {e}")),
@@ -692,10 +724,7 @@ impl AuthBlock {
         let frontend_url = config.get_default("FRONTEND_URL", "http://localhost:5173");
         let redirect_url = format!("{}/?token={}", frontend_url, jwt_token);
 
-        let cookie = format!(
-            "auth_token={}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400",
-            jwt_token
-        );
+        let cookie = build_auth_cookie(&jwt_token, 86400, ctx);
 
         ResponseBuilder::new(msg.clone(), 302)
             .set_cookie(&cookie)
@@ -704,7 +733,17 @@ impl AuthBlock {
     }
 
     fn handle_sync_user(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        // Internal endpoint for OAuth user sync
+        // Internal endpoint for OAuth user sync — requires INTERNAL_SECRET
+        let config = ctx.services().and_then(|s| s.config.as_ref());
+        let expected_secret = config.and_then(|c| c.get("INTERNAL_SECRET")).unwrap_or_default();
+        if expected_secret.is_empty() {
+            return err_forbidden(msg.clone(), "INTERNAL_SECRET not configured — internal endpoints are disabled");
+        }
+        let provided_secret = msg.header("x-internal-secret");
+        if provided_secret != expected_secret {
+            return err_unauthorized(msg.clone(), "Invalid internal secret");
+        }
+
         let (db, _crypto) = match get_services(ctx) {
             Ok(s) => s,
             Err(r) => return r,
@@ -741,19 +780,6 @@ impl AuthBlock {
 }
 
 // --- Helper functions ---
-
-fn get_db(ctx: &dyn Context) -> Result<&Arc<dyn DatabaseService>, Result_> {
-    ctx.services()
-        .and_then(|s| s.database.as_ref())
-        .ok_or_else(|| Result_::error(WaferError::new("unavailable", "Database service unavailable")))
-}
-
-fn get_services(ctx: &dyn Context) -> Result<(&Arc<dyn DatabaseService>, &Arc<dyn CryptoService>), Result_> {
-    let svc = ctx.services().ok_or_else(|| Result_::error(WaferError::new("unavailable", "Services unavailable")))?;
-    let db = svc.database.as_ref().ok_or_else(|| Result_::error(WaferError::new("unavailable", "Database unavailable")))?;
-    let crypto = svc.crypto.as_ref().ok_or_else(|| Result_::error(WaferError::new("unavailable", "Crypto unavailable")))?;
-    Ok((db, crypto))
-}
 
 fn get_user_roles(db: &dyn DatabaseService, user_id: &str) -> Vec<String> {
     let opts = ListOptions {
@@ -807,11 +833,30 @@ fn store_refresh_token(db: &dyn DatabaseService, user_id: &str, token: &str) {
     data.insert("user_id".to_string(), serde_json::Value::String(user_id.to_string()));
     data.insert("token".to_string(), serde_json::Value::String(token.to_string()));
     data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-    let _ = db.create(TOKENS_COLLECTION, data);
+    if let Err(e) = db.create(TOKENS_COLLECTION, data) {
+        tracing::warn!("Failed to store refresh token: {e}");
+    }
 }
 
-fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+fn build_auth_cookie(token: &str, max_age: u64, ctx: &dyn Context) -> String {
+    let secure = ctx.services()
+        .and_then(|s| s.config.as_ref())
+        .and_then(|c| c.get("ENVIRONMENT"))
+        .map(|v| v != "development")
+        .unwrap_or(false);
+    format!(
+        "auth_token={}; HttpOnly; Path=/; SameSite=Lax; Max-Age={}{}",
+        token, max_age, if secure { "; Secure" } else { "" }
+    )
+}
+
+fn urlencode(s: &str) -> String {
+    s.as_bytes().iter().map(|&b| match b {
+        b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+            String::from(b as char)
+        }
+        _ => format!("%{:02X}", b),
+    }).collect()
 }
 
 /// Seed a default admin user if no users exist yet.
@@ -822,7 +867,17 @@ fn seed_admin_user(db: &dyn DatabaseService, crypto: &dyn CryptoService) {
         return;
     }
 
-    let password_hash = match crypto.hash("admin123") {
+    // Generate a random password instead of using a hardcoded one
+    let random_bytes = match crypto.random_bytes(16) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!("Failed to generate random password: {e}");
+            return;
+        }
+    };
+    let generated_password = hex_encode(&random_bytes);
+
+    let password_hash = match crypto.hash(&generated_password) {
         Ok(h) => h,
         Err(e) => {
             tracing::error!("Failed to hash default admin password: {e}");
@@ -845,8 +900,15 @@ fn seed_admin_user(db: &dyn DatabaseService, crypto: &dyn CryptoService) {
             role_data.insert("user_id".to_string(), serde_json::Value::String(user.id.clone()));
             role_data.insert("role".to_string(), serde_json::Value::String("admin".to_string()));
             role_data.insert("assigned_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-            let _ = db.create(USER_ROLES_COLLECTION, role_data);
-            tracing::info!("default admin user seeded (admin@example.com)");
+            if let Err(e) = db.create(USER_ROLES_COLLECTION, role_data) {
+                tracing::warn!("Failed to assign admin role to seeded user: {e}");
+            }
+            tracing::info!("==========================================================");
+            tracing::info!("Default admin user seeded:");
+            tracing::info!("  Email:    admin@example.com");
+            tracing::info!("  Password: {}", generated_password);
+            tracing::info!("  CHANGE THIS PASSWORD IMMEDIATELY!");
+            tracing::info!("==========================================================");
         }
         Err(e) => {
             tracing::error!("Failed to seed admin user: {e}");

@@ -1,20 +1,6 @@
-import { html, login, checkAuth, authState, LoadingSpinner } from '@solobase/ui';
+import { html, login, checkAuth, authState, LoadingSpinner, isValidRedirectUrl } from '@solobase/ui';
 import { useState, useEffect } from 'preact/hooks';
 import { Eye, EyeOff, Mail, Lock, LogIn } from 'lucide-preact';
-
-function isValidRedirectUrl(url: string): boolean {
-	if (!url) return false;
-	try {
-		if (url.startsWith('/') && !url.startsWith('//')) return true;
-		if (url.startsWith('http')) {
-			const urlObj = new URL(url);
-			return urlObj.origin === window.location.origin;
-		}
-		return false;
-	} catch {
-		return false;
-	}
-}
 
 export function LoginPage() {
 	const [email, setEmail] = useState('');
@@ -45,7 +31,7 @@ export function LoginPage() {
 		if (!isPopupMode) return false;
 		if (window.opener) {
 			try {
-				window.opener.postMessage({ type: 'auth-success' }, '*');
+				window.opener.postMessage({ type: 'auth-success' }, window.location.origin);
 			} catch (e) { /* ignore */ }
 		}
 		window.close();

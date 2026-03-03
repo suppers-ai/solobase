@@ -93,7 +93,9 @@ fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             data.insert("public".to_string(), serde_json::Value::Bool(body.public));
             data.insert("created_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
             data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-            let _ = db.create(BUCKETS_COLLECTION, data);
+            if let Err(e) = db.create(BUCKETS_COLLECTION, data) {
+                tracing::warn!("Failed to track bucket creation in database: {e}");
+            }
             json_respond(msg.clone(), 201, &serde_json::json!({"name": body.name, "created": true}))
         }
         Err(e) => err_internal(msg.clone(), &format!("Failed to create bucket: {e}")),
@@ -149,7 +151,9 @@ fn handle_get_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         data.insert("key".to_string(), serde_json::Value::String(key.to_string()));
         data.insert("user_id".to_string(), serde_json::Value::String(msg.user_id().to_string()));
         data.insert("viewed_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-        let _ = db.create("storage_views", data);
+        if let Err(e) = db.create("storage_views", data) {
+            tracing::warn!("Failed to track storage object view: {e}");
+        }
     }
 
     match store.get(bucket, key) {
@@ -188,7 +192,9 @@ fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             data.insert("content_type".to_string(), serde_json::Value::String(content_type.to_string()));
             data.insert("uploaded_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
             data.insert("uploaded_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-            let _ = db.create(OBJECTS_META_COLLECTION, data);
+            if let Err(e) = db.create(OBJECTS_META_COLLECTION, data) {
+                tracing::warn!("Failed to store object metadata: {e}");
+            }
             json_respond(msg.clone(), 201, &serde_json::json!({"bucket": bucket, "key": key, "uploaded": true}))
         }
         Err(e) => err_internal(msg.clone(), &format!("Upload failed: {e}")),

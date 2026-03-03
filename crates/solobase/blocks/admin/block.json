@@ -1,162 +1,160 @@
 {
   "name": "solobase/admin",
   "version": "0.0.1",
-  "services": {
-    "database": {
-      "collections": {
-        "iam_roles": {
-          "fields": {
-            "id": { "type": "string", "primary": true },
-            "name": { "type": "string", "unique": true },
-            "display_name": { "type": "string", "optional": true },
-            "description": { "type": "text", "optional": true },
-            "is_system": { "type": "bool", "default": false },
-            "type": { "type": "string", "optional": true },
-            "metadata": { "type": "text", "optional": true },
-            "created_at": { "type": "datetime", "auto": true },
-            "updated_at": { "type": "datetime", "auto": true }
-          }
-        },
-        "iam_user_roles": {
-          "fields": {
-            "id": { "type": "string", "primary": true },
-            "user_id": { "type": "string" },
-            "role_id": { "type": "string", "optional": true },
-            "role_name": { "type": "string", "optional": true },
-            "granted_by": { "type": "string", "optional": true },
-            "granted_at": { "type": "datetime", "auto": true },
-            "expires_at": { "type": "datetime", "optional": true }
-          },
-          "indexes": [
-            { "fields": ["user_id"] },
-            { "fields": ["role_id"] },
-            { "fields": ["role_name"] },
-            { "fields": ["user_id", "role_id"], "unique": true }
-          ]
-        },
-        "iam_policies": {
-          "fields": {
-            "id": { "type": "string", "primary": true },
-            "ptype": { "type": "string" },
-            "v0": { "type": "string", "optional": true },
-            "v1": { "type": "string", "optional": true },
-            "v2": { "type": "string", "optional": true },
-            "v3": { "type": "string", "optional": true },
-            "v4": { "type": "string", "optional": true },
-            "v5": { "type": "string", "optional": true },
-            "created_at": { "type": "datetime", "auto": true }
-          },
-          "indexes": [
-            { "fields": ["ptype"] },
-            { "fields": ["v0"] }
-          ]
-        },
-        "iam_audit_logs": {
-          "fields": {
-            "id": { "type": "string", "primary": true },
-            "user_id": { "type": "string", "optional": true },
-            "action": { "type": "string", "optional": true },
-            "resource": { "type": "string", "optional": true },
-            "result": { "type": "string", "optional": true },
-            "reason": { "type": "string", "optional": true },
-            "ip_address": { "type": "string", "optional": true },
-            "user_agent": { "type": "string", "optional": true },
-            "metadata": { "type": "text", "optional": true },
-            "created_at": { "type": "datetime", "auto": true }
-          },
-          "indexes": [
-            { "fields": ["user_id"] },
-            { "fields": ["created_at"] }
-          ]
-        },
-        "sys_logs": {
-          "fields": {
-            "id": { "type": "string", "primary": true },
-            "level": { "type": "string" },
-            "message": { "type": "text" },
-            "fields": { "type": "text", "optional": true },
-            "user_id": { "type": "string", "optional": true },
-            "trace_id": { "type": "string", "optional": true },
-            "created_at": { "type": "datetime", "auto": true }
-          },
-          "indexes": [
-            { "fields": ["level"] },
-            { "fields": ["user_id"] },
-            { "fields": ["trace_id"] },
-            { "fields": ["created_at"] }
-          ]
-        },
-        "sys_message_logs": {
-          "fields": {
-            "id": { "type": "string", "primary": true },
-            "chain_id": { "type": "string" },
-            "block_name": { "type": "string" },
-            "message_kind": { "type": "string" },
-            "action": { "type": "string" },
-            "duration_ms": { "type": "int" },
-            "trace_id": { "type": "string", "optional": true },
-            "error": { "type": "text", "optional": true },
-            "user_id": { "type": "string", "optional": true },
-            "meta_snapshot": { "type": "text", "optional": true },
-            "created_at": { "type": "datetime", "auto": true }
-          },
-          "indexes": [
-            { "fields": ["chain_id"] },
-            { "fields": ["block_name"] },
-            { "fields": ["message_kind"] },
-            { "fields": ["action"] },
-            { "fields": ["trace_id"] },
-            { "fields": ["created_at"] }
-          ]
-        },
-        "sys_settings": {
-          "fields": {
-            "id": { "type": "string", "primary": true },
-            "key": { "type": "string", "unique": true },
-            "value": { "type": "text", "optional": true },
-            "type": { "type": "string", "default": "string" },
-            "created_at": { "type": "datetime", "auto": true },
-            "updated_at": { "type": "datetime", "auto": true },
-            "deleted_at": { "type": "datetime", "optional": true }
-          },
-          "indexes": [
-            { "fields": ["deleted_at"] }
-          ]
-        },
-        "custom_table_definitions": {
-          "fields": {
-            "id": { "type": "int", "primary": true, "auto": true },
-            "name": { "type": "string", "unique": true },
-            "display_name": { "type": "string", "optional": true },
-            "description": { "type": "text", "optional": true },
-            "fields": { "type": "text", "optional": true },
-            "indexes": { "type": "text", "optional": true },
-            "options": { "type": "text", "optional": true },
-            "created_by": { "type": "string", "optional": true },
-            "status": { "type": "string", "default": "active" },
-            "created_at": { "type": "datetime", "auto": true },
-            "updated_at": { "type": "datetime", "auto": true }
-          }
-        },
-        "custom_table_migrations": {
-          "fields": {
-            "id": { "type": "int", "primary": true, "auto": true },
-            "table_id": { "type": "int", "optional": true },
-            "version": { "type": "int", "optional": true },
-            "migration_type": { "type": "string", "optional": true },
-            "old_schema": { "type": "text", "optional": true },
-            "new_schema": { "type": "text", "optional": true },
-            "executed_by": { "type": "string", "optional": true },
-            "executed_at": { "type": "datetime", "auto": true },
-            "rollback_at": { "type": "datetime", "optional": true },
-            "status": { "type": "string", "optional": true },
-            "error_message": { "type": "text", "optional": true }
-          },
-          "indexes": [
-            { "fields": ["table_id"] }
-          ]
-        }
+  "description": "Admin management: users, IAM roles/policies, audit logs, settings, custom tables",
+
+  "collections": {
+    "iam_roles": {
+      "fields": {
+        "id": { "type": "string", "primary": true },
+        "name": { "type": "string", "unique": true },
+        "display_name": { "type": "string", "optional": true },
+        "description": { "type": "text", "optional": true },
+        "is_system": { "type": "bool", "default": false },
+        "type": { "type": "string", "optional": true },
+        "metadata": { "type": "text", "optional": true },
+        "created_at": { "type": "datetime", "auto": true },
+        "updated_at": { "type": "datetime", "auto": true }
       }
+    },
+    "iam_user_roles": {
+      "fields": {
+        "id": { "type": "string", "primary": true },
+        "user_id": { "type": "string" },
+        "role_id": { "type": "string", "optional": true },
+        "role_name": { "type": "string", "optional": true },
+        "granted_by": { "type": "string", "optional": true },
+        "granted_at": { "type": "datetime", "auto": true },
+        "expires_at": { "type": "datetime", "optional": true }
+      },
+      "indexes": [
+        { "fields": ["user_id"] },
+        { "fields": ["role_id"] },
+        { "fields": ["role_name"] },
+        { "fields": ["user_id", "role_id"], "unique": true }
+      ]
+    },
+    "iam_policies": {
+      "fields": {
+        "id": { "type": "string", "primary": true },
+        "ptype": { "type": "string" },
+        "v0": { "type": "string", "optional": true },
+        "v1": { "type": "string", "optional": true },
+        "v2": { "type": "string", "optional": true },
+        "v3": { "type": "string", "optional": true },
+        "v4": { "type": "string", "optional": true },
+        "v5": { "type": "string", "optional": true },
+        "created_at": { "type": "datetime", "auto": true }
+      },
+      "indexes": [
+        { "fields": ["ptype"] },
+        { "fields": ["v0"] }
+      ]
+    },
+    "iam_audit_logs": {
+      "fields": {
+        "id": { "type": "string", "primary": true },
+        "user_id": { "type": "string", "optional": true },
+        "action": { "type": "string", "optional": true },
+        "resource": { "type": "string", "optional": true },
+        "result": { "type": "string", "optional": true },
+        "reason": { "type": "string", "optional": true },
+        "ip_address": { "type": "string", "optional": true },
+        "user_agent": { "type": "string", "optional": true },
+        "metadata": { "type": "text", "optional": true },
+        "created_at": { "type": "datetime", "auto": true }
+      },
+      "indexes": [
+        { "fields": ["user_id"] },
+        { "fields": ["created_at"] }
+      ]
+    },
+    "sys_logs": {
+      "fields": {
+        "id": { "type": "string", "primary": true },
+        "level": { "type": "string" },
+        "message": { "type": "text" },
+        "fields": { "type": "text", "optional": true },
+        "user_id": { "type": "string", "optional": true },
+        "trace_id": { "type": "string", "optional": true },
+        "created_at": { "type": "datetime", "auto": true }
+      },
+      "indexes": [
+        { "fields": ["level"] },
+        { "fields": ["user_id"] },
+        { "fields": ["trace_id"] },
+        { "fields": ["created_at"] }
+      ]
+    },
+    "sys_message_logs": {
+      "fields": {
+        "id": { "type": "string", "primary": true },
+        "chain_id": { "type": "string" },
+        "block_name": { "type": "string" },
+        "message_kind": { "type": "string" },
+        "action": { "type": "string" },
+        "duration_ms": { "type": "int" },
+        "trace_id": { "type": "string", "optional": true },
+        "error": { "type": "text", "optional": true },
+        "user_id": { "type": "string", "optional": true },
+        "meta_snapshot": { "type": "text", "optional": true },
+        "created_at": { "type": "datetime", "auto": true }
+      },
+      "indexes": [
+        { "fields": ["chain_id"] },
+        { "fields": ["block_name"] },
+        { "fields": ["message_kind"] },
+        { "fields": ["action"] },
+        { "fields": ["trace_id"] },
+        { "fields": ["created_at"] }
+      ]
+    },
+    "sys_settings": {
+      "fields": {
+        "id": { "type": "string", "primary": true },
+        "key": { "type": "string", "unique": true },
+        "value": { "type": "text", "optional": true },
+        "type": { "type": "string", "default": "string" },
+        "created_at": { "type": "datetime", "auto": true },
+        "updated_at": { "type": "datetime", "auto": true },
+        "deleted_at": { "type": "datetime", "optional": true }
+      },
+      "indexes": [
+        { "fields": ["deleted_at"] }
+      ]
+    },
+    "custom_table_definitions": {
+      "fields": {
+        "id": { "type": "int", "primary": true, "auto": true },
+        "name": { "type": "string", "unique": true },
+        "display_name": { "type": "string", "optional": true },
+        "description": { "type": "text", "optional": true },
+        "fields": { "type": "text", "optional": true },
+        "indexes": { "type": "text", "optional": true },
+        "options": { "type": "text", "optional": true },
+        "created_by": { "type": "string", "optional": true },
+        "status": { "type": "string", "default": "active" },
+        "created_at": { "type": "datetime", "auto": true },
+        "updated_at": { "type": "datetime", "auto": true }
+      }
+    },
+    "custom_table_migrations": {
+      "fields": {
+        "id": { "type": "int", "primary": true, "auto": true },
+        "table_id": { "type": "int", "optional": true },
+        "version": { "type": "int", "optional": true },
+        "migration_type": { "type": "string", "optional": true },
+        "old_schema": { "type": "text", "optional": true },
+        "new_schema": { "type": "text", "optional": true },
+        "executed_by": { "type": "string", "optional": true },
+        "executed_at": { "type": "datetime", "auto": true },
+        "rollback_at": { "type": "datetime", "optional": true },
+        "status": { "type": "string", "optional": true },
+        "error_message": { "type": "text", "optional": true }
+      },
+      "indexes": [
+        { "fields": ["table_id"] }
+      ]
     }
   }
 }

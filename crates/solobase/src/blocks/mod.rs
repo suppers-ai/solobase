@@ -2,6 +2,7 @@ use std::sync::Arc;
 use wafer_run::services::config::ConfigService;
 use wafer_run::Wafer;
 
+pub(crate) mod helpers;
 mod admin;
 mod auth;
 mod files;

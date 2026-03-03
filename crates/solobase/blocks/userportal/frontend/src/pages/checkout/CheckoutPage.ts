@@ -1,4 +1,4 @@
-import { html, api, LoadingSpinner, EmptyState } from '@solobase/ui';
+import { html, api, LoadingSpinner, EmptyState, formatPrice } from '@solobase/ui';
 import { useState, useEffect } from 'preact/hooks';
 import { ArrowLeft, ShoppingCart, Trash2, Plus, Minus, CreditCard, AlertCircle } from 'lucide-preact';
 
@@ -20,11 +20,6 @@ interface PurchaseResponse {
 	id: string;
 	checkoutUrl?: string;
 	status: string;
-}
-
-function formatPrice(price?: number, currency?: string): string {
-	if (price === undefined || price === null) return 'Free';
-	return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(price / 100);
 }
 
 export function CheckoutPage() {

@@ -108,6 +108,6 @@ fn serve_asset(path: &str) -> Option<Response> {
             .header(header::CONTENT_TYPE, content_type)
             .header(header::CACHE_CONTROL, cache_control)
             .body(body)
-            .unwrap(),
+            .expect("BUG: failed to build embedded asset response"),
     )
 }

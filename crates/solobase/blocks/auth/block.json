@@ -1,97 +1,163 @@
 {
   "name": "solobase/auth",
   "version": "0.0.1",
-  "services": {
-    "database": {
-      "collections": {
-        "auth_users": {
-          "fields": {
-            "id": { "type": "string", "primary": true },
-            "email": { "type": "string", "unique": true },
-            "password": { "type": "string" },
-            "username": { "type": "string", "optional": true },
-            "confirmed": { "type": "int", "default": 0 },
-            "first_name": { "type": "string", "optional": true },
-            "last_name": { "type": "string", "optional": true },
-            "display_name": { "type": "string", "optional": true },
-            "phone": { "type": "string", "optional": true },
-            "location": { "type": "string", "optional": true },
-            "confirm_token": { "type": "string", "optional": true },
-            "confirm_selector": { "type": "string", "optional": true },
-            "recover_token": { "type": "string", "optional": true },
-            "recover_token_exp": { "type": "datetime", "optional": true },
-            "recover_selector": { "type": "string", "optional": true },
-            "attempt_count": { "type": "int", "default": 0 },
-            "last_attempt": { "type": "datetime", "optional": true },
-            "last_login": { "type": "datetime", "optional": true },
-            "metadata": { "type": "text", "optional": true },
-            "created_at": { "type": "datetime", "auto": true },
-            "updated_at": { "type": "datetime", "auto": true },
-            "deleted_at": { "type": "datetime", "optional": true },
-            "totp_secret": { "type": "string", "optional": true },
-            "totp_secret_backup": { "type": "string", "optional": true },
-            "sms_phone_number": { "type": "string", "optional": true },
-            "recovery_codes": { "type": "text", "optional": true }
-          },
-          "indexes": [
-            { "fields": ["confirm_selector"] },
-            { "fields": ["recover_selector"] },
-            { "fields": ["deleted_at"] }
-          ]
-        },
-        "auth_tokens": {
-          "fields": {
-            "id": { "type": "string", "primary": true },
-            "user_id": { "type": "string", "ref": "auth_users.id" },
-            "token_hash": { "type": "string", "optional": true },
-            "token": { "type": "string", "optional": true },
-            "type": { "type": "string" },
-            "family_id": { "type": "string", "optional": true },
-            "provider": { "type": "string", "optional": true },
-            "provider_uid": { "type": "string", "optional": true },
-            "access_token": { "type": "string", "optional": true },
-            "oauth_expiry": { "type": "datetime", "optional": true },
-            "expires_at": { "type": "datetime" },
-            "used_at": { "type": "datetime", "optional": true },
-            "revoked_at": { "type": "datetime", "optional": true },
-            "created_at": { "type": "datetime", "auto": true },
-            "device_info": { "type": "string", "optional": true },
-            "ip_address": { "type": "string", "optional": true }
-          },
-          "indexes": [
-            { "fields": ["user_id"] },
-            { "fields": ["token_hash"] },
-            { "fields": ["token"] },
-            { "fields": ["type"] },
-            { "fields": ["family_id"] },
-            { "fields": ["provider_uid"] },
-            { "fields": ["expires_at"] },
-            { "fields": ["revoked_at"] }
-          ]
-        },
-        "api_keys": {
-          "fields": {
-            "id": { "type": "string", "primary": true },
-            "user_id": { "type": "string", "ref": "auth_users.id" },
-            "name": { "type": "string" },
-            "key_prefix": { "type": "string" },
-            "key_hash": { "type": "string", "unique": true },
-            "scopes": { "type": "text", "optional": true },
-            "expires_at": { "type": "datetime", "optional": true },
-            "last_used_at": { "type": "datetime", "optional": true },
-            "last_used_ip": { "type": "string", "optional": true },
-            "revoked_at": { "type": "datetime", "optional": true },
-            "created_at": { "type": "datetime", "auto": true },
-            "updated_at": { "type": "datetime", "auto": true }
-          },
-          "indexes": [
-            { "fields": ["user_id"] },
-            { "fields": ["key_prefix"] },
-            { "fields": ["revoked_at"] }
-          ]
-        }
-      }
+  "description": "Authentication block with JWT, password hashing, OAuth, API keys",
+
+  "collections": {
+    "auth_users": {
+      "fields": {
+        "id": { "type": "string", "primary": true },
+        "email": { "type": "string", "unique": true },
+        "password": { "type": "string" },
+        "username": { "type": "string", "optional": true },
+        "confirmed": { "type": "int", "default": 0 },
+        "first_name": { "type": "string", "optional": true },
+        "last_name": { "type": "string", "optional": true },
+        "display_name": { "type": "string", "optional": true },
+        "phone": { "type": "string", "optional": true },
+        "location": { "type": "string", "optional": true },
+        "confirm_token": { "type": "string", "optional": true },
+        "confirm_selector": { "type": "string", "optional": true },
+        "recover_token": { "type": "string", "optional": true },
+        "recover_token_exp": { "type": "datetime", "optional": true },
+        "recover_selector": { "type": "string", "optional": true },
+        "attempt_count": { "type": "int", "default": 0 },
+        "last_attempt": { "type": "datetime", "optional": true },
+        "last_login": { "type": "datetime", "optional": true },
+        "metadata": { "type": "text", "optional": true },
+        "created_at": { "type": "datetime", "auto": true },
+        "updated_at": { "type": "datetime", "auto": true },
+        "deleted_at": { "type": "datetime", "optional": true },
+        "totp_secret": { "type": "string", "optional": true },
+        "totp_secret_backup": { "type": "string", "optional": true },
+        "sms_phone_number": { "type": "string", "optional": true },
+        "recovery_codes": { "type": "text", "optional": true }
+      },
+      "indexes": [
+        { "fields": ["confirm_selector"] },
+        { "fields": ["recover_selector"] },
+        { "fields": ["deleted_at"] }
+      ]
     },
-    "crypto": {}
+    "auth_tokens": {
+      "fields": {
+        "id": { "type": "string", "primary": true },
+        "user_id": { "type": "string", "ref": "auth_users.id" },
+        "token_hash": { "type": "string", "optional": true },
+        "token": { "type": "string", "optional": true },
+        "type": { "type": "string" },
+        "family_id": { "type": "string", "optional": true },
+        "provider": { "type": "string", "optional": true },
+        "provider_uid": { "type": "string", "optional": true },
+        "access_token": { "type": "string", "optional": true },
+        "oauth_expiry": { "type": "datetime", "optional": true },
+        "expires_at": { "type": "datetime" },
+        "used_at": { "type": "datetime", "optional": true },
+        "revoked_at": { "type": "datetime", "optional": true },
+        "created_at": { "type": "datetime", "auto": true },
+        "device_info": { "type": "string", "optional": true },
+        "ip_address": { "type": "string", "optional": true }
+      },
+      "indexes": [
+        { "fields": ["user_id"] },
+        { "fields": ["token_hash"] },
+        { "fields": ["token"] },
+        { "fields": ["type"] },
+        { "fields": ["family_id"] },
+        { "fields": ["provider_uid"] },
+        { "fields": ["expires_at"] },
+        { "fields": ["revoked_at"] }
+      ]
+    },
+    "api_keys": {
+      "fields": {
+        "id": { "type": "string", "primary": true },
+        "user_id": { "type": "string", "ref": "auth_users.id" },
+        "name": { "type": "string" },
+        "key_prefix": { "type": "string" },
+        "key_hash": { "type": "string", "unique": true },
+        "scopes": { "type": "text", "optional": true },
+        "expires_at": { "type": "datetime", "optional": true },
+        "last_used_at": { "type": "datetime", "optional": true },
+        "last_used_ip": { "type": "string", "optional": true },
+        "revoked_at": { "type": "datetime", "optional": true },
+        "created_at": { "type": "datetime", "auto": true },
+        "updated_at": { "type": "datetime", "auto": true }
+      },
+      "indexes": [
+        { "fields": ["user_id"] },
+        { "fields": ["key_prefix"] },
+        { "fields": ["revoked_at"] }
+      ]
+    }
+  },
+
+  "actions": {
+    "POST:/auth/login": {
+      "summary": "Authenticate user with email/password",
+      "input": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "minLength": 8 }
+        },
+        "required": ["email", "password"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "user": { "$ref": "#/definitions/SafeUser" },
+              "roles": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      },
+      "errors": [{ "code": 401, "message": "Invalid credentials" }],
+      "auth": false
+    },
+    "POST:/auth/signup": {
+      "summary": "Register a new user",
+      "input": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "minLength": 8 }
+        },
+        "required": ["email", "password"]
+      },
+      "errors": [{ "code": 409, "message": "Email already registered" }],
+      "auth": false
+    },
+    "POST:/auth/refresh": {
+      "summary": "Refresh access token using refresh token",
+      "auth": false
+    },
+    "POST:/auth/logout": {
+      "summary": "Logout and revoke current token"
+    },
+    "GET:/auth/me": {
+      "summary": "Get current authenticated user profile"
+    },
+    "PUT:/auth/me": {
+      "summary": "Update current user profile"
+    },
+    "POST:/auth/change-password": {
+      "summary": "Change password for current user"
+    }
+  },
+
+  "definitions": {
+    "SafeUser": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "display_name": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    }
   }
 }

@@ -1,26 +1,24 @@
 {
   "name": "solobase/legalpages",
   "version": "0.0.1",
-  "services": {
-    "database": {
-      "collections": {
-        "ext_legalpages_legal_documents": {
-          "fields": {
-            "id": { "type": "string", "primary": true },
-            "document_type": { "type": "string" },
-            "title": { "type": "string" },
-            "content": { "type": "text", "optional": true },
-            "version": { "type": "int", "default": 1 },
-            "status": { "type": "string", "default": "draft" },
-            "created_at": { "type": "datetime", "auto": true },
-            "updated_at": { "type": "datetime", "auto": true },
-            "created_by": { "type": "string", "optional": true }
-          },
-          "indexes": [
-            { "fields": ["document_type", "status"] }
-          ]
-        }
-      }
+  "description": "Legal documents management (terms of service, privacy policy)",
+
+  "collections": {
+    "ext_legalpages_legal_documents": {
+      "fields": {
+        "id": { "type": "string", "primary": true },
+        "document_type": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "text", "optional": true },
+        "version": { "type": "int", "default": 1 },
+        "status": { "type": "string", "default": "draft" },
+        "created_at": { "type": "datetime", "auto": true },
+        "updated_at": { "type": "datetime", "auto": true },
+        "created_by": { "type": "string", "optional": true }
+      },
+      "indexes": [
+        { "fields": ["document_type", "status"] }
+      ]
     }
   }
 }

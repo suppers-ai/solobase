@@ -28,7 +28,7 @@ export { FilterBar } from './components/ui/FilterBar';
 // Stores
 export {
 	authState, isAuthenticated, currentUser, userRoles, authLoading,
-	login, logout, checkAuth, setUser, updateUser
+	login, logout, checkAuth, setUser
 } from './stores/auth';
 export { toasts } from './stores/toast';
 export type { Toast } from './stores/toast';
@@ -39,3 +39,6 @@ export { api, authFetch, ErrorHandler } from './api';
 // Hooks
 export { useClickOutside } from './hooks/useClickOutside';
 export { useKeydown } from './hooks/useKeydown';
+
+// Utilities
+export { formatPrice, isValidRedirectUrl } from './utils/helpers';

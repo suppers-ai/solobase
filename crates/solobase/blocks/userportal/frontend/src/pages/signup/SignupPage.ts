@@ -34,7 +34,7 @@ export function SignupPage() {
 		const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
 
 		try {
-			await api.post('/api/auth/signup', { email, password, firstName, lastName });
+			await api.post('/auth/signup', { email, password, name: fullName.trim() });
 			window.location.href = '/login?registered=true';
 		} catch (err: any) {
 			setError(err.message || 'An error occurred during signup');

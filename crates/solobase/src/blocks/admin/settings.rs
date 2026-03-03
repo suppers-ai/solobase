@@ -119,6 +119,8 @@ pub fn seed_defaults(db: &dyn DatabaseService) {
         data.insert("key".to_string(), serde_json::Value::String(key.to_string()));
         data.insert("value".to_string(), value);
         data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-        let _ = db.create(COLLECTION, data);
+        if let Err(e) = db.create(COLLECTION, data) {
+            tracing::warn!("Failed to seed default setting '{key}': {e}");
+        }
     }
 }

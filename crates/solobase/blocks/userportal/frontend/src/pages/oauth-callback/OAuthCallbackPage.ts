@@ -1,19 +1,5 @@
-import { html, LoadingSpinner } from '@solobase/ui';
+import { html, LoadingSpinner, isValidRedirectUrl } from '@solobase/ui';
 import { useState, useEffect } from 'preact/hooks';
-
-function isValidRedirectUrl(url: string): boolean {
-	if (!url) return false;
-	try {
-		if (url.startsWith('/') && !url.startsWith('//')) return true;
-		if (url.startsWith('http')) {
-			const urlObj = new URL(url);
-			return urlObj.origin === window.location.origin;
-		}
-		return false;
-	} catch {
-		return false;
-	}
-}
 
 export function OAuthCallbackPage() {
 	const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing');
@@ -31,8 +17,8 @@ export function OAuthCallbackPage() {
 				setMessage('Authentication successful! Redirecting...');
 
 				if (window.opener) {
-					window.opener.postMessage({ type: 'oauth-success', redirect: redirectTo }, '*');
-					window.opener.postMessage({ type: 'auth-success', redirect: redirectTo }, '*');
+					window.opener.postMessage({ type: 'oauth-success', redirect: redirectTo }, window.location.origin);
+					window.opener.postMessage({ type: 'auth-success', redirect: redirectTo }, window.location.origin);
 					window.close();
 					return;
 				}

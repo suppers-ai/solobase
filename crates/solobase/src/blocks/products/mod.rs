@@ -5,20 +5,21 @@ mod stripe;
 mod variables;
 pub(crate) mod models;
 
-use std::sync::Arc;
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use wafer_run::services::database::DatabaseService;
+
+pub(crate) use super::helpers::get_db;
+
+pub(crate) const PRODUCTS_COLLECTION: &str = "ext_products_products";
+pub(crate) const GROUPS_COLLECTION: &str = "ext_products_groups";
+pub(crate) const TYPES_COLLECTION: &str = "ext_products_types";
+pub(crate) const PRICING_COLLECTION: &str = "ext_products_pricing_templates";
+pub(crate) const PURCHASES_COLLECTION: &str = "ext_products_purchases";
+pub(crate) const LINE_ITEMS_COLLECTION: &str = "ext_products_line_items";
 
 pub struct ProductsBlock;
-
-pub(crate) fn get_db(ctx: &dyn Context) -> Result<&Arc<dyn DatabaseService>, Result_> {
-    ctx.services()
-        .and_then(|s| s.database.as_ref())
-        .ok_or_else(|| Result_::error(WaferError::new("unavailable", "Database service unavailable")))
-}
 
 impl Block for ProductsBlock {
     fn info(&self) -> BlockInfo {

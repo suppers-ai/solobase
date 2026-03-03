@@ -6,20 +6,22 @@ mod settings;
 mod wafer_info;
 mod custom_tables;
 
-use std::sync::Arc;
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use wafer_run::services::database::DatabaseService;
+
+pub(crate) use super::helpers::get_db;
+
+/// Sanitize an identifier to prevent SQL injection. Only allows
+/// alphanumeric characters and underscores.
+pub(crate) fn sanitize_ident(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_')
+        .collect()
+}
 
 pub struct AdminBlock;
-
-pub(crate) fn get_db(ctx: &dyn Context) -> Result<&Arc<dyn DatabaseService>, Result_> {
-    ctx.services()
-        .and_then(|s| s.database.as_ref())
-        .ok_or_else(|| Result_::error(WaferError::new("unavailable", "Database service unavailable")))
-}
 
 impl Block for AdminBlock {
     fn info(&self) -> BlockInfo {
@@ -52,7 +54,7 @@ impl Block for AdminBlock {
         if path.starts_with("/admin/settings") || path.starts_with("/settings") {
             return settings::handle(ctx, msg);
         }
-        if path.starts_with("/admin/wafer") || path.starts_with("/admin/waffle") {
+        if path.starts_with("/admin/wafer") {
             return wafer_info::handle(ctx, msg);
         }
         if path.starts_with("/admin/custom-tables") {

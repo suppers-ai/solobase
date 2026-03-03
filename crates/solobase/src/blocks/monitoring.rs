@@ -40,7 +40,7 @@ impl MonitoringBlock {
     }
 
     fn handle_live(&self, msg: &mut Message) -> Result_ {
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.stats.write().unwrap_or_else(|p| p.into_inner());
         let start: chrono::DateTime<chrono::Utc> = stats.start_time.parse().unwrap_or_else(|_| chrono::Utc::now());
         stats.uptime_seconds = (chrono::Utc::now() - start).num_seconds().max(0) as u64;
         let s = stats.clone();

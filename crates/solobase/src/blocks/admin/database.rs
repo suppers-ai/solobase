@@ -2,6 +2,7 @@ use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
 use super::get_db;
+use super::sanitize_ident;
 
 pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -55,7 +56,8 @@ fn handle_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let mut table_info = Vec::new();
     for table in &tables {
         let name = table.data.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        let count = db.query_raw(&format!("SELECT COUNT(*) as cnt FROM \"{}\"", name), &[])
+        let safe_name = sanitize_ident(name);
+        let count = db.query_raw(&format!("SELECT COUNT(*) as cnt FROM \"{}\"", safe_name), &[])
             .ok()
             .and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64())))
             .unwrap_or(0);
@@ -86,7 +88,8 @@ fn handle_columns(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         return err_bad_request(msg.clone(), "Missing table name");
     }
 
-    let columns = match db.query_raw(&format!("PRAGMA table_info(\"{}\")", table_name), &[]) {
+    let safe_table = sanitize_ident(table_name);
+    let columns = match db.query_raw(&format!("PRAGMA table_info(\"{}\")", safe_table), &[]) {
         Ok(c) => c,
         Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
     };
@@ -121,21 +124,22 @@ fn handle_query(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
     };
 
-    let query_upper = body.query.trim().to_uppercase();
-    if query_upper.starts_with("SELECT") || query_upper.starts_with("PRAGMA") || query_upper.starts_with("EXPLAIN") {
-        match db.query_raw(&body.query, &body.args) {
-            Ok(records) => json_respond(msg.clone(), 200, &serde_json::json!({
-                "rows": records,
-                "row_count": records.len()
-            })),
-            Err(e) => err_bad_request(msg.clone(), &format!("Query error: {e}")),
+    // Only allow read-only queries (SELECT, PRAGMA, EXPLAIN) to prevent data modification
+    let trimmed = body.query.trim();
+    let query_upper = trimmed.to_uppercase();
+    let first_word = query_upper.split_whitespace().next().unwrap_or("");
+    match first_word {
+        "SELECT" | "PRAGMA" | "EXPLAIN" => {
+            match db.query_raw(&body.query, &body.args) {
+                Ok(records) => json_respond(msg.clone(), 200, &serde_json::json!({
+                    "rows": records,
+                    "row_count": records.len()
+                })),
+                Err(e) => err_bad_request(msg.clone(), &format!("Query error: {e}")),
+            }
         }
-    } else {
-        match db.exec_raw(&body.query, &body.args) {
-            Ok(affected) => json_respond(msg.clone(), 200, &serde_json::json!({
-                "affected_rows": affected
-            })),
-            Err(e) => err_bad_request(msg.clone(), &format!("Exec error: {e}")),
+        _ => {
+            err_forbidden(msg.clone(), "Only SELECT, PRAGMA, and EXPLAIN queries are allowed")
         }
     }
 }

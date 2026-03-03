@@ -5,6 +5,7 @@ use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_run::services::database::{self, DatabaseService, Filter, FilterOp, ListOptions, SortField};
+use super::helpers::get_db;
 
 pub struct LegalPagesBlock;
 
@@ -51,8 +52,10 @@ impl LegalPagesBlock {
         }
 
         let record = &result.records[0];
-        let content = record.data.get("content").and_then(|v| v.as_str()).unwrap_or("");
-        let title = record.data.get("title").and_then(|v| v.as_str()).unwrap_or(doc_type);
+        let raw_content = record.data.get("content").and_then(|v| v.as_str()).unwrap_or("");
+        let content = sanitize_html(raw_content);
+        let title = record.data.get("title").and_then(|v| v.as_str()).unwrap_or(doc_type)
+            .replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
 
         let html = format!(
             r#"<!DOCTYPE html>
@@ -201,7 +204,9 @@ impl LegalPagesBlock {
             for r in records {
                 let mut upd = HashMap::new();
                 upd.insert("status".to_string(), serde_json::Value::String("archived".to_string()));
-                let _ = db.update(COLLECTION, &r.id, upd);
+                if let Err(e) = db.update(COLLECTION, &r.id, upd) {
+                    tracing::warn!("Failed to archive previous legal page version: {e}");
+                }
             }
         }
 
@@ -254,15 +259,37 @@ impl LegalPagesBlock {
             data.insert("updated_at".to_string(), serde_json::Value::String(now.clone()));
             data.insert("published_at".to_string(), serde_json::Value::String(now.clone()));
             data.insert("created_by".to_string(), serde_json::Value::String("system".to_string()));
-            let _ = db.create(COLLECTION, data);
+            if let Err(e) = db.create(COLLECTION, data) {
+                tracing::warn!("Failed to seed default legal page '{doc_type}': {e}");
+            }
         }
     }
 }
 
-fn get_db(ctx: &dyn Context) -> Result<&Arc<dyn DatabaseService>, Result_> {
-    ctx.services()
-        .and_then(|s| s.database.as_ref())
-        .ok_or_else(|| Result_::error(WaferError::new("unavailable", "Database service unavailable")))
+/// Remove dangerous HTML tags and their contents from admin-authored content.
+/// Strips `<script>`, `<iframe>`, `<object>`, and `<embed>` tags to prevent stored XSS.
+fn sanitize_html(input: &str) -> String {
+    let mut s = input.to_string();
+    for tag in &["script", "iframe", "object", "embed"] {
+        loop {
+            let lower = s.to_lowercase();
+            let open = format!("<{}", tag);
+            if let Some(start) = lower.find(&open) {
+                let close = format!("</{}>", tag);
+                let end = if let Some(rel_end) = lower[start..].find(&close) {
+                    start + rel_end + close.len()
+                } else if let Some(gt) = s[start..].find('>') {
+                    start + gt + 1
+                } else {
+                    s.len()
+                };
+                s = format!("{}{}", &s[..start], &s[end..]);
+            } else {
+                break;
+            }
+        }
+    }
+    s
 }
 
 impl Block for LegalPagesBlock {

@@ -4,11 +4,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_run::services::database::{self, Filter, FilterOp, ListOptions, SortField};
 use super::get_db;
-
-const PRODUCTS_COLLECTION: &str = "ext_products_products";
-const GROUPS_COLLECTION: &str = "ext_products_groups";
-const TYPES_COLLECTION: &str = "ext_products_types";
-const PRICING_COLLECTION: &str = "ext_products_pricing_templates";
+use super::{PRODUCTS_COLLECTION, GROUPS_COLLECTION, TYPES_COLLECTION, PRICING_COLLECTION};
 
 pub fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();

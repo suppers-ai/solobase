@@ -3,9 +3,7 @@ use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
 use super::get_db;
-
-const PRICING_COLLECTION: &str = "ext_products_pricing_templates";
-const PRODUCTS_COLLECTION: &str = "ext_products_products";
+use super::{PRICING_COLLECTION, PRODUCTS_COLLECTION};
 
 pub fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };

@@ -4,6 +4,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_run::services::database::{self, ListOptions, SortField};
 use super::get_db;
+use super::sanitize_ident;
 
 pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -112,8 +113,9 @@ fn handle_drop_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if table_name.is_empty() { return err_bad_request(msg.clone(), "Missing table name"); }
 
     let full_name = if table_name.starts_with("custom_") { table_name.to_string() } else { format!("custom_{}", table_name) };
+    let safe_name = sanitize_ident(&full_name);
 
-    match db.exec_raw(&format!("DROP TABLE IF EXISTS \"{}\"", full_name), &[]) {
+    match db.exec_raw(&format!("DROP TABLE IF EXISTS \"{}\"", safe_name), &[]) {
         Ok(_) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
         Err(e) => err_internal(msg.clone(), &format!("Failed to drop table: {e}")),
     }

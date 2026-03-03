@@ -1,4 +1,4 @@
-import { html, api, LoadingSpinner, EmptyState, checkAuth } from '@solobase/ui';
+import { html, api, LoadingSpinner, EmptyState, checkAuth, formatPrice } from '@solobase/ui';
 import { useState, useEffect } from 'preact/hooks';
 import { ArrowLeft, Package, Calendar, DollarSign, CheckCircle, Clock, XCircle } from 'lucide-preact';
 
@@ -20,11 +20,6 @@ function formatDate(dateString?: string): string {
 		month: 'short',
 		day: 'numeric'
 	});
-}
-
-function formatPrice(price?: number, currency?: string): string {
-	if (price === undefined) return 'Free';
-	return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(price / 100);
 }
 
 function getStatusIcon(status: string) {

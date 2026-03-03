@@ -221,6 +221,8 @@ pub fn seed_defaults(db: &dyn DatabaseService) {
         data.insert("is_system".to_string(), serde_json::Value::Bool(true));
         data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
         data.insert("permissions".to_string(), serde_json::json!([]));
-        let _ = db.create(ROLES_COLLECTION, data);
+        if let Err(e) = db.create(ROLES_COLLECTION, data) {
+            tracing::warn!("Failed to seed default role '{name}': {e}");
+        }
     }
 }

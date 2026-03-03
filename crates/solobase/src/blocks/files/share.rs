@@ -67,7 +67,9 @@ pub fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Increment access count
     let mut upd = HashMap::new();
     upd.insert("access_count".to_string(), serde_json::json!(access_count + 1));
-    let _ = db.update(SHARES_COLLECTION, &share.id, upd);
+    if let Err(e) = db.update(SHARES_COLLECTION, &share.id, upd) {
+        tracing::warn!("Failed to increment share access count: {e}");
+    }
 
     // Log access
     let mut log_data = HashMap::new();
@@ -75,7 +77,9 @@ pub fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     log_data.insert("accessed_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
     log_data.insert("ip_address".to_string(), serde_json::Value::String(msg.remote_addr().to_string()));
     log_data.insert("user_agent".to_string(), serde_json::Value::String(msg.header("User-Agent").to_string()));
-    let _ = db.create(ACCESS_LOGS_COLLECTION, log_data);
+    if let Err(e) = db.create(ACCESS_LOGS_COLLECTION, log_data) {
+        tracing::warn!("Failed to log share access: {e}");
+    }
 
     // Serve the file
     match store.get(bucket, key) {

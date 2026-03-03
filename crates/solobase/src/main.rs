@@ -41,8 +41,12 @@ async fn main() {
 
     // 5. Initialize platform services and register with runtime
     let platform_services = services::build_platform_services(&config_svc);
+
+    // 5a. Register infrastructure blocks (services become blocks)
+    register_infrastructure_blocks(&mut wafer, &platform_services);
+
     wafer.register_platform_services(platform_services);
-    tracing::info!("platform services registered");
+    tracing::info!("platform services and infrastructure blocks registered");
 
     // 6. Register the runtime itself as a named service so blocks can access it
     //    during lifecycle init (mirrors Go: w.RegisterService("wafer.runtime", w))
@@ -179,6 +183,38 @@ fn build_router(wafer: Arc<Wafer>) -> Router {
 // ---------------------------------------------------------------------------
 // Graceful shutdown
 // ---------------------------------------------------------------------------
+
+/// Register infrastructure blocks that wrap platform services.
+/// These blocks handle service operations (database, storage, crypto, etc.)
+/// and can be called by any block via `ctx.call_block("wafer/database", msg)`.
+fn register_infrastructure_blocks(
+    wafer: &mut Wafer,
+    services: &wafer_run::services::Services,
+) {
+    use wafer_run::blocks::*;
+
+    if let Some(ref db) = services.database {
+        wafer.register_block("wafer/database", Arc::new(DatabaseBlock::new(db.clone())));
+    }
+    if let Some(ref storage) = services.storage {
+        wafer.register_block("wafer/storage", Arc::new(StorageBlock::new(storage.clone())));
+    }
+    if let Some(ref crypto) = services.crypto {
+        wafer.register_block("wafer/crypto", Arc::new(CryptoBlock::new(crypto.clone())));
+    }
+    if let Some(ref network) = services.network {
+        wafer.register_block("wafer/network", Arc::new(NetworkBlock::new(network.clone())));
+    }
+    wafer.register_block("wafer/logger", Arc::new(LoggerBlock::new()));
+    if let Some(ref config) = services.config {
+        wafer.register_block(
+            "wafer/config",
+            Arc::new(ConfigBlock::new(Some(config.clone()))),
+        );
+    } else {
+        wafer.register_block("wafer/config", Arc::new(ConfigBlock::new(None)));
+    }
+}
 
 async fn shutdown_signal() {
     let ctrl_c = async {
