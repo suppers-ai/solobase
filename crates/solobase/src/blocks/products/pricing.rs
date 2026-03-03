@@ -2,12 +2,10 @@ use std::collections::HashMap;
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use super::get_db;
+use wafer_core::clients::database as db;
 use super::{PRICING_COLLECTION, PRODUCTS_COLLECTION};
 
 pub fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
-
     #[derive(serde::Deserialize)]
     struct CalcReq {
         product_id: String,
@@ -24,7 +22,7 @@ pub fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     // Get product
-    let product = match db.get(PRODUCTS_COLLECTION, &body.product_id) {
+    let product = match db::get(ctx, PRODUCTS_COLLECTION, &body.product_id) {
         Ok(p) => p,
         Err(_) => return err_not_found(msg.clone(), "Product not found"),
     };
@@ -43,7 +41,7 @@ pub fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }));
     }
 
-    let template = match db.get(PRICING_COLLECTION, template_id) {
+    let template = match db::get(ctx, PRICING_COLLECTION, template_id) {
         Ok(t) => t,
         Err(_) => return err_internal(msg.clone(), "Pricing template not found"),
     };

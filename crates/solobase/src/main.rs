@@ -1,20 +1,19 @@
 //! Solobase — Rust binary entry point.
 //!
 //! All feature blocks are implemented as native Rust structs implementing
-//! the Block trait. The WAFER runtime, platform services, HTTP server,
-//! and embedded frontend are provided by this binary.
+//! the Block trait. The WAFER runtime, HTTP server, and embedded frontend
+//! are provided by this binary. Infrastructure blocks self-configure from
+//! `blocks.json`.
 
 mod blocks;
 mod chains;
 mod embedded;
-mod services;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Router;
 use tracing_subscriber::{fmt, EnvFilter};
-use wafer_run::services::config::ConfigService;
 use wafer_run::Wafer;
 
 // ---------------------------------------------------------------------------
@@ -23,63 +22,50 @@ use wafer_run::Wafer;
 
 #[tokio::main]
 async fn main() {
-    // 1. Load configuration (TOML file + env vars)
-    let config_svc = services::load_config();
-
-    // 2. Initialize tracing / logging
-    let log_format = config_svc.get_default("server.log_format", "text");
+    // 1. Initialize tracing / logging
+    let log_format = std::env::var("LOG_FORMAT").unwrap_or_else(|_| "text".into());
     init_tracing(&log_format);
     tracing::info!("solobase starting (Rust/WAFER runtime)");
 
-    // 3. Create WAFER runtime
+    // 2. Create WAFER runtime
     let mut wafer = Wafer::new();
+
+    // 3. Load infrastructure block configs from blocks.json
+    let blocks_json = std::env::var("BLOCKS_JSON").unwrap_or_else(|_| "blocks.json".into());
+    if let Err(e) = wafer.load_blocks_json(&blocks_json) {
+        tracing::warn!("could not load {}: {} — using defaults", blocks_json, e);
+    }
+    tracing::info!("block configs loaded");
 
     // 4. Register wafer-core infrastructure blocks
     //    (security-headers, cors, rate-limit, readonly-guard, monitoring, auth, iam, web)
     wafer_core::register_all(&mut wafer);
     tracing::info!("wafer-core blocks registered");
 
-    // 5. Initialize platform services and register with runtime
-    let platform_services = services::build_platform_services(&config_svc);
-
-    // 5a. Register infrastructure blocks (services become blocks)
-    register_infrastructure_blocks(&mut wafer, &platform_services);
-
-    wafer.register_platform_services(platform_services);
-    tracing::info!("platform services and infrastructure blocks registered");
-
-    // 6. Register the runtime itself as a named service so blocks can access it
-    //    during lifecycle init (mirrors Go: w.RegisterService("wafer.runtime", w))
-    //    Note: this is registered after platform services so blocks can access both.
-    wafer.register_service(
-        "wafer.runtime",
-        Box::new("wafer-runtime-handle".to_string()),
-    );
-
-    // 7. Register native Rust feature blocks (config-driven)
-    blocks::register_selected(&mut wafer, config_svc.as_ref());
+    // 5. Register native Rust feature blocks (env-var-driven)
+    blocks::register_selected(&mut wafer);
     tracing::info!("native feature blocks registered");
 
-    // 8. Register chain definitions (wafer-core base chains + solobase feature chains)
+    // 6. Register chain definitions (wafer-core base chains + solobase feature chains)
     let _ = wafer_core::chains::register_chains(&mut wafer);
-    chains::register_selected_chains(&mut wafer, config_svc.as_ref());
+    chains::register_selected_chains(&mut wafer);
     tracing::info!("chain definitions registered");
 
-    // 9. Register observability hooks
+    // 7. Register observability hooks
     register_observability_hooks(&mut wafer);
 
-    // 10. Resolve all chains (creates block instances, runs lifecycle init)
+    // 8. Resolve all chains (creates block instances, runs lifecycle init)
     wafer
         .start()
         .expect("failed to resolve and start WAFER runtime");
     tracing::info!("WAFER runtime started — all blocks resolved");
 
-    // 11. Build HTTP router
+    // 9. Build HTTP router
     let wafer = Arc::new(wafer);
     let app = build_router(wafer.clone());
 
-    // 12. Start axum HTTP server
-    let bind_addr = config_svc.get_default("server.bind", "0.0.0.0:8090");
+    // 10. Start axum HTTP server
+    let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8090".into());
     let addr: SocketAddr = bind_addr
         .parse()
         .expect("invalid BIND_ADDR — expected host:port");
@@ -183,38 +169,6 @@ fn build_router(wafer: Arc<Wafer>) -> Router {
 // ---------------------------------------------------------------------------
 // Graceful shutdown
 // ---------------------------------------------------------------------------
-
-/// Register infrastructure blocks that wrap platform services.
-/// These blocks handle service operations (database, storage, crypto, etc.)
-/// and can be called by any block via `ctx.call_block("wafer/database", msg)`.
-fn register_infrastructure_blocks(
-    wafer: &mut Wafer,
-    services: &wafer_run::services::Services,
-) {
-    use wafer_run::blocks::*;
-
-    if let Some(ref db) = services.database {
-        wafer.register_block("wafer/database", Arc::new(DatabaseBlock::new(db.clone())));
-    }
-    if let Some(ref storage) = services.storage {
-        wafer.register_block("wafer/storage", Arc::new(StorageBlock::new(storage.clone())));
-    }
-    if let Some(ref crypto) = services.crypto {
-        wafer.register_block("wafer/crypto", Arc::new(CryptoBlock::new(crypto.clone())));
-    }
-    if let Some(ref network) = services.network {
-        wafer.register_block("wafer/network", Arc::new(NetworkBlock::new(network.clone())));
-    }
-    wafer.register_block("wafer/logger", Arc::new(LoggerBlock::new()));
-    if let Some(ref config) = services.config {
-        wafer.register_block(
-            "wafer/config",
-            Arc::new(ConfigBlock::new(Some(config.clone()))),
-        );
-    } else {
-        wafer.register_block("wafer/config", Arc::new(ConfigBlock::new(None)));
-    }
-}
 
 async fn shutdown_signal() {
     let ctrl_c = async {

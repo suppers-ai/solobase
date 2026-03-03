@@ -11,8 +11,6 @@ use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
 
-pub(crate) use super::helpers::get_db;
-
 /// Sanitize an identifier to prevent SQL injection. Only allows
 /// alphanumeric characters and underscores.
 pub(crate) fn sanitize_ident(name: &str) -> String {
@@ -66,10 +64,8 @@ impl Block for AdminBlock {
 
     fn lifecycle(&self, ctx: &dyn Context, event: LifecycleEvent) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
-            if let Some(db) = ctx.services().and_then(|s| s.database.as_ref()) {
-                iam::seed_defaults(db.as_ref());
-                settings::seed_defaults(db.as_ref());
-            }
+            iam::seed_defaults(ctx);
+            settings::seed_defaults(ctx);
         }
         Ok(())
     }

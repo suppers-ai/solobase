@@ -1,8 +1,8 @@
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use wafer_run::services::database::{self, Filter, FilterOp, SortField};
-use super::get_db;
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{Filter, FilterOp, SortField};
 
 const COLLECTION: &str = "audit_logs";
 
@@ -17,8 +17,6 @@ pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
-
     let (page, page_size, _) = msg.pagination_params(50);
 
     let mut filters = Vec::new();
@@ -49,7 +47,7 @@ fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
-    match database::paginated_list(db.as_ref(), COLLECTION, page as i64, page_size as i64, filters, sort) {
+    match db::paginated_list(ctx, COLLECTION, page as i64, page_size as i64, filters, sort) {
         Ok(result) => json_respond(msg.clone(), 200, &result),
         Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
     }

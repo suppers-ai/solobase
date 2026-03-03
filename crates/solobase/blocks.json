@@ -1,0 +1,696 @@
+{
+    "wafer/database": { "type": "sqlite", "path": "data/solobase.db" },
+    "wafer/storage": { "type": "local", "root": "data/storage" },
+    "wafer/crypto": { "jwt_secret": "${JWT_SECRET}" },
+    "wafer/network": {},
+    "wafer/logger": {},
+    "wafer/config": {},
+
+    "auth-feature": {
+        "uses": {
+            "wafer/database": {
+                "collections": {
+                    "auth_users": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "email": { "type": "string", "unique": true },
+                            "password": { "type": "string" },
+                            "username": { "type": "string", "optional": true },
+                            "confirmed": { "type": "int", "default": 0 },
+                            "first_name": { "type": "string", "optional": true },
+                            "last_name": { "type": "string", "optional": true },
+                            "display_name": { "type": "string", "optional": true },
+                            "phone": { "type": "string", "optional": true },
+                            "location": { "type": "string", "optional": true },
+                            "confirm_token": { "type": "string", "optional": true },
+                            "confirm_selector": { "type": "string", "optional": true },
+                            "recover_token": { "type": "string", "optional": true },
+                            "recover_token_exp": { "type": "datetime", "optional": true },
+                            "recover_selector": { "type": "string", "optional": true },
+                            "attempt_count": { "type": "int", "default": 0 },
+                            "last_attempt": { "type": "datetime", "optional": true },
+                            "last_login": { "type": "datetime", "optional": true },
+                            "metadata": { "type": "text", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true },
+                            "deleted_at": { "type": "datetime", "optional": true },
+                            "totp_secret": { "type": "string", "optional": true },
+                            "totp_secret_backup": { "type": "string", "optional": true },
+                            "sms_phone_number": { "type": "string", "optional": true },
+                            "recovery_codes": { "type": "text", "optional": true }
+                        },
+                        "indexes": [
+                            { "fields": ["confirm_selector"] },
+                            { "fields": ["recover_selector"] },
+                            { "fields": ["deleted_at"] }
+                        ]
+                    },
+                    "auth_tokens": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "user_id": { "type": "string", "ref": "auth_users.id" },
+                            "token_hash": { "type": "string", "optional": true },
+                            "token": { "type": "string", "optional": true },
+                            "type": { "type": "string" },
+                            "family_id": { "type": "string", "optional": true },
+                            "provider": { "type": "string", "optional": true },
+                            "provider_uid": { "type": "string", "optional": true },
+                            "access_token": { "type": "string", "optional": true },
+                            "oauth_expiry": { "type": "datetime", "optional": true },
+                            "expires_at": { "type": "datetime" },
+                            "used_at": { "type": "datetime", "optional": true },
+                            "revoked_at": { "type": "datetime", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "device_info": { "type": "string", "optional": true },
+                            "ip_address": { "type": "string", "optional": true }
+                        },
+                        "indexes": [
+                            { "fields": ["user_id"] },
+                            { "fields": ["token_hash"] },
+                            { "fields": ["token"] },
+                            { "fields": ["type"] },
+                            { "fields": ["family_id"] },
+                            { "fields": ["provider_uid"] },
+                            { "fields": ["expires_at"] },
+                            { "fields": ["revoked_at"] }
+                        ]
+                    },
+                    "api_keys": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "user_id": { "type": "string", "ref": "auth_users.id" },
+                            "name": { "type": "string" },
+                            "key_prefix": { "type": "string" },
+                            "key_hash": { "type": "string", "unique": true },
+                            "scopes": { "type": "text", "optional": true },
+                            "expires_at": { "type": "datetime", "optional": true },
+                            "last_used_at": { "type": "datetime", "optional": true },
+                            "last_used_ip": { "type": "string", "optional": true },
+                            "revoked_at": { "type": "datetime", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        },
+                        "indexes": [
+                            { "fields": ["user_id"] },
+                            { "fields": ["key_prefix"] },
+                            { "fields": ["revoked_at"] }
+                        ]
+                    }
+                }
+            }
+        }
+    },
+
+    "admin-feature": {
+        "uses": {
+            "wafer/database": {
+                "collections": {
+                    "iam_roles": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "name": { "type": "string", "unique": true },
+                            "display_name": { "type": "string", "optional": true },
+                            "description": { "type": "text", "optional": true },
+                            "is_system": { "type": "bool", "default": false },
+                            "type": { "type": "string", "optional": true },
+                            "metadata": { "type": "text", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        }
+                    },
+                    "iam_user_roles": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "user_id": { "type": "string" },
+                            "role_id": { "type": "string", "optional": true },
+                            "role_name": { "type": "string", "optional": true },
+                            "granted_by": { "type": "string", "optional": true },
+                            "granted_at": { "type": "datetime", "auto": true },
+                            "expires_at": { "type": "datetime", "optional": true }
+                        },
+                        "indexes": [
+                            { "fields": ["user_id"] },
+                            { "fields": ["role_id"] },
+                            { "fields": ["role_name"] },
+                            { "fields": ["user_id", "role_id"], "unique": true }
+                        ]
+                    },
+                    "iam_policies": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "ptype": { "type": "string" },
+                            "v0": { "type": "string", "optional": true },
+                            "v1": { "type": "string", "optional": true },
+                            "v2": { "type": "string", "optional": true },
+                            "v3": { "type": "string", "optional": true },
+                            "v4": { "type": "string", "optional": true },
+                            "v5": { "type": "string", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true }
+                        },
+                        "indexes": [
+                            { "fields": ["ptype"] },
+                            { "fields": ["v0"] }
+                        ]
+                    },
+                    "iam_audit_logs": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "user_id": { "type": "string", "optional": true },
+                            "action": { "type": "string", "optional": true },
+                            "resource": { "type": "string", "optional": true },
+                            "result": { "type": "string", "optional": true },
+                            "reason": { "type": "string", "optional": true },
+                            "ip_address": { "type": "string", "optional": true },
+                            "user_agent": { "type": "string", "optional": true },
+                            "metadata": { "type": "text", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true }
+                        },
+                        "indexes": [
+                            { "fields": ["user_id"] },
+                            { "fields": ["created_at"] }
+                        ]
+                    },
+                    "sys_logs": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "level": { "type": "string" },
+                            "message": { "type": "text" },
+                            "fields": { "type": "text", "optional": true },
+                            "user_id": { "type": "string", "optional": true },
+                            "trace_id": { "type": "string", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true }
+                        },
+                        "indexes": [
+                            { "fields": ["level"] },
+                            { "fields": ["user_id"] },
+                            { "fields": ["trace_id"] },
+                            { "fields": ["created_at"] }
+                        ]
+                    },
+                    "sys_message_logs": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "chain_id": { "type": "string" },
+                            "block_name": { "type": "string" },
+                            "message_kind": { "type": "string" },
+                            "action": { "type": "string" },
+                            "duration_ms": { "type": "int" },
+                            "trace_id": { "type": "string", "optional": true },
+                            "error": { "type": "text", "optional": true },
+                            "user_id": { "type": "string", "optional": true },
+                            "meta_snapshot": { "type": "text", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true }
+                        },
+                        "indexes": [
+                            { "fields": ["chain_id"] },
+                            { "fields": ["block_name"] },
+                            { "fields": ["message_kind"] },
+                            { "fields": ["action"] },
+                            { "fields": ["trace_id"] },
+                            { "fields": ["created_at"] }
+                        ]
+                    },
+                    "sys_settings": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "key": { "type": "string", "unique": true },
+                            "value": { "type": "text", "optional": true },
+                            "type": { "type": "string", "default": "string" },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true },
+                            "deleted_at": { "type": "datetime", "optional": true }
+                        },
+                        "indexes": [
+                            { "fields": ["deleted_at"] }
+                        ]
+                    },
+                    "custom_table_definitions": {
+                        "fields": {
+                            "id": { "type": "int", "primary": true, "auto": true },
+                            "name": { "type": "string", "unique": true },
+                            "display_name": { "type": "string", "optional": true },
+                            "description": { "type": "text", "optional": true },
+                            "fields": { "type": "text", "optional": true },
+                            "indexes": { "type": "text", "optional": true },
+                            "options": { "type": "text", "optional": true },
+                            "created_by": { "type": "string", "optional": true },
+                            "status": { "type": "string", "default": "active" },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        }
+                    },
+                    "custom_table_migrations": {
+                        "fields": {
+                            "id": { "type": "int", "primary": true, "auto": true },
+                            "table_id": { "type": "int", "optional": true },
+                            "version": { "type": "int", "optional": true },
+                            "migration_type": { "type": "string", "optional": true },
+                            "old_schema": { "type": "text", "optional": true },
+                            "new_schema": { "type": "text", "optional": true },
+                            "executed_by": { "type": "string", "optional": true },
+                            "executed_at": { "type": "datetime", "auto": true },
+                            "rollback_at": { "type": "datetime", "optional": true },
+                            "status": { "type": "string", "optional": true },
+                            "error_message": { "type": "text", "optional": true }
+                        },
+                        "indexes": [
+                            { "fields": ["table_id"] }
+                        ]
+                    }
+                }
+            }
+        }
+    },
+
+    "files-feature": {
+        "uses": {
+            "wafer/database": {
+                "collections": {
+                    "storage_buckets": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "name": { "type": "string", "unique": true },
+                            "public": { "type": "int", "default": 0 },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        }
+                    },
+                    "storage_objects": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "bucket_name": { "type": "string" },
+                            "object_name": { "type": "string" },
+                            "parent_folder_id": { "type": "string", "optional": true },
+                            "size": { "type": "int", "optional": true },
+                            "content_type": { "type": "string", "optional": true },
+                            "checksum": { "type": "string", "optional": true },
+                            "metadata": { "type": "text", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true },
+                            "last_viewed": { "type": "datetime", "optional": true },
+                            "user_id": { "type": "string", "optional": true },
+                            "app_id": { "type": "string", "optional": true },
+                            "is_folder": { "type": "int", "default": 0 }
+                        },
+                        "indexes": [
+                            { "fields": ["bucket_name"] },
+                            { "fields": ["object_name"] },
+                            { "fields": ["parent_folder_id"] },
+                            { "fields": ["checksum"] },
+                            { "fields": ["last_viewed"] },
+                            { "fields": ["user_id"] },
+                            { "fields": ["app_id"] }
+                        ]
+                    },
+                    "storage_upload_tokens": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "token": { "type": "string", "unique": true },
+                            "bucket": { "type": "string" },
+                            "parent_folder_id": { "type": "string", "optional": true },
+                            "object_name": { "type": "string" },
+                            "user_id": { "type": "string", "optional": true },
+                            "max_size": { "type": "int", "optional": true },
+                            "content_type": { "type": "string", "optional": true },
+                            "bytes_uploaded": { "type": "int", "default": 0 },
+                            "completed": { "type": "int", "default": 0 },
+                            "object_id": { "type": "string", "optional": true },
+                            "expires_at": { "type": "datetime" },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "completed_at": { "type": "datetime", "optional": true },
+                            "client_ip": { "type": "string", "optional": true }
+                        }
+                    },
+                    "storage_download_tokens": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "token": { "type": "string", "unique": true },
+                            "file_id": { "type": "string" },
+                            "bucket": { "type": "string" },
+                            "parent_folder_id": { "type": "string", "optional": true },
+                            "object_name": { "type": "string" },
+                            "user_id": { "type": "string", "optional": true },
+                            "file_size": { "type": "int", "optional": true },
+                            "bytes_served": { "type": "int", "default": 0 },
+                            "completed": { "type": "int", "default": 0 },
+                            "expires_at": { "type": "datetime" },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "callback_at": { "type": "datetime", "optional": true },
+                            "client_ip": { "type": "string", "optional": true }
+                        }
+                    },
+                    "ext_cloudstorage_storage_shares": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "object_id": { "type": "string" },
+                            "shared_with_user_id": { "type": "string", "optional": true },
+                            "shared_with_email": { "type": "string", "optional": true },
+                            "permission_level": { "type": "string", "default": "view" },
+                            "inherit_to_children": { "type": "bool", "default": true },
+                            "share_token": { "type": "string", "optional": true, "unique": true },
+                            "is_public": { "type": "bool", "default": false },
+                            "expires_at": { "type": "datetime", "optional": true },
+                            "created_by": { "type": "string" },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        },
+                        "indexes": [
+                            { "fields": ["object_id"] },
+                            { "fields": ["shared_with_user_id"] }
+                        ]
+                    },
+                    "ext_cloudstorage_storage_access_logs": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "object_id": { "type": "string" },
+                            "user_id": { "type": "string", "optional": true },
+                            "ip_address": { "type": "string", "optional": true },
+                            "action": { "type": "string" },
+                            "user_agent": { "type": "string", "optional": true },
+                            "metadata": { "type": "text", "default": "{}" },
+                            "created_at": { "type": "datetime", "auto": true }
+                        },
+                        "indexes": [
+                            { "fields": ["object_id"] },
+                            { "fields": ["user_id"] }
+                        ]
+                    },
+                    "ext_cloudstorage_storage_quotas": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "user_id": { "type": "string", "unique": true },
+                            "max_storage_bytes": { "type": "int", "default": 5368709120 },
+                            "max_bandwidth_bytes": { "type": "int", "default": 10737418240 },
+                            "storage_used": { "type": "int", "default": 0 },
+                            "bandwidth_used": { "type": "int", "default": 0 },
+                            "reset_bandwidth_at": { "type": "datetime", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        }
+                    },
+                    "ext_cloudstorage_role_quotas": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "role_id": { "type": "string", "unique": true },
+                            "role_name": { "type": "string" },
+                            "max_storage_bytes": { "type": "int", "default": 5368709120 },
+                            "max_bandwidth_bytes": { "type": "int", "default": 10737418240 },
+                            "max_upload_size": { "type": "int", "default": 104857600 },
+                            "max_files_count": { "type": "int", "default": 1000 },
+                            "allowed_extensions": { "type": "string", "optional": true },
+                            "blocked_extensions": { "type": "string", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        },
+                        "indexes": [
+                            { "fields": ["role_name"] }
+                        ]
+                    },
+                    "ext_cloudstorage_user_quota_overrides": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "user_id": { "type": "string", "unique": true },
+                            "max_storage_bytes": { "type": "int", "optional": true },
+                            "max_bandwidth_bytes": { "type": "int", "optional": true },
+                            "max_upload_size": { "type": "int", "optional": true },
+                            "max_files_count": { "type": "int", "optional": true },
+                            "allowed_extensions": { "type": "string", "optional": true },
+                            "blocked_extensions": { "type": "string", "optional": true },
+                            "reason": { "type": "text", "optional": true },
+                            "expires_at": { "type": "datetime", "optional": true },
+                            "created_by": { "type": "string" },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        },
+                        "indexes": [
+                            { "fields": ["expires_at"] },
+                            { "fields": ["created_by"] }
+                        ]
+                    }
+                }
+            }
+        }
+    },
+
+    "products-feature": {
+        "uses": {
+            "wafer/database": {
+                "collections": {
+                    "ext_products_variables": {
+                        "fields": {
+                            "id": { "type": "int", "primary": true, "auto": true },
+                            "name": { "type": "string", "unique": true },
+                            "display_name": { "type": "string", "optional": true },
+                            "value_type": { "type": "string", "optional": true },
+                            "type": { "type": "string", "optional": true },
+                            "default_value": { "type": "string", "optional": true },
+                            "description": { "type": "text", "optional": true },
+                            "status": { "type": "string", "default": "active" },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        }
+                    },
+                    "ext_products_group_templates": {
+                        "fields": {
+                            "id": { "type": "int", "primary": true, "auto": true },
+                            "name": { "type": "string", "unique": true },
+                            "display_name": { "type": "string", "optional": true },
+                            "description": { "type": "text", "optional": true },
+                            "icon": { "type": "string", "optional": true },
+                            "filter_fields_schema": { "type": "json", "optional": true },
+                            "status": { "type": "string", "default": "active" },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        }
+                    },
+                    "ext_products_groups": {
+                        "fields": {
+                            "id": { "type": "int", "primary": true, "auto": true },
+                            "user_id": { "type": "string" },
+                            "group_template_id": { "type": "int", "ref": "ext_products_group_templates.id" },
+                            "name": { "type": "string" },
+                            "description": { "type": "text", "optional": true },
+                            "filter_numeric_1": { "type": "float", "optional": true },
+                            "filter_numeric_2": { "type": "float", "optional": true },
+                            "filter_numeric_3": { "type": "float", "optional": true },
+                            "filter_numeric_4": { "type": "float", "optional": true },
+                            "filter_numeric_5": { "type": "float", "optional": true },
+                            "filter_text_1": { "type": "string", "optional": true },
+                            "filter_text_2": { "type": "string", "optional": true },
+                            "filter_text_3": { "type": "string", "optional": true },
+                            "filter_text_4": { "type": "string", "optional": true },
+                            "filter_text_5": { "type": "string", "optional": true },
+                            "filter_boolean_1": { "type": "bool", "optional": true },
+                            "filter_boolean_2": { "type": "bool", "optional": true },
+                            "filter_boolean_3": { "type": "bool", "optional": true },
+                            "filter_boolean_4": { "type": "bool", "optional": true },
+                            "filter_boolean_5": { "type": "bool", "optional": true },
+                            "filter_enum_1": { "type": "string", "optional": true },
+                            "filter_enum_2": { "type": "string", "optional": true },
+                            "filter_enum_3": { "type": "string", "optional": true },
+                            "filter_enum_4": { "type": "string", "optional": true },
+                            "filter_enum_5": { "type": "string", "optional": true },
+                            "filter_location_1": { "type": "string", "optional": true },
+                            "filter_location_2": { "type": "string", "optional": true },
+                            "filter_location_3": { "type": "string", "optional": true },
+                            "filter_location_4": { "type": "string", "optional": true },
+                            "filter_location_5": { "type": "string", "optional": true },
+                            "custom_fields": { "type": "json", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        },
+                        "indexes": [
+                            { "fields": ["user_id"] },
+                            { "fields": ["group_template_id"] },
+                            { "fields": ["filter_numeric_1"] },
+                            { "fields": ["filter_numeric_2"] },
+                            { "fields": ["filter_text_1"] },
+                            { "fields": ["filter_text_2"] },
+                            { "fields": ["filter_boolean_1"] },
+                            { "fields": ["filter_enum_1"] }
+                        ]
+                    },
+                    "ext_products_product_templates": {
+                        "fields": {
+                            "id": { "type": "int", "primary": true, "auto": true },
+                            "name": { "type": "string", "unique": true },
+                            "display_name": { "type": "string", "optional": true },
+                            "description": { "type": "text", "optional": true },
+                            "category": { "type": "string", "optional": true },
+                            "icon": { "type": "string", "optional": true },
+                            "filter_fields_schema": { "type": "json", "optional": true },
+                            "custom_fields_schema": { "type": "json", "optional": true },
+                            "pricing_templates": { "type": "json", "optional": true },
+                            "billing_mode": { "type": "string", "default": "instant" },
+                            "billing_type": { "type": "string", "default": "one-time" },
+                            "billing_recurring_interval": { "type": "string", "optional": true },
+                            "billing_recurring_interval_count": { "type": "int", "default": 1 },
+                            "status": { "type": "string", "default": "active" },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        }
+                    },
+                    "ext_products_products": {
+                        "fields": {
+                            "id": { "type": "int", "primary": true, "auto": true },
+                            "group_id": { "type": "int", "ref": "ext_products_groups.id" },
+                            "product_template_id": { "type": "int", "ref": "ext_products_product_templates.id" },
+                            "name": { "type": "string" },
+                            "description": { "type": "text", "optional": true },
+                            "base_price": { "type": "float", "optional": true },
+                            "base_price_cents": { "type": "int", "optional": true },
+                            "currency": { "type": "string", "default": "USD" },
+                            "filter_numeric_1": { "type": "float", "optional": true },
+                            "filter_numeric_2": { "type": "float", "optional": true },
+                            "filter_numeric_3": { "type": "float", "optional": true },
+                            "filter_numeric_4": { "type": "float", "optional": true },
+                            "filter_numeric_5": { "type": "float", "optional": true },
+                            "filter_text_1": { "type": "string", "optional": true },
+                            "filter_text_2": { "type": "string", "optional": true },
+                            "filter_text_3": { "type": "string", "optional": true },
+                            "filter_text_4": { "type": "string", "optional": true },
+                            "filter_text_5": { "type": "string", "optional": true },
+                            "filter_boolean_1": { "type": "bool", "optional": true },
+                            "filter_boolean_2": { "type": "bool", "optional": true },
+                            "filter_boolean_3": { "type": "bool", "optional": true },
+                            "filter_boolean_4": { "type": "bool", "optional": true },
+                            "filter_boolean_5": { "type": "bool", "optional": true },
+                            "filter_enum_1": { "type": "string", "optional": true },
+                            "filter_enum_2": { "type": "string", "optional": true },
+                            "filter_enum_3": { "type": "string", "optional": true },
+                            "filter_enum_4": { "type": "string", "optional": true },
+                            "filter_enum_5": { "type": "string", "optional": true },
+                            "filter_location_1": { "type": "string", "optional": true },
+                            "filter_location_2": { "type": "string", "optional": true },
+                            "filter_location_3": { "type": "string", "optional": true },
+                            "filter_location_4": { "type": "string", "optional": true },
+                            "filter_location_5": { "type": "string", "optional": true },
+                            "custom_fields": { "type": "json", "optional": true },
+                            "variables": { "type": "json", "optional": true },
+                            "pricing_formula": { "type": "text", "optional": true },
+                            "active": { "type": "bool", "default": true },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        },
+                        "indexes": [
+                            { "fields": ["group_id"] },
+                            { "fields": ["product_template_id"] },
+                            { "fields": ["active"] },
+                            { "fields": ["filter_numeric_1"] },
+                            { "fields": ["filter_numeric_2"] },
+                            { "fields": ["filter_text_1"] },
+                            { "fields": ["filter_text_2"] },
+                            { "fields": ["filter_boolean_1"] },
+                            { "fields": ["filter_enum_1"] }
+                        ]
+                    },
+                    "ext_products_pricing_templates": {
+                        "fields": {
+                            "id": { "type": "int", "primary": true, "auto": true },
+                            "name": { "type": "string", "unique": true },
+                            "display_name": { "type": "string", "optional": true },
+                            "description": { "type": "text", "optional": true },
+                            "price_formula": { "type": "text" },
+                            "condition_formula": { "type": "text", "optional": true },
+                            "variables": { "type": "json", "optional": true },
+                            "category": { "type": "string", "optional": true },
+                            "status": { "type": "string", "default": "active" },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        }
+                    },
+                    "ext_products_purchases": {
+                        "fields": {
+                            "id": { "type": "int", "primary": true, "auto": true },
+                            "user_id": { "type": "string" },
+                            "provider": { "type": "string", "default": "stripe" },
+                            "provider_session_id": { "type": "string", "optional": true },
+                            "provider_payment_intent_id": { "type": "string", "optional": true },
+                            "provider_subscription_id": { "type": "string", "optional": true },
+                            "line_items": { "type": "json", "optional": true },
+                            "product_metadata": { "type": "json", "optional": true },
+                            "tax_items": { "type": "json", "optional": true },
+                            "amount_cents": { "type": "int", "optional": true },
+                            "tax_cents": { "type": "int", "optional": true },
+                            "total_cents": { "type": "int", "optional": true },
+                            "currency": { "type": "string", "default": "USD" },
+                            "status": { "type": "string", "default": "pending" },
+                            "requires_approval": { "type": "bool", "default": false },
+                            "approved_at": { "type": "datetime", "optional": true },
+                            "approved_by": { "type": "string", "optional": true },
+                            "refunded_at": { "type": "datetime", "optional": true },
+                            "refund_reason": { "type": "text", "optional": true },
+                            "refund_amount": { "type": "int", "optional": true },
+                            "cancelled_at": { "type": "datetime", "optional": true },
+                            "cancel_reason": { "type": "text", "optional": true },
+                            "success_url": { "type": "string", "optional": true },
+                            "cancel_url": { "type": "string", "optional": true },
+                            "customer_email": { "type": "string", "optional": true },
+                            "customer_name": { "type": "string", "optional": true },
+                            "billing_address": { "type": "json", "optional": true },
+                            "shipping_address": { "type": "json", "optional": true },
+                            "payment_method_types": { "type": "json", "optional": true },
+                            "expires_at": { "type": "datetime", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true }
+                        },
+                        "indexes": [
+                            { "fields": ["user_id"] },
+                            { "fields": ["provider_session_id"] },
+                            { "fields": ["provider_payment_intent_id"] },
+                            { "fields": ["provider_subscription_id"] },
+                            { "fields": ["status"] }
+                        ]
+                    }
+                }
+            }
+        }
+    },
+
+    "monitoring-feature": {
+        "uses": {
+            "wafer/database": {
+                "collections": {
+                    "sys_monitoring_snapshots": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "period_start": { "type": "datetime" },
+                            "period_end": { "type": "datetime" },
+                            "total_messages": { "type": "int" },
+                            "total_errors": { "type": "int" },
+                            "per_block_json": { "type": "text", "optional": true },
+                            "per_chain_json": { "type": "text", "optional": true },
+                            "per_kind_json": { "type": "text", "optional": true },
+                            "created_at": { "type": "datetime", "auto": true }
+                        }
+                    }
+                }
+            }
+        }
+    },
+
+    "legalpages-feature": {
+        "uses": {
+            "wafer/database": {
+                "collections": {
+                    "ext_legalpages_legal_documents": {
+                        "fields": {
+                            "id": { "type": "string", "primary": true },
+                            "document_type": { "type": "string" },
+                            "title": { "type": "string" },
+                            "content": { "type": "text", "optional": true },
+                            "version": { "type": "int", "default": 1 },
+                            "status": { "type": "string", "default": "draft" },
+                            "created_at": { "type": "datetime", "auto": true },
+                            "updated_at": { "type": "datetime", "auto": true },
+                            "created_by": { "type": "string", "optional": true }
+                        },
+                        "indexes": [
+                            { "fields": ["document_type", "status"] }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}

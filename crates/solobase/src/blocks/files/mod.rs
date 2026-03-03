@@ -9,8 +9,6 @@ use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
 
-pub(crate) use super::helpers::{get_db, get_storage};
-
 pub struct FilesBlock;
 
 impl Block for FilesBlock {

@@ -3352,12 +3352,8 @@ dependencies = [
 name = "solobase"
 version = "0.1.0"
 dependencies = [
- "argon2",
  "axum",
  "chrono",
- "jsonwebtoken",
- "password-hash",
- "reqwest",
  "rust-embed",
  "serde",
  "serde_json",
@@ -4201,26 +4197,12 @@ checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 name = "wafer-core"
 version = "0.1.0"
 dependencies = [
- "chrono",
- "parking_lot",
- "serde",
- "serde_json",
- "tracing",
- "wafer-run",
-]
-
-[[package]]
-name = "wafer-run"
-version = "0.1.0"
-dependencies = [
  "argon2",
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
- "axum",
  "bytes",
  "chrono",
- "hyper 1.8.1",
  "jsonwebtoken",
  "parking_lot",
  "reqwest",
@@ -4231,6 +4213,26 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "toml",
+ "tracing",
+ "uuid",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-run"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "bytes",
+ "chrono",
+ "hyper 1.8.1",
+ "parking_lot",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
  "tower",
  "tower-http",
  "tracing",

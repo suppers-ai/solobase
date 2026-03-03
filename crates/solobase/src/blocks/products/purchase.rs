@@ -2,13 +2,11 @@ use std::collections::HashMap;
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use wafer_run::services::database::{self, Filter, FilterOp, ListOptions, SortField};
-use super::get_db;
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use super::{PURCHASES_COLLECTION, LINE_ITEMS_COLLECTION, PRODUCTS_COLLECTION};
 
 pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
-
     #[derive(serde::Deserialize)]
     struct CreateReq {
         items: Vec<PurchaseItem>,
@@ -43,7 +41,7 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         if item.quantity <= 0 {
             return err_bad_request(msg.clone(), "Quantity must be positive");
         }
-        let product = match db.get(PRODUCTS_COLLECTION, &item.product_id) {
+        let product = match db::get(ctx, PRODUCTS_COLLECTION, &item.product_id) {
             Ok(p) => p,
             Err(_) => return err_not_found(msg.clone(), &format!("Product {} not found", item.product_id)),
         };
@@ -53,7 +51,7 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         // Calculate price
         let unit_price = if let Some(template_id) = product.data.get("pricing_template_id").and_then(|v| v.as_str()) {
             if !template_id.is_empty() {
-                if let Ok(template) = db.get("ext_products_pricing_templates", template_id) {
+                if let Ok(template) = db::get(ctx, "ext_products_pricing_templates", template_id) {
                     let formula = template.data.get("formula").and_then(|v| v.as_str()).unwrap_or("0");
                     super::pricing::evaluate_formula(formula, &item.variables).unwrap_or(0.0)
                 } else {
@@ -82,7 +80,7 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     purchase_data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
     purchase_data.insert("updated_at".to_string(), serde_json::Value::String(now.clone()));
 
-    let purchase = match db.create(PURCHASES_COLLECTION, purchase_data) {
+    let purchase = match db::create(ctx, PURCHASES_COLLECTION, purchase_data) {
         Ok(p) => p,
         Err(e) => return err_internal(msg.clone(), &format!("Failed to create purchase: {e}")),
     };
@@ -98,7 +96,7 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         item_data.insert("total_price".to_string(), serde_json::json!(line_total));
         item_data.insert("variables".to_string(), serde_json::json!(variables));
         item_data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
-        if let Err(e) = db.create(LINE_ITEMS_COLLECTION, item_data) {
+        if let Err(e) = db::create(ctx, LINE_ITEMS_COLLECTION, item_data) {
             tracing::warn!("Failed to create purchase line item: {e}");
         }
     }
@@ -112,7 +110,6 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 pub fn handle_list_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let user_id = msg.user_id().to_string();
     let (page, page_size, _) = msg.pagination_params(20);
 
@@ -123,14 +120,13 @@ pub fn handle_list_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }];
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
-    match database::paginated_list(db.as_ref(), PURCHASES_COLLECTION, page as i64, page_size as i64, filters, sort) {
+    match db::paginated_list(ctx, PURCHASES_COLLECTION, page as i64, page_size as i64, filters, sort) {
         Ok(result) => json_respond(msg.clone(), 200, &result),
         Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
     }
 }
 
 pub fn handle_list_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let (page, page_size, _) = msg.pagination_params(20);
 
     let mut filters = Vec::new();
@@ -145,21 +141,20 @@ pub fn handle_list_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
-    match database::paginated_list(db.as_ref(), PURCHASES_COLLECTION, page as i64, page_size as i64, filters, sort) {
+    match db::paginated_list(ctx, PURCHASES_COLLECTION, page as i64, page_size as i64, filters, sort) {
         Ok(result) => json_respond(msg.clone(), 200, &result),
         Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
     }
 }
 
 pub fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let path = msg.path();
     let id = path.rsplit('/').next().unwrap_or("");
     if id.is_empty() || id == "purchases" { return err_bad_request(msg.clone(), "Missing purchase ID"); }
 
-    let purchase = match db.get(PURCHASES_COLLECTION, id) {
+    let purchase = match db::get(ctx, PURCHASES_COLLECTION, id) {
         Ok(p) => p,
-        Err(database::DatabaseError::NotFound) => return err_not_found(msg.clone(), "Purchase not found"),
+        Err(e) if e.code == "not_found" => return err_not_found(msg.clone(), "Purchase not found"),
         Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
     };
 
@@ -178,7 +173,7 @@ pub fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }],
         ..Default::default()
     };
-    let line_items = db.list(LINE_ITEMS_COLLECTION, &items_opts).map(|r| r.records).unwrap_or_default();
+    let line_items = db::list(ctx, LINE_ITEMS_COLLECTION, &items_opts).map(|r| r.records).unwrap_or_default();
 
     json_respond(msg.clone(), 200, &serde_json::json!({
         "purchase": purchase,
@@ -187,7 +182,6 @@ pub fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 pub fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let path = msg.path();
     // /admin/ext/products/purchases/{id}/refund
     let id = path.strip_prefix("/admin/ext/products/purchases/")
@@ -195,9 +189,9 @@ pub fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .unwrap_or("");
     if id.is_empty() { return err_bad_request(msg.clone(), "Missing purchase ID"); }
 
-    let purchase = match db.get(PURCHASES_COLLECTION, id) {
+    let purchase = match db::get(ctx, PURCHASES_COLLECTION, id) {
         Ok(p) => p,
-        Err(database::DatabaseError::NotFound) => return err_not_found(msg.clone(), "Purchase not found"),
+        Err(e) if e.code == "not_found" => return err_not_found(msg.clone(), "Purchase not found"),
         Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
     };
 
@@ -212,7 +206,7 @@ pub fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("refunded_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-    match db.update(PURCHASES_COLLECTION, id, data) {
+    match db::update(ctx, PURCHASES_COLLECTION, id, data) {
         Ok(record) => json_respond(msg.clone(), 200, &record),
         Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
     }

@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use wafer_run::services::config::ConfigService;
 use wafer_run::Wafer;
 
 pub(crate) mod helpers;
@@ -37,14 +36,13 @@ pub fn register_all(w: &mut Wafer) {
     w.register_block("products-feature", Arc::new(products::ProductsBlock));
 }
 
-/// Register only the feature blocks enabled in config.
+/// Register only the feature blocks enabled via env vars.
 ///
-/// Reads `features.<name>` keys from config. If a key is missing or "true",
+/// Reads `FEATURE_<NAME>` env vars. If a var is missing or not "false",
 /// the block is registered. If explicitly "false", it is skipped.
-pub fn register_selected(w: &mut Wafer, config: &dyn ConfigService) {
+pub fn register_selected(w: &mut Wafer) {
     let enabled = |name: &str| -> bool {
-        config
-            .get(&format!("features.{}", name))
+        std::env::var(format!("FEATURE_{}", name.to_uppercase()))
             .map(|v| v != "false")
             .unwrap_or(true) // default: enabled
     };

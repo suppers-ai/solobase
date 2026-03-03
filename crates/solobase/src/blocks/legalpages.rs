@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use wafer_run::block::{Block, BlockInfo, AdminUIInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use wafer_run::services::database::{self, DatabaseService, Filter, FilterOp, ListOptions, SortField};
-use super::helpers::get_db;
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 
 pub struct LegalPagesBlock;
 
@@ -13,11 +12,6 @@ const COLLECTION: &str = "ext_legalpages_legal_documents";
 
 impl LegalPagesBlock {
     fn handle_get_public(&self, ctx: &dyn Context, msg: &mut Message, doc_type: &str) -> Result_ {
-        let db = match get_db(ctx) {
-            Ok(db) => db,
-            Err(r) => return r,
-        };
-
         // Find published document of given type
         let opts = ListOptions {
             filters: vec![
@@ -37,7 +31,7 @@ impl LegalPagesBlock {
             ..Default::default()
         };
 
-        let result = match db.list(COLLECTION, &opts) {
+        let result = match db::list(ctx, COLLECTION, &opts) {
             Ok(r) => r,
             Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
         };
@@ -71,10 +65,6 @@ impl LegalPagesBlock {
     }
 
     fn handle_admin_list(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let db = match get_db(ctx) {
-            Ok(db) => db,
-            Err(r) => return r,
-        };
         let (_, page_size, offset) = msg.pagination_params(20);
         let doc_type = msg.query("type");
         let mut filters = Vec::new();
@@ -91,34 +81,25 @@ impl LegalPagesBlock {
             limit: page_size as i64,
             offset: offset as i64,
         };
-        match db.list(COLLECTION, &opts) {
+        match db::list(ctx, COLLECTION, &opts) {
             Ok(result) => json_respond(msg.clone(), 200, &result),
             Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
         }
     }
 
     fn handle_admin_get(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let db = match get_db(ctx) {
-            Ok(db) => db,
-            Err(r) => return r,
-        };
         let id = msg.var("id");
         if id.is_empty() {
             return err_bad_request(msg.clone(), "Missing document ID");
         }
-        match db.get(COLLECTION, id) {
+        match db::get(ctx, COLLECTION, id) {
             Ok(record) => json_respond(msg.clone(), 200, &record),
-            Err(database::DatabaseError::NotFound) => err_not_found(msg.clone(), "Document not found"),
+            Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Document not found"),
             Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
         }
     }
 
     fn handle_admin_create(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let db = match get_db(ctx) {
-            Ok(db) => db,
-            Err(r) => return r,
-        };
-
         #[derive(serde::Deserialize)]
         struct CreateDoc {
             doc_type: String,
@@ -141,17 +122,13 @@ impl LegalPagesBlock {
         data.insert("updated_at".to_string(), serde_json::Value::String(now));
         data.insert("created_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
 
-        match db.create(COLLECTION, data) {
+        match db::create(ctx, COLLECTION, data) {
             Ok(record) => json_respond(msg.clone(), 201, &record),
             Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
         }
     }
 
     fn handle_admin_update(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let db = match get_db(ctx) {
-            Ok(db) => db,
-            Err(r) => return r,
-        };
         let id = msg.var("id");
         if id.is_empty() {
             return err_bad_request(msg.clone(), "Missing document ID");
@@ -165,35 +142,31 @@ impl LegalPagesBlock {
         let mut data = body;
         data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-        match db.update(COLLECTION, id, data) {
+        match db::update(ctx, COLLECTION, id, data) {
             Ok(record) => json_respond(msg.clone(), 200, &record),
-            Err(database::DatabaseError::NotFound) => err_not_found(msg.clone(), "Document not found"),
+            Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Document not found"),
             Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
         }
     }
 
     fn handle_admin_publish(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let db = match get_db(ctx) {
-            Ok(db) => db,
-            Err(r) => return r,
-        };
         let id = msg.var("id");
         if id.is_empty() {
             return err_bad_request(msg.clone(), "Missing document ID");
         }
 
         // Get current document
-        let doc = match db.get(COLLECTION, id) {
+        let doc = match db::get(ctx, COLLECTION, id) {
             Ok(r) => r,
-            Err(database::DatabaseError::NotFound) => return err_not_found(msg.clone(), "Document not found"),
+            Err(e) if e.code == "not_found" => return err_not_found(msg.clone(), "Document not found"),
             Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
         };
 
         let doc_type = doc.data.get("doc_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
         // Unpublish other documents of same type
-        let existing = database::list_all(
-            db.as_ref(),
+        let existing = db::list_all(
+            ctx,
             COLLECTION,
             vec![
                 Filter { field: "doc_type".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(doc_type) },
@@ -204,7 +177,7 @@ impl LegalPagesBlock {
             for r in records {
                 let mut upd = HashMap::new();
                 upd.insert("status".to_string(), serde_json::Value::String("archived".to_string()));
-                if let Err(e) = db.update(COLLECTION, &r.id, upd) {
+                if let Err(e) = db::update(ctx, COLLECTION, &r.id, upd) {
                     tracing::warn!("Failed to archive previous legal page version: {e}");
                 }
             }
@@ -216,30 +189,26 @@ impl LegalPagesBlock {
         data.insert("published_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
         data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-        match db.update(COLLECTION, id, data) {
+        match db::update(ctx, COLLECTION, id, data) {
             Ok(record) => json_respond(msg.clone(), 200, &record),
             Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
         }
     }
 
     fn handle_admin_delete(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let db = match get_db(ctx) {
-            Ok(db) => db,
-            Err(r) => return r,
-        };
         let id = msg.var("id");
         if id.is_empty() {
             return err_bad_request(msg.clone(), "Missing document ID");
         }
-        match db.delete(COLLECTION, id) {
+        match db::delete(ctx, COLLECTION, id) {
             Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
-            Err(database::DatabaseError::NotFound) => err_not_found(msg.clone(), "Document not found"),
+            Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Document not found"),
             Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
         }
     }
 
-    fn seed_defaults(&self, db: &Arc<dyn DatabaseService>) {
-        let count = db.count(COLLECTION, &[]).unwrap_or(0);
+    fn seed_defaults(&self, ctx: &dyn Context) {
+        let count = db::count(ctx, COLLECTION, &[]).unwrap_or(0);
         if count > 0 {
             return;
         }
@@ -259,7 +228,7 @@ impl LegalPagesBlock {
             data.insert("updated_at".to_string(), serde_json::Value::String(now.clone()));
             data.insert("published_at".to_string(), serde_json::Value::String(now.clone()));
             data.insert("created_by".to_string(), serde_json::Value::String("system".to_string()));
-            if let Err(e) = db.create(COLLECTION, data) {
+            if let Err(e) = db::create(ctx, COLLECTION, data) {
                 tracing::warn!("Failed to seed default legal page '{doc_type}': {e}");
             }
         }
@@ -337,9 +306,7 @@ impl Block for LegalPagesBlock {
 
     fn lifecycle(&self, ctx: &dyn Context, event: LifecycleEvent) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
-            if let Some(db) = ctx.services().and_then(|s| s.database.as_ref()) {
-                self.seed_defaults(db);
-            }
+            self.seed_defaults(ctx);
         }
         Ok(())
     }

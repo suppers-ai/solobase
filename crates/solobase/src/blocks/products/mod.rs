@@ -10,8 +10,6 @@ use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
 
-pub(crate) use super::helpers::get_db;
-
 pub(crate) const PRODUCTS_COLLECTION: &str = "ext_products_products";
 pub(crate) const GROUPS_COLLECTION: &str = "ext_products_groups";
 pub(crate) const TYPES_COLLECTION: &str = "ext_products_types";

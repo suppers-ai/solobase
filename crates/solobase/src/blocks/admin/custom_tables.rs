@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use wafer_run::services::database::{self, ListOptions, SortField};
-use super::get_db;
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{ListOptions, SortField};
 use super::sanitize_ident;
 
 pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -44,9 +44,8 @@ fn extract_record_id(path: &str) -> &str {
 }
 
 fn handle_list_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
-
-    let tables = match db.query_raw(
+    let tables = match db::query_raw(
+        ctx,
         "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'custom_%' ORDER BY name",
         &[],
     ) {
@@ -62,8 +61,6 @@ fn handle_list_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn handle_create_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
-
     #[derive(serde::Deserialize)]
     struct Req {
         name: String,
@@ -100,14 +97,13 @@ fn handle_create_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let sql = format!("CREATE TABLE IF NOT EXISTS \"{}\" ({})", table_name, col_defs.join(", "));
 
-    match db.exec_raw(&sql, &[]) {
+    match db::exec_raw(ctx, &sql, &[]) {
         Ok(_) => json_respond(msg.clone(), 201, &serde_json::json!({"table": table_name, "created": true})),
         Err(e) => err_internal(msg.clone(), &format!("Failed to create table: {e}")),
     }
 }
 
 fn handle_drop_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let path = msg.path();
     let table_name = extract_table_name(path);
     if table_name.is_empty() { return err_bad_request(msg.clone(), "Missing table name"); }
@@ -115,14 +111,13 @@ fn handle_drop_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let full_name = if table_name.starts_with("custom_") { table_name.to_string() } else { format!("custom_{}", table_name) };
     let safe_name = sanitize_ident(&full_name);
 
-    match db.exec_raw(&format!("DROP TABLE IF EXISTS \"{}\"", safe_name), &[]) {
+    match db::exec_raw(ctx, &format!("DROP TABLE IF EXISTS \"{}\"", safe_name), &[]) {
         Ok(_) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
         Err(e) => err_internal(msg.clone(), &format!("Failed to drop table: {e}")),
     }
 }
 
 fn handle_list_records(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let path = msg.path();
     let table_name = extract_table_name(path);
     if table_name.is_empty() { return err_bad_request(msg.clone(), "Missing table name"); }
@@ -137,14 +132,13 @@ fn handle_list_records(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ..Default::default()
     };
 
-    match db.list(&full_name, &opts) {
+    match db::list(ctx, &full_name, &opts) {
         Ok(result) => json_respond(msg.clone(), 200, &result),
         Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
     }
 }
 
 fn handle_create_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let path = msg.path();
     let table_name = extract_table_name(path);
     if table_name.is_empty() { return err_bad_request(msg.clone(), "Missing table name"); }
@@ -156,14 +150,13 @@ fn handle_create_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
     };
 
-    match db.create(&full_name, body) {
+    match db::create(ctx, &full_name, body) {
         Ok(record) => json_respond(msg.clone(), 201, &record),
         Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
     }
 }
 
 fn handle_update_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let path = msg.path();
     let table_name = extract_table_name(path);
     let record_id = extract_record_id(path);
@@ -178,15 +171,20 @@ fn handle_update_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
     };
 
-    match db.update(&full_name, record_id, body) {
+    match db::update(ctx, &full_name, record_id, body) {
         Ok(record) => json_respond(msg.clone(), 200, &record),
-        Err(database::DatabaseError::NotFound) => err_not_found(msg.clone(), "Record not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) => {
+            let msg_str = format!("{e}");
+            if msg_str.contains("not found") || msg_str.contains("Not found") {
+                err_not_found(msg.clone(), "Record not found")
+            } else {
+                err_internal(msg.clone(), &format!("Database error: {e}"))
+            }
+        }
     }
 }
 
 fn handle_delete_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let path = msg.path();
     let table_name = extract_table_name(path);
     let record_id = extract_record_id(path);
@@ -196,9 +194,15 @@ fn handle_delete_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let full_name = if table_name.starts_with("custom_") { table_name.to_string() } else { format!("custom_{}", table_name) };
 
-    match db.delete(&full_name, record_id) {
+    match db::delete(ctx, &full_name, record_id) {
         Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
-        Err(database::DatabaseError::NotFound) => err_not_found(msg.clone(), "Record not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) => {
+            let msg_str = format!("{e}");
+            if msg_str.contains("not found") || msg_str.contains("Not found") {
+                err_not_found(msg.clone(), "Record not found")
+            } else {
+                err_internal(msg.clone(), &format!("Database error: {e}"))
+            }
+        }
     }
 }

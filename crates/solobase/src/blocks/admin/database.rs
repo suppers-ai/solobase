@@ -1,7 +1,7 @@
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use super::get_db;
+use wafer_core::clients::database as db;
 use super::sanitize_ident;
 
 pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -20,13 +20,8 @@ pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn handle_info(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) {
-        Ok(db) => db,
-        Err(r) => return r,
-    };
-
     // Get database info via raw query
-    let tables = match db.query_raw("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name", &[]) {
+    let tables = match db::query_raw(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name", &[]) {
         Ok(t) => t,
         Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
     };
@@ -43,12 +38,7 @@ fn handle_info(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn handle_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) {
-        Ok(db) => db,
-        Err(r) => return r,
-    };
-
-    let tables = match db.query_raw("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name", &[]) {
+    let tables = match db::query_raw(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name", &[]) {
         Ok(t) => t,
         Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
     };
@@ -57,7 +47,7 @@ fn handle_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     for table in &tables {
         let name = table.data.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let safe_name = sanitize_ident(name);
-        let count = db.query_raw(&format!("SELECT COUNT(*) as cnt FROM \"{}\"", safe_name), &[])
+        let count = db::query_raw(ctx, &format!("SELECT COUNT(*) as cnt FROM \"{}\"", safe_name), &[])
             .ok()
             .and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64())))
             .unwrap_or(0);
@@ -72,11 +62,6 @@ fn handle_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn handle_columns(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) {
-        Ok(db) => db,
-        Err(r) => return r,
-    };
-
     let path = msg.path();
     // Extract table name from /admin/database/tables/{name}/columns
     let table_name = path
@@ -89,7 +74,7 @@ fn handle_columns(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     let safe_table = sanitize_ident(table_name);
-    let columns = match db.query_raw(&format!("PRAGMA table_info(\"{}\")", safe_table), &[]) {
+    let columns = match db::query_raw(ctx, &format!("PRAGMA table_info(\"{}\")", safe_table), &[]) {
         Ok(c) => c,
         Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
     };
@@ -108,11 +93,6 @@ fn handle_columns(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn handle_query(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) {
-        Ok(db) => db,
-        Err(r) => return r,
-    };
-
     #[derive(serde::Deserialize)]
     struct QueryReq {
         query: String,
@@ -130,7 +110,7 @@ fn handle_query(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let first_word = query_upper.split_whitespace().next().unwrap_or("");
     match first_word {
         "SELECT" | "PRAGMA" | "EXPLAIN" => {
-            match db.query_raw(&body.query, &body.args) {
+            match db::query_raw(ctx, &body.query, &body.args) {
                 Ok(records) => json_respond(msg.clone(), 200, &serde_json::json!({
                     "rows": records,
                     "row_count": records.len()

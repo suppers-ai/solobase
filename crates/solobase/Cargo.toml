@@ -11,9 +11,9 @@ path = "src/main.rs"
 
 [features]
 default = ["full"]
-storage-s3 = ["wafer-run/storage-s3"]
-postgres = ["wafer-run/postgres"]
-full = ["wafer-run/full", "storage-s3", "postgres"]
+storage-s3 = ["wafer-core/storage-s3"]
+postgres = ["wafer-core/postgres"]
+full = ["wafer-core/full", "wafer-run/full", "storage-s3", "postgres"]
 
 [dependencies]
 # WAFER runtime and shared blocks
@@ -36,17 +36,11 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
-# Crypto
-argon2 = { workspace = true }
-password-hash = { workspace = true }
-jsonwebtoken = { workspace = true }
+# Time
 chrono = { workspace = true }
 
 # Embedded frontend assets
 rust-embed = { workspace = true }
-
-# Network
-reqwest = { workspace = true }
 
 [profile.release]
 opt-level = "z"

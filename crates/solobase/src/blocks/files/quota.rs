@@ -1,18 +1,13 @@
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use wafer_run::services::database::{self, Filter, FilterOp};
-use super::get_db;
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{Filter, FilterOp};
 use super::models::QuotaConfig;
 
 pub fn get_user_quota(ctx: &dyn Context, user_id: &str) -> QuotaConfig {
-    let db = match get_db(ctx) {
-        Ok(db) => db,
-        Err(_) => return QuotaConfig::default(),
-    };
-
     // Check for user-specific override
-    match database::get_by_field(db.as_ref(), "cloud_quotas", "user_id", serde_json::Value::String(user_id.to_string())) {
+    match db::get_by_field(ctx, "cloud_quotas", "user_id", serde_json::Value::String(user_id.to_string())) {
         Ok(record) => {
             QuotaConfig {
                 max_storage_bytes: record.data.get("max_storage_bytes").and_then(|v| v.as_i64()).unwrap_or(1_073_741_824),
@@ -26,19 +21,14 @@ pub fn get_user_quota(ctx: &dyn Context, user_id: &str) -> QuotaConfig {
 }
 
 pub fn get_user_usage(ctx: &dyn Context, user_id: &str) -> serde_json::Value {
-    let db = match get_db(ctx) {
-        Ok(db) => db,
-        Err(_) => return serde_json::json!({"total_bytes": 0, "file_count": 0}),
-    };
-
     let filters = vec![Filter {
         field: "uploaded_by".to_string(),
         operator: FilterOp::Equal,
         value: serde_json::Value::String(user_id.to_string()),
     }];
 
-    let total_bytes = db.sum("storage_objects", "size", &filters).unwrap_or(0.0) as i64;
-    let file_count = db.count("storage_objects", &filters).unwrap_or(0);
+    let total_bytes = db::sum(ctx, "storage_objects", "size", &filters).unwrap_or(0.0) as i64;
+    let file_count = db::count(ctx, "storage_objects", &filters).unwrap_or(0);
 
     serde_json::json!({
         "total_bytes": total_bytes,

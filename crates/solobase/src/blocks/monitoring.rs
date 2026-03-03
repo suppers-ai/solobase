@@ -3,7 +3,8 @@ use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use wafer_run::services::database::{DatabaseService, ListOptions, SortField};
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{ListOptions, SortField};
 
 pub struct MonitoringBlock {
     stats: Arc<RwLock<MonitoringStats>>,
@@ -49,11 +50,6 @@ impl MonitoringBlock {
     }
 
     fn handle_history(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let db = match get_db(ctx) {
-            Ok(db) => db,
-            Err(r) => return r,
-        };
-
         let (_, page_size, offset) = msg.pagination_params(50);
         let opts = ListOptions {
             sort: vec![SortField { field: "created_at".to_string(), desc: true }],
@@ -62,17 +58,11 @@ impl MonitoringBlock {
             ..Default::default()
         };
 
-        match db.list("monitoring_snapshots", &opts) {
+        match db::list(ctx, "monitoring_snapshots", &opts) {
             Ok(result) => json_respond(msg.clone(), 200, &result),
             Err(e) => err_internal(msg.clone(), &format!("Failed to fetch history: {e}")),
         }
     }
-}
-
-fn get_db(ctx: &dyn Context) -> Result<&Arc<dyn DatabaseService>, Result_> {
-    ctx.services()
-        .and_then(|s| s.database.as_ref())
-        .ok_or_else(|| Result_::error(WaferError::new("unavailable", "Database service unavailable")))
 }
 
 impl Block for MonitoringBlock {

@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use wafer_run::services::database::{self, Filter, FilterOp, ListOptions, SortField};
-use super::get_db;
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 
 const COLLECTION: &str = "auth_users";
 
@@ -21,11 +21,6 @@ pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) {
-        Ok(db) => db,
-        Err(r) => return r,
-    };
-
     let (page, page_size, _) = msg.pagination_params(20);
     let search = msg.query("search").to_string();
 
@@ -47,7 +42,7 @@ fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
-    match database::paginated_list(db.as_ref(), COLLECTION, page as i64, page_size as i64, filters, sort) {
+    match db::paginated_list(ctx, COLLECTION, page as i64, page_size as i64, filters, sort) {
         Ok(mut result) => {
             // Strip password hashes from response
             for record in &mut result.records {
@@ -60,10 +55,6 @@ fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) {
-        Ok(db) => db,
-        Err(r) => return r,
-    };
     let id = msg.var("id").to_string();
     if id.is_empty() {
         // Extract from path
@@ -72,13 +63,13 @@ fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         if id.is_empty() {
             return err_bad_request(msg.clone(), "Missing user ID");
         }
-        return get_user(db.as_ref(), msg, &id);
+        return get_user(ctx, msg, &id);
     }
-    get_user(db.as_ref(), msg, &id)
+    get_user(ctx, msg, &id)
 }
 
-fn get_user(db: &dyn database::DatabaseService, msg: &mut Message, id: &str) -> Result_ {
-    match db.get(COLLECTION, id) {
+fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
+    match db::get(ctx, COLLECTION, id) {
         Ok(mut record) => {
             record.data.remove("password_hash");
             // Get roles
@@ -90,7 +81,7 @@ fn get_user(db: &dyn database::DatabaseService, msg: &mut Message, id: &str) -> 
                 }],
                 ..Default::default()
             };
-            let roles: Vec<String> = match db.list("iam_user_roles", &roles_opts) {
+            let roles: Vec<String> = match db::list(ctx, "iam_user_roles", &roles_opts) {
                 Ok(r) => r.records.iter()
                     .filter_map(|rec| rec.data.get("role").and_then(|v| v.as_str()).map(|s| s.to_string()))
                     .collect(),
@@ -102,16 +93,18 @@ fn get_user(db: &dyn database::DatabaseService, msg: &mut Message, id: &str) -> 
             }
             json_respond(msg.clone(), 200, &resp)
         }
-        Err(database::DatabaseError::NotFound) => err_not_found(msg.clone(), "User not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) => {
+            let msg_str = format!("{e}");
+            if msg_str.contains("not found") || msg_str.contains("Not found") {
+                err_not_found(msg.clone(), "User not found")
+            } else {
+                err_internal(msg.clone(), &format!("Database error: {e}"))
+            }
+        }
     }
 }
 
 fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) {
-        Ok(db) => db,
-        Err(r) => return r,
-    };
     let path = msg.path();
     let id = msg.var("id");
     let id = if id.is_empty() { path.strip_prefix("/admin/users/").unwrap_or("") } else { id };
@@ -133,21 +126,23 @@ fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-    match db.update(COLLECTION, id, data) {
+    match db::update(ctx, COLLECTION, id, data) {
         Ok(mut record) => {
             record.data.remove("password_hash");
             json_respond(msg.clone(), 200, &record)
         }
-        Err(database::DatabaseError::NotFound) => err_not_found(msg.clone(), "User not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) => {
+            let msg_str = format!("{e}");
+            if msg_str.contains("not found") || msg_str.contains("Not found") {
+                err_not_found(msg.clone(), "User not found")
+            } else {
+                err_internal(msg.clone(), &format!("Database error: {e}"))
+            }
+        }
     }
 }
 
 fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) {
-        Ok(db) => db,
-        Err(r) => return r,
-    };
     let path = msg.path();
     let id = msg.var("id");
     let id = if id.is_empty() { path.strip_prefix("/admin/users/").unwrap_or("") } else { id };
@@ -156,9 +151,15 @@ fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     // Soft delete
-    match database::soft_delete(db.as_ref(), COLLECTION, id) {
+    match db::soft_delete(ctx, COLLECTION, id) {
         Ok(_) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
-        Err(database::DatabaseError::NotFound) => err_not_found(msg.clone(), "User not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) => {
+            let msg_str = format!("{e}");
+            if msg_str.contains("not found") || msg_str.contains("Not found") {
+                err_not_found(msg.clone(), "User not found")
+            } else {
+                err_internal(msg.clone(), &format!("Database error: {e}"))
+            }
+        }
     }
 }

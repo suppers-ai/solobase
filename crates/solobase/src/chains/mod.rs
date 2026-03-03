@@ -18,7 +18,6 @@ mod system;
 mod userportal;
 mod web;
 
-use wafer_run::services::config::ConfigService;
 use wafer_run::Wafer;
 
 /// Register all solobase feature chains with the runtime.
@@ -40,14 +39,13 @@ pub fn register_all_chains(w: &mut Wafer) {
     register_chain(w, web::JSON);
 }
 
-/// Register only chains whose corresponding feature is enabled in config.
+/// Register only chains whose corresponding feature is enabled via env vars.
 ///
 /// The `protected` chain and `settings` chain are always registered as they
-/// provide base infrastructure. Feature chains are gated by `features.<name>`.
-pub fn register_selected_chains(w: &mut Wafer, config: &dyn ConfigService) {
+/// provide base infrastructure. Feature chains are gated by `FEATURE_<NAME>`.
+pub fn register_selected_chains(w: &mut Wafer) {
     let enabled = |name: &str| -> bool {
-        config
-            .get(&format!("features.{}", name))
+        std::env::var(format!("FEATURE_{}", name.to_uppercase()))
             .map(|v| v != "false")
             .unwrap_or(true) // default: enabled
     };

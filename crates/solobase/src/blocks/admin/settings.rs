@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use wafer_run::services::database::{self, DatabaseService, ListOptions};
-use super::get_db;
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::ListOptions;
 
 const COLLECTION: &str = "settings";
 
@@ -21,9 +21,8 @@ pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let opts = ListOptions { limit: 1000, ..Default::default() };
-    match db.list(COLLECTION, &opts) {
+    match db::list(ctx, COLLECTION, &opts) {
         Ok(result) => {
             // Convert to key-value map
             let mut settings = HashMap::new();
@@ -41,22 +40,26 @@ fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let path = msg.path();
     let key = path.strip_prefix("/admin/settings/")
         .or_else(|| path.strip_prefix("/settings/"))
         .unwrap_or("");
     if key.is_empty() { return err_bad_request(msg.clone(), "Missing setting key"); }
 
-    match database::get_by_field(db.as_ref(), COLLECTION, "key", serde_json::Value::String(key.to_string())) {
+    match db::get_by_field(ctx, COLLECTION, "key", serde_json::Value::String(key.to_string())) {
         Ok(record) => json_respond(msg.clone(), 200, &record),
-        Err(database::DatabaseError::NotFound) => err_not_found(msg.clone(), "Setting not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) => {
+            let msg_str = format!("{e}");
+            if msg_str.contains("not found") || msg_str.contains("Not found") {
+                err_not_found(msg.clone(), "Setting not found")
+            } else {
+                err_internal(msg.clone(), &format!("Database error: {e}"))
+            }
+        }
     }
 }
 
 fn handle_set(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let path = msg.path();
     let key = path.strip_prefix("/admin/settings/").unwrap_or("");
     if key.is_empty() { return err_bad_request(msg.clone(), "Missing setting key"); }
@@ -74,15 +77,13 @@ fn handle_set(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
     data.insert("updated_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
 
-    match database::upsert(db.as_ref(), COLLECTION, "key", serde_json::Value::String(key.to_string()), data) {
+    match db::upsert(ctx, COLLECTION, "key", serde_json::Value::String(key.to_string()), data) {
         Ok(record) => json_respond(msg.clone(), 200, &record),
         Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
     }
 }
 
 fn handle_set_batch(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
-
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
@@ -97,14 +98,14 @@ fn handle_set_batch(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         data.insert("value".to_string(), value.clone());
         data.insert("updated_at".to_string(), serde_json::Value::String(now.clone()));
         data.insert("updated_by".to_string(), serde_json::Value::String(user_id.clone()));
-        let _ = database::upsert(db.as_ref(), COLLECTION, "key", serde_json::Value::String(key.clone()), data);
+        let _ = db::upsert(ctx, COLLECTION, "key", serde_json::Value::String(key.clone()), data);
     }
 
     json_respond(msg.clone(), 200, &serde_json::json!({"updated": body.len()}))
 }
 
-pub fn seed_defaults(db: &dyn DatabaseService) {
-    let count = db.count(COLLECTION, &[]).unwrap_or(0);
+pub fn seed_defaults(ctx: &dyn Context) {
+    let count = db::count(ctx, COLLECTION, &[]).unwrap_or(0);
     if count > 0 { return; }
 
     let defaults = vec![
@@ -119,7 +120,7 @@ pub fn seed_defaults(db: &dyn DatabaseService) {
         data.insert("key".to_string(), serde_json::Value::String(key.to_string()));
         data.insert("value".to_string(), value);
         data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-        if let Err(e) = db.create(COLLECTION, data) {
+        if let Err(e) = db::create(ctx, COLLECTION, data) {
             tracing::warn!("Failed to seed default setting '{key}': {e}");
         }
     }

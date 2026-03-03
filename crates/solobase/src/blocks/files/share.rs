@@ -3,22 +3,20 @@ use std::time::Duration;
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use wafer_run::services::database::{self};
-use super::{get_db, get_storage};
+use wafer_core::clients::database as db;
+use wafer_core::clients::storage as store;
+use wafer_core::clients::crypto;
 
 const SHARES_COLLECTION: &str = "cloud_shares";
 const ACCESS_LOGS_COLLECTION: &str = "cloud_access_logs";
 
 pub fn generate_share_token(ctx: &dyn Context, bucket: &str, key: &str) -> Result<String, Result_> {
-    let svc = ctx.services().ok_or_else(|| Result_::error(WaferError::new("unavailable", "Services unavailable")))?;
-    let crypto = svc.crypto.as_ref().ok_or_else(|| Result_::error(WaferError::new("unavailable", "Crypto unavailable")))?;
-
     let mut claims = HashMap::new();
     claims.insert("bucket".to_string(), serde_json::Value::String(bucket.to_string()));
     claims.insert("key".to_string(), serde_json::Value::String(key.to_string()));
     claims.insert("type".to_string(), serde_json::Value::String("share".to_string()));
 
-    crypto.sign(claims, Duration::from_secs(365 * 24 * 3600))
+    crypto::sign(ctx, &claims, Duration::from_secs(365 * 24 * 3600))
         .map_err(|e| Result_::error(WaferError::new("internal", format!("Token generation failed: {e}"))))
 }
 
@@ -29,11 +27,8 @@ pub fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         return err_bad_request(msg.clone(), "Missing share token");
     }
 
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
-    let store = match get_storage(ctx) { Ok(s) => s, Err(r) => return r };
-
     // Look up share by token
-    let share = match database::get_by_field(db.as_ref(), SHARES_COLLECTION, "token", serde_json::Value::String(token.to_string())) {
+    let share = match db::get_by_field(ctx, SHARES_COLLECTION, "token", serde_json::Value::String(token.to_string())) {
         Ok(s) => s,
         Err(_) => return err_not_found(msg.clone(), "Share not found or expired"),
     };
@@ -67,7 +62,7 @@ pub fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Increment access count
     let mut upd = HashMap::new();
     upd.insert("access_count".to_string(), serde_json::json!(access_count + 1));
-    if let Err(e) = db.update(SHARES_COLLECTION, &share.id, upd) {
+    if let Err(e) = db::update(ctx, SHARES_COLLECTION, &share.id, upd) {
         tracing::warn!("Failed to increment share access count: {e}");
     }
 
@@ -77,19 +72,19 @@ pub fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     log_data.insert("accessed_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
     log_data.insert("ip_address".to_string(), serde_json::Value::String(msg.remote_addr().to_string()));
     log_data.insert("user_agent".to_string(), serde_json::Value::String(msg.header("User-Agent").to_string()));
-    if let Err(e) = db.create(ACCESS_LOGS_COLLECTION, log_data) {
+    if let Err(e) = db::create(ctx, ACCESS_LOGS_COLLECTION, log_data) {
         tracing::warn!("Failed to log share access: {e}");
     }
 
     // Serve the file
-    match store.get(bucket, key) {
+    match store::get(ctx, bucket, key) {
         Ok((data, info)) => {
             ResponseBuilder::new(msg.clone(), 200)
                 .set_header("Content-Disposition", &format!("inline; filename=\"{}\"", key))
                 .set_header("Cache-Control", "private, max-age=3600")
                 .body(data, &info.content_type)
         }
-        Err(wafer_run::services::storage::StorageError::NotFound) => err_not_found(msg.clone(), "File not found"),
+        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "File not found"),
         Err(e) => err_internal(msg.clone(), &format!("Storage error: {e}")),
     }
 }

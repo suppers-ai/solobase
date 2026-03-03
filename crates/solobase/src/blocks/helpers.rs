@@ -1,10 +1,3 @@
-use std::sync::Arc;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::services::database::DatabaseService;
-use wafer_run::services::crypto::CryptoService;
-use wafer_run::services::storage::StorageService;
-
 /// Encode bytes as lowercase hex string.
 pub fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
@@ -76,26 +69,4 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
         result[4*i..4*i+4].copy_from_slice(&val.to_be_bytes());
     }
     result
-}
-
-/// Extract the database service from the context.
-pub fn get_db(ctx: &dyn Context) -> Result<&Arc<dyn DatabaseService>, Result_> {
-    ctx.services()
-        .and_then(|s| s.database.as_ref())
-        .ok_or_else(|| Result_::error(WaferError::new("unavailable", "Database service unavailable")))
-}
-
-/// Extract the storage service from the context.
-pub fn get_storage(ctx: &dyn Context) -> Result<&Arc<dyn StorageService>, Result_> {
-    ctx.services()
-        .and_then(|s| s.storage.as_ref())
-        .ok_or_else(|| Result_::error(WaferError::new("unavailable", "Storage service unavailable")))
-}
-
-/// Extract both database and crypto services from the context.
-pub fn get_db_and_crypto(ctx: &dyn Context) -> Result<(&Arc<dyn DatabaseService>, &Arc<dyn CryptoService>), Result_> {
-    let svc = ctx.services().ok_or_else(|| Result_::error(WaferError::new("unavailable", "Services unavailable")))?;
-    let db = svc.database.as_ref().ok_or_else(|| Result_::error(WaferError::new("unavailable", "Database unavailable")))?;
-    let crypto = svc.crypto.as_ref().ok_or_else(|| Result_::error(WaferError::new("unavailable", "Crypto unavailable")))?;
-    Ok((db, crypto))
 }

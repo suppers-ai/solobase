@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
-use wafer_run::services::database::{self, Filter, FilterOp, ListOptions, SortField};
-use wafer_run::services::storage;
-use super::{get_db, get_storage};
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::storage as store;
 
 const OBJECTS_META_COLLECTION: &str = "storage_objects";
 const BUCKETS_COLLECTION: &str = "storage_buckets";
@@ -63,17 +63,13 @@ fn extract_object_key(path: &str) -> &str {
 }
 
 fn handle_list_buckets(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let store = match get_storage(ctx) { Ok(s) => s, Err(r) => return r };
-    match store.list_folders() {
+    match store::list_folders(ctx) {
         Ok(folders) => json_respond(msg.clone(), 200, &serde_json::json!({"buckets": folders})),
         Err(e) => err_internal(msg.clone(), &format!("Storage error: {e}")),
     }
 }
 
 fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let store = match get_storage(ctx) { Ok(s) => s, Err(r) => return r };
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
-
     #[derive(serde::Deserialize)]
     struct Req { name: String, #[serde(default)] public: bool }
     let body: Req = match msg.decode() {
@@ -85,7 +81,7 @@ fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         return err_bad_request(msg.clone(), "Bucket name is required");
     }
 
-    match store.create_folder(&body.name, body.public) {
+    match store::create_folder(ctx, &body.name, body.public) {
         Ok(()) => {
             // Track in DB
             let mut data = HashMap::new();
@@ -93,7 +89,7 @@ fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             data.insert("public".to_string(), serde_json::Value::Bool(body.public));
             data.insert("created_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
             data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-            if let Err(e) = db.create(BUCKETS_COLLECTION, data) {
+            if let Err(e) = db::create(ctx, BUCKETS_COLLECTION, data) {
                 tracing::warn!("Failed to track bucket creation in database: {e}");
             }
             json_respond(msg.clone(), 201, &serde_json::json!({"name": body.name, "created": true}))
@@ -103,19 +99,17 @@ fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn handle_delete_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let store = match get_storage(ctx) { Ok(s) => s, Err(r) => return r };
     let path = msg.path();
     let bucket = extract_bucket_name(path);
     if bucket.is_empty() { return err_bad_request(msg.clone(), "Missing bucket name"); }
 
-    match store.delete_folder(bucket) {
+    match store::delete_folder(ctx, bucket) {
         Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
         Err(e) => err_internal(msg.clone(), &format!("Failed to delete bucket: {e}")),
     }
 }
 
 fn handle_list_objects(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let store = match get_storage(ctx) { Ok(s) => s, Err(r) => return r };
     let path = msg.path();
     let bucket = extract_bucket_name(path);
     if bucket.is_empty() { return err_bad_request(msg.clone(), "Missing bucket name"); }
@@ -123,20 +117,19 @@ fn handle_list_objects(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let prefix = msg.query("prefix").to_string();
     let (_, page_size, offset) = msg.pagination_params(50);
 
-    let opts = storage::ListOptions {
+    let opts = store::ListOptions {
         prefix,
         limit: page_size as i64,
         offset: offset as i64,
     };
 
-    match store.list(bucket, &opts) {
+    match store::list(ctx, bucket, &opts) {
         Ok(list) => json_respond(msg.clone(), 200, &list),
         Err(e) => err_internal(msg.clone(), &format!("Storage error: {e}")),
     }
 }
 
 fn handle_get_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let store = match get_storage(ctx) { Ok(s) => s, Err(r) => return r };
     let path = msg.path();
     let bucket = extract_bucket_name(path);
     let key = extract_object_key(path);
@@ -145,27 +138,23 @@ fn handle_get_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     // Track view in DB
-    if let Ok(db) = get_db(ctx) {
-        let mut data = HashMap::new();
-        data.insert("bucket".to_string(), serde_json::Value::String(bucket.to_string()));
-        data.insert("key".to_string(), serde_json::Value::String(key.to_string()));
-        data.insert("user_id".to_string(), serde_json::Value::String(msg.user_id().to_string()));
-        data.insert("viewed_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-        if let Err(e) = db.create("storage_views", data) {
-            tracing::warn!("Failed to track storage object view: {e}");
-        }
+    let mut data = HashMap::new();
+    data.insert("bucket".to_string(), serde_json::Value::String(bucket.to_string()));
+    data.insert("key".to_string(), serde_json::Value::String(key.to_string()));
+    data.insert("user_id".to_string(), serde_json::Value::String(msg.user_id().to_string()));
+    data.insert("viewed_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+    if let Err(e) = db::create(ctx, "storage_views", data) {
+        tracing::warn!("Failed to track storage object view: {e}");
     }
 
-    match store.get(bucket, key) {
+    match store::get(ctx, bucket, key) {
         Ok((data, info)) => respond(msg.clone(), 200, data, &info.content_type),
-        Err(storage::StorageError::NotFound) => err_not_found(msg.clone(), "Object not found"),
+        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Object not found"),
         Err(e) => err_internal(msg.clone(), &format!("Storage error: {e}")),
     }
 }
 
 fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let store = match get_storage(ctx) { Ok(s) => s, Err(r) => return r };
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let path = msg.path();
     let bucket = extract_bucket_name(path);
     if bucket.is_empty() { return err_bad_request(msg.clone(), "Missing bucket name"); }
@@ -182,7 +171,7 @@ fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         return r;
     }
 
-    match store.put(bucket, &key, msg.body(), content_type) {
+    match store::put(ctx, bucket, &key, msg.body(), content_type) {
         Ok(()) => {
             // Track metadata
             let mut data = HashMap::new();
@@ -192,7 +181,7 @@ fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             data.insert("content_type".to_string(), serde_json::Value::String(content_type.to_string()));
             data.insert("uploaded_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
             data.insert("uploaded_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-            if let Err(e) = db.create(OBJECTS_META_COLLECTION, data) {
+            if let Err(e) = db::create(ctx, OBJECTS_META_COLLECTION, data) {
                 tracing::warn!("Failed to store object metadata: {e}");
             }
             json_respond(msg.clone(), 201, &serde_json::json!({"bucket": bucket, "key": key, "uploaded": true}))
@@ -202,7 +191,6 @@ fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn handle_delete_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let store = match get_storage(ctx) { Ok(s) => s, Err(r) => return r };
     let path = msg.path();
     let bucket = extract_bucket_name(path);
     let key = extract_object_key(path);
@@ -210,24 +198,21 @@ fn handle_delete_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         return err_bad_request(msg.clone(), "Missing bucket name or object key");
     }
 
-    match store.delete(bucket, key) {
+    match store::delete(ctx, bucket, key) {
         Ok(()) => {
             // Clean up metadata
-            if let Ok(db) = get_db(ctx) {
-                database::delete_by_filters(db.as_ref(), OBJECTS_META_COLLECTION, vec![
-                    Filter { field: "bucket".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(bucket.to_string()) },
-                    Filter { field: "key".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(key.to_string()) },
-                ]).ok();
-            }
+            db::delete_by_filters(ctx, OBJECTS_META_COLLECTION, vec![
+                Filter { field: "bucket".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(bucket.to_string()) },
+                Filter { field: "key".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(key.to_string()) },
+            ]).ok();
             json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true}))
         }
-        Err(storage::StorageError::NotFound) => err_not_found(msg.clone(), "Object not found"),
+        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Object not found"),
         Err(e) => err_internal(msg.clone(), &format!("Delete failed: {e}")),
     }
 }
 
 fn handle_search(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let query = msg.query("q").to_string();
     if query.is_empty() { return err_bad_request(msg.clone(), "Missing search query"); }
 
@@ -243,14 +228,13 @@ fn handle_search(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         offset: offset as i64,
     };
 
-    match db.list(OBJECTS_META_COLLECTION, &opts) {
+    match db::list(ctx, OBJECTS_META_COLLECTION, &opts) {
         Ok(result) => json_respond(msg.clone(), 200, &result),
         Err(e) => err_internal(msg.clone(), &format!("Search failed: {e}")),
     }
 }
 
 fn handle_recent(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
     let user_id = msg.user_id().to_string();
 
     let opts = ListOptions {
@@ -264,19 +248,16 @@ fn handle_recent(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ..Default::default()
     };
 
-    match db.list("storage_views", &opts) {
+    match db::list(ctx, "storage_views", &opts) {
         Ok(result) => json_respond(msg.clone(), 200, &result),
         Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
     }
 }
 
 fn handle_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let db = match get_db(ctx) { Ok(db) => db, Err(r) => return r };
-    let store = match get_storage(ctx) { Ok(s) => s, Err(r) => return r };
-
-    let total_objects = db.count(OBJECTS_META_COLLECTION, &[]).unwrap_or(0);
-    let total_size = db.sum(OBJECTS_META_COLLECTION, "size", &[]).unwrap_or(0.0);
-    let bucket_count = store.list_folders().map(|f| f.len()).unwrap_or(0);
+    let total_objects = db::count(ctx, OBJECTS_META_COLLECTION, &[]).unwrap_or(0);
+    let total_size = db::sum(ctx, OBJECTS_META_COLLECTION, "size", &[]).unwrap_or(0.0);
+    let bucket_count = store::list_folders(ctx).map(|f| f.len()).unwrap_or(0);
 
     json_respond(msg.clone(), 200, &serde_json::json!({
         "total_objects": total_objects,
