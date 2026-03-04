@@ -9,7 +9,7 @@ WAFER already has the building blocks:
 1. **Transport-agnostic blocks** — blocks receive `*Message` and return `Result`. They don't know if the caller is HTTP, CLI, or an AI agent.
 2. **Block manifests (`block.json`)** — declare message input/output schemas and database collections. These are most of a tool definition already.
 3. **Interface definitions** — JSON Schema-based method contracts in the spec.
-4. **HTTP bridge** — proves the pattern: convert external format → Message → chain → Result → external format.
+4. **HTTP bridge** — proves the pattern: convert external format → Message → flow → Result → external format.
 5. **Standalone runtime** — `wafer-go` is its own Go module, decoupled from Solobase.
 
 No blocks need to change. We add new bridges and a schema generator.
@@ -21,7 +21,7 @@ No blocks need to change. We add new bridges and a schema generator.
                     │         WAFER RUNTIME           │
                     │                                  │
                     │   Block.Handle(ctx, msg) → Result │
-                    │   Chains compose blocks           │
+                    │   Flows compose blocks            │
                     │   Context provides services       │
                     └────────────┬──────────────────────┘
                                  │
@@ -42,7 +42,7 @@ No blocks need to change. We add new bridges and a schema generator.
 Each bridge does the same thing the HTTP bridge already does:
 
 1. Convert inbound format → `*wafer.Message` (set Kind, Data, Meta)
-2. Execute through a chain: `w.Execute(chainID, msg)`
+2. Execute through a flow: `w.Execute(flowID, msg)`
 3. Convert `wafer.Result` → outbound format
 
 ## What Exists Today
@@ -124,12 +124,12 @@ These action+pattern pairs are the natural source for tool definitions.
 
 ### HTTP Bridge (wafer-go/bridge/http.go)
 
-The existing bridge converts HTTP → Message → chain → HTTP:
+The existing bridge converts HTTP → Message → flow → HTTP:
 
 ```go
 // httpToMessage: sets msg.Kind, msg.Data, msg.Meta (req.*, http.*)
 // writeHTTPResponse: reads Result, writes status/headers/body
-func WaferHandler(w *wafer.Wafer, chainID string) http.HandlerFunc
+func WaferHandler(w *wafer.Wafer, flowID string) http.HandlerFunc
 ```
 
 ---
@@ -259,7 +259,7 @@ Generated MCP tool definitions:
 
 ### 2. Agent Bridge
 
-Like the HTTP bridge, but for tool calls. Converts tool name + arguments → Message → chain → tool result.
+Like the HTTP bridge, but for tool calls. Converts tool name + arguments → Message → flow → tool result.
 
 ```go
 // wafer-go/bridge/agent.go
@@ -293,7 +293,7 @@ func HandleToolCall(w *wafer.Wafer, call ToolCall, authMeta map[string]string) T
         msg.Meta[k] = v
     }
 
-    // 3. Execute through chain (same chains as HTTP)
+    // 3. Execute through flow (same flows as HTTP)
     result := w.Execute(block, msg)
 
     // 4. Convert result
@@ -322,7 +322,7 @@ func HandleToolCall(w *wafer.Wafer, call ToolCall, authMeta map[string]string) T
 Methods to implement:
 - `initialize` — server capabilities
 - `tools/list` — return generated tool schemas from manifests
-- `tools/call` — route through agent bridge → chain → tool result
+- `tools/call` — route through agent bridge → flow → tool result
 
 **Option A: Separate binary (stdio)**
 ```
@@ -359,22 +359,22 @@ wafer generate openapi     # OpenAPI spec
 wafer generate openai      # OpenAI function schemas
 ```
 
-The CLI bridge converts command-line args → Message → chain → printed output. Same pattern as HTTP and agent bridges.
+The CLI bridge converts command-line args → Message → flow → printed output. Same pattern as HTTP and agent bridges.
 
 **Location:** `wafer-go/cmd/wafer/main.go`
 
-### 5. Chain-as-Tool (Compound Tools)
+### 5. Flow-as-Tool (Compound Tools)
 
-Chains that compose multiple blocks become compound tools with auto-generated schemas:
+Flows that compose multiple blocks become compound tools with auto-generated schemas:
 
 ```
-chain "onboard-user" = validate → create-user → assign-role → send-welcome
+flow "onboard-user" = validate → create-user → assign-role → send-welcome
 ```
 
 The tool schema is derived from:
 - **Input:** the first block's input schema
 - **Output:** the last block's output schema
-- **Description:** the chain's `Summary` field
+- **Description:** the flow's `Summary` field
 
 This lets AI agents call high-level workflows without knowing the individual blocks. Developers get the same benefit via CLI.
 
@@ -395,7 +395,7 @@ This lets AI agents call high-level workflows without knowing the individual blo
 
 ## Auth for Tools
 
-Agents and CLI users authenticate the same way HTTP clients do. The chain system already handles auth via `auth-pipe`.
+Agents and CLI users authenticate the same way HTTP clients do. The flow system already handles auth via `auth-pipe`.
 
 | Caller | Auth method |
 |--------|------------|
@@ -404,7 +404,7 @@ Agents and CLI users authenticate the same way HTTP clients do. The chain system
 | CLI | API key from config file or env var |
 | SDK | API key or JWT passed in client constructor |
 
-The agent bridge sets `auth.*` meta keys before chain execution. Auth blocks validate as usual.
+The agent bridge sets `auth.*` meta keys before flow execution. Auth blocks validate as usual.
 
 For local MCP servers (agent launches subprocess), the simplest option is running with a fixed user context — the API key is in the MCP server config.
 
@@ -428,7 +428,7 @@ Add a `tool` field to block manifests:
 
 Defaults to `false`. Block authors opt in. The schema generator skips blocks where `tool.expose` is false.
 
-For chains, the same field on the chain definition controls exposure.
+For flows, the same field on the flow definition controls exposure.
 
 ---
 
@@ -441,7 +441,7 @@ For chains, the same field on the chain definition controls exposure.
 
 This is the default. The generator creates one tool per Router action registration.
 
-For blocks or chains that want a single tool with an `action` parameter, the manifest can override:
+For blocks or flows that want a single tool with an `action` parameter, the manifest can override:
 
 ```json
 {
@@ -463,7 +463,7 @@ For blocks or chains that want a single tool with an `action` parameter, the man
 | 3 | MCP stdio server | `wafer-go/cmd/wafer-mcp/main.go` | Medium |
 | 4 | CLI bridge + `wafer call` | `wafer-go/cmd/wafer/main.go` | Medium |
 | 5 | Manifest `tool` field | `wafer-go/manifest/manifest.go` | Small |
-| 6 | Chain-as-tool schemas | `wafer-go/manifest/tools.go` | Small |
+| 6 | Flow-as-tool schemas | `wafer-go/manifest/tools.go` | Small |
 | 7 | OpenAPI generator | `wafer-go/manifest/openapi.go` | Medium |
 | 8 | SDK generator (Go/TS) | `wafer-go/cmd/wafer/generate.go` | Large |
 
@@ -480,7 +480,7 @@ Write a WAFER block → automatically get:
 - An OpenAPI spec (generator)
 - Client SDKs (generator)
 
-Same block code, same chains, same auth. Five interfaces, no extra work for block authors.
+Same block code, same flows, same auth. Five interfaces, no extra work for block authors.
 
 ---
 
@@ -719,7 +719,7 @@ func DiscoverBlocks(dir string) (map[string]*WASMBlock, error) {
 
 - The WASM loader (`wasm/loader.go`, `memory.go`, `host.go`) — already works
 - The Block interface — WASM blocks implement it via the loader
-- Chain execution — runtime doesn't know or care if a block is native or WASM
+- Flow execution — runtime doesn't know or care if a block is native or WASM
 - Bridges (HTTP, agent, CLI) — they call blocks through the same interface
 - wazero dependency — stays as-is, pure Go, no CGO
 
@@ -772,7 +772,7 @@ This is the long-term endgame but is not available in wazero today. The current 
 | 7 | Manifest `tool` field | `wafer-go/manifest/manifest.go` | Small |
 | 8 | WASM block auto-discovery | `wafer-go/wasm/discover.go` | Small |
 | 9 | Rust guest SDK | `wafer-rust-guest/` | Medium |
-| 10 | Chain-as-tool schemas | `wafer-go/manifest/tools.go` | Small |
+| 10 | Flow-as-tool schemas | `wafer-go/manifest/tools.go` | Small |
 | 11 | OpenAPI generator | `wafer-go/manifest/openapi.go` | Medium |
 | 12 | SDK generator (Go/TS) | `wafer-go/cmd/wafer/generate.go` | Large |
 

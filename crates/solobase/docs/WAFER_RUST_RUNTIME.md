@@ -41,7 +41,7 @@ Wasmtime, wasm-tools, wasm-merge, Wizer, wit-bindgen, Fermyon Spin, Extism's ker
 ├──────────────────────────────────────────────────────────────┤
 │                                                               │
 │   Rust WAFER Runtime                                        │
-│   ├── Chain executor, routing, first-match                   │
+│   ├── Flow executor, routing, first-match                    │
 │   ├── Context + capabilities (log, config, services)         │
 │   ├── Lifecycle management (Init → Start → Handle → Stop)   │
 │   └── Observability hooks                                    │
@@ -549,7 +549,7 @@ JSON handling: No built-in `JSON.parse()`. The guest SDK provides typed helpers 
 ```
 wafer/                   ← Rust runtime (main repo)
   src/
-    runtime/              ← Core executor, chains, routing, context
+    runtime/              ← Core executor, flows, routing, context
     bridge/
       http.rs             ← axum HTTP bridge
       agent.rs            ← MCP agent bridge
@@ -617,7 +617,7 @@ async fn handle_api(
     req: axum::extract::Request,
 ) -> impl IntoResponse {
     // Convert HTTP request → WAFER Message
-    // Execute through chain
+    // Execute through flow
     // Convert Result → HTTP response
     // Same pattern as the current Go bridge
 }
@@ -753,11 +753,11 @@ Pre-compiled `.cwasm` blocks are ~2-3x larger than raw `.wasm` but load in **~1m
 ### Phase 1: Rust Runtime Core
 
 Rewrite the core runtime in Rust:
-- Types: Message, Result, Action, BlockInfo, Chain, Node
-- Executor: executeNode, executeChainRef, executeFirstMatch
+- Types: Message, Result, Action, BlockInfo, Flow, Node
+- Executor: executeNode, executeFlowRef, executeFirstMatch
 - Registry: block registration, factory pattern
 - Context: Send, Capabilities, Done, Services
-- Config: chain/node parsing from JSON
+- Config: flow/node parsing from JSON
 
 ### Phase 2: WASM Block Loader
 
@@ -771,7 +771,7 @@ Replace wazero loader with Wasmtime:
 
 Rewrite the HTTP bridge using axum:
 - httpToMessage → Message conversion
-- Chain execution
+- Flow execution
 - writeHTTPResponse → axum response
 - Static file serving via rust-embed
 
@@ -789,7 +789,7 @@ Rewrite the HTTP bridge using axum:
 
 ### Phase 6: Solobase Migration
 
-Solobase blocks compile to WASM (via standard Go or TinyGo) and load into the Rust runtime. Solobase becomes a set of WASM blocks + a chain configuration + a frontend, all embedded in a single Rust binary.
+Solobase blocks compile to WASM (via standard Go or TinyGo) and load into the Rust runtime. Solobase becomes a set of WASM blocks + a flow configuration + a frontend, all embedded in a single Rust binary.
 
 ---
 
@@ -800,6 +800,6 @@ Solobase blocks compile to WASM (via standard Go or TinyGo) and load into the Ru
 | **Fermyon Spin** | Wasmtime | Rust | Component Model, edge-focused |
 | **Extism** | Wasmtime/wazero | Rust kernel | Plugin framework, bytes in/out |
 | **Dagger** | Containers | Go | GraphQL API, container-per-module |
-| **WAFER** | Wasmtime | Rust | Block/chain composition, multi-bridge |
+| **WAFER** | Wasmtime | Rust | Block/flow composition, multi-bridge |
 
-WAFER's differentiation: blocks compose into chains with routing, and the same blocks are automatically exposed as HTTP APIs, CLI tools, and AI-agent tools. No other framework does the multi-bridge generation from a single block definition.
+WAFER's differentiation: blocks compose into flows with routing, and the same blocks are automatically exposed as HTTP APIs, CLI tools, and AI-agent tools. No other framework does the multi-bridge generation from a single block definition.

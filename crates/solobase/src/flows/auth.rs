@@ -16,7 +16,7 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "chain": "http-infra",
+        "flow": "http-infra",
         "next": [
             { "match": "POST:/auth/login",                "block": "auth-feature" },
             { "match": "POST:/auth/signup",               "block": "auth-feature" },
@@ -25,7 +25,7 @@ pub const JSON: &str = r#"{
             { "match": "POST:/internal/oauth/sync-user",  "block": "auth-feature" },
             {
                 "match": "*:/auth/**",
-                "chain": "auth-pipe",
+                "flow": "auth-pipe",
                 "next": [
                     { "block": "auth-feature" }
                 ]

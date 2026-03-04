@@ -43,13 +43,13 @@ test.describe('Feature Blocks Registration', () => {
     expect(blocks.length).toBeGreaterThan(5);
   });
 
-  test('chains are registered per config', async ({ page }) => {
-    // Check that runtime chains exist via the waffle page
+  test('flows are registered per config', async ({ page }) => {
+    // Check that runtime flows exist via the waffle page
     await page.goto('/admin/waffle');
     await page.waitForTimeout(2000);
 
-    const chainsResponse = await page.request.get('/api/admin/waffle/chains');
-    expect(chainsResponse.status()).toBe(200);
+    const flowsResponse = await page.request.get('/api/admin/waffle/flows');
+    expect(flowsResponse.status()).toBe(200);
   });
 });
 

@@ -1,28 +1,28 @@
 import { FlowNode, FlowEdge, generateId, NODE_WIDTH, NODE_HEIGHT } from './types';
 
-// WAFFLE chain JSON types (matching the Go types)
+// WAFFLE flow JSON types (matching the Go types)
 interface WaffleNodeDef {
 	block?: string;
-	chain?: string;
+	flow?: string;
 	match?: string;
 	config?: Record<string, unknown>;
 	instance?: string;
 	next?: WaffleNodeDef[];
 }
 
-interface WaffleChainDef {
+interface WaffleFlowDef {
 	id: string;
 	summary: string;
 	config: { on_error: string; timeout?: string };
 	root: WaffleNodeDef;
 }
 
-// Converts a flow graph (nodes + edges) back to WAFFLE chain JSON.
-export function flowToChainJSON(
+// Converts a flow graph (nodes + edges) back to WAFFLE flow JSON.
+export function flowToFlowJSON(
 	nodes: FlowNode[],
 	edges: FlowEdge[],
-	chainConfig: { id: string; summary: string; on_error: string; timeout?: string }
-): WaffleChainDef {
+	flowConfig: { id: string; summary: string; on_error: string; timeout?: string }
+): WaffleFlowDef {
 	// Build children map
 	const children = new Map<string, string[]>();
 	for (const n of nodes) children.set(n.id, []);
@@ -37,8 +37,8 @@ export function flowToChainJSON(
 
 	if (!root) {
 		return {
-			...chainConfig,
-			config: { on_error: chainConfig.on_error, timeout: chainConfig.timeout },
+			...flowConfig,
+			config: { on_error: flowConfig.on_error, timeout: flowConfig.timeout },
 			root: { block: 'placeholder' },
 		};
 	}
@@ -46,8 +46,8 @@ export function flowToChainJSON(
 	function nodeToWaffle(flowNode: FlowNode): WaffleNodeDef {
 		const def: WaffleNodeDef = {};
 
-		if (flowNode.type === 'chain-ref') {
-			def.chain = flowNode.label;
+		if (flowNode.type === 'flow-ref') {
+			def.flow = flowNode.label;
 		} else {
 			def.block = flowNode.label;
 		}
@@ -68,15 +68,15 @@ export function flowToChainJSON(
 	}
 
 	return {
-		id: chainConfig.id,
-		summary: chainConfig.summary,
-		config: { on_error: chainConfig.on_error, timeout: chainConfig.timeout },
+		id: flowConfig.id,
+		summary: flowConfig.summary,
+		config: { on_error: flowConfig.on_error, timeout: flowConfig.timeout },
 		root: nodeToWaffle(root),
 	};
 }
 
-// Converts WAFFLE chain JSON to a flow graph (nodes + edges).
-export function chainJSONToFlow(chainDef: WaffleChainDef): { nodes: FlowNode[]; edges: FlowEdge[] } {
+// Converts WAFFLE flow JSON to a flow graph (nodes + edges).
+export function flowJSONToFlow(flowDef: WaffleFlowDef): { nodes: FlowNode[]; edges: FlowEdge[] } {
 	const nodes: FlowNode[] = [];
 	const edges: FlowEdge[] = [];
 
@@ -84,8 +84,8 @@ export function chainJSONToFlow(chainDef: WaffleChainDef): { nodes: FlowNode[]; 
 		const id = generateId();
 		const node: FlowNode = {
 			id,
-			type: def.chain ? 'chain-ref' : 'block',
-			label: def.chain || def.block || 'unknown',
+			type: def.flow ? 'flow-ref' : 'block',
+			label: def.flow || def.block || 'unknown',
 			match: def.match,
 			config: def.config,
 			instance: def.instance,
@@ -109,7 +109,7 @@ export function chainJSONToFlow(chainDef: WaffleChainDef): { nodes: FlowNode[]; 
 		return id;
 	}
 
-	parseNode(chainDef.root, null, 60, 60);
+	parseNode(flowDef.root, null, 60, 60);
 
 	return { nodes, edges };
 }

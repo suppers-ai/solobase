@@ -6,7 +6,7 @@
 //! `blocks.json`.
 
 mod blocks;
-mod chains;
+mod flows;
 mod embedded;
 
 use std::net::SocketAddr;
@@ -46,15 +46,15 @@ async fn main() {
     blocks::register_selected(&mut wafer);
     tracing::info!("native feature blocks registered");
 
-    // 6. Register chain definitions (wafer-core base chains + solobase feature chains)
-    let _ = wafer_core::chains::register_chains(&mut wafer);
-    chains::register_selected_chains(&mut wafer);
-    tracing::info!("chain definitions registered");
+    // 6. Register flow definitions (wafer-core base flows + solobase feature flows)
+    let _ = wafer_core::flows::register_flows(&mut wafer);
+    flows::register_selected_flows(&mut wafer);
+    tracing::info!("flow definitions registered");
 
     // 7. Register observability hooks
     register_observability_hooks(&mut wafer);
 
-    // 8. Resolve all chains (creates block instances, runs lifecycle init)
+    // 8. Resolve all flows (creates block instances, runs lifecycle init)
     wafer
         .start()
         .expect("failed to resolve and start WAFER runtime");
@@ -124,7 +124,7 @@ fn register_observability_hooks(wafer: &mut Wafer) {
             wafer_run::Action::Drop => "DROP",
         };
         tracing::debug!(
-            chain  = %obs_ctx.chain_id,
+            flow   = %obs_ctx.flow_id,
             block  = %obs_ctx.block_name,
             status = status,
             ms     = duration.as_millis() as u64,
@@ -132,17 +132,17 @@ fn register_observability_hooks(wafer: &mut Wafer) {
         );
     });
 
-    // Log chain-level summary.
-    wafer.hooks.on_chain_end(|chain_id, result, duration| {
+    // Log flow-level summary.
+    wafer.hooks.on_flow_end(|flow_id, result, duration| {
         let status = match result.action {
             wafer_run::Action::Error => "ERROR",
             _ => "OK",
         };
         tracing::info!(
-            chain  = %chain_id,
+            flow   = %flow_id,
             status = status,
             ms     = duration.as_millis() as u64,
-            "chain completed"
+            "flow completed"
         );
     });
 }
@@ -152,15 +152,15 @@ fn register_observability_hooks(wafer: &mut Wafer) {
 // ---------------------------------------------------------------------------
 
 fn build_router(wafer: Arc<Wafer>) -> Router {
-    // Auto-register all chains that declare HTTP routes, nested under /api.
-    // axum strips the /api prefix before passing to handlers, so chain routes
+    // Create a single router that dispatches to the main flow.
+    // axum strips the /api prefix before passing to handlers, so flow routes
     // stay clean (e.g. /health, /auth/login, /admin/users).
-    let api_router = wafer_run::bridge::auto_register(wafer);
+    let api_router = wafer_core::bridge::http::create_router(wafer, "site-main");
 
     // Embedded frontend (SPA)
     let frontend_router = embedded::frontend_router();
 
-    // Compose: /api/* routes handled by chains, everything else by SPA
+    // Compose: /api/* routes handled by flows, everything else by SPA
     Router::new()
         .nest("/api", api_router)
         .fallback_service(frontend_router)

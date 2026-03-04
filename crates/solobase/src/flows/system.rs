@@ -10,13 +10,13 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "chain": "http-infra",
+        "flow": "http-infra",
         "next": [
             { "match": "GET:/health",     "block": "system-feature" },
             { "match": "GET:/debug/time", "block": "system-feature" },
             {
                 "match": "GET:/nav",
-                "chain": "auth-pipe",
+                "flow": "auth-pipe",
                 "next": [
                     { "block": "system-feature" }
                 ]

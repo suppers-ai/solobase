@@ -169,10 +169,10 @@ func TestAdminBlock_ListBlocks(t *testing.T) {
 	assert.Equal(t, 200, waffletest.Status(result))
 }
 
-func TestAdminBlock_ListChains(t *testing.T) {
+func TestAdminBlock_ListFlows(t *testing.T) {
 	block, ctx, _ := setupAdmin(t)
 
-	msg := waffletest.Retrieve("/admin/waffle/chains")
+	msg := waffletest.Retrieve("/admin/waffle/flows")
 	result := block.Handle(ctx, msg)
 
 	assert.Equal(t, waffle.ActionRespond, result.Action)

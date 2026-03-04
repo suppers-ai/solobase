@@ -2,7 +2,7 @@
 
 ## Overview
 
-WAFER is Solobase's block-and-chain runtime. It provides typed platform services and composable blocks for building applications.
+WAFER is Solobase's block-and-flow runtime. It provides typed platform services and composable blocks for building applications.
 
 ## Core Concepts
 
@@ -11,7 +11,7 @@ Two main abstractions:
 1. **Platform Services** — infrastructure primitives provided by the runtime (database, storage, logger, crypto, config). Implementations are swappable via provider registration.
 2. **Blocks** — all business logic. Each block is self-contained: owns its routes, its logic, its data access. No separate "service layer".
 
-Plus **Chains** for composition — wiring blocks together, route matching, auth pipelines.
+Plus **Flows** for composition — wiring blocks together, route matching, auth pipelines.
 
 ## Project Structure
 
@@ -53,7 +53,7 @@ infra/                   # Infrastructure blocks (middleware)
   security_headers.go    # Security headers
   readonly.go            # Read-only mode guard
 
-chains/                  # Chain definitions (blocks.go, chains.go)
+flows/                   # Flow definitions (blocks.go, flows.go)
 adapters/                # Adapter implementations
   crypto/                # Crypto service implementation (Argon2, JWT)
   auth/oauth/            # OAuth providers (Google, Microsoft, Facebook)
@@ -151,16 +151,16 @@ func (b *MyBlock) Lifecycle(ctx wafer.Context, evt wafer.LifecycleEvent) error {
 
 Each block has a `block.json` declaring collections, fields, indexes, and required services.
 
-## Chains
+## Flows
 
-Chains compose blocks with auth levels:
+Flows compose blocks with auth levels:
 
 - `http-infra` — CORS, security headers, rate limiting
 - `auth-pipe` — JWT/API key authentication, IAM role checking
 - `admin-pipe` — admin-only routes (requires "admin" role)
 - `protected-pipe` — authenticated user routes
 
-The bridge auto-registers HTTP routes from chains: `bridge.AutoRegister(mux, runtime)`.
+The bridge auto-registers HTTP routes from flows: `bridge.AutoRegister(mux, runtime)`.
 
 ## Normalized Meta Schema
 

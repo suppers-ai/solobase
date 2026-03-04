@@ -3,7 +3,7 @@ import { FlowNode as FlowNodeType } from './types';
 
 const TYPE_COLORS: Record<string, string> = {
 	'block': '#3b82f6',
-	'chain-ref': '#8b5cf6',
+	'flow-ref': '#8b5cf6',
 };
 
 interface FlowNodeProps {
@@ -69,7 +69,7 @@ export function FlowNodeComponent({ node, selected, onSelect, onDragStart }: Flo
 				fill="var(--text-muted, #94a3b8)"
 				font-size="10"
 			>
-				${node.type === 'chain-ref' ? 'chain' : 'block'}${node.match ? ` · ${node.match}` : ''}
+				${node.type === 'flow-ref' ? 'flow' : 'block'}${node.match ? ` \u00B7 ${node.match}` : ''}
 			</text>
 
 			<!-- Output port -->

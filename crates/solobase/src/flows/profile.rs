@@ -8,10 +8,10 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "chain": "http-infra",
+        "flow": "http-infra",
         "next": [
             {
-                "chain": "auth-pipe",
+                "flow": "auth-pipe",
                 "next": [
                     { "block": "profile-feature" }
                 ]

@@ -8,7 +8,7 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "chain": "http-infra",
+        "flow": "http-infra",
         "next": [
             { "block": "userportal-feature" }
         ]

@@ -2,9 +2,9 @@ import { html } from '@solobase/ui';
 import { useState } from 'preact/hooks';
 import { GitBranch, Box } from 'lucide-preact';
 import { SearchInput, EmptyState } from '@solobase/ui';
-import { chainJSONToFlow } from '../editor/serializer';
+import { flowJSONToFlow } from '../editor/serializer';
 
-interface ChainDef {
+interface FlowDef {
 	id: string;
 	summary?: string;
 	config?: { on_error: string; timeout?: string };
@@ -12,28 +12,28 @@ interface ChainDef {
 	root?: any;
 }
 
-interface ChainsTabProps {
-	chains: ChainDef[];
+interface FlowsTabProps {
+	flows: FlowDef[];
 	onReload: () => void;
 }
 
-export function ChainsTab({ chains, onReload }: ChainsTabProps) {
+export function FlowsTab({ flows, onReload }: FlowsTabProps) {
 	const [searchQuery, setSearchQuery] = useState('');
-	const [selectedChain, setSelectedChain] = useState<ChainDef | null>(null);
+	const [selectedFlow, setSelectedFlow] = useState<FlowDef | null>(null);
 
-	// Filter chains by search
-	const filtered = chains.filter(c =>
+	// Filter flows by search
+	const filtered = flows.filter(c =>
 		!searchQuery ||
 		c.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
 		(c.summary || '').toLowerCase().includes(searchQuery.toLowerCase())
 	);
 
-	// Build preview data for selected chain
+	// Build preview data for selected flow
 	let previewNodes: any[] = [];
 	let previewEdges: any[] = [];
-	if (selectedChain?.root) {
+	if (selectedFlow?.root) {
 		try {
-			const result = chainJSONToFlow(selectedChain);
+			const result = flowJSONToFlow(selectedFlow);
 			previewNodes = result.nodes;
 			previewEdges = result.edges;
 		} catch {
@@ -43,7 +43,7 @@ export function ChainsTab({ chains, onReload }: ChainsTabProps) {
 
 	return html`
 		<div style=${{ display: 'flex', gap: '1rem', minHeight: '500px' }}>
-			<!-- Left panel: chain list -->
+			<!-- Left panel: flow list -->
 			<div style=${{
 				width: '300px',
 				minWidth: '300px',
@@ -54,7 +54,7 @@ export function ChainsTab({ chains, onReload }: ChainsTabProps) {
 				<${SearchInput}
 					value=${searchQuery}
 					onChange=${setSearchQuery}
-					placeholder="Search chains..."
+					placeholder="Search flows..."
 				/>
 
 				<div style=${{ display: 'flex', flexDirection: 'column', gap: '0.5rem', overflowY: 'auto', flex: 1 }}>
@@ -65,14 +65,14 @@ export function ChainsTab({ chains, onReload }: ChainsTabProps) {
 							color: 'var(--text-secondary, #64748b)',
 							fontSize: '0.813rem'
 						}}>
-							${searchQuery ? 'No chains match your search.' : 'No chains registered.'}
+							${searchQuery ? 'No flows match your search.' : 'No flows registered.'}
 						</div>
-					` : filtered.map((c: ChainDef) => html`
+					` : filtered.map((c: FlowDef) => html`
 						<div key=${c.id}
-							onClick=${() => setSelectedChain(c)}
+							onClick=${() => setSelectedFlow(c)}
 							style=${{
-								background: selectedChain?.id === c.id ? 'var(--bg-muted, #f1f5f9)' : 'var(--card-bg, white)',
-								border: selectedChain?.id === c.id
+								background: selectedFlow?.id === c.id ? 'var(--bg-muted, #f1f5f9)' : 'var(--card-bg, white)',
+								border: selectedFlow?.id === c.id
 									? '1px solid var(--primary-color, #189AB4)'
 									: '1px solid var(--border-color, #e2e8f0)',
 								borderRadius: '10px',
@@ -80,12 +80,12 @@ export function ChainsTab({ chains, onReload }: ChainsTabProps) {
 								transition: 'border-color 0.2s, box-shadow 0.2s',
 								cursor: 'pointer'
 							}} onMouseEnter=${(e: any) => {
-								if (selectedChain?.id !== c.id) {
+								if (selectedFlow?.id !== c.id) {
 									e.currentTarget.style.borderColor = 'var(--primary-color, #189AB4)';
 									e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)';
 								}
 							}} onMouseLeave=${(e: any) => {
-								if (selectedChain?.id !== c.id) {
+								if (selectedFlow?.id !== c.id) {
 									e.currentTarget.style.borderColor = 'var(--border-color, #e2e8f0)';
 									e.currentTarget.style.boxShadow = 'none';
 								}
@@ -107,18 +107,18 @@ export function ChainsTab({ chains, onReload }: ChainsTabProps) {
 				</div>
 			</div>
 
-			<!-- Right panel: chain flow preview -->
+			<!-- Right panel: flow preview -->
 			<div style=${{
 				flex: 1,
 				display: 'flex',
 				flexDirection: 'column',
 				background: 'var(--bg-muted, #f8fafc)',
-				border: selectedChain ? '1px solid var(--border-color, #e2e8f0)' : '2px dashed var(--border-color, #e2e8f0)',
+				border: selectedFlow ? '1px solid var(--border-color, #e2e8f0)' : '2px dashed var(--border-color, #e2e8f0)',
 				borderRadius: '12px',
 				minHeight: '400px',
 				overflow: 'hidden'
 			}}>
-				${selectedChain ? html`
+				${selectedFlow ? html`
 					<!-- Preview header -->
 					<div style=${{
 						display: 'flex',
@@ -129,10 +129,10 @@ export function ChainsTab({ chains, onReload }: ChainsTabProps) {
 						background: 'var(--card-bg, white)'
 					}}>
 						<div>
-							<code style=${{ fontSize: '0.875rem', fontWeight: 600 }}>${selectedChain.id}</code>
-							${selectedChain.summary ? html`
+							<code style=${{ fontSize: '0.875rem', fontWeight: 600 }}>${selectedFlow.id}</code>
+							${selectedFlow.summary ? html`
 								<span style=${{ fontSize: '0.75rem', color: 'var(--text-secondary, #64748b)', marginLeft: '0.5rem' }}>
-									— ${selectedChain.summary}
+									— ${selectedFlow.summary}
 								</span>
 							` : null}
 						</div>
@@ -174,7 +174,7 @@ export function ChainsTab({ chains, onReload }: ChainsTabProps) {
 												justifyContent: 'center',
 												padding: '0.125rem 0',
 												color: 'var(--text-secondary, #94a3b8)'
-											}}>↓</div>
+											}}>\u2193</div>
 										` : null}
 									</div>
 								`)}
@@ -182,8 +182,8 @@ export function ChainsTab({ chains, onReload }: ChainsTabProps) {
 						` : html`
 							<${EmptyState}
 								icon=${GitBranch}
-								title="No blocks in chain"
-								description="This chain has no block nodes defined."
+								title="No blocks in flow"
+								description="This flow has no block nodes defined."
 							/>
 						`}
 					</div>
@@ -191,8 +191,8 @@ export function ChainsTab({ chains, onReload }: ChainsTabProps) {
 					<div style=${{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
 						<${EmptyState}
 							icon=${GitBranch}
-							title="Select a chain"
-							description="Choose a chain from the list to preview its flow."
+							title="Select a flow"
+							description="Choose a flow from the list to preview its flow."
 						/>
 					</div>
 				`}

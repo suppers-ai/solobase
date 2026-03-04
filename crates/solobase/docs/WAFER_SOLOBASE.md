@@ -6,7 +6,7 @@ How Solobase uses WAFER to provide a block-based Backend-as-a-Service platform.
 
 ## Overview
 
-Solobase is a BaaS (Backend as a Service) built on WAFER-Go. Every feature is a **block** - a self-contained unit with its own backend logic and optional standalone UI. Blocks compose into chains for request processing.
+Solobase is a BaaS (Backend as a Service) built on WAFER-Go. Every feature is a **block** - a self-contained unit with its own backend logic and optional standalone UI. Blocks compose into flows for request processing.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -20,7 +20,7 @@ Solobase is a BaaS (Backend as a Service) built on WAFER-Go. Every feature is a 
 │  │ userportal  products  cloudstorage  legalpages│           │
 │  └──────────────────────────────────────────────┘           │
 │                                                              │
-│  Infrastructure (infra/)     Chains (chains/)               │
+│  Infrastructure (infra/)     Flows (flows/)                 │
 │  ┌──────────────────────┐   ┌─────────────────┐            │
 │  │ auth  cors  iam      │   │ http-infra      │            │
 │  │ monitoring  rate_limit│   │ auth-pipe       │            │
@@ -32,7 +32,7 @@ Solobase is a BaaS (Backend as a Service) built on WAFER-Go. Every feature is a 
 │            (Runtime, Bridge, WASM Loader)                    │
 ├─────────────────────────────────────────────────────────────┤
 │                      WAFER SPEC                             │
-│          (Blocks, Chains, Interfaces, Registry)             │
+│          (Blocks, Flows, Interfaces, Registry)              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -85,9 +85,9 @@ solobase/
 │   │   └── db_logger.go       #     Database logger
 │   ├── shares/                #   Share link management
 │   │   └── service.go         #     SharesService
-│   ├── wafer/                #   Wafer admin (chains + blocks browser)
+│   ├── wafer/                #   Wafer admin (flows + blocks browser)
 │   │   ├── frontend/          #     Wafer admin page (Preact)
-│   │   └── handlers.go        #     Chain/block listing handlers
+│   │   └── handlers.go        #     Flow/block listing handlers
 │   ├── custom_tables/         #   Custom table management
 │   ├── userportal/            #   User-facing portal (login, profile, etc.)
 │   │   └── frontend/          #     Multi-page Preact app (own Vite build)
@@ -95,8 +95,8 @@ solobase/
 │   ├── cloudstorage/          #   Cloud storage quotas & bandwidth
 │   └── legalpages/            #   Legal pages editor
 │
-├── chains/                    # Wafer chain definitions
-│   ├── chains.go              #   BuildAll, base chains, feature chains
+├── flows/                     # Wafer flow definitions
+│   ├── flows.go               #   BuildAll, base flows, feature flows
 │   └── blocks.go              #   Block registration + Deps struct
 │
 ├── infra/                     # Infrastructure blocks (wafer blocks)
@@ -118,9 +118,9 @@ solobase/
 │   │   ├── adapter/           #     Block adapters (handler, service)
 │   │   ├── wasm/              #     WASM block loader
 │   │   ├── wafer.go          #     Runtime entry point
-│   │   ├── executor.go        #     Chain executor
-│   │   ├── registry.go        #     Block/chain registry
-│   │   └── types.go           #     Core types (Block, Chain, Node, Message)
+│   │   ├── executor.go        #     Flow executor
+│   │   ├── registry.go        #     Block/flow registry
+│   │   └── types.go           #     Core types (Block, Flow, Node, Message)
 │   └── spec/                  #   WAFER specification docs
 │
 ├── frontend/                  # Vite build project (config + output only)
@@ -172,7 +172,7 @@ solobase/
 
 ### How Blocks Work
 
-Each block is a Go package that is registered with the wafer runtime and composed into chains. Requests flow through chains of infrastructure blocks before reaching the feature block:
+Each block is a Go package that is registered with the wafer runtime and composed into flows. Requests flow through flows of infrastructure blocks before reaching the feature block:
 
 1. **Registers as a wafer block** via `RouterBlock` adapter (wraps a `*mux.Router`)
 2. **Handles requests** using its own colocated service layer
@@ -180,7 +180,7 @@ Each block is a Go package that is registered with the wafer runtime and compose
 
 ```
 HTTP Request → Bridge (httpToMessage)
-  → Chain: http-infra (security-headers → cors → readonly → rate-limit → monitoring)
+  → Flow: http-infra (security-headers → cors → readonly → rate-limit → monitoring)
     → admin-pipe (auth-block → iam-block{role:admin})
       → feature block (e.g. database-feature)
         → Bridge (writeHTTPResponse)
@@ -229,7 +229,7 @@ Block UIs use **Preact + HTM** (no JSX, minimal runtime ~4KB).
 Handles authentication - login, signup, logout, session management, API keys. Includes the login page UI at `/admin/login`.
 
 **UI components:** Login form, OAuth provider buttons, error display
-**Chains:**
+**Flows:**
 - `auth-login`: Validates credentials, issues session cookie
 - `auth-signup`: Creates new user account
 - `auth-check`: Verifies session (used by other blocks)
@@ -242,9 +242,9 @@ POST /api/auth/logout     → End session
 GET  /api/auth/me         → Get current user + roles
 ```
 
-### Admin Guard (admin-pipe chain)
+### Admin Guard (admin-pipe flow)
 
-The `admin-pipe` chain in `chains/chains.go` composes the `auth-block` (JWT/cookie/API key validation from `infra/auth.go`) and the `iam-block` (role check from `infra/iam.go` with `{role: "admin"}`). All admin feature chains include `admin-pipe` before the feature block.
+The `admin-pipe` flow in `flows/flows.go` composes the `auth-block` (JWT/cookie/API key validation from `infra/auth.go`) and the `iam-block` (role check from `infra/iam.go` with `{role: "admin"}`). All admin feature flows include `admin-pipe` before the feature block.
 
 ### System Block (UI)
 
@@ -266,7 +266,7 @@ User management at `/admin/users`.
 
 **UI components:** User list table, edit modal, delete confirmation
 **API:** `GET/PATCH/DELETE /api/admin/users/*`
-**Dependencies:** admin-pipe chain
+**Dependencies:** admin-pipe flow
 
 ### Database Block (UI)
 
@@ -279,7 +279,7 @@ GET  /api/admin/database/tables           → List tables
 GET  /api/admin/database/tables/:t/columns → Table columns
 POST /api/admin/database/query            → Execute SQL
 ```
-**Dependencies:** admin-pipe chain
+**Dependencies:** admin-pipe flow
 
 ### Storage Block (UI)
 
@@ -302,7 +302,7 @@ Identity & Access Management at `/admin/iam`.
 
 **UI components:** Roles manager, policies manager, audit log, role/policy CRUD modals
 **API:** `GET/POST/DELETE /api/admin/iam/*`
-**Dependencies:** admin-pipe chain
+**Dependencies:** admin-pipe flow
 
 ### Settings Block (UI)
 
@@ -310,7 +310,7 @@ App settings at `/admin/settings`.
 
 **UI components:** Settings form (app name, signup toggle, mailer, storage provider, etc.)
 **API:** `GET /api/settings`, `PATCH /api/admin/settings`
-**Dependencies:** admin-pipe chain
+**Dependencies:** admin-pipe flow
 
 ### Logs Block (UI)
 
@@ -318,7 +318,7 @@ Activity logs at `/admin/logs`.
 
 **UI components:** Log table with filters, export button
 **API:** `GET /api/admin/logs`
-**Dependencies:** admin-pipe chain
+**Dependencies:** admin-pipe flow
 
 ### Navigation API (part of system block)
 
@@ -342,7 +342,7 @@ Blocks register their own nav items via `WithAdminUI()` during block registratio
 
 ## Additional Blocks
 
-These blocks add domain-specific functionality. They live alongside the core blocks in `blocks/` and are registered as wafer blocks with their own chains.
+These blocks add domain-specific functionality. They live alongside the core blocks in `blocks/` and are registered as wafer blocks with their own flows.
 
 ### User Portal (`blocks/userportal/`)
 
@@ -370,7 +370,7 @@ Cloud storage with quotas, bandwidth tracking, and sharing.
 Terms of service and privacy policy editor.
 
 **API:** Public terms/privacy endpoints, admin editor endpoints
-**Dependencies:** Admin guard (admin-pipe chain)
+**Dependencies:** Admin guard (admin-pipe flow)
 
 ---
 
@@ -492,30 +492,30 @@ Each page loads ~25-45KB total. Significantly smaller than a monolithic SPA.
 
 ---
 
-## Chain Examples
+## Flow Examples
 
-These are the actual chains defined in `chains/chains.go`.
+These are the actual flows defined in `flows/flows.go`.
 
-### Base Chains (reusable infrastructure compositions)
+### Base Flows (reusable infrastructure compositions)
 
 ```
-Chain: http-infra
+Flow: http-infra
   security-headers → cors → readonly-guard → rate-limit → monitoring
 
-Chain: auth-pipe
+Flow: auth-pipe
   auth-block (validates JWT/cookie/API key, sets auth.* meta)
 
-Chain: admin-pipe
+Flow: admin-pipe
   auth-block → iam-block {role: "admin"}
 
-Chain: protected-pipe
+Flow: protected-pipe
   auth-block (alias for auth-pipe)
 ```
 
-### Auth Chain (mixed public/protected)
+### Auth Flow (mixed public/protected)
 
 ```
-Chain: auth
+Flow: auth
   Routes: POST /auth/login, POST /auth/signup, GET /auth/me, etc.
   http-infra →
     ├── POST:/auth/login      → auth-feature (public, no auth needed)
@@ -524,22 +524,22 @@ Chain: auth
     └── *:/auth/**            → auth-pipe → auth-feature (protected)
 ```
 
-### Admin-Only Chains (simple pattern)
+### Admin-Only Flows (simple pattern)
 
 Admin-only features use a helper: `http-infra → admin-pipe → feature-block`.
 
 ```
-Chain: users       → http-infra → admin-pipe → users-feature
-Chain: database    → http-infra → admin-pipe → database-feature
-Chain: logs        → http-infra → admin-pipe → logs-feature
-Chain: iam-admin   → http-infra → admin-pipe → iam-feature
-Chain: wafer-admin → http-infra → admin-pipe → wafer-admin-feature
+Flow: users       → http-infra → admin-pipe → users-feature
+Flow: database    → http-infra → admin-pipe → database-feature
+Flow: logs        → http-infra → admin-pipe → logs-feature
+Flow: iam-admin   → http-infra → admin-pipe → iam-feature
+Flow: wafer-admin → http-infra → admin-pipe → wafer-admin-feature
 ```
 
-### System Chain (mixed public/protected/admin)
+### System Flow (mixed public/protected/admin)
 
 ```
-Chain: system
+Flow: system
   Routes: /health, /dashboard/stats, /nav, /admin/system/*, /admin/metrics
   http-infra →
     ├── GET:/health           → system-feature (public)
@@ -548,10 +548,10 @@ Chain: system
     └── *:/admin/**           → admin-pipe → system-feature (admin)
 ```
 
-### Storage Chain (mixed public/protected/admin)
+### Storage Flow (mixed public/protected/admin)
 
 ```
-Chain: storage
+Flow: storage
   Routes: /storage/direct/{token}, /storage/*, /admin/storage/*
   http-infra →
     ├── GET:/storage/direct/{token} → storage-feature (public, direct download)
@@ -650,12 +650,12 @@ input: {
 }
 ```
 
-### 4. Register block and chain
+### 4. Register block and flow
 
-In `chains/blocks.go`, register the block as a `RouterBlock`:
+In `flows/blocks.go`, register the block as a `RouterBlock`:
 
 ```go
-// chains/blocks.go — inside registerFeatureBlocks()
+// flows/blocks.go — inside registerFeatureBlocks()
 const blockMyFeature = "myfeature-feature"
 
 myRouter := mux.NewRouter()
@@ -664,11 +664,11 @@ w.RegisterBlock(blockMyFeature, adapter.NewRouterBlock(blockMyFeature, "My featu
     WithAdminUI(wafer.AdminUIInfo{Path: "/admin/myfeature", Icon: "star", Title: "My Feature"}))
 ```
 
-In `chains/chains.go`, add the chain using the `addAdminChain` helper:
+In `flows/flows.go`, add the flow using the `addAdminFlow` helper:
 
 ```go
-// chains/chains.go — inside buildFeatureChains()
-addAdminChain(w, "myfeature", blockMyFeature, "My feature",
+// flows/flows.go — inside buildFeatureFlows()
+addAdminFlow(w, "myfeature", blockMyFeature, "My feature",
     []wafer.HTTPRoute{{Path: "/admin/myfeature", PathPrefix: true}})
 ```
 
@@ -702,7 +702,7 @@ make build-wasm     # WASM module for Cloudflare Workers
 
 ### Phase 1: Core
 - [x] Auth block (login, signup, session) + login UI
-- [x] Admin guard (admin-pipe chain)
+- [x] Admin guard (admin-pipe flow)
 - [x] System block (dashboard, nav, health, metrics) + UI
 - [x] Users block + UI
 - [x] Database block + UI
@@ -715,12 +715,12 @@ make build-wasm     # WASM module for Cloudflare Workers
 - [x] Refactor: blocks at top level, services inside blocks, infra blocks
 
 ### Phase 2: WAFER Runtime
-- [x] Chain execution engine
+- [x] Flow execution engine
 - [x] Infrastructure blocks (auth, cors, iam, monitoring, rate-limit, readonly, security-headers)
 - [x] HTTP bridge (httpToMessage / writeHTTPResponse)
 - [x] Block registry browser
 - [ ] Connection blocks (MQTT, WebSocket, Cron)
-- [ ] Visual chain editor
+- [ ] Visual flow editor
 
 ### Phase 3: Monitoring
 - [ ] Prometheus metrics

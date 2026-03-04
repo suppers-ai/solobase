@@ -19,7 +19,7 @@ interface BlockInfo {
 	admin_ui?: AdminUIInfo;
 }
 
-interface ChainDef {
+interface FlowDef {
 	id: string;
 	summary?: string;
 	config?: { on_error: string; timeout?: string };
@@ -29,7 +29,7 @@ interface ChainDef {
 
 interface BlocksTabProps {
 	blocks: BlockInfo[];
-	chains: ChainDef[];
+	flows: FlowDef[];
 }
 
 const INTERFACE_COLORS: Record<string, { bg: string; color: string }> = {
@@ -52,7 +52,7 @@ function getModeColor(mode: string) {
 	}
 }
 
-/** Walk a chain node tree and collect all block names referenced. */
+/** Walk a flow node tree and collect all block names referenced. */
 function collectBlockNames(node: any, names: Set<string>) {
 	if (!node) return;
 	if (node.block) names.add(node.block);
@@ -64,16 +64,16 @@ function collectBlockNames(node: any, names: Set<string>) {
 	}
 }
 
-/** Return all chains that reference a given block name. */
-function getChainsForBlock(blockName: string, chains: ChainDef[]): ChainDef[] {
-	return chains.filter(c => {
+/** Return all flows that reference a given block name. */
+function getFlowsForBlock(blockName: string, flows: FlowDef[]): FlowDef[] {
+	return flows.filter(c => {
 		const names = new Set<string>();
 		collectBlockNames(c.root, names);
 		return names.has(blockName);
 	});
 }
 
-export function BlocksTab({ blocks, chains }: BlocksTabProps) {
+export function BlocksTab({ blocks, flows }: BlocksTabProps) {
 	const [searchQuery, setSearchQuery] = useState('');
 	const [selectedBlock, setSelectedBlock] = useState<BlockInfo | null>(null);
 	const [jsonExpanded, setJsonExpanded] = useState(true);
@@ -86,7 +86,7 @@ export function BlocksTab({ blocks, chains }: BlocksTabProps) {
 		b.summary.toLowerCase().includes(q)
 	);
 
-	const usedInChains = selectedBlock ? getChainsForBlock(selectedBlock.name, chains) : [];
+	const usedInFlows = selectedBlock ? getFlowsForBlock(selectedBlock.name, flows) : [];
 
 	return html`
 		<div style=${{ display: 'flex', gap: '1rem', minHeight: '500px' }}>
@@ -272,7 +272,7 @@ export function BlocksTab({ blocks, chains }: BlocksTabProps) {
 							`)}
 						</div>
 
-						<!-- Used in Chains -->
+						<!-- Used in Flows -->
 						<div style=${{ marginBottom: '1.25rem' }}>
 							<h4 style=${{
 								fontSize: '0.75rem',
@@ -281,12 +281,12 @@ export function BlocksTab({ blocks, chains }: BlocksTabProps) {
 								textTransform: 'uppercase',
 								letterSpacing: '0.05em',
 								marginBottom: '0.5rem'
-							}}>Used in Chains</h4>
-							${usedInChains.length > 0 ? html`
+							}}>Used in Flows</h4>
+							${usedInFlows.length > 0 ? html`
 								<div style=${{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-									${usedInChains.map((c: ChainDef) => html`
+									${usedInFlows.map((c: FlowDef) => html`
 										<a key=${c.id}
-											href="#chains"
+											href="#flows"
 											style=${{
 												display: 'flex',
 												alignItems: 'center',
@@ -306,14 +306,14 @@ export function BlocksTab({ blocks, chains }: BlocksTabProps) {
 											<${GitBranch} size=${14} style=${{ color: 'var(--primary-color, #189AB4)', flexShrink: 0 }} />
 											<code style=${{ fontWeight: 600 }}>${c.id}</code>
 											${c.summary ? html`
-												<span style=${{ fontSize: '0.688rem', color: 'var(--text-secondary, #64748b)' }}>— ${c.summary}</span>
+												<span style=${{ fontSize: '0.688rem', color: 'var(--text-secondary, #64748b)' }}>\u2014 ${c.summary}</span>
 											` : null}
 										</a>
 									`)}
 								</div>
 							` : html`
 								<p style=${{ fontSize: '0.813rem', color: 'var(--text-secondary, #64748b)', margin: 0 }}>
-									Not used in any chains.
+									Not used in any flows.
 								</p>
 							`}
 						</div>

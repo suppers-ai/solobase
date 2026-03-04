@@ -9,18 +9,18 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "chain": "http-infra",
+        "flow": "http-infra",
         "next": [
             {
                 "match": "*:/admin/settings/**",
-                "chain": "admin-pipe",
+                "flow": "admin-pipe",
                 "next": [
                     { "block": "admin-feature" }
                 ]
             },
             {
                 "match": "*:/settings/**",
-                "chain": "auth-pipe",
+                "flow": "auth-pipe",
                 "next": [
                     { "block": "admin-feature" }
                 ]

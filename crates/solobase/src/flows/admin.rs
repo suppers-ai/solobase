@@ -14,10 +14,10 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "chain": "http-infra",
+        "flow": "http-infra",
         "next": [
             {
-                "chain": "admin-pipe",
+                "flow": "admin-pipe",
                 "next": [
                     { "block": "admin-feature" }
                 ]

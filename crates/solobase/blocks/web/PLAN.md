@@ -2,7 +2,7 @@
 
 ## Context
 
-The solobase-site is currently a Hugo + Express + Terraform stack. Rather than building site-specific blocks for marketing pages, the idea is to create a **generic, reusable `web` block** that serves static files from a configurable build directory. Any website (marketing, docs, SPA, etc.) just builds to a folder and the block serves it — through the full WAFFLE chain pipeline, so it gets security headers, CORS, rate limiting, and monitoring for free.
+The solobase-site is currently a Hugo + Express + Terraform stack. Rather than building site-specific blocks for marketing pages, the idea is to create a **generic, reusable `web` block** that serves static files from a configurable build directory. Any website (marketing, docs, SPA, etc.) just builds to a folder and the block serves it — through the full WAFFLE flow pipeline, so it gets security headers, CORS, rate limiting, and monitoring for free.
 
 This block will live in `solobase/blocks/web/` and follow existing block conventions.
 
@@ -109,7 +109,7 @@ Test helper: create block with `NewWebBlock(cfg)`, init via `waffletest.InitBloc
 13. `TestLifecycleInitMissingDir` — Init with nonexistent dir returns error
 14. `TestLifecycleInitNotADir` — Init with file path returns error
 
-### Step 5: Wire into `solobase/chains/chains.go`
+### Step 5: Wire into `solobase/flows/flows.go`
 
 **In `registerFeatureBlocks()`** — conditionally register the web block when `WEB_ROOT` env var is set:
 
@@ -125,27 +125,27 @@ if webRoot := env.GetEnv("WEB_ROOT"); webRoot != "" {
 }
 ```
 
-**In `buildFeatureChains()`** — conditionally add the web chain:
+**In `buildFeatureFlows()`** — conditionally add the web flow:
 
 ```go
 if w.HasBlock(web.BlockName) {
     prefix := env.GetEnvOrDefault("WEB_PREFIX", "")
-    addPublicChain(w, "web-site", web.BlockName, "Static website serving",
+    addPublicFlow(w, "web-site", web.BlockName, "Static website serving",
         []waffle.HTTPRoute{{Path: prefix + "/", PathPrefix: true}})
 }
 ```
 
-Add a new `addPublicChain` helper (similar to existing `addAdminChain` but without `admin-pipe`):
+Add a new `addPublicFlow` helper (similar to existing `addAdminFlow` but without `admin-pipe`):
 
 ```go
-func addPublicChain(w *waffle.Waffle, chainID, blockName, summary string, routes []waffle.HTTPRoute) {
-    w.AddChain(waffle.Chain{
-        ID:      chainID,
+func addPublicFlow(w *waffle.Waffle, flowID, blockName, summary string, routes []waffle.HTTPRoute) {
+    w.AddFlow(waffle.Flow{
+        ID:      flowID,
         Summary: summary,
-        Config:  waffle.ChainConfig{OnError: "stop"},
+        Config:  waffle.FlowConfig{OnError: "stop"},
         HTTP:    &waffle.HTTPRouteDef{Routes: routes},
         Root: &waffle.Node{
-            Chain: "http-infra",
+            Flow: "http-infra",
             Next:  []*waffle.Node{{Block: blockName}},
         },
     })
@@ -193,7 +193,7 @@ Add import for the `web` package.
 
 | File | Change |
 |------|--------|
-| `solobase/chains/chains.go` | Import web, register block + chain conditionally, add `addPublicChain` helper |
+| `solobase/flows/flows.go` | Import web, register block + flow conditionally, add `addPublicFlow` helper |
 | `solobase/builds/native/blocks.go` | Import web, register waffleconfig factory |
 
 ### Reference files (patterns to follow)

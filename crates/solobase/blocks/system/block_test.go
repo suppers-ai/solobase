@@ -65,7 +65,7 @@ func TestGetNavItems(t *testing.T) {
 
 	var items []NavItem
 	waffletest.DecodeResponse(t, result, &items)
-	// Should always include Blocks and Chains
+	// Should always include Blocks and Flows
 	require.GreaterOrEqual(t, len(items), 2)
 
 	titles := make([]string, len(items))
@@ -73,7 +73,7 @@ func TestGetNavItems(t *testing.T) {
 		titles[i] = item.Title
 	}
 	assert.Contains(t, titles, "Blocks")
-	assert.Contains(t, titles, "Chains")
+	assert.Contains(t, titles, "Flows")
 }
 
 func TestGetNavItemsSortOrder(t *testing.T) {
@@ -95,7 +95,7 @@ func TestGetNavItemsSortOrder(t *testing.T) {
 	waffletest.DecodeResponse(t, result, &items)
 	require.GreaterOrEqual(t, len(items), 3)
 
-	// Blocks and Chains (order group 1) should come before block admin UIs (order group 2)
+	// Blocks and Flows (order group 1) should come before block admin UIs (order group 2)
 	blocksIdx := -1
 	testIdx := -1
 	for i, item := range items {

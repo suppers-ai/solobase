@@ -15,7 +15,7 @@ interface BlockStats {
 	errors: number;
 }
 
-interface ChainStats {
+interface FlowStats {
 	count: number;
 	avgMs: number;
 	errors: number;
@@ -25,7 +25,7 @@ interface LiveStats {
 	totalMessages: number;
 	totalErrors: number;
 	perBlock: Record<string, BlockStats>;
-	perChain: Record<string, ChainStats>;
+	perFlow: Record<string, FlowStats>;
 	perKind: Record<string, number>;
 }
 
@@ -36,14 +36,14 @@ interface HistorySnapshot {
 	totalMessages: number;
 	totalErrors: number;
 	perBlockJson: string;
-	perChainJson: string;
+	perFlowJson: string;
 	perKindJson: string;
 }
 
 export function MonitoringPage() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
-	const [stats, setStats] = useState<LiveStats>({ totalMessages: 0, totalErrors: 0, perBlock: {}, perChain: {}, perKind: {} });
+	const [stats, setStats] = useState<LiveStats>({ totalMessages: 0, totalErrors: 0, perBlock: {}, perFlow: {}, perKind: {} });
 	const [uptime, setUptime] = useState('');
 	const [selectedRange, setSelectedRange] = useState('24h');
 
@@ -187,7 +187,7 @@ export function MonitoringPage() {
 
 	const errorRate = stats.totalMessages > 0 ? ((stats.totalErrors / stats.totalMessages) * 100).toFixed(1) : '0.0';
 	const blockEntries = Object.entries(stats.perBlock).sort((a, b) => b[1].count - a[1].count);
-	const chainEntries = Object.entries(stats.perChain).sort((a, b) => b[1].count - a[1].count);
+	const flowEntries = Object.entries(stats.perFlow).sort((a, b) => b[1].count - a[1].count);
 
 	return html`
 		<>
@@ -209,7 +209,7 @@ export function MonitoringPage() {
 						${renderStatCard('messages', 'Messages Processed', stats.totalMessages.toLocaleString(), 'Total block executions', Zap)}
 						${renderStatCard('errors', 'Errors', stats.totalErrors.toLocaleString(), `${errorRate}% error rate`, AlertCircle)}
 						${renderStatCard('blocks', 'Active Blocks', blockEntries.length.toString(), 'Unique blocks executed', Server)}
-						${renderStatCard('chains', 'Active Chains', chainEntries.length.toString(), 'Unique chains executed', Activity)}
+						${renderStatCard('flows', 'Active Flows', flowEntries.length.toString(), 'Unique flows executed', Activity)}
 					</div>
 
 					<div class="charts-row">
@@ -254,14 +254,14 @@ export function MonitoringPage() {
 						</div>
 
 						<div class="data-card">
-							<div class="card-header"><h3>Per-Chain Stats</h3></div>
+							<div class="card-header"><h3>Per-Flow Stats</h3></div>
 							<div class="table-container">
 								<table class="table">
-									<thead><tr><th>Chain</th><th>Executions</th><th>Avg (ms)</th><th>Error Rate</th></tr></thead>
+									<thead><tr><th>Flow</th><th>Executions</th><th>Avg (ms)</th><th>Error Rate</th></tr></thead>
 									<tbody>
-										${chainEntries.length === 0
-											? html`<tr><td colspan="4" class="empty-cell">No chain data yet</td></tr>`
-											: chainEntries.map(([id, s]) => {
+										${flowEntries.length === 0
+											? html`<tr><td colspan="4" class="empty-cell">No flow data yet</td></tr>`
+											: flowEntries.map(([id, s]) => {
 												const rate = s.count > 0 ? ((s.errors / s.count) * 100).toFixed(1) : '0.0';
 												return html`
 													<tr key=${id}>

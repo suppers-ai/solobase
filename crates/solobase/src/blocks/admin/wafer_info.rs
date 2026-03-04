@@ -8,7 +8,7 @@ pub fn handle(_ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match (action, path) {
         ("retrieve", "/admin/wafer/blocks") | ("retrieve", "/admin/waffle/blocks") => handle_blocks(msg),
-        ("retrieve", "/admin/wafer/chains") | ("retrieve", "/admin/waffle/chains") => handle_chains(msg),
+        ("retrieve", "/admin/wafer/flows") | ("retrieve", "/admin/waffle/flows") => handle_flows(msg),
         ("retrieve", "/admin/wafer/info") | ("retrieve", "/admin/waffle/info") => handle_info(msg),
         _ => err_not_found(msg.clone(), "not found"),
     }
@@ -39,9 +39,9 @@ fn handle_blocks(msg: &mut Message) -> Result_ {
     json_respond(msg.clone(), 200, &blocks)
 }
 
-fn handle_chains(msg: &mut Message) -> Result_ {
-    // Return chain list. In production, query Wafer runtime.
-    let chains = serde_json::json!([
+fn handle_flows(msg: &mut Message) -> Result_ {
+    // Return flow list. In production, query Wafer runtime.
+    let flows = serde_json::json!([
         {"id": "auth", "summary": "Authentication routes"},
         {"id": "system", "summary": "System infrastructure routes"},
         {"id": "admin", "summary": "Admin management"},
@@ -57,7 +57,7 @@ fn handle_chains(msg: &mut Message) -> Result_ {
         {"id": "auth-pipe", "summary": "Authentication pipeline"},
         {"id": "admin-pipe", "summary": "Admin authorization pipeline"}
     ]);
-    json_respond(msg.clone(), 200, &chains)
+    json_respond(msg.clone(), 200, &flows)
 }
 
 fn handle_info(msg: &mut Message) -> Result_ {

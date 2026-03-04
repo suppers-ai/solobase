@@ -87,11 +87,11 @@ func (b *SystemBlock) handleGetNavItems(_ waffle.Context, msg *waffle.Message) w
 	// Add waffle admin items that aren't from blocks
 	items = append(items,
 		NavItem{Title: "Blocks", Href: "/admin/waffle#blocks", Icon: "package"},
-		NavItem{Title: "Chains", Href: "/admin/waffle#chains", Icon: "git-branch"},
+		NavItem{Title: "Flows", Href: "/admin/waffle#flows", Icon: "git-branch"},
 		NavItem{Title: "Logs", Href: "/admin/logs", Icon: "scroll-text"},
 		NavItem{Title: "IAM", Href: "/admin/iam", Icon: "shield"},
 	)
-	// Sort: Dashboard first, then Blocks/Chains/Logs/IAM, then block admin UIs alphabetically
+	// Sort: Dashboard first, then Blocks/Flows/Logs/IAM, then block admin UIs alphabetically
 	sort.Slice(items, func(i, j int) bool {
 		oi, oj := navOrder(items[i].Title), navOrder(items[j].Title)
 		if oi != oj {
@@ -113,7 +113,7 @@ func navOrder(title string) int {
 	switch title {
 	case "Dashboard":
 		return 0
-	case "Blocks", "Chains", "Logs", "IAM":
+	case "Blocks", "Flows", "Logs", "IAM":
 		return 1
 	default:
 		return 2

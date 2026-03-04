@@ -2,7 +2,7 @@ import { html } from '@solobase/ui';
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { api, PageHeader, LoadingSpinner } from '@solobase/ui';
 import { BlocksTab } from './tabs/BlocksTab';
-import { ChainsTab } from './tabs/ChainsTab';
+import { FlowsTab } from './tabs/ChainsTab';
 import { SettingsTab } from './tabs/SettingsTab';
 
 interface AdminUIInfo {
@@ -21,7 +21,7 @@ interface BlockInfo {
 	admin_ui?: AdminUIInfo;
 }
 
-interface ChainDef {
+interface FlowDef {
 	id: string;
 	summary?: string;
 	config?: { on_error: string; timeout?: string };
@@ -31,25 +31,25 @@ interface ChainDef {
 
 function getInitialTab(): string {
 	const hash = window.location.hash.replace('#', '');
-	if (['blocks', 'chains', 'settings'].includes(hash)) return hash;
+	if (['blocks', 'flows', 'settings'].includes(hash)) return hash;
 	return 'blocks';
 }
 
 export function WafflePage() {
 	const [activeTab, setActiveTab] = useState(getInitialTab);
 	const [blocks, setBlocks] = useState<BlockInfo[]>([]);
-	const [chains, setChains] = useState<ChainDef[]>([]);
+	const [flows, setFlows] = useState<FlowDef[]>([]);
 	const [loading, setLoading] = useState(true);
 
 	const loadData = useCallback(async () => {
 		setLoading(true);
 		try {
-			const [blocksRes, chainsRes] = await Promise.all([
+			const [blocksRes, flowsRes] = await Promise.all([
 				api.get<BlockInfo[]>('/admin/waffle/blocks'),
-				api.get('/admin/waffle/chains'),
+				api.get('/admin/waffle/flows'),
 			]);
 			setBlocks(blocksRes || []);
-			setChains(chainsRes || []);
+			setFlows(flowsRes || []);
 		} catch (err) {
 			console.error('Failed to load data:', err);
 		} finally {
@@ -63,7 +63,7 @@ export function WafflePage() {
 	useEffect(() => {
 		function onHashChange() {
 			const hash = window.location.hash.replace('#', '');
-			if (['blocks', 'chains', 'settings'].includes(hash)) {
+			if (['blocks', 'flows', 'settings'].includes(hash)) {
 				setActiveTab(hash);
 			}
 		}
@@ -71,8 +71,8 @@ export function WafflePage() {
 		return () => window.removeEventListener('hashchange', onHashChange);
 	}, []);
 
-	const pageInfo = activeTab === 'chains'
-		? { title: 'Chains', description: 'Manage block chains and workflows' }
+	const pageInfo = activeTab === 'flows'
+		? { title: 'Flows', description: 'Manage block flows and workflows' }
 		: activeTab === 'settings'
 		? { title: 'Settings', description: 'System settings and configuration' }
 		: { title: 'Blocks', description: 'Manage installed blocks' };
@@ -85,9 +85,9 @@ export function WafflePage() {
 			/>
 
 			${loading ? html`<${LoadingSpinner} />` :
-				activeTab === 'blocks' ? html`<${BlocksTab} blocks=${blocks} chains=${chains} />` :
-				activeTab === 'chains' ? html`<${ChainsTab} chains=${chains} onReload=${loadData} />` :
-				html`<${SettingsTab} blocks=${blocks} chains=${chains} />`
+				activeTab === 'blocks' ? html`<${BlocksTab} blocks=${blocks} flows=${flows} />` :
+				activeTab === 'flows' ? html`<${FlowsTab} flows=${flows} onReload=${loadData} />` :
+				html`<${SettingsTab} blocks=${blocks} flows=${flows} />`
 			}
 		<//>
 	`;

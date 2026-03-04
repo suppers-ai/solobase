@@ -16,7 +16,7 @@
 .stat-card.messages::before { background: #3b82f6; }
 .stat-card.errors::before { background: #ef4444; }
 .stat-card.blocks::before { background: #10b981; }
-.stat-card.chains::before { background: #8b5cf6; }
+.stat-card.flows::before { background: #8b5cf6; }
 .stat-content { display: flex; justify-content: space-between; align-items: start; }
 .stat-label { font-size: 0.6875rem; font-weight: 500; color: #6b7280; text-transform: uppercase; letter-spacing: 0.025em; margin-bottom: 0.25rem; }
 .stat-value { font-size: 1.5rem; font-weight: 700; color: #111827; line-height: 1; margin-bottom: 0.375rem; }
@@ -25,7 +25,7 @@
 .stat-card.messages .stat-icon { background: #dbeafe; color: #3b82f6; }
 .stat-card.errors .stat-icon { background: #fee2e2; color: #ef4444; }
 .stat-card.blocks .stat-icon { background: #d1fae5; color: #10b981; }
-.stat-card.chains .stat-icon { background: #e9d5ff; color: #8b5cf6; }
+.stat-card.flows .stat-icon { background: #e9d5ff; color: #8b5cf6; }
 
 /* Charts Row */
 .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 0.75rem; margin-bottom: 1rem; }

@@ -2,15 +2,15 @@
 
 ## Context
 
-The wafer runtime architecture envisions thin build targets that compose services, blocks, and chains. Currently the root `package solobase` acts as both a shared library AND the app wiring layer (App struct, Config, lifecycle, routes, UI serving). `builds/go/main.go` is just 5 lines calling `solobase.Run()`. This inverts the intended architecture.
+The wafer runtime architecture envisions thin build targets that compose services, blocks, and flows. Currently the root `package solobase` acts as both a shared library AND the app wiring layer (App struct, Config, lifecycle, routes, UI serving). `builds/go/main.go` is just 5 lines calling `solobase.Run()`. This inverts the intended architecture.
 
-**Goal**: Root module becomes a pure library (blocks, chains, infra, core, adapters). Each build target owns its own wiring. Builds ARE the product — users clone/customize builds.
+**Goal**: Root module becomes a pure library (blocks, flows, infra, core, adapters). Each build target owns its own wiring. Builds ARE the product — users clone/customize builds.
 
 **After this refactor:**
 ```
 solobase/                    # Root module — pure shared library
   blocks/                    # Feature blocks
-  chains/                    # Chain topology + constants
+  flows/                     # Flow topology + constants
   infra/                     # Infrastructure blocks
   core/                      # Shared utilities
   adapters/                  # Implementations (crypto, storage, oauth)
@@ -57,30 +57,30 @@ builds/
 | `ui.go` | `uiFiles` → `UIFiles` |
 | `builder.go` | Update `defaultSchemaMigrator` reference |
 
-### 0.2 — Move block implementations out of chains/
+### 0.2 — Move block implementations out of flows/
 
-`chains/blocks.go` contains `oauthBlock` and `profileBlock` — actual block implementations mixed with wiring code. Move them to proper block packages:
+`flows/blocks.go` contains `oauthBlock` and `profileBlock` — actual block implementations mixed with wiring code. Move them to proper block packages:
 
 | From | To |
 |------|----|
-| `oauthBlock` (chains/blocks.go:128-265) | `blocks/oauth/block.go` (new package) |
-| `profileBlock` (chains/blocks.go:268-300) | `blocks/profile/block.go` (new package) |
+| `oauthBlock` (flows/blocks.go:128-265) | `blocks/oauth/block.go` (new package) |
+| `profileBlock` (flows/blocks.go:268-300) | `blocks/profile/block.go` (new package) |
 
-### 0.3 — Split chains/blocks.go (topology vs wiring)
+### 0.3 — Split flows/blocks.go (topology vs wiring)
 
-**Keep in `chains/blocks.go`:**
+**Keep in `flows/blocks.go`:**
 - Block name constants (exported: `BlockAuth`, `BlockUsers`, etc.)
 - `Deps` struct
 
-**Remove from `chains/blocks.go`:**
+**Remove from `flows/blocks.go`:**
 - `registerFeatureBlocks()` — moves to each build target
 - `registerIfAbsent()` helper — moves with it
 - Hook wiring (observability hooks, lines 110-124) — moves with it
 
-**Modify `chains/chains.go`:**
-- Rename `BuildAll()` → `BuildChains()`
+**Modify `flows/flows.go`:**
+- Rename `BuildAll()` → `BuildFlows()`
 - Remove the `registerFeatureBlocks()` call
-- `BuildChains()` does: `infrablocks.RegisterAll()` + `buildBaseChains()` + `buildFeatureChains()`
+- `BuildFlows()` does: `infrablocks.RegisterAll()` + `buildBaseFlows()` + `buildFeatureFlows()`
 
 ---
 
@@ -121,7 +121,7 @@ Move from `builder.go`:
 
 ### 1.5 — Create builds/native/blocks.go
 
-Merge from `blockregistry.go` + `chains/blocks.go`:
+Merge from `blockregistry.go` + `flows/blocks.go`:
 - `registerBuiltinProviders()` — crypto/standard + database/passthrough
 - `registerBuiltinBlocks()` — all block factory registrations
 - `registerFeatureBlocks(w, deps)` — creates block instances, wires hooks
@@ -235,7 +235,7 @@ Root module is now a pure library.
 WASM currently imports `solobase.New(solobase.Config{...})`. After Phase 3, that API is gone.
 
 - Remove root `solobase` import for App/Config/New
-- Self-wire: create wafer runtime directly, register blocks locally, call `chains.BuildChains()`
+- Self-wire: create wafer runtime directly, register blocks locally, call `flows.BuildFlows()`
 - Keep its own `//go:embed frontend/build` (TinyGo requires embed in main package)
 - Keep its own provider initialization (already mostly self-contained)
 - Has its own `registerFeatureBlocks()` (can exclude blocks not relevant to WASM)
@@ -256,7 +256,7 @@ WASM currently imports `solobase.New(solobase.Config{...})`. After Phase 3, that
 
 The operations are sequenced to avoid breaking compilation at any step:
 
-1. **Phase 0** — Additive/non-breaking changes in root (export vars, move blocks, split chains)
+1. **Phase 0** — Additive/non-breaking changes in root (export vars, move blocks, split flows)
 2. **Phase 1** — Create all builds/native/ files (root still has everything — dual existence)
 3. **Verify** builds/native/ compiles and tests pass
 4. **Phase 2** — Create builds/configs/
@@ -275,13 +275,13 @@ The operations are sequenced to avoid breaking compilation at any step:
 | `builds/native/app.go` | solobase.go |
 | `builds/native/config.go` | builder.go (Config, Providers, resolveConfig) |
 | `builds/native/builder.go` | builder.go (New, Run, initializeProviders) |
-| `builds/native/blocks.go` | blockregistry.go + chains/blocks.go wiring |
+| `builds/native/blocks.go` | blockregistry.go + flows/blocks.go wiring |
 | `builds/native/routes.go` | routes.go |
 | `builds/native/ui.go` | ui.go (methods only) |
 | `builds/native/hooks.go` | hooks.go |
 | `builds/native/solobase_test.go` | solobase_test.go |
-| `blocks/oauth/block.go` | chains/blocks.go (oauthBlock) |
-| `blocks/profile/block.go` | chains/blocks.go (profileBlock) |
+| `blocks/oauth/block.go` | flows/blocks.go (oauthBlock) |
+| `blocks/profile/block.go` | flows/blocks.go (profileBlock) |
 | `builds/configs/full.json` | wafer.json (expanded) |
 | `builds/configs/minimal.json` | new |
 | `builds/configs/api-only.json` | new |
@@ -292,8 +292,8 @@ The operations are sequenced to avoid breaking compilation at any step:
 |------|--------|
 | `blockmanifests.go` | Export variable name |
 | `ui.go` | Strip to just embed export |
-| `chains/blocks.go` | Keep constants + Deps only |
-| `chains/chains.go` | `BuildAll` → `BuildChains`, remove registerFeatureBlocks call |
+| `flows/blocks.go` | Keep constants + Deps only |
+| `flows/flows.go` | `BuildAll` → `BuildFlows`, remove registerFeatureBlocks call |
 | `builds/native/go.mod` | Rename module path |
 | `builds/native/main.go` | Simplify to call Run() |
 | `builds/wasm/main.go` | Self-wire, remove root solobase dependency |

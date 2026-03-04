@@ -12,7 +12,7 @@
         "total_messages": { "type": "int" },
         "total_errors": { "type": "int" },
         "per_block_json": { "type": "text", "optional": true },
-        "per_chain_json": { "type": "text", "optional": true },
+        "per_flow_json": { "type": "text", "optional": true },
         "per_kind_json": { "type": "text", "optional": true },
         "created_at": { "type": "datetime", "auto": true }
       }

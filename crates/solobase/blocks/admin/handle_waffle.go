@@ -6,7 +6,7 @@ import (
 
 func (b *AdminBlock) registerWaffleRoutes() {
 	b.router.Retrieve("/admin/waffle/blocks", b.handleListBlocks)
-	b.router.Retrieve("/admin/waffle/chains", b.handleListChains)
+	b.router.Retrieve("/admin/waffle/flows", b.handleListFlows)
 }
 
 type blockListItem struct {
@@ -41,7 +41,7 @@ func (b *AdminBlock) handleListBlocks(_ waffle.Context, msg *waffle.Message) waf
 	return waffle.JSONRespond(msg, 200, items)
 }
 
-func (b *AdminBlock) handleListChains(_ waffle.Context, msg *waffle.Message) waffle.Result {
-	defs := b.runtime.ChainDefs()
+func (b *AdminBlock) handleListFlows(_ waffle.Context, msg *waffle.Message) waffle.Result {
+	defs := b.runtime.FlowDefs()
 	return waffle.JSONRespond(msg, 200, defs)
 }

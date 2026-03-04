@@ -107,7 +107,7 @@ func (b *MonitoringBlock) handleHistory(ctx waffle.Context, msg *waffle.Message)
 			"totalMessages": r.Data["total_messages"],
 			"totalErrors":   r.Data["total_errors"],
 			"perBlockJson":  r.Data["per_block_json"],
-			"perChainJson":  r.Data["per_chain_json"],
+			"perFlowJson":   r.Data["per_flow_json"],
 			"perKindJson":   r.Data["per_kind_json"],
 		})
 	}
@@ -178,7 +178,7 @@ func (p *Persister) run() {
 
 func (p *Persister) flush() {
 	now := apptime.NowTime()
-	totalMessages, totalErrors, perBlockJSON, perChainJSON, perKindJSON := p.collector.Snapshot()
+	totalMessages, totalErrors, perBlockJSON, perFlowJSON, perKindJSON := p.collector.Snapshot()
 
 	if totalMessages == 0 {
 		p.lastFlush = now
@@ -191,7 +191,7 @@ func (p *Persister) flush() {
 		"total_messages": totalMessages,
 		"total_errors":   totalErrors,
 		"per_block_json": perBlockJSON,
-		"per_chain_json": perChainJSON,
+		"per_flow_json":  perFlowJSON,
 		"per_kind_json":  perKindJSON,
 		"created_at":     now.Format(apptime.TimeFormat),
 	}

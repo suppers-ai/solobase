@@ -7,7 +7,7 @@ import { FlowControls } from './FlowControls';
 import { NodePalette } from './NodePalette';
 import { NodeConfig } from './NodeConfig';
 import { autoLayout } from './layout';
-import { flowToChainJSON, chainJSONToFlow } from './serializer';
+import { flowToFlowJSON, flowJSONToFlow } from './serializer';
 
 interface BlockInfo {
 	name: string;
@@ -20,18 +20,18 @@ interface FlowCanvasProps {
 	initialNodes?: FlowNode[];
 	initialEdges?: FlowEdge[];
 	blocks: BlockInfo[];
-	chainIds: string[];
-	chainConfig: { id: string; summary: string; on_error: string; timeout?: string };
-	onSave: (chainJSON: any) => void;
-	onValidate: (chainJSON: any) => Promise<{ valid: boolean; errors: string[] }>;
+	flowIds: string[];
+	flowConfig: { id: string; summary: string; on_error: string; timeout?: string };
+	onSave: (flowJSON: any) => void;
+	onValidate: (flowJSON: any) => Promise<{ valid: boolean; errors: string[] }>;
 }
 
 export function FlowCanvas({
 	initialNodes = [],
 	initialEdges = [],
 	blocks,
-	chainIds,
-	chainConfig,
+	flowIds,
+	flowConfig,
 	onSave,
 	onValidate,
 }: FlowCanvasProps) {
@@ -63,12 +63,12 @@ export function FlowCanvas({
 		setNodes(prev => [...prev, node]);
 	}, [pan, zoom]);
 
-	// Add a chain reference node
-	const addChainRef = useCallback((chainId: string) => {
+	// Add a flow reference node
+	const addFlowRef = useCallback((flowId: string) => {
 		const node: FlowNode = {
 			id: generateId(),
-			type: 'chain-ref',
-			label: chainId,
+			type: 'flow-ref',
+			label: flowId,
 			x: 100 - pan.x / zoom,
 			y: 100 - pan.y / zoom,
 			width: NODE_WIDTH,
@@ -172,22 +172,22 @@ export function FlowCanvas({
 
 	// Save
 	const handleSave = useCallback(() => {
-		const json = flowToChainJSON(nodes, edges, chainConfig);
+		const json = flowToFlowJSON(nodes, edges, flowConfig);
 		onSave(json);
-	}, [nodes, edges, chainConfig, onSave]);
+	}, [nodes, edges, flowConfig, onSave]);
 
 	// Validate
 	const handleValidate = useCallback(async () => {
-		const json = flowToChainJSON(nodes, edges, chainConfig);
+		const json = flowToFlowJSON(nodes, edges, flowConfig);
 		const result = await onValidate(json);
 		setValidationErrors(result.errors);
-	}, [nodes, edges, chainConfig, onValidate]);
+	}, [nodes, edges, flowConfig, onValidate]);
 
 	const viewBox = `${-pan.x / zoom} ${-pan.y / zoom} ${(svgRef.current?.clientWidth ?? 800) / zoom} ${(svgRef.current?.clientHeight ?? 600) / zoom}`;
 
 	return html`
 		<div style="display: flex; height: 100%; position: relative; overflow: hidden; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-color, #0f172a)">
-			<${NodePalette} blocks=${blocks} chainIds=${chainIds} onAddBlock=${addBlock} onAddChainRef=${addChainRef} />
+			<${NodePalette} blocks=${blocks} flowIds=${flowIds} onAddBlock=${addBlock} onAddFlowRef=${addFlowRef} />
 
 			<div style="flex: 1; position: relative; overflow: hidden">
 				${connecting && html`
@@ -269,7 +269,7 @@ export function FlowCanvas({
 						onClick=${handleSave}
 						style="padding: 6px 12px; font-size: 12px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600"
 					>
-						Save Chain
+						Save Flow
 					</button>
 				</div>
 
@@ -280,7 +280,7 @@ export function FlowCanvas({
 						border-radius: 6px; padding: 8px 12px; max-width: 300px; font-size: 12px;
 					">
 						<div style="font-weight: 600; color: var(--danger-color); margin-bottom: 4px">Validation Errors</div>
-						${validationErrors.map(e => html`<div style="color: var(--text-muted); margin-top: 2px">• ${e}</div>`)}
+						${validationErrors.map(e => html`<div style="color: var(--text-muted); margin-top: 2px">\u2022 ${e}</div>`)}
 					</div>
 				`}
 			</div>

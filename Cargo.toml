@@ -15,7 +15,7 @@ license = "MIT"
 #   wafer-run = { git = "https://github.com/wafer-run/wafer-run", features = ["full"] }
 #   wafer-core = { git = "https://github.com/wafer-run/wafer-run" }
 wafer-run = { path = "../wafer-run/crates/wafer-run", features = ["full"] }
-wafer-core = { path = "../wafer-run/crates/wafer-core" }
+wafer-core = { path = "../wafer-run/crates/wafer-core", features = ["http"] }
 
 # Core
 serde = { version = "1", features = ["derive"] }

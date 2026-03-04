@@ -12,33 +12,33 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "chain": "http-infra",
+        "flow": "http-infra",
         "next": [
             { "match": "GET:/storage/direct/{token}", "block": "files-feature" },
             {
                 "match": "*:/admin/storage/**",
-                "chain": "admin-pipe",
+                "flow": "admin-pipe",
                 "next": [
                     { "block": "files-feature" }
                 ]
             },
             {
                 "match": "*:/admin/ext/cloudstorage/**",
-                "chain": "admin-pipe",
+                "flow": "admin-pipe",
                 "next": [
                     { "block": "files-feature" }
                 ]
             },
             {
                 "match": "*:/storage/**",
-                "chain": "auth-pipe",
+                "flow": "auth-pipe",
                 "next": [
                     { "block": "files-feature" }
                 ]
             },
             {
                 "match": "*:/ext/cloudstorage/**",
-                "chain": "auth-pipe",
+                "flow": "auth-pipe",
                 "next": [
                     { "block": "files-feature" }
                 ]

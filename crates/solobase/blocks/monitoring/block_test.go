@@ -45,7 +45,7 @@ func TestLiveStats_Empty(t *testing.T) {
 	assert.Equal(t, int64(0), stats.TotalMessages)
 	assert.Equal(t, int64(0), stats.TotalErrors)
 	assert.Empty(t, stats.PerBlock)
-	assert.Empty(t, stats.PerChain)
+	assert.Empty(t, stats.PerFlow)
 	assert.Empty(t, stats.PerKind)
 }
 
@@ -55,7 +55,7 @@ func TestLiveStats_AfterRecording(t *testing.T) {
 	// Record some stats via the collector
 	block.Collector.RecordBlock("auth-block", 15, false)
 	block.Collector.RecordBlock("auth-block", 25, true)
-	block.Collector.RecordChain("admin-pipe", 40, false)
+	block.Collector.RecordFlow("admin-pipe", 40, false)
 	block.Collector.RecordKind("http.request")
 	block.Collector.RecordKind("http.request")
 
@@ -75,9 +75,9 @@ func TestLiveStats_AfterRecording(t *testing.T) {
 	assert.Equal(t, int64(1), stats.PerBlock["auth-block"].Errors)
 	assert.Equal(t, float64(20), stats.PerBlock["auth-block"].AvgMs) // (15+25)/2
 
-	// Per-chain checks
-	require.Contains(t, stats.PerChain, "admin-pipe")
-	assert.Equal(t, int64(1), stats.PerChain["admin-pipe"].Count)
+	// Per-flow checks
+	require.Contains(t, stats.PerFlow, "admin-pipe")
+	assert.Equal(t, int64(1), stats.PerFlow["admin-pipe"].Count)
 
 	// Per-kind checks
 	require.Contains(t, stats.PerKind, "http.request")
@@ -90,12 +90,12 @@ func TestCollectorSnapshot_Resets(t *testing.T) {
 	block.Collector.RecordBlock("users-block", 10, false)
 	block.Collector.RecordBlock("users-block", 30, true)
 
-	totalMsg, totalErr, perBlock, perChain, perKind := block.Collector.Snapshot()
+	totalMsg, totalErr, perBlock, perFlow, perKind := block.Collector.Snapshot()
 	assert.Equal(t, int64(2), totalMsg)
 	assert.Equal(t, int64(1), totalErr)
 	assert.NotEmpty(t, perBlock)
-	assert.NotEmpty(t, perChain) // may be empty if no chain recorded, but perBlock is not
-	_ = perChain
+	assert.NotEmpty(t, perFlow) // may be empty if no flow recorded, but perBlock is not
+	_ = perFlow
 	_ = perKind
 
 	// After snapshot, collector should be reset
@@ -130,7 +130,7 @@ func TestHistory_WithPersistedData(t *testing.T) {
 		"total_messages": 100,
 		"total_errors":   5,
 		"per_block_json": `{"auth":{"count":50}}`,
-		"per_chain_json": `{"admin-pipe":{"count":100}}`,
+		"per_flow_json":  `{"admin-pipe":{"count":100}}`,
 		"per_kind_json":  `{"http.request":80}`,
 		"created_at":     "2026-02-20T01:00:00Z",
 	})

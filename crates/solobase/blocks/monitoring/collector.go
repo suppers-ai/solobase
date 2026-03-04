@@ -13,8 +13,8 @@ type BlockStats struct {
 	totalMs int64
 }
 
-// ChainStats holds per-chain metrics.
-type ChainStats struct {
+// FlowStats holds per-flow metrics.
+type FlowStats struct {
 	Count   int64   `json:"count"`
 	AvgMs   float64 `json:"avgMs"`
 	Errors  int64   `json:"errors"`
@@ -27,7 +27,7 @@ type Collector struct {
 	totalMessages int64
 	totalErrors   int64
 	perBlock      map[string]*BlockStats
-	perChain      map[string]*ChainStats
+	perFlow       map[string]*FlowStats
 	perKind       map[string]int64
 }
 
@@ -35,7 +35,7 @@ type Collector struct {
 func NewCollector() *Collector {
 	return &Collector{
 		perBlock: make(map[string]*BlockStats),
-		perChain: make(map[string]*ChainStats),
+		perFlow:  make(map[string]*FlowStats),
 		perKind:  make(map[string]int64),
 	}
 }
@@ -63,21 +63,21 @@ func (c *Collector) RecordBlock(name string, durationMs int64, isError bool) {
 	}
 }
 
-// RecordChain records a chain execution.
-func (c *Collector) RecordChain(chainID string, durationMs int64, isError bool) {
+// RecordFlow records a flow execution.
+func (c *Collector) RecordFlow(flowID string, durationMs int64, isError bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	cs, ok := c.perChain[chainID]
+	fs, ok := c.perFlow[flowID]
 	if !ok {
-		cs = &ChainStats{}
-		c.perChain[chainID] = cs
+		fs = &FlowStats{}
+		c.perFlow[flowID] = fs
 	}
-	cs.Count++
-	cs.totalMs += durationMs
-	cs.AvgMs = float64(cs.totalMs) / float64(cs.Count)
+	fs.Count++
+	fs.totalMs += durationMs
+	fs.AvgMs = float64(fs.totalMs) / float64(fs.Count)
 	if isError {
-		cs.Errors++
+		fs.Errors++
 	}
 }
 
@@ -93,7 +93,7 @@ type LiveStats struct {
 	TotalMessages int64                `json:"totalMessages"`
 	TotalErrors   int64                `json:"totalErrors"`
 	PerBlock      map[string]*BlockStats `json:"perBlock"`
-	PerChain      map[string]*ChainStats `json:"perChain"`
+	PerFlow       map[string]*FlowStats  `json:"perFlow"`
 	PerKind       map[string]int64       `json:"perKind"`
 }
 
@@ -108,10 +108,10 @@ func (c *Collector) ReadStats() LiveStats {
 		cp := *v
 		perBlock[k] = &cp
 	}
-	perChain := make(map[string]*ChainStats, len(c.perChain))
-	for k, v := range c.perChain {
+	perFlow := make(map[string]*FlowStats, len(c.perFlow))
+	for k, v := range c.perFlow {
 		cp := *v
-		perChain[k] = &cp
+		perFlow[k] = &cp
 	}
 	perKind := make(map[string]int64, len(c.perKind))
 	for k, v := range c.perKind {
@@ -122,14 +122,14 @@ func (c *Collector) ReadStats() LiveStats {
 		TotalMessages: c.totalMessages,
 		TotalErrors:   c.totalErrors,
 		PerBlock:      perBlock,
-		PerChain:      perChain,
+		PerFlow:       perFlow,
 		PerKind:       perKind,
 	}
 }
 
 // Snapshot returns the current stats and resets the collector for the next period.
-// Returns JSON-encoded per-block, per-chain, and per-kind data.
-func (c *Collector) Snapshot() (totalMessages, totalErrors int64, perBlockJSON, perChainJSON, perKindJSON string) {
+// Returns JSON-encoded per-block, per-flow, and per-kind data.
+func (c *Collector) Snapshot() (totalMessages, totalErrors int64, perBlockJSON, perFlowJSON, perKindJSON string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -139,8 +139,8 @@ func (c *Collector) Snapshot() (totalMessages, totalErrors int64, perBlockJSON, 
 	if data, err := json.Marshal(c.perBlock); err == nil {
 		perBlockJSON = string(data)
 	}
-	if data, err := json.Marshal(c.perChain); err == nil {
-		perChainJSON = string(data)
+	if data, err := json.Marshal(c.perFlow); err == nil {
+		perFlowJSON = string(data)
 	}
 	if data, err := json.Marshal(c.perKind); err == nil {
 		perKindJSON = string(data)
@@ -150,7 +150,7 @@ func (c *Collector) Snapshot() (totalMessages, totalErrors int64, perBlockJSON, 
 	c.totalMessages = 0
 	c.totalErrors = 0
 	c.perBlock = make(map[string]*BlockStats)
-	c.perChain = make(map[string]*ChainStats)
+	c.perFlow = make(map[string]*FlowStats)
 	c.perKind = make(map[string]int64)
 
 	return

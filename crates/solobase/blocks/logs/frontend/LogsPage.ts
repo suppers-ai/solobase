@@ -22,7 +22,7 @@ interface LogEntry {
 
 interface MessageLog {
 	id?: string;
-	chainId: string;
+	flowId: string;
 	blockName: string;
 	messageKind: string;
 	action: string;
@@ -506,7 +506,7 @@ export function LogsPage() {
 										<tr>
 											<th style=${{ width: '40px' }}>Action</th>
 											<th style=${{ width: '150px' }}>Timestamp</th>
-											<th style=${{ width: '120px' }}>Chain</th>
+											<th style=${{ width: '120px' }}>Flow</th>
 											<th style=${{ width: '120px' }}>Block</th>
 											<th>Kind</th>
 											<th style=${{ width: '80px' }}>Duration</th>
@@ -528,7 +528,7 @@ export function LogsPage() {
 														<${Clock} size=${12} style=${{ display: 'inline', marginRight: '4px', color: 'var(--text-muted)' }} />
 														${new Date(log.createdAt).toLocaleString()}
 													</td>
-													<td><span class="log-source">${log.chainId}</span></td>
+													<td><span class="log-source">${log.flowId}</span></td>
 													<td><span class="log-source">${log.blockName}</span></td>
 													<td class="log-message">${log.messageKind}</td>
 													<td>${log.durationMs}ms</td>

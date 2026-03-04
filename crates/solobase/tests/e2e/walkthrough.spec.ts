@@ -218,76 +218,76 @@ test.describe('Waffle Admin - Blocks Tab', () => {
   });
 });
 
-test.describe('Waffle Admin - Chains Tab', () => {
+test.describe('Waffle Admin - Flows Tab', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
   });
 
-  test('chains tab shows registered chains', async ({ page }) => {
+  test('flows tab shows registered flows', async ({ page }) => {
     await page.goto('/admin/waffle');
     await page.waitForTimeout(2000);
 
-    // Check API returns stored chains (user-created only; runtime chains are not in DB)
-    const chainsResponse = await page.request.get('/api/admin/waffle/chains');
-    expect(chainsResponse.status()).toBe(200);
-    const chains = await chainsResponse.json();
-    console.log(`Stored chains (${chains.length})`);
+    // Check API returns stored flows (user-created only; runtime flows are not in DB)
+    const flowsResponse = await page.request.get('/api/admin/waffle/flows');
+    expect(flowsResponse.status()).toBe(200);
+    const flows = await flowsResponse.json();
+    console.log(`Stored flows (${flows.length})`);
 
-    // Click chains tab to see runtime chains in the UI
-    const chainsTab = page.locator('button:has-text("Chains"), [role="tab"]:has-text("Chains"), a:has-text("Chains")');
-    if (await chainsTab.count() > 0) {
-      await chainsTab.first().click();
+    // Click flows tab to see runtime flows in the UI
+    const flowsTab = page.locator('button:has-text("Flows"), [role="tab"]:has-text("Flows"), a:has-text("Flows")');
+    if (await flowsTab.count() > 0) {
+      await flowsTab.first().click();
       await page.waitForTimeout(1000);
-      await page.screenshot({ path: 'test-results/waffle-chains-tab.png', fullPage: true });
+      await page.screenshot({ path: 'test-results/waffle-flows-tab.png', fullPage: true });
     }
 
     const bodyText = await page.textContent('body');
-    console.log(`Chains page includes 'http-infra': ${bodyText?.includes('http-infra')}`);
-    console.log(`Chains page includes 'auth-pipe': ${bodyText?.includes('auth-pipe')}`);
-    console.log(`Chains page includes 'admin-pipe': ${bodyText?.includes('admin-pipe')}`);
+    console.log(`Flows page includes 'http-infra': ${bodyText?.includes('http-infra')}`);
+    console.log(`Flows page includes 'auth-pipe': ${bodyText?.includes('auth-pipe')}`);
+    console.log(`Flows page includes 'admin-pipe': ${bodyText?.includes('admin-pipe')}`);
   });
 
-  test('can view chain details', async ({ page }) => {
+  test('can view flow details', async ({ page }) => {
     await page.goto('/admin/waffle');
     await page.waitForTimeout(2000);
 
-    // Click chains tab
-    const chainsTab = page.locator('button:has-text("Chains"), [role="tab"]:has-text("Chains")');
-    if (await chainsTab.count() > 0) {
-      await chainsTab.first().click();
+    // Click flows tab
+    const flowsTab = page.locator('button:has-text("Flows"), [role="tab"]:has-text("Flows")');
+    if (await flowsTab.count() > 0) {
+      await flowsTab.first().click();
       await page.waitForTimeout(1000);
     }
 
-    // Click on a chain to see details
-    const chainItem = page.locator('text=http-infra').first();
-    if (await chainItem.isVisible()) {
-      await chainItem.click();
+    // Click on a flow to see details
+    const flowItem = page.locator('text=http-infra').first();
+    if (await flowItem.isVisible()) {
+      await flowItem.click();
       await page.waitForTimeout(1000);
-      await page.screenshot({ path: 'test-results/waffle-chain-detail.png', fullPage: true });
+      await page.screenshot({ path: 'test-results/waffle-flow-detail.png', fullPage: true });
 
       const bodyText = await page.textContent('body');
-      console.log(`Chain detail text (first 800 chars): ${bodyText?.substring(0, 800)}`);
+      console.log(`Flow detail text (first 800 chars): ${bodyText?.substring(0, 800)}`);
     } else {
-      console.log('http-infra chain not visible to click');
+      console.log('http-infra flow not visible to click');
 
-      // List all visible text to see what chains look like
+      // List all visible text to see what flows look like
       const bodyText = await page.textContent('body');
       console.log(`Page text (first 1000 chars): ${bodyText?.substring(0, 1000)}`);
     }
   });
 
-  test('can create a new chain', async ({ page }) => {
+  test('can create a new flow', async ({ page }) => {
     await page.goto('/admin/waffle');
     await page.waitForTimeout(2000);
 
-    // Click chains tab
-    const chainsTab = page.locator('button:has-text("Chains"), [role="tab"]:has-text("Chains")');
-    if (await chainsTab.count() > 0) {
-      await chainsTab.first().click();
+    // Click flows tab
+    const flowsTab = page.locator('button:has-text("Flows"), [role="tab"]:has-text("Flows")');
+    if (await flowsTab.count() > 0) {
+      await flowsTab.first().click();
       await page.waitForTimeout(1000);
     }
 
-    // Look for "Add" / "Create" / "New" chain button
+    // Look for "Add" / "Create" / "New" flow button
     const addBtn = page.locator('button:has-text("Add"), button:has-text("Create"), button:has-text("New"), button:has-text("+")');
     const addCount = await addBtn.count();
     console.log(`Add/Create buttons found: ${addCount}`);
@@ -300,12 +300,12 @@ test.describe('Waffle Admin - Chains Tab', () => {
 
       await addBtn.first().click();
       await page.waitForTimeout(1000);
-      await page.screenshot({ path: 'test-results/waffle-chain-create.png', fullPage: true });
+      await page.screenshot({ path: 'test-results/waffle-flow-create.png', fullPage: true });
 
       const bodyText = await page.textContent('body');
-      console.log(`Create chain dialog text (first 500 chars): ${bodyText?.substring(0, 500)}`);
+      console.log(`Create flow dialog text (first 500 chars): ${bodyText?.substring(0, 500)}`);
     } else {
-      console.log('No add/create chain button found');
+      console.log('No add/create flow button found');
       await page.screenshot({ path: 'test-results/waffle-no-create-button.png', fullPage: true });
     }
   });

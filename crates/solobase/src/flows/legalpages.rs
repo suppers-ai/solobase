@@ -11,20 +11,20 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "chain": "http-infra",
+        "flow": "http-infra",
         "next": [
             { "match": "GET:/ext/legalpages/terms",   "block": "legalpages-feature" },
             { "match": "GET:/ext/legalpages/privacy",  "block": "legalpages-feature" },
             {
                 "match": "*:/admin/legalpages/**",
-                "chain": "admin-pipe",
+                "flow": "admin-pipe",
                 "next": [
                     { "block": "legalpages-feature" }
                 ]
             },
             {
                 "match": "*:/ext/legalpages/**",
-                "chain": "admin-pipe",
+                "flow": "admin-pipe",
                 "next": [
                     { "block": "legalpages-feature" }
                 ]

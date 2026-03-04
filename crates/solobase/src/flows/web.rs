@@ -3,7 +3,7 @@ pub const JSON: &str = r#"{
     "summary": "Static website serving",
     "config": { "on_error": "stop" },
     "root": {
-        "chain": "http-infra",
+        "flow": "http-infra",
         "next": [
             { "block": "web-feature" }
         ]

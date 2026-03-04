@@ -11,11 +11,11 @@ interface BlockInfo {
 interface NodePaletteProps {
 	blocks: BlockInfo[];
 	onAddBlock: (blockType: string) => void;
-	onAddChainRef: (chainId: string) => void;
-	chainIds: string[];
+	onAddFlowRef: (flowId: string) => void;
+	flowIds: string[];
 }
 
-export function NodePalette({ blocks, onAddBlock, onAddChainRef, chainIds }: NodePaletteProps) {
+export function NodePalette({ blocks, onAddBlock, onAddFlowRef, flowIds }: NodePaletteProps) {
 	return html`
 		<div style="
 			width: 220px; border-right: 1px solid var(--border-color);
@@ -43,14 +43,14 @@ export function NodePalette({ blocks, onAddBlock, onAddChainRef, chainIds }: Nod
 				</button>
 			`)}
 
-			${chainIds.length > 0 && html`
+			${flowIds.length > 0 && html`
 				<div style="font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--text-muted); margin: 12px 0 8px; letter-spacing: 0.05em">
-					Chain Refs
+					Flow Refs
 				</div>
-				${chainIds.map(id => html`
+				${flowIds.map(id => html`
 					<button
 						key=${id}
-						onClick=${() => onAddChainRef(id)}
+						onClick=${() => onAddFlowRef(id)}
 						style="
 							display: flex; align-items: center; gap: 8px;
 							width: 100%; padding: 8px; margin-bottom: 4px;

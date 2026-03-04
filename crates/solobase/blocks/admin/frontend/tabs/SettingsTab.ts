@@ -10,17 +10,17 @@ interface BlockInfo {
 	allowed_modes: string[];
 }
 
-interface ChainDef {
+interface FlowDef {
 	id: string;
 	summary?: string;
 }
 
 interface SettingsTabProps {
 	blocks: BlockInfo[];
-	chains: ChainDef[];
+	flows: FlowDef[];
 }
 
-export function SettingsTab({ blocks, chains }: SettingsTabProps) {
+export function SettingsTab({ blocks, flows }: SettingsTabProps) {
 	const interfaces = [...new Set(blocks.map(b => b.interface))];
 	const instanceModes = [...new Set(blocks.map(b => b.instance_mode))];
 
@@ -34,7 +34,7 @@ export function SettingsTab({ blocks, chains }: SettingsTabProps) {
 				marginBottom: '2rem'
 			}}>
 				<${StatCard} title="Registered Blocks" value=${blocks.length} icon=${Package} />
-				<${StatCard} title="Active Chains" value=${chains.length} icon=${GitBranch} color="#8b5cf6" />
+				<${StatCard} title="Active Flows" value=${flows.length} icon=${GitBranch} color="#8b5cf6" />
 			</div>
 
 			<!-- Registered Interfaces -->

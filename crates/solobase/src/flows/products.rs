@@ -10,19 +10,19 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "chain": "http-infra",
+        "flow": "http-infra",
         "next": [
             { "match": "POST:/ext/products/webhooks", "block": "products-feature" },
             {
                 "match": "*:/admin/ext/products/**",
-                "chain": "admin-pipe",
+                "flow": "admin-pipe",
                 "next": [
                     { "block": "products-feature" }
                 ]
             },
             {
                 "match": "*:/ext/products/**",
-                "chain": "auth-pipe",
+                "flow": "auth-pipe",
                 "next": [
                     { "block": "products-feature" }
                 ]

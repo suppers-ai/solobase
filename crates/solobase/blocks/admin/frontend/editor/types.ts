@@ -2,8 +2,8 @@
 
 export interface FlowNode {
 	id: string;
-	type: 'block' | 'chain-ref';
-	label: string;          // block type or chain ID
+	type: 'block' | 'flow-ref';
+	label: string;          // block type or flow ID
 	match?: string;         // match pattern
 	config?: Record<string, unknown>;
 	instance?: string;      // instance mode override
@@ -27,7 +27,7 @@ export interface FlowState {
 	zoom: number;
 }
 
-export interface ChainConfig {
+export interface FlowConfig {
 	id: string;
 	summary: string;
 	on_error: string;

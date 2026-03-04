@@ -47,12 +47,12 @@ export function NodeConfig({ node, onUpdate, onDelete, onClose }: NodeConfigProp
 					style=${inputStyle}
 				>
 					<option value="block">Block</option>
-					<option value="chain-ref">Chain Reference</option>
+					<option value="flow-ref">Flow Reference</option>
 				</select>
 			</div>
 
 			<div style="margin-bottom: 12px">
-				<label style=${labelStyle}>${node.type === 'chain-ref' ? 'Chain ID' : 'Block Type'}</label>
+				<label style=${labelStyle}>${node.type === 'flow-ref' ? 'Flow ID' : 'Block Type'}</label>
 				<input
 					type="text"
 					value=${node.label}
@@ -82,7 +82,7 @@ export function NodeConfig({ node, onUpdate, onDelete, onClose }: NodeConfigProp
 					>
 						<option value="">Default (per-node)</option>
 						<option value="singleton">Singleton</option>
-						<option value="per-chain">Per Chain</option>
+						<option value="per-flow">Per Flow</option>
 						<option value="per-execution">Per Execution</option>
 						<option value="pooled">Pooled</option>
 					</select>

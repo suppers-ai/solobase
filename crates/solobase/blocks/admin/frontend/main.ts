@@ -3,4 +3,4 @@ import { html, BlockShell } from '@solobase/ui';
 import { WafflePage } from './WafflePage';
 import '@app/app.css';
 
-render(html`<${BlockShell} title="Blocks & Chains"><${WafflePage} /></${BlockShell}>`, document.getElementById('app')!);
+render(html`<${BlockShell} title="Blocks & Flows"><${WafflePage} /></${BlockShell}>`, document.getElementById('app')!);
