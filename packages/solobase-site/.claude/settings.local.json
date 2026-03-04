@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"C:\\Users\\joris\\programs\\solobase-site\" log --oneline -10)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
