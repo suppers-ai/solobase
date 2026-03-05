@@ -4,13 +4,13 @@ import (
 	"os"
 	"testing"
 
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/waffletest"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/wafertest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func setupFiles(t *testing.T) (*FilesBlock, waffle.Context) {
+func setupFiles(t *testing.T) (*FilesBlock, wafer.Context) {
 	t.Helper()
 
 	manifest, err := os.ReadFile("block.json")
@@ -36,11 +36,11 @@ func setupFiles(t *testing.T) (*FilesBlock, waffle.Context) {
 		}
 	}`)
 
-	db := waffletest.SetupDBFromManifest(t, manifest, settingsManifest)
-	ctx := waffletest.NewContext(db)
+	db := wafertest.SetupDBFromManifest(t, manifest, settingsManifest)
+	ctx := wafertest.NewContext(db)
 
 	block := NewFilesBlock()
-	waffletest.InitBlock(t, block, ctx)
+	wafertest.InitBlock(t, block, ctx)
 
 	return block, ctx
 }
@@ -52,7 +52,7 @@ func TestFilesBlockInfo(t *testing.T) {
 	assert.Equal(t, BlockName, info.Name)
 	assert.Equal(t, "1.0.0", info.Version)
 	assert.Equal(t, "http.handler", info.Interface)
-	assert.Equal(t, waffle.Singleton, info.InstanceMode)
+	assert.Equal(t, wafer.Singleton, info.InstanceMode)
 	assert.NotNil(t, info.AdminUI)
 	assert.Equal(t, "/admin/storage", info.AdminUI.Path)
 }
@@ -71,109 +71,109 @@ func TestFilesBlockInit(t *testing.T) {
 func TestGetBucketsEmpty(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.WithAuth(waffletest.Retrieve("/storage/buckets"), "user1", "user@example.com")
+	msg := wafertest.WithAuth(wafertest.Retrieve("/storage/buckets"), "user1", "user@example.com")
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 }
 
 func TestCreateBucketMissingName(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.WithAuth(
-		waffletest.Create("/storage/buckets", map[string]any{"name": ""}),
+	msg := wafertest.WithAuth(
+		wafertest.Create("/storage/buckets", map[string]any{"name": ""}),
 		"user1", "user@example.com",
 	)
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 400, waffletest.Status(result))
+	assert.Equal(t, 400, wafertest.Status(result))
 }
 
 func TestGetSharesUnauthenticated(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.Retrieve("/ext/cloudstorage/shares")
+	msg := wafertest.Retrieve("/ext/cloudstorage/shares")
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 401, waffletest.Status(result))
+	assert.Equal(t, 401, wafertest.Status(result))
 }
 
 func TestGetSharesAuthenticated(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.WithAuth(waffletest.Retrieve("/ext/cloudstorage/shares"), "user1", "user@example.com")
+	msg := wafertest.WithAuth(wafertest.Retrieve("/ext/cloudstorage/shares"), "user1", "user@example.com")
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 }
 
 func TestGetCloudQuotaUnauthenticated(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.Retrieve("/ext/cloudstorage/quota")
+	msg := wafertest.Retrieve("/ext/cloudstorage/quota")
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 401, waffletest.Status(result))
+	assert.Equal(t, 401, wafertest.Status(result))
 }
 
 func TestGetCloudStatsUnauthenticated(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.Retrieve("/ext/cloudstorage/stats")
+	msg := wafertest.Retrieve("/ext/cloudstorage/stats")
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 401, waffletest.Status(result))
+	assert.Equal(t, 401, wafertest.Status(result))
 }
 
 func TestGetCloudStatsAuthenticated(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.WithAuth(waffletest.Retrieve("/ext/cloudstorage/stats"), "user1", "user@example.com")
+	msg := wafertest.WithAuth(wafertest.Retrieve("/ext/cloudstorage/stats"), "user1", "user@example.com")
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 }
 
 func TestGetRoleQuotasEmpty(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.WithAuth(
-		waffletest.WithRoles(waffletest.Retrieve("/ext/cloudstorage/quotas/roles"), "admin"),
+	msg := wafertest.WithAuth(
+		wafertest.WithRoles(wafertest.Retrieve("/ext/cloudstorage/quotas/roles"), "admin"),
 		"admin1", "admin@example.com",
 	)
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 }
 
 func TestSearchObjectsUnauthenticated(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.Retrieve("/storage/search")
+	msg := wafertest.Retrieve("/storage/search")
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 401, waffletest.Status(result))
+	assert.Equal(t, 401, wafertest.Status(result))
 }
 
 func TestSearchObjectsEmptyQuery(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.WithAuth(waffletest.Retrieve("/storage/search"), "user1", "user@example.com")
+	msg := wafertest.WithAuth(wafertest.Retrieve("/storage/search"), "user1", "user@example.com")
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 }
 
 func TestGetQuotaUnauthenticated(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.Retrieve("/storage/quota")
+	msg := wafertest.Retrieve("/storage/quota")
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 401, waffletest.Status(result))
+	assert.Equal(t, 401, wafertest.Status(result))
 }
 
 func TestDefaultQuotasGet(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.WithAuth(
-		waffletest.WithRoles(waffletest.Retrieve("/ext/cloudstorage/default-quotas"), "admin"),
+	msg := wafertest.WithAuth(
+		wafertest.WithRoles(wafertest.Retrieve("/ext/cloudstorage/default-quotas"), "admin"),
 		"admin1", "admin@example.com",
 	)
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var resp map[string]any
-	waffletest.DecodeResponse(t, result, &resp)
+	wafertest.DecodeResponse(t, result, &resp)
 	assert.Equal(t, float64(5368709120), resp["defaultStorage"])
 	assert.Equal(t, float64(10737418240), resp["defaultBandwidth"])
 }
@@ -181,10 +181,10 @@ func TestDefaultQuotasGet(t *testing.T) {
 func TestUserSearchShortQuery(t *testing.T) {
 	block, ctx := setupFiles(t)
 
-	msg := waffletest.WithAuth(
-		waffletest.WithQuery(waffletest.Retrieve("/ext/cloudstorage/users/search"), "q", "a"),
+	msg := wafertest.WithAuth(
+		wafertest.WithQuery(wafertest.Retrieve("/ext/cloudstorage/users/search"), "q", "a"),
 		"admin1", "admin@example.com",
 	)
 	result := block.Handle(ctx, msg)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 }

@@ -10,21 +10,21 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "flow": "http-infra",
+        "flow": "@wafer/infra",
         "next": [
-            { "match": "POST:/ext/products/webhooks", "block": "products-feature" },
+            { "match": "POST:/ext/products/webhooks", "block": "@solobase/products" },
             {
                 "match": "*:/admin/ext/products/**",
-                "flow": "admin-pipe",
+                "flow": "@wafer/admin-pipe",
                 "next": [
-                    { "block": "products-feature" }
+                    { "block": "@solobase/products" }
                 ]
             },
             {
                 "match": "*:/ext/products/**",
-                "flow": "auth-pipe",
+                "flow": "@wafer/auth-pipe",
                 "next": [
-                    { "block": "products-feature" }
+                    { "block": "@solobase/products" }
                 ]
             }
         ]

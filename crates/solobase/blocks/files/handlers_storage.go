@@ -13,55 +13,55 @@ import (
 	"github.com/suppers-ai/solobase/core/apptime"
 	"github.com/suppers-ai/solobase/core/constants"
 	"github.com/suppers-ai/solobase/core/uuid"
-	waffle "github.com/suppers-ai/waffle-go"
+	wafer "github.com/wafer-run/wafer-go"
 )
 
 // ========== Bucket Handlers ==========
 
-func (b *FilesBlock) handleGetBuckets(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleGetBuckets(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.storageService == nil {
-		return waffle.JSONRespond(msg, 200, []any{})
+		return wafer.JSONRespond(msg, 200, []any{})
 	}
 	buckets, err := b.storageService.GetBuckets()
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch buckets")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch buckets")
 	}
-	return waffle.JSONRespond(msg, 200, buckets)
+	return wafer.JSONRespond(msg, 200, buckets)
 }
 
-func (b *FilesBlock) handleCreateBucket(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleCreateBucket(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	var request struct {
 		Name   string `json:"name"`
 		Public bool   `json:"public"`
 	}
 	if err := msg.Decode(&request); err != nil {
-		return waffle.Error(msg, 400, "invalid_body", "Invalid request body")
+		return wafer.Error(msg, 400, "invalid_body", "Invalid request body")
 	}
 	if request.Name == "" {
-		return waffle.Error(msg, 400, "validation_error", "Bucket name is required")
+		return wafer.Error(msg, 400, "validation_error", "Bucket name is required")
 	}
 
 	if err := b.storageService.CreateBucket(request.Name, request.Public); err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 201, map[string]any{
+	return wafer.JSONRespond(msg, 201, map[string]any{
 		"message": "Bucket created successfully",
 		"name":    request.Name,
 	})
 }
 
-func (b *FilesBlock) handleDeleteBucket(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleDeleteBucket(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	bucket := msg.Var("bucket")
 
 	if err := b.storageService.DeleteBucket(bucket); err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, map[string]string{"message": "Bucket deleted successfully"})
+	return wafer.JSONRespond(msg, 200, map[string]string{"message": "Bucket deleted successfully"})
 }
 
 // ========== Object Handlers ==========
 
-func (b *FilesBlock) handleGetBucketObjects(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleGetBucketObjects(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	bucket := msg.Var("bucket")
 	userID := msg.UserID()
 
@@ -79,27 +79,27 @@ func (b *FilesBlock) handleGetBucketObjects(_ waffle.Context, msg *waffle.Messag
 
 	objects, err := b.storageService.GetObjects(bucket, filterByUser, parentFolderID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch objects")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch objects")
 	}
-	return waffle.JSONRespond(msg, 200, objects)
+	return wafer.JSONRespond(msg, 200, objects)
 }
 
-func (b *FilesBlock) handleUploadFile(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleUploadFile(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	bucket := msg.Var("bucket")
 	userID := msg.UserID()
 
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+		return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 	}
 
 	contentType := msg.ContentType()
 	_, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
-		return waffle.Error(msg, 400, "invalid_content", "Invalid content type")
+		return wafer.Error(msg, 400, "invalid_content", "Invalid content type")
 	}
 	boundary := params["boundary"]
 	if boundary == "" {
-		return waffle.Error(msg, 400, "invalid_content", "Missing multipart boundary")
+		return wafer.Error(msg, 400, "invalid_content", "Missing multipart boundary")
 	}
 
 	reader := multipart.NewReader(bytes.NewReader(msg.Data), boundary)
@@ -114,7 +114,7 @@ func (b *FilesBlock) handleUploadFile(_ waffle.Context, msg *waffle.Message) waf
 			break
 		}
 		if err != nil {
-			return waffle.Error(msg, 400, "parse_error", "Failed to parse multipart form")
+			return wafer.Error(msg, 400, "parse_error", "Failed to parse multipart form")
 		}
 
 		fieldName := part.FormName()
@@ -123,7 +123,7 @@ func (b *FilesBlock) handleUploadFile(_ waffle.Context, msg *waffle.Message) waf
 			fileContentType = part.Header.Get("Content-Type")
 			fileContent, err = io.ReadAll(part)
 			if err != nil {
-				return waffle.Error(msg, 500, "read_error", "Failed to read file")
+				return wafer.Error(msg, 500, "read_error", "Failed to read file")
 			}
 		} else if fieldName == "parent_folder_id" {
 			data, _ := io.ReadAll(part)
@@ -133,7 +133,7 @@ func (b *FilesBlock) handleUploadFile(_ waffle.Context, msg *waffle.Message) waf
 	}
 
 	if len(fileContent) == 0 || filename == "" {
-		return waffle.Error(msg, 400, "missing_file", "Failed to get file")
+		return wafer.Error(msg, 400, "missing_file", "Failed to get file")
 	}
 
 	if fileContentType == "" {
@@ -148,7 +148,7 @@ func (b *FilesBlock) handleUploadFile(_ waffle.Context, msg *waffle.Message) waf
 
 	// Check quota before upload
 	if err := b.beforeUpload(context.Background(), userID, bucket, filename, fileSize); err != nil {
-		return waffle.Error(msg, 507, "quota_exceeded", err.Error())
+		return wafer.Error(msg, 507, "quota_exceeded", err.Error())
 	}
 
 	var parentFolderPtr *string
@@ -158,7 +158,7 @@ func (b *FilesBlock) handleUploadFile(_ waffle.Context, msg *waffle.Message) waf
 
 	object, err := b.storageService.UploadFile(bucket, filename, userID, bytes.NewReader(fileContent), fileSize, fileContentType, parentFolderPtr)
 	if err != nil {
-		return waffle.Error(msg, 500, "upload_error", "Failed to upload file: "+err.Error())
+		return wafer.Error(msg, 500, "upload_error", "Failed to upload file: "+err.Error())
 	}
 
 	// Update usage after upload
@@ -170,23 +170,23 @@ func (b *FilesBlock) handleUploadFile(_ waffle.Context, msg *waffle.Message) waf
 	}
 	go b.afterUpload(context.Background(), userID, bucket, objectID, filename, fileSize)
 
-	return waffle.JSONRespond(msg, 201, object)
+	return wafer.JSONRespond(msg, 201, object)
 }
 
-func (b *FilesBlock) handleDeleteObject(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleDeleteObject(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	bucket := msg.Var("bucket")
 	objectID := msg.Var("id")
 	userID := msg.UserID()
 
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+		return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 	}
 
 	var err error
 	if IsInternalBucket(bucket) {
 		objectInfo, getErr := b.storageService.GetObjectInfo(constants.InternalStorageBucket, objectID)
 		if getErr != nil {
-			return waffle.Error(msg, 404, "not_found", "Object not found")
+			return wafer.Error(msg, 404, "not_found", "Object not found")
 		}
 
 		ownershipErr := CheckStorageOwnership(userID, &StorageObjectInfo{
@@ -203,12 +203,12 @@ func (b *FilesBlock) handleDeleteObject(_ waffle.Context, msg *waffle.Message) w
 	}
 
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to delete object: "+err.Error())
+		return wafer.Error(msg, 500, "internal_error", "Failed to delete object: "+err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, map[string]string{"message": "Object deleted successfully"})
+	return wafer.JSONRespond(msg, 200, map[string]string{"message": "Object deleted successfully"})
 }
 
-func (b *FilesBlock) handleDownloadObject(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleDownloadObject(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	bucket := msg.Var("bucket")
 	objectID := msg.Var("id")
 	userID := msg.UserID()
@@ -218,12 +218,12 @@ func (b *FilesBlock) handleDownloadObject(_ waffle.Context, msg *waffle.Message)
 		actualBucket = constants.InternalStorageBucket
 
 		if userID == "" {
-			return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+			return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 		}
 
 		objectInfo, err := b.storageService.GetObjectInfo(actualBucket, objectID)
 		if err != nil {
-			return waffle.Error(msg, 404, "not_found", "Object not found")
+			return wafer.Error(msg, 404, "not_found", "Object not found")
 		}
 
 		ownershipErr := CheckStorageOwnership(userID, &StorageObjectInfo{
@@ -237,18 +237,18 @@ func (b *FilesBlock) handleDownloadObject(_ waffle.Context, msg *waffle.Message)
 
 	// Check share permissions before download
 	if err := b.beforeDownload(context.Background(), userID, bucket, objectID); err != nil {
-		return waffle.Error(msg, 403, "forbidden", err.Error())
+		return wafer.Error(msg, 403, "forbidden", err.Error())
 	}
 
 	reader, filename, contentType, err := b.storageService.GetObject(actualBucket, objectID)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", "Object not found")
+		return wafer.Error(msg, 404, "not_found", "Object not found")
 	}
 	defer reader.Close()
 
 	data, err := io.ReadAll(reader)
 	if err != nil {
-		return waffle.Error(msg, 500, "read_error", "Failed to read file")
+		return wafer.Error(msg, 500, "read_error", "Failed to read file")
 	}
 
 	// Update bandwidth usage after download
@@ -256,12 +256,12 @@ func (b *FilesBlock) handleDownloadObject(_ waffle.Context, msg *waffle.Message)
 		go b.afterDownload(context.Background(), userID, bucket, objectID, int64(len(data)))
 	}
 
-	return waffle.NewResponse(msg, 200).
+	return wafer.NewResponse(msg, 200).
 		SetHeader("Content-Disposition", `attachment; filename="`+filename+`"`).
 		Body(data, contentType)
 }
 
-func (b *FilesBlock) handleGetObject(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleGetObject(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	bucket := msg.Var("bucket")
 	objectID := msg.Var("id")
 	userID := msg.UserID()
@@ -271,13 +271,13 @@ func (b *FilesBlock) handleGetObject(_ waffle.Context, msg *waffle.Message) waff
 		actualBucket = constants.InternalStorageBucket
 
 		if userID == "" {
-			return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+			return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 		}
 	}
 
 	objectInfo, err := b.storageService.GetObjectInfo(actualBucket, objectID)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", "Object not found")
+		return wafer.Error(msg, 404, "not_found", "Object not found")
 	}
 
 	if IsInternalBucket(bucket) {
@@ -290,26 +290,26 @@ func (b *FilesBlock) handleGetObject(_ waffle.Context, msg *waffle.Message) waff
 		}
 	}
 
-	return waffle.JSONRespond(msg, 200, objectInfo)
+	return wafer.JSONRespond(msg, 200, objectInfo)
 }
 
-func (b *FilesBlock) handleRenameObject(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleRenameObject(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	bucket := msg.Var("bucket")
 	objectID := msg.Var("id")
 	userID := msg.UserID()
 
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+		return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 	}
 
 	var request struct {
 		Name string `json:"name"`
 	}
 	if err := msg.Decode(&request); err != nil {
-		return waffle.Error(msg, 400, "invalid_body", "Invalid request body")
+		return wafer.Error(msg, 400, "invalid_body", "Invalid request body")
 	}
 	if request.Name == "" {
-		return waffle.Error(msg, 400, "validation_error", "New name is required")
+		return wafer.Error(msg, 400, "validation_error", "New name is required")
 	}
 
 	actualBucket := bucket
@@ -318,7 +318,7 @@ func (b *FilesBlock) handleRenameObject(_ waffle.Context, msg *waffle.Message) w
 
 		objectInfo, err := b.storageService.GetObjectInfo(actualBucket, objectID)
 		if err != nil {
-			return waffle.Error(msg, 404, "not_found", "Object not found")
+			return wafer.Error(msg, 404, "not_found", "Object not found")
 		}
 
 		ownershipErr := CheckStorageOwnership(userID, &StorageObjectInfo{
@@ -331,17 +331,17 @@ func (b *FilesBlock) handleRenameObject(_ waffle.Context, msg *waffle.Message) w
 	}
 
 	if err := b.storageService.RenameObject(actualBucket, objectID, request.Name); err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, map[string]any{"message": "Object renamed successfully"})
+	return wafer.JSONRespond(msg, 200, map[string]any{"message": "Object renamed successfully"})
 }
 
-func (b *FilesBlock) handleCreateFolder(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleCreateFolder(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	bucket := msg.Var("bucket")
 	userID := msg.UserID()
 
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+		return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 	}
 
 	var request struct {
@@ -350,10 +350,10 @@ func (b *FilesBlock) handleCreateFolder(_ waffle.Context, msg *waffle.Message) w
 		ParentFolderID *string `json:"parentFolderId"`
 	}
 	if err := msg.Decode(&request); err != nil {
-		return waffle.Error(msg, 400, "invalid_body", "Invalid request body")
+		return wafer.Error(msg, 400, "invalid_body", "Invalid request body")
 	}
 	if request.Name == "" {
-		return waffle.Error(msg, 400, "validation_error", "Folder name is required")
+		return wafer.Error(msg, 400, "validation_error", "Folder name is required")
 	}
 
 	actualBucket := bucket
@@ -363,19 +363,19 @@ func (b *FilesBlock) handleCreateFolder(_ waffle.Context, msg *waffle.Message) w
 
 	folderID, err := b.storageService.CreateFolderWithParent(actualBucket, request.Name, userID, request.ParentFolderID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to create folder: "+err.Error())
+		return wafer.Error(msg, 500, "internal_error", "Failed to create folder: "+err.Error())
 	}
 
 	folder, err := b.storageService.GetObjectInfo(actualBucket, folderID)
 	if err != nil {
-		return waffle.JSONRespond(msg, 201, map[string]any{
+		return wafer.JSONRespond(msg, 201, map[string]any{
 			"id":      folderID,
 			"name":    request.Name,
 			"message": "Folder created successfully",
 		})
 	}
 
-	return waffle.JSONRespond(msg, 201, map[string]any{
+	return wafer.JSONRespond(msg, 201, map[string]any{
 		"id":               folder.ID,
 		"bucket_name":      folder.BucketName,
 		"object_name":      folder.ObjectName,
@@ -395,14 +395,14 @@ func (b *FilesBlock) handleCreateFolder(_ waffle.Context, msg *waffle.Message) w
 
 // ========== Presigned URL Handlers ==========
 
-func (b *FilesBlock) handleGenerateDownloadURL(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleGenerateDownloadURL(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	bucket := msg.Var("bucket")
 	objectID := msg.Var("id")
 	userID := msg.UserID()
 
 	object, err := b.storageService.GetObjectInfo(bucket, objectID)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", "Object not found")
+		return wafer.Error(msg, 404, "not_found", "Object not found")
 	}
 
 	provider := b.storageService.GetProviderType()
@@ -430,7 +430,7 @@ func (b *FilesBlock) handleGenerateDownloadURL(_ waffle.Context, msg *waffle.Mes
 	if provider == "s3" {
 		url, err := b.storageService.GeneratePresignedDownloadURL(bucket, object.ObjectName, constants.DefaultURLExpiry)
 		if err != nil {
-			return waffle.Error(msg, 500, "internal_error", "Failed to generate download URL")
+			return wafer.Error(msg, 500, "internal_error", "Failed to generate download URL")
 		}
 
 		if err := b.storageService.CreateDownloadToken(context.Background(), downloadToken); err != nil {
@@ -445,7 +445,7 @@ func (b *FilesBlock) handleGenerateDownloadURL(_ waffle.Context, msg *waffle.Mes
 		}
 	} else {
 		if err := b.storageService.CreateDownloadToken(context.Background(), downloadToken); err != nil {
-			return waffle.Error(msg, 500, "internal_error", "Failed to create download token")
+			return wafer.Error(msg, 500, "internal_error", "Failed to create download token")
 		}
 
 		response = map[string]any{
@@ -455,10 +455,10 @@ func (b *FilesBlock) handleGenerateDownloadURL(_ waffle.Context, msg *waffle.Mes
 		}
 	}
 
-	return waffle.JSONRespond(msg, 200, response)
+	return wafer.JSONRespond(msg, 200, response)
 }
 
-func (b *FilesBlock) handleGenerateUploadURL(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleGenerateUploadURL(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	bucket := msg.Var("bucket")
 	userID := msg.UserID()
 
@@ -469,10 +469,10 @@ func (b *FilesBlock) handleGenerateUploadURL(_ waffle.Context, msg *waffle.Messa
 		MaxSize        int64   `json:"maxSize"`
 	}
 	if err := msg.Decode(&request); err != nil {
-		return waffle.Error(msg, 400, "invalid_body", "Invalid request body")
+		return wafer.Error(msg, 400, "invalid_body", "Invalid request body")
 	}
 	if request.Filename == "" {
-		return waffle.Error(msg, 400, "validation_error", "Filename is required")
+		return wafer.Error(msg, 400, "validation_error", "Filename is required")
 	}
 	if request.ContentType == "" {
 		request.ContentType = "application/octet-stream"
@@ -486,7 +486,7 @@ func (b *FilesBlock) handleGenerateUploadURL(_ waffle.Context, msg *waffle.Messa
 	// Check storage quota before generating URL
 	if userID != "" {
 		if err := b.beforeUpload(context.Background(), userID, bucket, request.Filename, request.MaxSize); err != nil {
-			return waffle.Error(msg, 507, "quota_exceeded", err.Error())
+			return wafer.Error(msg, 507, "quota_exceeded", err.Error())
 		}
 	}
 
@@ -514,7 +514,7 @@ func (b *FilesBlock) handleGenerateUploadURL(_ waffle.Context, msg *waffle.Messa
 	if provider == "s3" {
 		url, err := b.storageService.GeneratePresignedUploadURL(bucket, objectKey, request.ContentType, constants.DefaultURLExpiry)
 		if err != nil {
-			return waffle.Error(msg, 500, "internal_error", "Failed to generate upload URL")
+			return wafer.Error(msg, 500, "internal_error", "Failed to generate upload URL")
 		}
 
 		if err := b.storageService.CreateUploadToken(context.Background(), uploadToken); err != nil {
@@ -529,7 +529,7 @@ func (b *FilesBlock) handleGenerateUploadURL(_ waffle.Context, msg *waffle.Messa
 		}
 	} else {
 		if err := b.storageService.CreateUploadToken(context.Background(), uploadToken); err != nil {
-			return waffle.Error(msg, 500, "internal_error", "Failed to create upload token")
+			return wafer.Error(msg, 500, "internal_error", "Failed to create upload token")
 		}
 
 		response = map[string]any{
@@ -539,54 +539,54 @@ func (b *FilesBlock) handleGenerateUploadURL(_ waffle.Context, msg *waffle.Messa
 		}
 	}
 
-	return waffle.JSONRespond(msg, 200, response)
+	return wafer.JSONRespond(msg, 200, response)
 }
 
 // ========== Direct Download ==========
 
-func (b *FilesBlock) handleDirectDownload(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleDirectDownload(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	tokenStr := msg.Var("token")
 
 	token, err := b.storageService.GetDownloadTokenByToken(context.Background(), tokenStr)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", "Invalid or expired token")
+		return wafer.Error(msg, 404, "not_found", "Invalid or expired token")
 	}
 
 	if token.ExpiresAt.Valid && apptime.NowTime().After(token.ExpiresAt.Time) {
-		return waffle.Error(msg, 401, "expired", "Token has expired")
+		return wafer.Error(msg, 401, "expired", "Token has expired")
 	}
 
 	reader, filename, contentType, err := b.storageService.GetObjectByKey(token.Bucket, token.ObjectName)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", "File not found")
+		return wafer.Error(msg, 404, "not_found", "File not found")
 	}
 	defer reader.Close()
 
 	data, err := io.ReadAll(reader)
 	if err != nil {
-		return waffle.Error(msg, 500, "read_error", "Failed to read file")
+		return wafer.Error(msg, 500, "read_error", "Failed to read file")
 	}
 
 	// Update token progress
 	_ = b.storageService.UpdateDownloadTokenProgress(context.Background(), token.ID, int64(len(data)))
 	_ = b.storageService.CompleteDownloadToken(context.Background(), token.ID)
 
-	return waffle.NewResponse(msg, 200).
+	return wafer.NewResponse(msg, 200).
 		SetHeader("Content-Disposition", `attachment; filename="`+filename+`"`).
 		Body(data, contentType)
 }
 
 // ========== Search & Utilities ==========
 
-func (b *FilesBlock) handleSearchObjects(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleSearchObjects(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+		return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 	}
 
 	query := msg.Query("q")
 	if query == "" {
-		return waffle.JSONRespond(msg, 200, map[string]any{"items": []any{}})
+		return wafer.JSONRespond(msg, 200, map[string]any{"items": []any{}})
 	}
 
 	appID := msg.Query("app_id")
@@ -596,7 +596,7 @@ func (b *FilesBlock) handleSearchObjects(_ waffle.Context, msg *waffle.Message) 
 
 	objects, err := b.storageService.SearchStorageObjects(userID, appID, query, 50)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to search items")
+		return wafer.Error(msg, 500, "internal_error", "Failed to search items")
 	}
 
 	result := make([]map[string]any, 0, len(objects))
@@ -618,13 +618,13 @@ func (b *FilesBlock) handleSearchObjects(_ waffle.Context, msg *waffle.Message) 
 		})
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{"items": result})
+	return wafer.JSONRespond(msg, 200, map[string]any{"items": result})
 }
 
-func (b *FilesBlock) handleGetRecentlyViewed(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleGetRecentlyViewed(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+		return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 	}
 
 	limit := 30
@@ -636,7 +636,7 @@ func (b *FilesBlock) handleGetRecentlyViewed(_ waffle.Context, msg *waffle.Messa
 
 	objects, err := b.storageService.GetRecentlyViewed(userID, limit)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to get recently viewed items")
+		return wafer.Error(msg, 500, "internal_error", "Failed to get recently viewed items")
 	}
 
 	response := make([]map[string]any, 0, len(objects))
@@ -658,29 +658,29 @@ func (b *FilesBlock) handleGetRecentlyViewed(_ waffle.Context, msg *waffle.Messa
 		})
 	}
 
-	return waffle.JSONRespond(msg, 200, response)
+	return wafer.JSONRespond(msg, 200, response)
 }
 
-func (b *FilesBlock) handleUpdateLastViewed(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleUpdateLastViewed(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	itemID := msg.Var("id")
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+		return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 	}
 
 	if err := b.storageService.UpdateLastViewed(itemID, userID); err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to update last viewed")
+		return wafer.Error(msg, 500, "internal_error", "Failed to update last viewed")
 	}
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"message":     "Last viewed updated successfully",
 		"last_viewed": apptime.NowTime(),
 	})
 }
 
-func (b *FilesBlock) handleGetQuota(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleGetQuota(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+		return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 	}
 
 	storageUsed, err := b.storageService.GetUserStorageUsed(userID)
@@ -697,7 +697,7 @@ func (b *FilesBlock) handleGetQuota(_ waffle.Context, msg *waffle.Message) waffl
 		percentage = (float64(storageUsed) / float64(maxStorage)) * 100
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"used":            storageUsed,
 		"total":           maxStorage,
 		"percentage":      percentage,
@@ -708,18 +708,18 @@ func (b *FilesBlock) handleGetQuota(_ waffle.Context, msg *waffle.Message) waffl
 	})
 }
 
-func (b *FilesBlock) handleGetStats(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleGetStats(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+		return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 	}
 
 	stats, err := b.storageService.GetStorageStats(userID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to get storage statistics")
+		return wafer.Error(msg, 500, "internal_error", "Failed to get storage statistics")
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"totalSize":     stats["totalSize"],
 		"fileCount":     stats["fileCount"],
 		"folderCount":   stats["folderCount"],
@@ -733,34 +733,34 @@ func (b *FilesBlock) handleGetStats(_ waffle.Context, msg *waffle.Message) waffl
 
 // ========== Admin Handlers ==========
 
-func (b *FilesBlock) handleGetAdminStats(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleGetAdminStats(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if !msg.IsAdmin() {
-		return waffle.Error(msg, 403, "forbidden", "Admin access required")
+		return wafer.Error(msg, 403, "forbidden", "Admin access required")
 	}
 
 	stats, err := b.storageService.GetAllUsersStorageStats()
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to get storage statistics")
+		return wafer.Error(msg, 500, "internal_error", "Failed to get storage statistics")
 	}
-	return waffle.JSONRespond(msg, 200, stats)
+	return wafer.JSONRespond(msg, 200, stats)
 }
 
 // ========== Object Metadata ==========
 
-func (b *FilesBlock) handleUpdateObjectMetadata(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleUpdateObjectMetadata(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	bucket := msg.Var("bucket")
 	objectID := msg.Var("id")
 	userID := msg.UserID()
 
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+		return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 	}
 
 	var request struct {
 		Metadata string `json:"metadata"`
 	}
 	if err := msg.Decode(&request); err != nil {
-		return waffle.Error(msg, 400, "invalid_body", "Invalid request body")
+		return wafer.Error(msg, 400, "invalid_body", "Invalid request body")
 	}
 
 	actualBucket := bucket
@@ -769,7 +769,7 @@ func (b *FilesBlock) handleUpdateObjectMetadata(_ waffle.Context, msg *waffle.Me
 
 		objectInfo, err := b.storageService.GetObjectInfo(actualBucket, objectID)
 		if err != nil {
-			return waffle.Error(msg, 404, "not_found", "Object not found")
+			return wafer.Error(msg, 404, "not_found", "Object not found")
 		}
 
 		ownershipErr := CheckStorageOwnership(userID, &StorageObjectInfo{
@@ -782,12 +782,12 @@ func (b *FilesBlock) handleUpdateObjectMetadata(_ waffle.Context, msg *waffle.Me
 	}
 
 	if err := b.storageService.UpdateObjectMetadata(actualBucket, objectID, request.Metadata); err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
 	objectInfo, err := b.storageService.GetObjectInfo(actualBucket, objectID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to retrieve updated object")
+		return wafer.Error(msg, 500, "internal_error", "Failed to retrieve updated object")
 	}
-	return waffle.JSONRespond(msg, 200, objectInfo)
+	return wafer.JSONRespond(msg, 200, objectInfo)
 }

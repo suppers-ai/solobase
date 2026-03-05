@@ -22,13 +22,15 @@ pub struct ProductsBlock;
 impl Block for ProductsBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "products-feature".to_string(),
+            name: "@solobase/products".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Products, pricing, purchases, and payment integration".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: None,
+            runtime: wafer_run::types::BlockRuntime::Native,
+            requires: Vec::new(),
         }
     }
 
@@ -50,7 +52,7 @@ impl Block for ProductsBlock {
             return handlers::handle_user(ctx, msg);
         }
 
-        err_not_found(msg.clone(), "not found")
+        err_not_found(msg, "not found")
     }
 
     fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {

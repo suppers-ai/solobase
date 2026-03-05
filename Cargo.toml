@@ -24,19 +24,3 @@ tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-
-# HTTP
-axum = "0.8"
-tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "fs", "compression-gzip"] }
-
-# Crypto
-argon2 = "0.5"
-password-hash = { version = "0.5", features = ["getrandom"] }
-jsonwebtoken = "9"
-
-# Embedded assets
-rust-embed = { version = "8", features = ["mime-guess"] }
-
-# Network
-reqwest = { version = "0.12", features = ["json", "blocking"] }

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	waffle "github.com/suppers-ai/waffle-go"
+	wafer "github.com/wafer-run/wafer-go"
 )
 
 const BlockName = "web-feature"
@@ -40,19 +40,19 @@ func NewWebBlock(cfg WebConfig) *WebBlock {
 	return &WebBlock{config: cfg}
 }
 
-func (b *WebBlock) Info() waffle.BlockInfo {
-	return waffle.BlockInfo{
+func (b *WebBlock) Info() wafer.BlockInfo {
+	return wafer.BlockInfo{
 		Name:         BlockName,
 		Version:      "1.0.0",
 		Interface:    "http.handler",
 		Summary:      "Static website serving",
-		InstanceMode: waffle.Singleton,
-		AllowedModes: []waffle.InstanceMode{waffle.Singleton, waffle.PerNode},
+		InstanceMode: wafer.Singleton,
+		AllowedModes: []wafer.InstanceMode{wafer.Singleton, wafer.PerNode},
 	}
 }
 
-func (b *WebBlock) Lifecycle(_ waffle.Context, evt waffle.LifecycleEvent) error {
-	if evt.Type == waffle.Init {
+func (b *WebBlock) Lifecycle(_ wafer.Context, evt wafer.LifecycleEvent) error {
+	if evt.Type == wafer.Init {
 		abs, err := filepath.Abs(b.config.Dir)
 		if err != nil {
 			return fmt.Errorf("web block: resolve dir %q: %w", b.config.Dir, err)
@@ -69,9 +69,9 @@ func (b *WebBlock) Lifecycle(_ waffle.Context, evt waffle.LifecycleEvent) error 
 	return nil
 }
 
-func (b *WebBlock) Handle(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *WebBlock) Handle(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if msg.Action() != "retrieve" {
-		return waffle.Error(msg, 405, "method_not_allowed", "only GET requests are supported")
+		return wafer.Error(msg, 405, "method_not_allowed", "only GET requests are supported")
 	}
 
 	reqPath := msg.Path()

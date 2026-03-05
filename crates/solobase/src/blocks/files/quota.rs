@@ -44,14 +44,14 @@ pub fn check_quota(ctx: &dyn Context, user_id: &str, _bucket: &str, file_size: i
 
     if file_size > quota.max_file_size_bytes {
         return Err(err_bad_request(
-            Message::new("", ""),
+            &Message::new("", ""),
             &format!("File exceeds maximum size of {} bytes", quota.max_file_size_bytes),
         ));
     }
 
     if current_bytes + file_size > quota.max_storage_bytes {
         return Err(err_bad_request(
-            Message::new("", ""),
+            &Message::new("", ""),
             "Storage quota exceeded",
         ));
     }

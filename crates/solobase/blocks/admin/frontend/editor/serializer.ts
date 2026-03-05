@@ -1,28 +1,28 @@
 import { FlowNode, FlowEdge, generateId, NODE_WIDTH, NODE_HEIGHT } from './types';
 
-// WAFFLE flow JSON types (matching the Go types)
-interface WaffleNodeDef {
+// Wafer flow JSON types (matching the Go types)
+interface FlowNodeDef {
 	block?: string;
 	flow?: string;
 	match?: string;
 	config?: Record<string, unknown>;
 	instance?: string;
-	next?: WaffleNodeDef[];
+	next?: FlowNodeDef[];
 }
 
-interface WaffleFlowDef {
+interface WaferFlowDef {
 	id: string;
 	summary: string;
 	config: { on_error: string; timeout?: string };
-	root: WaffleNodeDef;
+	root: FlowNodeDef;
 }
 
-// Converts a flow graph (nodes + edges) back to WAFFLE flow JSON.
+// Converts a flow graph (nodes + edges) back to Wafer flow JSON.
 export function flowToFlowJSON(
 	nodes: FlowNode[],
 	edges: FlowEdge[],
 	flowConfig: { id: string; summary: string; on_error: string; timeout?: string }
-): WaffleFlowDef {
+): WaferFlowDef {
 	// Build children map
 	const children = new Map<string, string[]>();
 	for (const n of nodes) children.set(n.id, []);
@@ -43,8 +43,8 @@ export function flowToFlowJSON(
 		};
 	}
 
-	function nodeToWaffle(flowNode: FlowNode): WaffleNodeDef {
-		const def: WaffleNodeDef = {};
+	function nodeToFlowDef(flowNode: FlowNode): FlowNodeDef {
+		const def: FlowNodeDef = {};
 
 		if (flowNode.type === 'flow-ref') {
 			def.flow = flowNode.label;
@@ -61,7 +61,7 @@ export function flowToFlowJSON(
 			def.next = childIds
 				.map(id => nodes.find(n => n.id === id))
 				.filter((n): n is FlowNode => n !== undefined)
-				.map(nodeToWaffle);
+				.map(nodeToFlowDef);
 		}
 
 		return def;
@@ -71,16 +71,16 @@ export function flowToFlowJSON(
 		id: flowConfig.id,
 		summary: flowConfig.summary,
 		config: { on_error: flowConfig.on_error, timeout: flowConfig.timeout },
-		root: nodeToWaffle(root),
+		root: nodeToFlowDef(root),
 	};
 }
 
-// Converts WAFFLE flow JSON to a flow graph (nodes + edges).
-export function flowJSONToFlow(flowDef: WaffleFlowDef): { nodes: FlowNode[]; edges: FlowEdge[] } {
+// Converts Wafer flow JSON to a flow graph (nodes + edges).
+export function flowJSONToFlow(flowDef: WaferFlowDef): { nodes: FlowNode[]; edges: FlowEdge[] } {
 	const nodes: FlowNode[] = [];
 	const edges: FlowEdge[] = [];
 
-	function parseNode(def: WaffleNodeDef, parentId: string | null, x: number, y: number): string {
+	function parseNode(def: FlowNodeDef, parentId: string | null, x: number, y: number): string {
 		const id = generateId();
 		const node: FlowNode = {
 			id,

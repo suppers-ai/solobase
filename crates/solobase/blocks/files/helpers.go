@@ -9,7 +9,7 @@ import (
 
 	"github.com/suppers-ai/solobase/core/apptime"
 	"github.com/suppers-ai/solobase/core/constants"
-	"github.com/suppers-ai/waffle-go/services/database"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 // Storage ownership errors

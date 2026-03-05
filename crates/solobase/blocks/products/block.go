@@ -2,15 +2,15 @@ package products
 
 import (
 	"github.com/suppers-ai/solobase/blocks/products/providers"
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 const BlockName = "products-feature"
 
-// ProductsWaffleBlock is a native waffle block for the products extension.
-type ProductsWaffleBlock struct {
-	router          *waffle.Router
+// ProductsBlock is a native wafer block for the products extension.
+type ProductsBlock struct {
+	router          *wafer.Router
 	db              database.Service
 	variableService *VariableService
 	groupService    *GroupService
@@ -22,18 +22,18 @@ type ProductsWaffleBlock struct {
 	seeder          Seeder
 }
 
-// NewProductsWaffleBlock creates a native waffle products block with zero dependencies.
+// NewProductsBlock creates a native wafer products block with zero dependencies.
 // The database.Service is obtained from platform services during Lifecycle(Init).
-func NewProductsWaffleBlock() *ProductsWaffleBlock {
-	b := &ProductsWaffleBlock{
+func NewProductsBlock() *ProductsBlock {
+	b := &ProductsBlock{
 		seeder: &DefaultSeeder{},
 	}
-	b.router = waffle.NewRouter()
+	b.router = wafer.NewRouter()
 	b.registerRoutes()
 	return b
 }
 
-func (b *ProductsWaffleBlock) registerRoutes() {
+func (b *ProductsBlock) registerRoutes() {
 	// Public
 	b.router.Create("/ext/products/webhooks", b.handleWebhook)
 
@@ -87,24 +87,24 @@ func (b *ProductsWaffleBlock) registerRoutes() {
 	b.router.Create("/admin/ext/products/test-formula", b.handleTestFormula)
 }
 
-func (b *ProductsWaffleBlock) Info() waffle.BlockInfo {
-	return waffle.BlockInfo{
+func (b *ProductsBlock) Info() wafer.BlockInfo {
+	return wafer.BlockInfo{
 		Name:         BlockName,
 		Version:      "1.0.0",
 		Interface:    "http.handler",
 		Summary:      "Products and pricing extension",
-		InstanceMode: waffle.Singleton,
-		AllowedModes: []waffle.InstanceMode{waffle.Singleton},
-		AdminUI:      &waffle.AdminUIInfo{Path: "/admin/products", Icon: "shopping-bag", Title: "Products"},
+		InstanceMode: wafer.Singleton,
+		AllowedModes: []wafer.InstanceMode{wafer.Singleton},
+		AdminUI:      &wafer.AdminUIInfo{Path: "/admin/products", Icon: "shopping-bag", Title: "Products"},
 	}
 }
 
-func (b *ProductsWaffleBlock) Handle(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) Handle(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	return b.router.Route(ctx, msg)
 }
 
-func (b *ProductsWaffleBlock) Lifecycle(ctx waffle.Context, event waffle.LifecycleEvent) error {
-	if event.Type == waffle.Init {
+func (b *ProductsBlock) Lifecycle(ctx wafer.Context, event wafer.LifecycleEvent) error {
+	if event.Type == wafer.Init {
 		// Get database.Service from platform services
 		b.db = ctx.Services().Database
 		if b.db == nil {
@@ -129,7 +129,7 @@ func (b *ProductsWaffleBlock) Lifecycle(ctx waffle.Context, event waffle.Lifecyc
 }
 
 // GetProviderStatus returns payment provider status info.
-func (b *ProductsWaffleBlock) GetProviderStatus() map[string]interface{} {
+func (b *ProductsBlock) GetProviderStatus() map[string]interface{} {
 	status := map[string]interface{}{
 		"configured":         false,
 		"provider":           "none",

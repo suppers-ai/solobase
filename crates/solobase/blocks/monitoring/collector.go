@@ -21,7 +21,7 @@ type FlowStats struct {
 	totalMs int64
 }
 
-// Collector is a thread-safe in-memory stats collector for WAFFLE message processing.
+// Collector is a thread-safe in-memory stats collector for WAFER message processing.
 type Collector struct {
 	mu            sync.RWMutex
 	totalMessages int64

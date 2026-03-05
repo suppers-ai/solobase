@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	waffle "github.com/suppers-ai/waffle-go"
+	wafer "github.com/wafer-run/wafer-go"
 )
 
 func (b *AdminBlock) registerDatabaseRoutes() {
@@ -14,20 +14,20 @@ func (b *AdminBlock) registerDatabaseRoutes() {
 	b.router.Create("/admin/database/query", b.handleExecuteQuery)
 }
 
-func (b *AdminBlock) handleGetDBInfo(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetDBInfo(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"type":    "SQLite",
 		"version": "3.x",
 		"status":  "connected",
 	})
 }
 
-func (b *AdminBlock) handleGetTables(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetTables(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	ctx := context.Background()
@@ -37,7 +37,7 @@ func (b *AdminBlock) handleGetTables(_ waffle.Context, msg *waffle.Message) waff
 		ORDER BY name
 	`)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch tables")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch tables")
 	}
 
 	var tables []map[string]any
@@ -57,23 +57,23 @@ func (b *AdminBlock) handleGetTables(_ waffle.Context, msg *waffle.Message) waff
 			"rows_count": count,
 		})
 	}
-	return waffle.JSONRespond(msg, 200, tables)
+	return wafer.JSONRespond(msg, 200, tables)
 }
 
-func (b *AdminBlock) handleGetColumns(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetColumns(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	tableName := msg.Var("table")
 	if !isTableAllowed(tableName) {
-		return waffle.Error(msg, 400, "bad_request", "Table not allowed")
+		return wafer.Error(msg, 400, "bad_request", "Table not allowed")
 	}
 
 	ctx := context.Background()
 	records, err := b.db.QueryRaw(ctx, `PRAGMA table_info("`+tableName+`")`)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch columns")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch columns")
 	}
 
 	var columns []map[string]any
@@ -92,31 +92,31 @@ func (b *AdminBlock) handleGetColumns(_ waffle.Context, msg *waffle.Message) waf
 			"is_primary":  pk > 0,
 		})
 	}
-	return waffle.JSONRespond(msg, 200, columns)
+	return wafer.JSONRespond(msg, 200, columns)
 }
 
-func (b *AdminBlock) handleExecuteQuery(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleExecuteQuery(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	var body struct {
 		Query string `json:"query"`
 	}
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	queryUpper := strings.ToUpper(strings.TrimSpace(body.Query))
 	if !strings.HasPrefix(queryUpper, "SELECT") {
-		return waffle.JSONRespond(msg, 400, map[string]any{
+		return wafer.JSONRespond(msg, 400, map[string]any{
 			"error": "Only SELECT queries are allowed",
 		})
 	}
 
 	for _, kw := range []string{"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE", "ATTACH", "DETACH", "PRAGMA", "VACUUM", "REINDEX"} {
 		if strings.Contains(queryUpper, kw) {
-			return waffle.JSONRespond(msg, 400, map[string]any{
+			return wafer.JSONRespond(msg, 400, map[string]any{
 				"error": "Query contains disallowed keywords",
 			})
 		}
@@ -125,7 +125,7 @@ func (b *AdminBlock) handleExecuteQuery(_ waffle.Context, msg *waffle.Message) w
 	ctx := context.Background()
 	records, err := b.db.QueryRaw(ctx, body.Query)
 	if err != nil {
-		return waffle.JSONRespond(msg, 200, map[string]any{
+		return wafer.JSONRespond(msg, 200, map[string]any{
 			"error": err.Error(),
 		})
 	}
@@ -146,7 +146,7 @@ func (b *AdminBlock) handleExecuteQuery(_ waffle.Context, msg *waffle.Message) w
 		}
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"columns": columns,
 		"rows":    result,
 	})

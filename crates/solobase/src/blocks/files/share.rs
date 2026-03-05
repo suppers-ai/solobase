@@ -24,13 +24,13 @@ pub fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let token = path.strip_prefix("/storage/direct/").unwrap_or("");
     if token.is_empty() {
-        return err_bad_request(msg.clone(), "Missing share token");
+        return err_bad_request(msg, "Missing share token");
     }
 
     // Look up share by token
     let share = match db::get_by_field(ctx, SHARES_COLLECTION, "token", serde_json::Value::String(token.to_string())) {
         Ok(s) => s,
-        Err(_) => return err_not_found(msg.clone(), "Share not found or expired"),
+        Err(_) => return err_not_found(msg, "Share not found or expired"),
     };
 
     // Check expiry
@@ -38,7 +38,7 @@ pub fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         if !expires.is_empty() {
             if let Ok(exp_time) = chrono::DateTime::parse_from_rfc3339(expires) {
                 if exp_time < chrono::Utc::now() {
-                    return err_forbidden(msg.clone(), "Share link has expired");
+                    return err_forbidden(msg, "Share link has expired");
                 }
             }
         }
@@ -48,7 +48,7 @@ pub fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let access_count = share.data.get("access_count").and_then(|v| v.as_i64()).unwrap_or(0);
     if let Some(max) = share.data.get("max_access_count").and_then(|v| v.as_i64()) {
         if max > 0 && access_count >= max {
-            return err_forbidden(msg.clone(), "Share link access limit reached");
+            return err_forbidden(msg, "Share link access limit reached");
         }
     }
 
@@ -56,7 +56,7 @@ pub fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let key = share.data.get("key").and_then(|v| v.as_str()).unwrap_or("");
 
     if bucket.is_empty() || key.is_empty() {
-        return err_internal(msg.clone(), "Invalid share data");
+        return err_internal(msg, "Invalid share data");
     }
 
     // Increment access count
@@ -79,12 +79,12 @@ pub fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Serve the file
     match store::get(ctx, bucket, key) {
         Ok((data, info)) => {
-            ResponseBuilder::new(msg.clone(), 200)
+            ResponseBuilder::new(msg)
                 .set_header("Content-Disposition", &format!("inline; filename=\"{}\"", key))
                 .set_header("Cache-Control", "private, max-age=3600")
                 .body(data, &info.content_type)
         }
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "File not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Storage error: {e}")),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "File not found"),
+        Err(e) => err_internal(msg, &format!("Storage error: {e}")),
     }
 }

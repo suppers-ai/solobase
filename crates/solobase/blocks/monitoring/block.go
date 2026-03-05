@@ -5,8 +5,8 @@ import (
 
 	"github.com/suppers-ai/solobase/core/apptime"
 	"github.com/suppers-ai/solobase/core/uuid"
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 const BlockName = "monitoring-feature"
@@ -15,7 +15,7 @@ const monitoringCollection = "sys_monitoring_snapshots"
 
 // MonitoringBlock uses ctx.Services().Database for snapshot persistence.
 type MonitoringBlock struct {
-	router    *waffle.Router
+	router    *wafer.Router
 	Collector *Collector
 	persister *Persister
 }
@@ -27,31 +27,31 @@ func NewMonitoringBlock() *MonitoringBlock {
 		Collector: collector,
 	}
 
-	b.router = waffle.NewRouter()
+	b.router = wafer.NewRouter()
 	b.router.Retrieve("/admin/monitoring/live", b.handleLiveStats)
 	b.router.Retrieve("/admin/monitoring/history", b.handleHistory)
 	return b
 }
 
-func (b *MonitoringBlock) Info() waffle.BlockInfo {
-	return waffle.BlockInfo{
+func (b *MonitoringBlock) Info() wafer.BlockInfo {
+	return wafer.BlockInfo{
 		Name:         BlockName,
 		Version:      "1.0.0",
 		Interface:    "http.handler",
 		Summary:      "Monitoring dashboard",
-		InstanceMode: waffle.Singleton,
-		AllowedModes: []waffle.InstanceMode{waffle.Singleton},
-		AdminUI:      &waffle.AdminUIInfo{Path: "/admin", Icon: "layout-dashboard", Title: "Dashboard"},
+		InstanceMode: wafer.Singleton,
+		AllowedModes: []wafer.InstanceMode{wafer.Singleton},
+		AdminUI:      &wafer.AdminUIInfo{Path: "/admin", Icon: "layout-dashboard", Title: "Dashboard"},
 	}
 }
 
-func (b *MonitoringBlock) Handle(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *MonitoringBlock) Handle(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	return b.router.Route(ctx, msg)
 }
 
-func (b *MonitoringBlock) Lifecycle(ctx waffle.Context, evt waffle.LifecycleEvent) error {
+func (b *MonitoringBlock) Lifecycle(ctx wafer.Context, evt wafer.LifecycleEvent) error {
 	switch evt.Type {
-	case waffle.Init:
+	case wafer.Init:
 		svc := ctx.Services()
 		if svc == nil {
 			return nil
@@ -61,7 +61,7 @@ func (b *MonitoringBlock) Lifecycle(ctx waffle.Context, evt waffle.LifecycleEven
 			b.persister = NewPersister(b.Collector, db)
 			b.persister.Start()
 		}
-	case waffle.Stop:
+	case wafer.Stop:
 		if b.persister != nil {
 			b.persister.Stop()
 		}
@@ -69,15 +69,15 @@ func (b *MonitoringBlock) Lifecycle(ctx waffle.Context, evt waffle.LifecycleEven
 	return nil
 }
 
-func (b *MonitoringBlock) handleLiveStats(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *MonitoringBlock) handleLiveStats(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	stats := b.Collector.ReadStats()
-	return waffle.JSONRespond(msg, 200, stats)
+	return wafer.JSONRespond(msg, 200, stats)
 }
 
-func (b *MonitoringBlock) handleHistory(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *MonitoringBlock) handleHistory(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.JSONRespond(msg, 200, []any{})
+		return wafer.JSONRespond(msg, 200, []any{})
 	}
 
 	timeRange := msg.Query("range")
@@ -95,7 +95,7 @@ func (b *MonitoringBlock) handleHistory(ctx waffle.Context, msg *waffle.Message)
 		Limit: 1000,
 	})
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch monitoring history")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch monitoring history")
 	}
 
 	var snapshots []map[string]any
@@ -112,7 +112,7 @@ func (b *MonitoringBlock) handleHistory(ctx waffle.Context, msg *waffle.Message)
 		})
 	}
 
-	return waffle.JSONRespond(msg, 200, snapshots)
+	return wafer.JSONRespond(msg, 200, snapshots)
 }
 
 func calculateStartTime(timeRange string) apptime.Time {

@@ -8,20 +8,22 @@ pub struct ProfileBlock;
 impl Block for ProfileBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "profile-feature".to_string(),
+            name: "@solobase/profile".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Profile sections endpoint".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: None,
+            runtime: wafer_run::types::BlockRuntime::Native,
+            requires: Vec::new(),
         }
     }
 
     fn handle(&self, _ctx: &dyn Context, msg: &mut Message) -> Result_ {
         // GET /profile/sections -> empty array
         let empty: Vec<serde_json::Value> = Vec::new();
-        json_respond(msg.clone(), 200, &empty)
+        json_respond(msg, &empty)
     }
 
     fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {

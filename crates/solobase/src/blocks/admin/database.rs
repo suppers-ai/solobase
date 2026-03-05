@@ -15,7 +15,7 @@ pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             handle_columns(ctx, msg)
         }
         ("create", "/admin/database/query") => handle_query(ctx, msg),
-        _ => err_not_found(msg.clone(), "not found"),
+        _ => err_not_found(msg, "not found"),
     }
 }
 
@@ -23,14 +23,14 @@ fn handle_info(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Get database info via raw query
     let tables = match db::query_raw(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name", &[]) {
         Ok(t) => t,
-        Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
 
     let table_names: Vec<&str> = tables.iter()
         .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
         .collect();
 
-    json_respond(msg.clone(), 200, &serde_json::json!({
+    json_respond(msg, &serde_json::json!({
         "type": "sqlite",
         "tables": table_names,
         "table_count": table_names.len()
@@ -40,7 +40,7 @@ fn handle_info(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 fn handle_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let tables = match db::query_raw(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name", &[]) {
         Ok(t) => t,
-        Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
 
     let mut table_info = Vec::new();
@@ -58,7 +58,7 @@ fn handle_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }));
     }
 
-    json_respond(msg.clone(), 200, &serde_json::json!(table_info))
+    json_respond(msg, &serde_json::json!(table_info))
 }
 
 fn handle_columns(ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -70,13 +70,13 @@ fn handle_columns(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .unwrap_or("");
 
     if table_name.is_empty() {
-        return err_bad_request(msg.clone(), "Missing table name");
+        return err_bad_request(msg, "Missing table name");
     }
 
     let safe_table = sanitize_ident(table_name);
     let columns = match db::query_raw(ctx, &format!("PRAGMA table_info(\"{}\")", safe_table), &[]) {
         Ok(c) => c,
-        Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
 
     let col_info: Vec<serde_json::Value> = columns.iter().map(|c| {
@@ -89,7 +89,7 @@ fn handle_columns(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         })
     }).collect();
 
-    json_respond(msg.clone(), 200, &serde_json::json!({"table": table_name, "columns": col_info}))
+    json_respond(msg, &serde_json::json!({"table": table_name, "columns": col_info}))
 }
 
 fn handle_query(ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -101,7 +101,7 @@ fn handle_query(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
     let body: QueryReq = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     // Only allow read-only queries (SELECT, PRAGMA, EXPLAIN) to prevent data modification
@@ -111,15 +111,15 @@ fn handle_query(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     match first_word {
         "SELECT" | "PRAGMA" | "EXPLAIN" => {
             match db::query_raw(ctx, &body.query, &body.args) {
-                Ok(records) => json_respond(msg.clone(), 200, &serde_json::json!({
+                Ok(records) => json_respond(msg, &serde_json::json!({
                     "rows": records,
                     "row_count": records.len()
                 })),
-                Err(e) => err_bad_request(msg.clone(), &format!("Query error: {e}")),
+                Err(e) => err_bad_request(msg, &format!("Query error: {e}")),
             }
         }
         _ => {
-            err_forbidden(msg.clone(), "Only SELECT, PRAGMA, and EXPLAIN queries are allowed")
+            err_forbidden(msg, "Only SELECT, PRAGMA, and EXPLAIN queries are allowed")
         }
     }
 }

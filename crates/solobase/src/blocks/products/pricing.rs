@@ -18,13 +18,13 @@ pub fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let body: CalcReq = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     // Get product
     let product = match db::get(ctx, PRODUCTS_COLLECTION, &body.product_id) {
         Ok(p) => p,
-        Err(_) => return err_not_found(msg.clone(), "Product not found"),
+        Err(_) => return err_not_found(msg, "Product not found"),
     };
 
     // Get pricing template
@@ -33,7 +33,7 @@ pub fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         // Direct price from product
         let base_price = product.data.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let total = base_price * body.quantity as f64;
-        return json_respond(msg.clone(), 200, &serde_json::json!({
+        return json_respond(msg, &serde_json::json!({
             "unit_price": base_price,
             "quantity": body.quantity,
             "total": total,
@@ -43,18 +43,18 @@ pub fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let template = match db::get(ctx, PRICING_COLLECTION, template_id) {
         Ok(t) => t,
-        Err(_) => return err_internal(msg.clone(), "Pricing template not found"),
+        Err(_) => return err_internal(msg, "Pricing template not found"),
     };
 
     let formula = template.data.get("formula").and_then(|v| v.as_str()).unwrap_or("");
     if formula.is_empty() {
-        return err_internal(msg.clone(), "Empty pricing formula");
+        return err_internal(msg, "Empty pricing formula");
     }
 
     // Evaluate formula
     let unit_price = match evaluate_formula(formula, &body.variables) {
         Ok(p) => p,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Formula evaluation error: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Formula evaluation error: {e}")),
     };
 
     // Check conditions
@@ -79,7 +79,7 @@ pub fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let total = final_price * body.quantity as f64;
 
-    json_respond(msg.clone(), 200, &serde_json::json!({
+    json_respond(msg, &serde_json::json!({
         "unit_price": final_price,
         "quantity": body.quantity,
         "total": total,

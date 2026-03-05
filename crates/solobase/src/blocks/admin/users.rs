@@ -16,7 +16,7 @@ pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ("retrieve", _) if path.starts_with("/admin/users/") => handle_get(ctx, msg),
         ("update", _) if path.starts_with("/admin/users/") => handle_update(ctx, msg),
         ("delete", _) if path.starts_with("/admin/users/") => handle_delete(ctx, msg),
-        _ => err_not_found(msg.clone(), "not found"),
+        _ => err_not_found(msg, "not found"),
     }
 }
 
@@ -48,9 +48,9 @@ fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             for record in &mut result.records {
                 record.data.remove("password_hash");
             }
-            json_respond(msg.clone(), 200, &result)
+            json_respond(msg, &result)
         }
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -61,7 +61,7 @@ fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let path = msg.path().to_string();
         let id = path.strip_prefix("/admin/users/").unwrap_or("").to_string();
         if id.is_empty() {
-            return err_bad_request(msg.clone(), "Missing user ID");
+            return err_bad_request(msg, "Missing user ID");
         }
         return get_user(ctx, msg, &id);
     }
@@ -91,14 +91,14 @@ fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
             if let Some(obj) = resp.as_object_mut() {
                 obj.insert("roles".to_string(), serde_json::json!(roles));
             }
-            json_respond(msg.clone(), 200, &resp)
+            json_respond(msg, &resp)
         }
         Err(e) => {
             let msg_str = format!("{e}");
             if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg.clone(), "User not found")
+                err_not_found(msg, "User not found")
             } else {
-                err_internal(msg.clone(), &format!("Database error: {e}"))
+                err_internal(msg, &format!("Database error: {e}"))
             }
         }
     }
@@ -109,12 +109,12 @@ fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let id = msg.var("id");
     let id = if id.is_empty() { path.strip_prefix("/admin/users/").unwrap_or("") } else { id };
     if id.is_empty() {
-        return err_bad_request(msg.clone(), "Missing user ID");
+        return err_bad_request(msg, "Missing user ID");
     }
 
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     // Only allow safe fields
@@ -129,14 +129,14 @@ fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     match db::update(ctx, COLLECTION, id, data) {
         Ok(mut record) => {
             record.data.remove("password_hash");
-            json_respond(msg.clone(), 200, &record)
+            json_respond(msg, &record)
         }
         Err(e) => {
             let msg_str = format!("{e}");
             if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg.clone(), "User not found")
+                err_not_found(msg, "User not found")
             } else {
-                err_internal(msg.clone(), &format!("Database error: {e}"))
+                err_internal(msg, &format!("Database error: {e}"))
             }
         }
     }
@@ -147,18 +147,18 @@ fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let id = msg.var("id");
     let id = if id.is_empty() { path.strip_prefix("/admin/users/").unwrap_or("") } else { id };
     if id.is_empty() {
-        return err_bad_request(msg.clone(), "Missing user ID");
+        return err_bad_request(msg, "Missing user ID");
     }
 
     // Soft delete
     match db::soft_delete(ctx, COLLECTION, id) {
-        Ok(_) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
+        Ok(_) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) => {
             let msg_str = format!("{e}");
             if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg.clone(), "User not found")
+                err_not_found(msg, "User not found")
             } else {
-                err_internal(msg.clone(), &format!("Database error: {e}"))
+                err_internal(msg, &format!("Database error: {e}"))
             }
         }
     }

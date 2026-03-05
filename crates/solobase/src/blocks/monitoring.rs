@@ -46,7 +46,7 @@ impl MonitoringBlock {
         stats.uptime_seconds = (chrono::Utc::now() - start).num_seconds().max(0) as u64;
         let s = stats.clone();
         drop(stats);
-        json_respond(msg.clone(), 200, &s)
+        json_respond(msg, &s)
     }
 
     fn handle_history(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -59,8 +59,8 @@ impl MonitoringBlock {
         };
 
         match db::list(ctx, "monitoring_snapshots", &opts) {
-            Ok(result) => json_respond(msg.clone(), 200, &result),
-            Err(e) => err_internal(msg.clone(), &format!("Failed to fetch history: {e}")),
+            Ok(result) => json_respond(msg, &result),
+            Err(e) => err_internal(msg, &format!("Failed to fetch history: {e}")),
         }
     }
 }
@@ -68,13 +68,15 @@ impl MonitoringBlock {
 impl Block for MonitoringBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "monitoring-feature".to_string(),
+            name: "@solobase/monitoring".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Monitoring dashboard with live stats and history".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: None,
+            runtime: wafer_run::types::BlockRuntime::Native,
+            requires: Vec::new(),
         }
     }
 
@@ -83,7 +85,7 @@ impl Block for MonitoringBlock {
         match path {
             "/admin/monitoring/live" => self.handle_live(msg),
             "/admin/monitoring/history" => self.handle_history(ctx, msg),
-            _ => err_not_found(msg.clone(), "not found"),
+            _ => err_not_found(msg, "not found"),
         }
     }
 

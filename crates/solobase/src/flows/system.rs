@@ -10,15 +10,15 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "flow": "http-infra",
+        "flow": "@wafer/infra",
         "next": [
-            { "match": "GET:/health",     "block": "system-feature" },
-            { "match": "GET:/debug/time", "block": "system-feature" },
+            { "match": "GET:/health",     "block": "@solobase/system" },
+            { "match": "GET:/debug/time", "block": "@solobase/system" },
             {
                 "match": "GET:/nav",
-                "flow": "auth-pipe",
+                "flow": "@wafer/auth-pipe",
                 "next": [
-                    { "block": "system-feature" }
+                    { "block": "@solobase/system" }
                 ]
             }
         ]

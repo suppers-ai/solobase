@@ -8,8 +8,8 @@ import (
 
 	"github.com/suppers-ai/solobase/core/apptime"
 	"github.com/suppers-ai/solobase/core/uuid"
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 const BlockName = "legalpages-feature"
@@ -18,7 +18,7 @@ const legalDocumentsCollection = "ext_legalpages_legal_documents"
 
 // LegalPagesBlock uses ctx.Services().Database for legal document management.
 type LegalPagesBlock struct {
-	router *waffle.Router
+	router *wafer.Router
 	config *LegalPagesConfig
 }
 
@@ -29,7 +29,7 @@ func NewLegalPagesBlock() *LegalPagesBlock {
 			EnablePrivacy: true,
 		},
 	}
-	b.router = waffle.NewRouter()
+	b.router = wafer.NewRouter()
 
 	// Public routes
 	b.router.Retrieve("/ext/legalpages/terms", b.handlePublicTerms)
@@ -48,23 +48,23 @@ func NewLegalPagesBlock() *LegalPagesBlock {
 	return b
 }
 
-func (b *LegalPagesBlock) Info() waffle.BlockInfo {
-	return waffle.BlockInfo{
+func (b *LegalPagesBlock) Info() wafer.BlockInfo {
+	return wafer.BlockInfo{
 		Name:         BlockName,
 		Version:      "1.0.0",
 		Interface:    "http.handler",
 		Summary:      "Legal pages management",
-		InstanceMode: waffle.Singleton,
-		AllowedModes: []waffle.InstanceMode{waffle.Singleton},
+		InstanceMode: wafer.Singleton,
+		AllowedModes: []wafer.InstanceMode{wafer.Singleton},
 	}
 }
 
-func (b *LegalPagesBlock) Handle(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *LegalPagesBlock) Handle(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	return b.router.Route(ctx, msg)
 }
 
-func (b *LegalPagesBlock) Lifecycle(ctx waffle.Context, evt waffle.LifecycleEvent) error {
-	if evt.Type == waffle.Init {
+func (b *LegalPagesBlock) Lifecycle(ctx wafer.Context, evt wafer.LifecycleEvent) error {
+	if evt.Type == wafer.Init {
 		svc := ctx.Services()
 		if svc == nil {
 			return nil
@@ -80,19 +80,19 @@ func (b *LegalPagesBlock) Lifecycle(ctx waffle.Context, evt waffle.LifecycleEven
 
 // --- Public handlers ---
 
-func (b *LegalPagesBlock) handlePublicTerms(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *LegalPagesBlock) handlePublicTerms(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	return b.renderPublicPage(ctx, msg, DocumentTypeTerms, "Terms and Conditions")
 }
 
-func (b *LegalPagesBlock) handlePublicPrivacy(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *LegalPagesBlock) handlePublicPrivacy(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	return b.renderPublicPage(ctx, msg, DocumentTypePrivacy, "Privacy Policy")
 }
 
-func (b *LegalPagesBlock) renderPublicPage(ctx waffle.Context, msg *waffle.Message, docType, defaultTitle string) waffle.Result {
+func (b *LegalPagesBlock) renderPublicPage(ctx wafer.Context, msg *wafer.Message, docType, defaultTitle string) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
 		html := renderPublicPageHTML(defaultTitle, "", "This document is not yet available.")
-		return waffle.Respond(msg, 200, []byte(html), "text/html; charset=utf-8")
+		return wafer.Respond(msg, 200, []byte(html), "text/html; charset=utf-8")
 	}
 
 	doc, err := b.getPublishedDocument(db, docType)
@@ -113,15 +113,15 @@ func (b *LegalPagesBlock) renderPublicPage(ctx waffle.Context, msg *waffle.Messa
 	}
 
 	html := renderPublicPageHTML(title, content, message)
-	return waffle.Respond(msg, 200, []byte(html), "text/html; charset=utf-8")
+	return wafer.Respond(msg, 200, []byte(html), "text/html; charset=utf-8")
 }
 
 // --- Admin API handlers ---
 
-func (b *LegalPagesBlock) handleGetDocuments(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *LegalPagesBlock) handleGetDocuments(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	docType := msg.Query("type")
@@ -136,55 +136,55 @@ func (b *LegalPagesBlock) handleGetDocuments(ctx waffle.Context, msg *waffle.Mes
 			}
 			response = append(response, docInfo)
 		}
-		return waffle.JSONRespond(msg, 200, response)
+		return wafer.JSONRespond(msg, 200, response)
 	}
 
 	if !isValidDocumentType(docType) {
-		return waffle.Error(msg, 400, "bad_request", "Invalid document type")
+		return wafer.Error(msg, 400, "bad_request", "Invalid document type")
 	}
 
 	doc, err := b.getLatestDocument(db, docType)
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) {
-			return waffle.JSONRespond(msg, 200, map[string]any{"type": docType, "document": nil})
+			return wafer.JSONRespond(msg, 200, map[string]any{"type": docType, "document": nil})
 		}
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, doc)
+	return wafer.JSONRespond(msg, 200, doc)
 }
 
-func (b *LegalPagesBlock) handleGetDocument(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *LegalPagesBlock) handleGetDocument(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	docType := msg.Var("type")
 	if !isValidDocumentType(docType) {
-		return waffle.Error(msg, 400, "bad_request", "Invalid document type")
+		return wafer.Error(msg, 400, "bad_request", "Invalid document type")
 	}
 
 	doc, err := b.getLatestDocument(db, docType)
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) {
-			return waffle.Error(msg, 404, "not_found", "Document not found")
+			return wafer.Error(msg, 404, "not_found", "Document not found")
 		}
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, doc)
+	return wafer.JSONRespond(msg, 200, doc)
 }
 
-func (b *LegalPagesBlock) handleSaveDocument(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *LegalPagesBlock) handleSaveDocument(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	docType := msg.Var("type")
 	userID := msg.UserID()
 
 	if !isValidDocumentType(docType) {
-		return waffle.Error(msg, 400, "bad_request", "Invalid document type")
+		return wafer.Error(msg, 400, "bad_request", "Invalid document type")
 	}
 
 	var body struct {
@@ -192,7 +192,7 @@ func (b *LegalPagesBlock) handleSaveDocument(ctx waffle.Context, msg *waffle.Mes
 		Content string `json:"content"`
 	}
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	// Get next version number
@@ -226,30 +226,30 @@ func (b *LegalPagesBlock) handleSaveDocument(ctx waffle.Context, msg *waffle.Mes
 	data["id"] = uuid.New().String()
 	record, err := db.Create(context.Background(), legalDocumentsCollection, data)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
 	result := record.Data
 	result["id"] = record.ID
-	return waffle.JSONRespond(msg, 201, result)
+	return wafer.JSONRespond(msg, 201, result)
 }
 
-func (b *LegalPagesBlock) handlePublishDocument(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *LegalPagesBlock) handlePublishDocument(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	docType := msg.Var("type")
 	if !isValidDocumentType(docType) {
-		return waffle.Error(msg, 400, "bad_request", "Invalid document type")
+		return wafer.Error(msg, 400, "bad_request", "Invalid document type")
 	}
 
 	var body struct {
 		Version int `json:"version"`
 	}
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	// Find the document by type and version
@@ -261,7 +261,7 @@ func (b *LegalPagesBlock) handlePublishDocument(ctx waffle.Context, msg *waffle.
 		Limit: 1,
 	})
 	if err != nil || len(records.Records) == 0 {
-		return waffle.Error(msg, 404, "not_found", "Document version not found")
+		return wafer.Error(msg, 404, "not_found", "Document version not found")
 	}
 
 	record := records.Records[0]
@@ -270,21 +270,21 @@ func (b *LegalPagesBlock) handlePublishDocument(ctx waffle.Context, msg *waffle.
 		"updated_at": apptime.NowTime().Format(apptime.TimeFormat),
 	})
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]string{"status": "published"})
+	return wafer.JSONRespond(msg, 200, map[string]string{"status": "published"})
 }
 
-func (b *LegalPagesBlock) handlePreviewDocument(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *LegalPagesBlock) handlePreviewDocument(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	docType := msg.Var("type")
 	if !isValidDocumentType(docType) {
-		return waffle.Error(msg, 400, "bad_request", "Invalid document type")
+		return wafer.Error(msg, 400, "bad_request", "Invalid document type")
 	}
 
 	versionStr := msg.Query("version")
@@ -294,7 +294,7 @@ func (b *LegalPagesBlock) handlePreviewDocument(ctx waffle.Context, msg *waffle.
 	if versionStr != "" {
 		version, parseErr := strconv.Atoi(versionStr)
 		if parseErr != nil {
-			return waffle.Error(msg, 400, "bad_request", "Invalid version number")
+			return wafer.Error(msg, 400, "bad_request", "Invalid version number")
 		}
 		doc, err = b.getDocumentByVersion(db, docType, version)
 	} else {
@@ -303,9 +303,9 @@ func (b *LegalPagesBlock) handlePreviewDocument(ctx waffle.Context, msg *waffle.
 
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) {
-			return waffle.Error(msg, 404, "not_found", "Document not found")
+			return wafer.Error(msg, 404, "not_found", "Document not found")
 		}
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
 	title := fmt.Sprintf("%v", doc["title"])
@@ -323,18 +323,18 @@ func (b *LegalPagesBlock) handlePreviewDocument(ctx waffle.Context, msg *waffle.
 <h1>%s</h1>%s
 </body></html>`, title, version, title, content)
 
-	return waffle.Respond(msg, 200, []byte(html), "text/html; charset=utf-8")
+	return wafer.Respond(msg, 200, []byte(html), "text/html; charset=utf-8")
 }
 
-func (b *LegalPagesBlock) handleGetDocumentHistory(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *LegalPagesBlock) handleGetDocumentHistory(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	docType := msg.Var("type")
 	if !isValidDocumentType(docType) {
-		return waffle.Error(msg, 400, "bad_request", "Invalid document type")
+		return wafer.Error(msg, 400, "bad_request", "Invalid document type")
 	}
 
 	records, err := db.List(context.Background(), legalDocumentsCollection, &database.ListOptions{
@@ -345,7 +345,7 @@ func (b *LegalPagesBlock) handleGetDocumentHistory(ctx waffle.Context, msg *waff
 		Limit: 100,
 	})
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
 	var docs []map[string]any
@@ -354,11 +354,11 @@ func (b *LegalPagesBlock) handleGetDocumentHistory(ctx waffle.Context, msg *waff
 		doc["id"] = r.ID
 		docs = append(docs, doc)
 	}
-	return waffle.JSONRespond(msg, 200, docs)
+	return wafer.JSONRespond(msg, 200, docs)
 }
 
-func (b *LegalPagesBlock) handleAdminUI(_ waffle.Context, msg *waffle.Message) waffle.Result {
-	return waffle.Respond(msg, 200, []byte(AdminTemplate), "text/html; charset=utf-8")
+func (b *LegalPagesBlock) handleAdminUI(_ wafer.Context, msg *wafer.Message) wafer.Result {
+	return wafer.Respond(msg, 200, []byte(AdminTemplate), "text/html; charset=utf-8")
 }
 
 // --- Internal helpers ---

@@ -7,8 +7,8 @@ import (
 	"github.com/suppers-ai/solobase/core/apptime"
 	coreauth "github.com/suppers-ai/solobase/core/auth"
 	"github.com/suppers-ai/solobase/core/uuid"
-	cryptosvc "github.com/suppers-ai/waffle-go/services/crypto"
-	"github.com/suppers-ai/waffle-go/services/database"
+	cryptosvc "github.com/wafer-run/wafer-go/services/crypto"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 // API Key prefix for all generated keys.

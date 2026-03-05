@@ -16,18 +16,18 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "flow": "http-infra",
+        "flow": "@wafer/infra",
         "next": [
-            { "match": "POST:/auth/login",                "block": "auth-feature" },
-            { "match": "POST:/auth/signup",               "block": "auth-feature" },
-            { "match": "POST:/auth/refresh",              "block": "auth-feature" },
-            { "match": "*:/auth/oauth/**",                "block": "auth-feature" },
-            { "match": "POST:/internal/oauth/sync-user",  "block": "auth-feature" },
+            { "match": "POST:/auth/login",                "block": "@solobase/auth" },
+            { "match": "POST:/auth/signup",               "block": "@solobase/auth" },
+            { "match": "POST:/auth/refresh",              "block": "@solobase/auth" },
+            { "match": "*:/auth/oauth/**",                "block": "@solobase/auth" },
+            { "match": "POST:/internal/oauth/sync-user",  "block": "@solobase/auth" },
             {
                 "match": "*:/auth/**",
-                "flow": "auth-pipe",
+                "flow": "@wafer/auth-pipe",
                 "next": [
-                    { "block": "auth-feature" }
+                    { "block": "@solobase/auth" }
                 ]
             }
         ]

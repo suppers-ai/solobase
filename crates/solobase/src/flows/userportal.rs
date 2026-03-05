@@ -8,9 +8,9 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "flow": "http-infra",
+        "flow": "@wafer/infra",
         "next": [
-            { "block": "userportal-feature" }
+            { "block": "@solobase/userportal" }
         ]
     }
 }"#;

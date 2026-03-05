@@ -12,7 +12,7 @@ pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match (action, path) {
         ("retrieve", "/admin/logs") => handle_list(ctx, msg),
-        _ => err_not_found(msg.clone(), "not found"),
+        _ => err_not_found(msg, "not found"),
     }
 }
 
@@ -48,7 +48,7 @@ fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
     match db::paginated_list(ctx, COLLECTION, page as i64, page_size as i64, filters, sort) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }

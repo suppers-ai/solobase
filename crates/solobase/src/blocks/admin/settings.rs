@@ -16,7 +16,7 @@ pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ("retrieve", _) if path.starts_with("/admin/settings/") || path.starts_with("/settings/") => handle_get(ctx, msg),
         ("update", _) if path.starts_with("/admin/settings/") => handle_set(ctx, msg),
         ("create", "/admin/settings") => handle_set_batch(ctx, msg),
-        _ => err_not_found(msg.clone(), "not found"),
+        _ => err_not_found(msg, "not found"),
     }
 }
 
@@ -33,9 +33,9 @@ fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     settings.insert(key.to_string(), value);
                 }
             }
-            json_respond(msg.clone(), 200, &settings)
+            json_respond(msg, &settings)
         }
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -44,16 +44,16 @@ fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let key = path.strip_prefix("/admin/settings/")
         .or_else(|| path.strip_prefix("/settings/"))
         .unwrap_or("");
-    if key.is_empty() { return err_bad_request(msg.clone(), "Missing setting key"); }
+    if key.is_empty() { return err_bad_request(msg, "Missing setting key"); }
 
     match db::get_by_field(ctx, COLLECTION, "key", serde_json::Value::String(key.to_string())) {
-        Ok(record) => json_respond(msg.clone(), 200, &record),
+        Ok(record) => json_respond(msg, &record),
         Err(e) => {
             let msg_str = format!("{e}");
             if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg.clone(), "Setting not found")
+                err_not_found(msg, "Setting not found")
             } else {
-                err_internal(msg.clone(), &format!("Database error: {e}"))
+                err_internal(msg, &format!("Database error: {e}"))
             }
         }
     }
@@ -62,13 +62,13 @@ fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 fn handle_set(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let key = path.strip_prefix("/admin/settings/").unwrap_or("");
-    if key.is_empty() { return err_bad_request(msg.clone(), "Missing setting key"); }
+    if key.is_empty() { return err_bad_request(msg, "Missing setting key"); }
 
     #[derive(serde::Deserialize)]
     struct Req { value: serde_json::Value }
     let body: Req = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     let mut data = HashMap::new();
@@ -78,15 +78,15 @@ fn handle_set(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("updated_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
 
     match db::upsert(ctx, COLLECTION, "key", serde_json::Value::String(key.to_string()), data) {
-        Ok(record) => json_respond(msg.clone(), 200, &record),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_set_batch(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     let now = chrono::Utc::now().to_rfc3339();
@@ -101,7 +101,7 @@ fn handle_set_batch(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let _ = db::upsert(ctx, COLLECTION, "key", serde_json::Value::String(key.clone()), data);
     }
 
-    json_respond(msg.clone(), 200, &serde_json::json!({"updated": body.len()}))
+    json_respond(msg, &serde_json::json!({"updated": body.len()}))
 }
 
 pub fn seed_defaults(ctx: &dyn Context) {

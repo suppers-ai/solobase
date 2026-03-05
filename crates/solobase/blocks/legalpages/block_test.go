@@ -7,31 +7,31 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
-	"github.com/suppers-ai/waffle-go/waffletest"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
+	"github.com/wafer-run/wafer-go/wafertest"
 )
 
-func setupLegalPages(t *testing.T) (*LegalPagesBlock, waffle.Context, database.Service) {
+func setupLegalPages(t *testing.T) (*LegalPagesBlock, wafer.Context, database.Service) {
 	t.Helper()
 	manifest, err := os.ReadFile("block.json")
 	require.NoError(t, err)
 
-	db := waffletest.SetupDBFromManifest(t, manifest)
-	ctx := waffletest.NewContext(db)
+	db := wafertest.SetupDBFromManifest(t, manifest)
+	ctx := wafertest.NewContext(db)
 	block := NewLegalPagesBlock()
 	// InitBlock triggers seedDefaults which inserts default terms/privacy docs
-	waffletest.InitBlock(t, block, ctx)
+	wafertest.InitBlock(t, block, ctx)
 	return block, ctx, db
 }
 
-func setupLegalPagesNoSeed(t *testing.T) (*LegalPagesBlock, waffle.Context, database.Service) {
+func setupLegalPagesNoSeed(t *testing.T) (*LegalPagesBlock, wafer.Context, database.Service) {
 	t.Helper()
 	manifest, err := os.ReadFile("block.json")
 	require.NoError(t, err)
 
-	db := waffletest.SetupDBFromManifest(t, manifest)
-	ctx := waffletest.NewContext(db)
+	db := wafertest.SetupDBFromManifest(t, manifest)
+	ctx := wafertest.NewContext(db)
 	block := NewLegalPagesBlock()
 	// Do NOT call InitBlock -- skip seeding so we can test empty state
 	return block, ctx, db
@@ -40,26 +40,26 @@ func setupLegalPagesNoSeed(t *testing.T) (*LegalPagesBlock, waffle.Context, data
 func TestGetPublicTerms_Empty(t *testing.T) {
 	block, ctx, _ := setupLegalPagesNoSeed(t)
 
-	msg := waffletest.Retrieve("/ext/legalpages/terms")
+	msg := wafertest.Retrieve("/ext/legalpages/terms")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	// Should return HTML with "not yet available" message since no docs exist
-	body := waffletest.ResponseBody(result)
+	body := wafertest.ResponseBody(result)
 	assert.Contains(t, string(body), "not yet available")
 }
 
 func TestGetPublicTerms_WithSeededData(t *testing.T) {
 	block, ctx, _ := setupLegalPages(t)
 
-	msg := waffletest.Retrieve("/ext/legalpages/terms")
+	msg := wafertest.Retrieve("/ext/legalpages/terms")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 
-	body := waffletest.ResponseBody(result)
+	body := wafertest.ResponseBody(result)
 	// The seeded default content contains "Acceptance of Terms"
 	assert.Contains(t, string(body), "Acceptance of Terms")
 }
@@ -67,12 +67,12 @@ func TestGetPublicTerms_WithSeededData(t *testing.T) {
 func TestGetPublicPrivacy_WithSeededData(t *testing.T) {
 	block, ctx, _ := setupLegalPages(t)
 
-	msg := waffletest.Retrieve("/ext/legalpages/privacy")
+	msg := wafertest.Retrieve("/ext/legalpages/privacy")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 
-	body := waffletest.ResponseBody(result)
+	body := wafertest.ResponseBody(result)
 	assert.Contains(t, string(body), "Information We Collect")
 }
 
@@ -80,18 +80,18 @@ func TestSaveDocument(t *testing.T) {
 	block, ctx, _ := setupLegalPages(t)
 
 	// Save a new version of terms -- use actual path so router extracts {type}=terms
-	msg := waffletest.Create("/ext/legalpages/api/documents/terms", map[string]any{
+	msg := wafertest.Create("/ext/legalpages/api/documents/terms", map[string]any{
 		"title":   "Updated Terms",
 		"content": "<p>New terms content</p>",
 	})
-	waffletest.WithAuth(msg, "admin-1", "admin@test.com")
+	wafertest.WithAuth(msg, "admin-1", "admin@test.com")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 201, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 201, wafertest.Status(result))
 
 	var resp map[string]any
-	waffletest.DecodeResponse(t, result, &resp)
+	wafertest.DecodeResponse(t, result, &resp)
 	assert.Equal(t, "Updated Terms", resp["title"])
 	assert.Equal(t, "<p>New terms content</p>", resp["content"])
 	// Version should be 2 since seed created version 1
@@ -101,13 +101,13 @@ func TestSaveDocument(t *testing.T) {
 func TestGetDocumentByType(t *testing.T) {
 	block, ctx, _ := setupLegalPages(t)
 
-	msg := waffletest.Retrieve("/ext/legalpages/api/documents/terms")
+	msg := wafertest.Retrieve("/ext/legalpages/api/documents/terms")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var doc map[string]any
-	waffletest.DecodeResponse(t, result, &doc)
+	wafertest.DecodeResponse(t, result, &doc)
 	assert.Equal(t, "Terms and Conditions", doc["title"])
 	assert.Equal(t, "terms", doc["document_type"])
 }
@@ -115,23 +115,23 @@ func TestGetDocumentByType(t *testing.T) {
 func TestGetDocumentByType_InvalidType(t *testing.T) {
 	block, ctx, _ := setupLegalPages(t)
 
-	msg := waffletest.Retrieve("/ext/legalpages/api/documents/invalid")
+	msg := wafertest.Retrieve("/ext/legalpages/api/documents/invalid")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionError, result.Action)
-	assert.Equal(t, 400, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionError, result.Action)
+	assert.Equal(t, 400, wafertest.Status(result))
 }
 
 func TestGetDocumentsList(t *testing.T) {
 	block, ctx, _ := setupLegalPages(t)
 
-	msg := waffletest.Retrieve("/ext/legalpages/api/documents")
+	msg := wafertest.Retrieve("/ext/legalpages/api/documents")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var docs []map[string]any
-	waffletest.DecodeResponse(t, result, &docs)
+	wafertest.DecodeResponse(t, result, &docs)
 	// Should have both terms and privacy entries
 	require.Len(t, docs, 2)
 
@@ -148,50 +148,50 @@ func TestPublishDocument(t *testing.T) {
 
 	// The seeded documents are already published at version 1,
 	// so publish version 1 again (idempotent operation)
-	msg := waffletest.Create("/ext/legalpages/api/documents/terms/publish", map[string]any{
+	msg := wafertest.Create("/ext/legalpages/api/documents/terms/publish", map[string]any{
 		"version": 1,
 	})
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var resp map[string]any
-	waffletest.DecodeResponse(t, result, &resp)
+	wafertest.DecodeResponse(t, result, &resp)
 	assert.Equal(t, "published", resp["status"])
 }
 
 func TestPublishDocument_VersionNotFound(t *testing.T) {
 	block, ctx, _ := setupLegalPages(t)
 
-	msg := waffletest.Create("/ext/legalpages/api/documents/terms/publish", map[string]any{
+	msg := wafertest.Create("/ext/legalpages/api/documents/terms/publish", map[string]any{
 		"version": 999,
 	})
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionError, result.Action)
-	assert.Equal(t, 404, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionError, result.Action)
+	assert.Equal(t, 404, wafertest.Status(result))
 }
 
 func TestGetDocumentHistory(t *testing.T) {
 	block, ctx, _ := setupLegalPages(t)
 
 	// Create an additional version
-	msg := waffletest.Create("/ext/legalpages/api/documents/terms", map[string]any{
+	msg := wafertest.Create("/ext/legalpages/api/documents/terms", map[string]any{
 		"title":   "Terms v2",
 		"content": "<p>Version 2</p>",
 	})
-	waffletest.WithAuth(msg, "admin-1", "admin@test.com")
+	wafertest.WithAuth(msg, "admin-1", "admin@test.com")
 	result := block.Handle(ctx, msg)
-	require.Equal(t, 201, waffletest.Status(result))
+	require.Equal(t, 201, wafertest.Status(result))
 
 	// Get history
-	historyMsg := waffletest.Retrieve("/ext/legalpages/api/documents/terms/history")
+	historyMsg := wafertest.Retrieve("/ext/legalpages/api/documents/terms/history")
 	histResult := block.Handle(ctx, historyMsg)
 
-	assert.Equal(t, 200, waffletest.Status(histResult))
+	assert.Equal(t, 200, wafertest.Status(histResult))
 
 	var history []map[string]any
-	waffletest.DecodeResponse(t, histResult, &history)
+	wafertest.DecodeResponse(t, histResult, &history)
 	// Should have 2 versions: seed (v1) + our new one (v2)
 	require.Len(t, history, 2)
 	// Sorted by version desc, so v2 first

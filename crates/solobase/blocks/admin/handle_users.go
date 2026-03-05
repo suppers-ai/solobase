@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/suppers-ai/solobase/core/constants"
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 const usersCollection = "auth_users"
@@ -18,10 +18,10 @@ func (b *AdminBlock) registerUsersRoutes() {
 	b.router.Delete("/admin/users/{id}", b.handleDeleteUser)
 }
 
-func (b *AdminBlock) handleGetUsers(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetUsers(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	page, pageSize, _ := msg.PaginationParams(constants.UsersPageSize)
@@ -34,7 +34,7 @@ func (b *AdminBlock) handleGetUsers(ctx waffle.Context, msg *waffle.Message) waf
 		[]database.SortField{{Field: "created_at", Desc: true}},
 	)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch users")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch users")
 	}
 
 	users := make([]map[string]any, 0, len(result.Records))
@@ -43,7 +43,7 @@ func (b *AdminBlock) handleGetUsers(ctx waffle.Context, msg *waffle.Message) waf
 	}
 
 	totalPages := (result.TotalCount + pageSize - 1) / pageSize
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"data":       users,
 		"total":      result.TotalCount,
 		"page":       page,
@@ -52,35 +52,35 @@ func (b *AdminBlock) handleGetUsers(ctx waffle.Context, msg *waffle.Message) waf
 	})
 }
 
-func (b *AdminBlock) handleGetUser(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetUser(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	userID := msg.Var("id")
 	record, err := db.Get(context.Background(), usersCollection, userID)
 	if err != nil {
 		if err == database.ErrNotFound {
-			return waffle.Error(msg, 404, "not_found", "User not found")
+			return wafer.Error(msg, 404, "not_found", "User not found")
 		}
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch user")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch user")
 	}
 
-	return waffle.JSONRespond(msg, 200, sanitizeUser(record.Data))
+	return wafer.JSONRespond(msg, 200, sanitizeUser(record.Data))
 }
 
-func (b *AdminBlock) handleUpdateUser(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleUpdateUser(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	userID := msg.Var("id")
 
 	var updates map[string]any
 	if err := msg.Decode(&updates); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	for _, key := range []string{"id", "password", "created_at", "deleted_at"} {
@@ -90,18 +90,18 @@ func (b *AdminBlock) handleUpdateUser(ctx waffle.Context, msg *waffle.Message) w
 	record, err := db.Update(context.Background(), usersCollection, userID, updates)
 	if err != nil {
 		if err == database.ErrNotFound {
-			return waffle.Error(msg, 404, "not_found", "User not found")
+			return wafer.Error(msg, 404, "not_found", "User not found")
 		}
-		return waffle.Error(msg, 500, "internal_error", "Failed to update user")
+		return wafer.Error(msg, 500, "internal_error", "Failed to update user")
 	}
 
-	return waffle.JSONRespond(msg, 200, sanitizeUser(record.Data))
+	return wafer.JSONRespond(msg, 200, sanitizeUser(record.Data))
 }
 
-func (b *AdminBlock) handleDeleteUser(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleDeleteUser(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	userID := msg.Var("id")
@@ -109,12 +109,12 @@ func (b *AdminBlock) handleDeleteUser(ctx waffle.Context, msg *waffle.Message) w
 	_, err := database.SoftDelete(context.Background(), db, usersCollection, userID)
 	if err != nil {
 		if err == database.ErrNotFound {
-			return waffle.Error(msg, 404, "not_found", "User not found")
+			return wafer.Error(msg, 404, "not_found", "User not found")
 		}
-		return waffle.Error(msg, 500, "internal_error", "Failed to delete user")
+		return wafer.Error(msg, 500, "internal_error", "Failed to delete user")
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]string{"message": "User deleted successfully"})
+	return wafer.JSONRespond(msg, 200, map[string]string{"message": "User deleted successfully"})
 }
 
 func sanitizeUser(data map[string]any) map[string]any {

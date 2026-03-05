@@ -6,8 +6,8 @@ import (
 
 	"github.com/suppers-ai/solobase/core/iam"
 	"github.com/suppers-ai/solobase/core/constants"
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 func (b *AdminBlock) registerIAMRoutes() {
@@ -20,15 +20,15 @@ func (b *AdminBlock) registerIAMRoutes() {
 	b.router.Delete("/admin/iam/users/{userId}/roles/{roleName}", b.handleRemoveRole)
 }
 
-func (b *AdminBlock) handleGetRoles(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetRoles(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	records, err := database.ListAll(context.Background(), db, "iam_roles")
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
 	roles := make([]iam.Role, 0, len(records))
@@ -41,18 +41,18 @@ func (b *AdminBlock) handleGetRoles(ctx waffle.Context, msg *waffle.Message) waf
 			IsSystem:    boolVal(r.Data["is_system"]),
 		})
 	}
-	return waffle.JSONRespond(msg, 200, roles)
+	return wafer.JSONRespond(msg, 200, roles)
 }
 
-func (b *AdminBlock) handleCreateRole(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleCreateRole(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	var role iam.Role
 	if err := msg.Decode(&role); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	record, err := db.Create(context.Background(), "iam_roles", map[string]any{
@@ -62,47 +62,47 @@ func (b *AdminBlock) handleCreateRole(ctx waffle.Context, msg *waffle.Message) w
 		"is_system":    false,
 	})
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
 	role.ID = record.ID
 	role.IsSystem = false
-	return waffle.JSONRespond(msg, 201, role)
+	return wafer.JSONRespond(msg, 201, role)
 }
 
-func (b *AdminBlock) handleDeleteRole(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleDeleteRole(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	roleID := msg.Var("id")
 
 	record, err := db.Get(context.Background(), "iam_roles", roleID)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", "Role not found")
+		return wafer.Error(msg, 404, "not_found", "Role not found")
 	}
 	if boolVal(record.Data["is_system"]) {
-		return waffle.Error(msg, 400, "bad_request", "Cannot delete system role")
+		return wafer.Error(msg, 400, "bad_request", "Cannot delete system role")
 	}
 
 	roleName := strVal(record.Data["name"])
 	if roleName != "" {
 		if err := database.DeleteByField(context.Background(), db, "iam_user_roles", "role_name", roleName); err != nil {
-			return waffle.Error(msg, 500, "internal_error", "Failed to remove role assignments")
+			return wafer.Error(msg, 500, "internal_error", "Failed to remove role assignments")
 		}
 	}
 
 	if err := db.Delete(context.Background(), "iam_roles", roleID); err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.Respond(msg, 204, nil, "")
+	return wafer.Respond(msg, 204, nil, "")
 }
 
-func (b *AdminBlock) handleGetUsersWithRoles(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetUsersWithRoles(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	result, err := database.PaginatedList(context.Background(), db, usersCollection,
@@ -113,7 +113,7 @@ func (b *AdminBlock) handleGetUsersWithRoles(ctx waffle.Context, msg *waffle.Mes
 		[]database.SortField{{Field: "created_at", Desc: true}},
 	)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch users")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch users")
 	}
 
 	bgCtx := context.Background()
@@ -155,27 +155,27 @@ func (b *AdminBlock) handleGetUsersWithRoles(ctx waffle.Context, msg *waffle.Mes
 		}
 		users = append(users, userMap)
 	}
-	return waffle.JSONRespond(msg, 200, users)
+	return wafer.JSONRespond(msg, 200, users)
 }
 
-func (b *AdminBlock) handleGetUserRoles(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetUserRoles(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	userID := msg.Var("userId")
 	roles, err := iam.GetUserRoles(context.Background(), db, userID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, roles)
+	return wafer.JSONRespond(msg, 200, roles)
 }
 
-func (b *AdminBlock) handleAssignRole(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleAssignRole(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	userID := msg.Var("userId")
@@ -184,7 +184,7 @@ func (b *AdminBlock) handleAssignRole(ctx waffle.Context, msg *waffle.Message) w
 		Role string `json:"role"`
 	}
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	grantedBy := msg.UserID()
@@ -193,22 +193,22 @@ func (b *AdminBlock) handleAssignRole(ctx waffle.Context, msg *waffle.Message) w
 	}
 
 	if err := iam.AssignRole(context.Background(), db, userID, body.Role, grantedBy); err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 201, map[string]string{"status": "assigned"})
+	return wafer.JSONRespond(msg, 201, map[string]string{"status": "assigned"})
 }
 
-func (b *AdminBlock) handleRemoveRole(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleRemoveRole(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	userID := msg.Var("userId")
 	roleName := msg.Var("roleName")
 
 	if err := iam.RemoveRole(context.Background(), db, userID, roleName); err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.Respond(msg, 204, nil, "")
+	return wafer.Respond(msg, 204, nil, "")
 }

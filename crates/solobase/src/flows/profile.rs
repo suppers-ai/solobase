@@ -8,12 +8,12 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "flow": "http-infra",
+        "flow": "@wafer/infra",
         "next": [
             {
-                "flow": "auth-pipe",
+                "flow": "@wafer/auth-pipe",
                 "next": [
-                    { "block": "profile-feature" }
+                    { "block": "@solobase/profile" }
                 ]
             }
         ]

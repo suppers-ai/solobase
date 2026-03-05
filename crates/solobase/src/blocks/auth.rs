@@ -22,7 +22,7 @@ impl AuthBlock {
         struct LoginReq { email: String, password: String }
         let body: LoginReq = match msg.decode() {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
         };
 
         let email_lower = body.email.trim().to_lowercase();
@@ -30,19 +30,19 @@ impl AuthBlock {
         // Find user by email
         let user = match db::get_by_field(ctx, USERS_COLLECTION, "email", serde_json::Value::String(email_lower.clone())) {
             Ok(u) => u,
-            Err(_) => return err_unauthorized(msg.clone(), "Invalid email or password"),
+            Err(_) => return err_unauthorized(msg, "Invalid email or password"),
         };
 
         // Check password
         let stored_hash = user.data.get("password_hash").and_then(|v| v.as_str()).unwrap_or("");
         if crypto::compare_hash(ctx, &body.password, stored_hash).is_err() {
-            return err_unauthorized(msg.clone(), "Invalid email or password");
+            return err_unauthorized(msg, "Invalid email or password");
         }
 
         // Check if user is disabled
         if let Some(disabled) = user.data.get("disabled") {
             if disabled.as_bool().unwrap_or(false) {
-                return err_forbidden(msg.clone(), "Account is disabled");
+                return err_forbidden(msg, "Account is disabled");
             }
         }
 
@@ -67,7 +67,7 @@ impl AuthBlock {
 
         let cookie = build_auth_cookie(&access_token, 86400, ctx);
 
-        ResponseBuilder::new(msg.clone(), 200)
+        ResponseBuilder::new(msg)
             .set_cookie(&cookie)
             .json(&serde_json::json!({
                 "access_token": access_token,
@@ -88,30 +88,30 @@ impl AuthBlock {
         struct SignupReq { email: String, password: String, name: Option<String> }
         let body: SignupReq = match msg.decode() {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
         };
 
         let email_lower = body.email.trim().to_lowercase();
         let parts: Vec<&str> = email_lower.splitn(2, '@').collect();
         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() || !parts[1].contains('.') {
-            return err_bad_request(msg.clone(), "Invalid email address");
+            return err_bad_request(msg, "Invalid email address");
         }
         if body.password.len() < 8 {
-            return err_bad_request(msg.clone(), "Password must be at least 8 characters");
+            return err_bad_request(msg, "Password must be at least 8 characters");
         }
         if body.password.len() > 1024 {
-            return err_bad_request(msg.clone(), "Password must not exceed 1024 characters");
+            return err_bad_request(msg, "Password must not exceed 1024 characters");
         }
 
         // Check if user exists
         if db::get_by_field(ctx, USERS_COLLECTION, "email", serde_json::Value::String(email_lower.clone())).is_ok() {
-            return err_conflict(msg.clone(), "Email already registered");
+            return err_conflict(msg, "Email already registered");
         }
 
         // Hash password
         let password_hash = match crypto::hash(ctx, &body.password) {
             Ok(h) => h,
-            Err(e) => return err_internal(msg.clone(), &format!("Failed to hash password: {e}")),
+            Err(e) => return err_internal(msg, &format!("Failed to hash password: {e}")),
         };
 
         let now = chrono::Utc::now().to_rfc3339();
@@ -125,7 +125,7 @@ impl AuthBlock {
 
         let user = match db::create(ctx, USERS_COLLECTION, data) {
             Ok(u) => u,
-            Err(e) => return err_internal(msg.clone(), &format!("Failed to create user: {e}")),
+            Err(e) => return err_internal(msg, &format!("Failed to create user: {e}")),
         };
 
         // Assign default role. First user gets "admin".
@@ -151,7 +151,7 @@ impl AuthBlock {
 
         let cookie = build_auth_cookie(&access_token, 86400, ctx);
 
-        ResponseBuilder::new(msg.clone(), 201)
+        ResponseBuilder::new(msg).status(201)
             .set_cookie(&cookie)
             .json(&serde_json::json!({
                 "access_token": access_token,
@@ -172,13 +172,13 @@ impl AuthBlock {
         struct RefreshReq { refresh_token: String }
         let body: RefreshReq = match msg.decode() {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
         };
 
         // Verify refresh token
         let claims = match crypto::verify(ctx, &body.refresh_token) {
             Ok(c) => c,
-            Err(_) => return err_unauthorized(msg.clone(), "Invalid or expired refresh token"),
+            Err(_) => return err_unauthorized(msg, "Invalid or expired refresh token"),
         };
 
         let user_id = claims.get("user_id")
@@ -188,18 +188,18 @@ impl AuthBlock {
             .to_string();
 
         if user_id.is_empty() {
-            return err_unauthorized(msg.clone(), "Invalid refresh token");
+            return err_unauthorized(msg, "Invalid refresh token");
         }
 
         let token_type = claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
         if token_type != "refresh" {
-            return err_unauthorized(msg.clone(), "Not a refresh token");
+            return err_unauthorized(msg, "Not a refresh token");
         }
 
         // Get user
         let user = match db::get(ctx, USERS_COLLECTION, &user_id) {
             Ok(u) => u,
-            Err(_) => return err_unauthorized(msg.clone(), "User not found"),
+            Err(_) => return err_unauthorized(msg, "User not found"),
         };
 
         let email = user.data.get("email").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -220,7 +220,7 @@ impl AuthBlock {
 
         let cookie = build_auth_cookie(&access_token, 86400, ctx);
 
-        ResponseBuilder::new(msg.clone(), 200)
+        ResponseBuilder::new(msg)
             .set_cookie(&cookie)
             .json(&serde_json::json!({
                 "access_token": access_token,
@@ -237,7 +237,7 @@ impl AuthBlock {
         }
 
         let cookie = build_auth_cookie("", 0, ctx);
-        ResponseBuilder::new(msg.clone(), 200)
+        ResponseBuilder::new(msg)
             .set_cookie(&cookie)
             .json(&serde_json::json!({"message": "Logged out successfully"}))
     }
@@ -245,14 +245,14 @@ impl AuthBlock {
     fn handle_me_get(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let user_id = msg.user_id();
         if user_id.is_empty() {
-            return err_unauthorized(msg.clone(), "Not authenticated");
+            return err_unauthorized(msg, "Not authenticated");
         }
         let user = match db::get(ctx, USERS_COLLECTION, user_id) {
             Ok(u) => u,
-            Err(_) => return err_not_found(msg.clone(), "User not found"),
+            Err(_) => return err_not_found(msg, "User not found"),
         };
         let roles = get_user_roles(ctx, user_id);
-        json_respond(msg.clone(), 200, &serde_json::json!({
+        json_respond(msg, &serde_json::json!({
             "user": {
                 "id": user.id,
                 "email": user.data.get("email").and_then(|v| v.as_str()).unwrap_or(""),
@@ -267,12 +267,12 @@ impl AuthBlock {
     fn handle_me_update(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let user_id = msg.user_id();
         if user_id.is_empty() {
-            return err_unauthorized(msg.clone(), "Not authenticated");
+            return err_unauthorized(msg, "Not authenticated");
         }
 
         let body: HashMap<String, serde_json::Value> = match msg.decode() {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
         };
 
         // Only allow updating certain fields
@@ -287,50 +287,50 @@ impl AuthBlock {
         match db::update(ctx, USERS_COLLECTION, user_id, data) {
             Ok(user) => {
                 let roles = get_user_roles(ctx, user_id);
-                json_respond(msg.clone(), 200, &serde_json::json!({
+                json_respond(msg, &serde_json::json!({
                     "id": user.id,
                     "email": user.data.get("email").and_then(|v| v.as_str()).unwrap_or(""),
                     "name": user.data.get("name").and_then(|v| v.as_str()).unwrap_or(""),
                     "roles": roles
                 }))
             }
-            Err(e) => err_internal(msg.clone(), &format!("Update failed: {e}")),
+            Err(e) => err_internal(msg, &format!("Update failed: {e}")),
         }
     }
 
     fn handle_change_password(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let user_id = msg.user_id();
         if user_id.is_empty() {
-            return err_unauthorized(msg.clone(), "Not authenticated");
+            return err_unauthorized(msg, "Not authenticated");
         }
 
         #[derive(serde::Deserialize)]
         struct ChangePwReq { current_password: String, new_password: String }
         let body: ChangePwReq = match msg.decode() {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
         };
 
         if body.new_password.len() < 8 {
-            return err_bad_request(msg.clone(), "New password must be at least 8 characters");
+            return err_bad_request(msg, "New password must be at least 8 characters");
         }
         if body.new_password.len() > 1024 {
-            return err_bad_request(msg.clone(), "Password must not exceed 1024 characters");
+            return err_bad_request(msg, "Password must not exceed 1024 characters");
         }
 
         let user = match db::get(ctx, USERS_COLLECTION, user_id) {
             Ok(u) => u,
-            Err(_) => return err_not_found(msg.clone(), "User not found"),
+            Err(_) => return err_not_found(msg, "User not found"),
         };
 
         let stored_hash = user.data.get("password_hash").and_then(|v| v.as_str()).unwrap_or("");
         if crypto::compare_hash(ctx, &body.current_password, stored_hash).is_err() {
-            return err_unauthorized(msg.clone(), "Current password is incorrect");
+            return err_unauthorized(msg, "Current password is incorrect");
         }
 
         let new_hash = match crypto::hash(ctx, &body.new_password) {
             Ok(h) => h,
-            Err(e) => return err_internal(msg.clone(), &format!("Hash failed: {e}")),
+            Err(e) => return err_internal(msg, &format!("Hash failed: {e}")),
         };
 
         let mut data = HashMap::new();
@@ -338,8 +338,8 @@ impl AuthBlock {
         data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
         match db::update(ctx, USERS_COLLECTION, user_id, data) {
-            Ok(_) => json_respond(msg.clone(), 200, &serde_json::json!({"message": "Password changed successfully"})),
-            Err(e) => err_internal(msg.clone(), &format!("Update failed: {e}")),
+            Ok(_) => json_respond(msg, &serde_json::json!({"message": "Password changed successfully"})),
+            Err(e) => err_internal(msg, &format!("Update failed: {e}")),
         }
     }
 
@@ -363,9 +363,9 @@ impl AuthBlock {
                 for record in &mut result.records {
                     record.data.remove("key_hash");
                 }
-                json_respond(msg.clone(), 200, &result)
+                json_respond(msg, &result)
             }
-            Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+            Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
@@ -376,13 +376,13 @@ impl AuthBlock {
         struct CreateKeyReq { name: String, expires_at: Option<String> }
         let body: CreateKeyReq = match msg.decode() {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
         };
 
         // Generate random key
         let random_bytes = match crypto::random_bytes(ctx, 24) {
             Ok(b) => b,
-            Err(e) => return err_internal(msg.clone(), &format!("Failed to generate key: {e}")),
+            Err(e) => return err_internal(msg, &format!("Failed to generate key: {e}")),
         };
         let key_string = format!("sb_{}", hex_encode(&random_bytes));
 
@@ -401,39 +401,39 @@ impl AuthBlock {
         }
 
         match db::create(ctx, API_KEYS_COLLECTION, data) {
-            Ok(record) => json_respond(msg.clone(), 201, &serde_json::json!({
+            Ok(record) => json_respond(msg, &serde_json::json!({
                 "id": record.id,
                 "key": key_string,
                 "name": record.data.get("name").and_then(|v| v.as_str()).unwrap_or(""),
                 "key_prefix": record.data.get("key_prefix").and_then(|v| v.as_str()).unwrap_or(""),
                 "message": "Save this key — it won't be shown again"
             })),
-            Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+            Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
     fn handle_api_keys_revoke(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let id = msg.var("id");
         if id.is_empty() {
-            return err_bad_request(msg.clone(), "Missing key ID");
+            return err_bad_request(msg, "Missing key ID");
         }
         let user_id = msg.user_id();
 
         // Verify ownership
         let key = match db::get(ctx, API_KEYS_COLLECTION, id) {
             Ok(k) => k,
-            Err(_) => return err_not_found(msg.clone(), "API key not found"),
+            Err(_) => return err_not_found(msg, "API key not found"),
         };
         let key_owner = key.data.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
         if key_owner != user_id && !msg.is_admin() {
-            return err_forbidden(msg.clone(), "Cannot revoke another user's API key");
+            return err_forbidden(msg, "Cannot revoke another user's API key");
         }
 
         let mut data = HashMap::new();
         data.insert("revoked_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
         match db::update(ctx, API_KEYS_COLLECTION, id, data) {
-            Ok(_) => json_respond(msg.clone(), 200, &serde_json::json!({"message": "API key revoked"})),
-            Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+            Ok(_) => json_respond(msg, &serde_json::json!({"message": "API key revoked"})),
+            Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
@@ -452,19 +452,19 @@ impl AuthBlock {
             }
         }
 
-        json_respond(msg.clone(), 200, &serde_json::json!({"providers": providers}))
+        json_respond(msg, &serde_json::json!({"providers": providers}))
     }
 
     fn handle_oauth_login(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let provider = msg.query("provider");
         if provider.is_empty() {
-            return err_bad_request(msg.clone(), "Missing provider parameter");
+            return err_bad_request(msg, "Missing provider parameter");
         }
 
         let client_id_key = format!("OAUTH_{}_CLIENT_ID", provider.to_uppercase());
         let client_id = match config::get(ctx, &client_id_key) {
             Ok(id) => id,
-            Err(_) => return err_bad_request(msg.clone(), &format!("OAuth provider '{}' not configured", provider)),
+            Err(_) => return err_bad_request(msg, &format!("OAuth provider '{}' not configured", provider)),
         };
 
         let redirect_uri = config::get_default(ctx, "OAUTH_REDIRECT_URI", "http://localhost:8090/auth/oauth/callback");
@@ -475,7 +475,7 @@ impl AuthBlock {
         state_claims.insert("type".to_string(), serde_json::Value::String("oauth_state".to_string()));
         let state = match crypto::sign(ctx, &state_claims, Duration::from_secs(600)) {
             Ok(s) => s,
-            Err(e) => return err_internal(msg.clone(), &format!("Failed to generate state: {e}")),
+            Err(e) => return err_internal(msg, &format!("Failed to generate state: {e}")),
         };
 
         let auth_url = match provider {
@@ -491,10 +491,10 @@ impl AuthBlock {
                 "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}",
                 client_id, redirect_uri, urlencode(&state)
             ),
-            _ => return err_bad_request(msg.clone(), &format!("Unsupported provider: {}", provider)),
+            _ => return err_bad_request(msg, &format!("Unsupported provider: {}", provider)),
         };
 
-        json_respond(msg.clone(), 200, &serde_json::json!({
+        json_respond(msg, &serde_json::json!({
             "auth_url": auth_url,
             "provider": provider
         }))
@@ -504,21 +504,21 @@ impl AuthBlock {
         let code = msg.query("code");
         let state = msg.query("state");
         if code.is_empty() || state.is_empty() {
-            return err_bad_request(msg.clone(), "Missing code or state parameter");
+            return err_bad_request(msg, "Missing code or state parameter");
         }
 
         // Verify CSRF state token and extract provider name
         let state_claims = match crypto::verify(ctx, state) {
             Ok(c) => c,
-            Err(_) => return err_bad_request(msg.clone(), "Invalid or expired OAuth state"),
+            Err(_) => return err_bad_request(msg, "Invalid or expired OAuth state"),
         };
         let state_type = state_claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
         if state_type != "oauth_state" {
-            return err_bad_request(msg.clone(), "Invalid OAuth state token");
+            return err_bad_request(msg, "Invalid OAuth state token");
         }
         let provider = state_claims.get("provider").and_then(|v| v.as_str()).unwrap_or("").to_string();
         if provider.is_empty() {
-            return err_bad_request(msg.clone(), "Missing provider in OAuth state");
+            return err_bad_request(msg, "Missing provider in OAuth state");
         }
 
         let client_id = config::get_default(ctx, &format!("OAUTH_{}_CLIENT_ID", provider.to_uppercase()), "");
@@ -526,7 +526,7 @@ impl AuthBlock {
         let redirect_uri = config::get_default(ctx, "OAUTH_REDIRECT_URI", "http://localhost:8090/auth/oauth/callback");
 
         if client_id.is_empty() || client_secret.is_empty() {
-            return err_internal(msg.clone(), "OAuth provider not fully configured");
+            return err_internal(msg, "OAuth provider not fully configured");
         }
 
         // Exchange code for token (URL-encode all values)
@@ -541,7 +541,7 @@ impl AuthBlock {
                 format!("code={}&client_id={}&client_secret={}&redirect_uri={}",
                     urlencode(code), urlencode(&client_id), urlencode(&client_secret), urlencode(&redirect_uri)),
             ),
-            _ => return err_bad_request(msg.clone(), "Unsupported OAuth provider"),
+            _ => return err_bad_request(msg, "Unsupported OAuth provider"),
         };
 
         let mut headers = HashMap::new();
@@ -551,24 +551,24 @@ impl AuthBlock {
         let token_body_bytes = token_body_str.into_bytes();
         let token_resp = match network::do_request(ctx, "POST", &token_url, &headers, Some(&token_body_bytes)) {
             Ok(r) => r,
-            Err(e) => return err_internal(msg.clone(), &format!("Token exchange failed: {e}")),
+            Err(e) => return err_internal(msg, &format!("Token exchange failed: {e}")),
         };
 
         let token_data: serde_json::Value = match serde_json::from_slice(&token_resp.body) {
             Ok(d) => d,
-            Err(_) => return err_internal(msg.clone(), "Failed to parse token response"),
+            Err(_) => return err_internal(msg, "Failed to parse token response"),
         };
 
         let access_token_oauth = token_data.get("access_token").and_then(|v| v.as_str()).unwrap_or("");
         if access_token_oauth.is_empty() {
-            return err_internal(msg.clone(), "No access token in OAuth response");
+            return err_internal(msg, "No access token in OAuth response");
         }
 
         // Get user info
         let (userinfo_url, auth_header) = match provider.as_str() {
             "google" => ("https://www.googleapis.com/oauth2/v2/userinfo".to_string(), format!("Bearer {}", access_token_oauth)),
             "github" => ("https://api.github.com/user".to_string(), format!("token {}", access_token_oauth)),
-            _ => return err_internal(msg.clone(), "Unsupported provider"),
+            _ => return err_internal(msg, "Unsupported provider"),
         };
 
         let mut info_headers = HashMap::new();
@@ -577,12 +577,12 @@ impl AuthBlock {
 
         let info_resp = match network::do_request(ctx, "GET", &userinfo_url, &info_headers, None) {
             Ok(r) => r,
-            Err(e) => return err_internal(msg.clone(), &format!("User info request failed: {e}")),
+            Err(e) => return err_internal(msg, &format!("User info request failed: {e}")),
         };
 
         let user_info: serde_json::Value = match serde_json::from_slice(&info_resp.body) {
             Ok(d) => d,
-            Err(_) => return err_internal(msg.clone(), "Failed to parse user info"),
+            Err(_) => return err_internal(msg, "Failed to parse user info"),
         };
 
         let email = user_info.get("email").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
@@ -594,7 +594,7 @@ impl AuthBlock {
             .to_string();
 
         if email.is_empty() {
-            return err_internal(msg.clone(), "No email returned by OAuth provider");
+            return err_internal(msg, "No email returned by OAuth provider");
         }
 
         // Upsert user
@@ -634,7 +634,7 @@ impl AuthBlock {
                         }
                         u
                     }
-                    Err(e) => return err_internal(msg.clone(), &format!("Failed to create user: {e}")),
+                    Err(e) => return err_internal(msg, &format!("Failed to create user: {e}")),
                 }
             }
         };
@@ -652,7 +652,7 @@ impl AuthBlock {
 
         let cookie = build_auth_cookie(&jwt_token, 86400, ctx);
 
-        ResponseBuilder::new(msg.clone(), 302)
+        ResponseBuilder::new(msg).status(302)
             .set_cookie(&cookie)
             .set_header("Location", &redirect_url)
             .json(&serde_json::json!({"redirect": redirect_url}))
@@ -662,18 +662,18 @@ impl AuthBlock {
         // Internal endpoint for OAuth user sync — requires INTERNAL_SECRET
         let expected_secret = config::get_default(ctx, "INTERNAL_SECRET", "");
         if expected_secret.is_empty() {
-            return err_forbidden(msg.clone(), "INTERNAL_SECRET not configured — internal endpoints are disabled");
+            return err_forbidden(msg, "INTERNAL_SECRET not configured — internal endpoints are disabled");
         }
         let provided_secret = msg.header("x-internal-secret");
         if provided_secret != expected_secret {
-            return err_unauthorized(msg.clone(), "Invalid internal secret");
+            return err_unauthorized(msg, "Invalid internal secret");
         }
 
         #[derive(serde::Deserialize)]
         struct SyncReq { email: String, name: Option<String>, provider: Option<String> }
         let body: SyncReq = match msg.decode() {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
         };
 
         let email_lower = body.email.trim().to_lowercase();
@@ -690,12 +690,12 @@ impl AuthBlock {
                 data.insert("disabled".to_string(), serde_json::Value::Bool(false));
                 match db::create(ctx, USERS_COLLECTION, data) {
                     Ok(u) => u,
-                    Err(e) => return err_internal(msg.clone(), &format!("Create failed: {e}")),
+                    Err(e) => return err_internal(msg, &format!("Create failed: {e}")),
                 }
             }
         };
 
-        json_respond(msg.clone(), 200, &serde_json::json!({"id": user.id, "email": user.data.get("email")}))
+        json_respond(msg, &serde_json::json!({"id": user.id, "email": user.data.get("email")}))
     }
 }
 
@@ -835,13 +835,15 @@ pub fn seed_admin_user(ctx: &dyn Context) {
 impl Block for AuthBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "auth-feature".to_string(),
+            name: "@solobase/auth".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Authentication: login, signup, JWT, refresh tokens, OAuth, API keys".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: None,
+            runtime: wafer_run::types::BlockRuntime::Native,
+            requires: Vec::new(),
         }
     }
 
@@ -867,7 +869,7 @@ impl Block for AuthBlock {
             ("retrieve", "/auth/oauth/callback") => self.handle_oauth_callback(ctx, msg),
             // Internal
             ("create", "/internal/oauth/sync-user") => self.handle_sync_user(ctx, msg),
-            _ => err_not_found(msg.clone(), "not found"),
+            _ => err_not_found(msg, "not found"),
         }
     }
 

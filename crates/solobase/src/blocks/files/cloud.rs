@@ -23,7 +23,7 @@ pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ("retrieve", "/admin/ext/cloudstorage/access-logs") => handle_access_logs(ctx, msg),
         ("retrieve", "/admin/ext/cloudstorage/quotas") => handle_admin_quotas(ctx, msg),
         ("update", _) if path.starts_with("/admin/ext/cloudstorage/quotas/") => handle_update_quota(ctx, msg),
-        _ => err_not_found(msg.clone(), "not found"),
+        _ => err_not_found(msg, "not found"),
     }
 }
 
@@ -42,8 +42,8 @@ fn handle_list_shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match db::list(ctx, SHARES_COLLECTION, &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -57,7 +57,7 @@ fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
     let body: Req = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     // Generate share token
@@ -87,39 +87,39 @@ fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     match db::create(ctx, SHARES_COLLECTION, data) {
-        Ok(record) => json_respond(msg.clone(), 201, &serde_json::json!({
+        Ok(record) => json_respond(msg, &serde_json::json!({
             "id": record.id,
             "token": token,
             "direct_url": format!("/storage/direct/{}", token)
         })),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_delete_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/ext/cloudstorage/shares/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing share ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing share ID"); }
 
     // Verify ownership
     if let Ok(share) = db::get(ctx, SHARES_COLLECTION, id) {
         let owner = share.data.get("created_by").and_then(|v| v.as_str()).unwrap_or("");
         if owner != msg.user_id() && !msg.is_admin() {
-            return err_forbidden(msg.clone(), "Cannot delete another user's share");
+            return err_forbidden(msg, "Cannot delete another user's share");
         }
     }
 
     match db::delete(ctx, SHARES_COLLECTION, id) {
-        Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Share not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Share not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_get_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let quota = super::quota::get_user_quota(ctx, msg.user_id());
     let usage = super::quota::get_user_usage(ctx, msg.user_id());
-    json_respond(msg.clone(), 200, &serde_json::json!({
+    json_respond(msg, &serde_json::json!({
         "quota": quota,
         "usage": usage
     }))
@@ -134,8 +134,8 @@ fn handle_admin_list_shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ..Default::default()
     };
     match db::list(ctx, SHARES_COLLECTION, &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -160,27 +160,27 @@ fn handle_access_logs(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match db::list(ctx, ACCESS_LOGS_COLLECTION, &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_admin_quotas(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let opts = ListOptions { limit: 1000, ..Default::default() };
     match db::list(ctx, "cloud_quotas", &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_update_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let user_id = path.strip_prefix("/admin/ext/cloudstorage/quotas/").unwrap_or("");
-    if user_id.is_empty() { return err_bad_request(msg.clone(), "Missing user ID"); }
+    if user_id.is_empty() { return err_bad_request(msg, "Missing user ID"); }
 
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     let mut data = body;
@@ -188,7 +188,7 @@ fn handle_update_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
     match db::upsert(ctx, "cloud_quotas", "user_id", serde_json::Value::String(user_id.to_string()), data) {
-        Ok(record) => json_respond(msg.clone(), 200, &record),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }

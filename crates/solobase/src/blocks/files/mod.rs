@@ -14,13 +14,15 @@ pub struct FilesBlock;
 impl Block for FilesBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "files-feature".to_string(),
+            name: "@solobase/files".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "File storage, sharing, quotas, and access logging".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: None,
+            runtime: wafer_run::types::BlockRuntime::Native,
+            requires: Vec::new(),
         }
     }
 
@@ -47,7 +49,7 @@ impl Block for FilesBlock {
             return storage::handle(ctx, msg);
         }
 
-        err_not_found(msg.clone(), "not found")
+        err_not_found(msg, "not found")
     }
 
     fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {

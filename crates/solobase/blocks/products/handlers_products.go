@@ -6,107 +6,107 @@ import (
 	"strings"
 
 	"github.com/suppers-ai/solobase/blocks/products/models"
-	"github.com/suppers-ai/waffle-go/services/database"
-	waffle "github.com/suppers-ai/waffle-go"
+	"github.com/wafer-run/wafer-go/services/database"
+	wafer "github.com/wafer-run/wafer-go"
 )
 
-func (b *ProductsWaffleBlock) handleListMyProducts(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleListMyProducts(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	products, err := b.productService.ListByUser(userID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, products)
+	return wafer.JSONRespond(msg, 200, products)
 }
 
-func (b *ProductsWaffleBlock) handleCreateProduct(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleCreateProduct(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	var product models.Product
 	if err := msg.Decode(&product); err != nil {
-		return waffle.Error(msg, 400, "invalid_body", "Invalid request body")
+		return wafer.Error(msg, 400, "invalid_body", "Invalid request body")
 	}
 
 	if product.Name == "" {
-		return waffle.Error(msg, 400, "validation_error", "Name is required")
+		return wafer.Error(msg, 400, "validation_error", "Name is required")
 	}
 	if product.GroupID == 0 {
-		return waffle.Error(msg, 400, "validation_error", "Group is required")
+		return wafer.Error(msg, 400, "validation_error", "Group is required")
 	}
 	if product.ProductTemplateID == 0 {
-		return waffle.Error(msg, 400, "validation_error", "Product type is required")
+		return wafer.Error(msg, 400, "validation_error", "Product type is required")
 	}
 
 	// Verify user owns the group
 	if _, err := b.groupService.GetByID(product.GroupID, userID); err != nil {
 		if err == database.ErrNotFound {
-			return waffle.Error(msg, 403, "forbidden", "You don't own this group")
+			return wafer.Error(msg, 403, "forbidden", "You don't own this group")
 		}
-		return waffle.Error(msg, 500, "internal_error", "Failed to verify group ownership")
+		return wafer.Error(msg, 500, "internal_error", "Failed to verify group ownership")
 	}
 
 	// Get the product template to validate required fields
 	productTemplate, err := b.productService.GetTemplateByID(product.ProductTemplateID)
 	if err != nil {
-		return waffle.Error(msg, 400, "validation_error", "Product template not found")
+		return wafer.Error(msg, 400, "validation_error", "Product template not found")
 	}
 
 	// Validate required filter fields
 	validationErrors := validateRequiredFields(&product, productTemplate)
 	if len(validationErrors) > 0 {
-		return waffle.Error(msg, 400, "validation_error", "Validation failed: "+strings.Join(validationErrors, ", "))
+		return wafer.Error(msg, 400, "validation_error", "Validation failed: "+strings.Join(validationErrors, ", "))
 	}
 
 	if err := b.productService.Create(&product); err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 201, product)
+	return wafer.JSONRespond(msg, 201, product)
 }
 
-func (b *ProductsWaffleBlock) handleUpdateProduct(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleUpdateProduct(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	id, err := strconv.ParseUint(msg.Var("id"), 10, 32)
 	if err != nil {
-		return waffle.Error(msg, 400, "invalid_id", "Invalid product ID")
+		return wafer.Error(msg, 400, "invalid_id", "Invalid product ID")
 	}
 
 	existingProduct, err := b.productService.GetByID(uint(id))
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", "Product not found")
+		return wafer.Error(msg, 404, "not_found", "Product not found")
 	}
 
 	// Verify user owns the product's group
 	if _, err := b.groupService.GetByID(existingProduct.GroupID, userID); err != nil {
 		if err == database.ErrNotFound {
-			return waffle.Error(msg, 403, "forbidden", "You don't own this product")
+			return wafer.Error(msg, 403, "forbidden", "You don't own this product")
 		}
-		return waffle.Error(msg, 500, "internal_error", "Failed to verify ownership")
+		return wafer.Error(msg, 500, "internal_error", "Failed to verify ownership")
 	}
 
 	var product models.Product
 	if err := msg.Decode(&product); err != nil {
-		return waffle.Error(msg, 400, "invalid_body", "Invalid request body")
+		return wafer.Error(msg, 400, "invalid_body", "Invalid request body")
 	}
 
 	if product.Name == "" {
-		return waffle.Error(msg, 400, "validation_error", "Name is required")
+		return wafer.Error(msg, 400, "validation_error", "Name is required")
 	}
 
 	// Get the product template to check field constraints
 	productTemplate, err := b.productService.GetTemplateByID(existingProduct.ProductTemplateID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Product template not found")
+		return wafer.Error(msg, 500, "internal_error", "Product template not found")
 	}
 
 	// Preserve non-editable fields
@@ -115,31 +115,31 @@ func (b *ProductsWaffleBlock) handleUpdateProduct(_ waffle.Context, msg *waffle.
 	// Validate required fields
 	validationErrors := validateRequiredFields(&product, productTemplate)
 	if len(validationErrors) > 0 {
-		return waffle.Error(msg, 400, "validation_error", "Validation failed: "+strings.Join(validationErrors, ", "))
+		return wafer.Error(msg, 400, "validation_error", "Validation failed: "+strings.Join(validationErrors, ", "))
 	}
 
 	product.ID = uint(id)
 	product.GroupID = existingProduct.GroupID // Prevent changing group
 
 	if err := b.productService.Update(uint(id), &product); err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, product)
+	return wafer.JSONRespond(msg, 200, product)
 }
 
-func (b *ProductsWaffleBlock) handleDeleteProduct(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleDeleteProduct(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	id, err := strconv.ParseUint(msg.Var("id"), 10, 32)
 	if err != nil {
-		return waffle.Error(msg, 400, "invalid_id", "Invalid ID")
+		return wafer.Error(msg, 400, "invalid_id", "Invalid ID")
 	}
 
 	if err := b.productService.Delete(uint(id)); err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.Respond(msg, 204, nil, "")
+	return wafer.Respond(msg, 204, nil, "")
 }
 
-func (b *ProductsWaffleBlock) handleProductStats(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleProductStats(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	ctx := context.Background()
 
 	groupCount, _ := b.db.Count(ctx, "ext_products_groups", nil)
@@ -172,11 +172,11 @@ func (b *ProductsWaffleBlock) handleProductStats(_ waffle.Context, msg *waffle.M
 		"totalRevenue":   totalRevenue,
 		"avgPrice":       avgPrice,
 	}
-	return waffle.JSONRespond(msg, 200, stats)
+	return wafer.JSONRespond(msg, 200, stats)
 }
 
-func (b *ProductsWaffleBlock) handleProviderStatus(_ waffle.Context, msg *waffle.Message) waffle.Result {
-	return waffle.JSONRespond(msg, 200, b.GetProviderStatus())
+func (b *ProductsBlock) handleProviderStatus(_ wafer.Context, msg *wafer.Message) wafer.Result {
+	return wafer.JSONRespond(msg, 200, b.GetProviderStatus())
 }
 
 // validateRequiredFields validates that all required fields editable by users are filled.

@@ -11,22 +11,22 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "flow": "http-infra",
+        "flow": "@wafer/infra",
         "next": [
-            { "match": "GET:/ext/legalpages/terms",   "block": "legalpages-feature" },
-            { "match": "GET:/ext/legalpages/privacy",  "block": "legalpages-feature" },
+            { "match": "GET:/ext/legalpages/terms",   "block": "@solobase/legalpages" },
+            { "match": "GET:/ext/legalpages/privacy",  "block": "@solobase/legalpages" },
             {
                 "match": "*:/admin/legalpages/**",
-                "flow": "admin-pipe",
+                "flow": "@wafer/admin-pipe",
                 "next": [
-                    { "block": "legalpages-feature" }
+                    { "block": "@solobase/legalpages" }
                 ]
             },
             {
                 "match": "*:/ext/legalpages/**",
-                "flow": "admin-pipe",
+                "flow": "@wafer/admin-pipe",
                 "next": [
-                    { "block": "legalpages-feature" }
+                    { "block": "@solobase/legalpages" }
                 ]
             }
         ]

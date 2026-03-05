@@ -1,7 +1,7 @@
 //! Flow definitions for Solobase.
 //!
-//! The wafer-core base flows (http-infra, auth-pipe, admin-pipe) are
-//! registered separately by `wafer_core::flows::register_flows`.
+//! The wafer-core base flows (@wafer/infra, @wafer/auth-pipe, @wafer/admin-pipe)
+//! are registered separately by `wafer_core::flows::register_flows`.
 //! This module registers the feature-level flows that compose those
 //! base pipelines with solobase's native Rust feature blocks.
 
@@ -14,9 +14,9 @@ mod products;
 mod profile;
 mod protected;
 mod settings;
+mod site_main;
 mod system;
 mod userportal;
-mod web;
 
 use wafer_run::Wafer;
 
@@ -36,13 +36,15 @@ pub fn register_all_flows(w: &mut Wafer) {
     register_flow(w, products::JSON);
     register_flow(w, userportal::JSON);
     register_flow(w, profile::JSON);
-    register_flow(w, web::JSON);
+
+    // Top-level dispatch (must be registered last — references all feature flows)
+    register_flow(w, site_main::JSON);
 }
 
 /// Register only flows whose corresponding feature is enabled via env vars.
 ///
-/// The `protected` flow and `settings` flow are always registered as they
-/// provide base infrastructure. Feature flows are gated by `FEATURE_<NAME>`.
+/// The `protected` flow, `settings` flow, and `site-main` flow are always
+/// registered. Feature flows are gated by `FEATURE_<NAME>`.
 pub fn register_selected_flows(w: &mut Wafer) {
     let enabled = |name: &str| -> bool {
         std::env::var(format!("FEATURE_{}", name.to_uppercase()))
@@ -82,9 +84,9 @@ pub fn register_selected_flows(w: &mut Wafer) {
     if enabled("profile") {
         register_flow(w, profile::JSON);
     }
-    if enabled("web") {
-        register_flow(w, web::JSON);
-    }
+
+    // Top-level dispatch (always registered)
+    register_flow(w, site_main::JSON);
 }
 
 fn register_flow(w: &mut Wafer, json: &str) {

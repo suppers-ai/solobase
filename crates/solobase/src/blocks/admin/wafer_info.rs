@@ -7,10 +7,10 @@ pub fn handle(_ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/admin/wafer/blocks") | ("retrieve", "/admin/waffle/blocks") => handle_blocks(msg),
-        ("retrieve", "/admin/wafer/flows") | ("retrieve", "/admin/waffle/flows") => handle_flows(msg),
-        ("retrieve", "/admin/wafer/info") | ("retrieve", "/admin/waffle/info") => handle_info(msg),
-        _ => err_not_found(msg.clone(), "not found"),
+        ("retrieve", "/admin/wafer/blocks") => handle_blocks(msg),
+        ("retrieve", "/admin/wafer/flows") => handle_flows(msg),
+        ("retrieve", "/admin/wafer/info") => handle_info(msg),
+        _ => err_not_found(msg, "not found"),
     }
 }
 
@@ -36,7 +36,7 @@ fn handle_blocks(msg: &mut Message) -> Result_ {
         {"name": "@wafer/rate-limit", "version": "0.1.0", "interface": "middleware@v1", "type": "native"},
         {"name": "@wafer/iam", "version": "0.1.0", "interface": "middleware@v1", "type": "native"}
     ]);
-    json_respond(msg.clone(), 200, &blocks)
+    json_respond(msg, &blocks)
 }
 
 fn handle_flows(msg: &mut Message) -> Result_ {
@@ -57,11 +57,11 @@ fn handle_flows(msg: &mut Message) -> Result_ {
         {"id": "auth-pipe", "summary": "Authentication pipeline"},
         {"id": "admin-pipe", "summary": "Admin authorization pipeline"}
     ]);
-    json_respond(msg.clone(), 200, &flows)
+    json_respond(msg, &flows)
 }
 
 fn handle_info(msg: &mut Message) -> Result_ {
-    json_respond(msg.clone(), 200, &serde_json::json!({
+    json_respond(msg, &serde_json::json!({
         "runtime": "wafer",
         "version": "1.0.0",
         "platform": "solobase",

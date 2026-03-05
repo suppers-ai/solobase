@@ -7,22 +7,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
-	"github.com/suppers-ai/waffle-go/waffletest"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
+	"github.com/wafer-run/wafer-go/wafertest"
 )
 
-func setupMonitoring(t *testing.T) (*MonitoringBlock, waffle.Context, database.Service) {
+func setupMonitoring(t *testing.T) (*MonitoringBlock, wafer.Context, database.Service) {
 	t.Helper()
 	manifest, err := os.ReadFile("block.json")
 	require.NoError(t, err)
 
-	db := waffletest.SetupDBFromManifest(t, manifest)
-	ctx := waffletest.NewContext(db)
+	db := wafertest.SetupDBFromManifest(t, manifest)
+	ctx := wafertest.NewContext(db)
 	block := NewMonitoringBlock()
 	// Note: we call InitBlock which triggers persister start; the persister
 	// is safe in tests since it only flushes on tick or stop.
-	waffletest.InitBlock(t, block, ctx)
+	wafertest.InitBlock(t, block, ctx)
 	t.Cleanup(func() {
 		if block.persister != nil {
 			block.persister.Stop()
@@ -34,14 +34,14 @@ func setupMonitoring(t *testing.T) (*MonitoringBlock, waffle.Context, database.S
 func TestLiveStats_Empty(t *testing.T) {
 	block, ctx, _ := setupMonitoring(t)
 
-	msg := waffletest.Retrieve("/admin/monitoring/live")
+	msg := wafertest.Retrieve("/admin/monitoring/live")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var stats LiveStats
-	waffletest.DecodeResponse(t, result, &stats)
+	wafertest.DecodeResponse(t, result, &stats)
 	assert.Equal(t, int64(0), stats.TotalMessages)
 	assert.Equal(t, int64(0), stats.TotalErrors)
 	assert.Empty(t, stats.PerBlock)
@@ -59,13 +59,13 @@ func TestLiveStats_AfterRecording(t *testing.T) {
 	block.Collector.RecordKind("http.request")
 	block.Collector.RecordKind("http.request")
 
-	msg := waffletest.Retrieve("/admin/monitoring/live")
+	msg := wafertest.Retrieve("/admin/monitoring/live")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var stats LiveStats
-	waffletest.DecodeResponse(t, result, &stats)
+	wafertest.DecodeResponse(t, result, &stats)
 	assert.Equal(t, int64(2), stats.TotalMessages)
 	assert.Equal(t, int64(1), stats.TotalErrors)
 
@@ -108,14 +108,14 @@ func TestCollectorSnapshot_Resets(t *testing.T) {
 func TestHistory_Empty(t *testing.T) {
 	block, ctx, _ := setupMonitoring(t)
 
-	msg := waffletest.Retrieve("/admin/monitoring/history")
-	waffletest.WithQuery(msg, "range", "24h")
+	msg := wafertest.Retrieve("/admin/monitoring/history")
+	wafertest.WithQuery(msg, "range", "24h")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var snapshots []map[string]any
-	waffletest.DecodeResponse(t, result, &snapshots)
+	wafertest.DecodeResponse(t, result, &snapshots)
 	assert.Empty(t, snapshots)
 }
 
@@ -136,14 +136,14 @@ func TestHistory_WithPersistedData(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	msg := waffletest.Retrieve("/admin/monitoring/history")
-	waffletest.WithQuery(msg, "range", "30d")
+	msg := wafertest.Retrieve("/admin/monitoring/history")
+	wafertest.WithQuery(msg, "range", "30d")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var snapshots []map[string]any
-	waffletest.DecodeResponse(t, result, &snapshots)
+	wafertest.DecodeResponse(t, result, &snapshots)
 	require.Len(t, snapshots, 1)
 	assert.Equal(t, "snap-1", snapshots[0]["id"])
 	assert.Equal(t, float64(100), snapshots[0]["totalMessages"])

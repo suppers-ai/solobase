@@ -33,7 +33,7 @@ impl LegalPagesBlock {
 
         let result = match db::list(ctx, COLLECTION, &opts) {
             Ok(r) => r,
-            Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
+            Err(e) => return err_internal(msg, &format!("Database error: {e}")),
         };
 
         if result.records.is_empty() {
@@ -42,7 +42,7 @@ impl LegalPagesBlock {
                 if doc_type == "terms" { "Terms of Service" } else { "Privacy Policy" },
                 doc_type
             );
-            return respond(msg.clone(), 200, html.into_bytes(), "text/html; charset=utf-8");
+            return respond(msg, html.into_bytes(), "text/html; charset=utf-8");
         }
 
         let record = &result.records[0];
@@ -57,11 +57,11 @@ impl LegalPagesBlock {
 <style>body{{font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333}}h1{{color:#111}}</style>
 </head><body><h1>{title}</h1><div>{content}</div></body></html>"#
         );
-        respond(msg.clone(), 200, html.into_bytes(), "text/html; charset=utf-8")
+        respond(msg, html.into_bytes(), "text/html; charset=utf-8")
     }
 
     fn handle_admin_ui(&self, msg: &mut Message) -> Result_ {
-        respond(msg.clone(), 200, ADMIN_HTML.as_bytes().to_vec(), "text/html; charset=utf-8")
+        respond(msg, ADMIN_HTML.as_bytes().to_vec(), "text/html; charset=utf-8")
     }
 
     fn handle_admin_list(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -82,20 +82,20 @@ impl LegalPagesBlock {
             offset: offset as i64,
         };
         match db::list(ctx, COLLECTION, &opts) {
-            Ok(result) => json_respond(msg.clone(), 200, &result),
-            Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+            Ok(result) => json_respond(msg, &result),
+            Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
     fn handle_admin_get(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let id = msg.var("id");
         if id.is_empty() {
-            return err_bad_request(msg.clone(), "Missing document ID");
+            return err_bad_request(msg, "Missing document ID");
         }
         match db::get(ctx, COLLECTION, id) {
-            Ok(record) => json_respond(msg.clone(), 200, &record),
-            Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Document not found"),
-            Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+            Ok(record) => json_respond(msg, &record),
+            Err(e) if e.code == "not_found" => err_not_found(msg, "Document not found"),
+            Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
@@ -108,7 +108,7 @@ impl LegalPagesBlock {
         }
         let body: CreateDoc = match msg.decode() {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
         };
 
         let now = chrono::Utc::now().to_rfc3339();
@@ -123,43 +123,43 @@ impl LegalPagesBlock {
         data.insert("created_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
 
         match db::create(ctx, COLLECTION, data) {
-            Ok(record) => json_respond(msg.clone(), 201, &record),
-            Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+            Ok(record) => json_respond(msg, &record),
+            Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
     fn handle_admin_update(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let id = msg.var("id");
         if id.is_empty() {
-            return err_bad_request(msg.clone(), "Missing document ID");
+            return err_bad_request(msg, "Missing document ID");
         }
 
         let body: HashMap<String, serde_json::Value> = match msg.decode() {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
         };
 
         let mut data = body;
         data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
         match db::update(ctx, COLLECTION, id, data) {
-            Ok(record) => json_respond(msg.clone(), 200, &record),
-            Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Document not found"),
-            Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+            Ok(record) => json_respond(msg, &record),
+            Err(e) if e.code == "not_found" => err_not_found(msg, "Document not found"),
+            Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
     fn handle_admin_publish(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let id = msg.var("id");
         if id.is_empty() {
-            return err_bad_request(msg.clone(), "Missing document ID");
+            return err_bad_request(msg, "Missing document ID");
         }
 
         // Get current document
         let doc = match db::get(ctx, COLLECTION, id) {
             Ok(r) => r,
-            Err(e) if e.code == "not_found" => return err_not_found(msg.clone(), "Document not found"),
-            Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
+            Err(e) if e.code == "not_found" => return err_not_found(msg, "Document not found"),
+            Err(e) => return err_internal(msg, &format!("Database error: {e}")),
         };
 
         let doc_type = doc.data.get("doc_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -190,20 +190,20 @@ impl LegalPagesBlock {
         data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
         match db::update(ctx, COLLECTION, id, data) {
-            Ok(record) => json_respond(msg.clone(), 200, &record),
-            Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+            Ok(record) => json_respond(msg, &record),
+            Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
     fn handle_admin_delete(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let id = msg.var("id");
         if id.is_empty() {
-            return err_bad_request(msg.clone(), "Missing document ID");
+            return err_bad_request(msg, "Missing document ID");
         }
         match db::delete(ctx, COLLECTION, id) {
-            Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
-            Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Document not found"),
-            Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+            Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+            Err(e) if e.code == "not_found" => err_not_found(msg, "Document not found"),
+            Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
@@ -264,7 +264,7 @@ fn sanitize_html(input: &str) -> String {
 impl Block for LegalPagesBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "legalpages-feature".to_string(),
+            name: "@solobase/legalpages".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Legal pages management with versioning and publishing".to_string(),
@@ -275,6 +275,8 @@ impl Block for LegalPagesBlock {
                 icon: "Scale".to_string(),
                 title: "Legal Pages".to_string(),
             }),
+            runtime: wafer_run::types::BlockRuntime::Native,
+            requires: Vec::new(),
         }
     }
 
@@ -300,7 +302,7 @@ impl Block for LegalPagesBlock {
             // ext API aliases (same as admin, but routed through admin-pipe)
             ("retrieve", "/ext/legalpages/documents") => self.handle_admin_list(ctx, msg),
             ("create", "/ext/legalpages/documents") => self.handle_admin_create(ctx, msg),
-            _ => err_not_found(msg.clone(), "not found"),
+            _ => err_not_found(msg, "not found"),
         }
     }
 

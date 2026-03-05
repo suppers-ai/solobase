@@ -8,13 +8,15 @@ pub struct SystemBlock;
 impl Block for SystemBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "system-feature".to_string(),
+            name: "@solobase/system".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "System health, debug, and navigation endpoints".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: None,
+            runtime: wafer_run::types::BlockRuntime::Native,
+            requires: Vec::new(),
         }
     }
 
@@ -24,7 +26,7 @@ impl Block for SystemBlock {
         match path {
             "/health" => {
                 let resp = serde_json::json!({"status": "ok"});
-                json_respond(msg.clone(), 200, &resp)
+                json_respond(msg, &resp)
             }
             "/debug/time" => {
                 let now = chrono::Utc::now();
@@ -33,7 +35,7 @@ impl Block for SystemBlock {
                     "unix": now.timestamp(),
                     "unix_ms": now.timestamp_millis()
                 });
-                json_respond(msg.clone(), 200, &resp)
+                json_respond(msg, &resp)
             }
             "/nav" => {
                 let nav = serde_json::json!([
@@ -49,9 +51,9 @@ impl Block for SystemBlock {
                     {"id": "files", "title": "Files", "label": "Files", "href": "/admin/storage", "path": "/admin/storage", "icon": "FolderOpen"},
                     {"id": "custom-tables", "title": "Custom Tables", "label": "Custom Tables", "href": "/admin/custom-tables", "path": "/admin/custom-tables", "icon": "Table"}
                 ]);
-                json_respond(msg.clone(), 200, &nav)
+                json_respond(msg, &nav)
             }
-            _ => err_not_found(msg.clone(), "not found"),
+            _ => err_not_found(msg, "not found"),
         }
     }
 

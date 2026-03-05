@@ -24,13 +24,15 @@ pub struct AdminBlock;
 impl Block for AdminBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "admin-feature".to_string(),
+            name: "@solobase/admin".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: None,
+            runtime: wafer_run::types::BlockRuntime::Native,
+            requires: Vec::new(),
         }
     }
 
@@ -59,7 +61,7 @@ impl Block for AdminBlock {
             return custom_tables::handle(ctx, msg);
         }
 
-        err_not_found(msg.clone(), "not found")
+        err_not_found(msg, "not found")
     }
 
     fn lifecycle(&self, ctx: &dyn Context, event: LifecycleEvent) -> std::result::Result<(), WaferError> {

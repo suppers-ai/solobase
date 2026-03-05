@@ -7,8 +7,8 @@ import (
 	"strconv"
 
 	"github.com/suppers-ai/solobase/core/models"
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 const settingsCollection = "sys_settings"
@@ -23,32 +23,32 @@ func (b *AdminBlock) registerSettingsRoutes() {
 	b.router.Create("/admin/settings/reset", b.handleResetSettings)
 }
 
-func (b *AdminBlock) handleGetSettings(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetSettings(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	appSettings, err := b.getSettings(db)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch settings")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch settings")
 	}
-	return waffle.JSONRespond(msg, 200, appSettings)
+	return wafer.JSONRespond(msg, 200, appSettings)
 }
 
-func (b *AdminBlock) handleGetSetting(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetSetting(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	key := msg.Var("key")
 	record, err := database.GetByField(context.Background(), db, settingsCollection, "key", key)
 	if err != nil {
 		if err == database.ErrNotFound {
-			return waffle.Error(msg, 404, "not_found", "Setting not found")
+			return wafer.Error(msg, 404, "not_found", "Setting not found")
 		}
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch setting")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch setting")
 	}
 
 	value, err := parseSettingValue(
@@ -56,43 +56,43 @@ func (b *AdminBlock) handleGetSetting(ctx waffle.Context, msg *waffle.Message) w
 		fmt.Sprintf("%v", record.Data["type"]),
 	)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to parse setting value")
+		return wafer.Error(msg, 500, "internal_error", "Failed to parse setting value")
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"key":   key,
 		"value": value,
 	})
 }
 
-func (b *AdminBlock) handleUpdateSettings(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleUpdateSettings(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	var updates map[string]any
 	if err := msg.Decode(&updates); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	for key, value := range updates {
 		if err := b.upsertSetting(db, key, value); err != nil {
-			return waffle.Error(msg, 500, "internal_error", fmt.Sprintf("Failed to update setting %s", key))
+			return wafer.Error(msg, 500, "internal_error", fmt.Sprintf("Failed to update setting %s", key))
 		}
 	}
 
 	appSettings, err := b.getSettings(db)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch settings")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch settings")
 	}
-	return waffle.JSONRespond(msg, 200, appSettings)
+	return wafer.JSONRespond(msg, 200, appSettings)
 }
 
-func (b *AdminBlock) handleSetSetting(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleSetSetting(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	var body struct {
@@ -101,47 +101,47 @@ func (b *AdminBlock) handleSetSetting(ctx waffle.Context, msg *waffle.Message) w
 		Type  string `json:"type,omitempty"`
 	}
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	if body.Key == "" {
-		return waffle.Error(msg, 400, "bad_request", "Setting key is required")
+		return wafer.Error(msg, 400, "bad_request", "Setting key is required")
 	}
 
 	if err := b.upsertSetting(db, body.Key, body.Value); err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to update setting")
+		return wafer.Error(msg, 500, "internal_error", "Failed to update setting")
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"success": true,
 		"key":     body.Key,
 		"value":   body.Value,
 	})
 }
 
-func (b *AdminBlock) handleResetSettings(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleResetSettings(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	records, err := database.ListAll(context.Background(), db, settingsCollection)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch settings")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch settings")
 	}
 	for _, r := range records {
 		_ = db.Delete(context.Background(), settingsCollection, r.ID)
 	}
 
 	if err := b.initializeDefaults(db); err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to reset settings")
+		return wafer.Error(msg, 500, "internal_error", "Failed to reset settings")
 	}
 
 	appSettings, err := b.getSettings(db)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch settings after reset")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch settings after reset")
 	}
-	return waffle.JSONRespond(msg, 200, appSettings)
+	return wafer.JSONRespond(msg, 200, appSettings)
 }
 
 // --- Internal settings helpers ---

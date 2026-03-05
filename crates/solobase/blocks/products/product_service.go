@@ -7,7 +7,7 @@ import (
 
 	"github.com/suppers-ai/solobase/blocks/products/models"
 	"github.com/suppers-ai/solobase/core/apptime"
-	"github.com/suppers-ai/waffle-go/services/database"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 // ProductService handles product operations

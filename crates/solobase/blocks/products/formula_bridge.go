@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/suppers-ai/solobase/blocks/products/formulaengine"
-	waffle "github.com/suppers-ai/waffle-go"
+	wafer "github.com/wafer-run/wafer-go"
 )
 
 // ProductVariableResolver implements formulaengine.VariableResolver by merging
@@ -148,24 +148,24 @@ func (r *ProductVariableResolver) GetAllVariables(_ context.Context) (map[string
 var _ formulaengine.VariableResolver = (*ProductVariableResolver)(nil)
 
 // handleTestFormula handles the admin formula test sandbox endpoint.
-func (b *ProductsWaffleBlock) handleTestFormula(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleTestFormula(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	var req struct {
 		Formula   string                 `json:"formula"`
 		Variables map[string]interface{} `json:"variables"`
 	}
 	if err := msg.Decode(&req); err != nil {
-		return waffle.Error(msg, 400, "invalid_body", "Invalid request body")
+		return wafer.Error(msg, 400, "invalid_body", "Invalid request body")
 	}
 
 	if req.Formula == "" {
-		return waffle.Error(msg, 400, "validation_error", "Formula is required")
+		return wafer.Error(msg, 400, "validation_error", "Formula is required")
 	}
 
 	engine := formulaengine.NewEngine()
 
 	// Validate formula syntax first
 	if err := engine.ValidateFormula(req.Formula); err != nil {
-		return waffle.JSONRespond(msg, 200, map[string]interface{}{
+		return wafer.JSONRespond(msg, 200, map[string]interface{}{
 			"success": false,
 			"error":   fmt.Sprintf("Invalid formula: %v", err),
 		})
@@ -177,14 +177,14 @@ func (b *ProductsWaffleBlock) handleTestFormula(_ waffle.Context, msg *waffle.Me
 	ctx := context.Background()
 	result, err := engine.Calculate(ctx, req.Formula, resolver)
 	if err != nil {
-		return waffle.JSONRespond(msg, 200, map[string]interface{}{
+		return wafer.JSONRespond(msg, 200, map[string]interface{}{
 			"success": false,
 			"error":   fmt.Sprintf("Calculation error: %v", err),
 		})
 	}
 
 	allVars, _ := resolver.GetAllVariables(ctx)
-	return waffle.JSONRespond(msg, 200, map[string]interface{}{
+	return wafer.JSONRespond(msg, 200, map[string]interface{}{
 		"success":   true,
 		"result":    result,
 		"formula":   req.Formula,

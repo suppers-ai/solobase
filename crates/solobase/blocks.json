@@ -1,20 +1,31 @@
 {
-    "wafer/database": { "type": "sqlite", "path": "data/solobase.db" },
-    "wafer/storage": { "type": "local", "root": "data/storage" },
-    "wafer/crypto": { "jwt_secret": "${JWT_SECRET}" },
-    "wafer/network": {},
-    "wafer/logger": {},
-    "wafer/config": {},
+    "@wafer/http-listener": {
+        "flow": "site-main",
+        "listen": "0.0.0.0:8090"
+    },
+    "@wafer/web": {
+        "web_root": "./site",
+        "web_spa": "true",
+        "web_index": "index.html"
+    },
+    "@wafer/database": { "type": "sqlite", "path": "data/solobase.db" },
+    "@wafer/storage": { "type": "local", "root": "data/storage" },
+    "@wafer/crypto": { "jwt_secret": "${JWT_SECRET}" },
+    "@wafer/network": {},
+    "@wafer/logger": {},
+    "@wafer/config": {},
 
-    "auth-feature": {
+    "@solobase/auth": {
         "uses": {
-            "wafer/database": {
+            "@wafer/database": {
                 "collections": {
                     "auth_users": {
                         "fields": {
                             "id": { "type": "string", "primary": true },
                             "email": { "type": "string", "unique": true },
-                            "password": { "type": "string" },
+                            "password_hash": { "type": "string" },
+                            "name": { "type": "string", "optional": true },
+                            "disabled": { "type": "bool", "default": false },
                             "username": { "type": "string", "optional": true },
                             "confirmed": { "type": "int", "default": 0 },
                             "first_name": { "type": "string", "optional": true },
@@ -29,7 +40,7 @@
                             "recover_selector": { "type": "string", "optional": true },
                             "attempt_count": { "type": "int", "default": 0 },
                             "last_attempt": { "type": "datetime", "optional": true },
-                            "last_login": { "type": "datetime", "optional": true },
+                            "last_login_at": { "type": "datetime", "optional": true },
                             "metadata": { "type": "text", "optional": true },
                             "created_at": { "type": "datetime", "auto": true },
                             "updated_at": { "type": "datetime", "auto": true },
@@ -51,13 +62,13 @@
                             "user_id": { "type": "string", "ref": "auth_users.id" },
                             "token_hash": { "type": "string", "optional": true },
                             "token": { "type": "string", "optional": true },
-                            "type": { "type": "string" },
+                            "type": { "type": "string", "optional": true },
                             "family_id": { "type": "string", "optional": true },
                             "provider": { "type": "string", "optional": true },
                             "provider_uid": { "type": "string", "optional": true },
                             "access_token": { "type": "string", "optional": true },
                             "oauth_expiry": { "type": "datetime", "optional": true },
-                            "expires_at": { "type": "datetime" },
+                            "expires_at": { "type": "datetime", "optional": true },
                             "used_at": { "type": "datetime", "optional": true },
                             "revoked_at": { "type": "datetime", "optional": true },
                             "created_at": { "type": "datetime", "auto": true },
@@ -101,9 +112,9 @@
         }
     },
 
-    "admin-feature": {
+    "@solobase/admin": {
         "uses": {
-            "wafer/database": {
+            "@wafer/database": {
                 "collections": {
                     "iam_roles": {
                         "fields": {
@@ -262,9 +273,9 @@
         }
     },
 
-    "files-feature": {
+    "@solobase/files": {
         "uses": {
-            "wafer/database": {
+            "@wafer/database": {
                 "collections": {
                     "storage_buckets": {
                         "fields": {
@@ -432,9 +443,9 @@
         }
     },
 
-    "products-feature": {
+    "@solobase/products": {
         "uses": {
-            "wafer/database": {
+            "@wafer/database": {
                 "collections": {
                     "ext_products_variables": {
                         "fields": {
@@ -647,9 +658,9 @@
         }
     },
 
-    "monitoring-feature": {
+    "@solobase/monitoring": {
         "uses": {
-            "wafer/database": {
+            "@wafer/database": {
                 "collections": {
                     "sys_monitoring_snapshots": {
                         "fields": {
@@ -669,14 +680,14 @@
         }
     },
 
-    "legalpages-feature": {
+    "@solobase/legalpages": {
         "uses": {
-            "wafer/database": {
+            "@wafer/database": {
                 "collections": {
                     "ext_legalpages_legal_documents": {
                         "fields": {
                             "id": { "type": "string", "primary": true },
-                            "document_type": { "type": "string" },
+                            "doc_type": { "type": "string" },
                             "title": { "type": "string" },
                             "content": { "type": "text", "optional": true },
                             "version": { "type": "int", "default": 1 },
@@ -686,7 +697,7 @@
                             "created_by": { "type": "string", "optional": true }
                         },
                         "indexes": [
-                            { "fields": ["document_type", "status"] }
+                            { "fields": ["doc_type", "status"] }
                         ]
                     }
                 }

@@ -2,7 +2,7 @@
 
 ## Context
 
-The solobase-site is currently a Hugo + Express + Terraform stack. Rather than building site-specific blocks for marketing pages, the idea is to create a **generic, reusable `web` block** that serves static files from a configurable build directory. Any website (marketing, docs, SPA, etc.) just builds to a folder and the block serves it — through the full WAFFLE flow pipeline, so it gets security headers, CORS, rate limiting, and monitoring for free.
+The solobase-site is currently a Hugo + Express + Terraform stack. Rather than building site-specific blocks for marketing pages, the idea is to create a **generic, reusable `web` block** that serves static files from a configurable build directory. Any website (marketing, docs, SPA, etc.) just builds to a folder and the block serves it — through the full Wafer flow pipeline, so it gets security headers, CORS, rate limiting, and monitoring for free.
 
 This block will live in `solobase/blocks/web/` and follow existing block conventions.
 
@@ -33,7 +33,7 @@ type WebConfig struct {
 
 **`Lifecycle(Init)`** — resolves `Dir` to absolute path via `filepath.Abs()`, validates directory exists with `os.Stat()`. Stores resolved `absRoot` on the struct.
 
-**`Handle()`** — rejects non-retrieve (non-GET) requests with 405, strips `Prefix` from `msg.Path()`, delegates to `serveFile()`. No `waffle.Router` needed — single-purpose block.
+**`Handle()`** — rejects non-retrieve (non-GET) requests with 405, strips `Prefix` from `msg.Path()`, delegates to `serveFile()`. No `wafer.Router` needed — single-purpose block.
 
 ### Step 2: Create `solobase/blocks/web/serve.go`
 
@@ -49,12 +49,12 @@ File serving logic, content-type detection, path security.
 6. If path is a directory, append `IndexFile`
 7. `os.ReadFile()` the file
 8. Detect content-type via `mime.TypeByExtension()`, fall back to `http.DetectContentType()`
-9. Set cache headers, return via `waffle.NewResponse(msg, 200).SetHeader(...).Body(data, contentType)`
+9. Set cache headers, return via `wafer.NewResponse(msg, 200).SetHeader(...).Body(data, contentType)`
 
 **`handleNotFound(msg, reqPath) Result`:**
 
 - If `SPAMode` is true: read and serve `{absRoot}/index.html` with `Cache-Control: no-cache`
-- Otherwise: `waffle.ErrNotFound(msg, "not found")`
+- Otherwise: `wafer.ErrNotFound(msg, "not found")`
 
 **`detectContentType(filePath, data) string`:**
 
@@ -77,7 +77,7 @@ The `isHashedAsset(reqPath) bool` function detects fingerprinted files by checki
 
 ### Step 4: Create `solobase/blocks/web/block_test.go`
 
-Unit tests using `waffletest` helpers. No database needed.
+Unit tests using `wafertest` helpers. No database needed.
 
 Test helper: `setupTestSite(t) string` — creates a temp directory tree:
 
@@ -90,7 +90,7 @@ subdir/index.html
 .env (dotfile)
 ```
 
-Test helper: create block with `NewWebBlock(cfg)`, init via `waffletest.InitBlock()`.
+Test helper: create block with `NewWebBlock(cfg)`, init via `wafertest.InitBlock()`.
 
 **Test cases:**
 
@@ -131,22 +131,22 @@ if webRoot := env.GetEnv("WEB_ROOT"); webRoot != "" {
 if w.HasBlock(web.BlockName) {
     prefix := env.GetEnvOrDefault("WEB_PREFIX", "")
     addPublicFlow(w, "web-site", web.BlockName, "Static website serving",
-        []waffle.HTTPRoute{{Path: prefix + "/", PathPrefix: true}})
+        []wafer.HTTPRoute{{Path: prefix + "/", PathPrefix: true}})
 }
 ```
 
 Add a new `addPublicFlow` helper (similar to existing `addAdminFlow` but without `admin-pipe`):
 
 ```go
-func addPublicFlow(w *waffle.Waffle, flowID, blockName, summary string, routes []waffle.HTTPRoute) {
-    w.AddFlow(waffle.Flow{
+func addPublicFlow(w *wafer.Wafer, flowID, blockName, summary string, routes []wafer.HTTPRoute) {
+    w.AddFlow(wafer.Flow{
         ID:      flowID,
         Summary: summary,
-        Config:  waffle.FlowConfig{OnError: "stop"},
-        HTTP:    &waffle.HTTPRouteDef{Routes: routes},
-        Root: &waffle.Node{
+        Config:  wafer.FlowConfig{OnError: "stop"},
+        HTTP:    &wafer.HTTPRouteDef{Routes: routes},
+        Root: &wafer.Node{
             Flow: "http-infra",
-            Next:  []*waffle.Node{{Block: blockName}},
+            Next:  []*wafer.Node{{Block: blockName}},
         },
     })
 }
@@ -157,7 +157,7 @@ Add import for `web` package and `env` package.
 ### Step 6: Register factory in `solobase/builds/native/blocks.go`
 
 ```go
-waffleconfig.RegisterBlock(web.BlockName, func(cfg map[string]any) (waffle.Block, error) {
+waferconfig.RegisterBlock(web.BlockName, func(cfg map[string]any) (wafer.Block, error) {
     dir, _ := cfg["dir"].(string)
     if dir == "" {
         return nil, fmt.Errorf("web block requires 'dir' config")
@@ -194,16 +194,16 @@ Add import for the `web` package.
 | File | Change |
 |------|--------|
 | `solobase/flows/flows.go` | Import web, register block + flow conditionally, add `addPublicFlow` helper |
-| `solobase/builds/native/blocks.go` | Import web, register waffleconfig factory |
+| `solobase/builds/native/blocks.go` | Import web, register waferconfig factory |
 
 ### Reference files (patterns to follow)
 
 | File | Why |
 |------|-----|
 | `solobase/blocks/legalpages/block.go` | Closest block pattern to follow |
-| `waffle-go/helpers.go` | Response builder API: `NewResponse`, `SetHeader`, `Body`, `ErrNotFound` |
-| `waffle-go/waffletest/waffletest.go` | Test helpers: `Retrieve()`, `InitBlock()`, `Status()`, `ResponseBody()` |
-| `waffle-go/match.go` | Path matching: `/**` wildcard, `{var}` extraction |
+| `wafer-go/helpers.go` | Response builder API: `NewResponse`, `SetHeader`, `Body`, `ErrNotFound` |
+| `wafer-go/wafertest/wafertest.go` | Test helpers: `Retrieve()`, `InitBlock()`, `Status()`, `ResponseBody()` |
+| `wafer-go/match.go` | Path matching: `/**` wildcard, `{var}` extraction |
 
 ---
 

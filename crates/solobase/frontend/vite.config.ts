@@ -35,7 +35,7 @@ export default defineConfig({
 				monitoring: resolve(__dirname, '../blocks/monitoring/frontend/index.html'),
 				iam: resolve(__dirname, '../blocks/admin/frontend/iam/index.html'),
 				logs: resolve(__dirname, '../blocks/logs/frontend/index.html'),
-				waffle: resolve(__dirname, '../blocks/admin/frontend/index.html'),
+				wafer: resolve(__dirname, '../blocks/admin/frontend/index.html'),
 				products: resolve(__dirname, '../blocks/products/frontend/index.html'),
 			}
 		}

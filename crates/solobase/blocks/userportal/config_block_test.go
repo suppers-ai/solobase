@@ -7,31 +7,31 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/waffletest"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/wafertest"
 )
 
-func setupConfigBlock(t *testing.T) (*UserPortalConfigBlock, waffle.Context) {
+func setupConfigBlock(t *testing.T) (*UserPortalConfigBlock, wafer.Context) {
 	t.Helper()
 	portal := NewUserPortalBlock(nil) // nil config -> defaults
 	block := NewUserPortalConfigBlock(portal)
-	db := waffletest.SetupDB(t)
-	ctx := waffletest.NewContext(db)
-	waffletest.InitBlock(t, block, ctx)
+	db := wafertest.SetupDB(t)
+	ctx := wafertest.NewContext(db)
+	wafertest.InitBlock(t, block, ctx)
 	return block, ctx
 }
 
 func TestGetConfigDefaults(t *testing.T) {
 	block, ctx := setupConfigBlock(t)
-	msg := waffletest.Retrieve("/ext/userportal/config")
+	msg := wafertest.Retrieve("/ext/userportal/config")
 
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var config UserPortalConfig
-	waffletest.DecodeResponse(t, result, &config)
+	wafertest.DecodeResponse(t, result, &config)
 	assert.Equal(t, "Solobase", config.AppName)
 	assert.Equal(t, "#189AB4", config.PrimaryColor)
 	assert.Equal(t, "/logo_long.png", config.LogoURL)
@@ -54,17 +54,17 @@ func TestGetConfigCustom(t *testing.T) {
 		AllowSignup:    false,
 	})
 	block := NewUserPortalConfigBlock(portal)
-	db := waffletest.SetupDB(t)
-	ctx := waffletest.NewContext(db)
-	waffletest.InitBlock(t, block, ctx)
+	db := wafertest.SetupDB(t)
+	ctx := wafertest.NewContext(db)
+	wafertest.InitBlock(t, block, ctx)
 
-	msg := waffletest.Retrieve("/ext/userportal/config")
+	msg := wafertest.Retrieve("/ext/userportal/config")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var config UserPortalConfig
-	waffletest.DecodeResponse(t, result, &config)
+	wafertest.DecodeResponse(t, result, &config)
 	assert.Equal(t, "CustomApp", config.AppName)
 	assert.Equal(t, "#FF0000", config.PrimaryColor)
 	assert.Equal(t, "/custom-logo.png", config.LogoURL)
@@ -75,11 +75,11 @@ func TestGetConfigCustom(t *testing.T) {
 
 func TestGetConfigResponseIsValidJSON(t *testing.T) {
 	block, ctx := setupConfigBlock(t)
-	msg := waffletest.Retrieve("/ext/userportal/config")
+	msg := wafertest.Retrieve("/ext/userportal/config")
 
 	result := block.Handle(ctx, msg)
 
-	body := waffletest.ResponseBody(result)
+	body := wafertest.ResponseBody(result)
 	require.NotNil(t, body)
 
 	// Verify it's valid JSON
@@ -94,5 +94,5 @@ func TestBlockInfo(t *testing.T) {
 	info := block.Info()
 	assert.Equal(t, BlockName, info.Name)
 	assert.Equal(t, "1.0.0", info.Version)
-	assert.Equal(t, waffle.Singleton, info.InstanceMode)
+	assert.Equal(t, wafer.Singleton, info.InstanceMode)
 }

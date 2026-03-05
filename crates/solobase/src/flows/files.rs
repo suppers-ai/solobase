@@ -12,35 +12,35 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "flow": "http-infra",
+        "flow": "@wafer/infra",
         "next": [
-            { "match": "GET:/storage/direct/{token}", "block": "files-feature" },
+            { "match": "GET:/storage/direct/{token}", "block": "@solobase/files" },
             {
                 "match": "*:/admin/storage/**",
-                "flow": "admin-pipe",
+                "flow": "@wafer/admin-pipe",
                 "next": [
-                    { "block": "files-feature" }
+                    { "block": "@solobase/files" }
                 ]
             },
             {
                 "match": "*:/admin/ext/cloudstorage/**",
-                "flow": "admin-pipe",
+                "flow": "@wafer/admin-pipe",
                 "next": [
-                    { "block": "files-feature" }
+                    { "block": "@solobase/files" }
                 ]
             },
             {
                 "match": "*:/storage/**",
-                "flow": "auth-pipe",
+                "flow": "@wafer/auth-pipe",
                 "next": [
-                    { "block": "files-feature" }
+                    { "block": "@solobase/files" }
                 ]
             },
             {
                 "match": "*:/ext/cloudstorage/**",
-                "flow": "auth-pipe",
+                "flow": "@wafer/auth-pipe",
                 "next": [
-                    { "block": "files-feature" }
+                    { "block": "@solobase/files" }
                 ]
             }
         ]

@@ -8,15 +8,15 @@ import (
 
 	"github.com/suppers-ai/solobase/core/apptime"
 	"github.com/suppers-ai/solobase/core/uuid"
-	waffle "github.com/suppers-ai/waffle-go"
+	wafer "github.com/wafer-run/wafer-go"
 )
 
 // ========== Cloud Stats ==========
 
-func (b *FilesBlock) handleCloudStats(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleCloudStats(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 	isAdmin := msg.IsAdmin()
 
@@ -113,15 +113,15 @@ func (b *FilesBlock) handleCloudStats(_ waffle.Context, msg *waffle.Message) waf
 		}
 	}
 
-	return waffle.JSONRespond(msg, 200, stats)
+	return wafer.JSONRespond(msg, 200, stats)
 }
 
 // ========== Shares ==========
 
-func (b *FilesBlock) handleSharesGet(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleSharesGet(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	shareType := msg.Query("type")
@@ -132,24 +132,24 @@ func (b *FilesBlock) handleSharesGet(_ waffle.Context, msg *waffle.Message) waff
 	}
 
 	if b.shareService == nil {
-		return waffle.JSONRespond(msg, 200, []any{})
+		return wafer.JSONRespond(msg, 200, []any{})
 	}
 
 	shares, err := b.shareService.GetUserShares(context.Background(), userID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, shares)
+	return wafer.JSONRespond(msg, 200, shares)
 }
 
-func (b *FilesBlock) handleSharesPost(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleSharesPost(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	if b.shareService == nil {
-		return waffle.Error(msg, 501, "not_implemented", "Sharing is not enabled")
+		return wafer.Error(msg, 501, "not_implemented", "Sharing is not enabled")
 	}
 
 	var body struct {
@@ -163,7 +163,7 @@ func (b *FilesBlock) handleSharesPost(_ waffle.Context, msg *waffle.Message) waf
 		ExpiresAt         *apptime.Time `json:"expiresAt,omitempty"`
 	}
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	opts := ShareOptions{
@@ -178,7 +178,7 @@ func (b *FilesBlock) handleSharesPost(_ waffle.Context, msg *waffle.Message) waf
 
 	share, err := b.shareService.CreateShare(context.Background(), body.ObjectID, userID, opts)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
 	if b.accessLogService != nil {
@@ -199,27 +199,27 @@ func (b *FilesBlock) handleSharesPost(_ waffle.Context, msg *waffle.Message) waf
 		response.ShareURL = fmt.Sprintf("/share/%s", *share.ShareToken)
 	}
 
-	return waffle.JSONRespond(msg, 201, response)
+	return wafer.JSONRespond(msg, 201, response)
 }
 
-func (b *FilesBlock) handleShareAccess(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleShareAccess(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.shareService == nil {
-		return waffle.Error(msg, 501, "not_implemented", "Sharing is not enabled")
+		return wafer.Error(msg, 501, "not_implemented", "Sharing is not enabled")
 	}
 
 	token := msg.Var("token")
 	if token == "" {
-		return waffle.Error(msg, 400, "bad_request", "Invalid URL")
+		return wafer.Error(msg, 400, "bad_request", "Invalid URL")
 	}
 
 	share, err := b.shareService.GetShareByToken(context.Background(), token)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 
 	obj, err := b.getStorageObjectByID(share.ObjectID)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", "Object not found")
+		return wafer.Error(msg, 404, "not_found", "Object not found")
 	}
 
 	if b.accessLogService != nil {
@@ -232,23 +232,23 @@ func (b *FilesBlock) handleShareAccess(_ waffle.Context, msg *waffle.Message) wa
 
 	// Download the file via storage service
 	if b.storageSvc == nil {
-		return waffle.Error(msg, 503, "unavailable", "Storage service not available")
+		return wafer.Error(msg, 503, "unavailable", "Storage service not available")
 	}
 	reader, _, err := b.storageSvc.Get(context.Background(), obj.BucketName, obj.ID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 	defer reader.Close()
 	content, err := io.ReadAll(reader)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
 	if b.quotaService != nil && b.cloudConfig.EnableQuotas && obj.UserID != "" {
 		_ = b.quotaService.UpdateBandwidthUsage(context.Background(), obj.UserID, obj.Size)
 	}
 
-	return waffle.NewResponse(msg, 200).
+	return wafer.NewResponse(msg, 200).
 		SetHeader("Content-Length", strconv.FormatInt(obj.Size, 10)).
 		SetHeader("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", obj.ObjectName)).
 		Body(content, obj.ContentType)
@@ -256,14 +256,14 @@ func (b *FilesBlock) handleShareAccess(_ waffle.Context, msg *waffle.Message) wa
 
 // ========== Quotas ==========
 
-func (b *FilesBlock) handleCloudQuotaGet(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleCloudQuotaGet(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	if b.quotaService == nil {
-		return waffle.Error(msg, 501, "not_implemented", "Quotas are not enabled")
+		return wafer.Error(msg, 501, "not_implemented", "Quotas are not enabled")
 	}
 
 	isAdmin := msg.IsAdmin()
@@ -272,31 +272,31 @@ func (b *FilesBlock) handleCloudQuotaGet(_ waffle.Context, msg *waffle.Message) 
 	if queryUserID != "" && isAdmin {
 		stats, err := b.quotaService.GetQuotaStats(context.Background(), queryUserID)
 		if err != nil {
-			return waffle.Error(msg, 500, "internal_error", err.Error())
+			return wafer.Error(msg, 500, "internal_error", err.Error())
 		}
-		return waffle.JSONRespond(msg, 200, stats)
+		return wafer.JSONRespond(msg, 200, stats)
 	} else if isAdmin && queryUserID == "" {
 		quotas, err := b.getAllStorageQuotas()
 		if err != nil {
-			return waffle.Error(msg, 500, "internal_error", err.Error())
+			return wafer.Error(msg, 500, "internal_error", err.Error())
 		}
-		return waffle.JSONRespond(msg, 200, quotas)
+		return wafer.JSONRespond(msg, 200, quotas)
 	}
 
 	stats, err := b.quotaService.GetQuotaStats(context.Background(), userID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, stats)
+	return wafer.JSONRespond(msg, 200, stats)
 }
 
-func (b *FilesBlock) handleCloudQuotaPut(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleCloudQuotaPut(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if !msg.IsAdmin() {
-		return waffle.Error(msg, 403, "forbidden", "Admin access required")
+		return wafer.Error(msg, 403, "forbidden", "Admin access required")
 	}
 
 	if b.quotaService == nil {
-		return waffle.Error(msg, 501, "not_implemented", "Quotas are not enabled")
+		return wafer.Error(msg, 501, "not_implemented", "Quotas are not enabled")
 	}
 
 	var body struct {
@@ -305,12 +305,12 @@ func (b *FilesBlock) handleCloudQuotaPut(_ waffle.Context, msg *waffle.Message) 
 		MaxBandwidthBytes int64  `json:"maxBandwidthBytes"`
 	}
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	quota, err := b.quotaService.GetOrCreateQuota(context.Background(), body.UserID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
 	quota.MaxStorageBytes = body.MaxStorageBytes
@@ -318,47 +318,47 @@ func (b *FilesBlock) handleCloudQuotaPut(_ waffle.Context, msg *waffle.Message) 
 	quota.UpdatedAt = apptime.NowTime()
 
 	if err := b.saveStorageQuota(quota); err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
-	return waffle.JSONRespond(msg, 200, quota)
+	return wafer.JSONRespond(msg, 200, quota)
 }
 
-func (b *FilesBlock) handleGetUserQuota(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleGetUserQuota(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	queryUserID := msg.Query("user_id")
 	if queryUserID == "" {
 		queryUserID = userID
 	} else if !msg.IsAdmin() && queryUserID != userID {
-		return waffle.Error(msg, 403, "forbidden", "Forbidden")
+		return wafer.Error(msg, 403, "forbidden", "Forbidden")
 	}
 
 	if b.quotaService == nil {
-		return waffle.Error(msg, 500, "internal_error", "Quota service not initialized")
+		return wafer.Error(msg, 500, "internal_error", "Quota service not initialized")
 	}
 
 	quota, err := b.quotaService.GetUserQuota(context.Background(), queryUserID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", fmt.Sprintf("Failed to get user quota: %v", err))
+		return wafer.Error(msg, 500, "internal_error", fmt.Sprintf("Failed to get user quota: %v", err))
 	}
 
-	return waffle.JSONRespond(msg, 200, quota)
+	return wafer.JSONRespond(msg, 200, quota)
 }
 
 // ========== Access Logs ==========
 
-func (b *FilesBlock) handleAccessLogs(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleAccessLogs(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	if b.accessLogService == nil {
-		return waffle.Error(msg, 501, "not_implemented", "Access logging is not enabled")
+		return wafer.Error(msg, 501, "not_implemented", "Access logging is not enabled")
 	}
 
 	filters := AccessLogFilters{
@@ -386,20 +386,20 @@ func (b *FilesBlock) handleAccessLogs(_ waffle.Context, msg *waffle.Message) waf
 
 	logs, err := b.accessLogService.GetAccessLogs(context.Background(), filters)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
-	return waffle.JSONRespond(msg, 200, logs)
+	return wafer.JSONRespond(msg, 200, logs)
 }
 
-func (b *FilesBlock) handleAccessStats(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleAccessStats(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	if b.accessLogService == nil {
-		return waffle.Error(msg, 501, "not_implemented", "Access logging is not enabled")
+		return wafer.Error(msg, 501, "not_implemented", "Access logging is not enabled")
 	}
 
 	filters := StatsFilters{
@@ -419,45 +419,45 @@ func (b *FilesBlock) handleAccessStats(_ waffle.Context, msg *waffle.Message) wa
 
 	stats, err := b.accessLogService.GetAccessStats(context.Background(), filters)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
-	return waffle.JSONRespond(msg, 200, stats)
+	return wafer.JSONRespond(msg, 200, stats)
 }
 
 // ========== Admin: Role Quotas ==========
 
-func (b *FilesBlock) handleGetRoleQuotas(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleGetRoleQuotas(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.JSONRespond(msg, 200, []RoleQuota{})
+		return wafer.JSONRespond(msg, 200, []RoleQuota{})
 	}
 
 	quotas, err := b.getAllRoleQuotas()
 	if err != nil {
-		return waffle.JSONRespond(msg, 200, []RoleQuota{})
+		return wafer.JSONRespond(msg, 200, []RoleQuota{})
 	}
 
-	return waffle.JSONRespond(msg, 200, quotas)
+	return wafer.JSONRespond(msg, 200, quotas)
 }
 
-func (b *FilesBlock) handleUpdateRoleQuota(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleUpdateRoleQuota(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	roleID := msg.Var("role")
 	if roleID == "" {
-		return waffle.Error(msg, 400, "bad_request", "Invalid role ID")
+		return wafer.Error(msg, 400, "bad_request", "Invalid role ID")
 	}
 
 	var update RoleQuota
 	if err := msg.Decode(&update); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	if update.MaxStorageBytes < 0 || update.MaxBandwidthBytes < 0 ||
 		update.MaxUploadSize < 0 || update.MaxFilesCount < 0 {
-		return waffle.Error(msg, 400, "bad_request", "Invalid quota values: cannot be negative")
+		return wafer.Error(msg, 400, "bad_request", "Invalid quota values: cannot be negative")
 	}
 
 	if update.MaxStorageBytes > 10995116277760 || update.MaxBandwidthBytes > 109951162777600 {
-		return waffle.Error(msg, 400, "bad_request", "Quota values exceed maximum allowed limits")
+		return wafer.Error(msg, 400, "bad_request", "Quota values exceed maximum allowed limits")
 	}
 
 	update.RoleID = roleID
@@ -466,50 +466,50 @@ func (b *FilesBlock) handleUpdateRoleQuota(_ waffle.Context, msg *waffle.Message
 	}
 
 	if err := b.upsertRoleQuota(&update); err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to update role quota")
+		return wafer.Error(msg, 500, "internal_error", "Failed to update role quota")
 	}
 
-	return waffle.JSONRespond(msg, 200, update)
+	return wafer.JSONRespond(msg, 200, update)
 }
 
 // ========== Admin: User Overrides ==========
 
-func (b *FilesBlock) handleGetUserOverrides(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleGetUserOverrides(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.JSONRespond(msg, 200, []UserQuotaOverride{})
+		return wafer.JSONRespond(msg, 200, []UserQuotaOverride{})
 	}
 
 	overrides, err := b.getActiveUserQuotaOverrides()
 	if err != nil {
-		return waffle.JSONRespond(msg, 200, []UserQuotaOverride{})
+		return wafer.JSONRespond(msg, 200, []UserQuotaOverride{})
 	}
 
-	return waffle.JSONRespond(msg, 200, overrides)
+	return wafer.JSONRespond(msg, 200, overrides)
 }
 
-func (b *FilesBlock) handleCreateUserOverride(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleCreateUserOverride(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	adminUserID := msg.UserID()
 
 	var override UserQuotaOverride
 	if err := msg.Decode(&override); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	if override.UserID == "" {
-		return waffle.Error(msg, 400, "bad_request", "User ID is required")
+		return wafer.Error(msg, 400, "bad_request", "User ID is required")
 	}
 
 	if override.MaxStorageBytes != nil && *override.MaxStorageBytes < 0 {
-		return waffle.Error(msg, 400, "bad_request", "Invalid storage quota: cannot be negative")
+		return wafer.Error(msg, 400, "bad_request", "Invalid storage quota: cannot be negative")
 	}
 	if override.MaxBandwidthBytes != nil && *override.MaxBandwidthBytes < 0 {
-		return waffle.Error(msg, 400, "bad_request", "Invalid bandwidth quota: cannot be negative")
+		return wafer.Error(msg, 400, "bad_request", "Invalid bandwidth quota: cannot be negative")
 	}
 	if override.MaxUploadSize != nil && *override.MaxUploadSize < 0 {
-		return waffle.Error(msg, 400, "bad_request", "Invalid upload size: cannot be negative")
+		return wafer.Error(msg, 400, "bad_request", "Invalid upload size: cannot be negative")
 	}
 	if override.MaxFilesCount != nil && *override.MaxFilesCount < 0 {
-		return waffle.Error(msg, 400, "bad_request", "Invalid file count: cannot be negative")
+		return wafer.Error(msg, 400, "bad_request", "Invalid file count: cannot be negative")
 	}
 
 	override.CreatedBy = adminUserID
@@ -518,57 +518,57 @@ func (b *FilesBlock) handleCreateUserOverride(_ waffle.Context, msg *waffle.Mess
 	override.UpdatedAt = apptime.NowTime()
 
 	if err := b.createUserQuotaOverride(&override); err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to create user override")
+		return wafer.Error(msg, 500, "internal_error", "Failed to create user override")
 	}
 
-	return waffle.JSONRespond(msg, 201, override)
+	return wafer.JSONRespond(msg, 201, override)
 }
 
-func (b *FilesBlock) handleDeleteUserOverride(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleDeleteUserOverride(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	overrideID := msg.Var("user")
 	if overrideID == "" {
-		return waffle.Error(msg, 400, "bad_request", "Invalid override ID")
+		return wafer.Error(msg, 400, "bad_request", "Invalid override ID")
 	}
 
 	if err := b.deleteUserQuotaOverrideByID(overrideID); err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to delete user override")
+		return wafer.Error(msg, 500, "internal_error", "Failed to delete user override")
 	}
 
-	return waffle.Respond(msg, 204, nil, "")
+	return wafer.Respond(msg, 204, nil, "")
 }
 
 // ========== Admin: User Search ==========
 
-func (b *FilesBlock) handleUserSearch(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleUserSearch(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	query := msg.Query("q")
 	if query == "" || len(query) < 2 {
-		return waffle.JSONRespond(msg, 200, []any{})
+		return wafer.JSONRespond(msg, 200, []any{})
 	}
 
 	users, err := b.searchUsers(query)
 	if err != nil {
-		return waffle.JSONRespond(msg, 200, []any{})
+		return wafer.JSONRespond(msg, 200, []any{})
 	}
 
-	return waffle.JSONRespond(msg, 200, users)
+	return wafer.JSONRespond(msg, 200, users)
 }
 
 // ========== Admin: Default Quotas ==========
 
-func (b *FilesBlock) handleDefaultQuotasGet(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleDefaultQuotasGet(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.quotaService == nil {
-		return waffle.Error(msg, 503, "unavailable", "Quota service not available")
+		return wafer.Error(msg, 503, "unavailable", "Quota service not available")
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"defaultStorage":   b.cloudConfig.DefaultStorageLimit,
 		"defaultBandwidth": b.cloudConfig.DefaultBandwidthLimit,
 	})
 }
 
-func (b *FilesBlock) handleDefaultQuotasPut(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) handleDefaultQuotasPut(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.quotaService == nil {
-		return waffle.Error(msg, 503, "unavailable", "Quota service not available")
+		return wafer.Error(msg, 503, "unavailable", "Quota service not available")
 	}
 
 	var body struct {
@@ -576,22 +576,22 @@ func (b *FilesBlock) handleDefaultQuotasPut(_ waffle.Context, msg *waffle.Messag
 		DefaultBandwidth int64 `json:"defaultBandwidth"`
 	}
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	b.cloudConfig.DefaultStorageLimit = body.DefaultStorage
 	b.cloudConfig.DefaultBandwidthLimit = body.DefaultBandwidth
 
-	return waffle.JSONRespond(msg, 200, map[string]string{
+	return wafer.JSONRespond(msg, 200, map[string]string{
 		"message": "Default quotas updated successfully",
 	})
 }
 
 // ========== Helpers ==========
 
-func (b *FilesBlock) handleSharedWithMe(msg *waffle.Message, userID string) waffle.Result {
+func (b *FilesBlock) handleSharedWithMe(msg *wafer.Message, userID string) wafer.Result {
 	if b.shareService == nil {
-		return waffle.JSONRespond(msg, 200, map[string]any{
+		return wafer.JSONRespond(msg, 200, map[string]any{
 			"files":   []any{},
 			"folders": []any{},
 		})
@@ -599,7 +599,7 @@ func (b *FilesBlock) handleSharedWithMe(msg *waffle.Message, userID string) waff
 
 	shares, err := b.shareService.GetSharedWithMe(context.Background(), userID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
 	files := []StorageShareWithObject{}
@@ -612,21 +612,21 @@ func (b *FilesBlock) handleSharedWithMe(msg *waffle.Message, userID string) waff
 		}
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"files":   files,
 		"folders": folders,
 	})
 }
 
-func (b *FilesBlock) handleSharedByMe(msg *waffle.Message, userID string) waffle.Result {
+func (b *FilesBlock) handleSharedByMe(msg *wafer.Message, userID string) wafer.Result {
 	if b.shareService == nil {
-		return waffle.JSONRespond(msg, 200, []any{})
+		return wafer.JSONRespond(msg, 200, []any{})
 	}
 
 	shares, err := b.shareService.GetSharedByMe(context.Background(), userID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
-	return waffle.JSONRespond(msg, 200, shares)
+	return wafer.JSONRespond(msg, 200, shares)
 }

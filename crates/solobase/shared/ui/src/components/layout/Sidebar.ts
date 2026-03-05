@@ -137,7 +137,7 @@ export function Sidebar() {
 							</div>
 						</div>
 						<div class="profile-menu-divider" />
-						<a href="/admin/waffle#settings" class="profile-menu-item">
+						<a href="/admin/wafer#settings" class="profile-menu-item">
 							<${Settings} size=${16} />
 							Settings
 						</a>

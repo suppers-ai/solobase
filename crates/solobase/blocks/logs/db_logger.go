@@ -8,12 +8,12 @@ import (
 	"github.com/suppers-ai/solobase/core/apptime"
 	"github.com/suppers-ai/solobase/core/logger"
 	"github.com/suppers-ai/solobase/core/uuid"
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 // DBLogger implements the logger.Logger interface and writes to database.
-// It also handles WAFFLE message logging via LogMessage.
+// It also handles WAFER message logging via LogMessage.
 type DBLogger struct {
 	db       database.Service
 	logChan  chan map[string]any
@@ -72,7 +72,7 @@ func (l *DBLogger) insertLogs(logs []map[string]any) {
 	}
 }
 
-// messageLogWriter processes WAFFLE message logs in batches.
+// messageLogWriter processes WAFER message logs in batches.
 func (l *DBLogger) messageLogWriter() {
 	ticker := apptime.NewTicker(1 * apptime.Second)
 	batch := make([]map[string]any, 0, 10)
@@ -108,8 +108,8 @@ func (l *DBLogger) insertMessageLogs(logs []map[string]any) {
 	}
 }
 
-// LogMessage logs a WAFFLE message execution to the message_logs table.
-func (l *DBLogger) LogMessage(obsCtx waffle.ObservabilityContext, result waffle.Result, duration time.Duration) {
+// LogMessage logs a WAFER message execution to the message_logs table.
+func (l *DBLogger) LogMessage(obsCtx wafer.ObservabilityContext, result wafer.Result, duration time.Duration) {
 	// Extract useful meta keys for snapshot
 	var metaSnapshot string
 	if obsCtx.Message != nil {

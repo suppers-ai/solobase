@@ -5,14 +5,14 @@ import (
 	"os"
 	"testing"
 
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
-	"github.com/suppers-ai/waffle-go/waffletest"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
+	"github.com/wafer-run/wafer-go/wafertest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func setupAdmin(t *testing.T) (*AdminBlock, waffle.Context, database.Service) {
+func setupAdmin(t *testing.T) (*AdminBlock, wafer.Context, database.Service) {
 	t.Helper()
 
 	authManifest, err := os.ReadFile("../auth/block.json")
@@ -21,13 +21,13 @@ func setupAdmin(t *testing.T) (*AdminBlock, waffle.Context, database.Service) {
 	adminManifest, err := os.ReadFile("block.json")
 	require.NoError(t, err)
 
-	db := waffletest.SetupDBFromManifest(t, authManifest, adminManifest)
-	ctx := waffletest.NewContext(db)
+	db := wafertest.SetupDBFromManifest(t, authManifest, adminManifest)
+	ctx := wafertest.NewContext(db)
 
-	w := waffle.New()
+	w := wafer.New()
 	block := NewAdminBlock()
-	ctx.SetService("waffle.runtime", w)
-	waffletest.InitBlock(t, block, ctx)
+	ctx.SetService("wafer.runtime", w)
+	wafertest.InitBlock(t, block, ctx)
 
 	return block, ctx, db
 }
@@ -50,14 +50,14 @@ func TestAdminBlock_ListUsers(t *testing.T) {
 	createTestUser(t, db, "alice@test.com")
 	createTestUser(t, db, "bob@test.com")
 
-	msg := waffletest.Retrieve("/admin/users")
+	msg := wafertest.Retrieve("/admin/users")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var resp map[string]any
-	waffletest.DecodeResponse(t, result, &resp)
+	wafertest.DecodeResponse(t, result, &resp)
 
 	data, ok := resp["data"].([]any)
 	require.True(t, ok, "expected data array")
@@ -69,16 +69,16 @@ func TestAdminBlock_GetUser(t *testing.T) {
 
 	userID := createTestUser(t, db, "alice@test.com")
 
-	msg := waffletest.Retrieve("/admin/users/" + userID)
-	waffletest.WithVar(msg, "id", userID)
+	msg := wafertest.Retrieve("/admin/users/" + userID)
+	wafertest.WithVar(msg, "id", userID)
 
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var resp map[string]any
-	waffletest.DecodeResponse(t, result, &resp)
+	wafertest.DecodeResponse(t, result, &resp)
 	assert.Equal(t, "alice@test.com", resp["email"])
 	_, hasPassword := resp["password"]
 	assert.False(t, hasPassword, "password should be sanitized")
@@ -89,13 +89,13 @@ func TestAdminBlock_DeleteUser(t *testing.T) {
 
 	userID := createTestUser(t, db, "alice@test.com")
 
-	msg := waffletest.Delete("/admin/users/" + userID)
-	waffletest.WithVar(msg, "id", userID)
+	msg := wafertest.Delete("/admin/users/" + userID)
+	wafertest.WithVar(msg, "id", userID)
 
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	record, err := db.Get(context.Background(), usersCollection, userID)
 	require.NoError(t, err)
@@ -107,14 +107,14 @@ func TestAdminBlock_DeleteUser(t *testing.T) {
 func TestAdminBlock_DatabaseInfo(t *testing.T) {
 	block, ctx, _ := setupAdmin(t)
 
-	msg := waffletest.Retrieve("/admin/database/info")
+	msg := wafertest.Retrieve("/admin/database/info")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var resp map[string]any
-	waffletest.DecodeResponse(t, result, &resp)
+	wafertest.DecodeResponse(t, result, &resp)
 	assert.Equal(t, "SQLite", resp["type"])
 	assert.Equal(t, "connected", resp["status"])
 }
@@ -122,11 +122,11 @@ func TestAdminBlock_DatabaseInfo(t *testing.T) {
 func TestAdminBlock_DatabaseTables(t *testing.T) {
 	block, ctx, _ := setupAdmin(t)
 
-	msg := waffletest.Retrieve("/admin/database/tables")
+	msg := wafertest.Retrieve("/admin/database/tables")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 }
 
 // --- IAM tests ---
@@ -134,14 +134,14 @@ func TestAdminBlock_DatabaseTables(t *testing.T) {
 func TestAdminBlock_GetRoles(t *testing.T) {
 	block, ctx, _ := setupAdmin(t)
 
-	msg := waffletest.Retrieve("/admin/iam/roles")
+	msg := wafertest.Retrieve("/admin/iam/roles")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var roles []any
-	waffletest.DecodeResponse(t, result, &roles)
+	wafertest.DecodeResponse(t, result, &roles)
 	assert.GreaterOrEqual(t, len(roles), 2, "should have at least admin and user roles")
 }
 
@@ -150,31 +150,31 @@ func TestAdminBlock_GetRoles(t *testing.T) {
 func TestAdminBlock_GetSettings(t *testing.T) {
 	block, ctx, _ := setupAdmin(t)
 
-	msg := waffletest.Retrieve("/settings")
+	msg := wafertest.Retrieve("/settings")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 }
 
-// --- Waffle tests ---
+// --- Wafer tests ---
 
 func TestAdminBlock_ListBlocks(t *testing.T) {
 	block, ctx, _ := setupAdmin(t)
 
-	msg := waffletest.Retrieve("/admin/waffle/blocks")
+	msg := wafertest.Retrieve("/admin/wafer/blocks")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 }
 
 func TestAdminBlock_ListFlows(t *testing.T) {
 	block, ctx, _ := setupAdmin(t)
 
-	msg := waffletest.Retrieve("/admin/waffle/flows")
+	msg := wafertest.Retrieve("/admin/wafer/flows")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 }

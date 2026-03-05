@@ -47,7 +47,7 @@ export function FeatureShell({ title, children }: FeatureShellProps) {
 				borderBottom: '1px solid var(--border-color, #e2e8f0)'
 			}}>
 				<a
-					href="/admin/waffle#blocks"
+					href="/admin/wafer#blocks"
 					style=${{
 						display: 'inline-flex',
 						alignItems: 'center',

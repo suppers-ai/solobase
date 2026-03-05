@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solobase</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8fafc; color: #1e293b; min-height: 100vh;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .header {
+            width: 100%; background: #fff; border-bottom: 1px solid #e2e8f0;
+            padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between;
+        }
+        .brand { font-size: 1.5rem; font-weight: 700; color: #0f172a; text-decoration: none; }
+        .brand span { color: #6366f1; }
+        .header nav a {
+            margin-left: 1.5rem; color: #64748b; text-decoration: none; font-size: 0.9rem;
+        }
+        .header nav a:hover { color: #6366f1; }
+        .hero {
+            text-align: center; padding: 4rem 2rem 2rem;
+            max-width: 640px;
+        }
+        .hero img { width: 80px; height: 80px; margin-bottom: 1.5rem; border-radius: 1rem; }
+        .hero h1 { font-size: 2.5rem; margin-bottom: 0.75rem; }
+        .hero p { color: #64748b; font-size: 1.1rem; line-height: 1.6; }
+        .cards {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem; max-width: 900px; width: 100%; padding: 2rem;
+        }
+        .card {
+            background: #fff; border: 1px solid #e2e8f0; border-radius: 0.75rem;
+            padding: 1.5rem; transition: border-color 0.2s;
+        }
+        .card:hover { border-color: #6366f1; }
+        .card h3 { margin-bottom: 0.5rem; font-size: 1.1rem; }
+        .card p { color: #64748b; font-size: 0.9rem; line-height: 1.5; }
+        .card a {
+            display: inline-block; margin-top: 1rem; color: #6366f1;
+            text-decoration: none; font-size: 0.9rem; font-weight: 500;
+        }
+        .card a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a class="brand" href="/">solo<span>base</span></a>
+        <nav>
+            <a href="/blocks/admin/frontend/">Admin</a>
+            <a href="/blocks/auth/frontend/">Login</a>
+            <a href="https://github.com/suppers-ai/solobase">GitHub</a>
+        </nav>
+    </div>
+    <div class="hero">
+        <img src="/logo.png" alt="Solobase">
+        <h1>Solobase</h1>
+        <p>Open-source backend as a service. Auth, database, storage, IAM, and more — all in a single binary powered by the WAFER runtime.</p>
+    </div>
+    <div class="cards">
+        <div class="card">
+            <h3>Authentication</h3>
+            <p>Email/password signup & login, JWT tokens, OAuth providers, and refresh token rotation.</p>
+            <a href="/blocks/auth/frontend/">Login &rarr;</a>
+        </div>
+        <div class="card">
+            <h3>Admin Panel</h3>
+            <p>Manage users, database tables, IAM roles, settings, monitoring, and logs from a single dashboard.</p>
+            <a href="/blocks/admin/frontend/">Open Admin &rarr;</a>
+        </div>
+        <div class="card">
+            <h3>Database</h3>
+            <p>SQLite with auto-schema, custom tables, and a full REST API. Postgres support available.</p>
+        </div>
+        <div class="card">
+            <h3>File Storage</h3>
+            <p>Local or S3-compatible storage with quotas, access logs, and shareable links.</p>
+        </div>
+        <div class="card">
+            <h3>Products & Billing</h3>
+            <p>Dynamic products, formula-based pricing, Stripe integration, and purchase management.</p>
+        </div>
+        <div class="card">
+            <h3>WAFER Runtime</h3>
+            <p>Built on the block-and-flow architecture. Extend with custom blocks in Rust, Go, or JavaScript.</p>
+            <a href="https://github.com/suppers-ai/solobase">Learn More &rarr;</a>
+        </div>
+    </div>
+</body>
+</html>

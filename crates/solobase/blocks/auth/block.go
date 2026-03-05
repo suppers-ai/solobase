@@ -14,8 +14,8 @@ import (
 	"github.com/suppers-ai/solobase/core/envutil"
 	"github.com/suppers-ai/solobase/core/iam"
 	"github.com/suppers-ai/solobase/core/uuid"
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 const BlockName = "auth-feature"
@@ -28,14 +28,14 @@ const (
 
 // AuthBlock handles authentication using ctx.Services().Database.
 type AuthBlock struct {
-	router        *waffle.Router
+	router        *wafer.Router
 	enableSignup  bool
 	oauthProvider oauth.Provider
 }
 
 func NewAuthBlock() *AuthBlock {
 	b := &AuthBlock{}
-	b.router = waffle.NewRouter()
+	b.router = wafer.NewRouter()
 	// Public routes
 	b.router.Create("/auth/login", b.handleLogin)
 	b.router.Create("/auth/signup", b.handleSignup)
@@ -57,23 +57,23 @@ func NewAuthBlock() *AuthBlock {
 	return b
 }
 
-func (b *AuthBlock) Info() waffle.BlockInfo {
-	return waffle.BlockInfo{
+func (b *AuthBlock) Info() wafer.BlockInfo {
+	return wafer.BlockInfo{
 		Name:         BlockName,
 		Version:      "1.0.0",
 		Interface:    "http.handler",
 		Summary:      "Authentication routes",
-		InstanceMode: waffle.Singleton,
-		AllowedModes: []waffle.InstanceMode{waffle.Singleton},
+		InstanceMode: wafer.Singleton,
+		AllowedModes: []wafer.InstanceMode{wafer.Singleton},
 	}
 }
 
-func (b *AuthBlock) Handle(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AuthBlock) Handle(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	return b.router.Route(ctx, msg)
 }
 
-func (b *AuthBlock) Lifecycle(ctx waffle.Context, evt waffle.LifecycleEvent) error {
-	if evt.Type == waffle.Init {
+func (b *AuthBlock) Lifecycle(ctx wafer.Context, evt wafer.LifecycleEvent) error {
+	if evt.Type == wafer.Init {
 		// Read signup config from environment (default: enabled)
 		signupEnv := os.Getenv("ENABLE_SIGNUP")
 		b.enableSignup = signupEnv == "" || signupEnv == "true" || signupEnv == "1"
@@ -132,28 +132,28 @@ func formatCookie(name, value, path string, maxAge int, httpOnly bool) string {
 
 // --- Login ---
 
-func (b *AuthBlock) handleLogin(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AuthBlock) handleLogin(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	var body LoginRequest
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	// Find user by email
 	userRecord, err := database.GetByField(context.Background(), db, usersCollection, "email", body.Email)
 	if err != nil {
-		return waffle.Error(msg, 401, "unauthorized", "Invalid credentials")
+		return wafer.Error(msg, 401, "unauthorized", "Invalid credentials")
 	}
 
 	cryptoSvc := ctx.Services().Crypto
 
 	password, _ := userRecord.Data["password"].(string)
 	if err := cryptoSvc.CompareHash(body.Password, password); err != nil {
-		return waffle.Error(msg, 401, "unauthorized", "Invalid credentials")
+		return wafer.Error(msg, 401, "unauthorized", "Invalid credentials")
 	}
 
 	// Update last login (non-critical)
@@ -164,17 +164,17 @@ func (b *AuthBlock) handleLogin(ctx waffle.Context, msg *waffle.Message) waffle.
 	userEmail, _ := userRecord.Data["email"].(string)
 	accessToken, err := GenerateAccessToken(cryptoSvc, userRecord.ID, userEmail, db)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to generate token")
+		return wafer.Error(msg, 500, "internal_error", "Failed to generate token")
 	}
 
-	resp := waffle.NewResponse(msg, 200).
+	resp := wafer.NewResponse(msg, 200).
 		SetCookie(formatCookie("auth_token", accessToken, "/", int(constants.AccessTokenDuration.Seconds()), true))
 
 	// Generate refresh token
 	if !envutil.IsReadOnly() {
 		refreshTokenStr, err := generateRefreshToken()
 		if err != nil {
-			return waffle.Error(msg, 500, "internal_error", "Failed to generate token")
+			return wafer.Error(msg, 500, "internal_error", "Failed to generate token")
 		}
 
 		familyID := uuid.New().String()
@@ -199,7 +199,7 @@ func (b *AuthBlock) handleLogin(ctx waffle.Context, msg *waffle.Message) waffle.
 		}
 
 		if _, err := db.Create(context.Background(), tokensCollection, tokenData); err != nil {
-			return waffle.Error(msg, 500, "internal_error", "Failed to create session")
+			return wafer.Error(msg, 500, "internal_error", "Failed to create session")
 		}
 
 		resp.SetCookie(formatCookie("refresh_token", refreshTokenStr, "/api/auth", int(constants.RefreshTokenDuration.Seconds()), true))
@@ -222,24 +222,24 @@ func (b *AuthBlock) handleLogin(ctx waffle.Context, msg *waffle.Message) waffle.
 
 // --- Signup ---
 
-func (b *AuthBlock) handleSignup(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AuthBlock) handleSignup(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	if !b.enableSignup {
-		return waffle.Error(msg, 403, "forbidden", "User registration is disabled")
+		return wafer.Error(msg, 403, "forbidden", "User registration is disabled")
 	}
 
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	var body SignupRequest
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	hashedPassword, err := ctx.Services().Crypto.Hash(body.Password)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to process password")
+		return wafer.Error(msg, 500, "internal_error", "Failed to process password")
 	}
 
 	userData := map[string]any{
@@ -249,7 +249,7 @@ func (b *AuthBlock) handleSignup(ctx waffle.Context, msg *waffle.Message) waffle
 
 	record, err := db.Create(context.Background(), usersCollection, userData)
 	if err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Failed to create user")
+		return wafer.Error(msg, 400, "bad_request", "Failed to create user")
 	}
 
 	// Assign default role
@@ -257,20 +257,20 @@ func (b *AuthBlock) handleSignup(ctx waffle.Context, msg *waffle.Message) waffle
 		log.Printf("Warning: Failed to assign default user role to %s: %v", body.Email, err)
 	}
 
-	return waffle.JSONRespond(msg, 201, sanitizeUserData(record.Data))
+	return wafer.JSONRespond(msg, 201, sanitizeUserData(record.Data))
 }
 
 // --- Refresh Token ---
 
-func (b *AuthBlock) handleRefreshToken(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AuthBlock) handleRefreshToken(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	refreshTokenStr := msg.Cookie("refresh_token")
 	if refreshTokenStr == "" {
-		return waffle.Error(msg, 401, "unauthorized", "No refresh token")
+		return wafer.Error(msg, 401, "unauthorized", "No refresh token")
 	}
 
 	tokenHash := pkgauth.HashToken(refreshTokenStr)
@@ -278,17 +278,17 @@ func (b *AuthBlock) handleRefreshToken(ctx waffle.Context, msg *waffle.Message) 
 	// Find token by hash
 	tokenRecord, err := database.GetByField(context.Background(), db, tokensCollection, "token_hash", tokenHash)
 	if err != nil {
-		return waffle.Error(msg, 401, "unauthorized", "Invalid refresh token")
+		return wafer.Error(msg, 401, "unauthorized", "Invalid refresh token")
 	}
 
 	// Check revoked
 	if tokenRecord.Data["revoked_at"] != nil && tokenRecord.Data["revoked_at"] != "" {
-		return waffle.Error(msg, 401, "unauthorized", "Token has been revoked")
+		return wafer.Error(msg, 401, "unauthorized", "Token has been revoked")
 	}
 
 	// Check type
 	if fmt.Sprintf("%v", tokenRecord.Data["type"]) != "refresh" {
-		return waffle.Error(msg, 401, "unauthorized", "Invalid token type")
+		return wafer.Error(msg, 401, "unauthorized", "Invalid token type")
 	}
 
 	// Check expiry
@@ -296,7 +296,7 @@ func (b *AuthBlock) handleRefreshToken(ctx waffle.Context, msg *waffle.Message) 
 	if expiresAtStr != "" {
 		expiresAt, err := apptime.ParseWithLayout(apptime.TimeFormat, expiresAtStr)
 		if err == nil && apptime.NowTime().After(expiresAt) {
-			return waffle.Error(msg, 401, "unauthorized", "Refresh token expired")
+			return wafer.Error(msg, 401, "unauthorized", "Refresh token expired")
 		}
 	}
 
@@ -307,7 +307,7 @@ func (b *AuthBlock) handleRefreshToken(ctx waffle.Context, msg *waffle.Message) 
 		if familyID, ok := tokenRecord.Data["family_id"].(string); ok && familyID != "" {
 			b.revokeTokenFamily(db, familyID)
 		}
-		return waffle.Error(msg, 401, "unauthorized", "Token reuse detected")
+		return wafer.Error(msg, 401, "unauthorized", "Token reuse detected")
 	}
 
 	// Mark current token as used
@@ -319,19 +319,19 @@ func (b *AuthBlock) handleRefreshToken(ctx waffle.Context, msg *waffle.Message) 
 	userID := fmt.Sprintf("%v", tokenRecord.Data["user_id"])
 	userRecord, err := db.Get(context.Background(), usersCollection, userID)
 	if err != nil {
-		return waffle.Error(msg, 401, "unauthorized", "User not found")
+		return wafer.Error(msg, 401, "unauthorized", "User not found")
 	}
 
 	refreshUserEmail, _ := userRecord.Data["email"].(string)
 	accessToken, err := GenerateAccessToken(ctx.Services().Crypto, userRecord.ID, refreshUserEmail, db)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to generate token")
+		return wafer.Error(msg, 500, "internal_error", "Failed to generate token")
 	}
 
 	// Create new refresh token
 	newRefreshTokenStr, err := generateRefreshToken()
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to generate token")
+		return wafer.Error(msg, 500, "internal_error", "Failed to generate token")
 	}
 
 	newTokenHash := pkgauth.HashToken(newRefreshTokenStr)
@@ -359,10 +359,10 @@ func (b *AuthBlock) handleRefreshToken(ctx waffle.Context, msg *waffle.Message) 
 	}
 
 	if _, err := db.Create(context.Background(), tokensCollection, newTokenData); err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to create session")
+		return wafer.Error(msg, 500, "internal_error", "Failed to create session")
 	}
 
-	return waffle.NewResponse(msg, 200).
+	return wafer.NewResponse(msg, 200).
 		SetCookie(formatCookie("auth_token", accessToken, "/", int(constants.AccessTokenDuration.Seconds()), true)).
 		SetCookie(formatCookie("refresh_token", newRefreshTokenStr, "/api/auth", int(constants.RefreshTokenDuration.Seconds()), true)).
 		JSON(map[string]string{"message": "Token refreshed"})
@@ -370,7 +370,7 @@ func (b *AuthBlock) handleRefreshToken(ctx waffle.Context, msg *waffle.Message) 
 
 // --- Logout ---
 
-func (b *AuthBlock) handleLogout(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AuthBlock) handleLogout(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 
 	// Revoke refresh token if present
@@ -384,7 +384,7 @@ func (b *AuthBlock) handleLogout(ctx waffle.Context, msg *waffle.Message) waffle
 		}
 	}
 
-	return waffle.NewResponse(msg, 200).
+	return wafer.NewResponse(msg, 200).
 		SetCookie(formatCookie("auth_token", "", "/", -1, true)).
 		SetCookie(formatCookie("refresh_token", "", "/api/auth", -1, true)).
 		JSON(map[string]string{"message": "Logged out successfully"})
@@ -392,24 +392,24 @@ func (b *AuthBlock) handleLogout(ctx waffle.Context, msg *waffle.Message) waffle
 
 // --- Get Current User ---
 
-func (b *AuthBlock) handleGetCurrentUser(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AuthBlock) handleGetCurrentUser(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "User not authenticated")
+		return wafer.Error(msg, 401, "unauthorized", "User not authenticated")
 	}
 
 	userRecord, err := db.Get(context.Background(), usersCollection, userID)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", "User not found")
+		return wafer.Error(msg, 404, "not_found", "User not found")
 	}
 
 	roles := msg.UserRoles()
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"user":  sanitizeUserData(userRecord.Data),
 		"roles": roles,
 	})
@@ -417,20 +417,20 @@ func (b *AuthBlock) handleGetCurrentUser(ctx waffle.Context, msg *waffle.Message
 
 // --- Update Current User ---
 
-func (b *AuthBlock) handleUpdateCurrentUser(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AuthBlock) handleUpdateCurrentUser(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "User not authenticated")
+		return wafer.Error(msg, 401, "unauthorized", "User not authenticated")
 	}
 
 	var updates map[string]any
 	if err := msg.Decode(&updates); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	// Remove fields that users shouldn't update
@@ -440,82 +440,82 @@ func (b *AuthBlock) handleUpdateCurrentUser(ctx waffle.Context, msg *waffle.Mess
 
 	record, err := db.Update(context.Background(), usersCollection, userID, updates)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to update profile")
+		return wafer.Error(msg, 500, "internal_error", "Failed to update profile")
 	}
 
-	return waffle.JSONRespond(msg, 200, sanitizeUserData(record.Data))
+	return wafer.JSONRespond(msg, 200, sanitizeUserData(record.Data))
 }
 
 // --- Change Password ---
 
-func (b *AuthBlock) handleChangePassword(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AuthBlock) handleChangePassword(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "User not authenticated")
+		return wafer.Error(msg, 401, "unauthorized", "User not authenticated")
 	}
 
 	var body ChangePasswordRequest
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	userRecord, err := db.Get(context.Background(), usersCollection, userID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to verify user")
+		return wafer.Error(msg, 500, "internal_error", "Failed to verify user")
 	}
 
 	currentHash, _ := userRecord.Data["password"].(string)
 	if err := ctx.Services().Crypto.CompareHash(body.CurrentPassword, currentHash); err != nil {
-		return waffle.Error(msg, 401, "unauthorized", "Current password is incorrect")
+		return wafer.Error(msg, 401, "unauthorized", "Current password is incorrect")
 	}
 
 	if len(body.NewPassword) < 8 {
-		return waffle.Error(msg, 400, "bad_request", "Password must be at least 8 characters")
+		return wafer.Error(msg, 400, "bad_request", "Password must be at least 8 characters")
 	}
 
 	hashedPassword, err := ctx.Services().Crypto.Hash(body.NewPassword)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to process password")
+		return wafer.Error(msg, 500, "internal_error", "Failed to process password")
 	}
 
 	if _, err := db.Update(context.Background(), usersCollection, userID, map[string]any{
 		"password": hashedPassword,
 	}); err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to update password")
+		return wafer.Error(msg, 500, "internal_error", "Failed to update password")
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]string{"message": "Password updated successfully"})
+	return wafer.JSONRespond(msg, 200, map[string]string{"message": "Password updated successfully"})
 }
 
 // --- API Keys ---
 
-func (b *AuthBlock) handleCreateAPIKey(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AuthBlock) handleCreateAPIKey(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "User not authenticated")
+		return wafer.Error(msg, 401, "unauthorized", "User not authenticated")
 	}
 
 	var body CreateAPIKeyRequest
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 	if body.Name == "" {
-		return waffle.Error(msg, 400, "bad_request", "Name is required")
+		return wafer.Error(msg, 400, "bad_request", "Name is required")
 	}
 
 	fullKey, keyPrefix, keyHash, err := pkgauth.GenerateAPIKey(APIKeyPrefix)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to generate API key")
+		return wafer.Error(msg, 500, "internal_error", "Failed to generate API key")
 	}
 
 	keyData := map[string]any{
@@ -530,10 +530,10 @@ func (b *AuthBlock) handleCreateAPIKey(ctx waffle.Context, msg *waffle.Message) 
 
 	record, err := db.Create(context.Background(), apiKeysCollection, keyData)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to create API key")
+		return wafer.Error(msg, 500, "internal_error", "Failed to create API key")
 	}
 
-	return waffle.JSONRespond(msg, 201, map[string]any{
+	return wafer.JSONRespond(msg, 201, map[string]any{
 		"id":        record.ID,
 		"name":      body.Name,
 		"key":       fullKey,
@@ -542,15 +542,15 @@ func (b *AuthBlock) handleCreateAPIKey(ctx waffle.Context, msg *waffle.Message) 
 	})
 }
 
-func (b *AuthBlock) handleListAPIKeys(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AuthBlock) handleListAPIKeys(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "User not authenticated")
+		return wafer.Error(msg, 401, "unauthorized", "User not authenticated")
 	}
 
 	records, err := database.ListAll(context.Background(), db, apiKeysCollection,
@@ -558,7 +558,7 @@ func (b *AuthBlock) handleListAPIKeys(ctx waffle.Context, msg *waffle.Message) w
 		database.Filter{Field: "revoked_at", Operator: database.OpIsNull},
 	)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to list API keys")
+		return wafer.Error(msg, 500, "internal_error", "Failed to list API keys")
 	}
 
 	var response []map[string]any
@@ -581,42 +581,42 @@ func (b *AuthBlock) handleListAPIKeys(ctx waffle.Context, msg *waffle.Message) w
 		response = append(response, item)
 	}
 
-	return waffle.JSONRespond(msg, 200, response)
+	return wafer.JSONRespond(msg, 200, response)
 }
 
-func (b *AuthBlock) handleRevokeAPIKey(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AuthBlock) handleRevokeAPIKey(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "User not authenticated")
+		return wafer.Error(msg, 401, "unauthorized", "User not authenticated")
 	}
 
 	keyID := msg.Var("keyId")
 	if keyID == "" {
-		return waffle.Error(msg, 400, "bad_request", "Key ID is required")
+		return wafer.Error(msg, 400, "bad_request", "Key ID is required")
 	}
 
 	// Verify ownership
 	record, err := db.Get(context.Background(), apiKeysCollection, keyID)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", "API key not found or already revoked")
+		return wafer.Error(msg, 404, "not_found", "API key not found or already revoked")
 	}
 	if fmt.Sprintf("%v", record.Data["user_id"]) != userID {
-		return waffle.Error(msg, 404, "not_found", "API key not found or already revoked")
+		return wafer.Error(msg, 404, "not_found", "API key not found or already revoked")
 	}
 
 	_, err = db.Update(context.Background(), apiKeysCollection, keyID, map[string]any{
 		"revoked_at": apptime.NowTime().Format(apptime.TimeFormat),
 	})
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to revoke API key")
+		return wafer.Error(msg, 500, "internal_error", "Failed to revoke API key")
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]string{"message": "API key revoked"})
+	return wafer.JSONRespond(msg, 200, map[string]string{"message": "API key revoked"})
 }
 
 // --- Helpers ---
@@ -651,7 +651,7 @@ func sanitizeUserData(data map[string]any) map[string]any {
 	return result
 }
 
-func getIPFromMeta(msg *waffle.Message) *string {
+func getIPFromMeta(msg *wafer.Message) *string {
 	// Try X-Forwarded-For first, then X-Real-IP, then remote addr
 	if ip := msg.Header("X-Forwarded-For"); ip != "" {
 		return &ip
@@ -675,7 +675,7 @@ func getIPFromMeta(msg *waffle.Message) *string {
 	return &addr
 }
 
-func getHeaderPtr(msg *waffle.Message, name string) *string {
+func getHeaderPtr(msg *wafer.Message, name string) *string {
 	val := msg.Header(name)
 	if val == "" {
 		return nil

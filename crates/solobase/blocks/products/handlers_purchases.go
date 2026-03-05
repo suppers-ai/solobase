@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strconv"
 
-	waffle "github.com/suppers-ai/waffle-go"
+	wafer "github.com/wafer-run/wafer-go"
 )
 
-func (b *ProductsWaffleBlock) handleWebhook(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleWebhook(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.paymentProvider == nil {
-		return waffle.Error(msg, 400, "no_provider", "No payment provider configured")
+		return wafer.Error(msg, 400, "no_provider", "No payment provider configured")
 	}
 
 	body := msg.Data
@@ -26,53 +26,53 @@ func (b *ProductsWaffleBlock) handleWebhook(_ waffle.Context, msg *waffle.Messag
 	}
 
 	if signature == "" {
-		return waffle.Error(msg, 400, "missing_signature", "Missing webhook signature")
+		return wafer.Error(msg, 400, "missing_signature", "Missing webhook signature")
 	}
 
 	err := b.paymentProvider.HandleWebhook(body, signature, b.webhookHandler.processWebhookEvent)
 	if err != nil {
-		return waffle.Error(msg, 400, "webhook_error", fmt.Sprintf("Failed to process webhook: %v", err))
+		return wafer.Error(msg, 400, "webhook_error", fmt.Sprintf("Failed to process webhook: %v", err))
 	}
 
-	return waffle.Respond(msg, 200, nil, "")
+	return wafer.Respond(msg, 200, nil, "")
 }
 
-func (b *ProductsWaffleBlock) handleCalculatePrice(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleCalculatePrice(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	var calcReq struct {
 		ProductID uint                   `json:"productId"`
 		Variables map[string]interface{} `json:"variables"`
 	}
 	if err := msg.Decode(&calcReq); err != nil {
-		return waffle.Error(msg, 400, "invalid_body", "Invalid request body")
+		return wafer.Error(msg, 400, "invalid_body", "Invalid request body")
 	}
 
 	price, err := b.pricingService.CalculatePrice(calcReq.ProductID, calcReq.Variables)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, map[string]interface{}{
+	return wafer.JSONRespond(msg, 200, map[string]interface{}{
 		"price":     price,
 		"currency":  "USD",
 		"breakdown": []interface{}{},
 	})
 }
 
-func (b *ProductsWaffleBlock) handleCreatePurchase(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleCreatePurchase(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	var purchaseReq PurchaseRequest
 	if err := msg.Decode(&purchaseReq); err != nil {
-		return waffle.Error(msg, 400, "invalid_body", "Invalid request body")
+		return wafer.Error(msg, 400, "invalid_body", "Invalid request body")
 	}
 
 	purchaseReq.UserID = userID
 
 	purchase, err := b.purchaseService.Create(&purchaseReq)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
 
 	response := map[string]interface{}{
@@ -81,13 +81,13 @@ func (b *ProductsWaffleBlock) handleCreatePurchase(_ waffle.Context, msg *waffle
 	if checkoutURL := b.purchaseService.GetCheckoutURL(purchase); checkoutURL != "" {
 		response["checkoutUrl"] = checkoutURL
 	}
-	return waffle.JSONRespond(msg, 201, response)
+	return wafer.JSONRespond(msg, 201, response)
 }
 
-func (b *ProductsWaffleBlock) handleListPurchases(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleListPurchases(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	limit := 20
@@ -105,9 +105,9 @@ func (b *ProductsWaffleBlock) handleListPurchases(_ waffle.Context, msg *waffle.
 
 	purchases, total, err := b.purchaseService.GetByUserID(userID, limit, offset)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, map[string]interface{}{
+	return wafer.JSONRespond(msg, 200, map[string]interface{}{
 		"purchases": purchases,
 		"total":     total,
 		"limit":     limit,
@@ -115,45 +115,45 @@ func (b *ProductsWaffleBlock) handleListPurchases(_ waffle.Context, msg *waffle.
 	})
 }
 
-func (b *ProductsWaffleBlock) handleGetPurchase(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleGetPurchase(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	id, err := strconv.ParseUint(msg.Var("id"), 10, 32)
 	if err != nil {
-		return waffle.Error(msg, 400, "invalid_id", "Invalid ID")
+		return wafer.Error(msg, 400, "invalid_id", "Invalid ID")
 	}
 
 	purchase, err := b.purchaseService.GetByID(uint(id))
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 
 	if purchase.UserID != userID {
-		return waffle.Error(msg, 403, "forbidden", "Unauthorized")
+		return wafer.Error(msg, 403, "forbidden", "Unauthorized")
 	}
-	return waffle.JSONRespond(msg, 200, purchase)
+	return wafer.JSONRespond(msg, 200, purchase)
 }
 
-func (b *ProductsWaffleBlock) handleCancelPurchase(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleCancelPurchase(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	id, err := strconv.ParseUint(msg.Var("id"), 10, 32)
 	if err != nil {
-		return waffle.Error(msg, 400, "invalid_id", "Invalid ID")
+		return wafer.Error(msg, 400, "invalid_id", "Invalid ID")
 	}
 
 	purchase, err := b.purchaseService.GetByID(uint(id))
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 	if purchase.UserID != userID {
-		return waffle.Error(msg, 403, "forbidden", "Unauthorized")
+		return wafer.Error(msg, 403, "forbidden", "Unauthorized")
 	}
 
 	var cancelReq struct {
@@ -162,25 +162,25 @@ func (b *ProductsWaffleBlock) handleCancelPurchase(_ waffle.Context, msg *waffle
 	msg.Decode(&cancelReq) // Ignore error — reason is optional
 
 	if err := b.purchaseService.Cancel(uint(id), cancelReq.Reason); err != nil {
-		return waffle.Error(msg, 400, "cancel_error", err.Error())
+		return wafer.Error(msg, 400, "cancel_error", err.Error())
 	}
-	return waffle.Respond(msg, 204, nil, "")
+	return wafer.Respond(msg, 204, nil, "")
 }
 
-func (b *ProductsWaffleBlock) handlePurchaseStats(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handlePurchaseStats(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	userID := msg.UserID()
 	if userID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Unauthorized")
+		return wafer.Error(msg, 401, "unauthorized", "Unauthorized")
 	}
 
 	stats, err := b.purchaseService.GetStats(userID)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, stats)
+	return wafer.JSONRespond(msg, 200, stats)
 }
 
-func (b *ProductsWaffleBlock) handleListAllPurchases(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleListAllPurchases(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	limit := 20
 	offset := 0
 	if l := msg.Query("limit"); l != "" {
@@ -196,9 +196,9 @@ func (b *ProductsWaffleBlock) handleListAllPurchases(_ waffle.Context, msg *waff
 
 	purchases, total, err := b.purchaseService.ListAll(limit, offset)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", err.Error())
+		return wafer.Error(msg, 500, "internal_error", err.Error())
 	}
-	return waffle.JSONRespond(msg, 200, map[string]interface{}{
+	return wafer.JSONRespond(msg, 200, map[string]interface{}{
 		"purchases": purchases,
 		"total":     total,
 		"limit":     limit,
@@ -206,10 +206,10 @@ func (b *ProductsWaffleBlock) handleListAllPurchases(_ waffle.Context, msg *waff
 	})
 }
 
-func (b *ProductsWaffleBlock) handleRefundPurchase(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleRefundPurchase(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	id, err := strconv.ParseUint(msg.Var("id"), 10, 32)
 	if err != nil {
-		return waffle.Error(msg, 400, "invalid_id", "Invalid ID")
+		return wafer.Error(msg, 400, "invalid_id", "Invalid ID")
 	}
 
 	var refundReq struct {
@@ -217,28 +217,28 @@ func (b *ProductsWaffleBlock) handleRefundPurchase(_ waffle.Context, msg *waffle
 		Reason string `json:"reason"`
 	}
 	if err := msg.Decode(&refundReq); err != nil {
-		return waffle.Error(msg, 400, "invalid_body", "Invalid request body")
+		return wafer.Error(msg, 400, "invalid_body", "Invalid request body")
 	}
 
 	if err := b.purchaseService.Refund(uint(id), refundReq.Amount, refundReq.Reason); err != nil {
-		return waffle.Error(msg, 400, "refund_error", err.Error())
+		return wafer.Error(msg, 400, "refund_error", err.Error())
 	}
-	return waffle.Respond(msg, 204, nil, "")
+	return wafer.Respond(msg, 204, nil, "")
 }
 
-func (b *ProductsWaffleBlock) handleApprovePurchase(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *ProductsBlock) handleApprovePurchase(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	id, err := strconv.ParseUint(msg.Var("id"), 10, 32)
 	if err != nil {
-		return waffle.Error(msg, 400, "invalid_id", "Invalid ID")
+		return wafer.Error(msg, 400, "invalid_id", "Invalid ID")
 	}
 
 	approverID := msg.UserID()
 	if approverID == "" {
-		return waffle.Error(msg, 401, "unauthorized", "Authentication required")
+		return wafer.Error(msg, 401, "unauthorized", "Authentication required")
 	}
 
 	if err := b.purchaseService.Approve(uint(id), approverID); err != nil {
-		return waffle.Error(msg, 400, "approve_error", err.Error())
+		return wafer.Error(msg, 400, "approve_error", err.Error())
 	}
-	return waffle.Respond(msg, 204, nil, "")
+	return wafer.Respond(msg, 204, nil, "")
 }

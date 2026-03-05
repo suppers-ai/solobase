@@ -9,20 +9,20 @@ pub const JSON: &str = r#"{
         ]
     },
     "root": {
-        "flow": "http-infra",
+        "flow": "@wafer/infra",
         "next": [
             {
                 "match": "*:/admin/settings/**",
-                "flow": "admin-pipe",
+                "flow": "@wafer/admin-pipe",
                 "next": [
-                    { "block": "admin-feature" }
+                    { "block": "@solobase/admin" }
                 ]
             },
             {
                 "match": "*:/settings/**",
-                "flow": "auth-pipe",
+                "flow": "@wafer/auth-pipe",
                 "next": [
-                    { "block": "admin-feature" }
+                    { "block": "@solobase/admin" }
                 ]
             }
         ]

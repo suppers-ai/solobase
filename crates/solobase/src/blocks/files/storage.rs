@@ -32,7 +32,7 @@ pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ("delete", _) if path.starts_with("/storage/buckets/") => handle_delete_bucket(ctx, msg),
         ("retrieve", "/storage/search") => handle_search(ctx, msg),
         ("retrieve", "/storage/recent") => handle_recent(ctx, msg),
-        _ => err_not_found(msg.clone(), "not found"),
+        _ => err_not_found(msg, "not found"),
     }
 }
 
@@ -43,7 +43,7 @@ pub fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     match (action, path) {
         ("retrieve", "/admin/storage/buckets") => handle_list_buckets(ctx, msg),
         ("retrieve", "/admin/storage/stats") => handle_stats(ctx, msg),
-        _ => err_not_found(msg.clone(), "not found"),
+        _ => err_not_found(msg, "not found"),
     }
 }
 
@@ -64,8 +64,8 @@ fn extract_object_key(path: &str) -> &str {
 
 fn handle_list_buckets(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     match store::list_folders(ctx) {
-        Ok(folders) => json_respond(msg.clone(), 200, &serde_json::json!({"buckets": folders})),
-        Err(e) => err_internal(msg.clone(), &format!("Storage error: {e}")),
+        Ok(folders) => json_respond(msg, &serde_json::json!({"buckets": folders})),
+        Err(e) => err_internal(msg, &format!("Storage error: {e}")),
     }
 }
 
@@ -74,11 +74,11 @@ fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     struct Req { name: String, #[serde(default)] public: bool }
     let body: Req = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     if body.name.is_empty() {
-        return err_bad_request(msg.clone(), "Bucket name is required");
+        return err_bad_request(msg, "Bucket name is required");
     }
 
     match store::create_folder(ctx, &body.name, body.public) {
@@ -92,27 +92,27 @@ fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             if let Err(e) = db::create(ctx, BUCKETS_COLLECTION, data) {
                 tracing::warn!("Failed to track bucket creation in database: {e}");
             }
-            json_respond(msg.clone(), 201, &serde_json::json!({"name": body.name, "created": true}))
+            json_respond(msg, &serde_json::json!({"name": body.name, "created": true}))
         }
-        Err(e) => err_internal(msg.clone(), &format!("Failed to create bucket: {e}")),
+        Err(e) => err_internal(msg, &format!("Failed to create bucket: {e}")),
     }
 }
 
 fn handle_delete_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let bucket = extract_bucket_name(path);
-    if bucket.is_empty() { return err_bad_request(msg.clone(), "Missing bucket name"); }
+    if bucket.is_empty() { return err_bad_request(msg, "Missing bucket name"); }
 
     match store::delete_folder(ctx, bucket) {
-        Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
-        Err(e) => err_internal(msg.clone(), &format!("Failed to delete bucket: {e}")),
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Err(e) => err_internal(msg, &format!("Failed to delete bucket: {e}")),
     }
 }
 
 fn handle_list_objects(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let bucket = extract_bucket_name(path);
-    if bucket.is_empty() { return err_bad_request(msg.clone(), "Missing bucket name"); }
+    if bucket.is_empty() { return err_bad_request(msg, "Missing bucket name"); }
 
     let prefix = msg.query("prefix").to_string();
     let (_, page_size, offset) = msg.pagination_params(50);
@@ -124,8 +124,8 @@ fn handle_list_objects(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match store::list(ctx, bucket, &opts) {
-        Ok(list) => json_respond(msg.clone(), 200, &list),
-        Err(e) => err_internal(msg.clone(), &format!("Storage error: {e}")),
+        Ok(list) => json_respond(msg, &list),
+        Err(e) => err_internal(msg, &format!("Storage error: {e}")),
     }
 }
 
@@ -134,7 +134,7 @@ fn handle_get_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let bucket = extract_bucket_name(path);
     let key = extract_object_key(path);
     if bucket.is_empty() || key.is_empty() {
-        return err_bad_request(msg.clone(), "Missing bucket name or object key");
+        return err_bad_request(msg, "Missing bucket name or object key");
     }
 
     // Track view in DB
@@ -148,20 +148,20 @@ fn handle_get_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     match store::get(ctx, bucket, key) {
-        Ok((data, info)) => respond(msg.clone(), 200, data, &info.content_type),
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Object not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Storage error: {e}")),
+        Ok((data, info)) => respond(msg, data, &info.content_type),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Object not found"),
+        Err(e) => err_internal(msg, &format!("Storage error: {e}")),
     }
 }
 
 fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let bucket = extract_bucket_name(path);
-    if bucket.is_empty() { return err_bad_request(msg.clone(), "Missing bucket name"); }
+    if bucket.is_empty() { return err_bad_request(msg, "Missing bucket name"); }
 
     let key = msg.query("key").to_string();
     if key.is_empty() {
-        return err_bad_request(msg.clone(), "Missing object key (pass as ?key=filename)");
+        return err_bad_request(msg, "Missing object key (pass as ?key=filename)");
     }
 
     let content_type = if msg.content_type().is_empty() { "application/octet-stream" } else { msg.content_type() };
@@ -184,9 +184,9 @@ fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             if let Err(e) = db::create(ctx, OBJECTS_META_COLLECTION, data) {
                 tracing::warn!("Failed to store object metadata: {e}");
             }
-            json_respond(msg.clone(), 201, &serde_json::json!({"bucket": bucket, "key": key, "uploaded": true}))
+            json_respond(msg, &serde_json::json!({"bucket": bucket, "key": key, "uploaded": true}))
         }
-        Err(e) => err_internal(msg.clone(), &format!("Upload failed: {e}")),
+        Err(e) => err_internal(msg, &format!("Upload failed: {e}")),
     }
 }
 
@@ -195,7 +195,7 @@ fn handle_delete_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let bucket = extract_bucket_name(path);
     let key = extract_object_key(path);
     if bucket.is_empty() || key.is_empty() {
-        return err_bad_request(msg.clone(), "Missing bucket name or object key");
+        return err_bad_request(msg, "Missing bucket name or object key");
     }
 
     match store::delete(ctx, bucket, key) {
@@ -205,16 +205,16 @@ fn handle_delete_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 Filter { field: "bucket".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(bucket.to_string()) },
                 Filter { field: "key".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(key.to_string()) },
             ]).ok();
-            json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true}))
+            json_respond(msg, &serde_json::json!({"deleted": true}))
         }
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Object not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Delete failed: {e}")),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Object not found"),
+        Err(e) => err_internal(msg, &format!("Delete failed: {e}")),
     }
 }
 
 fn handle_search(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let query = msg.query("q").to_string();
-    if query.is_empty() { return err_bad_request(msg.clone(), "Missing search query"); }
+    if query.is_empty() { return err_bad_request(msg, "Missing search query"); }
 
     let (_, page_size, offset) = msg.pagination_params(20);
     let opts = ListOptions {
@@ -229,8 +229,8 @@ fn handle_search(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match db::list(ctx, OBJECTS_META_COLLECTION, &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Search failed: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Search failed: {e}")),
     }
 }
 
@@ -249,8 +249,8 @@ fn handle_recent(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match db::list(ctx, "storage_views", &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -259,7 +259,7 @@ fn handle_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let total_size = db::sum(ctx, OBJECTS_META_COLLECTION, "size", &[]).unwrap_or(0.0);
     let bucket_count = store::list_folders(ctx).map(|f| f.len()).unwrap_or(0);
 
-    json_respond(msg.clone(), 200, &serde_json::json!({
+    json_respond(msg, &serde_json::json!({
         "total_objects": total_objects,
         "total_size_bytes": total_size as i64,
         "bucket_count": bucket_count

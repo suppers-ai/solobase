@@ -1,6 +1,6 @@
 import { render } from 'preact';
 import { html, BlockShell } from '@solobase/ui';
-import { WafflePage } from './WafflePage';
+import { WaferPage } from './WaferPage';
 import '@app/app.css';
 
-render(html`<${BlockShell} title="Blocks & Flows"><${WafflePage} /></${BlockShell}>`, document.getElementById('app')!);
+render(html`<${BlockShell} title="Blocks & Flows"><${WaferPage} /></${BlockShell}>`, document.getElementById('app')!);

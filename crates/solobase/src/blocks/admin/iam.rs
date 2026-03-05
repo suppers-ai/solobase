@@ -27,7 +27,7 @@ pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ("retrieve", "/admin/iam/user-roles") => handle_list_user_roles(ctx, msg),
         ("create", "/admin/iam/user-roles") => handle_assign_role(ctx, msg),
         ("delete", _) if path.starts_with("/admin/iam/user-roles/") => handle_remove_role(ctx, msg),
-        _ => err_not_found(msg.clone(), "not found"),
+        _ => err_not_found(msg, "not found"),
     }
 }
 
@@ -38,8 +38,8 @@ fn handle_list_roles(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ..Default::default()
     };
     match db::list(ctx, ROLES_COLLECTION, &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -48,7 +48,7 @@ fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     struct Req { name: String, description: Option<String>, permissions: Option<Vec<String>> }
     let body: Req = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
     let now = chrono::Utc::now().to_rfc3339();
     let mut data = HashMap::new();
@@ -58,19 +58,19 @@ fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("created_at".to_string(), serde_json::Value::String(now));
     data.insert("is_system".to_string(), serde_json::Value::Bool(false));
     match db::create(ctx, ROLES_COLLECTION, data) {
-        Ok(record) => json_respond(msg.clone(), 201, &record),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_update_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/iam/roles/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing role ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing role ID"); }
 
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
     let mut data = HashMap::new();
     for key in &["name", "description", "permissions"] {
@@ -80,13 +80,13 @@ fn handle_update_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
     match db::update(ctx, ROLES_COLLECTION, id, data) {
-        Ok(record) => json_respond(msg.clone(), 200, &record),
+        Ok(record) => json_respond(msg, &record),
         Err(e) => {
             let msg_str = format!("{e}");
             if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg.clone(), "Role not found")
+                err_not_found(msg, "Role not found")
             } else {
-                err_internal(msg.clone(), &format!("Database error: {e}"))
+                err_internal(msg, &format!("Database error: {e}"))
             }
         }
     }
@@ -95,23 +95,23 @@ fn handle_update_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 fn handle_delete_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/iam/roles/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing role ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing role ID"); }
 
     // Check if system role
     if let Ok(role) = db::get(ctx, ROLES_COLLECTION, id) {
         if role.data.get("is_system").and_then(|v| v.as_bool()).unwrap_or(false) {
-            return err_forbidden(msg.clone(), "Cannot delete system role");
+            return err_forbidden(msg, "Cannot delete system role");
         }
     }
 
     match db::delete(ctx, ROLES_COLLECTION, id) {
-        Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) => {
             let msg_str = format!("{e}");
             if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg.clone(), "Role not found")
+                err_not_found(msg, "Role not found")
             } else {
-                err_internal(msg.clone(), &format!("Database error: {e}"))
+                err_internal(msg, &format!("Database error: {e}"))
             }
         }
     }
@@ -120,8 +120,8 @@ fn handle_delete_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 fn handle_list_permissions(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let opts = ListOptions { limit: 1000, ..Default::default() };
     match db::list(ctx, PERMISSIONS_COLLECTION, &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -130,7 +130,7 @@ fn handle_create_permission(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     struct Req { name: String, resource: String, actions: Vec<String> }
     let body: Req = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
     let mut data = HashMap::new();
     data.insert("name".to_string(), serde_json::Value::String(body.name));
@@ -138,23 +138,23 @@ fn handle_create_permission(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("actions".to_string(), serde_json::json!(body.actions));
     data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
     match db::create(ctx, PERMISSIONS_COLLECTION, data) {
-        Ok(record) => json_respond(msg.clone(), 201, &record),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_delete_permission(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/iam/permissions/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing permission ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing permission ID"); }
     match db::delete(ctx, PERMISSIONS_COLLECTION, id) {
-        Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) => {
             let msg_str = format!("{e}");
             if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg.clone(), "Permission not found")
+                err_not_found(msg, "Permission not found")
             } else {
-                err_internal(msg.clone(), &format!("Database error: {e}"))
+                err_internal(msg, &format!("Database error: {e}"))
             }
         }
     }
@@ -172,8 +172,8 @@ fn handle_list_user_roles(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
     let opts = ListOptions { filters, limit: 1000, ..Default::default() };
     match db::list(ctx, USER_ROLES_COLLECTION, &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -182,7 +182,7 @@ fn handle_assign_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     struct Req { user_id: String, role: String }
     let body: Req = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     // Check if already assigned
@@ -192,7 +192,7 @@ fn handle_assign_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     ]);
     if let Ok(records) = existing {
         if !records.is_empty() {
-            return err_conflict(msg.clone(), "Role already assigned to user");
+            return err_conflict(msg, "Role already assigned to user");
         }
     }
 
@@ -202,23 +202,23 @@ fn handle_assign_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("assigned_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
     data.insert("assigned_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
     match db::create(ctx, USER_ROLES_COLLECTION, data) {
-        Ok(record) => json_respond(msg.clone(), 201, &record),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_remove_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/iam/user-roles/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing user-role ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing user-role ID"); }
     match db::delete(ctx, USER_ROLES_COLLECTION, id) {
-        Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) => {
             let msg_str = format!("{e}");
             if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg.clone(), "User-role assignment not found")
+                err_not_found(msg, "User-role assignment not found")
             } else {
-                err_internal(msg.clone(), &format!("Database error: {e}"))
+                err_internal(msg, &format!("Database error: {e}"))
             }
         }
     }

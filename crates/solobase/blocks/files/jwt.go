@@ -1,7 +1,7 @@
 package files
 
 import (
-	cryptosvc "github.com/suppers-ai/waffle-go/services/crypto"
+	cryptosvc "github.com/wafer-run/wafer-go/services/crypto"
 )
 
 // StorageClaims represents JWT claims for storage operations

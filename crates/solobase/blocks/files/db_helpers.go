@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/suppers-ai/solobase/core/apptime"
-	"github.com/suppers-ai/waffle-go/services/database"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 // Database helper methods for FilesBlock

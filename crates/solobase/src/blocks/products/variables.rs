@@ -26,8 +26,8 @@ pub fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match db::list(ctx, COLLECTION, &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -42,7 +42,7 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
     let body: Req = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     let mut data = HashMap::new();
@@ -58,36 +58,36 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
     match db::create(ctx, COLLECTION, data) {
-        Ok(record) => json_respond(msg.clone(), 201, &record),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 pub fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/variables/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing variable ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing variable ID"); }
 
     let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
     body.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
     match db::update(ctx, COLLECTION, id, body) {
-        Ok(record) => json_respond(msg.clone(), 200, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Variable not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Variable not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 pub fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/variables/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing variable ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing variable ID"); }
     match db::delete(ctx, COLLECTION, id) {
-        Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Variable not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Variable not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }

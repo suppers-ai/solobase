@@ -2,7 +2,7 @@ import { html } from '@solobase/ui';
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { api, PageHeader, LoadingSpinner } from '@solobase/ui';
 import { BlocksTab } from './tabs/BlocksTab';
-import { FlowsTab } from './tabs/ChainsTab';
+import { FlowsTab } from './tabs/FlowsTab';
 import { SettingsTab } from './tabs/SettingsTab';
 
 interface AdminUIInfo {
@@ -35,7 +35,7 @@ function getInitialTab(): string {
 	return 'blocks';
 }
 
-export function WafflePage() {
+export function WaferPage() {
 	const [activeTab, setActiveTab] = useState(getInitialTab);
 	const [blocks, setBlocks] = useState<BlockInfo[]>([]);
 	const [flows, setFlows] = useState<FlowDef[]>([]);
@@ -45,8 +45,8 @@ export function WafflePage() {
 		setLoading(true);
 		try {
 			const [blocksRes, flowsRes] = await Promise.all([
-				api.get<BlockInfo[]>('/admin/waffle/blocks'),
-				api.get('/admin/waffle/flows'),
+				api.get<BlockInfo[]>('/admin/wafer/blocks'),
+				api.get('/admin/wafer/flows'),
 			]);
 			setBlocks(blocksRes || []);
 			setFlows(flowsRes || []);

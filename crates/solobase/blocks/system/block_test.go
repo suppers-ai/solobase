@@ -6,47 +6,47 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/waffletest"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/wafertest"
 )
 
-func setupSystem(t *testing.T) (*SystemBlock, waffle.Context) {
+func setupSystem(t *testing.T) (*SystemBlock, wafer.Context) {
 	t.Helper()
-	w := waffle.New()
+	w := wafer.New()
 	block := NewSystemBlock()
-	db := waffletest.SetupDB(t)
-	ctx := waffletest.NewContext(db)
-	ctx.SetService("waffle.runtime", w)
-	waffletest.InitBlock(t, block, ctx)
+	db := wafertest.SetupDB(t)
+	ctx := wafertest.NewContext(db)
+	ctx.SetService("wafer.runtime", w)
+	wafertest.InitBlock(t, block, ctx)
 	return block, ctx
 }
 
 func TestHealthCheck(t *testing.T) {
 	block, ctx := setupSystem(t)
-	msg := waffletest.Retrieve("/health")
+	msg := wafertest.Retrieve("/health")
 
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var body map[string]any
-	waffletest.DecodeResponse(t, result, &body)
+	wafertest.DecodeResponse(t, result, &body)
 	assert.Equal(t, "ok", body["status"])
 	assert.Equal(t, "API is running", body["message"])
 }
 
 func TestDebugTime(t *testing.T) {
 	block, ctx := setupSystem(t)
-	msg := waffletest.Retrieve("/debug/time")
+	msg := wafertest.Retrieve("/debug/time")
 
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var body map[string]any
-	waffletest.DecodeResponse(t, result, &body)
+	wafertest.DecodeResponse(t, result, &body)
 	assert.Contains(t, body, "now")
 	assert.Contains(t, body, "unix")
 	assert.Contains(t, body, "rfc3339")
@@ -56,15 +56,15 @@ func TestDebugTime(t *testing.T) {
 
 func TestGetNavItems(t *testing.T) {
 	block, ctx := setupSystem(t)
-	msg := waffletest.Retrieve("/nav")
+	msg := wafertest.Retrieve("/nav")
 
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, waffle.ActionRespond, result.Action)
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, wafer.ActionRespond, result.Action)
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var items []NavItem
-	waffletest.DecodeResponse(t, result, &items)
+	wafertest.DecodeResponse(t, result, &items)
 	// Should always include Blocks and Flows
 	require.GreaterOrEqual(t, len(items), 2)
 
@@ -78,21 +78,21 @@ func TestGetNavItems(t *testing.T) {
 
 func TestGetNavItemsSortOrder(t *testing.T) {
 	// Create a runtime with a block that has AdminUI
-	w := waffle.New()
+	w := wafer.New()
 	w.RegisterBlock("test-block", &stubAdminBlock{})
 	block := NewSystemBlock()
-	db := waffletest.SetupDB(t)
-	ctx := waffletest.NewContext(db)
-	ctx.SetService("waffle.runtime", w)
-	waffletest.InitBlock(t, block, ctx)
+	db := wafertest.SetupDB(t)
+	ctx := wafertest.NewContext(db)
+	ctx.SetService("wafer.runtime", w)
+	wafertest.InitBlock(t, block, ctx)
 
-	msg := waffletest.Retrieve("/nav")
+	msg := wafertest.Retrieve("/nav")
 	result := block.Handle(ctx, msg)
 
-	assert.Equal(t, 200, waffletest.Status(result))
+	assert.Equal(t, 200, wafertest.Status(result))
 
 	var items []NavItem
-	waffletest.DecodeResponse(t, result, &items)
+	wafertest.DecodeResponse(t, result, &items)
 	require.GreaterOrEqual(t, len(items), 3)
 
 	// Blocks and Flows (order group 1) should come before block admin UIs (order group 2)
@@ -116,28 +116,28 @@ func TestBlockInfo(t *testing.T) {
 	info := block.Info()
 	assert.Equal(t, BlockName, info.Name)
 	assert.Equal(t, "1.0.0", info.Version)
-	assert.Equal(t, waffle.Singleton, info.InstanceMode)
+	assert.Equal(t, wafer.Singleton, info.InstanceMode)
 }
 
 // stubAdminBlock is a test block that exposes an AdminUI entry.
 type stubAdminBlock struct{}
 
-func (b *stubAdminBlock) Info() waffle.BlockInfo {
-	return waffle.BlockInfo{
+func (b *stubAdminBlock) Info() wafer.BlockInfo {
+	return wafer.BlockInfo{
 		Name:         "test-admin-block",
 		Version:      "1.0.0",
 		Interface:    "http.handler",
 		Summary:      "Test block with admin UI",
-		InstanceMode: waffle.Singleton,
-		AllowedModes: []waffle.InstanceMode{waffle.Singleton},
-		AdminUI:      &waffle.AdminUIInfo{Path: "/admin/test", Icon: "test", Title: "Test Admin"},
+		InstanceMode: wafer.Singleton,
+		AllowedModes: []wafer.InstanceMode{wafer.Singleton},
+		AdminUI:      &wafer.AdminUIInfo{Path: "/admin/test", Icon: "test", Title: "Test Admin"},
 	}
 }
 
-func (b *stubAdminBlock) Handle(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *stubAdminBlock) Handle(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	return msg.Continue()
 }
 
-func (b *stubAdminBlock) Lifecycle(_ waffle.Context, _ waffle.LifecycleEvent) error {
+func (b *stubAdminBlock) Lifecycle(_ wafer.Context, _ wafer.LifecycleEvent) error {
 	return nil
 }

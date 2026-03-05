@@ -9,13 +9,15 @@ pub struct UserPortalBlock;
 impl Block for UserPortalBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "userportal-feature".to_string(),
+            name: "@solobase/userportal".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "User portal configuration endpoint".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: None,
+            runtime: wafer_run::types::BlockRuntime::Native,
+            requires: Vec::new(),
         }
     }
 
@@ -35,7 +37,7 @@ impl Block for UserPortalBlock {
                 "monitoring": true
             }
         });
-        json_respond(msg.clone(), 200, &config_val)
+        json_respond(msg, &config_val)
     }
 
     fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {

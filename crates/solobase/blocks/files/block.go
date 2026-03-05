@@ -6,9 +6,9 @@ import (
 
 	"github.com/suppers-ai/solobase/core/config"
 	"github.com/suppers-ai/solobase/core/env"
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
-	wafflestorage "github.com/suppers-ai/waffle-go/services/storage"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
+	waferstorage "github.com/wafer-run/wafer-go/services/storage"
 )
 
 const BlockName = "files-feature"
@@ -16,10 +16,10 @@ const BlockName = "files-feature"
 // FilesBlock is a unified block combining storage + cloud storage features.
 // It handles file upload/download, sharing, quotas, and access logging.
 type FilesBlock struct {
-	router         *waffle.Router
+	router         *wafer.Router
 	storageService *StorageService
 	db             database.Service
-	storageSvc     wafflestorage.Service
+	storageSvc     waferstorage.Service
 	cloudConfig    *CloudStorageConfig
 
 	shareService     *ShareService
@@ -39,7 +39,7 @@ func NewFilesBlock() *FilesBlock {
 			BandwidthResetPeriod:  "monthly",
 		},
 	}
-	b.router = waffle.NewRouter()
+	b.router = wafer.NewRouter()
 	b.registerRoutes()
 	return b
 }
@@ -93,24 +93,24 @@ func (b *FilesBlock) registerRoutes() {
 	b.router.Update("/ext/cloudstorage/default-quotas", b.handleDefaultQuotasPut)
 }
 
-func (b *FilesBlock) Info() waffle.BlockInfo {
-	return waffle.BlockInfo{
+func (b *FilesBlock) Info() wafer.BlockInfo {
+	return wafer.BlockInfo{
 		Name:         BlockName,
 		Version:      "1.0.0",
 		Interface:    "http.handler",
 		Summary:      "File storage, sharing, quotas and access logging",
-		InstanceMode: waffle.Singleton,
-		AllowedModes: []waffle.InstanceMode{waffle.Singleton},
-		AdminUI:      &waffle.AdminUIInfo{Path: "/admin/storage", Icon: "hard-drive", Title: "Storage"},
+		InstanceMode: wafer.Singleton,
+		AllowedModes: []wafer.InstanceMode{wafer.Singleton},
+		AdminUI:      &wafer.AdminUIInfo{Path: "/admin/storage", Icon: "hard-drive", Title: "Storage"},
 	}
 }
 
-func (b *FilesBlock) Handle(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *FilesBlock) Handle(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	return b.router.Route(ctx, msg)
 }
 
-func (b *FilesBlock) Lifecycle(ctx waffle.Context, evt waffle.LifecycleEvent) error {
-	if evt.Type != waffle.Init {
+func (b *FilesBlock) Lifecycle(ctx wafer.Context, evt wafer.LifecycleEvent) error {
+	if evt.Type != wafer.Init {
 		return nil
 	}
 
@@ -121,7 +121,7 @@ func (b *FilesBlock) Lifecycle(ctx waffle.Context, evt waffle.LifecycleEvent) er
 	}
 	b.db = db
 
-	// Storage provider service (for share downloads via waffle storage)
+	// Storage provider service (for share downloads via wafer storage)
 	b.storageSvc = ctx.Services().Storage
 
 	// Create storage repository and service
@@ -157,14 +157,14 @@ func (b *FilesBlock) Lifecycle(ctx waffle.Context, evt waffle.LifecycleEvent) er
 }
 
 // ownershipError returns an appropriate error result for ownership check failures.
-func (b *FilesBlock) ownershipError(msg *waffle.Message, err error) waffle.Result {
+func (b *FilesBlock) ownershipError(msg *wafer.Message, err error) wafer.Result {
 	switch err {
 	case ErrNotOwner:
-		return waffle.Error(msg, 403, "forbidden", "Access denied: not owner")
+		return wafer.Error(msg, 403, "forbidden", "Access denied: not owner")
 	case ErrAppIDMismatch:
-		return waffle.Error(msg, 403, "forbidden", "Access denied: app ID mismatch")
+		return wafer.Error(msg, 403, "forbidden", "Access denied: app ID mismatch")
 	default:
-		return waffle.Error(msg, 403, "forbidden", err.Error())
+		return wafer.Error(msg, 403, "forbidden", err.Error())
 	}
 }
 

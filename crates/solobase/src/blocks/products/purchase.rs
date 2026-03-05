@@ -22,11 +22,11 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let body: CreateReq = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     if body.items.is_empty() {
-        return err_bad_request(msg.clone(), "No items in purchase");
+        return err_bad_request(msg, "No items in purchase");
     }
 
     let currency = body.currency.unwrap_or_else(|| "USD".to_string());
@@ -39,11 +39,11 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     for item in &body.items {
         if item.quantity <= 0 {
-            return err_bad_request(msg.clone(), "Quantity must be positive");
+            return err_bad_request(msg, "Quantity must be positive");
         }
         let product = match db::get(ctx, PRODUCTS_COLLECTION, &item.product_id) {
             Ok(p) => p,
-            Err(_) => return err_not_found(msg.clone(), &format!("Product {} not found", item.product_id)),
+            Err(_) => return err_not_found(msg, &format!("Product {} not found", item.product_id)),
         };
 
         let product_name = product.data.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
@@ -82,7 +82,7 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let purchase = match db::create(ctx, PURCHASES_COLLECTION, purchase_data) {
         Ok(p) => p,
-        Err(e) => return err_internal(msg.clone(), &format!("Failed to create purchase: {e}")),
+        Err(e) => return err_internal(msg, &format!("Failed to create purchase: {e}")),
     };
 
     // Create line items
@@ -101,7 +101,7 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     }
 
-    json_respond(msg.clone(), 201, &serde_json::json!({
+    json_respond(msg, &serde_json::json!({
         "id": purchase.id,
         "status": "pending",
         "total_amount": total_amount,
@@ -121,8 +121,8 @@ pub fn handle_list_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
     match db::paginated_list(ctx, PURCHASES_COLLECTION, page as i64, page_size as i64, filters, sort) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -142,26 +142,26 @@ pub fn handle_list_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
     match db::paginated_list(ctx, PURCHASES_COLLECTION, page as i64, page_size as i64, filters, sort) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 pub fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.rsplit('/').next().unwrap_or("");
-    if id.is_empty() || id == "purchases" { return err_bad_request(msg.clone(), "Missing purchase ID"); }
+    if id.is_empty() || id == "purchases" { return err_bad_request(msg, "Missing purchase ID"); }
 
     let purchase = match db::get(ctx, PURCHASES_COLLECTION, id) {
         Ok(p) => p,
-        Err(e) if e.code == "not_found" => return err_not_found(msg.clone(), "Purchase not found"),
-        Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) if e.code == "not_found" => return err_not_found(msg, "Purchase not found"),
+        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
 
     // Verify access: user can only view their own, admin can view all
     let purchase_user = purchase.data.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
     if purchase_user != msg.user_id() && !msg.is_admin() {
-        return err_forbidden(msg.clone(), "Access denied");
+        return err_forbidden(msg, "Access denied");
     }
 
     // Get line items
@@ -175,7 +175,7 @@ pub fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
     let line_items = db::list(ctx, LINE_ITEMS_COLLECTION, &items_opts).map(|r| r.records).unwrap_or_default();
 
-    json_respond(msg.clone(), 200, &serde_json::json!({
+    json_respond(msg, &serde_json::json!({
         "purchase": purchase,
         "line_items": line_items
     }))
@@ -187,17 +187,17 @@ pub fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let id = path.strip_prefix("/admin/ext/products/purchases/")
         .and_then(|s| s.strip_suffix("/refund"))
         .unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing purchase ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing purchase ID"); }
 
     let purchase = match db::get(ctx, PURCHASES_COLLECTION, id) {
         Ok(p) => p,
-        Err(e) if e.code == "not_found" => return err_not_found(msg.clone(), "Purchase not found"),
-        Err(e) => return err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) if e.code == "not_found" => return err_not_found(msg, "Purchase not found"),
+        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
 
     let status = purchase.data.get("status").and_then(|v| v.as_str()).unwrap_or("");
     if status != "completed" {
-        return err_bad_request(msg.clone(), "Can only refund completed purchases");
+        return err_bad_request(msg, "Can only refund completed purchases");
     }
 
     let mut data = HashMap::new();
@@ -207,7 +207,7 @@ pub fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
     match db::update(ctx, PURCHASES_COLLECTION, id, data) {
-        Ok(record) => json_respond(msg.clone(), 200, &record),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }

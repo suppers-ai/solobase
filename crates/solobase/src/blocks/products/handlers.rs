@@ -44,7 +44,7 @@ pub fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
         // Stats
         ("retrieve", "/admin/ext/products/stats") => handle_stats(ctx, msg),
-        _ => err_not_found(msg.clone(), "not found"),
+        _ => err_not_found(msg, "not found"),
     }
 }
 
@@ -60,7 +60,7 @@ pub fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ("retrieve", "/ext/products/purchases") => super::purchase::handle_list_user(ctx, msg),
         ("retrieve", _) if path.starts_with("/ext/products/purchases/") => super::purchase::handle_get(ctx, msg),
         ("create", "/ext/products/checkout") => super::stripe::handle_checkout(ctx, msg),
-        _ => err_not_found(msg.clone(), "not found"),
+        _ => err_not_found(msg, "not found"),
     }
 }
 
@@ -85,26 +85,26 @@ fn handle_list_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
     match db::paginated_list(ctx, PRODUCTS_COLLECTION, page as i64, page_size as i64, filters, sort) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_get_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/products/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing product ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
     match db::get(ctx, PRODUCTS_COLLECTION, id) {
-        Ok(record) => json_respond(msg.clone(), 200, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Product not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_create_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     let mut data = body;
@@ -115,37 +115,37 @@ fn handle_create_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("created_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
 
     match db::create(ctx, PRODUCTS_COLLECTION, data) {
-        Ok(record) => json_respond(msg.clone(), 201, &record),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_update_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/products/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing product ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
 
     let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
     body.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
     match db::update(ctx, PRODUCTS_COLLECTION, id, body) {
-        Ok(record) => json_respond(msg.clone(), 200, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Product not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_delete_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/products/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing product ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
     match db::delete(ctx, PRODUCTS_COLLECTION, id) {
-        Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Product not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -158,46 +158,46 @@ fn handle_list_groups(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ..Default::default()
     };
     match db::list(ctx, GROUPS_COLLECTION, &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_create_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
     body.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
     match db::create(ctx, GROUPS_COLLECTION, body) {
-        Ok(record) => json_respond(msg.clone(), 201, &record),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_update_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/groups/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing group ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
     match db::update(ctx, GROUPS_COLLECTION, id, body) {
-        Ok(record) => json_respond(msg.clone(), 200, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Group not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Group not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_delete_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/groups/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing group ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
     match db::delete(ctx, GROUPS_COLLECTION, id) {
-        Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Group not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Group not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -206,30 +206,30 @@ fn handle_delete_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 fn handle_list_types(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let opts = ListOptions { limit: 1000, ..Default::default() };
     match db::list(ctx, TYPES_COLLECTION, &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_create_type(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
     match db::create(ctx, TYPES_COLLECTION, body) {
-        Ok(record) => json_respond(msg.clone(), 201, &record),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_delete_type(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/types/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing type ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing type ID"); }
     match db::delete(ctx, TYPES_COLLECTION, id) {
-        Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Type not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Type not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -242,46 +242,46 @@ fn handle_list_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ..Default::default()
     };
     match db::list(ctx, PRICING_COLLECTION, &opts) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_create_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
     body.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
     match db::create(ctx, PRICING_COLLECTION, body) {
-        Ok(record) => json_respond(msg.clone(), 201, &record),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_update_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/pricing/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing pricing template ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing pricing template ID"); }
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
     match db::update(ctx, PRICING_COLLECTION, id, body) {
-        Ok(record) => json_respond(msg.clone(), 200, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Pricing template not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(record) => json_respond(msg, &record),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Pricing template not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_delete_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/pricing/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing pricing template ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing pricing template ID"); }
     match db::delete(ctx, PRICING_COLLECTION, id) {
-        Ok(()) => json_respond(msg.clone(), 200, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Pricing template not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Pricing template not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -296,26 +296,26 @@ fn handle_catalog(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }];
     let sort = vec![SortField { field: "name".to_string(), desc: false }];
     match db::paginated_list(ctx, PRODUCTS_COLLECTION, page as i64, page_size as i64, filters, sort) {
-        Ok(result) => json_respond(msg.clone(), 200, &result),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 fn handle_get_product_public(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/ext/products/catalog/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg.clone(), "Missing product ID"); }
+    if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
 
     match db::get(ctx, PRODUCTS_COLLECTION, id) {
         Ok(record) => {
             let status = record.data.get("status").and_then(|v| v.as_str()).unwrap_or("");
             if status != "active" {
-                return err_not_found(msg.clone(), "Product not found");
+                return err_not_found(msg, "Product not found");
             }
-            json_respond(msg.clone(), 200, &record)
+            json_respond(msg, &record)
         }
-        Err(e) if e.code == "not_found" => err_not_found(msg.clone(), "Product not found"),
-        Err(e) => err_internal(msg.clone(), &format!("Database error: {e}")),
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -332,7 +332,7 @@ fn handle_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }]).unwrap_or(0.0);
     let total_groups = db::count(ctx, GROUPS_COLLECTION, &[]).unwrap_or(0);
 
-    json_respond(msg.clone(), 200, &serde_json::json!({
+    json_respond(msg, &serde_json::json!({
         "total_products": total_products,
         "active_products": active_products,
         "total_purchases": total_purchases,

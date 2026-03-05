@@ -4,20 +4,20 @@ import (
 	"sort"
 
 	"github.com/suppers-ai/solobase/core/apptime"
-	"github.com/suppers-ai/waffle-go"
+	"github.com/wafer-run/wafer-go"
 )
 
 const BlockName = "system-feature"
 
-// SystemBlock is a native waffle block for system infrastructure routes.
+// SystemBlock is a native wafer block for system infrastructure routes.
 type SystemBlock struct {
-	router        *waffle.Router
-	waffleRuntime *waffle.Waffle
+	router        *wafer.Router
+	waferRuntime *wafer.Wafer
 }
 
 func NewSystemBlock() *SystemBlock {
 	b := &SystemBlock{}
-	b.router = waffle.NewRouter()
+	b.router = wafer.NewRouter()
 	// Public
 	b.router.Retrieve("/health", b.handleHealth)
 	b.router.Retrieve("/debug/time", b.handleDebugTime)
@@ -26,40 +26,40 @@ func NewSystemBlock() *SystemBlock {
 	return b
 }
 
-func (b *SystemBlock) Info() waffle.BlockInfo {
-	return waffle.BlockInfo{
+func (b *SystemBlock) Info() wafer.BlockInfo {
+	return wafer.BlockInfo{
 		Name:         BlockName,
 		Version:      "1.0.0",
 		Interface:    "http.handler",
 		Summary:      "System infrastructure routes",
-		InstanceMode: waffle.Singleton,
-		AllowedModes: []waffle.InstanceMode{waffle.Singleton},
+		InstanceMode: wafer.Singleton,
+		AllowedModes: []wafer.InstanceMode{wafer.Singleton},
 	}
 }
 
-func (b *SystemBlock) Handle(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *SystemBlock) Handle(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	return b.router.Route(ctx, msg)
 }
 
-func (b *SystemBlock) Lifecycle(ctx waffle.Context, evt waffle.LifecycleEvent) error {
-	if evt.Type == waffle.Init {
-		if wfl, ok := ctx.Service("waffle.runtime").(*waffle.Waffle); ok {
-			b.waffleRuntime = wfl
+func (b *SystemBlock) Lifecycle(ctx wafer.Context, evt wafer.LifecycleEvent) error {
+	if evt.Type == wafer.Init {
+		if wfl, ok := ctx.Service("wafer.runtime").(*wafer.Wafer); ok {
+			b.waferRuntime = wfl
 		}
 	}
 	return nil
 }
 
-func (b *SystemBlock) handleHealth(_ waffle.Context, msg *waffle.Message) waffle.Result {
-	return waffle.JSONRespond(msg, 200, map[string]any{
+func (b *SystemBlock) handleHealth(_ wafer.Context, msg *wafer.Message) wafer.Result {
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"status":  "ok",
 		"message": "API is running",
 	})
 }
 
-func (b *SystemBlock) handleDebugTime(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *SystemBlock) handleDebugTime(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	now := apptime.NowTime()
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"now":         now.String(),
 		"unix":        now.Unix(),
 		"unixNano":    now.UnixNano(),
@@ -71,10 +71,10 @@ func (b *SystemBlock) handleDebugTime(_ waffle.Context, msg *waffle.Message) waf
 	})
 }
 
-func (b *SystemBlock) handleGetNavItems(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *SystemBlock) handleGetNavItems(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	var items []NavItem
-	if b.waffleRuntime != nil {
-		for _, info := range b.waffleRuntime.Registry().List() {
+	if b.waferRuntime != nil {
+		for _, info := range b.waferRuntime.Registry().List() {
 			if info.AdminUI != nil {
 				items = append(items, NavItem{
 					Title: info.AdminUI.Title,
@@ -84,10 +84,10 @@ func (b *SystemBlock) handleGetNavItems(_ waffle.Context, msg *waffle.Message) w
 			}
 		}
 	}
-	// Add waffle admin items that aren't from blocks
+	// Add wafer admin items that aren't from blocks
 	items = append(items,
-		NavItem{Title: "Blocks", Href: "/admin/waffle#blocks", Icon: "package"},
-		NavItem{Title: "Flows", Href: "/admin/waffle#flows", Icon: "git-branch"},
+		NavItem{Title: "Blocks", Href: "/admin/wafer#blocks", Icon: "package"},
+		NavItem{Title: "Flows", Href: "/admin/wafer#flows", Icon: "git-branch"},
 		NavItem{Title: "Logs", Href: "/admin/logs", Icon: "scroll-text"},
 		NavItem{Title: "IAM", Href: "/admin/iam", Icon: "shield"},
 	)
@@ -106,7 +106,7 @@ func (b *SystemBlock) handleGetNavItems(_ waffle.Context, msg *waffle.Message) w
 			break
 		}
 	}
-	return waffle.JSONRespond(msg, 200, items)
+	return wafer.JSONRespond(msg, 200, items)
 }
 
 func navOrder(title string) int {

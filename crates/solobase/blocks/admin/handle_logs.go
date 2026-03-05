@@ -9,8 +9,8 @@ import (
 
 	"github.com/suppers-ai/solobase/core/apptime"
 	"github.com/suppers-ai/solobase/core/constants"
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 const (
@@ -27,10 +27,10 @@ func (b *AdminBlock) registerLogsRoutes() {
 	b.router.Create("/admin/logs/clear", b.handleClearLogs)
 }
 
-func (b *AdminBlock) handleGetLogs(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetLogs(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	page, size, _ := msg.PaginationParams(constants.LogsPageSize)
@@ -41,7 +41,7 @@ func (b *AdminBlock) handleGetLogs(ctx waffle.Context, msg *waffle.Message) waff
 		[]database.SortField{{Field: "created_at", Desc: true}},
 	)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch logs")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch logs")
 	}
 
 	var responseLogs []map[string]any
@@ -63,7 +63,7 @@ func (b *AdminBlock) handleGetLogs(ctx waffle.Context, msg *waffle.Message) waff
 		responseLogs = append(responseLogs, logMap)
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"logs":  responseLogs,
 		"total": result.TotalCount,
 		"page":  page,
@@ -71,10 +71,10 @@ func (b *AdminBlock) handleGetLogs(ctx waffle.Context, msg *waffle.Message) waff
 	})
 }
 
-func (b *AdminBlock) handleGetMessageLogs(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetMessageLogs(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	page, size, _ := msg.PaginationParams(constants.LogsPageSize)
@@ -85,7 +85,7 @@ func (b *AdminBlock) handleGetMessageLogs(ctx waffle.Context, msg *waffle.Messag
 		[]database.SortField{{Field: "created_at", Desc: true}},
 	)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch message logs")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch message logs")
 	}
 
 	var responseLogs []map[string]any
@@ -114,7 +114,7 @@ func (b *AdminBlock) handleGetMessageLogs(ctx waffle.Context, msg *waffle.Messag
 		responseLogs = append(responseLogs, logMap)
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"logs":  responseLogs,
 		"total": result.TotalCount,
 		"page":  page,
@@ -122,10 +122,10 @@ func (b *AdminBlock) handleGetMessageLogs(ctx waffle.Context, msg *waffle.Messag
 	})
 }
 
-func (b *AdminBlock) handleGetLogStats(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetLogStats(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	timeRange := msg.Query("range")
@@ -158,18 +158,18 @@ func (b *AdminBlock) handleGetLogStats(ctx waffle.Context, msg *waffle.Message) 
 		stats["total"] = allRecords.TotalCount
 	}
 
-	return waffle.JSONRespond(msg, 200, stats)
+	return wafer.JSONRespond(msg, 200, stats)
 }
 
-func (b *AdminBlock) handleGetLogDetails(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetLogDetails(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	logID := msg.Query("id")
 	if logID == "" {
-		return waffle.Error(msg, 400, "bad_request", "Log ID is required")
+		return wafer.Error(msg, 400, "bad_request", "Log ID is required")
 	}
 
 	record, err := db.Get(context.Background(), logsCollection, logID)
@@ -188,12 +188,12 @@ func (b *AdminBlock) handleGetLogDetails(ctx waffle.Context, msg *waffle.Message
 				result["details"] = parsed
 			}
 		}
-		return waffle.JSONRespond(msg, 200, result)
+		return wafer.JSONRespond(msg, 200, result)
 	}
 
 	msgRecord, err := db.Get(context.Background(), messageLogsCollection, logID)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", "Log not found")
+		return wafer.Error(msg, 404, "not_found", "Log not found")
 	}
 
 	result := map[string]any{
@@ -218,20 +218,20 @@ func (b *AdminBlock) handleGetLogDetails(ctx waffle.Context, msg *waffle.Message
 		result["metaSnapshot"] = v
 	}
 
-	return waffle.JSONRespond(msg, 200, result)
+	return wafer.JSONRespond(msg, 200, result)
 }
 
-func (b *AdminBlock) handleClearLogs(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleClearLogs(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	var body struct {
 		OlderThan string `json:"olderThan"`
 	}
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 	if body.OlderThan == "" {
 		body.OlderThan = "7d"
@@ -262,16 +262,16 @@ func (b *AdminBlock) handleClearLogs(ctx waffle.Context, msg *waffle.Message) wa
 		}
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"message": fmt.Sprintf("Successfully deleted %d log entries", deleted),
 		"deleted": deleted,
 	})
 }
 
-func (b *AdminBlock) handleExportLogs(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleExportLogs(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	db := ctx.Services().Database
 	if db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database service not available")
+		return wafer.Error(msg, 503, "unavailable", "Database service not available")
 	}
 
 	filters := buildLogFilters(msg)
@@ -282,7 +282,7 @@ func (b *AdminBlock) handleExportLogs(ctx waffle.Context, msg *waffle.Message) w
 		Limit:   10000,
 	})
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to fetch logs")
+		return wafer.Error(msg, 500, "internal_error", "Failed to fetch logs")
 	}
 
 	var buf bytes.Buffer
@@ -303,19 +303,19 @@ func (b *AdminBlock) handleExportLogs(ctx waffle.Context, msg *waffle.Message) w
 	csvWriter.Flush()
 
 	filename := fmt.Sprintf("attachment; filename=logs_%s.csv", apptime.NowTime().Format("20060102_150405"))
-	return msg.Respond(waffle.Response{
+	return msg.Respond(wafer.Response{
 		Data: buf.Bytes(),
 		Meta: map[string]string{
-			waffle.MetaRespStatus:                              "200",
-			waffle.MetaRespContentType:                         "text/csv",
-			waffle.MetaRespHeaderPrefix + "Content-Disposition": filename,
+			wafer.MetaRespStatus:                              "200",
+			wafer.MetaRespContentType:                         "text/csv",
+			wafer.MetaRespHeaderPrefix + "Content-Disposition": filename,
 		},
 	})
 }
 
 // --- Log filter helpers ---
 
-func buildLogFilters(msg *waffle.Message) []database.Filter {
+func buildLogFilters(msg *wafer.Message) []database.Filter {
 	var filters []database.Filter
 
 	if level := msg.Query("level"); level != "" {
@@ -335,7 +335,7 @@ func buildLogFilters(msg *waffle.Message) []database.Filter {
 	return filters
 }
 
-func buildMessageLogFilters(msg *waffle.Message) []database.Filter {
+func buildMessageLogFilters(msg *wafer.Message) []database.Filter {
 	var filters []database.Filter
 
 	if v := msg.Query("chainId"); v != "" {

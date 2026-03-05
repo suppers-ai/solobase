@@ -1,18 +1,12 @@
 //! Solobase — Rust binary entry point.
 //!
 //! All feature blocks are implemented as native Rust structs implementing
-//! the Block trait. The WAFER runtime, HTTP server, and embedded frontend
-//! are provided by this binary. Infrastructure blocks self-configure from
-//! `blocks.json`.
+//! the Block trait. The WAFER runtime handles HTTP serving, flow execution,
+//! and block lifecycle. Infrastructure blocks self-configure from `blocks.json`.
 
 mod blocks;
 mod flows;
-mod embedded;
 
-use std::net::SocketAddr;
-use std::sync::Arc;
-
-use axum::Router;
 use tracing_subscriber::{fmt, EnvFilter};
 use wafer_run::Wafer;
 
@@ -38,7 +32,8 @@ async fn main() {
     tracing::info!("block configs loaded");
 
     // 4. Register wafer-core infrastructure blocks
-    //    (security-headers, cors, rate-limit, readonly-guard, monitoring, auth, iam, web)
+    //    (http-listener, security-headers, cors, rate-limit, readonly-guard,
+    //     monitoring, auth, iam, web)
     wafer_core::register_all(&mut wafer);
     tracing::info!("wafer-core blocks registered");
 
@@ -54,33 +49,17 @@ async fn main() {
     // 7. Register observability hooks
     register_observability_hooks(&mut wafer);
 
-    // 8. Resolve all flows (creates block instances, runs lifecycle init)
-    wafer
+    // 8. Start WAFER runtime (resolves flows, runs lifecycle init, binds listeners)
+    let wafer = wafer
         .start()
         .expect("failed to resolve and start WAFER runtime");
     tracing::info!("WAFER runtime started — all blocks resolved");
 
-    // 9. Build HTTP router
-    let wafer = Arc::new(wafer);
-    let app = build_router(wafer.clone());
+    // 9. Wait for shutdown signal
+    shutdown_signal().await;
 
-    // 10. Start axum HTTP server
-    let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8090".into());
-    let addr: SocketAddr = bind_addr
-        .parse()
-        .expect("invalid BIND_ADDR — expected host:port");
-
-    tracing::info!(%addr, "HTTP server listening");
-
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .expect("failed to bind TCP listener");
-
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .expect("HTTP server error");
-
+    // 10. Graceful shutdown
+    wafer.shutdown();
     tracing::info!("solobase shutdown complete");
 }
 
@@ -92,9 +71,7 @@ fn init_tracing(log_format: &str) {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,wafer=debug,solobase=debug"));
 
-    let is_json = log_format == "json";
-
-    if is_json {
+    if log_format == "json" {
         fmt()
             .json()
             .with_env_filter(filter)
@@ -115,7 +92,6 @@ fn init_tracing(log_format: &str) {
 // ---------------------------------------------------------------------------
 
 fn register_observability_hooks(wafer: &mut Wafer) {
-    // Log every block execution for debugging / audit.
     wafer.hooks.on_block_end(|obs_ctx, result, duration| {
         let status = match result.action {
             wafer_run::Action::Error => "ERROR",
@@ -132,7 +108,6 @@ fn register_observability_hooks(wafer: &mut Wafer) {
         );
     });
 
-    // Log flow-level summary.
     wafer.hooks.on_flow_end(|flow_id, result, duration| {
         let status = match result.action {
             wafer_run::Action::Error => "ERROR",
@@ -145,25 +120,6 @@ fn register_observability_hooks(wafer: &mut Wafer) {
             "flow completed"
         );
     });
-}
-
-// ---------------------------------------------------------------------------
-// HTTP router
-// ---------------------------------------------------------------------------
-
-fn build_router(wafer: Arc<Wafer>) -> Router {
-    // Create a single router that dispatches to the main flow.
-    // axum strips the /api prefix before passing to handlers, so flow routes
-    // stay clean (e.g. /health, /auth/login, /admin/users).
-    let api_router = wafer_core::bridge::http::create_router(wafer, "site-main");
-
-    // Embedded frontend (SPA)
-    let frontend_router = embedded::frontend_router();
-
-    // Compose: /api/* routes handled by flows, everything else by SPA
-    Router::new()
-        .nest("/api", api_router)
-        .fallback_service(frontend_router)
 }
 
 // ---------------------------------------------------------------------------

@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	waffle "github.com/suppers-ai/waffle-go"
+	wafer "github.com/wafer-run/wafer-go"
 )
 
 // serveFile resolves the request path to a file and serves it.
-func (b *WebBlock) serveFile(msg *waffle.Message, reqPath string) waffle.Result {
+func (b *WebBlock) serveFile(msg *wafer.Message, reqPath string) wafer.Result {
 	// Default empty or root path to index file
 	if reqPath == "" || reqPath == "/" {
 		reqPath = "/" + b.config.IndexFile
@@ -61,24 +61,24 @@ func (b *WebBlock) serveFile(msg *waffle.Message, reqPath string) waffle.Result 
 	contentType := detectContentType(resolved, data)
 	cacheHeader := b.cacheControl(reqPath, contentType)
 
-	return waffle.NewResponse(msg, 200).
+	return wafer.NewResponse(msg, 200).
 		SetHeader("Cache-Control", cacheHeader).
 		Body(data, contentType)
 }
 
 // handleNotFound returns the SPA fallback or a 404.
-func (b *WebBlock) handleNotFound(msg *waffle.Message, _ string) waffle.Result {
+func (b *WebBlock) handleNotFound(msg *wafer.Message, _ string) wafer.Result {
 	if b.config.SPAMode {
 		indexPath := filepath.Join(b.absRoot, b.config.IndexFile)
 		data, err := os.ReadFile(indexPath)
 		if err != nil {
-			return waffle.ErrNotFound(msg, "not found")
+			return wafer.ErrNotFound(msg, "not found")
 		}
-		return waffle.NewResponse(msg, 200).
+		return wafer.NewResponse(msg, 200).
 			SetHeader("Cache-Control", "no-cache").
 			Body(data, "text/html; charset=utf-8")
 	}
-	return waffle.ErrNotFound(msg, "not found")
+	return wafer.ErrNotFound(msg, "not found")
 }
 
 // detectContentType determines the MIME type of a file.

@@ -9,8 +9,8 @@ import (
 
 	"github.com/suppers-ai/solobase/core/apptime"
 	"github.com/suppers-ai/solobase/core/models"
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 func (b *AdminBlock) registerCustomTablesRoutes() {
@@ -32,39 +32,39 @@ func (b *AdminBlock) registerCustomTablesRoutes() {
 
 // --- Table CRUD handlers ---
 
-func (b *AdminBlock) handleCreateTable(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleCreateTable(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	userID := msg.UserID()
 
 	var body createTableRequest
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	if body.Name == "" {
-		return waffle.Error(msg, 400, "bad_request", "Table name is required")
+		return wafer.Error(msg, 400, "bad_request", "Table name is required")
 	}
 	if len(body.Fields) == 0 {
-		return waffle.Error(msg, 400, "bad_request", "At least one field is required")
+		return wafer.Error(msg, 400, "bad_request", "At least one field is required")
 	}
 
 	for _, field := range body.Fields {
 		if !validateFieldType(field.Type) {
-			return waffle.Error(msg, 400, "bad_request", "Invalid field type: "+field.Type)
+			return wafer.Error(msg, 400, "bad_request", "Invalid field type: "+field.Type)
 		}
 	}
 
 	if err := validateTableName(body.Name); err != nil {
-		return waffle.Error(msg, 400, "bad_request", err.Error())
+		return wafer.Error(msg, 400, "bad_request", err.Error())
 	}
 
 	tableName := models.EnsureCustomPrefix(body.Name)
 
 	if b.ctTableExists(tableName) {
-		return waffle.Error(msg, 400, "bad_request", fmt.Sprintf("table '%s' already exists", models.StripCustomPrefix(tableName)))
+		return wafer.Error(msg, 400, "bad_request", fmt.Sprintf("table '%s' already exists", models.StripCustomPrefix(tableName)))
 	}
 
 	ctx := context.Background()
@@ -86,7 +86,7 @@ func (b *AdminBlock) handleCreateTable(_ waffle.Context, msg *waffle.Message) wa
 		"updated_at":   now,
 	})
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to save table definition")
+		return wafer.Error(msg, 500, "internal_error", "Failed to save table definition")
 	}
 
 	defID := rec.ID
@@ -100,7 +100,7 @@ func (b *AdminBlock) handleCreateTable(_ waffle.Context, msg *waffle.Message) wa
 
 	if err := b.ctCreatePhysicalTable(ctx, definition); err != nil {
 		b.db.Delete(ctx, "custom_table_definitions", defID)
-		return waffle.Error(msg, 400, "bad_request", fmt.Sprintf("failed to create table: %v", err))
+		return wafer.Error(msg, 400, "bad_request", fmt.Sprintf("failed to create table: %v", err))
 	}
 
 	schemaJSON := serializeSchema(definition)
@@ -114,22 +114,22 @@ func (b *AdminBlock) handleCreateTable(_ waffle.Context, msg *waffle.Message) wa
 		"status":         "completed",
 	})
 
-	return waffle.JSONRespond(msg, 201, map[string]any{
+	return wafer.JSONRespond(msg, 201, map[string]any{
 		"success":    true,
 		"table_name": tableName,
 		"message":    "Table created successfully",
 	})
 }
 
-func (b *AdminBlock) handleListTables(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleListTables(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	ctx := context.Background()
 	defs, err := b.ctListActiveDefinitions(ctx)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to list tables")
+		return wafer.Error(msg, 500, "internal_error", "Failed to list tables")
 	}
 
 	response := make([]map[string]any, len(defs))
@@ -149,27 +149,27 @@ func (b *AdminBlock) handleListTables(_ waffle.Context, msg *waffle.Message) waf
 		}
 	}
 
-	return waffle.JSONRespond(msg, 200, response)
+	return wafer.JSONRespond(msg, 200, response)
 }
 
-func (b *AdminBlock) handleGetTableSchema(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetTableSchema(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	tableName := msg.Var("name")
 	definition, err := b.ctGetDefinition(tableName)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 
 	ctx := context.Background()
 	columns, err := b.ctGetTableColumns(ctx, definition.Name)
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to get table columns")
+		return wafer.Error(msg, 500, "internal_error", "Failed to get table columns")
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"name":        definition.DisplayName,
 		"table_name":  definition.Name,
 		"description": definition.Description,
@@ -182,9 +182,9 @@ func (b *AdminBlock) handleGetTableSchema(_ waffle.Context, msg *waffle.Message)
 	})
 }
 
-func (b *AdminBlock) handleAlterTable(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleAlterTable(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	tableName := msg.Var("name")
@@ -192,12 +192,12 @@ func (b *AdminBlock) handleAlterTable(_ waffle.Context, msg *waffle.Message) waf
 
 	var body alterTableRequest
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	existing, err := b.ctGetDefinition(tableName)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 
 	oldSchema := serializeSchema(&existing.CustomTableDefinition)
@@ -210,7 +210,7 @@ func (b *AdminBlock) handleAlterTable(_ waffle.Context, msg *waffle.Message) waf
 
 	ctx := context.Background()
 	if err := b.ctAlterPhysicalTable(ctx, existing, updates); err != nil {
-		return waffle.Error(msg, 400, "bad_request", fmt.Sprintf("failed to alter table: %v", err))
+		return wafer.Error(msg, 400, "bad_request", fmt.Sprintf("failed to alter table: %v", err))
 	}
 
 	existing.Fields = updates.Fields
@@ -247,15 +247,15 @@ func (b *AdminBlock) handleAlterTable(_ waffle.Context, msg *waffle.Message) waf
 		"status":         "completed",
 	})
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"success": true,
 		"message": "Table altered successfully",
 	})
 }
 
-func (b *AdminBlock) handleDropTable(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleDropTable(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	tableName := msg.Var("name")
@@ -264,7 +264,7 @@ func (b *AdminBlock) handleDropTable(_ waffle.Context, msg *waffle.Message) waff
 
 	existing, err := b.ctGetDefinition(tableName)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 
 	ctx := context.Background()
@@ -285,7 +285,7 @@ func (b *AdminBlock) handleDropTable(_ waffle.Context, msg *waffle.Message) waff
 
 	if permanent {
 		if _, err := b.db.ExecRaw(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", existing.Name)); err != nil {
-			return waffle.Error(msg, 500, "internal_error", fmt.Sprintf("failed to drop table: %v", err))
+			return wafer.Error(msg, 500, "internal_error", fmt.Sprintf("failed to drop table: %v", err))
 		}
 		b.db.Delete(ctx, "custom_table_definitions", existing.DefID)
 	} else {
@@ -300,7 +300,7 @@ func (b *AdminBlock) handleDropTable(_ waffle.Context, msg *waffle.Message) waff
 		message = "Table permanently deleted"
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"success": true,
 		"message": message,
 	})
@@ -308,29 +308,29 @@ func (b *AdminBlock) handleDropTable(_ waffle.Context, msg *waffle.Message) waff
 
 // --- Data CRUD handlers ---
 
-func (b *AdminBlock) handleInsertData(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleInsertData(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	tableName := msg.Var("name")
 	definition, err := b.ctGetDefinition(tableName)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 
 	var body insertDataRequest
 	if err := msg.Decode(&body); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	repo := newDynamicRepo(b.db, definition.Name, &definition.CustomTableDefinition)
 
 	if len(body.Bulk) > 0 {
 		if err := repo.BulkInsert(body.Bulk); err != nil {
-			return waffle.Error(msg, 400, "bad_request", err.Error())
+			return wafer.Error(msg, 400, "bad_request", err.Error())
 		}
-		return waffle.JSONRespond(msg, 201, map[string]any{
+		return wafer.JSONRespond(msg, 201, map[string]any{
 			"success": true,
 			"message": "Records inserted successfully",
 			"count":   len(body.Bulk),
@@ -340,23 +340,23 @@ func (b *AdminBlock) handleInsertData(_ waffle.Context, msg *waffle.Message) waf
 	if body.Data != nil {
 		result, err := repo.Create(body.Data)
 		if err != nil {
-			return waffle.Error(msg, 400, "bad_request", err.Error())
+			return wafer.Error(msg, 400, "bad_request", err.Error())
 		}
-		return waffle.JSONRespond(msg, 201, result)
+		return wafer.JSONRespond(msg, 201, result)
 	}
 
-	return waffle.Error(msg, 400, "bad_request", "No data provided")
+	return wafer.Error(msg, 400, "bad_request", "No data provided")
 }
 
-func (b *AdminBlock) handleQueryData(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleQueryData(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	tableName := msg.Var("name")
 	definition, err := b.ctGetDefinition(tableName)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 
 	limit := 100
@@ -391,12 +391,12 @@ func (b *AdminBlock) handleQueryData(_ waffle.Context, msg *waffle.Message) waff
 
 	results, err := repo.Find(conditions, limit, offset)
 	if err != nil {
-		return waffle.Error(msg, 400, "bad_request", err.Error())
+		return wafer.Error(msg, 400, "bad_request", err.Error())
 	}
 
 	totalCount, _ := repo.Count(conditions)
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"data":       results,
 		"total":      totalCount,
 		"limit":      limit,
@@ -405,9 +405,9 @@ func (b *AdminBlock) handleQueryData(_ waffle.Context, msg *waffle.Message) waff
 	})
 }
 
-func (b *AdminBlock) handleGetRecord(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetRecord(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	tableName := msg.Var("name")
@@ -415,21 +415,21 @@ func (b *AdminBlock) handleGetRecord(_ waffle.Context, msg *waffle.Message) waff
 
 	definition, err := b.ctGetDefinition(tableName)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 
 	repo := newDynamicRepo(b.db, definition.Name, &definition.CustomTableDefinition)
 	result, err := repo.FindByID(recordID)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 
-	return waffle.JSONRespond(msg, 200, result)
+	return wafer.JSONRespond(msg, 200, result)
 }
 
-func (b *AdminBlock) handleUpdateRecord(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleUpdateRecord(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	tableName := msg.Var("name")
@@ -437,28 +437,28 @@ func (b *AdminBlock) handleUpdateRecord(_ waffle.Context, msg *waffle.Message) w
 
 	definition, err := b.ctGetDefinition(tableName)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 
 	var updates map[string]any
 	if err := msg.Decode(&updates); err != nil {
-		return waffle.Error(msg, 400, "bad_request", "Invalid JSON body")
+		return wafer.Error(msg, 400, "bad_request", "Invalid JSON body")
 	}
 
 	repo := newDynamicRepo(b.db, definition.Name, &definition.CustomTableDefinition)
 	if err := repo.Update(recordID, updates); err != nil {
-		return waffle.Error(msg, 400, "bad_request", err.Error())
+		return wafer.Error(msg, 400, "bad_request", err.Error())
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"success": true,
 		"message": "Record updated successfully",
 	})
 }
 
-func (b *AdminBlock) handleDeleteRecord(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleDeleteRecord(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	tableName := msg.Var("name")
@@ -466,12 +466,12 @@ func (b *AdminBlock) handleDeleteRecord(_ waffle.Context, msg *waffle.Message) w
 
 	definition, err := b.ctGetDefinition(tableName)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 
 	repo := newDynamicRepo(b.db, definition.Name, &definition.CustomTableDefinition)
 	if err := repo.Delete(recordID); err != nil {
-		return waffle.Error(msg, 400, "bad_request", err.Error())
+		return wafer.Error(msg, 400, "bad_request", err.Error())
 	}
 
 	message := "Record deleted successfully"
@@ -479,7 +479,7 @@ func (b *AdminBlock) handleDeleteRecord(_ waffle.Context, msg *waffle.Message) w
 		message = "Record soft-deleted successfully"
 	}
 
-	return waffle.JSONRespond(msg, 200, map[string]any{
+	return wafer.JSONRespond(msg, 200, map[string]any{
 		"success": true,
 		"message": message,
 	})
@@ -487,15 +487,15 @@ func (b *AdminBlock) handleDeleteRecord(_ waffle.Context, msg *waffle.Message) w
 
 // --- Migration handler ---
 
-func (b *AdminBlock) handleGetMigrationHistory(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleGetMigrationHistory(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	if b.db == nil {
-		return waffle.Error(msg, 503, "unavailable", "Database not available")
+		return wafer.Error(msg, 503, "unavailable", "Database not available")
 	}
 
 	tableName := msg.Var("name")
 	definition, err := b.ctGetDefinition(tableName)
 	if err != nil {
-		return waffle.Error(msg, 404, "not_found", err.Error())
+		return wafer.Error(msg, 404, "not_found", err.Error())
 	}
 
 	ctx := context.Background()
@@ -507,7 +507,7 @@ func (b *AdminBlock) handleGetMigrationHistory(_ waffle.Context, msg *waffle.Mes
 		Limit: 100,
 	})
 	if err != nil {
-		return waffle.Error(msg, 500, "internal_error", "Failed to get migration history")
+		return wafer.Error(msg, 500, "internal_error", "Failed to get migration history")
 	}
 
 	var migrations []map[string]any
@@ -535,7 +535,7 @@ func (b *AdminBlock) handleGetMigrationHistory(_ waffle.Context, msg *waffle.Mes
 		migrations = append(migrations, mig)
 	}
 
-	return waffle.JSONRespond(msg, 200, migrations)
+	return wafer.JSONRespond(msg, 200, migrations)
 }
 
 // --- Custom tables internal helpers ---

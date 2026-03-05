@@ -1,12 +1,12 @@
 package admin
 
 import (
-	waffle "github.com/suppers-ai/waffle-go"
+	wafer "github.com/wafer-run/wafer-go"
 )
 
-func (b *AdminBlock) registerWaffleRoutes() {
-	b.router.Retrieve("/admin/waffle/blocks", b.handleListBlocks)
-	b.router.Retrieve("/admin/waffle/flows", b.handleListFlows)
+func (b *AdminBlock) registerWaferRoutes() {
+	b.router.Retrieve("/admin/wafer/blocks", b.handleListBlocks)
+	b.router.Retrieve("/admin/wafer/flows", b.handleListFlows)
 }
 
 type blockListItem struct {
@@ -16,10 +16,10 @@ type blockListItem struct {
 	Summary      string              `json:"summary"`
 	InstanceMode string              `json:"instance_mode"`
 	AllowedModes []string            `json:"allowed_modes"`
-	AdminUI      *waffle.AdminUIInfo `json:"admin_ui,omitempty"`
+	AdminUI      *wafer.AdminUIInfo `json:"admin_ui,omitempty"`
 }
 
-func (b *AdminBlock) handleListBlocks(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleListBlocks(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	infos := b.runtime.Registry().List()
 
 	items := make([]blockListItem, len(infos))
@@ -38,10 +38,10 @@ func (b *AdminBlock) handleListBlocks(_ waffle.Context, msg *waffle.Message) waf
 			AdminUI:      info.AdminUI,
 		}
 	}
-	return waffle.JSONRespond(msg, 200, items)
+	return wafer.JSONRespond(msg, 200, items)
 }
 
-func (b *AdminBlock) handleListFlows(_ waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) handleListFlows(_ wafer.Context, msg *wafer.Message) wafer.Result {
 	defs := b.runtime.FlowDefs()
-	return waffle.JSONRespond(msg, 200, defs)
+	return wafer.JSONRespond(msg, 200, defs)
 }

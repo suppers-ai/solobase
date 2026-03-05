@@ -7,7 +7,7 @@ import (
 
 	"github.com/suppers-ai/solobase/core/apptime"
 	"github.com/suppers-ai/solobase/core/uuid"
-	"github.com/suppers-ai/waffle-go/services/database"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 // AccessLogService manages access logging for storage operations

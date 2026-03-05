@@ -9,7 +9,7 @@ use crate::blocks::helpers::hex_encode;
 pub fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let stripe_key = match config::get(ctx, "STRIPE_SECRET_KEY") {
         Ok(k) => k,
-        Err(_) => return err_internal(msg.clone(), "Stripe is not configured"),
+        Err(_) => return err_internal(msg, "Stripe is not configured"),
     };
 
     #[derive(serde::Deserialize)]
@@ -20,13 +20,13 @@ pub fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
     let body: CheckoutReq = match msg.decode() {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     // Get purchase
     let purchase = match db::get(ctx, PURCHASES_COLLECTION, &body.purchase_id) {
         Ok(p) => p,
-        Err(_) => return err_not_found(msg.clone(), "Purchase not found"),
+        Err(_) => return err_not_found(msg, "Purchase not found"),
     };
 
     let total = purchase.data.get("total_amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -59,17 +59,17 @@ pub fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Some(&stripe_body.into_bytes()),
     ) {
         Ok(r) => r,
-        Err(e) => return err_internal(msg.clone(), &format!("Stripe API error: {e}")),
+        Err(e) => return err_internal(msg, &format!("Stripe API error: {e}")),
     };
 
     if resp.status_code >= 400 {
         let err_body = String::from_utf8_lossy(&resp.body);
-        return err_internal(msg.clone(), &format!("Stripe error ({}): {}", resp.status_code, err_body));
+        return err_internal(msg, &format!("Stripe error ({}): {}", resp.status_code, err_body));
     }
 
     let session: serde_json::Value = match serde_json::from_slice(&resp.body) {
         Ok(d) => d,
-        Err(_) => return err_internal(msg.clone(), "Failed to parse Stripe response"),
+        Err(_) => return err_internal(msg, "Failed to parse Stripe response"),
     };
 
     let session_id = session.get("id").and_then(|v| v.as_str()).unwrap_or("");
@@ -84,7 +84,7 @@ pub fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         tracing::warn!("Failed to update purchase with Stripe session ID: {e}");
     }
 
-    json_respond(msg.clone(), 200, &serde_json::json!({
+    json_respond(msg, &serde_json::json!({
         "session_id": session_id,
         "checkout_url": checkout_url
     }))
@@ -96,10 +96,10 @@ pub fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if !webhook_secret.is_empty() {
         let sig_header = msg.header("stripe-signature");
         if sig_header.is_empty() {
-            return err_unauthorized(msg.clone(), "Missing Stripe-Signature header");
+            return err_unauthorized(msg, "Missing Stripe-Signature header");
         }
         if !verify_stripe_signature(&msg.data, &sig_header, &webhook_secret) {
-            return err_unauthorized(msg.clone(), "Invalid webhook signature");
+            return err_unauthorized(msg, "Invalid webhook signature");
         }
     } else {
         tracing::warn!("STRIPE_WEBHOOK_SECRET not configured — webhook signature verification disabled");
@@ -108,7 +108,7 @@ pub fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Parse webhook event
     let event: serde_json::Value = match msg.decode() {
         Ok(e) => e,
-        Err(e) => return err_bad_request(msg.clone(), &format!("Invalid webhook body: {e}")),
+        Err(e) => return err_bad_request(msg, &format!("Invalid webhook body: {e}")),
     };
 
     let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -169,7 +169,7 @@ pub fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     }
 
-    json_respond(msg.clone(), 200, &serde_json::json!({"received": true}))
+    json_respond(msg, &serde_json::json!({"received": true}))
 }
 
 fn urlencoding(s: &str) -> String {

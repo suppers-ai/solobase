@@ -9,17 +9,16 @@ pub const JSON: &str = r#"{
             { "path": "/admin/logs",          "path_prefix": true },
             { "path": "/admin/iam",           "path_prefix": true },
             { "path": "/admin/wafer",        "path_prefix": true },
-            { "path": "/admin/waffle",       "path_prefix": true },
             { "path": "/admin/custom-tables", "path_prefix": true }
         ]
     },
     "root": {
-        "flow": "http-infra",
+        "flow": "@wafer/infra",
         "next": [
             {
-                "flow": "admin-pipe",
+                "flow": "@wafer/admin-pipe",
                 "next": [
-                    { "block": "admin-feature" }
+                    { "block": "@solobase/admin" }
                 ]
             }
         ]

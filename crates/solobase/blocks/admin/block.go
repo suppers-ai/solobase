@@ -1,59 +1,59 @@
 // Package admin consolidates all admin-only feature blocks into a single block.
-// It replaces: users, database, iam, logs, settings, waffle, and custom_tables.
+// It replaces: users, database, iam, logs, settings, wafer, and custom_tables.
 package admin
 
 import (
 	"context"
 
 	"github.com/suppers-ai/solobase/core/iam"
-	waffle "github.com/suppers-ai/waffle-go"
-	"github.com/suppers-ai/waffle-go/services/database"
+	wafer "github.com/wafer-run/wafer-go"
+	"github.com/wafer-run/wafer-go/services/database"
 )
 
 const BlockName = "admin-feature"
 
 // AdminBlock is a consolidated admin block handling users, database, IAM,
-// logs, settings, waffle introspection, and custom tables.
+// logs, settings, wafer introspection, and custom tables.
 type AdminBlock struct {
-	router  *waffle.Router
-	runtime *waffle.Waffle
+	router  *wafer.Router
+	runtime *wafer.Wafer
 	db      database.Service
 }
 
-// NewAdminBlock creates the admin block. The waffle runtime is obtained
-// in Lifecycle(Init) via ctx.Service("waffle.runtime").
+// NewAdminBlock creates the admin block. The wafer runtime is obtained
+// in Lifecycle(Init) via ctx.Service("wafer.runtime").
 func NewAdminBlock() *AdminBlock {
 	b := &AdminBlock{}
-	b.router = waffle.NewRouter()
+	b.router = wafer.NewRouter()
 	b.registerUsersRoutes()
 	b.registerDatabaseRoutes()
 	b.registerIAMRoutes()
 	b.registerLogsRoutes()
 	b.registerSettingsRoutes()
-	b.registerWaffleRoutes()
+	b.registerWaferRoutes()
 	b.registerCustomTablesRoutes()
 	return b
 }
 
-func (b *AdminBlock) Info() waffle.BlockInfo {
-	return waffle.BlockInfo{
+func (b *AdminBlock) Info() wafer.BlockInfo {
+	return wafer.BlockInfo{
 		Name:         BlockName,
 		Version:      "1.0.0",
 		Interface:    "http.handler",
 		Summary:      "Admin management",
-		InstanceMode: waffle.Singleton,
-		AllowedModes: []waffle.InstanceMode{waffle.Singleton},
-		AdminUI:      &waffle.AdminUIInfo{Path: "/admin/waffle", Icon: "settings", Title: "Admin"},
+		InstanceMode: wafer.Singleton,
+		AllowedModes: []wafer.InstanceMode{wafer.Singleton},
+		AdminUI:      &wafer.AdminUIInfo{Path: "/admin/wafer", Icon: "settings", Title: "Admin"},
 	}
 }
 
-func (b *AdminBlock) Handle(ctx waffle.Context, msg *waffle.Message) waffle.Result {
+func (b *AdminBlock) Handle(ctx wafer.Context, msg *wafer.Message) wafer.Result {
 	return b.router.Route(ctx, msg)
 }
 
-func (b *AdminBlock) Lifecycle(ctx waffle.Context, evt waffle.LifecycleEvent) error {
-	if evt.Type == waffle.Init {
-		if wfl, ok := ctx.Service("waffle.runtime").(*waffle.Waffle); ok {
+func (b *AdminBlock) Lifecycle(ctx wafer.Context, evt wafer.LifecycleEvent) error {
+	if evt.Type == wafer.Init {
+		if wfl, ok := ctx.Service("wafer.runtime").(*wafer.Wafer); ok {
 			b.runtime = wfl
 		}
 		if db := ctx.Services().Database; db != nil {

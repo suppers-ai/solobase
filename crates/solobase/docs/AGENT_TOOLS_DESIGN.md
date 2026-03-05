@@ -546,7 +546,7 @@ With Go 1.24+ (`go:wasmexport`), block authors write standard Go — no TinyGo n
 ```go
 package main
 
-import "github.com/suppers-ai/wafer-go/guest"
+import "github.com/wafer-run/wafer-go/guest"
 
 type MyBlock struct{}
 
