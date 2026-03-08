@@ -5,31 +5,45 @@ edition.workspace = true
 license.workspace = true
 description = "Solobase — self-hosted backend platform powered by the WAFER runtime"
 
+[lib]
+name = "solobase"
+path = "src/lib.rs"
+
 [[bin]]
 name = "solobase"
 path = "src/main.rs"
+required-features = ["server"]
 
 [features]
-default = ["full"]
+default = ["server"]
+server = [
+    "wafer-run/full",
+    "wafer-core/full",
+    "wafer-core/http",
+    "dep:tokio",
+    "dep:tracing-subscriber",
+]
 storage-s3 = ["wafer-core/storage-s3"]
 postgres = ["wafer-core/postgres"]
-full = ["wafer-core/full", "wafer-run/full", "storage-s3", "postgres"]
 
 [dependencies]
-# WAFER runtime and shared blocks
-wafer-run = { workspace = true }
-wafer-core = { workspace = true }
+# WAFER runtime and shared blocks (minimal — types + clients only)
+wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
+wafer-core = { path = "../../../wafer-run/crates/wafer-core", default-features = false }
+
+# Async
+async-trait = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-# Async runtime
-tokio = { workspace = true }
+# Async runtime (only needed for the server binary)
+tokio = { workspace = true, optional = true }
 
 # Observability
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
 
 # Time
 chrono = { workspace = true }

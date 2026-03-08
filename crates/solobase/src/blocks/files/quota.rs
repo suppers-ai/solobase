@@ -5,9 +5,9 @@ use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp};
 use super::models::QuotaConfig;
 
-pub fn get_user_quota(ctx: &dyn Context, user_id: &str) -> QuotaConfig {
+pub async fn get_user_quota(ctx: &dyn Context, user_id: &str) -> QuotaConfig {
     // Check for user-specific override
-    match db::get_by_field(ctx, "cloud_quotas", "user_id", serde_json::Value::String(user_id.to_string())) {
+    match db::get_by_field(ctx, "cloud_quotas", "user_id", serde_json::Value::String(user_id.to_string())).await {
         Ok(record) => {
             QuotaConfig {
                 max_storage_bytes: record.data.get("max_storage_bytes").and_then(|v| v.as_i64()).unwrap_or(1_073_741_824),
@@ -20,15 +20,15 @@ pub fn get_user_quota(ctx: &dyn Context, user_id: &str) -> QuotaConfig {
     }
 }
 
-pub fn get_user_usage(ctx: &dyn Context, user_id: &str) -> serde_json::Value {
+pub async fn get_user_usage(ctx: &dyn Context, user_id: &str) -> serde_json::Value {
     let filters = vec![Filter {
         field: "uploaded_by".to_string(),
         operator: FilterOp::Equal,
         value: serde_json::Value::String(user_id.to_string()),
     }];
 
-    let total_bytes = db::sum(ctx, "storage_objects", "size", &filters).unwrap_or(0.0) as i64;
-    let file_count = db::count(ctx, "storage_objects", &filters).unwrap_or(0);
+    let total_bytes = db::sum(ctx, "storage_objects", "size", &filters).await.unwrap_or(0.0) as i64;
+    let file_count = db::count(ctx, "storage_objects", &filters).await.unwrap_or(0);
 
     serde_json::json!({
         "total_bytes": total_bytes,
@@ -36,9 +36,9 @@ pub fn get_user_usage(ctx: &dyn Context, user_id: &str) -> serde_json::Value {
     })
 }
 
-pub fn check_quota(ctx: &dyn Context, user_id: &str, _bucket: &str, file_size: i64) -> Result<(), Result_> {
-    let quota = get_user_quota(ctx, user_id);
-    let usage = get_user_usage(ctx, user_id);
+pub async fn check_quota(ctx: &dyn Context, user_id: &str, _bucket: &str, file_size: i64) -> Result<(), Result_> {
+    let quota = get_user_quota(ctx, user_id).await;
+    let usage = get_user_usage(ctx, user_id).await;
 
     let current_bytes = usage.get("total_bytes").and_then(|v| v.as_i64()).unwrap_or(0);
 

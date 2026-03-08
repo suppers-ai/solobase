@@ -1,12 +1,16 @@
 # Rust
-/target
+target/
 
 # Node
 node_modules/
 dist/
 
 # Data & test artifacts
+data/
 .data/
+*.db
+*.db-shm
+*.db-wal
 test-results/
 playwright-report/
 
@@ -28,5 +32,9 @@ Thumbs.db
 # Logs
 *.log
 
-# Misc build artifacts
+# Build output
+build/
 .bin/
+
+# Package lock (regenerated from package.json)
+package-lock.json

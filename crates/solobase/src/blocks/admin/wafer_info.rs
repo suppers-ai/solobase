@@ -29,12 +29,12 @@ fn handle_blocks(msg: &mut Message) -> Result_ {
         {"name": "profile-feature", "version": "1.0.0", "interface": "http.handler", "type": "native"},
         {"name": "monitoring-feature", "version": "1.0.0", "interface": "http.handler", "type": "native"},
         {"name": "web-feature", "version": "1.0.0", "interface": "http.handler", "type": "native"},
-        {"name": "@wafer/auth", "version": "0.1.0", "interface": "middleware@v1", "type": "native"},
+        {"name": "@wafer/auth-validator", "version": "0.1.0", "interface": "middleware@v1", "type": "native"},
         {"name": "@wafer/web", "version": "0.1.0", "interface": "handler@v1", "type": "native"},
         {"name": "@wafer/cors", "version": "0.1.0", "interface": "middleware@v1", "type": "native"},
         {"name": "@wafer/security-headers", "version": "0.1.0", "interface": "middleware@v1", "type": "native"},
-        {"name": "@wafer/rate-limit", "version": "0.1.0", "interface": "middleware@v1", "type": "native"},
-        {"name": "@wafer/iam", "version": "0.1.0", "interface": "middleware@v1", "type": "native"}
+        {"name": "@wafer/ip-rate-limit", "version": "0.1.0", "interface": "middleware@v1", "type": "native"},
+        {"name": "@wafer/iam-guard", "version": "0.1.0", "interface": "middleware@v1", "type": "native"}
     ]);
     json_respond(msg, &blocks)
 }

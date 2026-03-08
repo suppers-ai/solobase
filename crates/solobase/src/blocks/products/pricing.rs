@@ -5,7 +5,7 @@ use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use super::{PRICING_COLLECTION, PRODUCTS_COLLECTION};
 
-pub fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
     struct CalcReq {
         product_id: String,
@@ -22,7 +22,7 @@ pub fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     // Get product
-    let product = match db::get(ctx, PRODUCTS_COLLECTION, &body.product_id) {
+    let product = match db::get(ctx, PRODUCTS_COLLECTION, &body.product_id).await {
         Ok(p) => p,
         Err(_) => return err_not_found(msg, "Product not found"),
     };
@@ -41,7 +41,7 @@ pub fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }));
     }
 
-    let template = match db::get(ctx, PRICING_COLLECTION, template_id) {
+    let template = match db::get(ctx, PRICING_COLLECTION, template_id).await {
         Ok(t) => t,
         Err(_) => return err_internal(msg, "Pricing template not found"),
     };

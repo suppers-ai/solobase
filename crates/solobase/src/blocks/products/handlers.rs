@@ -6,67 +6,67 @@ use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use super::{PRODUCTS_COLLECTION, GROUPS_COLLECTION, TYPES_COLLECTION, PRICING_COLLECTION};
 
-pub fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
         // Products
-        ("retrieve", "/admin/ext/products/products") => handle_list_products(ctx, msg),
-        ("retrieve", _) if path.starts_with("/admin/ext/products/products/") => handle_get_product(ctx, msg),
-        ("create", "/admin/ext/products/products") => handle_create_product(ctx, msg),
-        ("update", _) if path.starts_with("/admin/ext/products/products/") => handle_update_product(ctx, msg),
-        ("delete", _) if path.starts_with("/admin/ext/products/products/") => handle_delete_product(ctx, msg),
+        ("retrieve", "/admin/ext/products/products") => handle_list_products(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/admin/ext/products/products/") => handle_get_product(ctx, msg).await,
+        ("create", "/admin/ext/products/products") => handle_create_product(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/ext/products/products/") => handle_update_product(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/ext/products/products/") => handle_delete_product(ctx, msg).await,
         // Groups
-        ("retrieve", "/admin/ext/products/groups") => handle_list_groups(ctx, msg),
-        ("create", "/admin/ext/products/groups") => handle_create_group(ctx, msg),
-        ("update", _) if path.starts_with("/admin/ext/products/groups/") => handle_update_group(ctx, msg),
-        ("delete", _) if path.starts_with("/admin/ext/products/groups/") => handle_delete_group(ctx, msg),
+        ("retrieve", "/admin/ext/products/groups") => handle_list_groups(ctx, msg).await,
+        ("create", "/admin/ext/products/groups") => handle_create_group(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/ext/products/groups/") => handle_update_group(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/ext/products/groups/") => handle_delete_group(ctx, msg).await,
         // Types
-        ("retrieve", "/admin/ext/products/types") => handle_list_types(ctx, msg),
-        ("create", "/admin/ext/products/types") => handle_create_type(ctx, msg),
-        ("delete", _) if path.starts_with("/admin/ext/products/types/") => handle_delete_type(ctx, msg),
+        ("retrieve", "/admin/ext/products/types") => handle_list_types(ctx, msg).await,
+        ("create", "/admin/ext/products/types") => handle_create_type(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/ext/products/types/") => handle_delete_type(ctx, msg).await,
         // Pricing templates
-        ("retrieve", "/admin/ext/products/pricing") => handle_list_pricing(ctx, msg),
-        ("create", "/admin/ext/products/pricing") => handle_create_pricing(ctx, msg),
-        ("update", _) if path.starts_with("/admin/ext/products/pricing/") => handle_update_pricing(ctx, msg),
-        ("delete", _) if path.starts_with("/admin/ext/products/pricing/") => handle_delete_pricing(ctx, msg),
+        ("retrieve", "/admin/ext/products/pricing") => handle_list_pricing(ctx, msg).await,
+        ("create", "/admin/ext/products/pricing") => handle_create_pricing(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/ext/products/pricing/") => handle_update_pricing(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/ext/products/pricing/") => handle_delete_pricing(ctx, msg).await,
         // Variables
-        ("retrieve", "/admin/ext/products/variables") => super::variables::handle_list(ctx, msg),
-        ("create", "/admin/ext/products/variables") => super::variables::handle_create(ctx, msg),
-        ("update", _) if path.starts_with("/admin/ext/products/variables/") => super::variables::handle_update(ctx, msg),
-        ("delete", _) if path.starts_with("/admin/ext/products/variables/") => super::variables::handle_delete(ctx, msg),
+        ("retrieve", "/admin/ext/products/variables") => super::variables::handle_list(ctx, msg).await,
+        ("create", "/admin/ext/products/variables") => super::variables::handle_create(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/ext/products/variables/") => super::variables::handle_update(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/ext/products/variables/") => super::variables::handle_delete(ctx, msg).await,
         // Purchases (admin view)
-        ("retrieve", "/admin/ext/products/purchases") => super::purchase::handle_list_admin(ctx, msg),
-        ("retrieve", _) if path.starts_with("/admin/ext/products/purchases/") => super::purchase::handle_get(ctx, msg),
+        ("retrieve", "/admin/ext/products/purchases") => super::purchase::handle_list_admin(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/admin/ext/products/purchases/") => super::purchase::handle_get(ctx, msg).await,
         ("update", _) if path.starts_with("/admin/ext/products/purchases/") && path.ends_with("/refund") => {
-            super::purchase::handle_refund(ctx, msg)
+            super::purchase::handle_refund(ctx, msg).await
         }
         // Stats
-        ("retrieve", "/admin/ext/products/stats") => handle_stats(ctx, msg),
+        ("retrieve", "/admin/ext/products/stats") => handle_stats(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
 
-pub fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/ext/products/catalog") => handle_catalog(ctx, msg),
-        ("retrieve", _) if path.starts_with("/ext/products/catalog/") => handle_get_product_public(ctx, msg),
-        ("create", "/ext/products/calculate-price") => super::pricing::handle_calculate(ctx, msg),
-        ("create", "/ext/products/purchases") => super::purchase::handle_create(ctx, msg),
-        ("retrieve", "/ext/products/purchases") => super::purchase::handle_list_user(ctx, msg),
-        ("retrieve", _) if path.starts_with("/ext/products/purchases/") => super::purchase::handle_get(ctx, msg),
-        ("create", "/ext/products/checkout") => super::stripe::handle_checkout(ctx, msg),
+        ("retrieve", "/ext/products/catalog") => handle_catalog(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/ext/products/catalog/") => handle_get_product_public(ctx, msg).await,
+        ("create", "/ext/products/calculate-price") => super::pricing::handle_calculate(ctx, msg).await,
+        ("create", "/ext/products/purchases") => super::purchase::handle_create(ctx, msg).await,
+        ("retrieve", "/ext/products/purchases") => super::purchase::handle_list_user(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/ext/products/purchases/") => super::purchase::handle_get(ctx, msg).await,
+        ("create", "/ext/products/checkout") => super::stripe::handle_checkout(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
 
 // --- Product CRUD ---
 
-fn handle_list_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let (page, page_size, _) = msg.pagination_params(20);
 
     let mut filters = Vec::new();
@@ -84,24 +84,24 @@ fn handle_list_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
-    match db::paginated_list(ctx, PRODUCTS_COLLECTION, page as i64, page_size as i64, filters, sort) {
+    match db::paginated_list(ctx, PRODUCTS_COLLECTION, page as i64, page_size as i64, filters, sort).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_get_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_get_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/products/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
-    match db::get(ctx, PRODUCTS_COLLECTION, id) {
+    match db::get(ctx, PRODUCTS_COLLECTION, id).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_create_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
@@ -114,13 +114,13 @@ fn handle_create_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("updated_at".to_string(), serde_json::Value::String(now));
     data.insert("created_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
 
-    match db::create(ctx, PRODUCTS_COLLECTION, data) {
+    match db::create(ctx, PRODUCTS_COLLECTION, data).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_update_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_update_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/products/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
@@ -131,18 +131,18 @@ fn handle_update_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
     body.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-    match db::update(ctx, PRODUCTS_COLLECTION, id, body) {
+    match db::update(ctx, PRODUCTS_COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_delete_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/products/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
-    match db::delete(ctx, PRODUCTS_COLLECTION, id) {
+    match db::delete(ctx, PRODUCTS_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
@@ -151,31 +151,32 @@ fn handle_delete_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 // --- Groups ---
 
-fn handle_list_groups(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_groups(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let opts = ListOptions {
         sort: vec![SortField { field: "name".to_string(), desc: false }],
         limit: 1000,
         ..Default::default()
     };
-    match db::list(ctx, GROUPS_COLLECTION, &opts) {
+    match db::list(ctx, GROUPS_COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_create_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
     body.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-    match db::create(ctx, GROUPS_COLLECTION, body) {
+    body.entry("user_id".to_string()).or_insert(serde_json::Value::String(msg.user_id().to_string()));
+    match db::create(ctx, GROUPS_COLLECTION, body).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_update_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_update_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/groups/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
@@ -183,18 +184,18 @@ fn handle_update_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
-    match db::update(ctx, GROUPS_COLLECTION, id, body) {
+    match db::update(ctx, GROUPS_COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) if e.code == "not_found" => err_not_found(msg, "Group not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_delete_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/groups/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
-    match db::delete(ctx, GROUPS_COLLECTION, id) {
+    match db::delete(ctx, GROUPS_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) if e.code == "not_found" => err_not_found(msg, "Group not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
@@ -203,30 +204,30 @@ fn handle_delete_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 // --- Types ---
 
-fn handle_list_types(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_types(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let opts = ListOptions { limit: 1000, ..Default::default() };
-    match db::list(ctx, TYPES_COLLECTION, &opts) {
+    match db::list(ctx, TYPES_COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_create_type(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create_type(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
-    match db::create(ctx, TYPES_COLLECTION, body) {
+    match db::create(ctx, TYPES_COLLECTION, body).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_delete_type(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete_type(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/types/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing type ID"); }
-    match db::delete(ctx, TYPES_COLLECTION, id) {
+    match db::delete(ctx, TYPES_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) if e.code == "not_found" => err_not_found(msg, "Type not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
@@ -235,31 +236,31 @@ fn handle_delete_type(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 // --- Pricing Templates ---
 
-fn handle_list_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let opts = ListOptions {
         sort: vec![SortField { field: "name".to_string(), desc: false }],
         limit: 1000,
         ..Default::default()
     };
-    match db::list(ctx, PRICING_COLLECTION, &opts) {
+    match db::list(ctx, PRICING_COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_create_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
     body.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-    match db::create(ctx, PRICING_COLLECTION, body) {
+    match db::create(ctx, PRICING_COLLECTION, body).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_update_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_update_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/pricing/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing pricing template ID"); }
@@ -267,18 +268,18 @@ fn handle_update_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
-    match db::update(ctx, PRICING_COLLECTION, id, body) {
+    match db::update(ctx, PRICING_COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) if e.code == "not_found" => err_not_found(msg, "Pricing template not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_delete_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/pricing/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing pricing template ID"); }
-    match db::delete(ctx, PRICING_COLLECTION, id) {
+    match db::delete(ctx, PRICING_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) if e.code == "not_found" => err_not_found(msg, "Pricing template not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
@@ -287,7 +288,7 @@ fn handle_delete_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 // --- Public catalog ---
 
-fn handle_catalog(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_catalog(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let (page, page_size, _) = msg.pagination_params(20);
     let filters = vec![Filter {
         field: "status".to_string(),
@@ -295,18 +296,18 @@ fn handle_catalog(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         value: serde_json::Value::String("active".to_string()),
     }];
     let sort = vec![SortField { field: "name".to_string(), desc: false }];
-    match db::paginated_list(ctx, PRODUCTS_COLLECTION, page as i64, page_size as i64, filters, sort) {
+    match db::paginated_list(ctx, PRODUCTS_COLLECTION, page as i64, page_size as i64, filters, sort).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_get_product_public(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_get_product_public(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/ext/products/catalog/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
 
-    match db::get(ctx, PRODUCTS_COLLECTION, id) {
+    match db::get(ctx, PRODUCTS_COLLECTION, id).await {
         Ok(record) => {
             let status = record.data.get("status").and_then(|v| v.as_str()).unwrap_or("");
             if status != "active" {
@@ -321,16 +322,16 @@ fn handle_get_product_public(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 // --- Stats ---
 
-fn handle_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let total_products = db::count(ctx, PRODUCTS_COLLECTION, &[]).unwrap_or(0);
+async fn handle_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let total_products = db::count(ctx, PRODUCTS_COLLECTION, &[]).await.unwrap_or(0);
     let active_products = db::count(ctx, PRODUCTS_COLLECTION, &[Filter {
         field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("active".to_string()),
-    }]).unwrap_or(0);
-    let total_purchases = db::count(ctx, "ext_products_purchases", &[]).unwrap_or(0);
+    }]).await.unwrap_or(0);
+    let total_purchases = db::count(ctx, "ext_products_purchases", &[]).await.unwrap_or(0);
     let total_revenue = db::sum(ctx, "ext_products_purchases", "total_amount", &[Filter {
         field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("completed".to_string()),
-    }]).unwrap_or(0.0);
-    let total_groups = db::count(ctx, GROUPS_COLLECTION, &[]).unwrap_or(0);
+    }]).await.unwrap_or(0.0);
+    let total_groups = db::count(ctx, GROUPS_COLLECTION, &[]).await.unwrap_or(0);
 
     json_respond(msg, &serde_json::json!({
         "total_products": total_products,

@@ -6,6 +6,8 @@ use wafer_core::clients::config;
 
 pub struct UserPortalBlock;
 
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for UserPortalBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
@@ -21,14 +23,14 @@ impl Block for UserPortalBlock {
         }
     }
 
-    fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         // GET /ext/userportal/config -> static config
         let config_val = serde_json::json!({
-            "logo_url": config::get_default(ctx, "LOGO_URL", "/logo.png"),
-            "app_name": config::get_default(ctx, "APP_NAME", "Solobase"),
-            "primary_color": config::get_default(ctx, "PRIMARY_COLOR", "#6366f1"),
-            "enable_oauth": config::get_default(ctx, "ENABLE_OAUTH", "false"),
-            "allow_signup": config::get_default(ctx, "ALLOW_SIGNUP", "true"),
+            "logo_url": config::get_default(ctx, "LOGO_URL", "/logo.png").await,
+            "app_name": config::get_default(ctx, "APP_NAME", "Solobase").await,
+            "primary_color": config::get_default(ctx, "PRIMARY_COLOR", "#6366f1").await,
+            "enable_oauth": config::get_default(ctx, "ENABLE_OAUTH", "false").await,
+            "allow_signup": config::get_default(ctx, "ALLOW_SIGNUP", "true").await,
             "show_powered_by": true,
             "features": {
                 "files": true,
@@ -40,7 +42,7 @@ impl Block for UserPortalBlock {
         json_respond(msg, &config_val)
     }
 
-    fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
         Ok(())
     }
 }

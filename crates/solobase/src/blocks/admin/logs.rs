@@ -6,17 +6,17 @@ use wafer_core::clients::database::{Filter, FilterOp, SortField};
 
 const COLLECTION: &str = "audit_logs";
 
-pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/admin/logs") => handle_list(ctx, msg),
+        ("retrieve", "/admin/logs") => handle_list(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
 
-fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let (page, page_size, _) = msg.pagination_params(50);
 
     let mut filters = Vec::new();
@@ -47,7 +47,7 @@ fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
-    match db::paginated_list(ctx, COLLECTION, page as i64, page_size as i64, filters, sort) {
+    match db::paginated_list(ctx, COLLECTION, page as i64, page_size as i64, filters, sort).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }

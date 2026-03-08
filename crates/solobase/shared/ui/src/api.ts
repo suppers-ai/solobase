@@ -4,7 +4,7 @@ import type {
 } from '@solobase/types';
 import { ErrorHandler } from './utils/error-handler';
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.DEV ? '/api' : '';
 
 export { ErrorHandler };
 
@@ -58,7 +58,9 @@ class ApiClient {
 			}
 
 			if (!response.ok) {
-				throw new Error(data.error || `HTTP ${response.status}`);
+				const errMsg = typeof data.error === 'string' ? data.error
+					: data.error?.message || data.message || `HTTP ${response.status}`;
+				throw new Error(errMsg);
 			}
 
 			return { data: data as T };

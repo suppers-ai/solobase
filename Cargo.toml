@@ -2,6 +2,10 @@
 resolver = "2"
 members = [
     "crates/solobase",
+    "crates/solobase-cli",
+]
+exclude = [
+    "crates/wafer-cloudflare",
 ]
 
 [workspace.package]
@@ -10,17 +14,14 @@ edition = "2021"
 license = "MIT"
 
 [workspace.dependencies]
-# Cross-repo: wafer-run monorepo
-# TODO: switch to git deps after pushing wafer-run to GitHub:
-#   wafer-run = { git = "https://github.com/wafer-run/wafer-run", features = ["full"] }
-#   wafer-core = { git = "https://github.com/wafer-run/wafer-run" }
-wafer-run = { path = "../wafer-run/crates/wafer-run", features = ["full"] }
-wafer-core = { path = "../wafer-run/crates/wafer-core", features = ["http"] }
-
 # Core
+async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+reqwest = { version = "0.12", features = ["json"] }
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"

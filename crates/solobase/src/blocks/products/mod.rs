@@ -9,6 +9,7 @@ use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
+use super::rate_limit::{UserRateLimiter, RateLimit, set_rate_limit_headers, rate_limited_response};
 
 pub(crate) const PRODUCTS_COLLECTION: &str = "ext_products_products";
 pub(crate) const GROUPS_COLLECTION: &str = "ext_products_groups";
@@ -17,8 +18,18 @@ pub(crate) const PRICING_COLLECTION: &str = "ext_products_pricing_templates";
 pub(crate) const PURCHASES_COLLECTION: &str = "ext_products_purchases";
 pub(crate) const LINE_ITEMS_COLLECTION: &str = "ext_products_line_items";
 
-pub struct ProductsBlock;
+pub struct ProductsBlock {
+    limiter: UserRateLimiter,
+}
 
+impl ProductsBlock {
+    pub fn new() -> Self {
+        Self { limiter: UserRateLimiter::new() }
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for ProductsBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
@@ -34,28 +45,84 @@ impl Block for ProductsBlock {
         }
     }
 
-    fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let path = msg.path();
+    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+        let path = msg.path().to_string();
 
-        // Webhook (no auth)
+        // Webhook (no auth, no user rate limit)
         if path == "/ext/products/webhooks" || path.starts_with("/ext/products/webhooks/") {
-            return stripe::handle_webhook(ctx, msg);
+            return stripe::handle_webhook(ctx, msg).await;
+        }
+
+        // Per-user rate limiting for authenticated endpoints
+        let user_id = msg.user_id().to_string();
+        if !user_id.is_empty() {
+            let action = msg.action().to_string();
+            let (default, name) = if action == "retrieve" {
+                (RateLimit::API_READ, "api_read")
+            } else {
+                (RateLimit::API_WRITE, "api_write")
+            };
+            if let Some(limit) = default.resolve(ctx, name).await {
+                let key = UserRateLimiter::key(&user_id, "products");
+                match self.limiter.check(&key, limit) {
+                    Ok(remaining) => set_rate_limit_headers(msg, limit.max_requests, remaining),
+                    Err(retry_after) => return rate_limited_response(msg, retry_after),
+                }
+            }
         }
 
         // Admin routes
         if path.starts_with("/admin/ext/products") {
-            return handlers::handle_admin(ctx, msg);
+            return handlers::handle_admin(ctx, msg).await;
         }
 
         // User-facing routes
         if path.starts_with("/ext/products") {
-            return handlers::handle_user(ctx, msg);
+            return handlers::handle_user(ctx, msg).await;
         }
 
         err_not_found(msg, "not found")
     }
 
-    fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(&self, ctx: &dyn Context, event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+        if event.event_type == LifecycleType::Init {
+            // Seed default templates if they don't exist — these are required by FK constraints
+            // on the groups and products tables.
+            use wafer_core::clients::database as db;
+            use db::ListOptions;
+
+            let check_opts = ListOptions { limit: 1, ..Default::default() };
+
+            // Default group template
+            match db::list(ctx, "ext_products_group_templates", &check_opts).await {
+                Ok(list) if list.records.is_empty() => {
+                    let mut data = std::collections::HashMap::new();
+                    data.insert("name".to_string(), serde_json::Value::String("default".to_string()));
+                    data.insert("display_name".to_string(), serde_json::Value::String("Default".to_string()));
+                    match db::create(ctx, "ext_products_group_templates", data).await {
+                        Ok(_) => tracing::info!("seeded default group template"),
+                        Err(e) => tracing::warn!("failed to seed group template: {e}"),
+                    }
+                }
+                Ok(_) => {} // already has records
+                Err(e) => tracing::warn!("failed to list group templates: {e}"),
+            }
+
+            // Default product template
+            match db::list(ctx, "ext_products_product_templates", &check_opts).await {
+                Ok(list) if list.records.is_empty() => {
+                    let mut data = std::collections::HashMap::new();
+                    data.insert("name".to_string(), serde_json::Value::String("default".to_string()));
+                    data.insert("display_name".to_string(), serde_json::Value::String("Default".to_string()));
+                    match db::create(ctx, "ext_products_product_templates", data).await {
+                        Ok(_) => tracing::info!("seeded default product template"),
+                        Err(e) => tracing::warn!("failed to seed product template: {e}"),
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!("failed to list product templates: {e}"),
+            }
+        }
         Ok(())
     }
 }

@@ -1,6 +1,5 @@
-import { render } from 'preact';
-import { html } from '@solobase/ui';
-import { LoginPage } from './LoginPage';
-import '@app/app.css';
+import { h, render } from 'preact';
+import { App } from './App';
+import '../../../frontend/src/app.css';
 
-render(html`<${LoginPage} />`, document.getElementById('app')!);
+render(h(App, null), document.getElementById('app')!);

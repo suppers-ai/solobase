@@ -7,20 +7,20 @@ use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 
 const COLLECTION: &str = "auth_users";
 
-pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/admin/users") => handle_list(ctx, msg),
-        ("retrieve", _) if path.starts_with("/admin/users/") => handle_get(ctx, msg),
-        ("update", _) if path.starts_with("/admin/users/") => handle_update(ctx, msg),
-        ("delete", _) if path.starts_with("/admin/users/") => handle_delete(ctx, msg),
+        ("retrieve", "/admin/users") => handle_list(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/admin/users/") => handle_get(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/users/") => handle_update(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/users/") => handle_delete(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
 
-fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let (page, page_size, _) = msg.pagination_params(20);
     let search = msg.query("search").to_string();
 
@@ -42,7 +42,7 @@ fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
-    match db::paginated_list(ctx, COLLECTION, page as i64, page_size as i64, filters, sort) {
+    match db::paginated_list(ctx, COLLECTION, page as i64, page_size as i64, filters, sort).await {
         Ok(mut result) => {
             // Strip password hashes from response
             for record in &mut result.records {
@@ -54,7 +54,7 @@ fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 }
 
-fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let id = msg.var("id").to_string();
     if id.is_empty() {
         // Extract from path
@@ -63,13 +63,13 @@ fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         if id.is_empty() {
             return err_bad_request(msg, "Missing user ID");
         }
-        return get_user(ctx, msg, &id);
+        return get_user(ctx, msg, &id).await;
     }
-    get_user(ctx, msg, &id)
+    get_user(ctx, msg, &id).await
 }
 
-fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
-    match db::get(ctx, COLLECTION, id) {
+async fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
+    match db::get(ctx, COLLECTION, id).await {
         Ok(mut record) => {
             record.data.remove("password_hash");
             // Get roles
@@ -81,7 +81,7 @@ fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
                 }],
                 ..Default::default()
             };
-            let roles: Vec<String> = match db::list(ctx, "iam_user_roles", &roles_opts) {
+            let roles: Vec<String> = match db::list(ctx, "iam_user_roles", &roles_opts).await {
                 Ok(r) => r.records.iter()
                     .filter_map(|rec| rec.data.get("role").and_then(|v| v.as_str()).map(|s| s.to_string()))
                     .collect(),
@@ -104,7 +104,7 @@ fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
     }
 }
 
-fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = msg.var("id");
     let id = if id.is_empty() { path.strip_prefix("/admin/users/").unwrap_or("") } else { id };
@@ -126,7 +126,7 @@ fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-    match db::update(ctx, COLLECTION, id, data) {
+    match db::update(ctx, COLLECTION, id, data).await {
         Ok(mut record) => {
             record.data.remove("password_hash");
             json_respond(msg, &record)
@@ -142,7 +142,7 @@ fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 }
 
-fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = msg.var("id");
     let id = if id.is_empty() { path.strip_prefix("/admin/users/").unwrap_or("") } else { id };
@@ -151,7 +151,7 @@ fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     // Soft delete
-    match db::soft_delete(ctx, COLLECTION, id) {
+    match db::soft_delete(ctx, COLLECTION, id).await {
         Ok(_) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) => {
             let msg_str = format!("{e}");

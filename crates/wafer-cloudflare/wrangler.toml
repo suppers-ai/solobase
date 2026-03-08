@@ -1,0 +1,30 @@
+name = "solobase"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-03-01"
+
+[build]
+command = "cargo install -q worker-build && worker-build --release"
+
+# D1 database (SQLite at the edge)
+# Create with: npx wrangler d1 create solobase-db
+[[d1_databases]]
+binding = "DB"
+database_name = "solobase-db"
+database_id = "local-dev-db"  # Placeholder for local dev; replace after `wrangler d1 create` for production
+
+# File storage (S3-compatible)
+# Create with: npx wrangler r2 bucket create solobase-storage
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "solobase-storage"
+
+# Tenant config
+# Create with: npx wrangler kv namespace create TENANTS
+[[kv_namespaces]]
+binding = "TENANTS"
+id = "local-dev-kv"  # Placeholder for local dev; replace after `wrangler kv namespace create` for production
+
+# Environment variables
+[vars]
+ENVIRONMENT = "production"
+# Set JWT_SECRET via: wrangler secret put JWT_SECRET

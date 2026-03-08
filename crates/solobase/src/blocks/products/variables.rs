@@ -7,7 +7,7 @@ use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 
 const COLLECTION: &str = "ext_products_variables";
 
-pub fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let mut filters = Vec::new();
     let scope = msg.query("scope").to_string();
     if !scope.is_empty() {
@@ -25,13 +25,13 @@ pub fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ..Default::default()
     };
 
-    match db::list(ctx, COLLECTION, &opts) {
+    match db::list(ctx, COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
     struct Req {
         name: String,
@@ -57,13 +57,13 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
     data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-    match db::create(ctx, COLLECTION, data) {
+    match db::create(ctx, COLLECTION, data).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-pub fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/variables/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing variable ID"); }
@@ -74,18 +74,18 @@ pub fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
     body.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-    match db::update(ctx, COLLECTION, id, body) {
+    match db::update(ctx, COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) if e.code == "not_found" => err_not_found(msg, "Variable not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-pub fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/ext/products/variables/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing variable ID"); }
-    match db::delete(ctx, COLLECTION, id) {
+    match db::delete(ctx, COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) if e.code == "not_found" => err_not_found(msg, "Variable not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),

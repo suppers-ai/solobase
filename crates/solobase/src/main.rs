@@ -4,8 +4,8 @@
 //! the Block trait. The WAFER runtime handles HTTP serving, flow execution,
 //! and block lifecycle. Infrastructure blocks self-configure from `blocks.json`.
 
-mod blocks;
-mod flows;
+use solobase::blocks;
+use solobase::flows;
 
 use tracing_subscriber::{fmt, EnvFilter};
 use wafer_run::Wafer;
@@ -52,6 +52,7 @@ async fn main() {
     // 8. Start WAFER runtime (resolves flows, runs lifecycle init, binds listeners)
     let wafer = wafer
         .start()
+        .await
         .expect("failed to resolve and start WAFER runtime");
     tracing::info!("WAFER runtime started — all blocks resolved");
 
@@ -59,7 +60,7 @@ async fn main() {
     shutdown_signal().await;
 
     // 10. Graceful shutdown
-    wafer.shutdown();
+    wafer.shutdown().await;
     tracing::info!("solobase shutdown complete");
 }
 

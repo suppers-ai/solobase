@@ -6,7 +6,7 @@ use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use super::{PURCHASES_COLLECTION, LINE_ITEMS_COLLECTION, PRODUCTS_COLLECTION};
 
-pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
     struct CreateReq {
         items: Vec<PurchaseItem>,
@@ -41,7 +41,7 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         if item.quantity <= 0 {
             return err_bad_request(msg, "Quantity must be positive");
         }
-        let product = match db::get(ctx, PRODUCTS_COLLECTION, &item.product_id) {
+        let product = match db::get(ctx, PRODUCTS_COLLECTION, &item.product_id).await {
             Ok(p) => p,
             Err(_) => return err_not_found(msg, &format!("Product {} not found", item.product_id)),
         };
@@ -51,7 +51,7 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         // Calculate price
         let unit_price = if let Some(template_id) = product.data.get("pricing_template_id").and_then(|v| v.as_str()) {
             if !template_id.is_empty() {
-                if let Ok(template) = db::get(ctx, "ext_products_pricing_templates", template_id) {
+                if let Ok(template) = db::get(ctx, "ext_products_pricing_templates", template_id).await {
                     let formula = template.data.get("formula").and_then(|v| v.as_str()).unwrap_or("0");
                     super::pricing::evaluate_formula(formula, &item.variables).unwrap_or(0.0)
                 } else {
@@ -80,7 +80,7 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     purchase_data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
     purchase_data.insert("updated_at".to_string(), serde_json::Value::String(now.clone()));
 
-    let purchase = match db::create(ctx, PURCHASES_COLLECTION, purchase_data) {
+    let purchase = match db::create(ctx, PURCHASES_COLLECTION, purchase_data).await {
         Ok(p) => p,
         Err(e) => return err_internal(msg, &format!("Failed to create purchase: {e}")),
     };
@@ -96,7 +96,7 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         item_data.insert("total_price".to_string(), serde_json::json!(line_total));
         item_data.insert("variables".to_string(), serde_json::json!(variables));
         item_data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
-        if let Err(e) = db::create(ctx, LINE_ITEMS_COLLECTION, item_data) {
+        if let Err(e) = db::create(ctx, LINE_ITEMS_COLLECTION, item_data).await {
             tracing::warn!("Failed to create purchase line item: {e}");
         }
     }
@@ -109,7 +109,7 @@ pub fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }))
 }
 
-pub fn handle_list_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_list_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_id = msg.user_id().to_string();
     let (page, page_size, _) = msg.pagination_params(20);
 
@@ -120,13 +120,13 @@ pub fn handle_list_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }];
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
-    match db::paginated_list(ctx, PURCHASES_COLLECTION, page as i64, page_size as i64, filters, sort) {
+    match db::paginated_list(ctx, PURCHASES_COLLECTION, page as i64, page_size as i64, filters, sort).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-pub fn handle_list_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_list_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let (page, page_size, _) = msg.pagination_params(20);
 
     let mut filters = Vec::new();
@@ -141,18 +141,18 @@ pub fn handle_list_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
-    match db::paginated_list(ctx, PURCHASES_COLLECTION, page as i64, page_size as i64, filters, sort) {
+    match db::paginated_list(ctx, PURCHASES_COLLECTION, page as i64, page_size as i64, filters, sort).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-pub fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.rsplit('/').next().unwrap_or("");
     if id.is_empty() || id == "purchases" { return err_bad_request(msg, "Missing purchase ID"); }
 
-    let purchase = match db::get(ctx, PURCHASES_COLLECTION, id) {
+    let purchase = match db::get(ctx, PURCHASES_COLLECTION, id).await {
         Ok(p) => p,
         Err(e) if e.code == "not_found" => return err_not_found(msg, "Purchase not found"),
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
@@ -173,7 +173,7 @@ pub fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }],
         ..Default::default()
     };
-    let line_items = db::list(ctx, LINE_ITEMS_COLLECTION, &items_opts).map(|r| r.records).unwrap_or_default();
+    let line_items = db::list(ctx, LINE_ITEMS_COLLECTION, &items_opts).await.map(|r| r.records).unwrap_or_default();
 
     json_respond(msg, &serde_json::json!({
         "purchase": purchase,
@@ -181,7 +181,7 @@ pub fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }))
 }
 
-pub fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     // /admin/ext/products/purchases/{id}/refund
     let id = path.strip_prefix("/admin/ext/products/purchases/")
@@ -189,7 +189,13 @@ pub fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing purchase ID"); }
 
-    let purchase = match db::get(ctx, PURCHASES_COLLECTION, id) {
+    #[derive(serde::Deserialize, Default)]
+    struct RefundReq {
+        reason: Option<String>,
+    }
+    let body: RefundReq = msg.decode().unwrap_or_default();
+
+    let purchase = match db::get(ctx, PURCHASES_COLLECTION, id).await {
         Ok(p) => p,
         Err(e) if e.code == "not_found" => return err_not_found(msg, "Purchase not found"),
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
@@ -197,17 +203,27 @@ pub fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let status = purchase.data.get("status").and_then(|v| v.as_str()).unwrap_or("");
     if status != "completed" {
-        return err_bad_request(msg, "Can only refund completed purchases");
+        return err_bad_request(msg, &format!("Can only refund completed purchases (current status: {})", status));
     }
 
     let mut data = HashMap::new();
     data.insert("status".to_string(), serde_json::Value::String("refunded".to_string()));
     data.insert("refunded_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
     data.insert("refunded_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
+    if let Some(reason) = body.reason {
+        data.insert("refund_reason".to_string(), serde_json::Value::String(reason));
+    }
     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-    match db::update(ctx, PURCHASES_COLLECTION, id, data) {
-        Ok(record) => json_respond(msg, &record),
+    match db::update(ctx, PURCHASES_COLLECTION, id, data).await {
+        Ok(record) => {
+            // Verify the update actually changed the status (optimistic check)
+            let new_status = record.data.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            if new_status != "refunded" {
+                return err_internal(msg, "Refund failed — purchase status was modified concurrently");
+            }
+            json_respond(msg, &record)
+        }
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }

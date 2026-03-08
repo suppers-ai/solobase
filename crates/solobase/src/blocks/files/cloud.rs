@@ -8,26 +8,26 @@ use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 const SHARES_COLLECTION: &str = "cloud_shares";
 const ACCESS_LOGS_COLLECTION: &str = "cloud_access_logs";
 
-pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
         // User-facing cloud storage
-        ("retrieve", "/ext/cloudstorage/shares") => handle_list_shares(ctx, msg),
-        ("create", "/ext/cloudstorage/shares") => handle_create_share(ctx, msg),
-        ("delete", _) if path.starts_with("/ext/cloudstorage/shares/") => handle_delete_share(ctx, msg),
-        ("retrieve", "/ext/cloudstorage/quota") => handle_get_quota(ctx, msg),
+        ("retrieve", "/ext/cloudstorage/shares") => handle_list_shares(ctx, msg).await,
+        ("create", "/ext/cloudstorage/shares") => handle_create_share(ctx, msg).await,
+        ("delete", _) if path.starts_with("/ext/cloudstorage/shares/") => handle_delete_share(ctx, msg).await,
+        ("retrieve", "/ext/cloudstorage/quota") => handle_get_quota(ctx, msg).await,
         // Admin cloud storage
-        ("retrieve", "/admin/ext/cloudstorage/shares") => handle_admin_list_shares(ctx, msg),
-        ("retrieve", "/admin/ext/cloudstorage/access-logs") => handle_access_logs(ctx, msg),
-        ("retrieve", "/admin/ext/cloudstorage/quotas") => handle_admin_quotas(ctx, msg),
-        ("update", _) if path.starts_with("/admin/ext/cloudstorage/quotas/") => handle_update_quota(ctx, msg),
+        ("retrieve", "/admin/ext/cloudstorage/shares") => handle_admin_list_shares(ctx, msg).await,
+        ("retrieve", "/admin/ext/cloudstorage/access-logs") => handle_access_logs(ctx, msg).await,
+        ("retrieve", "/admin/ext/cloudstorage/quotas") => handle_admin_quotas(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/ext/cloudstorage/quotas/") => handle_update_quota(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
 
-fn handle_list_shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_id = msg.user_id().to_string();
 
     let opts = ListOptions {
@@ -41,13 +41,13 @@ fn handle_list_shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ..Default::default()
     };
 
-    match db::list(ctx, SHARES_COLLECTION, &opts) {
+    match db::list(ctx, SHARES_COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
     struct Req {
         bucket: String,
@@ -61,7 +61,7 @@ fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     // Generate share token
-    let token = super::share::generate_share_token(ctx, &body.bucket, &body.key);
+    let token = super::share::generate_share_token(ctx, &body.bucket, &body.key).await;
     let token = match token {
         Ok(t) => t,
         Err(r) => return r,
@@ -86,7 +86,7 @@ fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         data.insert("max_access_count".to_string(), serde_json::json!(max));
     }
 
-    match db::create(ctx, SHARES_COLLECTION, data) {
+    match db::create(ctx, SHARES_COLLECTION, data).await {
         Ok(record) => json_respond(msg, &serde_json::json!({
             "id": record.id,
             "token": token,
@@ -96,36 +96,36 @@ fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 }
 
-fn handle_delete_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/ext/cloudstorage/shares/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing share ID"); }
 
     // Verify ownership
-    if let Ok(share) = db::get(ctx, SHARES_COLLECTION, id) {
+    if let Ok(share) = db::get(ctx, SHARES_COLLECTION, id).await {
         let owner = share.data.get("created_by").and_then(|v| v.as_str()).unwrap_or("");
         if owner != msg.user_id() && !msg.is_admin() {
             return err_forbidden(msg, "Cannot delete another user's share");
         }
     }
 
-    match db::delete(ctx, SHARES_COLLECTION, id) {
+    match db::delete(ctx, SHARES_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) if e.code == "not_found" => err_not_found(msg, "Share not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_get_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let quota = super::quota::get_user_quota(ctx, msg.user_id());
-    let usage = super::quota::get_user_usage(ctx, msg.user_id());
+async fn handle_get_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let quota = super::quota::get_user_quota(ctx, msg.user_id()).await;
+    let usage = super::quota::get_user_usage(ctx, msg.user_id()).await;
     json_respond(msg, &serde_json::json!({
         "quota": quota,
         "usage": usage
     }))
 }
 
-fn handle_admin_list_shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_admin_list_shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let (page, page_size, _) = msg.pagination_params(20);
     let opts = ListOptions {
         sort: vec![SortField { field: "created_at".to_string(), desc: true }],
@@ -133,13 +133,13 @@ fn handle_admin_list_shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         offset: ((page - 1) * page_size) as i64,
         ..Default::default()
     };
-    match db::list(ctx, SHARES_COLLECTION, &opts) {
+    match db::list(ctx, SHARES_COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_access_logs(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_access_logs(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let (page, page_size, _) = msg.pagination_params(50);
 
     let mut filters = Vec::new();
@@ -159,21 +159,21 @@ fn handle_access_logs(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         offset: ((page - 1) * page_size) as i64,
     };
 
-    match db::list(ctx, ACCESS_LOGS_COLLECTION, &opts) {
+    match db::list(ctx, ACCESS_LOGS_COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_admin_quotas(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_admin_quotas(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let opts = ListOptions { limit: 1000, ..Default::default() };
-    match db::list(ctx, "cloud_quotas", &opts) {
+    match db::list(ctx, "cloud_quotas", &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_update_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_update_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let user_id = path.strip_prefix("/admin/ext/cloudstorage/quotas/").unwrap_or("");
     if user_id.is_empty() { return err_bad_request(msg, "Missing user ID"); }
@@ -187,7 +187,7 @@ fn handle_update_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("user_id".to_string(), serde_json::Value::String(user_id.to_string()));
     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-    match db::upsert(ctx, "cloud_quotas", "user_id", serde_json::Value::String(user_id.to_string()), data) {
+    match db::upsert(ctx, "cloud_quotas", "user_id", serde_json::Value::String(user_id.to_string()), data).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }

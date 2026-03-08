@@ -11,7 +11,7 @@ pub struct LegalPagesBlock;
 const COLLECTION: &str = "ext_legalpages_legal_documents";
 
 impl LegalPagesBlock {
-    fn handle_get_public(&self, ctx: &dyn Context, msg: &mut Message, doc_type: &str) -> Result_ {
+    async fn handle_get_public(&self, ctx: &dyn Context, msg: &mut Message, doc_type: &str) -> Result_ {
         // Find published document of given type
         let opts = ListOptions {
             filters: vec![
@@ -31,7 +31,7 @@ impl LegalPagesBlock {
             ..Default::default()
         };
 
-        let result = match db::list(ctx, COLLECTION, &opts) {
+        let result = match db::list(ctx, COLLECTION, &opts).await {
             Ok(r) => r,
             Err(e) => return err_internal(msg, &format!("Database error: {e}")),
         };
@@ -64,7 +64,7 @@ impl LegalPagesBlock {
         respond(msg, ADMIN_HTML.as_bytes().to_vec(), "text/html; charset=utf-8")
     }
 
-    fn handle_admin_list(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_admin_list(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let (_, page_size, offset) = msg.pagination_params(20);
         let doc_type = msg.query("type");
         let mut filters = Vec::new();
@@ -81,25 +81,25 @@ impl LegalPagesBlock {
             limit: page_size as i64,
             offset: offset as i64,
         };
-        match db::list(ctx, COLLECTION, &opts) {
+        match db::list(ctx, COLLECTION, &opts).await {
             Ok(result) => json_respond(msg, &result),
             Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
-    fn handle_admin_get(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_admin_get(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let id = msg.var("id");
         if id.is_empty() {
             return err_bad_request(msg, "Missing document ID");
         }
-        match db::get(ctx, COLLECTION, id) {
+        match db::get(ctx, COLLECTION, id).await {
             Ok(record) => json_respond(msg, &record),
             Err(e) if e.code == "not_found" => err_not_found(msg, "Document not found"),
             Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
-    fn handle_admin_create(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_admin_create(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         #[derive(serde::Deserialize)]
         struct CreateDoc {
             doc_type: String,
@@ -122,13 +122,13 @@ impl LegalPagesBlock {
         data.insert("updated_at".to_string(), serde_json::Value::String(now));
         data.insert("created_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
 
-        match db::create(ctx, COLLECTION, data) {
+        match db::create(ctx, COLLECTION, data).await {
             Ok(record) => json_respond(msg, &record),
             Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
-    fn handle_admin_update(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_admin_update(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let id = msg.var("id");
         if id.is_empty() {
             return err_bad_request(msg, "Missing document ID");
@@ -142,21 +142,21 @@ impl LegalPagesBlock {
         let mut data = body;
         data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-        match db::update(ctx, COLLECTION, id, data) {
+        match db::update(ctx, COLLECTION, id, data).await {
             Ok(record) => json_respond(msg, &record),
             Err(e) if e.code == "not_found" => err_not_found(msg, "Document not found"),
             Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
-    fn handle_admin_publish(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_admin_publish(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let id = msg.var("id");
         if id.is_empty() {
             return err_bad_request(msg, "Missing document ID");
         }
 
         // Get current document
-        let doc = match db::get(ctx, COLLECTION, id) {
+        let doc = match db::get(ctx, COLLECTION, id).await {
             Ok(r) => r,
             Err(e) if e.code == "not_found" => return err_not_found(msg, "Document not found"),
             Err(e) => return err_internal(msg, &format!("Database error: {e}")),
@@ -172,12 +172,12 @@ impl LegalPagesBlock {
                 Filter { field: "doc_type".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(doc_type) },
                 Filter { field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("published".to_string()) },
             ],
-        );
+        ).await;
         if let Ok(records) = existing {
             for r in records {
                 let mut upd = HashMap::new();
                 upd.insert("status".to_string(), serde_json::Value::String("archived".to_string()));
-                if let Err(e) = db::update(ctx, COLLECTION, &r.id, upd) {
+                if let Err(e) = db::update(ctx, COLLECTION, &r.id, upd).await {
                     tracing::warn!("Failed to archive previous legal page version: {e}");
                 }
             }
@@ -189,26 +189,26 @@ impl LegalPagesBlock {
         data.insert("published_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
         data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-        match db::update(ctx, COLLECTION, id, data) {
+        match db::update(ctx, COLLECTION, id, data).await {
             Ok(record) => json_respond(msg, &record),
             Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
-    fn handle_admin_delete(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_admin_delete(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let id = msg.var("id");
         if id.is_empty() {
             return err_bad_request(msg, "Missing document ID");
         }
-        match db::delete(ctx, COLLECTION, id) {
+        match db::delete(ctx, COLLECTION, id).await {
             Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
             Err(e) if e.code == "not_found" => err_not_found(msg, "Document not found"),
             Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
 
-    fn seed_defaults(&self, ctx: &dyn Context) {
-        let count = db::count(ctx, COLLECTION, &[]).unwrap_or(0);
+    async fn seed_defaults(&self, ctx: &dyn Context) {
+        let count = db::count(ctx, COLLECTION, &[]).await.unwrap_or(0);
         if count > 0 {
             return;
         }
@@ -228,18 +228,22 @@ impl LegalPagesBlock {
             data.insert("updated_at".to_string(), serde_json::Value::String(now.clone()));
             data.insert("published_at".to_string(), serde_json::Value::String(now.clone()));
             data.insert("created_by".to_string(), serde_json::Value::String("system".to_string()));
-            if let Err(e) = db::create(ctx, COLLECTION, data) {
+            if let Err(e) = db::create(ctx, COLLECTION, data).await {
                 tracing::warn!("Failed to seed default legal page '{doc_type}': {e}");
             }
         }
     }
 }
 
-/// Remove dangerous HTML tags and their contents from admin-authored content.
-/// Strips `<script>`, `<iframe>`, `<object>`, and `<embed>` tags to prevent stored XSS.
+/// Comprehensive HTML sanitizer to prevent XSS in admin-authored content.
+/// Strips dangerous tags, event handlers, and javascript/data URIs.
 fn sanitize_html(input: &str) -> String {
     let mut s = input.to_string();
-    for tag in &["script", "iframe", "object", "embed"] {
+
+    // Strip dangerous tags and their contents
+    for tag in &["script", "iframe", "object", "embed", "style", "form",
+                 "input", "textarea", "select", "button", "meta", "link",
+                 "base", "svg", "math", "applet"] {
         loop {
             let lower = s.to_lowercase();
             let open = format!("<{}", tag);
@@ -258,9 +262,123 @@ fn sanitize_html(input: &str) -> String {
             }
         }
     }
-    s
+
+    // Strip event handler attributes (on*)
+    let event_re_pattern = |s: &str| -> String {
+        let mut result = String::new();
+        let lower = s.to_lowercase();
+        let bytes = s.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'<' {
+                // Inside a tag - find the closing >
+                if let Some(end) = s[i..].find('>') {
+                    let tag_content = &s[i..i + end + 1];
+                    let tag_lower = &lower[i..i + end + 1];
+                    // Remove event handlers (on*="...") and javascript:/data: URIs
+                    let cleaned = remove_dangerous_attrs(tag_content, tag_lower);
+                    result.push_str(&cleaned);
+                    i += end + 1;
+                } else {
+                    result.push(bytes[i] as char);
+                    i += 1;
+                }
+            } else {
+                result.push(bytes[i] as char);
+                i += 1;
+            }
+        }
+        result
+    };
+
+    event_re_pattern(&s)
 }
 
+/// Remove dangerous attributes from an HTML tag string.
+fn remove_dangerous_attrs(tag: &str, _tag_lower: &str) -> String {
+    // Simple approach: rebuild the tag without dangerous attributes
+    let mut result = String::new();
+    let mut chars = tag.chars().peekable();
+
+    // Copy the tag name
+    while let Some(&c) = chars.peek() {
+        result.push(c);
+        chars.next();
+        if c == ' ' || c == '>' || c == '/' {
+            break;
+        }
+    }
+
+    if result.ends_with('>') {
+        return result;
+    }
+
+    // Process attributes
+    let rest: String = chars.collect();
+    let rest_lower = rest.to_lowercase();
+    let mut pos = 0;
+    let rest_bytes = rest.as_bytes();
+
+    while pos < rest_bytes.len() {
+        // Skip whitespace
+        while pos < rest_bytes.len() && rest_bytes[pos].is_ascii_whitespace() {
+            result.push(rest_bytes[pos] as char);
+            pos += 1;
+        }
+        if pos >= rest_bytes.len() { break; }
+        if rest_bytes[pos] == b'>' || (rest_bytes[pos] == b'/' && pos + 1 < rest_bytes.len() && rest_bytes[pos + 1] == b'>') {
+            result.push_str(&rest[pos..]);
+            break;
+        }
+
+        // Read attribute name
+        let attr_start = pos;
+        while pos < rest_bytes.len() && rest_bytes[pos] != b'=' && rest_bytes[pos] != b'>' && !rest_bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+        let attr_name = &rest_lower[attr_start..pos];
+
+        // Check if dangerous
+        let is_dangerous = attr_name.starts_with("on")
+            || attr_name == "srcdoc"
+            || attr_name == "formaction";
+
+        // Read = and value if present
+        let mut attr_end = pos;
+        if pos < rest_bytes.len() && rest_bytes[pos] == b'=' {
+            pos += 1; // skip =
+            // Skip optional quotes
+            if pos < rest_bytes.len() && (rest_bytes[pos] == b'"' || rest_bytes[pos] == b'\'') {
+                let quote = rest_bytes[pos];
+                pos += 1;
+                while pos < rest_bytes.len() && rest_bytes[pos] != quote {
+                    pos += 1;
+                }
+                if pos < rest_bytes.len() { pos += 1; } // skip closing quote
+            } else {
+                while pos < rest_bytes.len() && !rest_bytes[pos].is_ascii_whitespace() && rest_bytes[pos] != b'>' {
+                    pos += 1;
+                }
+            }
+            attr_end = pos;
+
+            // Check value for javascript:/data: URIs
+            let attr_value = &rest_lower[attr_start..attr_end];
+            let has_dangerous_uri = attr_value.contains("javascript:") || attr_value.contains("data:text/html") || attr_value.contains("vbscript:");
+
+            if !is_dangerous && !has_dangerous_uri {
+                result.push_str(&rest[attr_start..attr_end]);
+            }
+        } else if !is_dangerous {
+            result.push_str(&rest[attr_start..attr_end]);
+        }
+    }
+
+    result
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for LegalPagesBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
@@ -280,35 +398,35 @@ impl Block for LegalPagesBlock {
         }
     }
 
-    fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let action = msg.action();
         let path = msg.path();
 
         match (action, path) {
             // Public endpoints
-            ("retrieve", "/ext/legalpages/terms") => self.handle_get_public(ctx, msg, "terms"),
-            ("retrieve", "/ext/legalpages/privacy") => self.handle_get_public(ctx, msg, "privacy"),
+            ("retrieve", "/ext/legalpages/terms") => self.handle_get_public(ctx, msg, "terms").await,
+            ("retrieve", "/ext/legalpages/privacy") => self.handle_get_public(ctx, msg, "privacy").await,
             // Admin UI
             ("retrieve", "/ext/legalpages/admin") => self.handle_admin_ui(msg),
             // Admin API
-            ("retrieve", "/admin/legalpages/documents") => self.handle_admin_list(ctx, msg),
-            ("retrieve", _) if path.starts_with("/admin/legalpages/documents/") => self.handle_admin_get(ctx, msg),
-            ("create", "/admin/legalpages/documents") => self.handle_admin_create(ctx, msg),
+            ("retrieve", "/admin/legalpages/documents") => self.handle_admin_list(ctx, msg).await,
+            ("retrieve", _) if path.starts_with("/admin/legalpages/documents/") => self.handle_admin_get(ctx, msg).await,
+            ("create", "/admin/legalpages/documents") => self.handle_admin_create(ctx, msg).await,
             ("update", _) if path.starts_with("/admin/legalpages/documents/") && path.ends_with("/publish") => {
-                self.handle_admin_publish(ctx, msg)
+                self.handle_admin_publish(ctx, msg).await
             }
-            ("update", _) if path.starts_with("/admin/legalpages/documents/") => self.handle_admin_update(ctx, msg),
-            ("delete", _) if path.starts_with("/admin/legalpages/documents/") => self.handle_admin_delete(ctx, msg),
+            ("update", _) if path.starts_with("/admin/legalpages/documents/") => self.handle_admin_update(ctx, msg).await,
+            ("delete", _) if path.starts_with("/admin/legalpages/documents/") => self.handle_admin_delete(ctx, msg).await,
             // ext API aliases (same as admin, but routed through admin-pipe)
-            ("retrieve", "/ext/legalpages/documents") => self.handle_admin_list(ctx, msg),
-            ("create", "/ext/legalpages/documents") => self.handle_admin_create(ctx, msg),
+            ("retrieve", "/ext/legalpages/documents") => self.handle_admin_list(ctx, msg).await,
+            ("create", "/ext/legalpages/documents") => self.handle_admin_create(ctx, msg).await,
             _ => err_not_found(msg, "not found"),
         }
     }
 
-    fn lifecycle(&self, ctx: &dyn Context, event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(&self, ctx: &dyn Context, event: LifecycleEvent) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
-            self.seed_defaults(ctx);
+            self.seed_defaults(ctx).await;
         }
         Ok(())
     }

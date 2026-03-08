@@ -6,8 +6,8 @@ use wafer_core::clients::{config, database as db, network};
 use super::PURCHASES_COLLECTION;
 use crate::blocks::helpers::hex_encode;
 
-pub fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let stripe_key = match config::get(ctx, "STRIPE_SECRET_KEY") {
+pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let stripe_key = match config::get(ctx, "STRIPE_SECRET_KEY").await {
         Ok(k) => k,
         Err(_) => return err_internal(msg, "Stripe is not configured"),
     };
@@ -24,7 +24,7 @@ pub fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     // Get purchase
-    let purchase = match db::get(ctx, PURCHASES_COLLECTION, &body.purchase_id) {
+    let purchase = match db::get(ctx, PURCHASES_COLLECTION, &body.purchase_id).await {
         Ok(p) => p,
         Err(_) => return err_not_found(msg, "Purchase not found"),
     };
@@ -32,7 +32,7 @@ pub fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let total = purchase.data.get("total_amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let currency = purchase.data.get("currency").and_then(|v| v.as_str()).unwrap_or("usd").to_lowercase();
 
-    let base_url = config::get_default(ctx, "FRONTEND_URL", "http://localhost:5173");
+    let base_url = config::get_default(ctx, "FRONTEND_URL", "http://localhost:5173").await;
     let success_url = body.success_url.unwrap_or_else(|| format!("{}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}", base_url));
     let cancel_url = body.cancel_url.unwrap_or_else(|| format!("{}/checkout/cancel", base_url));
 
@@ -51,13 +51,16 @@ pub fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     headers.insert("Authorization".to_string(), format!("Bearer {}", stripe_key));
     headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
 
+    let stripe_api_url = config::get_default(ctx, "STRIPE_API_URL", "https://api.stripe.com").await;
+    let checkout_url_endpoint = format!("{}/v1/checkout/sessions", stripe_api_url);
+
     let resp = match network::do_request(
         ctx,
         "POST",
-        "https://api.stripe.com/v1/checkout/sessions",
+        &checkout_url_endpoint,
         &headers,
         Some(&stripe_body.into_bytes()),
-    ) {
+    ).await {
         Ok(r) => r,
         Err(e) => return err_internal(msg, &format!("Stripe API error: {e}")),
     };
@@ -78,9 +81,9 @@ pub fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Update purchase with Stripe session ID
     let mut upd = HashMap::new();
     upd.insert("payment_provider".to_string(), serde_json::Value::String("stripe".to_string()));
-    upd.insert("payment_id".to_string(), serde_json::Value::String(session_id.to_string()));
+    upd.insert("provider_session_id".to_string(), serde_json::Value::String(session_id.to_string()));
     upd.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-    if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &body.purchase_id, upd) {
+    if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &body.purchase_id, upd).await {
         tracing::warn!("Failed to update purchase with Stripe session ID: {e}");
     }
 
@@ -90,19 +93,18 @@ pub fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }))
 }
 
-pub fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    // Verify Stripe webhook signature
-    let webhook_secret = config::get_default(ctx, "STRIPE_WEBHOOK_SECRET", "");
-    if !webhook_secret.is_empty() {
-        let sig_header = msg.header("stripe-signature");
-        if sig_header.is_empty() {
-            return err_unauthorized(msg, "Missing Stripe-Signature header");
-        }
-        if !verify_stripe_signature(&msg.data, &sig_header, &webhook_secret) {
-            return err_unauthorized(msg, "Invalid webhook signature");
-        }
-    } else {
-        tracing::warn!("STRIPE_WEBHOOK_SECRET not configured — webhook signature verification disabled");
+pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    // Verify Stripe webhook signature - REQUIRED
+    let webhook_secret = config::get_default(ctx, "STRIPE_WEBHOOK_SECRET", "").await;
+    if webhook_secret.is_empty() {
+        return err_internal(msg, "STRIPE_WEBHOOK_SECRET not configured — webhook processing disabled for security");
+    }
+    let sig_header = msg.header("stripe-signature");
+    if sig_header.is_empty() {
+        return err_unauthorized(msg, "Missing Stripe-Signature header");
+    }
+    if !verify_stripe_signature(&msg.data, &sig_header, &webhook_secret) {
+        return err_unauthorized(msg, "Invalid webhook signature");
     }
 
     // Parse webhook event
@@ -130,10 +132,10 @@ pub fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
                     let mut data = HashMap::new();
                     data.insert("status".to_string(), serde_json::Value::String("completed".to_string()));
-                    data.insert("payment_intent".to_string(), serde_json::Value::String(payment_intent));
-                    data.insert("completed_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+                    data.insert("provider_payment_intent_id".to_string(), serde_json::Value::String(payment_intent));
+                    data.insert("approved_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
                     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-                    if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, purchase_id, data) {
+                    if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, purchase_id, data).await {
                         tracing::warn!("Failed to mark purchase as completed: {e}");
                     }
                 }
@@ -148,16 +150,16 @@ pub fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     .to_string();
 
                 if !payment_intent.is_empty() {
-                    // Find purchase by payment_intent
+                    // Find purchase by provider_payment_intent_id
                     if let Ok(purchase) = db::get_by_field(
                         ctx, PURCHASES_COLLECTION,
-                        "payment_intent", serde_json::Value::String(payment_intent),
-                    ) {
+                        "provider_payment_intent_id", serde_json::Value::String(payment_intent),
+                    ).await {
                         let mut data = HashMap::new();
                         data.insert("status".to_string(), serde_json::Value::String("refunded".to_string()));
                         data.insert("refunded_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
                         data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-                        if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &purchase.id, data) {
+                        if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &purchase.id, data).await {
                             tracing::warn!("Failed to mark purchase as refunded: {e}");
                         }
                     }

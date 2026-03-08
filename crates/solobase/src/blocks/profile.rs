@@ -5,6 +5,8 @@ use wafer_run::helpers::*;
 
 pub struct ProfileBlock;
 
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for ProfileBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
@@ -20,13 +22,13 @@ impl Block for ProfileBlock {
         }
     }
 
-    fn handle(&self, _ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(&self, _ctx: &dyn Context, msg: &mut Message) -> Result_ {
         // GET /profile/sections -> empty array
         let empty: Vec<serde_json::Value> = Vec::new();
         json_respond(msg, &empty)
     }
 
-    fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
         Ok(())
     }
 }

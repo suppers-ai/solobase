@@ -1,6 +1,5 @@
-import { render } from 'preact';
-import { html, BlockShell } from '@solobase/ui';
-import { IAMPage } from './IAMPage';
-import '@app/app.css';
+import { h, render } from 'preact';
+import { App } from './App';
+import '../../../../frontend/src/app.css';
 
-render(html`<${BlockShell} title="IAM"><${IAMPage} /></${BlockShell}>`, document.getElementById('app')!);
+render(h(App, null), document.getElementById('app')!);

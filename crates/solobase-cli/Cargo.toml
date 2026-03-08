@@ -1,0 +1,16 @@
+[package]
+name = "solobase-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI for managing Solobase deployments — tenant provisioning, migrations, and admin"
+
+[[bin]]
+name = "solobase-cli"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }

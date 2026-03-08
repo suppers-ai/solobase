@@ -1,6 +1,5 @@
-import { render } from 'preact';
-import { html, BlockShell } from '@solobase/ui';
-import { LogsPage } from './LogsPage';
-import '@app/app.css';
+import { h, render } from 'preact';
+import { App } from './App';
+import '../../../frontend/src/app.css';
 
-render(html`<${BlockShell} title="Logs"><${LogsPage} /></${BlockShell}>`, document.getElementById('app')!);
+render(h(App, null), document.getElementById('app')!);

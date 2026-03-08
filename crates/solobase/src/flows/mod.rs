@@ -7,9 +7,9 @@
 
 mod admin;
 mod auth;
+mod deployments;
 mod files;
 mod legalpages;
-mod monitoring;
 mod products;
 mod profile;
 mod protected;
@@ -29,11 +29,11 @@ pub fn register_all_flows(w: &mut Wafer) {
     register_flow(w, auth::JSON);
     register_flow(w, system::JSON);
     register_flow(w, admin::JSON);
-    register_flow(w, monitoring::JSON);
     register_flow(w, settings::JSON);
     register_flow(w, files::JSON);
     register_flow(w, legalpages::JSON);
     register_flow(w, products::JSON);
+    register_flow(w, deployments::JSON);
     register_flow(w, userportal::JSON);
     register_flow(w, profile::JSON);
 
@@ -66,9 +66,6 @@ pub fn register_selected_flows(w: &mut Wafer) {
         register_flow(w, admin::JSON);
         register_flow(w, settings::JSON);
     }
-    if enabled("monitoring") {
-        register_flow(w, monitoring::JSON);
-    }
     if enabled("files") {
         register_flow(w, files::JSON);
     }
@@ -77,6 +74,9 @@ pub fn register_selected_flows(w: &mut Wafer) {
     }
     if enabled("products") {
         register_flow(w, products::JSON);
+    }
+    if enabled("deployments") {
+        register_flow(w, deployments::JSON);
     }
     if enabled("userportal") {
         register_flow(w, userportal::JSON);

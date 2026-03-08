@@ -6,21 +6,21 @@ use wafer_core::clients::database as db;
 use wafer_core::clients::database::{ListOptions, SortField};
 use super::sanitize_ident;
 
-pub fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/admin/custom-tables") => handle_list_tables(ctx, msg),
-        ("create", "/admin/custom-tables") => handle_create_table(ctx, msg),
+        ("retrieve", "/admin/custom-tables") => handle_list_tables(ctx, msg).await,
+        ("create", "/admin/custom-tables") => handle_create_table(ctx, msg).await,
         ("delete", _) if path.starts_with("/admin/custom-tables/") && !path.contains("/records") => {
-            handle_drop_table(ctx, msg)
+            handle_drop_table(ctx, msg).await
         }
         // Record CRUD
-        ("retrieve", _) if path.contains("/records") => handle_list_records(ctx, msg),
-        ("create", _) if path.contains("/records") => handle_create_record(ctx, msg),
-        ("update", _) if path.contains("/records/") => handle_update_record(ctx, msg),
-        ("delete", _) if path.contains("/records/") => handle_delete_record(ctx, msg),
+        ("retrieve", _) if path.contains("/records") => handle_list_records(ctx, msg).await,
+        ("create", _) if path.contains("/records") => handle_create_record(ctx, msg).await,
+        ("update", _) if path.contains("/records/") => handle_update_record(ctx, msg).await,
+        ("delete", _) if path.contains("/records/") => handle_delete_record(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
@@ -43,12 +43,12 @@ fn extract_record_id(path: &str) -> &str {
     }
 }
 
-fn handle_list_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let tables = match db::query_raw(
         ctx,
         "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'custom_%' ORDER BY name",
         &[],
-    ) {
+    ).await {
         Ok(t) => t,
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
@@ -60,7 +60,7 @@ fn handle_list_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     json_respond(msg, &serde_json::json!({"tables": names}))
 }
 
-fn handle_create_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
     struct Req {
         name: String,
@@ -97,13 +97,13 @@ fn handle_create_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let sql = format!("CREATE TABLE IF NOT EXISTS \"{}\" ({})", table_name, col_defs.join(", "));
 
-    match db::exec_raw(ctx, &sql, &[]) {
+    match db::exec_raw(ctx, &sql, &[]).await {
         Ok(_) => json_respond(msg, &serde_json::json!({"table": table_name, "created": true})),
         Err(e) => err_internal(msg, &format!("Failed to create table: {e}")),
     }
 }
 
-fn handle_drop_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_drop_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let table_name = extract_table_name(path);
     if table_name.is_empty() { return err_bad_request(msg, "Missing table name"); }
@@ -111,13 +111,13 @@ fn handle_drop_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let full_name = if table_name.starts_with("custom_") { table_name.to_string() } else { format!("custom_{}", table_name) };
     let safe_name = sanitize_ident(&full_name);
 
-    match db::exec_raw(ctx, &format!("DROP TABLE IF EXISTS \"{}\"", safe_name), &[]) {
+    match db::exec_raw(ctx, &format!("DROP TABLE IF EXISTS \"{}\"", safe_name), &[]).await {
         Ok(_) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) => err_internal(msg, &format!("Failed to drop table: {e}")),
     }
 }
 
-fn handle_list_records(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_records(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let table_name = extract_table_name(path);
     if table_name.is_empty() { return err_bad_request(msg, "Missing table name"); }
@@ -132,13 +132,13 @@ fn handle_list_records(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ..Default::default()
     };
 
-    match db::list(ctx, &full_name, &opts) {
+    match db::list(ctx, &full_name, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_create_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let table_name = extract_table_name(path);
     if table_name.is_empty() { return err_bad_request(msg, "Missing table name"); }
@@ -150,13 +150,13 @@ fn handle_create_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
-    match db::create(ctx, &full_name, body) {
+    match db::create(ctx, &full_name, body).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
-fn handle_update_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_update_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let table_name = extract_table_name(path);
     let record_id = extract_record_id(path);
@@ -171,7 +171,7 @@ fn handle_update_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
-    match db::update(ctx, &full_name, record_id, body) {
+    match db::update(ctx, &full_name, record_id, body).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) => {
             let msg_str = format!("{e}");
@@ -184,7 +184,7 @@ fn handle_update_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 }
 
-fn handle_delete_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let table_name = extract_table_name(path);
     let record_id = extract_record_id(path);
@@ -194,7 +194,7 @@ fn handle_delete_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let full_name = if table_name.starts_with("custom_") { table_name.to_string() } else { format!("custom_{}", table_name) };
 
-    match db::delete(ctx, &full_name, record_id) {
+    match db::delete(ctx, &full_name, record_id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) => {
             let msg_str = format!("{e}");

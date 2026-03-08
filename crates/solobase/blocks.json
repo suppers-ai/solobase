@@ -658,21 +658,26 @@
         }
     },
 
-    "@solobase/monitoring": {
+    "@solobase/deployments": {
         "uses": {
             "@wafer/database": {
                 "collections": {
-                    "sys_monitoring_snapshots": {
+                    "ext_deployments": {
                         "fields": {
-                            "id": { "type": "string", "primary": true },
-                            "period_start": { "type": "datetime" },
-                            "period_end": { "type": "datetime" },
-                            "total_messages": { "type": "int" },
-                            "total_errors": { "type": "int" },
-                            "per_block_json": { "type": "text", "optional": true },
-                            "per_chain_json": { "type": "text", "optional": true },
-                            "per_kind_json": { "type": "text", "optional": true },
-                            "created_at": { "type": "datetime", "auto": true }
+                            "user_id": { "type": "string" },
+                            "name": { "type": "string" },
+                            "slug": { "type": "string" },
+                            "status": { "type": "string" },
+                            "plan_id": { "type": "string", "optional": true },
+                            "purchase_id": { "type": "string", "optional": true },
+                            "region": { "type": "string" },
+                            "tenant_id": { "type": "string", "optional": true },
+                            "subdomain": { "type": "string", "optional": true },
+                            "provision_error": { "type": "string", "optional": true },
+                            "config": { "type": "json", "optional": true },
+                            "created_at": { "type": "datetime" },
+                            "updated_at": { "type": "datetime" },
+                            "deleted_at": { "type": "datetime", "optional": true }
                         }
                     }
                 }

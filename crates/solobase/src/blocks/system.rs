@@ -5,6 +5,8 @@ use wafer_run::helpers::*;
 
 pub struct SystemBlock;
 
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for SystemBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
@@ -20,7 +22,7 @@ impl Block for SystemBlock {
         }
     }
 
-    fn handle(&self, _ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(&self, _ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let path = msg.path();
 
         match path {
@@ -44,7 +46,6 @@ impl Block for SystemBlock {
                     {"id": "database", "title": "Database", "label": "Database", "href": "/admin/database", "path": "/admin/database", "icon": "Database"},
                     {"id": "iam", "title": "IAM", "label": "IAM", "href": "/admin/iam", "path": "/admin/iam", "icon": "Shield"},
                     {"id": "logs", "title": "Logs", "label": "Logs", "href": "/admin/logs", "path": "/admin/logs", "icon": "FileText"},
-                    {"id": "monitoring", "title": "Monitoring", "label": "Monitoring", "href": "/admin/monitoring", "path": "/admin/monitoring", "icon": "Activity"},
                     {"id": "settings", "title": "Settings", "label": "Settings", "href": "/admin/settings", "path": "/admin/settings", "icon": "Settings"},
                     {"id": "legalpages", "title": "Legal Pages", "label": "Legal Pages", "href": "/admin/legalpages", "path": "/admin/legalpages", "icon": "Scale"},
                     {"id": "products", "title": "Products", "label": "Products", "href": "/admin/ext/products", "path": "/admin/ext/products", "icon": "ShoppingBag"},
@@ -57,7 +58,7 @@ impl Block for SystemBlock {
         }
     }
 
-    fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
         Ok(())
     }
 }

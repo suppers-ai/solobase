@@ -12,12 +12,16 @@
   "scripts": {
     "build": "npm run build -w @solobase/admin",
     "build:admin": "npm run build -w @solobase/admin",
+    "dev": "./scripts/dev.sh",
+    "dev:keep": "./scripts/dev.sh --keep",
     "dev:admin": "npm run dev -w @solobase/admin",
     "generate:types": "echo 'Type generation not yet ported to Rust — manually maintain shared/types for now'",
     "check": "npm run check -w @solobase/admin",
-    "test:e2e": "npx playwright test",
-    "test:e2e:ui": "npx playwright test --ui",
-    "test:e2e:update": "npx playwright test --update-snapshots"
+    "test": "./scripts/test.sh",
+    "test:e2e": "./node_modules/.bin/playwright test",
+    "test:e2e:ui": "./node_modules/.bin/playwright test --ui",
+    "test:e2e:update": "./node_modules/.bin/playwright test --update-snapshots",
+    "stripe:mock": "node scripts/stripe-mock.mjs"
   },
   "keywords": [
     "solobase",
