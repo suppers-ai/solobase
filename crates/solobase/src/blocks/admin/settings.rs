@@ -4,6 +4,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::ListOptions;
+use crate::blocks::helpers::{self, json_map, RecordExt};
 
 const COLLECTION: &str = "settings";
 
@@ -27,7 +28,7 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             // Convert to key-value map
             let mut settings = HashMap::new();
             for record in &result.records {
-                let key = record.data.get("key").and_then(|v| v.as_str()).unwrap_or("");
+                let key = record.str_field("key");
                 let value = record.data.get("value").cloned().unwrap_or(serde_json::Value::Null);
                 if !key.is_empty() {
                     settings.insert(key.to_string(), value);
@@ -48,14 +49,8 @@ async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match db::get_by_field(ctx, COLLECTION, "key", serde_json::Value::String(key.to_string())).await {
         Ok(record) => json_respond(msg, &record),
-        Err(e) => {
-            let msg_str = format!("{e}");
-            if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg, "Setting not found")
-            } else {
-                err_internal(msg, &format!("Database error: {e}"))
-            }
-        }
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Setting not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -71,11 +66,12 @@ async fn handle_set(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
-    let mut data = HashMap::new();
-    data.insert("key".to_string(), serde_json::Value::String(key.to_string()));
-    data.insert("value".to_string(), body.value);
-    data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-    data.insert("updated_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
+    let mut data = json_map(serde_json::json!({
+        "key": key,
+        "value": body.value,
+        "updated_by": msg.user_id()
+    }));
+    helpers::stamp_updated(&mut data);
 
     match db::upsert(ctx, COLLECTION, "key", serde_json::Value::String(key.to_string()), data).await {
         Ok(record) => json_respond(msg, &record),
@@ -89,15 +85,16 @@ async fn handle_set_batch(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = helpers::now_rfc3339();
     let user_id = msg.user_id().to_string();
 
     for (key, value) in &body {
-        let mut data = HashMap::new();
-        data.insert("key".to_string(), serde_json::Value::String(key.clone()));
-        data.insert("value".to_string(), value.clone());
-        data.insert("updated_at".to_string(), serde_json::Value::String(now.clone()));
-        data.insert("updated_by".to_string(), serde_json::Value::String(user_id.clone()));
+        let data = json_map(serde_json::json!({
+            "key": key,
+            "value": value,
+            "updated_at": now,
+            "updated_by": user_id
+        }));
         let _ = db::upsert(ctx, COLLECTION, "key", serde_json::Value::String(key.clone()), data).await;
     }
 
@@ -116,10 +113,11 @@ pub async fn seed_defaults(ctx: &dyn Context) {
     ];
 
     for (key, value) in defaults {
-        let mut data = HashMap::new();
-        data.insert("key".to_string(), serde_json::Value::String(key.to_string()));
-        data.insert("value".to_string(), value);
-        data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+        let data = json_map(serde_json::json!({
+            "key": key,
+            "value": value,
+            "created_at": helpers::now_rfc3339()
+        }));
         if let Err(e) = db::create(ctx, COLLECTION, data).await {
             tracing::warn!("Failed to seed default setting '{key}': {e}");
         }

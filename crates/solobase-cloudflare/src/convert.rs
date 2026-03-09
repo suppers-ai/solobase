@@ -231,12 +231,10 @@ fn apply_meta_headers(
     for (k, v) in meta {
         if k.starts_with(META_RESP_COOKIE_PREFIX) || k.starts_with("http.resp.set-cookie.") {
             headers.append("Set-Cookie", v)?;
-        } else if k.starts_with(META_RESP_HEADER_PREFIX) {
-            let header_name = &k[META_RESP_HEADER_PREFIX.len()..];
-            headers.set(header_name, v)?;
-        } else if k.starts_with("http.resp.header.") {
-            let header_name = &k[17..];
-            headers.set(header_name, v)?;
+        } else if let Some(name) = k.strip_prefix(META_RESP_HEADER_PREFIX)
+            .or_else(|| k.strip_prefix("http.resp.header."))
+        {
+            headers.set(name, v)?;
         }
     }
     Ok(())

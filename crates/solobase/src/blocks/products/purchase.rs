@@ -5,6 +5,7 @@ use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use super::{PURCHASES_COLLECTION, LINE_ITEMS_COLLECTION, PRODUCTS_COLLECTION};
+use crate::blocks::helpers::RecordExt;
 
 pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
@@ -159,7 +160,7 @@ pub async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     // Verify access: user can only view their own, admin can view all
-    let purchase_user = purchase.data.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
+    let purchase_user = purchase.str_field("user_id");
     if purchase_user != msg.user_id() && !msg.is_admin() {
         return err_forbidden(msg, "Access denied");
     }
@@ -201,7 +202,7 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
 
-    let status = purchase.data.get("status").and_then(|v| v.as_str()).unwrap_or("");
+    let status = purchase.str_field("status");
     if status != "completed" {
         return err_bad_request(msg, &format!("Can only refund completed purchases (current status: {})", status));
     }
@@ -218,7 +219,7 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     match db::update(ctx, PURCHASES_COLLECTION, id, data).await {
         Ok(record) => {
             // Verify the update actually changed the status (optimistic check)
-            let new_status = record.data.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            let new_status = record.str_field("status");
             if new_status != "refunded" {
                 return err_internal(msg, "Refund failed — purchase status was modified concurrently");
             }

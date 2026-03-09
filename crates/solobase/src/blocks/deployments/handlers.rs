@@ -6,6 +6,7 @@ use wafer_core::clients::{config, network};
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, SortField};
 use super::DEPLOYMENTS_COLLECTION;
+use crate::blocks::helpers::RecordExt;
 
 /// Call the control plane API. Returns the parsed JSON response body on success.
 async fn control_plane_request(
@@ -110,7 +111,7 @@ async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match db::get(ctx, DEPLOYMENTS_COLLECTION, id).await {
         Ok(record) => {
-            let owner = record.data.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
+            let owner = record.str_field("user_id");
             if owner != user_id {
                 return err_not_found(msg, "Deployment not found");
             }
@@ -235,7 +236,7 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Verify ownership
     match db::get(ctx, DEPLOYMENTS_COLLECTION, id).await {
         Ok(record) => {
-            let owner = record.data.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
+            let owner = record.str_field("user_id");
             if owner != user_id {
                 return err_not_found(msg, "Deployment not found");
             }
@@ -277,7 +278,7 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Verify ownership and get deployment details
     let record = match db::get(ctx, DEPLOYMENTS_COLLECTION, id).await {
         Ok(record) => {
-            let owner = record.data.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
+            let owner = record.str_field("user_id");
             if owner != user_id {
                 return err_not_found(msg, "Deployment not found");
             }
@@ -381,7 +382,7 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         match admin_action.as_str() {
             "provision" => {
                 // (Re-)provision a pending/failed deployment
-                let slug = record.data.get("slug").and_then(|v| v.as_str()).unwrap_or("");
+                let slug = record.str_field("slug");
                 let plan = record.data.get("plan_id").and_then(|v| v.as_str()).unwrap_or("hobby");
                 let provision_body = serde_json::json!({ "subdomain": slug, "plan": plan });
                 let provision_bytes = serde_json::to_vec(&provision_body).unwrap_or_default();

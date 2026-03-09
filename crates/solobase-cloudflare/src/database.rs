@@ -387,7 +387,7 @@ impl D1DatabaseService {
 // ---------------------------------------------------------------------------
 
 /// Sanitize an identifier for safe SQL interpolation (table/column names).
-fn sanitize_ident(name: &str) -> String {
+pub(crate) fn sanitize_ident(name: &str) -> String {
     name.chars()
         .filter(|c| c.is_alphanumeric() || *c == '_')
         .collect::<String>()

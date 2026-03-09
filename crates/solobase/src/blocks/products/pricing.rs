@@ -4,6 +4,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use super::{PRICING_COLLECTION, PRODUCTS_COLLECTION};
+use crate::blocks::helpers::RecordExt;
 
 pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
@@ -28,7 +29,7 @@ pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     // Get pricing template
-    let template_id = product.data.get("pricing_template_id").and_then(|v| v.as_str()).unwrap_or("");
+    let template_id = product.str_field("pricing_template_id");
     if template_id.is_empty() {
         // Direct price from product
         let base_price = product.data.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -46,7 +47,7 @@ pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(_) => return err_internal(msg, "Pricing template not found"),
     };
 
-    let formula = template.data.get("formula").and_then(|v| v.as_str()).unwrap_or("");
+    let formula = template.str_field("formula");
     if formula.is_empty() {
         return err_internal(msg, "Empty pricing formula");
     }

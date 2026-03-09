@@ -45,11 +45,10 @@ tokio = { workspace = true, optional = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true }
 
+# Crypto
+sha2 = { workspace = true }
+hmac = "0.12"
+
 # Time
 chrono = { workspace = true }
 
-[profile.release]
-opt-level = "z"
-lto = true
-codegen-units = 1
-strip = true

@@ -4,6 +4,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+use crate::blocks::helpers::{self, RecordExt};
 
 const COLLECTION: &str = "auth_users";
 
@@ -83,7 +84,8 @@ async fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
             };
             let roles: Vec<String> = match db::list(ctx, "iam_user_roles", &roles_opts).await {
                 Ok(r) => r.records.iter()
-                    .filter_map(|rec| rec.data.get("role").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                    .map(|rec| rec.str_field("role").to_string())
+                    .filter(|s| !s.is_empty())
                     .collect(),
                 Err(_) => Vec::new(),
             };
@@ -93,14 +95,8 @@ async fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
             }
             json_respond(msg, &resp)
         }
-        Err(e) => {
-            let msg_str = format!("{e}");
-            if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg, "User not found")
-            } else {
-                err_internal(msg, &format!("Database error: {e}"))
-            }
-        }
+        Err(e) if e.code == "not_found" => err_not_found(msg, "User not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -124,21 +120,15 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             data.insert(key.to_string(), val.clone());
         }
     }
-    data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+    helpers::stamp_updated(&mut data);
 
     match db::update(ctx, COLLECTION, id, data).await {
         Ok(mut record) => {
             record.data.remove("password_hash");
             json_respond(msg, &record)
         }
-        Err(e) => {
-            let msg_str = format!("{e}");
-            if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg, "User not found")
-            } else {
-                err_internal(msg, &format!("Database error: {e}"))
-            }
-        }
+        Err(e) if e.code == "not_found" => err_not_found(msg, "User not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -153,13 +143,7 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Soft delete
     match db::soft_delete(ctx, COLLECTION, id).await {
         Ok(_) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) => {
-            let msg_str = format!("{e}");
-            if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg, "User not found")
-            } else {
-                err_internal(msg, &format!("Database error: {e}"))
-            }
-        }
+        Err(e) if e.code == "not_found" => err_not_found(msg, "User not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }

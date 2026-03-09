@@ -3,6 +3,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp};
+use crate::blocks::helpers::RecordExt;
 use super::models::QuotaConfig;
 
 pub async fn get_user_quota(ctx: &dyn Context, user_id: &str) -> QuotaConfig {
@@ -13,7 +14,7 @@ pub async fn get_user_quota(ctx: &dyn Context, user_id: &str) -> QuotaConfig {
                 max_storage_bytes: record.data.get("max_storage_bytes").and_then(|v| v.as_i64()).unwrap_or(1_073_741_824),
                 max_file_size_bytes: record.data.get("max_file_size_bytes").and_then(|v| v.as_i64()).unwrap_or(104_857_600),
                 max_files_per_bucket: record.data.get("max_files_per_bucket").and_then(|v| v.as_i64()).unwrap_or(10_000),
-                reset_period_days: record.data.get("reset_period_days").and_then(|v| v.as_i64()).unwrap_or(0),
+                reset_period_days: record.i64_field("reset_period_days"),
             }
         }
         Err(_) => QuotaConfig::default(),
@@ -36,7 +37,7 @@ pub async fn get_user_usage(ctx: &dyn Context, user_id: &str) -> serde_json::Val
     })
 }
 
-pub async fn check_quota(ctx: &dyn Context, user_id: &str, _bucket: &str, file_size: i64) -> Result<(), Result_> {
+pub async fn check_quota(ctx: &dyn Context, user_id: &str, file_size: i64) -> Result<(), Result_> {
     let quota = get_user_quota(ctx, user_id).await;
     let usage = get_user_usage(ctx, user_id).await;
 

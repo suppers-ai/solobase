@@ -20,73 +20,46 @@ mod userportal;
 
 use wafer_run::Wafer;
 
+/// Feature flows with their gate name (None = always registered).
+const FEATURE_FLOWS: &[(&str, Option<&str>)] = &[
+    (protected::JSON, None),        // base pipeline alias — always
+    (auth::JSON, Some("auth")),
+    (system::JSON, Some("system")),
+    (admin::JSON, Some("admin")),
+    (settings::JSON, Some("admin")), // settings gated with admin
+    (files::JSON, Some("files")),
+    (legalpages::JSON, Some("legalpages")),
+    (products::JSON, Some("products")),
+    (deployments::JSON, Some("deployments")),
+    (userportal::JSON, Some("userportal")),
+    (profile::JSON, Some("profile")),
+    (site_main::JSON, None),        // top-level dispatch — always
+];
+
+/// Register flows, optionally gated by a predicate.
+///
+/// Flows with `gate = None` are always registered. Flows with a gate name
+/// are only registered if `filter(gate_name)` returns `true`.
+pub fn register_flows(w: &mut Wafer, filter: impl Fn(&str) -> bool) {
+    for &(json, gate) in FEATURE_FLOWS {
+        if gate.map_or(true, |name| filter(name)) {
+            register_flow(w, json);
+        }
+    }
+}
+
 /// Register all solobase feature flows with the runtime.
 pub fn register_all_flows(w: &mut Wafer) {
-    // Base pipeline aliases
-    register_flow(w, protected::JSON);
-
-    // Feature flows
-    register_flow(w, auth::JSON);
-    register_flow(w, system::JSON);
-    register_flow(w, admin::JSON);
-    register_flow(w, settings::JSON);
-    register_flow(w, files::JSON);
-    register_flow(w, legalpages::JSON);
-    register_flow(w, products::JSON);
-    register_flow(w, deployments::JSON);
-    register_flow(w, userportal::JSON);
-    register_flow(w, profile::JSON);
-
-    // Top-level dispatch (must be registered last — references all feature flows)
-    register_flow(w, site_main::JSON);
+    register_flows(w, |_| true);
 }
 
 /// Register only flows whose corresponding feature is enabled via env vars.
-///
-/// The `protected` flow, `settings` flow, and `site-main` flow are always
-/// registered. Feature flows are gated by `FEATURE_<NAME>`.
 pub fn register_selected_flows(w: &mut Wafer) {
-    let enabled = |name: &str| -> bool {
+    register_flows(w, |name| {
         std::env::var(format!("FEATURE_{}", name.to_uppercase()))
             .map(|v| v != "false")
-            .unwrap_or(true) // default: enabled
-    };
-
-    // Base pipeline aliases (always registered)
-    register_flow(w, protected::JSON);
-
-    // Feature flows (conditionally registered)
-    if enabled("auth") {
-        register_flow(w, auth::JSON);
-    }
-    if enabled("system") {
-        register_flow(w, system::JSON);
-    }
-    if enabled("admin") {
-        register_flow(w, admin::JSON);
-        register_flow(w, settings::JSON);
-    }
-    if enabled("files") {
-        register_flow(w, files::JSON);
-    }
-    if enabled("legalpages") {
-        register_flow(w, legalpages::JSON);
-    }
-    if enabled("products") {
-        register_flow(w, products::JSON);
-    }
-    if enabled("deployments") {
-        register_flow(w, deployments::JSON);
-    }
-    if enabled("userportal") {
-        register_flow(w, userportal::JSON);
-    }
-    if enabled("profile") {
-        register_flow(w, profile::JSON);
-    }
-
-    // Top-level dispatch (always registered)
-    register_flow(w, site_main::JSON);
+            .unwrap_or(true)
+    });
 }
 
 fn register_flow(w: &mut Wafer, json: &str) {

@@ -167,7 +167,7 @@ async fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let content_type = if msg.content_type().is_empty() { "application/octet-stream" } else { msg.content_type() };
 
     // Check quota
-    if let Err(r) = super::quota::check_quota(ctx, msg.user_id(), bucket, msg.body().len() as i64).await {
+    if let Err(r) = super::quota::check_quota(ctx, msg.user_id(), msg.body().len() as i64).await {
         return r;
     }
 

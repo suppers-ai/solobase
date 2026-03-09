@@ -11,59 +11,46 @@ pub mod profile;
 pub mod system;
 pub mod userportal;
 
-/// Register all feature blocks unconditionally.
+/// Register blocks, optionally gated by a predicate.
+///
+/// If `filter` returns `true` for a block name, that block is registered.
+/// Pass `|_| true` to register all blocks unconditionally.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn register_all(w: &mut wafer_run::Wafer) {
+pub fn register_blocks(w: &mut wafer_run::Wafer, filter: impl Fn(&str) -> bool) {
     use std::sync::Arc;
-    w.register_block("@solobase/profile", Arc::new(profile::ProfileBlock));
-    w.register_block("@solobase/system", Arc::new(system::SystemBlock));
-    w.register_block("@solobase/userportal", Arc::new(userportal::UserPortalBlock));
-    w.register_block("@solobase/legalpages", Arc::new(legalpages::LegalPagesBlock));
-    w.register_block("@solobase/auth", Arc::new(auth::AuthBlock::new()));
-    w.register_block("@solobase/admin", Arc::new(admin::AdminBlock));
-    w.register_block("@solobase/files", Arc::new(files::FilesBlock::new()));
-    w.register_block("@solobase/products", Arc::new(products::ProductsBlock::new()));
-    w.register_block("@solobase/deployments", Arc::new(deployments::DeploymentsBlock::new()));
+
+    let blocks: Vec<(&str, Arc<dyn wafer_run::block::Block>)> = vec![
+        ("profile", Arc::new(profile::ProfileBlock)),
+        ("system", Arc::new(system::SystemBlock)),
+        ("userportal", Arc::new(userportal::UserPortalBlock)),
+        ("legalpages", Arc::new(legalpages::LegalPagesBlock)),
+        ("auth", Arc::new(auth::AuthBlock::new())),
+        ("admin", Arc::new(admin::AdminBlock)),
+        ("files", Arc::new(files::FilesBlock::new())),
+        ("products", Arc::new(products::ProductsBlock::new())),
+        ("deployments", Arc::new(deployments::DeploymentsBlock::new())),
+    ];
+
+    for (name, block) in blocks {
+        if filter(name) {
+            w.register_block(&format!("@solobase/{name}"), block);
+        }
+    }
 }
 
-/// Register only the feature blocks enabled via env vars.
-///
-/// Reads `FEATURE_<NAME>` env vars. If a var is missing or not "false",
-/// the block is registered. If explicitly "false", it is skipped.
+/// Register all blocks unconditionally.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn register_all(w: &mut wafer_run::Wafer) {
+    register_blocks(w, |_| true);
+}
+
+/// Register only blocks enabled via `FEATURE_<NAME>` env vars.
+/// Missing or non-"false" values mean enabled.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn register_selected(w: &mut wafer_run::Wafer) {
-    use std::sync::Arc;
-    let enabled = |name: &str| -> bool {
+    register_blocks(w, |name| {
         std::env::var(format!("FEATURE_{}", name.to_uppercase()))
             .map(|v| v != "false")
-            .unwrap_or(true) // default: enabled
-    };
-
-    if enabled("profile") {
-        w.register_block("@solobase/profile", Arc::new(profile::ProfileBlock));
-    }
-    if enabled("system") {
-        w.register_block("@solobase/system", Arc::new(system::SystemBlock));
-    }
-    if enabled("userportal") {
-        w.register_block("@solobase/userportal", Arc::new(userportal::UserPortalBlock));
-    }
-    if enabled("legalpages") {
-        w.register_block("@solobase/legalpages", Arc::new(legalpages::LegalPagesBlock));
-    }
-    if enabled("auth") {
-        w.register_block("@solobase/auth", Arc::new(auth::AuthBlock::new()));
-    }
-    if enabled("admin") {
-        w.register_block("@solobase/admin", Arc::new(admin::AdminBlock));
-    }
-    if enabled("files") {
-        w.register_block("@solobase/files", Arc::new(files::FilesBlock::new()));
-    }
-    if enabled("products") {
-        w.register_block("@solobase/products", Arc::new(products::ProductsBlock::new()));
-    }
-    if enabled("deployments") {
-        w.register_block("@solobase/deployments", Arc::new(deployments::DeploymentsBlock::new()));
-    }
+            .unwrap_or(true)
+    });
 }

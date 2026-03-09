@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 
-use crate::database::{D1DatabaseService, Filter, FilterOp, ListOptions, SortField};
+use crate::database::{self, D1DatabaseService, Filter, FilterOp, ListOptions, SortField};
 use crate::storage::R2StorageService;
 
 /// WAFER Context backed by Cloudflare Workers services (D1, R2, KV).
@@ -226,24 +226,23 @@ fn convert_sort(defs: Vec<DbSortDef>) -> Vec<SortField> {
         .collect()
 }
 
+/// Decode a request from the message, returning an error Result_ on failure.
+fn decode_req<T: serde::de::DeserializeOwned>(msg: &mut Message, op: &str) -> Result<T, Result_> {
+    msg.decode::<T>().map_err(|e| err_result("invalid_argument", format!("invalid {op}: {e}")))
+}
+
 impl CloudflareContext {
     async fn handle_database(&self, msg: &mut Message) -> Result_ {
         match msg.kind.as_str() {
             "database.get" => {
-                let req: DbGetReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid database.get: {e}")),
-                };
+                let req = decode_req::<DbGetReq>(msg, "database.get")?;
                 match self.db.get(&req.collection, &req.id).await {
                     Ok(record) => respond_json(msg, &record),
                     Err(_) => err_result("not_found", "record not found"),
                 }
             }
             "database.list" => {
-                let req: DbListReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid database.list: {e}")),
-                };
+                let req = decode_req::<DbListReq>(msg, "database.list")?;
                 let opts = ListOptions {
                     filters: convert_filters(req.filters),
                     sort: convert_sort(req.sort),
@@ -256,40 +255,28 @@ impl CloudflareContext {
                 }
             }
             "database.create" => {
-                let req: DbCreateReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid database.create: {e}")),
-                };
+                let req = decode_req::<DbCreateReq>(msg, "database.create")?;
                 match self.db.create(&req.collection, req.data).await {
                     Ok(record) => respond_json(msg, &record),
                     Err(e) => err_result("internal", format!("database create error: {e}")),
                 }
             }
             "database.update" => {
-                let req: DbUpdateReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid database.update: {e}")),
-                };
+                let req = decode_req::<DbUpdateReq>(msg, "database.update")?;
                 match self.db.update(&req.collection, &req.id, req.data).await {
                     Ok(record) => respond_json(msg, &record),
                     Err(e) => err_result("internal", format!("database update error: {e}")),
                 }
             }
             "database.delete" => {
-                let req: DbDeleteReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid database.delete: {e}")),
-                };
+                let req = decode_req::<DbDeleteReq>(msg, "database.delete")?;
                 match self.db.delete(&req.collection, &req.id).await {
                     Ok(()) => respond_empty(msg),
                     Err(e) => err_result("internal", format!("database delete error: {e}")),
                 }
             }
             "database.count" => {
-                let req: DbCountReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid database.count: {e}")),
-                };
+                let req = decode_req::<DbCountReq>(msg, "database.count")?;
                 let filters = convert_filters(req.filters);
                 match self.db.count(&req.collection, &filters).await {
                     Ok(count) => respond_json(msg, &CountResp { count }),
@@ -297,13 +284,9 @@ impl CloudflareContext {
                 }
             }
             "database.sum" => {
-                // D1DatabaseService doesn't have a sum method; emulate via query_raw
-                let req: DbSumReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid database.sum: {e}")),
-                };
-                let col = sanitize_ident(&req.field);
-                let table = sanitize_ident(&req.collection);
+                let req = decode_req::<DbSumReq>(msg, "database.sum")?;
+                let col = database::sanitize_ident(&req.field);
+                let table = database::sanitize_ident(&req.collection);
                 let sql = format!("SELECT COALESCE(SUM({}), 0) as s FROM {} WHERE tenant_id = ?", col, table);
                 match self.db.query_raw(&sql, &[serde_json::Value::String(self.tenant_id.clone())]).await {
                     Ok(records) => {
@@ -317,20 +300,14 @@ impl CloudflareContext {
                 }
             }
             "database.query_raw" => {
-                let req: DbQueryRawReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid database.query_raw: {e}")),
-                };
+                let req = decode_req::<DbQueryRawReq>(msg, "database.query_raw")?;
                 match self.db.query_raw(&req.query, &req.args).await {
                     Ok(records) => respond_json(msg, &records),
                     Err(e) => err_result("internal", format!("database query_raw error: {e}")),
                 }
             }
             "database.exec_raw" => {
-                let req: DbExecRawReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid database.exec_raw: {e}")),
-                };
+                let req = decode_req::<DbExecRawReq>(msg, "database.exec_raw")?;
                 match self.db.exec_raw(&req.query, &req.args).await {
                     Ok(()) => respond_json(msg, &ExecRawResp { rows_affected: 0 }),
                     Err(e) => err_result("internal", format!("database exec_raw error: {e}")),
@@ -371,40 +348,28 @@ impl CloudflareContext {
     async fn handle_storage(&self, msg: &mut Message) -> Result_ {
         match msg.kind.as_str() {
             "storage.put" => {
-                let req: StoragePutReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid storage.put: {e}")),
-                };
+                let req = decode_req::<StoragePutReq>(msg, "storage.put")?;
                 match self.storage.put(&req.folder, &req.key, req.data, &req.content_type).await {
                     Ok(()) => respond_empty(msg),
                     Err(e) => err_result("internal", format!("storage put error: {e}")),
                 }
             }
             "storage.get" => {
-                let req: StorageGetReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid storage.get: {e}")),
-                };
+                let req = decode_req::<StorageGetReq>(msg, "storage.get")?;
                 match self.storage.get(&req.folder, &req.key).await {
                     Ok((data, info)) => respond_json(msg, &StorageGetResp { data, info }),
                     Err(_) => err_result("not_found", "object not found"),
                 }
             }
             "storage.delete" => {
-                let req: StorageDeleteReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid storage.delete: {e}")),
-                };
+                let req = decode_req::<StorageDeleteReq>(msg, "storage.delete")?;
                 match self.storage.delete(&req.folder, &req.key).await {
                     Ok(()) => respond_empty(msg),
                     Err(e) => err_result("internal", format!("storage delete error: {e}")),
                 }
             }
             "storage.list" => {
-                let req: StorageListReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid storage.list: {e}")),
-                };
+                let req = decode_req::<StorageListReq>(msg, "storage.list")?;
                 let limit = if req.limit > 0 { req.limit as u32 } else { 100 };
                 match self.storage.list(&req.folder, &req.prefix, limit).await {
                     Ok(list) => respond_json(msg, &list),
@@ -412,7 +377,7 @@ impl CloudflareContext {
                 }
             }
             "storage.create_folder" | "storage.delete_folder" | "storage.list_folders" => {
-                // R2 doesn't have real folders — these are no-ops / simulated
+                // R2 doesn't have real folders — no-ops
                 respond_empty(msg)
             }
             other => err_result("unimplemented", format!("unknown storage op: {other}")),
@@ -502,46 +467,31 @@ impl CloudflareContext {
     fn handle_crypto(&self, msg: &mut Message) -> Result_ {
         match msg.kind.as_str() {
             "crypto.hash" => {
-                let req: CryptoHashReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid crypto.hash: {e}")),
-                };
+                let req = decode_req::<CryptoHashReq>(msg, "crypto.hash")?;
                 match crypto_hash_password(&req.password) {
                     Ok(hash) => respond_json(msg, &CryptoHashResp { hash }),
                     Err(e) => err_result("internal", e),
                 }
             }
             "crypto.compare_hash" => {
-                let req: CryptoCompareReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid crypto.compare_hash: {e}")),
-                };
+                let req = decode_req::<CryptoCompareReq>(msg, "crypto.compare_hash")?;
                 let matches = crypto_verify_password(&req.password, &req.hash);
                 respond_json(msg, &CryptoCompareResp { matches })
             }
             "crypto.sign" => {
-                let req: CryptoSignReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid crypto.sign: {e}")),
-                };
+                let req = decode_req::<CryptoSignReq>(msg, "crypto.sign")?;
                 let token = jwt_sign(&req.claims, Duration::from_secs(req.expiry_secs), &self.jwt_secret);
                 respond_json(msg, &CryptoSignResp { token })
             }
             "crypto.verify" => {
-                let req: CryptoVerifyReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid crypto.verify: {e}")),
-                };
+                let req = decode_req::<CryptoVerifyReq>(msg, "crypto.verify")?;
                 match jwt_verify(&req.token, &self.jwt_secret) {
                     Ok(claims) => respond_json(msg, &CryptoVerifyResp { claims }),
                     Err(e) => err_result("unauthenticated", e),
                 }
             }
             "crypto.random_bytes" => {
-                let req: CryptoRandomReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid crypto.random_bytes: {e}")),
-                };
+                let req = decode_req::<CryptoRandomReq>(msg, "crypto.random_bytes")?;
                 if req.n > 1_048_576 {
                     return err_result("invalid_argument", "random_bytes n exceeds 1 MiB limit");
                 }
@@ -579,10 +529,7 @@ impl CloudflareContext {
     async fn handle_network(&self, msg: &mut Message) -> Result_ {
         match msg.kind.as_str() {
             "network.do" => {
-                let req: NetworkDoReq = match msg.decode() {
-                    Ok(r) => r,
-                    Err(e) => return err_result("invalid_argument", format!("invalid network.do: {e}")),
-                };
+                let req = decode_req::<NetworkDoReq>(msg, "network.do")?;
 
                 let method = match req.method.to_uppercase().as_str() {
                     "GET" => worker::Method::Get,
@@ -698,40 +645,13 @@ fn hmac_sha256(data: &[u8], key: &[u8]) -> Vec<u8> {
 }
 
 fn base64_url_encode(input: &[u8]) -> String {
-    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut output = String::with_capacity((input.len() + 2) / 3 * 4);
-    for chunk in input.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
-        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
-        let n = (b0 << 16) | (b1 << 8) | b2;
-        output.push(TABLE[((n >> 18) & 0x3F) as usize] as char);
-        output.push(TABLE[((n >> 12) & 0x3F) as usize] as char);
-        if chunk.len() > 1 { output.push(TABLE[((n >> 6) & 0x3F) as usize] as char); }
-        if chunk.len() > 2 { output.push(TABLE[(n & 0x3F) as usize] as char); }
-    }
-    output.replace('+', "-").replace('/', "_").trim_end_matches('=').to_string()
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    URL_SAFE_NO_PAD.encode(input)
 }
 
 fn base64_url_decode(input: &str) -> Result<Vec<u8>, String> {
-    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let s = input.replace('-', "+").replace('_', "/");
-    let mut output = Vec::with_capacity(s.len() * 3 / 4);
-    let mut buf: u32 = 0;
-    let mut bits: u32 = 0;
-    for &byte in s.as_bytes() {
-        if byte == b'=' { break; }
-        let val = TABLE.iter().position(|&b| b == byte)
-            .ok_or_else(|| format!("invalid base64 char: {}", byte as char))? as u32;
-        buf = (buf << 6) | val;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            output.push((buf >> bits) as u8);
-            buf &= (1 << bits) - 1;
-        }
-    }
-    Ok(output)
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    URL_SAFE_NO_PAD.decode(input).map_err(|e| format!("invalid base64: {e}"))
 }
 
 fn jwt_sign(
@@ -789,14 +709,6 @@ fn jwt_verify(
     }
 
     Ok(claims)
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn sanitize_ident(name: &str) -> String {
-    name.chars().filter(|c| c.is_alphanumeric() || *c == '_').collect()
 }
 
 /// Public JWT verify function for use by lib.rs auth middleware.

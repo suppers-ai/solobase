@@ -162,87 +162,65 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     add_cors_headers(response)
 }
 
+/// Block identifier for the routing table.
+enum BlockId { System, Auth, Admin, Files, LegalPages, Products, Deployments, UserPortal, Profile }
+
+/// Routing table entry: prefix to match, whether admin role is required, and which block to use.
+const ROUTES: &[(&str, bool, BlockId)] = {
+    use BlockId::*;
+    &[
+        // System
+        ("/health",                    false, System),
+        ("/nav",                       false, System),
+        ("/debug/",                    false, System),
+        // Auth
+        ("/auth/",                     false, Auth),
+        ("/internal/oauth/",           false, Auth),
+        // Admin sub-routes (order matters — more specific before general)
+        ("/admin/settings/",           true,  Admin),
+        ("/settings/",                 true,  Admin),
+        ("/admin/storage/",            true,  Files),
+        ("/admin/ext/cloudstorage/",   true,  Files),
+        ("/admin/legalpages/",         true,  LegalPages),
+        ("/admin/ext/products",        true,  Products),
+        ("/admin/ext/deployments",     true,  Deployments),
+        ("/admin/",                    true,  Admin),
+        // Non-admin feature routes
+        ("/storage/",                  false, Files),
+        ("/ext/cloudstorage/",         false, Files),
+        ("/ext/products",              false, Products),
+        ("/ext/legalpages",            false, LegalPages),
+        ("/ext/deployments",           false, Deployments),
+        ("/ext/userportal",            false, UserPortal),
+        ("/profile",                   false, Profile),
+    ]
+};
+
 /// Route the message to the appropriate solobase block based on the request path.
-///
-/// Paths have already been stripped of the `/api` prefix by the caller.
-/// Block routing mirrors the site-main flow definitions.
 async fn route_to_block(ctx: &CloudflareContext, msg: &mut wafer_run::types::Message) -> wafer_run::types::Result_ {
     let path = msg.path().to_string();
 
-    // Health / system
-    if path == "/health" {
-        return blocks::system::SystemBlock.handle(ctx, msg).await;
-    }
-    if path == "/nav" || path.starts_with("/debug/") {
-        return blocks::system::SystemBlock.handle(ctx, msg).await;
-    }
+    for &(prefix, requires_admin, ref block_id) in ROUTES {
+        let matches = path == prefix || path.starts_with(prefix);
+        if !matches { continue; }
 
-    // Auth: /auth/**
-    if path.starts_with("/auth/") || path.starts_with("/internal/oauth/") {
-        return blocks::auth::AuthBlock::new().handle(ctx, msg).await;
-    }
-
-    // Admin: /admin/** (require admin role)
-    if path.starts_with("/admin/") {
-        if !msg.is_admin() {
+        if requires_admin && !msg.is_admin() {
             return wafer_run::helpers::err_forbidden(msg, "admin access required");
         }
-        // Settings sub-routes
-        if path.starts_with("/admin/settings/") || path.starts_with("/settings/") {
-            // Settings are handled by the admin block
-            return blocks::admin::AdminBlock.handle(ctx, msg).await;
-        }
-        // Storage/files via admin
-        if path.starts_with("/admin/storage/") || path.starts_with("/admin/ext/cloudstorage/") {
-            return blocks::files::FilesBlock::new().handle(ctx, msg).await;
-        }
-        // Legal pages via admin
-        if path.starts_with("/admin/legalpages/") {
-            return blocks::legalpages::LegalPagesBlock.handle(ctx, msg).await;
-        }
-        // Products via admin
-        if path.starts_with("/admin/ext/products/") || path.starts_with("/admin/ext/products") {
-            return blocks::products::ProductsBlock::new().handle(ctx, msg).await;
-        }
-        // Deployments via admin
-        if path.starts_with("/admin/ext/deployments/") || path.starts_with("/admin/ext/deployments") {
-            return blocks::deployments::DeploymentsBlock::new().handle(ctx, msg).await;
-        }
-        // All other admin paths (users, database, logs, iam, wafer, custom-tables)
-        return blocks::admin::AdminBlock.handle(ctx, msg).await;
+
+        return match block_id {
+            BlockId::System      => blocks::system::SystemBlock.handle(ctx, msg).await,
+            BlockId::Auth        => blocks::auth::AuthBlock::new().handle(ctx, msg).await,
+            BlockId::Admin       => blocks::admin::AdminBlock.handle(ctx, msg).await,
+            BlockId::Files       => blocks::files::FilesBlock::new().handle(ctx, msg).await,
+            BlockId::LegalPages  => blocks::legalpages::LegalPagesBlock.handle(ctx, msg).await,
+            BlockId::Products    => blocks::products::ProductsBlock::new().handle(ctx, msg).await,
+            BlockId::Deployments => blocks::deployments::DeploymentsBlock::new().handle(ctx, msg).await,
+            BlockId::UserPortal  => blocks::userportal::UserPortalBlock.handle(ctx, msg).await,
+            BlockId::Profile     => blocks::profile::ProfileBlock.handle(ctx, msg).await,
+        };
     }
 
-    // Storage/files: /storage/**
-    if path.starts_with("/storage/") || path.starts_with("/ext/cloudstorage/") {
-        return blocks::files::FilesBlock::new().handle(ctx, msg).await;
-    }
-
-    // Products: /ext/products/**
-    if path.starts_with("/ext/products/") || path.starts_with("/ext/products") {
-        return blocks::products::ProductsBlock::new().handle(ctx, msg).await;
-    }
-
-    // Legal pages: /ext/legalpages/**
-    if path.starts_with("/ext/legalpages/") || path.starts_with("/ext/legalpages") {
-        return blocks::legalpages::LegalPagesBlock.handle(ctx, msg).await;
-    }
-
-    // Deployments: /ext/deployments/**
-    if path.starts_with("/ext/deployments/") || path.starts_with("/ext/deployments") {
-        return blocks::deployments::DeploymentsBlock::new().handle(ctx, msg).await;
-    }
-
-    // User portal: /ext/userportal/**
-    if path.starts_with("/ext/userportal/") || path.starts_with("/ext/userportal") {
-        return blocks::userportal::UserPortalBlock.handle(ctx, msg).await;
-    }
-
-    // Profile: /profile/**
-    if path.starts_with("/profile/") || path.starts_with("/profile") {
-        return blocks::profile::ProfileBlock.handle(ctx, msg).await;
-    }
-
-    // 404
     wafer_run::helpers::err_not_found(msg, "endpoint not found")
 }
 

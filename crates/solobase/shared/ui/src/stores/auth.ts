@@ -44,12 +44,13 @@ export async function login(email: string, password: string): Promise<boolean> {
 		return false;
 	}
 
-	const loginResponse = response.data as LoginResponse;
-	const userResponse = loginResponse.data;
+	// API returns { access_token, user: { email, id, name, roles } }
+	const data = response.data as any;
+	const user = data?.user;
 
 	authState.value = {
-		user: userResponse.user,
-		roles: userResponse.roles || [],
+		user: user || null,
+		roles: user?.roles || [],
 		loading: false,
 		error: null
 	};
@@ -73,11 +74,13 @@ export async function checkAuth(): Promise<boolean> {
 		return false;
 	}
 
-	const userResponse = response.data as UserResponse;
+	// API returns { user: { email, id, name, roles, ... } }
+	const data = response.data as any;
+	const user = data?.user;
 
 	authState.value = {
-		user: userResponse.user,
-		roles: userResponse.roles || [],
+		user: user || null,
+		roles: user?.roles || [],
 		loading: false,
 		error: null
 	};

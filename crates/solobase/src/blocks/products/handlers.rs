@@ -5,6 +5,7 @@ use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use super::{PRODUCTS_COLLECTION, GROUPS_COLLECTION, TYPES_COLLECTION, PRICING_COLLECTION};
+use crate::blocks::helpers::RecordExt;
 
 pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -309,7 +310,7 @@ async fn handle_get_product_public(ctx: &dyn Context, msg: &mut Message) -> Resu
 
     match db::get(ctx, PRODUCTS_COLLECTION, id).await {
         Ok(record) => {
-            let status = record.data.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            let status = record.str_field("status");
             if status != "active" {
                 return err_not_found(msg, "Product not found");
             }

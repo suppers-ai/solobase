@@ -18,22 +18,3 @@ impl Default for QuotaConfig {
         }
     }
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ShareToken {
-    pub id: String,
-    pub bucket: String,
-    pub key: String,
-    pub created_by: String,
-    pub expires_at: Option<String>,
-    pub access_count: i64,
-    pub max_access_count: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccessLogEntry {
-    pub share_id: String,
-    pub accessed_at: String,
-    pub ip_address: String,
-    pub user_agent: String,
-}

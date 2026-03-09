@@ -4,6 +4,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+use crate::blocks::helpers::{self, json_map, RecordExt};
 
 const ROLES_COLLECTION: &str = "iam_roles";
 const PERMISSIONS_COLLECTION: &str = "iam_permissions";
@@ -50,13 +51,13 @@ async fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
-    let now = chrono::Utc::now().to_rfc3339();
-    let mut data = HashMap::new();
-    data.insert("name".to_string(), serde_json::Value::String(body.name));
-    data.insert("description".to_string(), serde_json::Value::String(body.description.unwrap_or_default()));
-    data.insert("permissions".to_string(), serde_json::json!(body.permissions.unwrap_or_default()));
-    data.insert("created_at".to_string(), serde_json::Value::String(now));
-    data.insert("is_system".to_string(), serde_json::Value::Bool(false));
+    let mut data = json_map(serde_json::json!({
+        "name": body.name,
+        "description": body.description.unwrap_or_default(),
+        "permissions": body.permissions.unwrap_or_default(),
+        "is_system": false
+    }));
+    helpers::stamp_created(&mut data);
     match db::create(ctx, ROLES_COLLECTION, data).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
@@ -78,17 +79,11 @@ async fn handle_update_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             data.insert(key.to_string(), val.clone());
         }
     }
-    data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+    helpers::stamp_updated(&mut data);
     match db::update(ctx, ROLES_COLLECTION, id, data).await {
         Ok(record) => json_respond(msg, &record),
-        Err(e) => {
-            let msg_str = format!("{e}");
-            if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg, "Role not found")
-            } else {
-                err_internal(msg, &format!("Database error: {e}"))
-            }
-        }
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Role not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -99,21 +94,15 @@ async fn handle_delete_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     // Check if system role
     if let Ok(role) = db::get(ctx, ROLES_COLLECTION, id).await {
-        if role.data.get("is_system").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if role.bool_field("is_system") {
             return err_forbidden(msg, "Cannot delete system role");
         }
     }
 
     match db::delete(ctx, ROLES_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) => {
-            let msg_str = format!("{e}");
-            if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg, "Role not found")
-            } else {
-                err_internal(msg, &format!("Database error: {e}"))
-            }
-        }
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Role not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -132,11 +121,12 @@ async fn handle_create_permission(ctx: &dyn Context, msg: &mut Message) -> Resul
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
-    let mut data = HashMap::new();
-    data.insert("name".to_string(), serde_json::Value::String(body.name));
-    data.insert("resource".to_string(), serde_json::Value::String(body.resource));
-    data.insert("actions".to_string(), serde_json::json!(body.actions));
-    data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+    let mut data = json_map(serde_json::json!({
+        "name": body.name,
+        "resource": body.resource,
+        "actions": body.actions
+    }));
+    helpers::stamp_created(&mut data);
     match db::create(ctx, PERMISSIONS_COLLECTION, data).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
@@ -149,14 +139,8 @@ async fn handle_delete_permission(ctx: &dyn Context, msg: &mut Message) -> Resul
     if id.is_empty() { return err_bad_request(msg, "Missing permission ID"); }
     match db::delete(ctx, PERMISSIONS_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) => {
-            let msg_str = format!("{e}");
-            if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg, "Permission not found")
-            } else {
-                err_internal(msg, &format!("Database error: {e}"))
-            }
-        }
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Permission not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -196,11 +180,12 @@ async fn handle_assign_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     }
 
-    let mut data = HashMap::new();
-    data.insert("user_id".to_string(), serde_json::Value::String(body.user_id));
-    data.insert("role".to_string(), serde_json::Value::String(body.role));
-    data.insert("assigned_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-    data.insert("assigned_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
+    let data = json_map(serde_json::json!({
+        "user_id": body.user_id,
+        "role": body.role,
+        "assigned_at": helpers::now_rfc3339(),
+        "assigned_by": msg.user_id()
+    }));
     match db::create(ctx, USER_ROLES_COLLECTION, data).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
@@ -213,14 +198,8 @@ async fn handle_remove_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if id.is_empty() { return err_bad_request(msg, "Missing user-role ID"); }
     match db::delete(ctx, USER_ROLES_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) => {
-            let msg_str = format!("{e}");
-            if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg, "User-role assignment not found")
-            } else {
-                err_internal(msg, &format!("Database error: {e}"))
-            }
-        }
+        Err(e) if e.code == "not_found" => err_not_found(msg, "User-role assignment not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
@@ -228,13 +207,15 @@ pub async fn seed_defaults(ctx: &dyn Context) {
     let count = db::count(ctx, ROLES_COLLECTION, &[]).await.unwrap_or(0);
     if count > 0 { return; }
 
+    let now = helpers::now_rfc3339();
     for (name, desc) in &[("admin", "Full access to all resources"), ("user", "Standard user access")] {
-        let mut data = HashMap::new();
-        data.insert("name".to_string(), serde_json::Value::String(name.to_string()));
-        data.insert("description".to_string(), serde_json::Value::String(desc.to_string()));
-        data.insert("is_system".to_string(), serde_json::Value::Bool(true));
-        data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-        data.insert("permissions".to_string(), serde_json::json!([]));
+        let data = json_map(serde_json::json!({
+            "name": name,
+            "description": desc,
+            "is_system": true,
+            "created_at": now,
+            "permissions": []
+        }));
         if let Err(e) = db::create(ctx, ROLES_COLLECTION, data).await {
             tracing::warn!("Failed to seed default role '{name}': {e}");
         }

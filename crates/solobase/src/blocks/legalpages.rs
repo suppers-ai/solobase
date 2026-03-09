@@ -5,6 +5,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+use super::helpers::{self, json_map};
 
 pub struct LegalPagesBlock;
 
@@ -111,16 +112,15 @@ impl LegalPagesBlock {
             Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
         };
 
-        let now = chrono::Utc::now().to_rfc3339();
-        let mut data = HashMap::new();
-        data.insert("doc_type".to_string(), serde_json::Value::String(body.doc_type));
-        data.insert("title".to_string(), serde_json::Value::String(body.title));
-        data.insert("content".to_string(), serde_json::Value::String(body.content));
-        data.insert("status".to_string(), serde_json::Value::String("draft".to_string()));
-        data.insert("version".to_string(), serde_json::Value::Number(1.into()));
-        data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
-        data.insert("updated_at".to_string(), serde_json::Value::String(now));
-        data.insert("created_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
+        let mut data = json_map(serde_json::json!({
+            "doc_type": body.doc_type,
+            "title": body.title,
+            "content": body.content,
+            "status": "draft",
+            "version": 1,
+            "created_by": msg.user_id()
+        }));
+        helpers::stamp_created(&mut data);
 
         match db::create(ctx, COLLECTION, data).await {
             Ok(record) => json_respond(msg, &record),
@@ -140,7 +140,7 @@ impl LegalPagesBlock {
         };
 
         let mut data = body;
-        data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+        helpers::stamp_updated(&mut data);
 
         match db::update(ctx, COLLECTION, id, data).await {
             Ok(record) => json_respond(msg, &record),
@@ -175,8 +175,7 @@ impl LegalPagesBlock {
         ).await;
         if let Ok(records) = existing {
             for r in records {
-                let mut upd = HashMap::new();
-                upd.insert("status".to_string(), serde_json::Value::String("archived".to_string()));
+                let upd = json_map(serde_json::json!({"status": "archived"}));
                 if let Err(e) = db::update(ctx, COLLECTION, &r.id, upd).await {
                     tracing::warn!("Failed to archive previous legal page version: {e}");
                 }
@@ -184,10 +183,12 @@ impl LegalPagesBlock {
         }
 
         // Publish this one
-        let mut data = HashMap::new();
-        data.insert("status".to_string(), serde_json::Value::String("published".to_string()));
-        data.insert("published_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-        data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+        let now = helpers::now_rfc3339();
+        let data = json_map(serde_json::json!({
+            "status": "published",
+            "published_at": now,
+            "updated_at": now
+        }));
 
         match db::update(ctx, COLLECTION, id, data).await {
             Ok(record) => json_respond(msg, &record),
@@ -213,21 +214,22 @@ impl LegalPagesBlock {
             return;
         }
 
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = helpers::now_rfc3339();
         for (doc_type, title, content) in &[
             ("terms", "Terms of Service", "<p>These are the default terms of service. Please update them in the admin panel.</p>"),
             ("privacy", "Privacy Policy", "<p>This is the default privacy policy. Please update it in the admin panel.</p>"),
         ] {
-            let mut data = HashMap::new();
-            data.insert("doc_type".to_string(), serde_json::Value::String(doc_type.to_string()));
-            data.insert("title".to_string(), serde_json::Value::String(title.to_string()));
-            data.insert("content".to_string(), serde_json::Value::String(content.to_string()));
-            data.insert("status".to_string(), serde_json::Value::String("published".to_string()));
-            data.insert("version".to_string(), serde_json::Value::Number(1.into()));
-            data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
-            data.insert("updated_at".to_string(), serde_json::Value::String(now.clone()));
-            data.insert("published_at".to_string(), serde_json::Value::String(now.clone()));
-            data.insert("created_by".to_string(), serde_json::Value::String("system".to_string()));
+            let data = json_map(serde_json::json!({
+                "doc_type": doc_type,
+                "title": title,
+                "content": content,
+                "status": "published",
+                "version": 1,
+                "created_at": now,
+                "updated_at": now,
+                "published_at": now,
+                "created_by": "system"
+            }));
             if let Err(e) = db::create(ctx, COLLECTION, data).await {
                 tracing::warn!("Failed to seed default legal page '{doc_type}': {e}");
             }
