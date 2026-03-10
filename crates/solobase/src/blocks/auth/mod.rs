@@ -18,6 +18,12 @@ pub struct AuthBlock {
     limiter: UserRateLimiter,
 }
 
+impl Default for AuthBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AuthBlock {
     pub fn new() -> Self {
         Self { limiter: UserRateLimiter::new() }
@@ -114,7 +120,7 @@ mod helpers {
         access_claims.insert("type".to_string(), serde_json::Value::String("access".to_string()));
 
         let access_token = crypto::sign(ctx, &access_claims, Duration::from_secs(86400)).await
-            .map_err(|e| Result_::error(e))?;
+            .map_err(Result_::error)?;
 
         let mut refresh_claims = HashMap::new();
         refresh_claims.insert("user_id".to_string(), serde_json::Value::String(user_id.to_string()));
@@ -123,7 +129,7 @@ mod helpers {
         refresh_claims.insert("family".to_string(), serde_json::Value::String(family));
 
         let refresh_token = crypto::sign(ctx, &refresh_claims, Duration::from_secs(604800)).await
-            .map_err(|e| Result_::error(e))?;
+            .map_err(Result_::error)?;
 
         Ok((access_token, refresh_token))
     }

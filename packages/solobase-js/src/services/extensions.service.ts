@@ -100,7 +100,7 @@ export class ExtensionsService extends BaseService {
     const queryString = options?.params ? this.buildQueryString(options.params) : '';
     return this.request<T>({
       method: options?.method || 'GET',
-      url: `/ext/${extension}/${endpoint}${queryString ? `?${queryString}` : ''}`,
+      url: `/b/${extension}/${endpoint}${queryString ? `?${queryString}` : ''}`,
       data: options?.data,
     });
   }

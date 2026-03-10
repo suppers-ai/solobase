@@ -4,7 +4,7 @@ pub const JSON: &str = r#"{
     "config": { "on_error": "stop" },
     "http": {
         "routes": [
-            { "path": "/ext/userportal/config", "methods": ["GET"] }
+            { "path": "/b/userportal/config", "methods": ["GET"] }
         ]
     },
     "root": {

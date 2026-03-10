@@ -29,8 +29,10 @@
 mod cf_context;
 mod control;
 mod convert;
+pub mod d1_block;
 mod database;
 mod provision;
+pub mod r2_block;
 mod schema;
 mod storage;
 mod tenant;
@@ -181,18 +183,18 @@ const ROUTES: &[(&str, bool, BlockId)] = {
         ("/admin/settings/",           true,  Admin),
         ("/settings/",                 true,  Admin),
         ("/admin/storage/",            true,  Files),
-        ("/admin/ext/cloudstorage/",   true,  Files),
+        ("/admin/b/cloudstorage/",   true,  Files),
         ("/admin/legalpages/",         true,  LegalPages),
-        ("/admin/ext/products",        true,  Products),
-        ("/admin/ext/deployments",     true,  Deployments),
+        ("/admin/b/products",        true,  Products),
+        ("/admin/b/deployments",     true,  Deployments),
         ("/admin/",                    true,  Admin),
         // Non-admin feature routes
         ("/storage/",                  false, Files),
-        ("/ext/cloudstorage/",         false, Files),
-        ("/ext/products",              false, Products),
-        ("/ext/legalpages",            false, LegalPages),
-        ("/ext/deployments",           false, Deployments),
-        ("/ext/userportal",            false, UserPortal),
+        ("/b/cloudstorage/",         false, Files),
+        ("/b/products",              false, Products),
+        ("/b/legalpages",            false, LegalPages),
+        ("/b/deployments",           false, Deployments),
+        ("/b/userportal",            false, UserPortal),
         ("/profile",                   false, Profile),
     ]
 };

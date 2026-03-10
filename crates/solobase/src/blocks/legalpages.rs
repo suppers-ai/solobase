@@ -391,7 +391,7 @@ impl Block for LegalPagesBlock {
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: Some(AdminUIInfo {
-                path: "/ext/legalpages/admin".to_string(),
+                path: "/b/legalpages/admin".to_string(),
                 icon: "Scale".to_string(),
                 title: "Legal Pages".to_string(),
             }),
@@ -406,10 +406,10 @@ impl Block for LegalPagesBlock {
 
         match (action, path) {
             // Public endpoints
-            ("retrieve", "/ext/legalpages/terms") => self.handle_get_public(ctx, msg, "terms").await,
-            ("retrieve", "/ext/legalpages/privacy") => self.handle_get_public(ctx, msg, "privacy").await,
+            ("retrieve", "/b/legalpages/terms") => self.handle_get_public(ctx, msg, "terms").await,
+            ("retrieve", "/b/legalpages/privacy") => self.handle_get_public(ctx, msg, "privacy").await,
             // Admin UI
-            ("retrieve", "/ext/legalpages/admin") => self.handle_admin_ui(msg),
+            ("retrieve", "/b/legalpages/admin") => self.handle_admin_ui(msg),
             // Admin API
             ("retrieve", "/admin/legalpages/documents") => self.handle_admin_list(ctx, msg).await,
             ("retrieve", _) if path.starts_with("/admin/legalpages/documents/") => self.handle_admin_get(ctx, msg).await,
@@ -420,8 +420,8 @@ impl Block for LegalPagesBlock {
             ("update", _) if path.starts_with("/admin/legalpages/documents/") => self.handle_admin_update(ctx, msg).await,
             ("delete", _) if path.starts_with("/admin/legalpages/documents/") => self.handle_admin_delete(ctx, msg).await,
             // ext API aliases (same as admin, but routed through admin-pipe)
-            ("retrieve", "/ext/legalpages/documents") => self.handle_admin_list(ctx, msg).await,
-            ("create", "/ext/legalpages/documents") => self.handle_admin_create(ctx, msg).await,
+            ("retrieve", "/b/legalpages/documents") => self.handle_admin_list(ctx, msg).await,
+            ("create", "/b/legalpages/documents") => self.handle_admin_create(ctx, msg).await,
             _ => err_not_found(msg, "not found"),
         }
     }

@@ -22,6 +22,12 @@ pub struct ProductsBlock {
     limiter: UserRateLimiter,
 }
 
+impl Default for ProductsBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProductsBlock {
     pub fn new() -> Self {
         Self { limiter: UserRateLimiter::new() }
@@ -49,7 +55,7 @@ impl Block for ProductsBlock {
         let path = msg.path().to_string();
 
         // Webhook (no auth, no user rate limit)
-        if path == "/ext/products/webhooks" || path.starts_with("/ext/products/webhooks/") {
+        if path == "/b/products/webhooks" || path.starts_with("/b/products/webhooks/") {
             return stripe::handle_webhook(ctx, msg).await;
         }
 
@@ -72,12 +78,12 @@ impl Block for ProductsBlock {
         }
 
         // Admin routes
-        if path.starts_with("/admin/ext/products") {
+        if path.starts_with("/admin/b/products") {
             return handlers::handle_admin(ctx, msg).await;
         }
 
         // User-facing routes
-        if path.starts_with("/ext/products") {
+        if path.starts_with("/b/products") {
             return handlers::handle_user(ctx, msg).await;
         }
 

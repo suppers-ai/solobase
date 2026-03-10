@@ -21,7 +21,7 @@ export function GroupsTab() {
 	const load = useCallback(async () => {
 		setLoading(true);
 		try {
-			const data = await api.get('/admin/ext/products/groups');
+			const data = await api.get('/admin/b/products/groups');
 			setGroups(Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : []);
 		} catch { /* ignore */ }
 		setLoading(false);
@@ -34,10 +34,10 @@ export function GroupsTab() {
 		setSaving(true);
 		try {
 			if (editing.id) {
-				await api.put(`/admin/ext/products/groups/${editing.id}`, editing);
+				await api.put(`/admin/b/products/groups/${editing.id}`, editing);
 				toasts.success('Group updated');
 			} else {
-				await api.post('/admin/ext/products/groups', editing);
+				await api.post('/admin/b/products/groups', editing);
 				toasts.success('Group created');
 			}
 			setShowModal(false);
@@ -52,7 +52,7 @@ export function GroupsTab() {
 	async function handleDelete() {
 		if (!toDelete) return;
 		try {
-			await api.delete(`/admin/ext/products/groups/${toDelete.id}`);
+			await api.delete(`/admin/b/products/groups/${toDelete.id}`);
 			toasts.success('Group deleted');
 			setShowDelete(false);
 			setToDelete(null);

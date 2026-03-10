@@ -33,7 +33,7 @@ pub fn register_blocks(w: &mut wafer_run::Wafer, filter: impl Fn(&str) -> bool) 
 
     for (name, block) in blocks {
         if filter(name) {
-            w.register_block(&format!("@solobase/{name}"), block);
+            w.register_block(format!("@solobase/{name}"), block);
         }
     }
 }

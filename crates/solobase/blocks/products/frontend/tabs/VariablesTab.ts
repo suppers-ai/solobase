@@ -21,7 +21,7 @@ export function VariablesTab() {
 	const load = useCallback(async () => {
 		setLoading(true);
 		try {
-			const data = await api.get('/admin/ext/products/variables');
+			const data = await api.get('/admin/b/products/variables');
 			setVariables(Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : []);
 		} catch { /* ignore */ }
 		setLoading(false);
@@ -34,10 +34,10 @@ export function VariablesTab() {
 		setSaving(true);
 		try {
 			if (editing.id) {
-				await api.put(`/admin/ext/products/variables/${editing.id}`, editing);
+				await api.put(`/admin/b/products/variables/${editing.id}`, editing);
 				toasts.success('Variable updated');
 			} else {
-				await api.post('/admin/ext/products/variables', editing);
+				await api.post('/admin/b/products/variables', editing);
 				toasts.success('Variable created');
 			}
 			setShowModal(false);
@@ -52,7 +52,7 @@ export function VariablesTab() {
 	async function handleDelete() {
 		if (!toDelete) return;
 		try {
-			await api.delete(`/admin/ext/products/variables/${toDelete.id}`);
+			await api.delete(`/admin/b/products/variables/${toDelete.id}`);
 			toasts.success('Variable deleted');
 			setShowDelete(false);
 			setToDelete(null);

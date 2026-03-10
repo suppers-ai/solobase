@@ -28,7 +28,7 @@ export function PurchasesTab() {
 		try {
 			const params = new URLSearchParams();
 			if (statusFilter !== 'all') params.set('status', statusFilter);
-			const data = await api.get(`/admin/ext/products/purchases?${params}`);
+			const data = await api.get(`/admin/b/products/purchases?${params}`);
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
 			setPurchases(records);
 		} catch { /* ignore */ }
@@ -41,7 +41,7 @@ export function PurchasesTab() {
 		if (!refundTarget) return;
 		setRefunding(true);
 		try {
-			await api.put(`/admin/ext/products/purchases/${refundTarget.id}/refund`, { reason: refundReason });
+			await api.put(`/admin/b/products/purchases/${refundTarget.id}/refund`, { reason: refundReason });
 			toasts.success('Refund processed');
 			setShowRefund(false);
 			setRefundTarget(null);

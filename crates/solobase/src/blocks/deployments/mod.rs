@@ -12,6 +12,12 @@ pub struct DeploymentsBlock {
     limiter: UserRateLimiter,
 }
 
+impl Default for DeploymentsBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DeploymentsBlock {
     pub fn new() -> Self {
         Self { limiter: UserRateLimiter::new() }
@@ -57,12 +63,12 @@ impl Block for DeploymentsBlock {
         }
 
         // Admin routes
-        if path.starts_with("/admin/ext/deployments") {
+        if path.starts_with("/admin/b/deployments") {
             return handlers::handle_admin(ctx, msg).await;
         }
 
         // User-facing routes
-        if path.starts_with("/ext/deployments") {
+        if path.starts_with("/b/deployments") {
             return handlers::handle_user(ctx, msg).await;
         }
 

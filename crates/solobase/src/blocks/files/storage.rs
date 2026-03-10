@@ -62,6 +62,25 @@ fn extract_object_key(path: &str) -> &str {
     }
 }
 
+/// Validate a storage key for path traversal attacks.
+/// Rejects keys containing `..`, absolute paths, or null bytes.
+/// Validate a storage key for path traversal attacks.
+/// Rejects keys containing `..`, absolute paths, or null bytes.
+fn is_valid_storage_key(key: &str) -> bool {
+    !key.is_empty()
+        && !key.contains("..")
+        && !key.starts_with('/')
+        && !key.contains('\0')
+}
+
+/// Validate a bucket name. Must be non-empty, no path traversal, no slashes.
+fn is_valid_bucket_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains("..")
+        && !name.contains('/')
+        && !name.contains('\0')
+}
+
 async fn handle_list_buckets(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     match store::list_folders(ctx).await {
         Ok(folders) => json_respond(msg, &serde_json::json!({"buckets": folders})),
@@ -79,6 +98,9 @@ async fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     if body.name.is_empty() {
         return err_bad_request(msg, "Bucket name is required");
+    }
+    if !is_valid_bucket_name(&body.name) {
+        return err_bad_request(msg, "Invalid bucket name");
     }
 
     match store::create_folder(ctx, &body.name, body.public).await {
@@ -136,6 +158,9 @@ async fn handle_get_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if bucket.is_empty() || key.is_empty() {
         return err_bad_request(msg, "Missing bucket name or object key");
     }
+    if !is_valid_storage_key(key) {
+        return err_bad_request(msg, "Invalid object key");
+    }
 
     // Track view in DB
     let mut data = HashMap::new();
@@ -162,6 +187,9 @@ async fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let key = msg.query("key").to_string();
     if key.is_empty() {
         return err_bad_request(msg, "Missing object key (pass as ?key=filename)");
+    }
+    if !is_valid_storage_key(&key) {
+        return err_bad_request(msg, "Invalid object key");
     }
 
     let content_type = if msg.content_type().is_empty() { "application/octet-stream" } else { msg.content_type() };
@@ -196,6 +224,9 @@ async fn handle_delete_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let key = extract_object_key(path);
     if bucket.is_empty() || key.is_empty() {
         return err_bad_request(msg, "Missing bucket name or object key");
+    }
+    if !is_valid_storage_key(key) {
+        return err_bad_request(msg, "Invalid object key");
     }
 
     match store::delete(ctx, bucket, key).await {
@@ -251,6 +282,60 @@ async fn handle_recent(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     match db::list(ctx, "storage_views", &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_bucket_name() {
+        assert_eq!(extract_bucket_name("/storage/buckets/my-bucket"), "my-bucket");
+        assert_eq!(extract_bucket_name("/storage/buckets/my-bucket/objects"), "my-bucket");
+        assert_eq!(extract_bucket_name("/storage/buckets/my-bucket/objects/file.txt"), "my-bucket");
+        assert_eq!(extract_bucket_name("/admin/storage/buckets/admin-bucket"), "admin-bucket");
+        assert_eq!(extract_bucket_name("/other/path"), "");
+    }
+
+    #[test]
+    fn test_extract_object_key() {
+        assert_eq!(extract_object_key("/storage/buckets/b/objects/file.txt"), "file.txt");
+        assert_eq!(extract_object_key("/storage/buckets/b/objects/dir/file.txt"), "dir/file.txt");
+        assert_eq!(extract_object_key("/storage/buckets/b"), "");
+        assert_eq!(extract_object_key("/other/path"), "");
+    }
+
+    #[test]
+    fn test_is_valid_storage_key() {
+        // Valid keys
+        assert!(is_valid_storage_key("file.txt"));
+        assert!(is_valid_storage_key("dir/file.txt"));
+        assert!(is_valid_storage_key("a/b/c/file.txt"));
+        assert!(is_valid_storage_key("file-name_123.txt"));
+
+        // Invalid keys
+        assert!(!is_valid_storage_key(""));
+        assert!(!is_valid_storage_key("../etc/passwd"));
+        assert!(!is_valid_storage_key("dir/../secret"));
+        assert!(!is_valid_storage_key("/absolute/path"));
+        assert!(!is_valid_storage_key("file\0name"));
+        assert!(!is_valid_storage_key(".."));
+    }
+
+    #[test]
+    fn test_is_valid_bucket_name() {
+        // Valid bucket names
+        assert!(is_valid_bucket_name("my-bucket"));
+        assert!(is_valid_bucket_name("bucket123"));
+        assert!(is_valid_bucket_name("uploads"));
+
+        // Invalid bucket names
+        assert!(!is_valid_bucket_name(""));
+        assert!(!is_valid_bucket_name("../other"));
+        assert!(!is_valid_bucket_name("bucket/subdir"));
+        assert!(!is_valid_bucket_name("bucket\0name"));
+        assert!(!is_valid_bucket_name(".."));
     }
 }
 

@@ -105,7 +105,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if sig_header.is_empty() {
         return err_unauthorized(msg, "Missing Stripe-Signature header");
     }
-    if !verify_stripe_signature(&msg.data, &sig_header, &webhook_secret) {
+    if !verify_stripe_signature(&msg.data, sig_header, &webhook_secret) {
         return err_unauthorized(msg, "Invalid webhook signature");
     }
 
@@ -249,4 +249,113 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         result |= x ^ y;
     }
     result == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_constant_time_eq_equal() {
+        assert!(constant_time_eq(b"hello", b"hello"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn test_constant_time_eq_not_equal() {
+        assert!(!constant_time_eq(b"hello", b"world"));
+        assert!(!constant_time_eq(b"hello", b"hell"));
+        assert!(!constant_time_eq(b"a", b"b"));
+    }
+
+    #[test]
+    fn test_constant_time_eq_different_lengths() {
+        assert!(!constant_time_eq(b"short", b"longer"));
+        assert!(!constant_time_eq(b"", b"x"));
+    }
+
+    #[test]
+    fn test_hmac_sha256_deterministic() {
+        let hash1 = hmac_sha256(b"secret", b"payload");
+        let hash2 = hmac_sha256(b"secret", b"payload");
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hmac_sha256_different_keys() {
+        let hash1 = hmac_sha256(b"key1", b"data");
+        let hash2 = hmac_sha256(b"key2", b"data");
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hmac_sha256_different_data() {
+        let hash1 = hmac_sha256(b"key", b"data1");
+        let hash2 = hmac_sha256(b"key", b"data2");
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_verify_stripe_signature_valid() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let secret = "whsec_test_secret";
+        let payload = b"{\"type\":\"checkout.session.completed\"}";
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let signed_payload = format!("{}.{}", timestamp, String::from_utf8_lossy(payload));
+        let computed = hmac_sha256(secret.as_bytes(), signed_payload.as_bytes());
+        let computed_hex = hex_encode(&computed);
+
+        let sig_header = format!("t={},v1={}", timestamp, computed_hex);
+
+        assert!(verify_stripe_signature(payload, &sig_header, secret));
+    }
+
+    #[test]
+    fn test_verify_stripe_signature_invalid_sig() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let sig_header = format!("t={},v1=0000000000000000000000000000000000000000000000000000000000000000", timestamp);
+
+        assert!(!verify_stripe_signature(b"payload", &sig_header, "secret"));
+    }
+
+    #[test]
+    fn test_verify_stripe_signature_expired() {
+        let secret = "whsec_test";
+        let payload = b"data";
+        let old_timestamp = 1000000; // way in the past
+
+        let signed_payload = format!("{}.{}", old_timestamp, String::from_utf8_lossy(payload));
+        let computed = hmac_sha256(secret.as_bytes(), signed_payload.as_bytes());
+        let computed_hex = hex_encode(&computed);
+
+        let sig_header = format!("t={},v1={}", old_timestamp, computed_hex);
+
+        assert!(!verify_stripe_signature(payload, &sig_header, secret));
+    }
+
+    #[test]
+    fn test_verify_stripe_signature_missing_parts() {
+        assert!(!verify_stripe_signature(b"data", "", "secret"));
+        assert!(!verify_stripe_signature(b"data", "t=123", "secret"));
+        assert!(!verify_stripe_signature(b"data", "v1=abc", "secret"));
+    }
+
+    #[test]
+    fn test_urlencoding() {
+        assert_eq!(urlencoding("hello"), "hello");
+        assert_eq!(urlencoding("hello world"), "hello%20world");
+        assert_eq!(urlencoding("a+b=c&d"), "a%2Bb%3Dc%26d");
+        assert_eq!(urlencoding("https://example.com"), "https%3A%2F%2Fexample.com");
+    }
 }

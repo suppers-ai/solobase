@@ -35,7 +35,7 @@ function DeploymentsTab() {
 		setLoading(true);
 		const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
 		if (statusFilter !== 'all') params.set('status', statusFilter);
-		api.get(`/admin/ext/deployments?${params}`).then((data: any) => {
+		api.get(`/admin/b/deployments?${params}`).then((data: any) => {
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
 			setDeployments(records);
 			setLoading(false);
@@ -109,7 +109,7 @@ function StatsTab() {
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
-		api.get('/admin/ext/deployments/stats').then((data: any) => {
+		api.get('/admin/b/deployments/stats').then((data: any) => {
 			setStats(data);
 			setLoading(false);
 		}).catch(() => setLoading(false));

@@ -168,7 +168,7 @@ test.describe('Plans & Pricing', () => {
     const h = authHeaders(adminToken);
 
     // Create a group (FK constraints not enforced, use dummy template ID)
-    const groupRes = await request.post('/admin/ext/products/groups', {
+    const groupRes = await request.post('/admin/b/products/groups', {
       headers: h,
       data: {
         name: `Plans ${Date.now()}`,
@@ -186,7 +186,7 @@ test.describe('Plans & Pricing', () => {
     const groupId = group.id || group.data?.id;
 
     // Create product in that group
-    const createRes = await request.post('/admin/ext/products/products', {
+    const createRes = await request.post('/admin/b/products/products', {
       headers: h,
       data: {
         name: 'Hobby Plan',
@@ -208,7 +208,7 @@ test.describe('Plans & Pricing', () => {
     const adminToken = await getAdminToken(request);
     const h = authHeaders(adminToken);
 
-    const groupRes = await request.post('/admin/ext/products/groups', {
+    const groupRes = await request.post('/admin/b/products/groups', {
       headers: h,
       data: {
         name: `Pro Group ${Date.now()}`,
@@ -224,7 +224,7 @@ test.describe('Plans & Pricing', () => {
     const group = await groupRes.json();
     const groupId = group.id || group.data?.id;
 
-    const createRes = await request.post('/admin/ext/products/products', {
+    const createRes = await request.post('/admin/b/products/products', {
       headers: h,
       data: {
         name: 'Pro Plan',
@@ -241,7 +241,7 @@ test.describe('Plans & Pricing', () => {
 
   test('developer can browse available plans', async ({ request }) => {
     const user = await signupUser(request);
-    const res = await request.get('/ext/products/catalog', {
+    const res = await request.get('/b/products/catalog', {
       headers: authHeaders(user.token),
     });
     expect(res.ok()).toBeTruthy();
@@ -256,7 +256,7 @@ test.describe('Plans & Pricing', () => {
     const ha = authHeaders(adminToken);
 
     // Create group → product
-    const groupRes = await request.post('/admin/ext/products/groups', {
+    const groupRes = await request.post('/admin/b/products/groups', {
       headers: ha,
       data: {
         name: `Purchase Group ${Date.now()}`,
@@ -272,7 +272,7 @@ test.describe('Plans & Pricing', () => {
     const group = await groupRes.json();
     const groupId = group.id || group.data?.id;
 
-    const productRes = await request.post('/admin/ext/products/products', {
+    const productRes = await request.post('/admin/b/products/products', {
       headers: ha,
       data: {
         name: `Test Plan ${Date.now()}`,
@@ -291,7 +291,7 @@ test.describe('Plans & Pricing', () => {
     const user = await signupUser(request);
     const hu = authHeaders(user.token);
 
-    const purchaseRes = await request.post('/ext/products/purchases', {
+    const purchaseRes = await request.post('/b/products/purchases', {
       headers: hu,
       data: {
         items: [{ product_id: productId, quantity: 1 }],
@@ -307,7 +307,7 @@ test.describe('Plans & Pricing', () => {
 
   test('developer can view their purchases', async ({ request }) => {
     const user = await signupUser(request);
-    const res = await request.get('/ext/products/purchases', {
+    const res = await request.get('/b/products/purchases', {
       headers: authHeaders(user.token),
     });
     expect(res.ok()).toBeTruthy();
@@ -325,7 +325,7 @@ test.describe('Deployments', () => {
     const user = await signupUser(request);
     const h = authHeaders(user.token);
 
-    const res = await request.post('/ext/deployments', {
+    const res = await request.post('/b/deployments', {
       headers: h,
       data: {
         name: 'My First App',
@@ -344,12 +344,12 @@ test.describe('Deployments', () => {
     const h = authHeaders(user.token);
 
     // Create a deployment first
-    await request.post('/ext/deployments', {
+    await request.post('/b/deployments', {
       headers: h,
       data: { name: 'List Test App', region: 'auto' },
     });
 
-    const res = await request.get('/ext/deployments', { headers: h });
+    const res = await request.get('/b/deployments', { headers: h });
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     const records = body.records || body;
@@ -361,13 +361,13 @@ test.describe('Deployments', () => {
     const user = await signupUser(request);
     const h = authHeaders(user.token);
 
-    const createRes = await request.post('/ext/deployments', {
+    const createRes = await request.post('/b/deployments', {
       headers: h,
       data: { name: 'View Test App' },
     });
     const deployment = await createRes.json();
 
-    const res = await request.get(`/ext/deployments/${deployment.id}`, { headers: h });
+    const res = await request.get(`/b/deployments/${deployment.id}`, { headers: h });
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.id || body.data?.id).toBeTruthy();
@@ -377,13 +377,13 @@ test.describe('Deployments', () => {
     const user = await signupUser(request);
     const h = authHeaders(user.token);
 
-    const createRes = await request.post('/ext/deployments', {
+    const createRes = await request.post('/b/deployments', {
       headers: h,
       data: { name: 'Update Test App' },
     });
     const deployment = await createRes.json();
 
-    const updateRes = await request.patch(`/ext/deployments/${deployment.id}`, {
+    const updateRes = await request.patch(`/b/deployments/${deployment.id}`, {
       headers: h,
       data: { name: 'Updated App Name' },
     });
@@ -394,13 +394,13 @@ test.describe('Deployments', () => {
     const user = await signupUser(request);
     const h = authHeaders(user.token);
 
-    const createRes = await request.post('/ext/deployments', {
+    const createRes = await request.post('/b/deployments', {
       headers: h,
       data: { name: 'Delete Test App' },
     });
     const deployment = await createRes.json();
 
-    const deleteRes = await request.delete(`/ext/deployments/${deployment.id}`, {
+    const deleteRes = await request.delete(`/b/deployments/${deployment.id}`, {
       headers: h,
     });
     expect(deleteRes.ok()).toBeTruthy();
@@ -414,14 +414,14 @@ test.describe('Deployments', () => {
     const user2 = await signupUser(request);
 
     // User1 creates a deployment
-    const createRes = await request.post('/ext/deployments', {
+    const createRes = await request.post('/b/deployments', {
       headers: authHeaders(user1.token),
       data: { name: 'Private App' },
     });
     const deployment = await createRes.json();
 
     // User2 tries to view it
-    const res = await request.get(`/ext/deployments/${deployment.id}`, {
+    const res = await request.get(`/b/deployments/${deployment.id}`, {
       headers: authHeaders(user2.token),
     });
     expect(res.status()).toBe(404);
@@ -432,7 +432,7 @@ test.describe('Deployments', () => {
     const h = authHeaders(user.token);
 
     // Empty name should fail
-    const res = await request.post('/ext/deployments', {
+    const res = await request.post('/b/deployments', {
       headers: h,
       data: { name: '' },
     });
@@ -440,7 +440,7 @@ test.describe('Deployments', () => {
   });
 
   test('deployments require authentication', async ({ request }) => {
-    const res = await request.get('/ext/deployments');
+    const res = await request.get('/b/deployments');
     // 401 (unauthenticated) or 403 (forbidden) depending on auth middleware
     expect([401, 403]).toContain(res.status());
   });
@@ -450,11 +450,11 @@ test.describe('Deployments', () => {
     const h = authHeaders(user.token);
 
     // Create two deployments
-    const res1 = await request.post('/ext/deployments', {
+    const res1 = await request.post('/b/deployments', {
       headers: h,
       data: { name: 'App One', region: 'us-east-1' },
     });
-    const res2 = await request.post('/ext/deployments', {
+    const res2 = await request.post('/b/deployments', {
       headers: h,
       data: { name: 'App Two', region: 'eu-west-1' },
     });
@@ -462,7 +462,7 @@ test.describe('Deployments', () => {
     expect(res2.ok()).toBeTruthy();
 
     // List should show both
-    const listRes = await request.get('/ext/deployments', { headers: h });
+    const listRes = await request.get('/b/deployments', { headers: h });
     const body = await listRes.json();
     const records = body.records || body;
     expect(records.length).toBeGreaterThanOrEqual(2);
@@ -477,7 +477,7 @@ test.describe('Admin Deployment Management', () => {
     const adminToken = await getAdminToken(request);
     const h = authHeaders(adminToken);
 
-    const res = await request.get('/admin/ext/deployments', { headers: h });
+    const res = await request.get('/admin/b/deployments', { headers: h });
     if (res.status() === 403 || res.status() === 401) {
       test.skip();
       return;
@@ -492,7 +492,7 @@ test.describe('Admin Deployment Management', () => {
     const adminToken = await getAdminToken(request);
     const h = authHeaders(adminToken);
 
-    const res = await request.get('/admin/ext/deployments/stats', { headers: h });
+    const res = await request.get('/admin/b/deployments/stats', { headers: h });
     if (res.status() === 403 || res.status() === 401) {
       test.skip();
       return;
@@ -507,7 +507,7 @@ test.describe('Admin Deployment Management', () => {
     const adminToken = await getAdminToken(request);
     const h = authHeaders(adminToken);
 
-    const res = await request.get('/admin/ext/products/stats', { headers: h });
+    const res = await request.get('/admin/b/products/stats', { headers: h });
     if (res.status() === 403 || res.status() === 401) {
       test.skip();
       return;
@@ -535,11 +535,11 @@ test.describe('Full User Journey', () => {
     expect(me.user.email).toBe(user.email);
 
     // Step 3: Browse available plans
-    const catalogRes = await request.get('/ext/products/catalog', { headers: h });
+    const catalogRes = await request.get('/b/products/catalog', { headers: h });
     expect(catalogRes.ok()).toBeTruthy();
 
     // Step 4: Create a deployment
-    const deployRes = await request.post('/ext/deployments', {
+    const deployRes = await request.post('/b/deployments', {
       headers: h,
       data: {
         name: 'My Production App',
@@ -552,7 +552,7 @@ test.describe('Full User Journey', () => {
     expect(deployId).toBeTruthy();
 
     // Step 5: Verify deployment appears in list
-    const listRes = await request.get('/ext/deployments', { headers: h });
+    const listRes = await request.get('/b/deployments', { headers: h });
     expect(listRes.ok()).toBeTruthy();
     const list = await listRes.json();
     const records = list.records || list;
@@ -560,7 +560,7 @@ test.describe('Full User Journey', () => {
     expect(found).toBeTruthy();
 
     // Step 6: View deployment details
-    const detailRes = await request.get(`/ext/deployments/${deployId}`, { headers: h });
+    const detailRes = await request.get(`/b/deployments/${deployId}`, { headers: h });
     expect(detailRes.ok()).toBeTruthy();
 
     // Step 7: Create an API key for programmatic access
@@ -573,13 +573,13 @@ test.describe('Full User Journey', () => {
     expect(apiKey.key).toMatch(/^sb_/);
 
     // Step 8: Delete the deployment
-    const deleteRes = await request.delete(`/ext/deployments/${deployId}`, { headers: h });
+    const deleteRes = await request.delete(`/b/deployments/${deployId}`, { headers: h });
     expect(deleteRes.ok()).toBeTruthy();
     const deleted = await deleteRes.json();
     expect(deleted.data?.status || deleted.status).toBe('deleted');
 
     // Step 9: Verify deployment is marked as deleted
-    const afterDeleteRes = await request.get(`/ext/deployments/${deployId}`, { headers: h });
+    const afterDeleteRes = await request.get(`/b/deployments/${deployId}`, { headers: h });
     // Might be 404 (filtered out) or 200 with deleted status
     if (afterDeleteRes.ok()) {
       const afterBody = await afterDeleteRes.json();
@@ -597,7 +597,7 @@ test.describe('Full User Journey', () => {
 test.describe('User Portal', () => {
   test('user portal endpoint exists', async ({ request }) => {
     const user = await signupUser(request);
-    const res = await request.get('/ext/userportal/me', {
+    const res = await request.get('/b/userportal/me', {
       headers: authHeaders(user.token),
     });
     // 200 or 404 (if not implemented for this path) - just verify it doesn't crash

@@ -48,7 +48,7 @@ impl Block for SystemBlock {
                     {"id": "logs", "title": "Logs", "label": "Logs", "href": "/admin/logs", "path": "/admin/logs", "icon": "FileText"},
                     {"id": "settings", "title": "Settings", "label": "Settings", "href": "/admin/settings", "path": "/admin/settings", "icon": "Settings"},
                     {"id": "legalpages", "title": "Legal Pages", "label": "Legal Pages", "href": "/admin/legalpages", "path": "/admin/legalpages", "icon": "Scale"},
-                    {"id": "products", "title": "Products", "label": "Products", "href": "/admin/ext/products", "path": "/admin/ext/products", "icon": "ShoppingBag"},
+                    {"id": "products", "title": "Products", "label": "Products", "href": "/admin/b/products", "path": "/admin/b/products", "icon": "ShoppingBag"},
                     {"id": "files", "title": "Files", "label": "Files", "href": "/admin/storage", "path": "/admin/storage", "icon": "FolderOpen"},
                     {"id": "custom-tables", "title": "Custom Tables", "label": "Custom Tables", "href": "/admin/custom-tables", "path": "/admin/custom-tables", "icon": "Table"}
                 ]);

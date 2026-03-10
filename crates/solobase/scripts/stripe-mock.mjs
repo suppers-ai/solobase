@@ -149,7 +149,7 @@ function handler(req, res) {
         .update(`${timestamp}.${payload}`)
         .digest('hex');
 
-      fetch(`${solobaseUrl}/ext/products/webhooks`, {
+      fetch(`${solobaseUrl}/b/products/webhooks`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

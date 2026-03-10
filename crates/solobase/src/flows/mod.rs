@@ -42,7 +42,7 @@ const FEATURE_FLOWS: &[(&str, Option<&str>)] = &[
 /// are only registered if `filter(gate_name)` returns `true`.
 pub fn register_flows(w: &mut Wafer, filter: impl Fn(&str) -> bool) {
     for &(json, gate) in FEATURE_FLOWS {
-        if gate.map_or(true, |name| filter(name)) {
+        if gate.is_none_or(&filter) {
             register_flow(w, json);
         }
     }

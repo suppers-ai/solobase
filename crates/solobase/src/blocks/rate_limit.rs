@@ -87,6 +87,12 @@ impl RateLimit {
     }
 }
 
+impl Default for UserRateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UserRateLimiter {
     pub fn new() -> Self {
         Self {
@@ -152,14 +158,102 @@ impl UserRateLimiter {
 
 /// Set rate limit response headers on the message.
 pub fn set_rate_limit_headers(msg: &mut wafer_run::types::Message, limit: u32, remaining: u32) {
-    msg.set_meta("resp.header.X-RateLimit-Limit", &limit.to_string());
-    msg.set_meta("resp.header.X-RateLimit-Remaining", &remaining.to_string());
+    msg.set_meta("resp.header.X-RateLimit-Limit", limit.to_string());
+    msg.set_meta("resp.header.X-RateLimit-Remaining", remaining.to_string());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_limit_allows_within_window() {
+        let limiter = UserRateLimiter::new();
+        let limit = RateLimit { max_requests: 5, window: Duration::from_secs(60) };
+
+        // First 5 requests should succeed
+        for i in (0..5).rev() {
+            let result = limiter.check("user1:test", limit);
+            assert_eq!(result, Ok(i));
+        }
+    }
+
+    #[test]
+    fn test_rate_limit_blocks_excess() {
+        let limiter = UserRateLimiter::new();
+        let limit = RateLimit { max_requests: 3, window: Duration::from_secs(60) };
+
+        // Use up the limit
+        assert!(limiter.check("user1:test", limit).is_ok());
+        assert!(limiter.check("user1:test", limit).is_ok());
+        assert!(limiter.check("user1:test", limit).is_ok());
+
+        // 4th request should be denied
+        let result = limiter.check("user1:test", limit);
+        assert!(result.is_err());
+        let retry_after = result.unwrap_err();
+        assert!(retry_after >= 1);
+    }
+
+    #[test]
+    fn test_rate_limit_separate_keys() {
+        let limiter = UserRateLimiter::new();
+        let limit = RateLimit { max_requests: 2, window: Duration::from_secs(60) };
+
+        // Different keys have independent limits
+        assert!(limiter.check("user1:auth", limit).is_ok());
+        assert!(limiter.check("user1:auth", limit).is_ok());
+        assert!(limiter.check("user1:auth", limit).is_err());
+
+        // user2 should still be allowed
+        assert!(limiter.check("user2:auth", limit).is_ok());
+    }
+
+    #[test]
+    fn test_rate_limit_key_format() {
+        assert_eq!(UserRateLimiter::key("user123", "auth"), "user123:auth");
+        assert_eq!(UserRateLimiter::key("192.168.1.1", "login"), "192.168.1.1:login");
+    }
+
+    #[test]
+    fn test_rate_limit_window_reset() {
+        let limiter = UserRateLimiter::new();
+        let limit = RateLimit { max_requests: 2, window: Duration::from_millis(1) };
+
+        // Use up the limit
+        assert!(limiter.check("user:test", limit).is_ok());
+        assert!(limiter.check("user:test", limit).is_ok());
+        assert!(limiter.check("user:test", limit).is_err());
+
+        // Wait for window to expire
+        std::thread::sleep(Duration::from_millis(5));
+
+        // Should be allowed again
+        assert!(limiter.check("user:test", limit).is_ok());
+    }
+
+    #[test]
+    fn test_rate_limit_constants() {
+        assert_eq!(RateLimit::AUTH.max_requests, 30);
+        assert_eq!(RateLimit::AUTH.window, Duration::from_secs(60));
+        assert_eq!(RateLimit::REFRESH.max_requests, 30);
+        assert_eq!(RateLimit::API_READ.max_requests, 300);
+        assert_eq!(RateLimit::API_WRITE.max_requests, 120);
+        assert_eq!(RateLimit::UPLOAD.max_requests, 60);
+    }
+
+    #[test]
+    fn test_default_impl() {
+        let limiter = UserRateLimiter::default();
+        let limit = RateLimit { max_requests: 1, window: Duration::from_secs(60) };
+        assert!(limiter.check("key", limit).is_ok());
+    }
 }
 
 /// Return a 429 Too Many Requests response.
 pub fn rate_limited_response(msg: &mut wafer_run::types::Message, retry_after: u64) -> wafer_run::types::Result_ {
     use super::errors::{ErrorCode, error_response};
-    msg.set_meta("resp.header.Retry-After", &retry_after.to_string());
+    msg.set_meta("resp.header.Retry-After", retry_after.to_string());
     msg.set_meta("resp.header.X-RateLimit-Remaining", "0");
     error_response(msg, ErrorCode::RateLimitExceeded, "Too many requests — try again later")
 }

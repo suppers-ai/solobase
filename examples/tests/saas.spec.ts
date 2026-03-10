@@ -116,17 +116,17 @@ test.describe('SaaS: Auth', () => {
 // Products (subscription plans)
 // ---------------------------------------------------------------------------
 test.describe('SaaS: Products', () => {
-  test('GET /ext/products/catalog returns plan list', async ({ request }) => {
+  test('GET /b/products/catalog returns plan list', async ({ request }) => {
     const { token } = await signup(request);
-    const res = await request.get('/ext/products/catalog', {
+    const res = await request.get('/b/products/catalog', {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.ok()).toBeTruthy();
   });
 
-  test('GET /ext/products/purchases returns user purchases', async ({ request }) => {
+  test('GET /b/products/purchases returns user purchases', async ({ request }) => {
     const { token } = await signup(request);
-    const res = await request.get('/ext/products/purchases', {
+    const res = await request.get('/b/products/purchases', {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.ok()).toBeTruthy();
@@ -137,9 +137,9 @@ test.describe('SaaS: Products', () => {
 // Deployments
 // ---------------------------------------------------------------------------
 test.describe('SaaS: Deployments', () => {
-  test('GET /ext/deployments returns user deployments', async ({ request }) => {
+  test('GET /b/deployments returns user deployments', async ({ request }) => {
     const { token } = await signup(request);
-    const res = await request.get('/ext/deployments', {
+    const res = await request.get('/b/deployments', {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.ok()).toBeTruthy();
@@ -177,15 +177,15 @@ test.describe('SaaS: Admin', () => {
 // Legal Pages
 // ---------------------------------------------------------------------------
 test.describe('SaaS: Legal Pages', () => {
-  test('GET /ext/legalpages/terms returns HTML', async ({ request }) => {
-    const res = await request.get('/ext/legalpages/terms');
+  test('GET /b/legalpages/terms returns HTML', async ({ request }) => {
+    const res = await request.get('/b/legalpages/terms');
     expect(res.ok()).toBeTruthy();
     const ct = res.headers()['content-type'];
     expect(ct).toContain('text/html');
   });
 
-  test('GET /ext/legalpages/privacy returns HTML', async ({ request }) => {
-    const res = await request.get('/ext/legalpages/privacy');
+  test('GET /b/legalpages/privacy returns HTML', async ({ request }) => {
+    const res = await request.get('/b/legalpages/privacy');
     expect(res.ok()).toBeTruthy();
     const ct = res.headers()['content-type'];
     expect(ct).toContain('text/html');

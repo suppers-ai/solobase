@@ -30,8 +30,8 @@ export function PricingTab() {
 		setLoading(true);
 		try {
 			const [tmplData, varData] = await Promise.all([
-				api.get('/admin/ext/products/pricing').catch(() => ({})),
-				api.get('/admin/ext/products/variables').catch(() => ({})),
+				api.get('/admin/b/products/pricing').catch(() => ({})),
+				api.get('/admin/b/products/variables').catch(() => ({})),
 			]);
 			setTemplates(Array.isArray(tmplData?.records) ? tmplData.records : Array.isArray(tmplData) ? tmplData : []);
 			const vars = Array.isArray(varData?.records) ? varData.records : Array.isArray(varData) ? varData : [];
@@ -50,10 +50,10 @@ export function PricingTab() {
 		setSaving(true);
 		try {
 			if (editing.id) {
-				await api.put(`/admin/ext/products/pricing/${editing.id}`, editing);
+				await api.put(`/admin/b/products/pricing/${editing.id}`, editing);
 				toasts.success('Template updated');
 			} else {
-				await api.post('/admin/ext/products/pricing', editing);
+				await api.post('/admin/b/products/pricing', editing);
 				toasts.success('Template created');
 			}
 			setShowModal(false);
@@ -68,7 +68,7 @@ export function PricingTab() {
 	async function handleDelete() {
 		if (!toDelete) return;
 		try {
-			await api.delete(`/admin/ext/products/pricing/${toDelete.id}`);
+			await api.delete(`/admin/b/products/pricing/${toDelete.id}`);
 			toasts.success('Template deleted');
 			setShowDelete(false);
 			setToDelete(null);
@@ -89,7 +89,7 @@ export function PricingTab() {
 				vars[key] = isNaN(num) ? val : num;
 			}
 			// Use calculate-price endpoint as a proxy for formula testing
-			const result = await api.post('/ext/products/calculate-price', { formula, variables: vars, quantity: 1 });
+			const result = await api.post('/b/products/calculate-price', { formula, variables: vars, quantity: 1 });
 			setTestResult({ success: true, ...result });
 		} catch (err: any) {
 			setTestResult({ success: false, error: err.message || 'Evaluation failed' });

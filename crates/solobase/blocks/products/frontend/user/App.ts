@@ -84,8 +84,8 @@ function MyProductsTab() {
 		setLoading(true);
 		try {
 			const [prodData, groupData] = await Promise.all([
-				api.get('/ext/products/products').catch(() => ({})),
-				api.get('/ext/products/groups').catch(() => ({})),
+				api.get('/b/products/products').catch(() => ({})),
+				api.get('/b/products/groups').catch(() => ({})),
 			]);
 			setProducts(flatRecords(Array.isArray(prodData?.records) ? prodData.records : Array.isArray(prodData) ? prodData : []));
 			setGroups(flatRecords(Array.isArray(groupData?.records) ? groupData.records : Array.isArray(groupData) ? groupData : []));
@@ -100,10 +100,10 @@ function MyProductsTab() {
 		setSaving(true);
 		try {
 			if (editing.id) {
-				await api.patch(`/ext/products/products/${editing.id}`, editing);
+				await api.patch(`/b/products/products/${editing.id}`, editing);
 				toasts.success('Product updated');
 			} else {
-				await api.post('/ext/products/products', editing);
+				await api.post('/b/products/products', editing);
 				toasts.success('Product created');
 			}
 			setShowModal(false);
@@ -118,7 +118,7 @@ function MyProductsTab() {
 	async function handleDelete() {
 		if (!toDelete) return;
 		try {
-			await api.delete(`/ext/products/products/${toDelete.id}`);
+			await api.delete(`/b/products/products/${toDelete.id}`);
 			toasts.success('Product deleted');
 			setShowDelete(false);
 			setToDelete(null);
@@ -240,7 +240,7 @@ function MyGroupsTab() {
 	const load = useCallback(async () => {
 		setLoading(true);
 		try {
-			const data = await api.get('/ext/products/groups');
+			const data = await api.get('/b/products/groups');
 			setGroups(flatRecords(Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : []));
 		} catch { /* ignore */ }
 		setLoading(false);
@@ -253,10 +253,10 @@ function MyGroupsTab() {
 		setSaving(true);
 		try {
 			if (editing.id) {
-				await api.patch(`/ext/products/groups/${editing.id}`, editing);
+				await api.patch(`/b/products/groups/${editing.id}`, editing);
 				toasts.success('Group updated');
 			} else {
-				await api.post('/ext/products/groups', editing);
+				await api.post('/b/products/groups', editing);
 				toasts.success('Group created');
 			}
 			setShowModal(false);
@@ -271,7 +271,7 @@ function MyGroupsTab() {
 	async function handleDelete() {
 		if (!toDelete) return;
 		try {
-			await api.delete(`/ext/products/groups/${toDelete.id}`);
+			await api.delete(`/b/products/groups/${toDelete.id}`);
 			toasts.success('Group deleted');
 			setShowDelete(false);
 			setToDelete(null);
@@ -358,8 +358,8 @@ function PlansTab() {
 
 	useEffect(() => {
 		Promise.all([
-			api.get('/ext/products/catalog').catch(() => ({})),
-			api.get('/ext/products/purchases').catch(() => ({})),
+			api.get('/b/products/catalog').catch(() => ({})),
+			api.get('/b/products/purchases').catch(() => ({})),
 		]).then(([catalogData, purchaseData]: any[]) => {
 			setProducts(flatRecords(Array.isArray(catalogData?.records) ? catalogData.records : Array.isArray(catalogData) ? catalogData : []));
 			setPurchases(flatRecords(Array.isArray(purchaseData?.records) ? purchaseData.records : Array.isArray(purchaseData) ? purchaseData : []));
@@ -375,7 +375,7 @@ function PlansTab() {
 	async function handleSubscribe(productId: string) {
 		setSubscribing(productId);
 		try {
-			const purchaseRes: any = await api.post('/ext/products/purchases', {
+			const purchaseRes: any = await api.post('/b/products/purchases', {
 				items: [{ product_id: productId, quantity: 1, variables: {} }]
 			});
 			const purchaseId = purchaseRes.id || purchaseRes.data?.id;
@@ -384,7 +384,7 @@ function PlansTab() {
 				setSubscribing(null);
 				return;
 			}
-			const checkoutRes: any = await api.post('/ext/products/checkout', {
+			const checkoutRes: any = await api.post('/b/products/checkout', {
 				purchase_id: purchaseId,
 				success_url: window.location.href,
 				cancel_url: window.location.href
@@ -486,7 +486,7 @@ function PurchasesTab() {
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
-		api.get('/ext/products/purchases').then((data: any) => {
+		api.get('/b/products/purchases').then((data: any) => {
 			const records = flatRecords(Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : []);
 			setPurchases(records);
 			setLoading(false);

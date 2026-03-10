@@ -135,7 +135,7 @@ export async function simulateCheckoutComplete(
     metadata: { purchase_id: purchaseId },
   });
 
-  const res = await fetch(`${baseUrl}/ext/products/webhooks`, {
+  const res = await fetch(`${baseUrl}/b/products/webhooks`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

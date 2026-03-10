@@ -184,8 +184,8 @@ pub async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 pub async fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    // /admin/ext/products/purchases/{id}/refund
-    let id = path.strip_prefix("/admin/ext/products/purchases/")
+    // /admin/b/products/purchases/{id}/refund
+    let id = path.strip_prefix("/admin/b/products/purchases/")
         .and_then(|s| s.strip_suffix("/refund"))
         .unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing purchase ID"); }

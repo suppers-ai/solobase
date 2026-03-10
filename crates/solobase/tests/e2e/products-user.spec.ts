@@ -76,7 +76,7 @@ test.describe('User Products API', () => {
     const user = await signupUser(request);
     const h = authHeaders(user.token);
 
-    const res = await request.post('/ext/products/groups', {
+    const res = await request.post('/b/products/groups', {
       headers: h,
       data: { name: 'My Store', description: 'A test group' },
     });
@@ -91,10 +91,10 @@ test.describe('User Products API', () => {
     const h = authHeaders(user.token);
 
     // Create two groups
-    await request.post('/ext/products/groups', { headers: h, data: { name: 'Group A' } });
-    await request.post('/ext/products/groups', { headers: h, data: { name: 'Group B' } });
+    await request.post('/b/products/groups', { headers: h, data: { name: 'Group A' } });
+    await request.post('/b/products/groups', { headers: h, data: { name: 'Group B' } });
 
-    const res = await request.get('/ext/products/groups', { headers: h });
+    const res = await request.get('/b/products/groups', { headers: h });
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     const records = body.records || body;
@@ -105,12 +105,12 @@ test.describe('User Products API', () => {
     const user1 = await signupUser(request);
     const user2 = await signupUser(request);
 
-    await request.post('/ext/products/groups', {
+    await request.post('/b/products/groups', {
       headers: authHeaders(user1.token),
       data: { name: 'User1 Private Group' },
     });
 
-    const res = await request.get('/ext/products/groups', {
+    const res = await request.get('/b/products/groups', {
       headers: authHeaders(user2.token),
     });
     const body = await res.json();
@@ -123,13 +123,13 @@ test.describe('User Products API', () => {
     const user = await signupUser(request);
     const h = authHeaders(user.token);
 
-    const groupRes = await request.post('/ext/products/groups', {
+    const groupRes = await request.post('/b/products/groups', {
       headers: h,
       data: { name: 'Product Group' },
     });
     const group = await groupRes.json();
 
-    const res = await request.post('/ext/products/products', {
+    const res = await request.post('/b/products/products', {
       headers: h,
       data: {
         name: 'Widget Pro',
@@ -150,22 +150,22 @@ test.describe('User Products API', () => {
     const user = await signupUser(request);
     const h = authHeaders(user.token);
 
-    const groupRes = await request.post('/ext/products/groups', {
+    const groupRes = await request.post('/b/products/groups', {
       headers: h,
       data: { name: 'List Group' },
     });
     const group = await groupRes.json();
 
-    await request.post('/ext/products/products', {
+    await request.post('/b/products/products', {
       headers: h,
       data: { name: 'Product 1', group_id: group.id, base_price: 10, currency: 'USD' },
     });
-    await request.post('/ext/products/products', {
+    await request.post('/b/products/products', {
       headers: h,
       data: { name: 'Product 2', group_id: group.id, base_price: 20, currency: 'USD' },
     });
 
-    const res = await request.get('/ext/products/products', { headers: h });
+    const res = await request.get('/b/products/products', { headers: h });
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     const records = body.records || body;
@@ -176,19 +176,19 @@ test.describe('User Products API', () => {
     const user = await signupUser(request);
     const h = authHeaders(user.token);
 
-    const groupRes = await request.post('/ext/products/groups', {
+    const groupRes = await request.post('/b/products/groups', {
       headers: h,
       data: { name: 'Update Group' },
     });
     const group = await groupRes.json();
 
-    const createRes = await request.post('/ext/products/products', {
+    const createRes = await request.post('/b/products/products', {
       headers: h,
       data: { name: 'Old Name', group_id: group.id, base_price: 5, currency: 'USD' },
     });
     const product = await createRes.json();
 
-    const updateRes = await request.patch(`/ext/products/products/${product.id}`, {
+    const updateRes = await request.patch(`/b/products/products/${product.id}`, {
       headers: h,
       data: { name: 'New Name', base_price: 15 },
     });
@@ -201,19 +201,19 @@ test.describe('User Products API', () => {
     const user = await signupUser(request);
     const h = authHeaders(user.token);
 
-    const groupRes = await request.post('/ext/products/groups', {
+    const groupRes = await request.post('/b/products/groups', {
       headers: h,
       data: { name: 'Delete Group' },
     });
     const group = await groupRes.json();
 
-    const createRes = await request.post('/ext/products/products', {
+    const createRes = await request.post('/b/products/products', {
       headers: h,
       data: { name: 'To Delete', group_id: group.id, base_price: 1, currency: 'USD' },
     });
     const product = await createRes.json();
 
-    const deleteRes = await request.delete(`/ext/products/products/${product.id}`, {
+    const deleteRes = await request.delete(`/b/products/products/${product.id}`, {
       headers: h,
     });
     expect(deleteRes.ok()).toBeTruthy();
@@ -223,26 +223,26 @@ test.describe('User Products API', () => {
     const user1 = await signupUser(request);
     const user2 = await signupUser(request);
 
-    const groupRes = await request.post('/ext/products/groups', {
+    const groupRes = await request.post('/b/products/groups', {
       headers: authHeaders(user1.token),
       data: { name: 'Private Group' },
     });
     const group = await groupRes.json();
 
-    const createRes = await request.post('/ext/products/products', {
+    const createRes = await request.post('/b/products/products', {
       headers: authHeaders(user1.token),
       data: { name: 'Private Product', group_id: group.id, base_price: 10, currency: 'USD' },
     });
     const product = await createRes.json();
 
     // User2 tries to get user1's product
-    const getRes = await request.get(`/ext/products/products/${product.id}`, {
+    const getRes = await request.get(`/b/products/products/${product.id}`, {
       headers: authHeaders(user2.token),
     });
     expect(getRes.status()).toBe(404);
 
     // User2 tries to delete user1's product
-    const deleteRes = await request.delete(`/ext/products/products/${product.id}`, {
+    const deleteRes = await request.delete(`/b/products/products/${product.id}`, {
       headers: authHeaders(user2.token),
     });
     expect(deleteRes.status()).toBe(404);
@@ -252,13 +252,13 @@ test.describe('User Products API', () => {
     const user = await signupUser(request);
     const h = authHeaders(user.token);
 
-    const createRes = await request.post('/ext/products/groups', {
+    const createRes = await request.post('/b/products/groups', {
       headers: h,
       data: { name: 'Old Group Name', description: 'Old desc' },
     });
     const group = await createRes.json();
 
-    const updateRes = await request.patch(`/ext/products/groups/${group.id}`, {
+    const updateRes = await request.patch(`/b/products/groups/${group.id}`, {
       headers: h,
       data: { name: 'New Group Name', description: 'Updated desc' },
     });
@@ -271,13 +271,13 @@ test.describe('User Products API', () => {
     const user = await signupUser(request);
     const h = authHeaders(user.token);
 
-    const createRes = await request.post('/ext/products/groups', {
+    const createRes = await request.post('/b/products/groups', {
       headers: h,
       data: { name: 'Deletable Group' },
     });
     const group = await createRes.json();
 
-    const deleteRes = await request.delete(`/ext/products/groups/${group.id}`, {
+    const deleteRes = await request.delete(`/b/products/groups/${group.id}`, {
       headers: h,
     });
     expect(deleteRes.ok()).toBeTruthy();
@@ -287,18 +287,18 @@ test.describe('User Products API', () => {
     const user = await signupUser(request);
     const h = authHeaders(user.token);
 
-    const groupRes = await request.post('/ext/products/groups', {
+    const groupRes = await request.post('/b/products/groups', {
       headers: h,
       data: { name: 'Group With Products' },
     });
     const group = await groupRes.json();
 
-    await request.post('/ext/products/products', {
+    await request.post('/b/products/products', {
       headers: h,
       data: { name: 'In Group', group_id: group.id, base_price: 5, currency: 'USD' },
     });
 
-    const res = await request.get(`/ext/products/groups/${group.id}/products`, {
+    const res = await request.get(`/b/products/groups/${group.id}/products`, {
       headers: h,
     });
     expect(res.ok()).toBeTruthy();

@@ -9,14 +9,18 @@
 //! - `@wafer/logger` → console_log
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use wafer_run::block::Block;
 use wafer_run::context::Context;
 use wafer_run::types::*;
 
-use crate::database::{self, D1DatabaseService, Filter, FilterOp, ListOptions, SortField};
+use crate::d1_block::D1Block;
+use crate::database::D1DatabaseService;
+use crate::r2_block::R2Block;
 use crate::storage::R2StorageService;
 
 /// WAFER Context backed by Cloudflare Workers services (D1, R2, KV).
@@ -24,8 +28,8 @@ use crate::storage::R2StorageService;
 /// Solobase blocks call `ctx.call_block("@wafer/database", ...)` etc.
 /// This context handles those calls by routing to the appropriate CF service.
 pub struct CloudflareContext {
-    db: D1DatabaseService,
-    storage: R2StorageService,
+    d1_block: Arc<D1Block>,
+    r2_block: Arc<R2Block>,
     jwt_secret: String,
     env_vars: HashMap<String, String>,
 }
@@ -42,7 +46,12 @@ impl CloudflareContext {
         jwt_secret: String,
         env_vars: HashMap<String, String>,
     ) -> Self {
-        Self { db, storage, jwt_secret, env_vars }
+        Self {
+            d1_block: Arc::new(D1Block::new(db)),
+            r2_block: Arc::new(R2Block::new(storage)),
+            jwt_secret,
+            env_vars,
+        }
     }
 }
 
@@ -54,8 +63,8 @@ impl CloudflareContext {
 impl Context for CloudflareContext {
     async fn call_block(&self, block_name: &str, msg: &mut Message) -> Result_ {
         match block_name {
-            "@wafer/database" => self.handle_database(msg).await,
-            "@wafer/storage" => self.handle_storage(msg).await,
+            "@wafer/database" | "@db" | "solobase/d1" => self.d1_block.handle(self, msg).await,
+            "@wafer/storage" | "@storage" | "solobase/r2" => self.r2_block.handle(self, msg).await,
             "@wafer/config" => self.handle_config(msg),
             "@wafer/crypto" => self.handle_crypto(msg),
             "@wafer/network" => self.handle_network(msg).await,
@@ -98,289 +107,9 @@ fn err_result(code: &str, message: impl Into<String>) -> Result_ {
     Result_::error(WaferError::new(code, message))
 }
 
-// ---------------------------------------------------------------------------
-// Database handler — routes to D1 via D1DatabaseService
-// ---------------------------------------------------------------------------
-
-// Wire-format request types (match wafer-core/src/blocks/database/block.rs)
-
-#[derive(Deserialize)]
-struct DbGetReq { collection: String, id: String }
-
-#[derive(Deserialize)]
-struct DbListReq {
-    collection: String,
-    #[serde(default)]
-    filters: Vec<DbFilterDef>,
-    #[serde(default)]
-    sort: Vec<DbSortDef>,
-    #[serde(default)]
-    limit: i64,
-    #[serde(default)]
-    offset: i64,
-}
-
-#[derive(Deserialize)]
-struct DbCreateReq {
-    collection: String,
-    data: HashMap<String, serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-struct DbUpdateReq {
-    collection: String,
-    id: String,
-    data: HashMap<String, serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-struct DbDeleteReq { collection: String, id: String }
-
-#[derive(Deserialize)]
-struct DbCountReq {
-    collection: String,
-    #[serde(default)]
-    filters: Vec<DbFilterDef>,
-}
-
-#[derive(Deserialize)]
-struct DbSumReq {
-    collection: String,
-    field: String,
-    #[serde(default)]
-    filters: Vec<DbFilterDef>,
-}
-
-#[derive(Deserialize)]
-struct DbQueryRawReq {
-    query: String,
-    #[serde(default)]
-    args: Vec<serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-struct DbExecRawReq {
-    query: String,
-    #[serde(default)]
-    args: Vec<serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-struct DbFilterDef {
-    field: String,
-    #[serde(default = "default_op")]
-    operator: String,
-    #[serde(default)]
-    value: serde_json::Value,
-}
-
-fn default_op() -> String { "eq".to_string() }
-
-#[derive(Deserialize)]
-struct DbSortDef {
-    field: String,
-    #[serde(default)]
-    desc: bool,
-}
-
-#[derive(Serialize)]
-struct CountResp { count: i64 }
-
-#[derive(Serialize)]
-struct SumResp { sum: f64 }
-
-#[derive(Serialize)]
-struct ExecRawResp { rows_affected: i64 }
-
-fn parse_filter_op(op: &str) -> FilterOp {
-    match op {
-        "eq" | "=" | "equal" => FilterOp::Equal,
-        "neq" | "!=" | "not_equal" => FilterOp::NotEqual,
-        "gt" | ">" | "greater_than" => FilterOp::GreaterThan,
-        "gte" | ">=" | "greater_equal" => FilterOp::GreaterEqual,
-        "lt" | "<" | "less_than" => FilterOp::LessThan,
-        "lte" | "<=" | "less_equal" => FilterOp::LessEqual,
-        "like" => FilterOp::Like,
-        "in" => FilterOp::In,
-        "is_null" => FilterOp::IsNull,
-        "is_not_null" => FilterOp::IsNotNull,
-        _ => FilterOp::Equal,
-    }
-}
-
-fn convert_filters(defs: Vec<DbFilterDef>) -> Vec<Filter> {
-    defs.into_iter()
-        .map(|f| Filter {
-            field: f.field,
-            operator: parse_filter_op(&f.operator),
-            value: f.value,
-        })
-        .collect()
-}
-
-fn convert_sort(defs: Vec<DbSortDef>) -> Vec<SortField> {
-    defs.into_iter()
-        .map(|s| SortField { field: s.field, desc: s.desc })
-        .collect()
-}
-
 /// Decode a request from the message, returning an error Result_ on failure.
 fn decode_req<T: serde::de::DeserializeOwned>(msg: &mut Message, op: &str) -> Result<T, Result_> {
     msg.decode::<T>().map_err(|e| err_result("invalid_argument", format!("invalid {op}: {e}")))
-}
-
-impl CloudflareContext {
-    async fn handle_database(&self, msg: &mut Message) -> Result_ {
-        match msg.kind.as_str() {
-            "database.get" => {
-                let req = decode_req::<DbGetReq>(msg, "database.get")?;
-                match self.db.get(&req.collection, &req.id).await {
-                    Ok(record) => respond_json(msg, &record),
-                    Err(_) => err_result("not_found", "record not found"),
-                }
-            }
-            "database.list" => {
-                let req = decode_req::<DbListReq>(msg, "database.list")?;
-                let opts = ListOptions {
-                    filters: convert_filters(req.filters),
-                    sort: convert_sort(req.sort),
-                    limit: req.limit,
-                    offset: req.offset,
-                };
-                match self.db.list(&req.collection, &opts).await {
-                    Ok(list) => respond_json(msg, &list),
-                    Err(e) => err_result("internal", format!("database list error: {e}")),
-                }
-            }
-            "database.create" => {
-                let req = decode_req::<DbCreateReq>(msg, "database.create")?;
-                match self.db.create(&req.collection, req.data).await {
-                    Ok(record) => respond_json(msg, &record),
-                    Err(e) => err_result("internal", format!("database create error: {e}")),
-                }
-            }
-            "database.update" => {
-                let req = decode_req::<DbUpdateReq>(msg, "database.update")?;
-                match self.db.update(&req.collection, &req.id, req.data).await {
-                    Ok(record) => respond_json(msg, &record),
-                    Err(e) => err_result("internal", format!("database update error: {e}")),
-                }
-            }
-            "database.delete" => {
-                let req = decode_req::<DbDeleteReq>(msg, "database.delete")?;
-                match self.db.delete(&req.collection, &req.id).await {
-                    Ok(()) => respond_empty(msg),
-                    Err(e) => err_result("internal", format!("database delete error: {e}")),
-                }
-            }
-            "database.count" => {
-                let req = decode_req::<DbCountReq>(msg, "database.count")?;
-                let filters = convert_filters(req.filters);
-                match self.db.count(&req.collection, &filters).await {
-                    Ok(count) => respond_json(msg, &CountResp { count }),
-                    Err(e) => err_result("internal", format!("database count error: {e}")),
-                }
-            }
-            "database.sum" => {
-                let req = decode_req::<DbSumReq>(msg, "database.sum")?;
-                let col = database::sanitize_ident(&req.field);
-                let table = database::sanitize_ident(&req.collection);
-                let sql = format!("SELECT COALESCE(SUM({}), 0) as s FROM {}", col, table);
-                match self.db.query_raw(&sql, &[]).await {
-                    Ok(records) => {
-                        let sum = records.first()
-                            .and_then(|r| r.data.get("s"))
-                            .and_then(|v| v.as_f64())
-                            .unwrap_or(0.0);
-                        respond_json(msg, &SumResp { sum })
-                    }
-                    Err(e) => err_result("internal", format!("database sum error: {e}")),
-                }
-            }
-            "database.query_raw" => {
-                let req = decode_req::<DbQueryRawReq>(msg, "database.query_raw")?;
-                match self.db.query_raw(&req.query, &req.args).await {
-                    Ok(records) => respond_json(msg, &records),
-                    Err(e) => err_result("internal", format!("database query_raw error: {e}")),
-                }
-            }
-            "database.exec_raw" => {
-                let req = decode_req::<DbExecRawReq>(msg, "database.exec_raw")?;
-                match self.db.exec_raw(&req.query, &req.args).await {
-                    Ok(()) => respond_json(msg, &ExecRawResp { rows_affected: 0 }),
-                    Err(e) => err_result("internal", format!("database exec_raw error: {e}")),
-                }
-            }
-            other => err_result("unimplemented", format!("unknown database op: {other}")),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Storage handler — routes to R2 via R2StorageService
-// ---------------------------------------------------------------------------
-
-#[derive(Deserialize)]
-struct StoragePutReq { folder: String, key: String, data: Vec<u8>, #[serde(default = "default_ct")] content_type: String }
-fn default_ct() -> String { "application/octet-stream".to_string() }
-
-#[derive(Deserialize)]
-struct StorageGetReq { folder: String, key: String }
-
-#[derive(Deserialize)]
-struct StorageDeleteReq { folder: String, key: String }
-
-#[derive(Deserialize)]
-struct StorageListReq { folder: String, #[serde(default)] prefix: String, #[serde(default)] limit: i64, #[serde(default)] offset: i64 }
-
-#[derive(Deserialize)]
-struct StorageCreateFolderReq { name: String, #[serde(default)] public: bool }
-
-#[derive(Deserialize)]
-struct StorageDeleteFolderReq { name: String }
-
-#[derive(Serialize)]
-struct StorageGetResp { data: Vec<u8>, info: crate::storage::ObjectInfo }
-
-impl CloudflareContext {
-    async fn handle_storage(&self, msg: &mut Message) -> Result_ {
-        match msg.kind.as_str() {
-            "storage.put" => {
-                let req = decode_req::<StoragePutReq>(msg, "storage.put")?;
-                match self.storage.put(&req.folder, &req.key, req.data, &req.content_type).await {
-                    Ok(()) => respond_empty(msg),
-                    Err(e) => err_result("internal", format!("storage put error: {e}")),
-                }
-            }
-            "storage.get" => {
-                let req = decode_req::<StorageGetReq>(msg, "storage.get")?;
-                match self.storage.get(&req.folder, &req.key).await {
-                    Ok((data, info)) => respond_json(msg, &StorageGetResp { data, info }),
-                    Err(_) => err_result("not_found", "object not found"),
-                }
-            }
-            "storage.delete" => {
-                let req = decode_req::<StorageDeleteReq>(msg, "storage.delete")?;
-                match self.storage.delete(&req.folder, &req.key).await {
-                    Ok(()) => respond_empty(msg),
-                    Err(e) => err_result("internal", format!("storage delete error: {e}")),
-                }
-            }
-            "storage.list" => {
-                let req = decode_req::<StorageListReq>(msg, "storage.list")?;
-                let limit = if req.limit > 0 { req.limit as u32 } else { 100 };
-                match self.storage.list(&req.folder, &req.prefix, limit).await {
-                    Ok(list) => respond_json(msg, &list),
-                    Err(e) => err_result("internal", format!("storage list error: {e}")),
-                }
-            }
-            "storage.create_folder" | "storage.delete_folder" | "storage.list_folders" => {
-                // R2 doesn't have real folders — no-ops
-                respond_empty(msg)
-            }
-            other => err_result("unimplemented", format!("unknown storage op: {other}")),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

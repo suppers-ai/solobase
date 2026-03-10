@@ -72,7 +72,7 @@ test.describe('Stripe Payment Flow', () => {
   let groupId: string;
 
   test('admin creates a product group', async ({ request }) => {
-    const res = await request.post('/admin/ext/products/groups', {
+    const res = await request.post('/admin/b/products/groups', {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: {
         name: 'Plans',
@@ -86,7 +86,7 @@ test.describe('Stripe Payment Flow', () => {
   });
 
   test('admin creates a paid product', async ({ request }) => {
-    const res = await request.post('/admin/ext/products/products', {
+    const res = await request.post('/admin/b/products/products', {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: {
         name: 'Pro Plan',
@@ -107,7 +107,7 @@ test.describe('Stripe Payment Flow', () => {
   // ── Developer browses catalog and buys ─────────────────────────────
 
   test('developer sees the product in the catalog', async ({ request }) => {
-    const res = await request.get('/ext/products/catalog', {
+    const res = await request.get('/b/products/catalog', {
       headers: { Authorization: `Bearer ${devToken}` },
     });
     expect(res.ok()).toBeTruthy();
@@ -121,7 +121,7 @@ test.describe('Stripe Payment Flow', () => {
   });
 
   test('developer creates a purchase', async ({ request }) => {
-    const res = await request.post('/ext/products/purchases', {
+    const res = await request.post('/b/products/purchases', {
       headers: { Authorization: `Bearer ${devToken}` },
       data: {
         items: [{ product_id: productId, quantity: 1, variables: {} }],
@@ -137,7 +137,7 @@ test.describe('Stripe Payment Flow', () => {
   });
 
   test('developer initiates Stripe checkout', async ({ request }) => {
-    const res = await request.post('/ext/products/checkout', {
+    const res = await request.post('/b/products/checkout', {
       headers: { Authorization: `Bearer ${devToken}` },
       data: {
         purchase_id: purchaseId,
@@ -162,7 +162,7 @@ test.describe('Stripe Payment Flow', () => {
   });
 
   test('purchase is now marked as completed', async ({ request }) => {
-    const res = await request.get(`/ext/products/purchases/${purchaseId}`, {
+    const res = await request.get(`/b/products/purchases/${purchaseId}`, {
       headers: { Authorization: `Bearer ${devToken}` },
     });
     expect(res.ok()).toBeTruthy();
@@ -177,7 +177,7 @@ test.describe('Stripe Payment Flow', () => {
   // ── Webhook security ──────────────────────────────────────────────
 
   test('webhook rejects missing signature', async ({ request }) => {
-    const res = await request.post('/ext/products/webhooks', {
+    const res = await request.post('/b/products/webhooks', {
       headers: { 'Content-Type': 'application/json' },
       data: { type: 'checkout.session.completed', data: { object: {} } },
     });
@@ -185,7 +185,7 @@ test.describe('Stripe Payment Flow', () => {
   });
 
   test('webhook rejects invalid signature', async ({ request }) => {
-    const res = await request.post('/ext/products/webhooks', {
+    const res = await request.post('/b/products/webhooks', {
       headers: {
         'Content-Type': 'application/json',
         'Stripe-Signature': 't=1234567890,v1=invalidsignature',
@@ -210,7 +210,7 @@ test.describe('Stripe Payment Flow', () => {
       .update(`${oldTimestamp}.${payload}`)
       .digest('hex');
 
-    const res = await request.post('/ext/products/webhooks', {
+    const res = await request.post('/b/products/webhooks', {
       headers: {
         'Content-Type': 'application/json',
         'Stripe-Signature': `t=${oldTimestamp},v1=${sig}`,
@@ -224,7 +224,7 @@ test.describe('Stripe Payment Flow', () => {
 
   test('Stripe webhook handles refund', async ({ request }) => {
     // Get the payment_intent from the purchase
-    const purchaseRes = await request.get(`/ext/products/purchases/${purchaseId}`, {
+    const purchaseRes = await request.get(`/b/products/purchases/${purchaseId}`, {
       headers: { Authorization: `Bearer ${devToken}` },
     });
     const purchaseBody = await purchaseRes.json();
@@ -239,7 +239,7 @@ test.describe('Stripe Payment Flow', () => {
       amount_refunded: 2900,
     });
 
-    const res = await request.post('/ext/products/webhooks', {
+    const res = await request.post('/b/products/webhooks', {
       headers: {
         'Content-Type': 'application/json',
         'Stripe-Signature': signature,
@@ -249,7 +249,7 @@ test.describe('Stripe Payment Flow', () => {
     expect(res.ok()).toBeTruthy();
 
     // Verify purchase is now refunded
-    const checkRes = await request.get(`/ext/products/purchases/${purchaseId}`, {
+    const checkRes = await request.get(`/b/products/purchases/${purchaseId}`, {
       headers: { Authorization: `Bearer ${devToken}` },
     });
     const checkBody = await checkRes.json();
@@ -261,7 +261,7 @@ test.describe('Stripe Payment Flow', () => {
   // ── Admin stats ────────────────────────────────────────────────────
 
   test('admin can see purchase stats', async ({ request }) => {
-    const res = await request.get('/admin/ext/products/stats', {
+    const res = await request.get('/admin/b/products/stats', {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     expect(res.ok()).toBeTruthy();

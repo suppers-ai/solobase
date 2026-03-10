@@ -148,9 +148,13 @@ fn load_config(wafer: &mut Wafer) -> Option<AppConfig> {
                 let name = cfg.app.as_deref().unwrap_or("solobase");
                 tracing::info!(app = name, version = cfg.version, config = %app_json, "loaded app config");
 
-                // Expand app config into block configs and load them
-                for (name, config) in cfg.to_blocks_json() {
+                // Expand app config into block configs and aliases
+                let (block_configs, aliases) = cfg.to_blocks_json();
+                for (name, config) in block_configs {
                     wafer.add_block_config(name, config);
+                }
+                for (alias, target) in aliases {
+                    wafer.add_alias(alias, target);
                 }
                 return Some(cfg);
             }

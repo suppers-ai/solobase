@@ -137,15 +137,15 @@ test.describe('Blog: Admin', () => {
 // Legal Pages
 // ---------------------------------------------------------------------------
 test.describe('Blog: Legal Pages', () => {
-  test('GET /ext/legalpages/terms returns HTML', async ({ request }) => {
-    const res = await request.get('/ext/legalpages/terms');
+  test('GET /b/legalpages/terms returns HTML', async ({ request }) => {
+    const res = await request.get('/b/legalpages/terms');
     expect(res.ok()).toBeTruthy();
     const ct = res.headers()['content-type'];
     expect(ct).toContain('text/html');
   });
 
-  test('GET /ext/legalpages/privacy returns HTML', async ({ request }) => {
-    const res = await request.get('/ext/legalpages/privacy');
+  test('GET /b/legalpages/privacy returns HTML', async ({ request }) => {
+    const res = await request.get('/b/legalpages/privacy');
     expect(res.ok()).toBeTruthy();
     const ct = res.headers()['content-type'];
     expect(ct).toContain('text/html');

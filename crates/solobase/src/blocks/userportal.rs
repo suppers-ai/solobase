@@ -24,7 +24,7 @@ impl Block for UserPortalBlock {
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        // GET /ext/userportal/config -> static config
+        // GET /b/userportal/config -> static config
         let config_val = serde_json::json!({
             "logo_url": config::get_default(ctx, "LOGO_URL", "/logo.png").await,
             "app_name": config::get_default(ctx, "APP_NAME", "Solobase").await,

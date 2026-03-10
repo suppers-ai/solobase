@@ -13,38 +13,38 @@ pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match (action, path) {
         // Products
-        ("retrieve", "/admin/ext/products/products") => handle_list_products(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/admin/ext/products/products/") => handle_get_product(ctx, msg).await,
-        ("create", "/admin/ext/products/products") => handle_create_product(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/ext/products/products/") => handle_update_product(ctx, msg).await,
-        ("delete", _) if path.starts_with("/admin/ext/products/products/") => handle_delete_product(ctx, msg).await,
+        ("retrieve", "/admin/b/products/products") => handle_list_products(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/admin/b/products/products/") => handle_get_product(ctx, msg).await,
+        ("create", "/admin/b/products/products") => handle_create_product(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/b/products/products/") => handle_update_product(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/b/products/products/") => handle_delete_product(ctx, msg).await,
         // Groups
-        ("retrieve", "/admin/ext/products/groups") => handle_list_groups(ctx, msg).await,
-        ("create", "/admin/ext/products/groups") => handle_create_group(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/ext/products/groups/") => handle_update_group(ctx, msg).await,
-        ("delete", _) if path.starts_with("/admin/ext/products/groups/") => handle_delete_group(ctx, msg).await,
+        ("retrieve", "/admin/b/products/groups") => handle_list_groups(ctx, msg).await,
+        ("create", "/admin/b/products/groups") => handle_create_group(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/b/products/groups/") => handle_update_group(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/b/products/groups/") => handle_delete_group(ctx, msg).await,
         // Types
-        ("retrieve", "/admin/ext/products/types") => handle_list_types(ctx, msg).await,
-        ("create", "/admin/ext/products/types") => handle_create_type(ctx, msg).await,
-        ("delete", _) if path.starts_with("/admin/ext/products/types/") => handle_delete_type(ctx, msg).await,
+        ("retrieve", "/admin/b/products/types") => handle_list_types(ctx, msg).await,
+        ("create", "/admin/b/products/types") => handle_create_type(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/b/products/types/") => handle_delete_type(ctx, msg).await,
         // Pricing templates
-        ("retrieve", "/admin/ext/products/pricing") => handle_list_pricing(ctx, msg).await,
-        ("create", "/admin/ext/products/pricing") => handle_create_pricing(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/ext/products/pricing/") => handle_update_pricing(ctx, msg).await,
-        ("delete", _) if path.starts_with("/admin/ext/products/pricing/") => handle_delete_pricing(ctx, msg).await,
+        ("retrieve", "/admin/b/products/pricing") => handle_list_pricing(ctx, msg).await,
+        ("create", "/admin/b/products/pricing") => handle_create_pricing(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/b/products/pricing/") => handle_update_pricing(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/b/products/pricing/") => handle_delete_pricing(ctx, msg).await,
         // Variables
-        ("retrieve", "/admin/ext/products/variables") => super::variables::handle_list(ctx, msg).await,
-        ("create", "/admin/ext/products/variables") => super::variables::handle_create(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/ext/products/variables/") => super::variables::handle_update(ctx, msg).await,
-        ("delete", _) if path.starts_with("/admin/ext/products/variables/") => super::variables::handle_delete(ctx, msg).await,
+        ("retrieve", "/admin/b/products/variables") => super::variables::handle_list(ctx, msg).await,
+        ("create", "/admin/b/products/variables") => super::variables::handle_create(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/b/products/variables/") => super::variables::handle_update(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/b/products/variables/") => super::variables::handle_delete(ctx, msg).await,
         // Purchases (admin view)
-        ("retrieve", "/admin/ext/products/purchases") => super::purchase::handle_list_admin(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/admin/ext/products/purchases/") => super::purchase::handle_get(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/ext/products/purchases/") && path.ends_with("/refund") => {
+        ("retrieve", "/admin/b/products/purchases") => super::purchase::handle_list_admin(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/admin/b/products/purchases/") => super::purchase::handle_get(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/b/products/purchases/") && path.ends_with("/refund") => {
             super::purchase::handle_refund(ctx, msg).await
         }
         // Stats
-        ("retrieve", "/admin/ext/products/stats") => handle_stats(ctx, msg).await,
+        ("retrieve", "/admin/b/products/stats") => handle_stats(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
@@ -55,31 +55,31 @@ pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match (action, path) {
         // User's own products
-        ("retrieve", "/ext/products/products") => handle_user_list_products(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/ext/products/products/") => handle_user_get_product(ctx, msg).await,
-        ("create", "/ext/products/products") => handle_user_create_product(ctx, msg).await,
-        ("update", _) if path.starts_with("/ext/products/products/") => handle_user_update_product(ctx, msg).await,
-        ("delete", _) if path.starts_with("/ext/products/products/") => handle_user_delete_product(ctx, msg).await,
+        ("retrieve", "/b/products/products") => handle_user_list_products(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/b/products/products/") => handle_user_get_product(ctx, msg).await,
+        ("create", "/b/products/products") => handle_user_create_product(ctx, msg).await,
+        ("update", _) if path.starts_with("/b/products/products/") => handle_user_update_product(ctx, msg).await,
+        ("delete", _) if path.starts_with("/b/products/products/") => handle_user_delete_product(ctx, msg).await,
         // User's own groups
-        ("retrieve", "/ext/products/groups") => handle_user_list_groups(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/ext/products/groups/") && !path.ends_with("/products") => handle_user_get_group(ctx, msg).await,
-        ("create", "/ext/products/groups") => handle_user_create_group(ctx, msg).await,
-        ("update", _) if path.starts_with("/ext/products/groups/") && !path.ends_with("/products") => handle_user_update_group(ctx, msg).await,
-        ("delete", _) if path.starts_with("/ext/products/groups/") && !path.ends_with("/products") => handle_user_delete_group(ctx, msg).await,
+        ("retrieve", "/b/products/groups") => handle_user_list_groups(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/b/products/groups/") && !path.ends_with("/products") => handle_user_get_group(ctx, msg).await,
+        ("create", "/b/products/groups") => handle_user_create_group(ctx, msg).await,
+        ("update", _) if path.starts_with("/b/products/groups/") && !path.ends_with("/products") => handle_user_update_group(ctx, msg).await,
+        ("delete", _) if path.starts_with("/b/products/groups/") && !path.ends_with("/products") => handle_user_delete_group(ctx, msg).await,
         // Products in a group
-        ("retrieve", _) if path.starts_with("/ext/products/groups/") && path.ends_with("/products") => handle_user_group_products(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/b/products/groups/") && path.ends_with("/products") => handle_user_group_products(ctx, msg).await,
         // Read-only: types and group templates
-        ("retrieve", "/ext/products/types") => handle_list_types(ctx, msg).await,
-        ("retrieve", "/ext/products/group-templates") => handle_user_list_group_templates(ctx, msg).await,
+        ("retrieve", "/b/products/types") => handle_list_types(ctx, msg).await,
+        ("retrieve", "/b/products/group-templates") => handle_user_list_group_templates(ctx, msg).await,
         // Catalog (public)
-        ("retrieve", "/ext/products/catalog") => handle_catalog(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/ext/products/catalog/") => handle_get_product_public(ctx, msg).await,
+        ("retrieve", "/b/products/catalog") => handle_catalog(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/b/products/catalog/") => handle_get_product_public(ctx, msg).await,
         // Pricing, purchases, checkout
-        ("create", "/ext/products/calculate-price") => super::pricing::handle_calculate(ctx, msg).await,
-        ("create", "/ext/products/purchases") => super::purchase::handle_create(ctx, msg).await,
-        ("retrieve", "/ext/products/purchases") => super::purchase::handle_list_user(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/ext/products/purchases/") => super::purchase::handle_get(ctx, msg).await,
-        ("create", "/ext/products/checkout") => super::stripe::handle_checkout(ctx, msg).await,
+        ("create", "/b/products/calculate-price") => super::pricing::handle_calculate(ctx, msg).await,
+        ("create", "/b/products/purchases") => super::purchase::handle_create(ctx, msg).await,
+        ("retrieve", "/b/products/purchases") => super::purchase::handle_list_user(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/b/products/purchases/") => super::purchase::handle_get(ctx, msg).await,
+        ("create", "/b/products/checkout") => super::stripe::handle_checkout(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
@@ -112,7 +112,7 @@ async fn handle_list_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_get_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/ext/products/products/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/products/products/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
     match db::get(ctx, PRODUCTS_COLLECTION, id).await {
         Ok(record) => json_respond(msg, &record),
@@ -142,7 +142,7 @@ async fn handle_create_product(ctx: &dyn Context, msg: &mut Message) -> Result_ 
 
 async fn handle_update_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/ext/products/products/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/products/products/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
 
     let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
@@ -160,7 +160,7 @@ async fn handle_update_product(ctx: &dyn Context, msg: &mut Message) -> Result_ 
 
 async fn handle_delete_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/ext/products/products/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/products/products/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
     match db::delete(ctx, PRODUCTS_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
@@ -198,7 +198,7 @@ async fn handle_create_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_update_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/ext/products/groups/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/products/groups/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
@@ -213,7 +213,7 @@ async fn handle_update_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_delete_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/ext/products/groups/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/products/groups/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
     match db::delete(ctx, GROUPS_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
@@ -245,7 +245,7 @@ async fn handle_create_type(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_delete_type(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/ext/products/types/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/products/types/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing type ID"); }
     match db::delete(ctx, TYPES_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
@@ -282,7 +282,7 @@ async fn handle_create_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ 
 
 async fn handle_update_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/ext/products/pricing/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/products/pricing/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing pricing template ID"); }
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
@@ -297,7 +297,7 @@ async fn handle_update_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ 
 
 async fn handle_delete_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/ext/products/pricing/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/products/pricing/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing pricing template ID"); }
     match db::delete(ctx, PRICING_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
@@ -324,7 +324,7 @@ async fn handle_catalog(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_get_product_public(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/ext/products/catalog/").unwrap_or("");
+    let id = path.strip_prefix("/b/products/catalog/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
 
     match db::get(ctx, PRODUCTS_COLLECTION, id).await {
@@ -374,7 +374,7 @@ async fn handle_user_list_products(ctx: &dyn Context, msg: &mut Message) -> Resu
 async fn handle_user_get_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_id = msg.user_id().to_string();
     let path = msg.path();
-    let id = path.strip_prefix("/ext/products/products/").unwrap_or("");
+    let id = path.strip_prefix("/b/products/products/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
 
     match db::get(ctx, PRODUCTS_COLLECTION, id).await {
@@ -430,7 +430,7 @@ async fn handle_user_create_product(ctx: &dyn Context, msg: &mut Message) -> Res
 async fn handle_user_update_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_id = msg.user_id().to_string();
     let path = msg.path();
-    let id = path.strip_prefix("/ext/products/products/").unwrap_or("");
+    let id = path.strip_prefix("/b/products/products/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
 
     // Verify ownership
@@ -460,7 +460,7 @@ async fn handle_user_update_product(ctx: &dyn Context, msg: &mut Message) -> Res
 async fn handle_user_delete_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_id = msg.user_id().to_string();
     let path = msg.path();
-    let id = path.strip_prefix("/ext/products/products/").unwrap_or("");
+    let id = path.strip_prefix("/b/products/products/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
 
     // Verify ownership
@@ -504,7 +504,7 @@ async fn handle_user_list_groups(ctx: &dyn Context, msg: &mut Message) -> Result
 async fn handle_user_get_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_id = msg.user_id().to_string();
     let path = msg.path();
-    let id = path.strip_prefix("/ext/products/groups/").unwrap_or("");
+    let id = path.strip_prefix("/b/products/groups/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
 
     match db::get(ctx, GROUPS_COLLECTION, id).await {
@@ -541,7 +541,7 @@ async fn handle_user_create_group(ctx: &dyn Context, msg: &mut Message) -> Resul
 async fn handle_user_update_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_id = msg.user_id().to_string();
     let path = msg.path();
-    let id = path.strip_prefix("/ext/products/groups/").unwrap_or("");
+    let id = path.strip_prefix("/b/products/groups/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
 
     // Verify ownership
@@ -570,7 +570,7 @@ async fn handle_user_update_group(ctx: &dyn Context, msg: &mut Message) -> Resul
 async fn handle_user_delete_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_id = msg.user_id().to_string();
     let path = msg.path();
-    let id = path.strip_prefix("/ext/products/groups/").unwrap_or("");
+    let id = path.strip_prefix("/b/products/groups/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
 
     // Verify ownership
@@ -594,8 +594,8 @@ async fn handle_user_delete_group(ctx: &dyn Context, msg: &mut Message) -> Resul
 async fn handle_user_group_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_id = msg.user_id().to_string();
     let path = msg.path();
-    // Path: /ext/products/groups/{id}/products
-    let rest = path.strip_prefix("/ext/products/groups/").unwrap_or("");
+    // Path: /b/products/groups/{id}/products
+    let rest = path.strip_prefix("/b/products/groups/").unwrap_or("");
     let group_id = rest.strip_suffix("/products").unwrap_or("");
     if group_id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
 

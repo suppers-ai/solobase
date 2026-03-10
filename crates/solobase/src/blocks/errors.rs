@@ -100,6 +100,64 @@ impl std::fmt::Display for ErrorCode {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_code_status_codes() {
+        // Auth errors -> 401
+        assert_eq!(ErrorCode::InvalidCredentials.status_code(), 401);
+        assert_eq!(ErrorCode::NotAuthenticated.status_code(), 401);
+        assert_eq!(ErrorCode::InvalidToken.status_code(), 401);
+        assert_eq!(ErrorCode::TokenExpired.status_code(), 401);
+
+        // Forbidden -> 403
+        assert_eq!(ErrorCode::Forbidden.status_code(), 403);
+        assert_eq!(ErrorCode::AdminRequired.status_code(), 403);
+        assert_eq!(ErrorCode::AccountDisabled.status_code(), 403);
+
+        // Not found -> 404
+        assert_eq!(ErrorCode::NotFound.status_code(), 404);
+
+        // Conflict -> 409
+        assert_eq!(ErrorCode::EmailAlreadyExists.status_code(), 409);
+        assert_eq!(ErrorCode::Conflict.status_code(), 409);
+
+        // Bad request -> 400
+        assert_eq!(ErrorCode::PasswordTooShort.status_code(), 400);
+        assert_eq!(ErrorCode::PasswordTooLong.status_code(), 400);
+        assert_eq!(ErrorCode::InvalidEmail.status_code(), 400);
+        assert_eq!(ErrorCode::InvalidInput.status_code(), 400);
+
+        // Quota -> 413
+        assert_eq!(ErrorCode::QuotaExceeded.status_code(), 413);
+        assert_eq!(ErrorCode::FileTooLarge.status_code(), 413);
+
+        // Rate limit -> 429
+        assert_eq!(ErrorCode::RateLimitExceeded.status_code(), 429);
+
+        // Server errors -> 500
+        assert_eq!(ErrorCode::InternalError.status_code(), 500);
+        assert_eq!(ErrorCode::DatabaseError.status_code(), 500);
+        assert_eq!(ErrorCode::ConfigurationError.status_code(), 500);
+    }
+
+    #[test]
+    fn test_error_code_as_str() {
+        assert_eq!(ErrorCode::InvalidCredentials.as_str(), "invalid_credentials");
+        assert_eq!(ErrorCode::EmailAlreadyExists.as_str(), "email_already_exists");
+        assert_eq!(ErrorCode::RateLimitExceeded.as_str(), "rate_limit_exceeded");
+        assert_eq!(ErrorCode::QuotaExceeded.as_str(), "quota_exceeded");
+    }
+
+    #[test]
+    fn test_error_code_display() {
+        assert_eq!(format!("{}", ErrorCode::NotFound), "not_found");
+        assert_eq!(format!("{}", ErrorCode::InvalidToken), "invalid_token");
+    }
+}
+
 /// Helper to create a JSON error response with a structured error code.
 pub fn error_response(
     msg: &mut wafer_run::types::Message,

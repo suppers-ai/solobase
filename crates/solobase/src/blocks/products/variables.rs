@@ -65,7 +65,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 pub async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/ext/products/variables/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/products/variables/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing variable ID"); }
 
     let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
@@ -83,7 +83,7 @@ pub async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 pub async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/ext/products/variables/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/products/variables/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing variable ID"); }
     match db::delete(ctx, COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),

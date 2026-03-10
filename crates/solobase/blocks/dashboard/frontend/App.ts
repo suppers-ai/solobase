@@ -141,7 +141,7 @@ function OverviewTab() {
 
 	useEffect(() => {
 		// Fetch current plan from purchases
-		api.get('/ext/products/purchases').then((data: any) => {
+		api.get('/b/products/purchases').then((data: any) => {
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
 			const completed = records.filter((p: any) => p.status === 'completed');
 			if (completed.length > 0) {
@@ -153,7 +153,7 @@ function OverviewTab() {
 		}).catch(() => setPlanName('Free'));
 
 		// Fetch deployments count
-		api.get('/ext/deployments').then((data: any) => {
+		api.get('/b/deployments').then((data: any) => {
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
 			setDeploymentCount(String(records.length));
 		}).catch(() => setDeploymentCount('0'));
@@ -165,7 +165,7 @@ function OverviewTab() {
 		}).catch(() => setApiKeyCount('0'));
 
 		// Fetch products count
-		api.get('/ext/products/products').then((data: any) => {
+		api.get('/b/products/products').then((data: any) => {
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
 			setProductCount(String(records.length));
 		}).catch(() => setProductCount('0'));
@@ -208,7 +208,7 @@ function DeploymentsTab() {
 
 	const fetchDeployments = useCallback(async () => {
 		try {
-			const data: any = await api.get('/ext/deployments');
+			const data: any = await api.get('/b/deployments');
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
 			setDeployments(records);
 		} catch {
@@ -224,7 +224,7 @@ function DeploymentsTab() {
 		if (!newName.trim()) return;
 		setCreating(true);
 		try {
-			await api.post('/ext/deployments', { name: newName.trim() });
+			await api.post('/b/deployments', { name: newName.trim() });
 			toasts.success('Deployment created successfully');
 			setNewName('');
 			setShowCreateForm(false);
@@ -238,7 +238,7 @@ function DeploymentsTab() {
 	async function handleDelete(id: string) {
 		setDeleting(id);
 		try {
-			await api.delete(`/ext/deployments/${id}`);
+			await api.delete(`/b/deployments/${id}`);
 			toasts.success('Deployment deleted');
 			await fetchDeployments();
 		} catch (err: any) {

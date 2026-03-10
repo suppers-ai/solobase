@@ -14,15 +14,15 @@ pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match (action, path) {
         // User-facing cloud storage
-        ("retrieve", "/ext/cloudstorage/shares") => handle_list_shares(ctx, msg).await,
-        ("create", "/ext/cloudstorage/shares") => handle_create_share(ctx, msg).await,
-        ("delete", _) if path.starts_with("/ext/cloudstorage/shares/") => handle_delete_share(ctx, msg).await,
-        ("retrieve", "/ext/cloudstorage/quota") => handle_get_quota(ctx, msg).await,
+        ("retrieve", "/b/cloudstorage/shares") => handle_list_shares(ctx, msg).await,
+        ("create", "/b/cloudstorage/shares") => handle_create_share(ctx, msg).await,
+        ("delete", _) if path.starts_with("/b/cloudstorage/shares/") => handle_delete_share(ctx, msg).await,
+        ("retrieve", "/b/cloudstorage/quota") => handle_get_quota(ctx, msg).await,
         // Admin cloud storage
-        ("retrieve", "/admin/ext/cloudstorage/shares") => handle_admin_list_shares(ctx, msg).await,
-        ("retrieve", "/admin/ext/cloudstorage/access-logs") => handle_access_logs(ctx, msg).await,
-        ("retrieve", "/admin/ext/cloudstorage/quotas") => handle_admin_quotas(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/ext/cloudstorage/quotas/") => handle_update_quota(ctx, msg).await,
+        ("retrieve", "/admin/b/cloudstorage/shares") => handle_admin_list_shares(ctx, msg).await,
+        ("retrieve", "/admin/b/cloudstorage/access-logs") => handle_access_logs(ctx, msg).await,
+        ("retrieve", "/admin/b/cloudstorage/quotas") => handle_admin_quotas(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/b/cloudstorage/quotas/") => handle_update_quota(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
@@ -98,7 +98,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_delete_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/ext/cloudstorage/shares/").unwrap_or("");
+    let id = path.strip_prefix("/b/cloudstorage/shares/").unwrap_or("");
     if id.is_empty() { return err_bad_request(msg, "Missing share ID"); }
 
     // Verify ownership
@@ -175,7 +175,7 @@ async fn handle_admin_quotas(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_update_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let user_id = path.strip_prefix("/admin/ext/cloudstorage/quotas/").unwrap_or("");
+    let user_id = path.strip_prefix("/admin/b/cloudstorage/quotas/").unwrap_or("");
     if user_id.is_empty() { return err_bad_request(msg, "Missing user ID"); }
 
     let body: HashMap<String, serde_json::Value> = match msg.decode() {

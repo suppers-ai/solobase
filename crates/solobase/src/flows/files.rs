@@ -7,8 +7,8 @@ pub const JSON: &str = r#"{
             { "path": "/storage/direct/{token}", "methods": ["GET"] },
             { "path": "/storage",                "path_prefix": true },
             { "path": "/admin/storage",          "path_prefix": true },
-            { "path": "/ext/cloudstorage",       "path_prefix": true },
-            { "path": "/admin/ext/cloudstorage", "path_prefix": true }
+            { "path": "/b/cloudstorage",       "path_prefix": true },
+            { "path": "/admin/b/cloudstorage", "path_prefix": true }
         ]
     },
     "root": {
@@ -23,7 +23,7 @@ pub const JSON: &str = r#"{
                 ]
             },
             {
-                "match": "*:/admin/ext/cloudstorage/**",
+                "match": "*:/admin/b/cloudstorage/**",
                 "flow": "@wafer/admin-pipe",
                 "next": [
                     { "block": "@solobase/files" }
@@ -37,7 +37,7 @@ pub const JSON: &str = r#"{
                 ]
             },
             {
-                "match": "*:/ext/cloudstorage/**",
+                "match": "*:/b/cloudstorage/**",
                 "flow": "@wafer/auth-pipe",
                 "next": [
                     { "block": "@solobase/files" }

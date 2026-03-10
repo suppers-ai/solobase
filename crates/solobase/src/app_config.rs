@@ -123,12 +123,7 @@ impl AppConfig {
     /// Returns true if the feature value means "enabled".
     /// `None` (absent) and `false` mean disabled. Object or `true` means enabled.
     fn is_enabled(val: &Option<Value>) -> bool {
-        match val {
-            None => false,
-            Some(Value::Bool(false)) => false,
-            Some(Value::Null) => false,
-            _ => true,
-        }
+        !matches!(val, None | Some(Value::Bool(false)) | Some(Value::Null))
     }
 
     pub fn auth_enabled(&self) -> bool { Self::is_enabled(&self.auth) }
@@ -187,9 +182,14 @@ impl AppConfig {
 // ---------------------------------------------------------------------------
 
 impl AppConfig {
-    /// Expand this config into the full blocks.json HashMap that WAFER expects.
-    pub fn to_blocks_json(&self) -> Map<String, Value> {
+    /// Expand this config into blocks + aliases that WAFER expects.
+    ///
+    /// Returns `(block_configs, aliases)`. The aliases map canonical names
+    /// like `@db` → `@wafer/database` so feature blocks can use short,
+    /// backend-agnostic names.
+    pub fn to_blocks_json(&self) -> (Map<String, Value>, Vec<(String, String)>) {
         let mut blocks = Map::new();
+        let mut aliases: Vec<(String, String)> = Vec::new();
 
         // -- Infrastructure blocks --
 
@@ -206,17 +206,40 @@ impl AppConfig {
             "web_index": "index.html"
         }));
 
+        // Database — register the specific backend block and alias @db to it
         let db = self.database.as_ref();
-        blocks.insert("@wafer/database".into(), json!({
-            "type": db.map(|d| d.db_type.as_str()).unwrap_or("sqlite"),
+        let db_type = db.map(|d| d.db_type.as_str()).unwrap_or("sqlite");
+        let db_block_name = match db_type {
+            "postgres" | "postgresql" => "solobase/postgres",
+            _ => "solobase/sqlite",
+        };
+        let mut db_config = json!({
             "path": db.map(|d| d.path.as_str()).unwrap_or("data/solobase.db")
-        }));
+        });
+        if let Some(d) = db {
+            if let Some(ref url) = d.url {
+                db_config["url"] = json!(url);
+            }
+        }
+        blocks.insert(db_block_name.into(), db_config);
+        aliases.push(("@db".into(), db_block_name.into()));
+        // Keep @wafer/database as an alias too for backward compatibility
+        aliases.push(("@wafer/database".into(), db_block_name.into()));
 
+        // Storage — register the specific backend block and alias @storage to it
         let storage = self.storage.as_ref();
-        blocks.insert("@wafer/storage".into(), json!({
-            "type": storage.map(|s| s.storage_type.as_str()).unwrap_or("local"),
+        let storage_type = storage.map(|s| s.storage_type.as_str()).unwrap_or("local");
+        let storage_block_name = match storage_type {
+            "s3" => "solobase/s3",
+            _ => "solobase/local-storage",
+        };
+        let storage_config = json!({
             "root": storage.map(|s| s.root.as_str()).unwrap_or("data/storage")
-        }));
+        });
+        blocks.insert(storage_block_name.into(), storage_config);
+        aliases.push(("@storage".into(), storage_block_name.into()));
+        // Keep @wafer/storage as an alias too for backward compatibility
+        aliases.push(("@wafer/storage".into(), storage_block_name.into()));
 
         let jwt = self.jwt_secret.clone().unwrap_or_default();
         blocks.insert("@wafer/crypto".into(), json!({ "jwt_secret": jwt }));
@@ -269,7 +292,7 @@ impl AppConfig {
             ));
         }
 
-        blocks
+        (blocks, aliases)
     }
 }
 
@@ -996,4 +1019,174 @@ mod schemas {
         }
     }
 }"#;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_config(json: &str) -> AppConfig {
+        serde_json::from_str(json).expect("valid JSON config")
+    }
+
+    #[test]
+    fn test_minimal_config() {
+        let config = parse_config("{}");
+        assert!(!config.auth_enabled());
+        assert!(!config.admin_enabled());
+        assert!(!config.files_enabled());
+        assert!(!config.products_enabled());
+        assert!(!config.deployments_enabled());
+        assert!(!config.legalpages_enabled());
+        assert!(!config.userportal_enabled());
+    }
+
+    #[test]
+    fn test_features_enabled_with_empty_object() {
+        let config = parse_config(r#"{"auth": {}, "admin": {}, "files": {}}"#);
+        assert!(config.auth_enabled());
+        assert!(config.admin_enabled());
+        assert!(config.files_enabled());
+        assert!(!config.products_enabled());
+    }
+
+    #[test]
+    fn test_features_enabled_with_true() {
+        let config = parse_config(r#"{"auth": true, "products": true}"#);
+        assert!(config.auth_enabled());
+        assert!(config.products_enabled());
+        assert!(!config.files_enabled());
+    }
+
+    #[test]
+    fn test_features_disabled_with_false() {
+        let config = parse_config(r#"{"auth": false, "admin": false}"#);
+        assert!(!config.auth_enabled());
+        assert!(!config.admin_enabled());
+    }
+
+    #[test]
+    fn test_features_disabled_with_null() {
+        let config = parse_config(r#"{"auth": null}"#);
+        assert!(!config.auth_enabled());
+    }
+
+    #[test]
+    fn test_features_enabled_with_config_object() {
+        let config = parse_config(r#"{"auth": {"enable_signup": true}}"#);
+        assert!(config.auth_enabled());
+    }
+
+    #[test]
+    fn test_enabled_features_list() {
+        let config = parse_config(r#"{"auth": {}, "files": {}, "legalpages": {}}"#);
+        let features = config.enabled_features();
+        assert!(features.contains(&"system")); // always present
+        assert!(features.contains(&"profile")); // always present
+        assert!(features.contains(&"auth"));
+        assert!(features.contains(&"files"));
+        assert!(features.contains(&"legalpages"));
+        assert!(!features.contains(&"products"));
+        assert!(!features.contains(&"admin"));
+    }
+
+    #[test]
+    fn test_disabled_features_list() {
+        let config = parse_config(r#"{"auth": {}, "files": {}}"#);
+        let disabled = config.disabled_features();
+        assert!(!disabled.contains(&"auth"));
+        assert!(!disabled.contains(&"files"));
+        assert!(disabled.contains(&"admin"));
+        assert!(disabled.contains(&"products"));
+        assert!(disabled.contains(&"deployments"));
+    }
+
+    #[test]
+    fn test_database_config_defaults() {
+        let config = parse_config("{}");
+        assert!(config.database.is_none());
+
+        let config = parse_config(r#"{"database": {}}"#);
+        let db = config.database.unwrap();
+        assert_eq!(db.db_type, "sqlite");
+        assert_eq!(db.path, "data/solobase.db");
+        assert!(db.url.is_none());
+    }
+
+    #[test]
+    fn test_database_config_custom() {
+        let config = parse_config(r#"{"database": {"type": "postgres", "url": "postgres://localhost/db"}}"#);
+        let db = config.database.unwrap();
+        assert_eq!(db.db_type, "postgres");
+        assert_eq!(db.url.unwrap(), "postgres://localhost/db");
+    }
+
+    #[test]
+    fn test_storage_config_defaults() {
+        let config = parse_config(r#"{"storage": {}}"#);
+        let storage = config.storage.unwrap();
+        assert_eq!(storage.storage_type, "local");
+        assert_eq!(storage.root, "data/storage");
+    }
+
+    #[test]
+    fn test_full_config() {
+        let config = parse_config(r#"{
+            "version": 1,
+            "app": "my-store",
+            "listen": "127.0.0.1:3000",
+            "database": {"type": "sqlite", "path": "my.db"},
+            "storage": {"type": "local", "root": "/data"},
+            "jwt_secret": "test-secret",
+            "web_root": "./dist",
+            "auth": {},
+            "admin": {},
+            "files": {},
+            "products": {},
+            "legalpages": {}
+        }"#);
+
+        assert_eq!(config.version, 1);
+        assert_eq!(config.app.as_deref().unwrap(), "my-store");
+        assert_eq!(config.listen.as_deref().unwrap(), "127.0.0.1:3000");
+        assert_eq!(config.jwt_secret.as_deref().unwrap(), "test-secret");
+        assert_eq!(config.web_root.as_deref().unwrap(), "./dist");
+        assert!(config.auth_enabled());
+        assert!(config.admin_enabled());
+        assert!(config.files_enabled());
+        assert!(config.products_enabled());
+        assert!(!config.deployments_enabled());
+        assert!(config.legalpages_enabled());
+        assert!(!config.userportal_enabled());
+    }
+
+    #[test]
+    fn test_to_blocks_json_produces_valid_output() {
+        let config = parse_config(r#"{"auth": {}, "admin": {}}"#);
+        let (blocks, aliases) = config.to_blocks_json();
+
+        // Should have infrastructure blocks
+        assert!(blocks.contains_key("@wafer/http-listener"));
+
+        // Should contain the specific backend blocks (defaults: sqlite + local-storage)
+        assert!(blocks.contains_key("solobase/sqlite"));
+        assert!(blocks.contains_key("solobase/local-storage"));
+
+        // Should contain the solobase feature blocks
+        assert!(blocks.contains_key("@solobase/auth"));
+        assert!(blocks.contains_key("@solobase/admin"));
+
+        // Should have @db and @storage aliases pointing to specific backends
+        assert!(aliases.iter().any(|(a, t)| a == "@db" && t == "solobase/sqlite"));
+        assert!(aliases.iter().any(|(a, t)| a == "@storage" && t == "solobase/local-storage"));
+        // Backward-compat aliases
+        assert!(aliases.iter().any(|(a, t)| a == "@wafer/database" && t == "solobase/sqlite"));
+        assert!(aliases.iter().any(|(a, t)| a == "@wafer/storage" && t == "solobase/local-storage"));
+    }
+
+    #[test]
+    fn test_default_version_is_zero() {
+        let config = parse_config("{}");
+        assert_eq!(config.version, 0);
+    }
 }

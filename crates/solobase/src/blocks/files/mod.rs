@@ -14,6 +14,12 @@ pub struct FilesBlock {
     limiter: UserRateLimiter,
 }
 
+impl Default for FilesBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FilesBlock {
     pub fn new() -> Self {
         Self { limiter: UserRateLimiter::new() }
@@ -66,7 +72,7 @@ impl Block for FilesBlock {
         }
 
         // Cloud storage routes
-        if path.starts_with("/ext/cloudstorage") || path.starts_with("/admin/ext/cloudstorage") {
+        if path.starts_with("/b/cloudstorage") || path.starts_with("/admin/b/cloudstorage") {
             return cloud::handle(ctx, msg).await;
         }
 

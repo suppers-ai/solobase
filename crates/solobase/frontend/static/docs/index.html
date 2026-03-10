@@ -246,6 +246,7 @@
     <h4>Configuration</h4>
     <a href="#config-env">Environment Variables</a>
     <a href="#config-blocks-json">blocks.json</a>
+    <a href="#config-aliases">Aliases</a>
     <a href="#config-features">Feature Flags</a>
 
     <h4>API Reference</h4>
@@ -513,7 +514,7 @@ curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http:/
 <h2 id="storage-sharing">Sharing</h2>
 <p>Create direct share links with optional expiry and access limits. Share links are publicly accessible without authentication.</p>
 <pre><code><span class="comment"># Create a share link</span>
-curl -X POST http://localhost:8090/ext/cloudstorage/shares \
+curl -X POST http://localhost:8090/b/cloudstorage/shares \
   -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
   -H <span class="string">"Content-Type: application/json"</span> \
   -d <span class="string">'{
@@ -529,21 +530,21 @@ curl -X POST http://localhost:8090/ext/cloudstorage/shares \
 curl http://localhost:8090/storage/direct/&lt;token&gt;
 
 <span class="comment"># List your shares</span>
-curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/ext/cloudstorage/shares
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/b/cloudstorage/shares
 
 <span class="comment"># Delete a share</span>
-curl -X DELETE http://localhost:8090/ext/cloudstorage/shares/{id} \
+curl -X DELETE http://localhost:8090/b/cloudstorage/shares/{id} \
   -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span></code></pre>
 
 <h2 id="storage-quotas">Quotas</h2>
 <p>Storage quotas control per-user storage limits. Default is 5 GB storage and 10 GB bandwidth.</p>
 <pre><code><span class="comment"># Check your quota and usage</span>
-curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/ext/cloudstorage/quota
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/b/cloudstorage/quota
 
 <span class="comment"># Admin: manage quotas</span>
-curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> http://localhost:8090/admin/ext/cloudstorage/quotas
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> http://localhost:8090/admin/b/cloudstorage/quotas
 
-curl -X PUT http://localhost:8090/admin/ext/cloudstorage/quotas/{user_id} \
+curl -X PUT http://localhost:8090/admin/b/cloudstorage/quotas/{user_id} \
   -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
   -H <span class="string">"Content-Type: application/json"</span> \
   -d <span class="string">'{"max_storage_bytes": 10737418240}'</span></code></pre>
@@ -556,13 +557,13 @@ curl -X PUT http://localhost:8090/admin/ext/cloudstorage/quotas/{user_id} \
 
 <h2 id="products-catalog">Product Catalog</h2>
 <pre><code><span class="comment"># Browse the public catalog (active products only)</span>
-curl http://localhost:8090/ext/products/catalog?page=1&amp;page_size=20
+curl http://localhost:8090/b/products/catalog?page=1&amp;page_size=20
 
 <span class="comment"># Get a specific product</span>
-curl http://localhost:8090/ext/products/catalog/{product_id}
+curl http://localhost:8090/b/products/catalog/{product_id}
 
 <span class="comment"># Admin: create a product</span>
-curl -X POST http://localhost:8090/admin/ext/products/products \
+curl -X POST http://localhost:8090/admin/b/products/products \
   -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
   -H <span class="string">"Content-Type: application/json"</span> \
   -d <span class="string">'{
@@ -574,7 +575,7 @@ curl -X POST http://localhost:8090/admin/ext/products/products \
   }'</span>
 
 <span class="comment"># Admin: manage groups</span>
-curl -X POST http://localhost:8090/admin/ext/products/groups \
+curl -X POST http://localhost:8090/admin/b/products/groups \
   -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
   -H <span class="string">"Content-Type: application/json"</span> \
   -d <span class="string">'{"name": "SaaS Plans"}'</span></code></pre>
@@ -582,7 +583,7 @@ curl -X POST http://localhost:8090/admin/ext/products/groups \
 <h2 id="products-pricing">Pricing Templates</h2>
 <p>Pricing templates use formula expressions with variables. Define variables that users provide, then write a formula to calculate the price.</p>
 <pre><code><span class="comment"># Create a pricing template</span>
-curl -X POST http://localhost:8090/admin/ext/products/pricing \
+curl -X POST http://localhost:8090/admin/b/products/pricing \
   -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
   -H <span class="string">"Content-Type: application/json"</span> \
   -d <span class="string">'{
@@ -597,18 +598,18 @@ curl -X POST http://localhost:8090/admin/ext/products/pricing \
   }'</span>
 
 <span class="comment"># Calculate a price</span>
-curl -X POST http://localhost:8090/ext/products/calculate-price \
+curl -X POST http://localhost:8090/b/products/calculate-price \
   -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
   -H <span class="string">"Content-Type: application/json"</span> \
   -d <span class="string">'{"template_id": "1", "variables": {"seats": 5, "price_per_seat": 15, "discount": 10}}'</span>
 
 <span class="comment"># Manage variables (reusable across templates)</span>
-curl http://localhost:8090/admin/ext/products/variables \
+curl http://localhost:8090/admin/b/products/variables \
   -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span></code></pre>
 
 <h2 id="products-purchases">Purchases</h2>
 <pre><code><span class="comment"># Create a purchase</span>
-curl -X POST http://localhost:8090/ext/products/purchases \
+curl -X POST http://localhost:8090/b/products/purchases \
   -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
   -H <span class="string">"Content-Type: application/json"</span> \
   -d <span class="string">'{
@@ -619,17 +620,17 @@ curl -X POST http://localhost:8090/ext/products/purchases \
   }'</span>
 
 <span class="comment"># List your purchases</span>
-curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/ext/products/purchases
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/b/products/purchases
 
 <span class="comment"># Get purchase details</span>
-curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/ext/products/purchases/{id}
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/b/products/purchases/{id}
 
 <span class="comment"># Admin: list all purchases (filterable by status, user_id)</span>
 curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
-  <span class="string">"http://localhost:8090/admin/ext/products/purchases?status=completed"</span>
+  <span class="string">"http://localhost:8090/admin/b/products/purchases?status=completed"</span>
 
 <span class="comment"># Admin: refund a purchase</span>
-curl -X PUT http://localhost:8090/admin/ext/products/purchases/{id}/refund \
+curl -X PUT http://localhost:8090/admin/b/products/purchases/{id}/refund \
   -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
   -H <span class="string">"Content-Type: application/json"</span> \
   -d <span class="string">'{"reason": "Customer request"}'</span></code></pre>
@@ -639,7 +640,7 @@ curl -X PUT http://localhost:8090/admin/ext/products/purchases/{id}/refund \
 <pre><code>export STRIPE_SECRET_KEY=<span class="string">"sk_live_..."</span>
 export STRIPE_WEBHOOK_SECRET=<span class="string">"whsec_..."</span></code></pre>
 <pre><code><span class="comment"># Create a Stripe checkout session</span>
-curl -X POST http://localhost:8090/ext/products/checkout \
+curl -X POST http://localhost:8090/b/products/checkout \
   -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
   -H <span class="string">"Content-Type: application/json"</span> \
   -d <span class="string">'{
@@ -649,7 +650,7 @@ curl -X POST http://localhost:8090/ext/products/checkout \
   }'</span>
 
 <span class="comment"># Webhook (configure in Stripe dashboard pointing to this URL)</span>
-<span class="comment"># POST /ext/products/webhooks (no auth required, verified via signature)</span></code></pre>
+<span class="comment"># POST /b/products/webhooks (no auth required, verified via signature)</span></code></pre>
 
 <!-- ====================================================================== -->
 <h1 id="admin-panel" style="margin-top:3rem">Admin Panel</h1>
@@ -900,6 +901,23 @@ curl -X POST http://localhost:8090/admin/settings \
 }</code></pre>
 <p>Values support <code>${ENV_VAR}</code> substitution for secrets.</p>
 
+<h2 id="config-aliases">Aliases</h2>
+<p>Aliases let you swap block backends without changing feature block code. Define them in <code>blocks.json</code> under the <code>"aliases"</code> key:</p>
+<pre><code>{
+  <span class="comment">// Aliases — feature blocks call @db and @storage</span>
+  <span class="string">"aliases"</span>: {
+    <span class="string">"@db"</span>: <span class="string">"@wafer/database"</span>,
+    <span class="string">"@storage"</span>: <span class="string">"@wafer/storage"</span>
+  },
+
+  <span class="comment">// The actual backend block</span>
+  <span class="string">"@wafer/database"</span>: {
+    <span class="string">"type"</span>: <span class="string">"sqlite"</span>,
+    <span class="string">"path"</span>: <span class="string">"data/solobase.db"</span>
+  }
+}</code></pre>
+<p>When using <code>app.json</code>, aliases are set up automatically based on your <code>database</code> and <code>storage</code> config. Aliases work for both blocks and flows — any <code>call_block()</code> or flow reference resolves through the alias map.</p>
+
 <h2 id="config-features">Feature Flags</h2>
 <p>Disable features you don't need. For example, to run a minimal auth-only instance:</p>
 <pre><code>FEATURE_PRODUCTS=false \
@@ -938,47 +956,47 @@ JWT_SECRET=my-secret \
 <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/storage/search?q=</span><span class="endpoint-desc">Search objects</span></div>
 <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/storage/recent</span><span class="endpoint-desc">Recently viewed objects</span></div>
 <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/storage/direct/:token</span><span class="endpoint-desc">Access shared file (public)</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/ext/cloudstorage/shares</span><span class="endpoint-desc">List your shares</span></div>
-<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/ext/cloudstorage/shares</span><span class="endpoint-desc">Create share link</span></div>
-<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/ext/cloudstorage/shares/:id</span><span class="endpoint-desc">Delete share</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/ext/cloudstorage/quota</span><span class="endpoint-desc">Get your quota/usage</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/cloudstorage/shares</span><span class="endpoint-desc">List your shares</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/b/cloudstorage/shares</span><span class="endpoint-desc">Create share link</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/b/cloudstorage/shares/:id</span><span class="endpoint-desc">Delete share</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/cloudstorage/quota</span><span class="endpoint-desc">Get your quota/usage</span></div>
 
 <h2 id="api-products">Product Endpoints</h2>
 <h3>Public / User</h3>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/ext/products/catalog</span><span class="endpoint-desc">Browse active products</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/ext/products/catalog/:id</span><span class="endpoint-desc">Get product details</span></div>
-<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/ext/products/calculate-price</span><span class="endpoint-desc">Calculate price from formula</span></div>
-<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/ext/products/purchases</span><span class="endpoint-desc">Create purchase</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/ext/products/purchases</span><span class="endpoint-desc">List your purchases</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/ext/products/purchases/:id</span><span class="endpoint-desc">Get purchase details</span></div>
-<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/ext/products/checkout</span><span class="endpoint-desc">Create Stripe checkout</span></div>
-<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/ext/products/webhooks</span><span class="endpoint-desc">Stripe webhook (public)</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/products/catalog</span><span class="endpoint-desc">Browse active products</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/products/catalog/:id</span><span class="endpoint-desc">Get product details</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/b/products/calculate-price</span><span class="endpoint-desc">Calculate price from formula</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/b/products/purchases</span><span class="endpoint-desc">Create purchase</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/products/purchases</span><span class="endpoint-desc">List your purchases</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/products/purchases/:id</span><span class="endpoint-desc">Get purchase details</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/b/products/checkout</span><span class="endpoint-desc">Create Stripe checkout</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/b/products/webhooks</span><span class="endpoint-desc">Stripe webhook (public)</span></div>
 
 <h3>Admin</h3>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/ext/products/products</span><span class="endpoint-desc">List all products</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/ext/products/products/:id</span><span class="endpoint-desc">Get product</span></div>
-<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/ext/products/products</span><span class="endpoint-desc">Create product</span></div>
-<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/ext/products/products/:id</span><span class="endpoint-desc">Update product</span></div>
-<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/ext/products/products/:id</span><span class="endpoint-desc">Delete product</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/ext/products/groups</span><span class="endpoint-desc">List groups</span></div>
-<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/ext/products/groups</span><span class="endpoint-desc">Create group</span></div>
-<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/ext/products/groups/:id</span><span class="endpoint-desc">Update group</span></div>
-<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/ext/products/groups/:id</span><span class="endpoint-desc">Delete group</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/ext/products/types</span><span class="endpoint-desc">List product types</span></div>
-<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/ext/products/types</span><span class="endpoint-desc">Create type</span></div>
-<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/ext/products/types/:id</span><span class="endpoint-desc">Delete type</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/ext/products/pricing</span><span class="endpoint-desc">List pricing templates</span></div>
-<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/ext/products/pricing</span><span class="endpoint-desc">Create pricing template</span></div>
-<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/ext/products/pricing/:id</span><span class="endpoint-desc">Update pricing template</span></div>
-<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/ext/products/pricing/:id</span><span class="endpoint-desc">Delete pricing template</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/ext/products/variables</span><span class="endpoint-desc">List variables</span></div>
-<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/ext/products/variables</span><span class="endpoint-desc">Create variable</span></div>
-<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/ext/products/variables/:id</span><span class="endpoint-desc">Update variable</span></div>
-<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/ext/products/variables/:id</span><span class="endpoint-desc">Delete variable</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/ext/products/purchases</span><span class="endpoint-desc">List all purchases</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/ext/products/purchases/:id</span><span class="endpoint-desc">Get purchase</span></div>
-<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/ext/products/purchases/:id/refund</span><span class="endpoint-desc">Refund purchase</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/ext/products/stats</span><span class="endpoint-desc">Product stats (counts, revenue)</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/products</span><span class="endpoint-desc">List all products</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/products/:id</span><span class="endpoint-desc">Get product</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/b/products/products</span><span class="endpoint-desc">Create product</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/b/products/products/:id</span><span class="endpoint-desc">Update product</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/b/products/products/:id</span><span class="endpoint-desc">Delete product</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/groups</span><span class="endpoint-desc">List groups</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/b/products/groups</span><span class="endpoint-desc">Create group</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/b/products/groups/:id</span><span class="endpoint-desc">Update group</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/b/products/groups/:id</span><span class="endpoint-desc">Delete group</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/types</span><span class="endpoint-desc">List product types</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/b/products/types</span><span class="endpoint-desc">Create type</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/b/products/types/:id</span><span class="endpoint-desc">Delete type</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/pricing</span><span class="endpoint-desc">List pricing templates</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/b/products/pricing</span><span class="endpoint-desc">Create pricing template</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/b/products/pricing/:id</span><span class="endpoint-desc">Update pricing template</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/b/products/pricing/:id</span><span class="endpoint-desc">Delete pricing template</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/variables</span><span class="endpoint-desc">List variables</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/b/products/variables</span><span class="endpoint-desc">Create variable</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/b/products/variables/:id</span><span class="endpoint-desc">Update variable</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/b/products/variables/:id</span><span class="endpoint-desc">Delete variable</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/purchases</span><span class="endpoint-desc">List all purchases</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/purchases/:id</span><span class="endpoint-desc">Get purchase</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/b/products/purchases/:id/refund</span><span class="endpoint-desc">Refund purchase</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/stats</span><span class="endpoint-desc">Product stats (counts, revenue)</span></div>
 
 <h2 id="api-admin">Admin Endpoints</h2>
 
@@ -1023,17 +1041,17 @@ JWT_SECRET=my-secret \
 <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/settings</span><span class="endpoint-desc">Batch update settings</span></div>
 <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/storage/buckets</span><span class="endpoint-desc">List buckets (admin view)</span></div>
 <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/storage/stats</span><span class="endpoint-desc">Storage stats</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/ext/cloudstorage/shares</span><span class="endpoint-desc">All shares</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/ext/cloudstorage/access-logs</span><span class="endpoint-desc">Share access logs</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/ext/cloudstorage/quotas</span><span class="endpoint-desc">All user quotas</span></div>
-<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/ext/cloudstorage/quotas/:user_id</span><span class="endpoint-desc">Update user quota</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/cloudstorage/shares</span><span class="endpoint-desc">All shares</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/cloudstorage/access-logs</span><span class="endpoint-desc">Share access logs</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/cloudstorage/quotas</span><span class="endpoint-desc">All user quotas</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/b/cloudstorage/quotas/:user_id</span><span class="endpoint-desc">Update user quota</span></div>
 <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/wafer</span><span class="endpoint-desc">WAFER runtime info (blocks, flows)</span></div>
 
 <h2 id="api-system">System Endpoints</h2>
 <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/health</span><span class="endpoint-desc">Health check (public)</span></div>
 <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/debug/time</span><span class="endpoint-desc">Server time (UTC, Unix)</span></div>
 <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/nav</span><span class="endpoint-desc">Admin navigation items</span></div>
-<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/ext/userportal/config</span><span class="endpoint-desc">Frontend branding/feature config</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/userportal/config</span><span class="endpoint-desc">Frontend branding/feature config</span></div>
 <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/profile/sections</span><span class="endpoint-desc">Profile sections</span></div>
 
 <div style="margin-top:3rem;padding:2rem 0;border-top:1px solid var(--border);color:var(--text-secondary);font-size:0.85rem;text-align:center">

@@ -12,7 +12,7 @@ function OverviewTab() {
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
-		api.get('/admin/ext/products/stats').then((data: any) => {
+		api.get('/admin/b/products/stats').then((data: any) => {
 			setStats(data);
 			setLoading(false);
 		}).catch(() => setLoading(false));

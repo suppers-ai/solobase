@@ -23,8 +23,8 @@ export function ProductsTab() {
 		setLoading(true);
 		try {
 			const [prodData, groupData] = await Promise.all([
-				api.get('/admin/ext/products/products').catch(() => ({})),
-				api.get('/admin/ext/products/groups').catch(() => ({})),
+				api.get('/admin/b/products/products').catch(() => ({})),
+				api.get('/admin/b/products/groups').catch(() => ({})),
 			]);
 			setProducts(Array.isArray(prodData?.records) ? prodData.records : Array.isArray(prodData) ? prodData : []);
 			setGroups(Array.isArray(groupData?.records) ? groupData.records : Array.isArray(groupData) ? groupData : []);
@@ -39,10 +39,10 @@ export function ProductsTab() {
 		setSaving(true);
 		try {
 			if (editing.id) {
-				await api.put(`/admin/ext/products/products/${editing.id}`, editing);
+				await api.put(`/admin/b/products/products/${editing.id}`, editing);
 				toasts.success('Product updated');
 			} else {
-				await api.post('/admin/ext/products/products', editing);
+				await api.post('/admin/b/products/products', editing);
 				toasts.success('Product created');
 			}
 			setShowModal(false);
@@ -57,7 +57,7 @@ export function ProductsTab() {
 	async function handleDelete() {
 		if (!toDelete) return;
 		try {
-			await api.delete(`/admin/ext/products/products/${toDelete.id}`);
+			await api.delete(`/admin/b/products/products/${toDelete.id}`);
 			toasts.success('Product deleted');
 			setShowDelete(false);
 			setToDelete(null);

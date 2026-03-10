@@ -11,7 +11,7 @@ function DashboardTab() {
 			api.get('/admin/users?page=1&pageSize=1').catch(() => ({ total: 0 })),
 			api.getStorageBuckets().catch(() => ({ data: [] })),
 			api.getExtensions().catch(() => ({ data: [] })),
-			api.get('/admin/ext/products/stats').catch(() => ({})),
+			api.get('/admin/b/products/stats').catch(() => ({})),
 		]).then(([usersRes, storageRes, extRes, productStats]) => {
 			setStats({
 				users: (usersRes as any)?.total || (usersRes as any)?.records?.length || 0,

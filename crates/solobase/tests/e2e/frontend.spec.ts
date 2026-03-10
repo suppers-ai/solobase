@@ -282,9 +282,9 @@ test.describe('API Keys', () => {
 // Products catalog (user-level)
 // ---------------------------------------------------------------------------
 test.describe('Products', () => {
-  test('GET /ext/products/catalog returns product list', async ({ request }) => {
+  test('GET /b/products/catalog returns product list', async ({ request }) => {
     const { token } = await signupUser(request);
-    const res = await request.get('/ext/products/catalog', {
+    const res = await request.get('/b/products/catalog', {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.ok()).toBeTruthy();

@@ -4,24 +4,24 @@ pub const JSON: &str = r#"{
     "config": { "on_error": "stop" },
     "http": {
         "routes": [
-            { "path": "/ext/products/webhooks", "methods": ["POST"] },
-            { "path": "/ext/products",          "path_prefix": true },
-            { "path": "/admin/ext/products",    "path_prefix": true }
+            { "path": "/b/products/webhooks", "methods": ["POST"] },
+            { "path": "/b/products",          "path_prefix": true },
+            { "path": "/admin/b/products",    "path_prefix": true }
         ]
     },
     "root": {
         "flow": "@wafer/infra",
         "next": [
-            { "match": "POST:/ext/products/webhooks", "block": "@solobase/products" },
+            { "match": "POST:/b/products/webhooks", "block": "@solobase/products" },
             {
-                "match": "*:/admin/ext/products/**",
+                "match": "*:/admin/b/products/**",
                 "flow": "@wafer/admin-pipe",
                 "next": [
                     { "block": "@solobase/products" }
                 ]
             },
             {
-                "match": "*:/ext/products/**",
+                "match": "*:/b/products/**",
                 "flow": "@wafer/auth-pipe",
                 "next": [
                     { "block": "@solobase/products" }

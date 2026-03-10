@@ -52,10 +52,10 @@ pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/admin/ext/deployments") => handle_admin_list(ctx, msg).await,
-        ("retrieve", "/admin/ext/deployments/stats") => handle_admin_stats(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/admin/ext/deployments/") => handle_admin_get(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/ext/deployments/") => handle_admin_update(ctx, msg).await,
+        ("retrieve", "/admin/b/deployments") => handle_admin_list(ctx, msg).await,
+        ("retrieve", "/admin/b/deployments/stats") => handle_admin_stats(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/admin/b/deployments/") => handle_admin_get(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/b/deployments/") => handle_admin_update(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
@@ -65,11 +65,11 @@ pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/ext/deployments") => handle_list(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/ext/deployments/") => handle_get(ctx, msg).await,
-        ("create", "/ext/deployments") => handle_create(ctx, msg).await,
-        ("update", _) if path.starts_with("/ext/deployments/") => handle_update(ctx, msg).await,
-        ("delete", _) if path.starts_with("/ext/deployments/") => handle_delete(ctx, msg).await,
+        ("retrieve", "/b/deployments") => handle_list(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/b/deployments/") => handle_get(ctx, msg).await,
+        ("create", "/b/deployments") => handle_create(ctx, msg).await,
+        ("update", _) if path.starts_with("/b/deployments/") => handle_update(ctx, msg).await,
+        ("delete", _) if path.starts_with("/b/deployments/") => handle_delete(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
@@ -104,7 +104,7 @@ async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     let path = msg.path();
-    let id = path.strip_prefix("/ext/deployments/").unwrap_or("");
+    let id = path.strip_prefix("/b/deployments/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request(msg, "Missing deployment ID");
     }
@@ -226,7 +226,7 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     let path = msg.path();
-    let id = path.strip_prefix("/ext/deployments/").unwrap_or("");
+    let id = path.strip_prefix("/b/deployments/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request(msg, "Missing deployment ID");
     }
@@ -268,7 +268,7 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     let path = msg.path();
-    let id = path.strip_prefix("/ext/deployments/").unwrap_or("");
+    let id = path.strip_prefix("/b/deployments/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request(msg, "Missing deployment ID");
     }
@@ -340,7 +340,7 @@ async fn handle_admin_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_admin_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/ext/deployments/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/deployments/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request(msg, "Missing deployment ID");
     }
@@ -354,7 +354,7 @@ async fn handle_admin_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/ext/deployments/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/deployments/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request(msg, "Missing deployment ID");
     }
