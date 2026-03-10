@@ -49,7 +49,8 @@ const USER_ROLES_COLLECTION: &str = "iam_user_roles";
 mod helpers {
     use super::*;
 
-    /// Create a new user record and assign the default role (admin if first user, else "user").
+    /// Create a new user record and assign the default role.
+    /// Admin role is granted only if the user's email matches the configured ADMIN_EMAIL.
     pub(super) async fn create_user_and_assign_role(
         ctx: &dyn Context,
         data: HashMap<String, serde_json::Value>,
@@ -57,8 +58,13 @@ mod helpers {
         let user = db::create(ctx, USERS_COLLECTION, data).await
             .map_err(|e| format!("Failed to create user: {e}"))?;
 
-        let user_count = db::count(ctx, USERS_COLLECTION, &[]).await.unwrap_or(2);
-        let role = if user_count == 1 { "admin" } else { "user" };
+        let admin_email = config::get_default(ctx, "ADMIN_EMAIL", "").await;
+        let user_email = user.data.get("email").and_then(|v| v.as_str()).unwrap_or("");
+        let role = if !admin_email.is_empty() && user_email.eq_ignore_ascii_case(&admin_email) {
+            "admin"
+        } else {
+            "user"
+        };
 
         let role_data = json_map(serde_json::json!({
             "user_id": user.id,

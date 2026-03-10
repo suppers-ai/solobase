@@ -1,6 +1,5 @@
 import { html, login, authState, checkAuth, isAuthenticated, authLoading } from '@solobase/ui';
 import { useState, useEffect } from 'preact/hooks';
-import { Lock } from 'lucide-preact';
 
 function LoginForm() {
 	const [email, setEmail] = useState('');
@@ -23,10 +22,7 @@ function LoginForm() {
 		<div style=${{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-secondary, #f8fafc)' }}>
 			<div style=${{ width: '100%', maxWidth: '400px', padding: '2rem' }}>
 				<div style=${{ textAlign: 'center', marginBottom: '2rem' }}>
-					<div style=${{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '56px', height: '56px', borderRadius: '14px', background: 'var(--primary-color, #189AB4)', color: 'white', marginBottom: '1rem' }}>
-						<${Lock} size=${28} />
-					</div>
-					<h1 style=${{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary, #1e293b)' }}>Solobase Admin</h1>
+					<img src="/images/logo_long.png" alt="Solobase" style=${{ height: '40px', width: 'auto', marginBottom: '1rem' }} />
 					<p style=${{ fontSize: '0.875rem', color: 'var(--text-secondary, #64748b)', marginTop: '0.25rem' }}>Sign in to your account</p>
 				</div>
 

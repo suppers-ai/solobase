@@ -580,6 +580,8 @@
                             "variables": { "type": "json", "optional": true },
                             "pricing_formula": { "type": "text", "optional": true },
                             "active": { "type": "bool", "default": true },
+                            "status": { "type": "string", "default": "draft" },
+                            "created_by": { "type": "string", "optional": true },
                             "created_at": { "type": "datetime", "auto": true },
                             "updated_at": { "type": "datetime", "auto": true }
                         },
@@ -587,6 +589,8 @@
                             { "fields": ["group_id"] },
                             { "fields": ["product_template_id"] },
                             { "fields": ["active"] },
+                            { "fields": ["status"] },
+                            { "fields": ["created_by"] },
                             { "fields": ["filter_numeric_1"] },
                             { "fields": ["filter_numeric_2"] },
                             { "fields": ["filter_text_1"] },

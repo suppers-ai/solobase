@@ -1,171 +1,69 @@
-import { html, FeatureShell, PageHeader, TabNavigation, DataTable, SearchInput, Button, Modal, LoadingSpinner, api } from '@solobase/ui';
+import { html, FeatureShell, TabNavigation, StatCard, PageHeader, LoadingSpinner, api } from '@solobase/ui';
 import { useState, useEffect } from 'preact/hooks';
-import { ShoppingBag, Tag, DollarSign, Package, Plus, CreditCard } from 'lucide-preact';
+import { ShoppingBag, Layers, DollarSign, Variable, Receipt, BarChart3, Package, CreditCard } from 'lucide-preact';
+import { ProductsTab } from './tabs/ProductsTab';
+import { GroupsTab } from './tabs/GroupsTab';
+import { PricingTab } from './tabs/PricingTab';
+import { VariablesTab } from './tabs/VariablesTab';
+import { PurchasesTab } from './tabs/PurchasesTab';
 
-function ProductsTab() {
-	const [products, setProducts] = useState<any[]>([]);
+function OverviewTab() {
+	const [stats, setStats] = useState<any>(null);
 	const [loading, setLoading] = useState(true);
-	const [search, setSearch] = useState('');
 
 	useEffect(() => {
-		api.get('/admin/ext/products/products').then((data: any) => {
-			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
-			setProducts(records);
+		api.get('/admin/ext/products/stats').then((data: any) => {
+			setStats(data);
 			setLoading(false);
 		}).catch(() => setLoading(false));
 	}, []);
 
-	const filtered = search
-		? products.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()))
-		: products;
+	if (loading) return html`<${LoadingSpinner} message="Loading stats..." />`;
 
-	const columns = [
-		{ key: 'name', label: 'Product', sortable: true },
-		{ key: 'type', label: 'Type', sortable: true },
-		{ key: 'status', label: 'Status', render: (v: string) => html`
-			<span style=${{
-				fontSize: '0.75rem',
-				padding: '0.125rem 0.5rem',
-				borderRadius: '9999px',
-				background: v === 'active' ? '#dcfce7' : '#f3f4f6',
-				color: v === 'active' ? '#166534' : '#6b7280'
-			}}>${v || 'draft'}</span>
-		` },
-		{ key: 'created_at', label: 'Created', sortable: true, render: (v: string) => v ? new Date(v).toLocaleDateString() : '-' },
-	];
-
-	if (loading) return html`<${LoadingSpinner} message="Loading products..." />`;
+	const revenue = typeof stats?.total_revenue === 'number' ? `$${stats.total_revenue.toFixed(2)}` : '$0.00';
 
 	return html`
 		<div>
-			<${PageHeader} title="Products" description="Manage your product catalog" />
-			<${SearchInput} value=${search} onChange=${setSearch} placeholder="Search products..." />
-			<${DataTable} columns=${columns} data=${filtered} emptyMessage="No products yet" />
-		</div>
-	`;
-}
-
-function PricingTab() {
-	const [templates, setTemplates] = useState<any[]>([]);
-	const [loading, setLoading] = useState(true);
-
-	useEffect(() => {
-		api.get('/admin/ext/products/pricing').then((data: any) => {
-			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
-			setTemplates(records);
-			setLoading(false);
-		}).catch(() => setLoading(false));
-	}, []);
-
-	const columns = [
-		{ key: 'name', label: 'Template Name', sortable: true },
-		{ key: 'formula', label: 'Formula' },
-		{ key: 'created_at', label: 'Created', sortable: true, render: (v: string) => v ? new Date(v).toLocaleDateString() : '-' },
-	];
-
-	if (loading) return html`<${LoadingSpinner} message="Loading pricing templates..." />`;
-
-	return html`
-		<div>
-			<${PageHeader} title="Pricing Templates" description="Define pricing formulas and variables" />
-			<${DataTable} columns=${columns} data=${templates} emptyMessage="No pricing templates defined" />
-		</div>
-	`;
-}
-
-function PurchasesTab() {
-	const [purchases, setPurchases] = useState<any[]>([]);
-	const [loading, setLoading] = useState(true);
-
-	useEffect(() => {
-		api.get('/admin/ext/products/purchases').then((data: any) => {
-			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
-			setPurchases(records);
-			setLoading(false);
-		}).catch(() => setLoading(false));
-	}, []);
-
-	const columns = [
-		{ key: 'id', label: 'Order ID', width: '120px' },
-		{ key: 'user_id', label: 'User' },
-		{ key: 'status', label: 'Status', render: (v: string) => html`
-			<span style=${{
-				fontSize: '0.75rem',
-				padding: '0.125rem 0.5rem',
-				borderRadius: '9999px',
-				background: v === 'completed' ? '#dcfce7' : v === 'pending' ? '#fefce8' : '#f3f4f6',
-				color: v === 'completed' ? '#166534' : v === 'pending' ? '#854d0e' : '#6b7280'
-			}}>${v || 'unknown'}</span>
-		` },
-		{ key: 'total', label: 'Total', render: (v: any) => v != null ? `$${Number(v).toFixed(2)}` : '-' },
-		{ key: 'created_at', label: 'Date', sortable: true, render: (v: string) => v ? new Date(v).toLocaleDateString() : '-' },
-	];
-
-	if (loading) return html`<${LoadingSpinner} message="Loading purchases..." />`;
-
-	return html`
-		<div>
-			<${PageHeader} title="Purchases" description="View and manage orders" />
-			<${DataTable} columns=${columns} data=${purchases} emptyMessage="No purchases yet" />
-		</div>
-	`;
-}
-
-function SubscriptionsTab() {
-	const [subscriptions, setSubscriptions] = useState<any[]>([]);
-	const [loading, setLoading] = useState(true);
-
-	useEffect(() => {
-		api.get('/admin/ext/products/purchases?status=completed').then((data: any) => {
-			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
-			setSubscriptions(records);
-			setLoading(false);
-		}).catch(() => setLoading(false));
-	}, []);
-
-	const columns = [
-		{ key: 'id', label: 'Purchase ID', width: '120px' },
-		{ key: 'user_id', label: 'User ID', sortable: true },
-		{ key: 'status', label: 'Status', render: (v: string) => html`
-			<span style=${{
-				fontSize: '0.75rem',
-				padding: '0.125rem 0.5rem',
-				borderRadius: '9999px',
-				background: v === 'completed' ? '#dcfce7' : v === 'active' ? '#dbeafe' : '#f3f4f6',
-				color: v === 'completed' ? '#166534' : v === 'active' ? '#1e40af' : '#6b7280'
-			}}>${v || 'unknown'}</span>
-		` },
-		{ key: 'total', label: 'Amount', render: (v: any) => v != null ? `$${Number(v).toFixed(2)}` : '-' },
-		{ key: 'created_at', label: 'Created', sortable: true, render: (v: string) => v ? new Date(v).toLocaleDateString() : '-' },
-	];
-
-	if (loading) return html`<${LoadingSpinner} message="Loading subscriptions..." />`;
-
-	return html`
-		<div>
-			<${PageHeader} title="Subscriptions" description="Completed purchases across all users" />
-			<${DataTable} columns=${columns} data=${subscriptions} emptyMessage="No subscriptions yet" />
+			<${PageHeader} title="Overview" description="Product and sales metrics" />
+			<div style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+				<${StatCard} title="Total Products" value=${stats?.total_products ?? 0} icon=${Package} />
+				<${StatCard} title="Active Products" value=${stats?.active_products ?? 0} icon=${ShoppingBag} />
+				<${StatCard} title="Groups" value=${stats?.total_groups ?? 0} icon=${Layers} />
+				<${StatCard} title="Total Purchases" value=${stats?.total_purchases ?? 0} icon=${Receipt} />
+				<${StatCard} title="Revenue" value=${revenue} icon=${DollarSign} />
+			</div>
 		</div>
 	`;
 }
 
 export function App() {
-	const [tab, setTab] = useState('products');
+	const [tab, setTab] = useState(() => window.location.hash.slice(1) || 'overview');
+
+	useEffect(() => { window.location.hash = tab; }, [tab]);
+	useEffect(() => {
+		function onHash() { setTab(window.location.hash.slice(1) || 'overview'); }
+		window.addEventListener('hashchange', onHash);
+		return () => window.removeEventListener('hashchange', onHash);
+	}, []);
 
 	const tabs = [
+		{ id: 'overview', label: 'Overview', icon: BarChart3 },
 		{ id: 'products', label: 'Products', icon: ShoppingBag },
+		{ id: 'groups', label: 'Groups', icon: Layers },
 		{ id: 'pricing', label: 'Pricing', icon: DollarSign },
-		{ id: 'purchases', label: 'Purchases', icon: Package },
-		{ id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
+		{ id: 'variables', label: 'Variables', icon: Variable },
+		{ id: 'purchases', label: 'Purchases', icon: CreditCard },
 	];
 
 	return html`
 		<${FeatureShell} title="Products">
 			<${TabNavigation} tabs=${tabs} activeTab=${tab} onTabChange=${setTab} />
+			${tab === 'overview' ? html`<${OverviewTab} />` : null}
 			${tab === 'products' ? html`<${ProductsTab} />` : null}
+			${tab === 'groups' ? html`<${GroupsTab} />` : null}
 			${tab === 'pricing' ? html`<${PricingTab} />` : null}
+			${tab === 'variables' ? html`<${VariablesTab} />` : null}
 			${tab === 'purchases' ? html`<${PurchasesTab} />` : null}
-			${tab === 'subscriptions' ? html`<${SubscriptionsTab} />` : null}
 		<//>
 	`;
 }

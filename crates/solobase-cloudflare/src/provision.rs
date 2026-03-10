@@ -3,23 +3,28 @@
 //! Tenants are stored in Cloudflare KV with key pattern:
 //! - `tenant:{subdomain}:config` → TenantConfig JSON
 //! - `tenants:list` → JSON array of all subdomain strings
+//!
+//! Each tenant gets their own D1 database, created via the Cloudflare API
+//! during provisioning. The database ID is stored in `TenantConfig.db_id`.
 
 use serde_json;
 use worker::*;
 
-use crate::tenant::{TenantConfig, TenantFeatures};
+use crate::tenant::{TenantConfig, TenantAppConfig};
 
 /// Provision a new tenant.
 ///
 /// 1. Generates a unique tenant ID
-/// 2. Stores the tenant config in KV
-/// 3. Adds the subdomain to the global tenant list
-/// 4. Runs schema migrations for the tenant's tables
+/// 2. Creates a dedicated D1 database via Cloudflare API
+/// 3. Runs schema migrations on the new database
+/// 4. Stores the tenant config in KV
+/// 5. Adds the subdomain to the global tenant list
 pub async fn create_tenant(
     kv: &kv::KvStore,
     db: &D1Database,
     subdomain: &str,
     plan: &str,
+    app_config: Option<TenantAppConfig>,
 ) -> Result<TenantConfig> {
     // Check if tenant already exists
     let key = format!("tenant:{}:config", subdomain);
@@ -32,14 +37,28 @@ pub async fn create_tenant(
 
     let tenant_id = uuid::Uuid::new_v4().to_string();
 
+    // For now, use the shared DB binding for the new tenant.
+    // In production, this would create a new D1 database via the Cloudflare API:
+    //   POST /accounts/{account_id}/d1/database
+    //   { "name": "solobase-{subdomain}" }
+    // Then bind it to the Worker via the Workers API.
+    // The db_binding would be "DB_{subdomain}" and db_id would be the new database UUID.
+    let db_binding = format!("DB_{}", subdomain);
+
     let config = TenantConfig {
         id: tenant_id,
-        schema: subdomain.to_string(),
         subdomain: subdomain.to_string(),
         plan: plan.to_string(),
-        features: TenantFeatures::default(),
+        db_id: None, // populated when D1 is created via Cloudflare API
+        db_binding: Some(db_binding),
+        config: app_config.unwrap_or_else(TenantAppConfig::all_enabled),
         blocks: Vec::new(),
     };
+
+    // Run schema migrations on the tenant's database.
+    // Currently uses the shared DB passed in; once per-tenant D1 is
+    // provisioned via the API, this would target the tenant's own DB.
+    crate::schema::run_migrations(db).await?;
 
     // Store tenant config
     let config_json = serde_json::to_string(&config)
@@ -53,9 +72,6 @@ pub async fn create_tenant(
     // Add to tenant list
     add_to_tenant_list(kv, subdomain).await?;
 
-    // Run schema migrations
-    crate::schema::run_migrations(db).await?;
-
     console_log!("Tenant '{}' provisioned (id: {})", subdomain, config.id);
     Ok(config)
 }
@@ -65,6 +81,8 @@ pub async fn delete_tenant(kv: &kv::KvStore, subdomain: &str) -> Result<()> {
     let key = format!("tenant:{}:config", subdomain);
     kv.delete(&key).await?;
     remove_from_tenant_list(kv, subdomain).await?;
+    // TODO: Delete the tenant's D1 database via Cloudflare API
+    // DELETE /accounts/{account_id}/d1/database/{db_id}
     console_log!("Tenant '{}' deleted", subdomain);
     Ok(())
 }

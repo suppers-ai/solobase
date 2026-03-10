@@ -18,6 +18,11 @@ playwright-report/
 .env
 .env.local
 .env.*.local
+.dev.vars
+.wrangler-dev.toml
+
+# Wrangler
+.wrangler/
 
 # OS
 .DS_Store

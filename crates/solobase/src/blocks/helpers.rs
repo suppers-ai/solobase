@@ -36,6 +36,15 @@ impl RecordExt for Record {
     }
 }
 
+/// Get a field value as a string regardless of whether the DB returned it as string or number.
+pub fn field_as_string(record: &Record, key: &str) -> String {
+    match record.data.get(key) {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Number(n)) => n.to_string(),
+        _ => String::new(),
+    }
+}
+
 /// Insert created_at + updated_at timestamps into a data map.
 pub fn stamp_created(data: &mut std::collections::HashMap<String, serde_json::Value>) {
     let now = now_rfc3339();

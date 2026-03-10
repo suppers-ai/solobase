@@ -1,6 +1,6 @@
 import { html, BlockShell, PageHeader, StatCard, api, TabNavigation, SearchInput, DataTable, LoadingSpinner } from '@solobase/ui';
 import { useState, useEffect } from 'preact/hooks';
-import { LayoutDashboard, Users, Database, Package, Settings, HardDrive, Layers } from 'lucide-preact';
+import { LayoutDashboard, Users, Database, Package, Settings, HardDrive, Layers, ShoppingCart, DollarSign } from 'lucide-preact';
 
 function DashboardTab() {
 	const [stats, setStats] = useState<any>(null);
@@ -11,17 +11,23 @@ function DashboardTab() {
 			api.get('/admin/users?page=1&pageSize=1').catch(() => ({ total: 0 })),
 			api.getStorageBuckets().catch(() => ({ data: [] })),
 			api.getExtensions().catch(() => ({ data: [] })),
-		]).then(([usersRes, storageRes, extRes]) => {
+			api.get('/admin/ext/products/stats').catch(() => ({})),
+		]).then(([usersRes, storageRes, extRes, productStats]) => {
 			setStats({
 				users: (usersRes as any)?.total || (usersRes as any)?.records?.length || 0,
 				buckets: Array.isArray((storageRes as any)?.data) ? (storageRes as any).data.length : Array.isArray(storageRes) ? (storageRes as any).length : 0,
 				extensions: Array.isArray((extRes as any)?.data) ? (extRes as any).data.length : Array.isArray(extRes) ? (extRes as any).length : 0,
+				totalProducts: (productStats as any)?.total_products || 0,
+				totalPurchases: (productStats as any)?.total_purchases || 0,
+				totalRevenue: (productStats as any)?.total_revenue || 0,
 			});
 			setLoading(false);
 		});
 	}, []);
 
 	if (loading) return html`<${LoadingSpinner} message="Loading dashboard..." />`;
+
+	const revenue = typeof stats?.totalRevenue === 'number' ? `$${stats.totalRevenue.toFixed(2)}` : '$0.00';
 
 	return html`
 		<div>
@@ -30,6 +36,9 @@ function DashboardTab() {
 				<${StatCard} title="Total Users" value=${stats?.users || 0} icon=${Users} />
 				<${StatCard} title="Storage Buckets" value=${stats?.buckets || 0} icon=${HardDrive} />
 				<${StatCard} title="Extensions" value=${stats?.extensions || 0} icon=${Package} />
+				<${StatCard} title="Products" value=${stats?.totalProducts || 0} icon=${ShoppingCart} />
+				<${StatCard} title="Purchases" value=${stats?.totalPurchases || 0} icon=${ShoppingCart} />
+				<${StatCard} title="Revenue" value=${revenue} icon=${DollarSign} />
 			</div>
 		</div>
 	`;

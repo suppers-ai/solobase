@@ -1,10 +1,10 @@
 import {
-	html, api, checkAuth, isAuthenticated, authLoading, currentUser, logout,
+	html, api, checkAuth, isAuthenticated, authLoading, currentUser, userRoles, logout,
 	LoadingSpinner, PageHeader, StatCard, EmptyState, StatusBadge, TabNavigation,
 	ToastContainer, toasts, Button, Modal
 } from '@solobase/ui';
 import { useState, useEffect, useCallback } from 'preact/hooks';
-import { Rocket, Key, Settings, LogOut, CreditCard, Server, Activity, Plus, Trash2 } from 'lucide-preact';
+import { Key, Settings, LogOut, CreditCard, Server, Activity, Plus, Trash2, Rocket, Shield, ExternalLink, Package } from 'lucide-preact';
 
 // ─── Auth Guard ──────────────────────────────────────────────────────
 function AuthGuard({ children }: { children: any }) {
@@ -63,10 +63,7 @@ function LoginSignup() {
 		<div style=${{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #f0f9ff 100%)' }}>
 			<div style=${{ width: '100%', maxWidth: '420px', padding: '2rem' }}>
 				<div style=${{ textAlign: 'center', marginBottom: '2rem' }}>
-					<div style=${{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '56px', height: '56px', borderRadius: '14px', background: 'linear-gradient(135deg, #189AB4, #0ea5e9)', color: 'white', marginBottom: '1rem' }}>
-						<${Rocket} size=${28} />
-					</div>
-					<h1 style=${{ fontSize: '1.5rem', fontWeight: 700, color: '#1e293b' }}>Solobase</h1>
+					<img src="/images/logo_long.png" alt="Solobase" style=${{ height: '40px', width: 'auto', marginBottom: '1rem' }} />
 					<p style=${{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.25rem' }}>
 						${mode === 'login' ? 'Sign in to your dashboard' : 'Create your account'}
 					</p>
@@ -111,14 +108,20 @@ function LoginSignup() {
 // ─── Dashboard Header ────────────────────────────────────────────────
 function DashboardHeader() {
 	const user = currentUser.value;
+	const roles = userRoles.value;
+	const isAdmin = Array.isArray(roles) && roles.includes('admin');
 
 	return html`
 		<header style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', background: 'white', borderBottom: '1px solid #e2e8f0' }}>
-			<div style=${{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-				<${Rocket} size=${24} style=${{ color: '#189AB4' }} />
-				<span style=${{ fontSize: '1.125rem', fontWeight: 700, color: '#1e293b' }}>Solobase</span>
+			<div style=${{ display: 'flex', alignItems: 'center' }}>
+				<img src="/images/logo_long.png" alt="Solobase" style=${{ height: '32px', width: 'auto' }} />
 			</div>
 			<div style=${{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+				${isAdmin ? html`
+					<a href="/blocks/admin" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#0ea5e9', textDecoration: 'none', fontWeight: 600 }}>
+						<${Shield} size=${16} /> Admin
+					</a>
+				` : null}
 				<span style=${{ fontSize: '0.813rem', color: '#64748b' }}>${user?.email || ''}</span>
 				<button onClick=${() => { logout(); }} style=${{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem' }}>
 					<${LogOut} size=${16} /> Logout
@@ -134,6 +137,7 @@ function OverviewTab() {
 	const [planName, setPlanName] = useState<string>('...');
 	const [deploymentCount, setDeploymentCount] = useState<string>('...');
 	const [apiKeyCount, setApiKeyCount] = useState<string>('...');
+	const [productCount, setProductCount] = useState<string>('...');
 
 	useEffect(() => {
 		// Fetch current plan from purchases
@@ -159,6 +163,12 @@ function OverviewTab() {
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
 			setApiKeyCount(String(records.length));
 		}).catch(() => setApiKeyCount('0'));
+
+		// Fetch products count
+		api.get('/ext/products/products').then((data: any) => {
+			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
+			setProductCount(String(records.length));
+		}).catch(() => setProductCount('0'));
 	}, []);
 
 	const displayName = user?.name || user?.email?.split('@')[0] || 'there';
@@ -168,6 +178,7 @@ function OverviewTab() {
 			<${PageHeader} title=${`Welcome back, ${displayName}`} description="Here's an overview of your account" />
 			<div style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
 				<${StatCard} title="Plan" value=${planName} icon=${CreditCard} />
+				<${StatCard} title="Products" value=${productCount} icon=${Package} />
 				<${StatCard} title="Deployments" value=${deploymentCount} icon=${Server} />
 				<${StatCard} title="API Keys" value=${apiKeyCount} icon=${Key} />
 			</div>
@@ -186,153 +197,12 @@ function OverviewTab() {
 	`;
 }
 
-// ─── Plans Tab ───────────────────────────────────────────────────────
-function PlansTab() {
-	const [products, setProducts] = useState<any[]>([]);
-	const [purchases, setPurchases] = useState<any[]>([]);
-	const [loading, setLoading] = useState(true);
-	const [subscribing, setSubscribing] = useState<string | null>(null);
-
-	useEffect(() => {
-		Promise.all([
-			api.get('/ext/products/catalog').catch(() => ({})),
-			api.get('/ext/products/purchases').catch(() => ({})),
-		]).then(([catalogData, purchaseData]: any[]) => {
-			const catalogRecords = Array.isArray(catalogData?.records) ? catalogData.records : Array.isArray(catalogData) ? catalogData : [];
-			setProducts(catalogRecords);
-			const purchaseRecords = Array.isArray(purchaseData?.records) ? purchaseData.records : Array.isArray(purchaseData) ? purchaseData : [];
-			setPurchases(purchaseRecords);
-			setLoading(false);
-		});
-	}, []);
-
-	const completedPurchases = purchases.filter((p: any) => p.status === 'completed');
-	const currentPlanId = completedPurchases.length > 0
-		? completedPurchases[completedPurchases.length - 1].product_id
-		: null;
-
-	async function handleSubscribe(productId: string) {
-		setSubscribing(productId);
-		try {
-			const purchaseRes: any = await api.post('/ext/products/purchases', {
-				items: [{ product_id: productId, quantity: 1, variables: {} }]
-			});
-			const purchaseId = purchaseRes.id || purchaseRes.data?.id;
-			if (!purchaseId) {
-				toasts.error('Failed to create purchase');
-				setSubscribing(null);
-				return;
-			}
-			const checkoutRes: any = await api.post('/ext/products/checkout', {
-				purchase_id: purchaseId,
-				success_url: window.location.href,
-				cancel_url: window.location.href
-			});
-			const checkoutUrl = checkoutRes.checkout_url || checkoutRes.data?.checkout_url;
-			if (checkoutUrl) {
-				window.location.href = checkoutUrl;
-			} else {
-				toasts.success('Purchase created successfully');
-				setSubscribing(null);
-			}
-		} catch (err: any) {
-			toasts.error(err.message || 'Failed to subscribe');
-			setSubscribing(null);
-		}
-	}
-
-	if (loading) return html`<${LoadingSpinner} message="Loading plans..." />`;
-
-	const fallbackPlans = [
-		{ id: 'free', name: 'Free', description: 'Perfect for getting started', price: 0, features: ['1 deployment', '100MB storage', 'Community support'] },
-		{ id: 'pro', name: 'Pro', description: 'For growing applications', price: 29, features: ['5 deployments', '10GB storage', 'Priority support', 'Custom domains'] },
-		{ id: 'enterprise', name: 'Enterprise', description: 'For large-scale applications', price: 99, features: ['Unlimited deployments', '100GB storage', 'Dedicated support', 'SLA guarantee', 'SSO'] },
-	];
-
-	const plans = products.length > 0 ? products : fallbackPlans;
-
-	function isCurrentPlan(plan: any): boolean {
-		if (plan.id === currentPlanId) return true;
-		if (!currentPlanId && (plan.price === 0 || plan.id === 'free')) return true;
-		return false;
-	}
-
-	function getButtonLabel(plan: any): string {
-		if (isCurrentPlan(plan)) return 'Current Plan';
-		if (plan.price === 0 || plan.id === 'free') {
-			return currentPlanId ? 'Downgrade' : 'Current Plan';
-		}
-		return 'Subscribe';
-	}
-
-	return html`
-		<div>
-			<${PageHeader} title="Choose a Plan" description="Select the plan that best fits your needs" />
-			<div style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.5rem' }}>
-				${plans.map((plan: any) => {
-					const isCurrent = isCurrentPlan(plan);
-					const isPro = plan.name === 'Pro';
-					const isPaid = plan.price > 0 && plan.id !== 'free';
-					const buttonLabel = getButtonLabel(plan);
-					const isSubscribing = subscribing === plan.id;
-
-					return html`
-						<div key=${plan.id} style=${{
-							background: 'white',
-							border: isPro ? '2px solid #0ea5e9' : '1px solid #e2e8f0',
-							borderRadius: '12px',
-							padding: '1.5rem',
-							display: 'flex',
-							flexDirection: 'column',
-							position: 'relative'
-						}}>
-							${isCurrent ? html`
-								<span style=${{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: '#22c55e', color: 'white', fontSize: '0.688rem', fontWeight: 600, padding: '0.125rem 0.75rem', borderRadius: '9999px' }}>Current Plan</span>
-							` : isPro ? html`
-								<span style=${{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: '#0ea5e9', color: 'white', fontSize: '0.688rem', fontWeight: 600, padding: '0.125rem 0.75rem', borderRadius: '9999px' }}>Popular</span>
-							` : null}
-							<h3 style=${{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b' }}>${plan.name}</h3>
-							<p style=${{ fontSize: '0.813rem', color: '#64748b', marginTop: '0.25rem', marginBottom: '1rem' }}>${plan.description}</p>
-							<div style=${{ fontSize: '2rem', fontWeight: 700, color: '#1e293b', marginBottom: '1.5rem' }}>
-								${plan.price != null ? (plan.price === 0 ? 'Free' : `$${plan.price}`) : 'Custom'}
-								${plan.price > 0 ? html`<span style=${{ fontSize: '0.875rem', fontWeight: 400, color: '#64748b' }}>/mo</span>` : null}
-							</div>
-							<ul style=${{ listStyle: 'none', padding: 0, margin: '0 0 1.5rem', flex: 1 }}>
-								${(plan.features || []).map((f: string) => html`
-									<li key=${f} style=${{ fontSize: '0.813rem', color: '#374151', padding: '0.25rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-										<span style=${{ color: '#22c55e', fontWeight: 700 }}>✓</span> ${f}
-									</li>
-								`)}
-							</ul>
-							<button
-								onClick=${() => { if (!isCurrent && isPaid) handleSubscribe(plan.id); }}
-								disabled=${isCurrent || isSubscribing}
-								style=${{
-									width: '100%', padding: '0.625rem',
-									border: isPro && !isCurrent ? 'none' : '1px solid #e2e8f0',
-									borderRadius: '8px', fontSize: '0.813rem', fontWeight: 600,
-									cursor: isCurrent || isSubscribing ? 'default' : 'pointer',
-									background: isCurrent ? '#f1f5f9' : isPro ? 'linear-gradient(135deg, #189AB4, #0ea5e9)' : 'white',
-									color: isCurrent ? '#64748b' : isPro ? 'white' : '#1e293b',
-									opacity: isSubscribing ? 0.7 : 1
-								}}>
-								${isSubscribing ? 'Processing...' : buttonLabel}
-							</button>
-						</div>
-					`;
-				})}
-			</div>
-		</div>
-	`;
-}
-
 // ─── Deployments Tab ─────────────────────────────────────────────────
 function DeploymentsTab() {
 	const [deployments, setDeployments] = useState<any[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [showCreateForm, setShowCreateForm] = useState(false);
 	const [newName, setNewName] = useState('');
-	const [newRegion, setNewRegion] = useState('auto');
 	const [creating, setCreating] = useState(false);
 	const [deleting, setDeleting] = useState<string | null>(null);
 
@@ -354,10 +224,9 @@ function DeploymentsTab() {
 		if (!newName.trim()) return;
 		setCreating(true);
 		try {
-			await api.post('/ext/deployments', { name: newName.trim(), region: newRegion });
+			await api.post('/ext/deployments', { name: newName.trim() });
 			toasts.success('Deployment created successfully');
 			setNewName('');
-			setNewRegion('auto');
 			setShowCreateForm(false);
 			await fetchDeployments();
 		} catch (err: any) {
@@ -400,26 +269,15 @@ function DeploymentsTab() {
 				<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
 					<h3 style=${{ fontSize: '1rem', fontWeight: 600, color: '#1e293b', marginBottom: '1rem' }}>New Deployment</h3>
 					<form onSubmit=${handleCreate}>
-						<div style=${{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.75rem', alignItems: 'end' }}>
-							<div>
-								<label style=${{ display: 'block', fontSize: '0.813rem', fontWeight: 500, color: '#1e293b', marginBottom: '0.375rem' }}>Name</label>
-								<input type="text" value=${newName} onInput=${(e: any) => setNewName(e.target.value)}
-									placeholder="my-backend" required
-									style=${{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.813rem', outline: 'none', boxSizing: 'border-box' }} />
-							</div>
-							<div>
-								<label style=${{ display: 'block', fontSize: '0.813rem', fontWeight: 500, color: '#1e293b', marginBottom: '0.375rem' }}>Region</label>
-								<select value=${newRegion} onChange=${(e: any) => setNewRegion(e.target.value)}
-									style=${{ padding: '0.5rem 0.75rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.813rem', outline: 'none', background: 'white' }}>
-									<option value="auto">Auto</option>
-									<option value="us-east">US East</option>
-									<option value="eu-west">EU West</option>
-								</select>
-							</div>
+						<div>
+							<label style=${{ display: 'block', fontSize: '0.813rem', fontWeight: 500, color: '#1e293b', marginBottom: '0.375rem' }}>Name</label>
+							<input type="text" value=${newName} onInput=${(e: any) => setNewName(e.target.value)}
+								placeholder="my-backend" required
+								style=${{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.813rem', outline: 'none', boxSizing: 'border-box' }} />
 						</div>
 						<div style=${{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
 							<${Button} type="submit" loading=${creating}>Create<//>
-							<${Button} variant="secondary" onClick=${() => { setShowCreateForm(false); setNewName(''); setNewRegion('auto'); }}>Cancel<//>
+							<${Button} variant="secondary" onClick=${() => { setShowCreateForm(false); setNewName(''); }}>Cancel<//>
 						</div>
 					</form>
 				</div>
@@ -446,7 +304,7 @@ function DeploymentsTab() {
 								<div style=${{ minWidth: 0 }}>
 									<div style=${{ fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>${d.name}</div>
 									<div style=${{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
-										${d.region || 'auto'} · Created ${d.created_at ? new Date(d.created_at).toLocaleDateString() : ''}
+										Created ${d.created_at ? new Date(d.created_at).toLocaleDateString() : ''}
 									</div>
 								</div>
 							</div>
@@ -624,15 +482,17 @@ function SettingsTab() {
 function DashboardNav({ active, onNavigate }: { active: string, onNavigate: (page: string) => void }) {
 	const tabs = [
 		{ id: 'overview', label: 'Overview', icon: Activity },
-		{ id: 'plans', label: 'Plans', icon: CreditCard },
 		{ id: 'deployments', label: 'Deployments', icon: Server },
 		{ id: 'api-keys', label: 'API Keys', icon: Key },
 		{ id: 'settings', label: 'Settings', icon: Settings },
 	];
 
 	return html`
-		<nav style=${{ padding: '0 1.5rem', background: 'white', borderBottom: '1px solid #e2e8f0' }}>
+		<nav style=${{ padding: '0 1.5rem', background: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
 			<${TabNavigation} tabs=${tabs} activeTab=${active} onTabChange=${onNavigate} />
+			<a href="/blocks/products/frontend/user/index.html" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#0ea5e9', textDecoration: 'none', fontWeight: 600, padding: '0.5rem 0' }}>
+				<${Package} size=${14} /> Products
+			</a>
 		</nav>
 	`;
 }
@@ -657,7 +517,6 @@ function Dashboard() {
 			<${DashboardNav} active=${page} onNavigate=${setPage} />
 			<main style=${{ padding: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
 				${page === 'overview' ? html`<${OverviewTab} />` : null}
-				${page === 'plans' ? html`<${PlansTab} />` : null}
 				${page === 'deployments' ? html`<${DeploymentsTab} />` : null}
 				${page === 'api-keys' ? html`<${ApiKeysTab} />` : null}
 				${page === 'settings' ? html`<${SettingsTab} />` : null}

@@ -79,6 +79,9 @@ JWT_SECRET=test-secret-key-for-e2e \
 ADMIN_EMAIL=admin@e2e.test \
 ADMIN_PASSWORD=AdminE2EPass1234 \
 RATE_LIMIT_AUTH=0 \
+RATE_LIMIT_API_READ=0 \
+RATE_LIMIT_API_WRITE=0 \
+RATE_LIMIT_IP=0 \
 RUST_LOG=warn \
   cargo run --bin solobase > /tmp/solobase-test.log 2>&1 &
 pids+=($!)

@@ -141,7 +141,6 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         return err_bad_request(msg, "Name must be 100 characters or fewer");
     }
 
-    let region = body.get("region").and_then(|v| v.as_str()).unwrap_or("auto").to_string();
     let slug = name.to_lowercase().replace(|c: char| !c.is_alphanumeric(), "-");
 
     let now = chrono::Utc::now().to_rfc3339();
@@ -151,7 +150,6 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("name".to_string(), serde_json::Value::String(name));
     data.insert("slug".to_string(), serde_json::Value::String(slug.clone()));
     data.insert("status".to_string(), serde_json::Value::String("pending".to_string()));
-    data.insert("region".to_string(), serde_json::Value::String(region));
     if let Some(config) = body.get("config") {
         data.insert("config".to_string(), config.clone());
     }

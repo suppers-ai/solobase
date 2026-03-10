@@ -28,7 +28,6 @@ pub struct CloudflareContext {
     storage: R2StorageService,
     jwt_secret: String,
     env_vars: HashMap<String, String>,
-    tenant_id: String,
 }
 
 // Safety: wasm32-unknown-unknown is single-threaded. Worker types (D1Database, Bucket)
@@ -42,9 +41,8 @@ impl CloudflareContext {
         storage: R2StorageService,
         jwt_secret: String,
         env_vars: HashMap<String, String>,
-        tenant_id: String,
     ) -> Self {
-        Self { db, storage, jwt_secret, env_vars, tenant_id }
+        Self { db, storage, jwt_secret, env_vars }
     }
 }
 
@@ -287,8 +285,8 @@ impl CloudflareContext {
                 let req = decode_req::<DbSumReq>(msg, "database.sum")?;
                 let col = database::sanitize_ident(&req.field);
                 let table = database::sanitize_ident(&req.collection);
-                let sql = format!("SELECT COALESCE(SUM({}), 0) as s FROM {} WHERE tenant_id = ?", col, table);
-                match self.db.query_raw(&sql, &[serde_json::Value::String(self.tenant_id.clone())]).await {
+                let sql = format!("SELECT COALESCE(SUM({}), 0) as s FROM {}", col, table);
+                match self.db.query_raw(&sql, &[]).await {
                     Ok(records) => {
                         let sum = records.first()
                             .and_then(|r| r.data.get("s"))

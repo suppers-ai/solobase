@@ -33,10 +33,12 @@ impl Block for UserPortalBlock {
             "allow_signup": config::get_default(ctx, "ALLOW_SIGNUP", "true").await,
             "show_powered_by": true,
             "features": {
-                "files": true,
-                "products": true,
-                "legal_pages": true,
-                "monitoring": true
+                "files": config::get_default(ctx, "FEATURE_FILES", "true").await,
+                "products": config::get_default(ctx, "FEATURE_PRODUCTS", "true").await,
+                "user_products": config::get_default(ctx, "FEATURE_USER_PRODUCTS", "true").await,
+                "legal_pages": config::get_default(ctx, "FEATURE_LEGAL_PAGES", "true").await,
+                "monitoring": config::get_default(ctx, "FEATURE_MONITORING", "true").await,
+                "deployments": config::get_default(ctx, "FEATURE_DEPLOYMENTS", "true").await
             }
         });
         json_respond(msg, &config_val)

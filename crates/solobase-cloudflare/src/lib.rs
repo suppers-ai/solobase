@@ -20,7 +20,8 @@
 //!
 //! # Bindings
 //!
-//! - `DB` — D1 database (per-tenant data with tenant_id column)
+//! - `DB` — Default D1 database (fallback for dev/localhost)
+//! - `DB_{subdomain}` — Per-tenant D1 databases (one per tenant)
 //! - `STORAGE` — R2 bucket (per-tenant prefix)
 //! - `TENANTS` — KV namespace (tenant config)
 //! - `JWT_SECRET` — Secret for token signing
@@ -75,10 +76,11 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         }
     };
 
-    // 4. Get bindings
+    // 4. Get bindings — resolve tenant's own D1 database, fall back to shared DB
+    let db_binding = tenant.db_binding.as_deref().unwrap_or("DB");
     let db = env
-        .d1("DB")
-        .map_err(|e| Error::RustError(format!("D1 binding error: {e}")))?;
+        .d1(db_binding)
+        .map_err(|e| Error::RustError(format!("D1 binding '{}' error: {e}", db_binding)))?;
     let bucket = env
         .bucket("STORAGE")
         .map_err(|e| Error::RustError(format!("R2 binding error: {e}")))?;
@@ -107,14 +109,13 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     }
 
     // 6. Create tenant-scoped services and CloudflareContext
-    let db_service = D1DatabaseService::new(db, tenant.id.clone());
+    let db_service = D1DatabaseService::new(db);
     let storage_service = R2StorageService::new(bucket, tenant.id.clone());
     let cf_ctx = CloudflareContext::new(
         db_service,
         storage_service,
         jwt_secret.clone(),
         env_vars,
-        tenant.id.clone(),
     );
 
     // 7. Convert HTTP request to WAFER Message
@@ -154,8 +155,8 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         }
     }
 
-    // 9. Route to appropriate solobase block based on path
-    let result = route_to_block(&cf_ctx, &mut msg).await;
+    // 9. Route to appropriate solobase block based on path + tenant features
+    let result = route_to_block(&cf_ctx, &mut msg, &tenant).await;
 
     // 10. Convert Result_ to HTTP Response + CORS headers
     let response = convert::wafer_result_to_worker_response(result)?;
@@ -197,12 +198,29 @@ const ROUTES: &[(&str, bool, BlockId)] = {
 };
 
 /// Route the message to the appropriate solobase block based on the request path.
-async fn route_to_block(ctx: &CloudflareContext, msg: &mut wafer_run::types::Message) -> wafer_run::types::Result_ {
+/// Feature flags from the tenant's app config are enforced — disabled features return 404.
+async fn route_to_block(ctx: &CloudflareContext, msg: &mut wafer_run::types::Message, tenant: &TenantConfig) -> wafer_run::types::Result_ {
     let path = msg.path().to_string();
+    let features = &tenant.config;
 
     for &(prefix, requires_admin, ref block_id) in ROUTES {
         let matches = path == prefix || path.starts_with(prefix);
         if !matches { continue; }
+
+        // Check feature is enabled for this tenant
+        let enabled = match block_id {
+            BlockId::System | BlockId::Profile => true, // always on
+            BlockId::Auth        => features.auth_enabled(),
+            BlockId::Admin       => features.admin_enabled(),
+            BlockId::Files       => features.files_enabled(),
+            BlockId::Products    => features.products_enabled(),
+            BlockId::Deployments => features.deployments_enabled(),
+            BlockId::LegalPages  => features.legalpages_enabled(),
+            BlockId::UserPortal  => features.userportal_enabled(),
+        };
+        if !enabled {
+            return wafer_run::helpers::err_not_found(msg, "endpoint not found");
+        }
 
         if requires_admin && !msg.is_admin() {
             return wafer_run::helpers::err_forbidden(msg, "admin access required");
@@ -231,14 +249,15 @@ async fn resolve_tenant(host: &str, env: &Env) -> std::result::Result<TenantConf
         .next()
         .ok_or_else(|| "invalid hostname".to_string())?;
 
-    // For localhost development, use a default tenant
+    // For localhost development, use a default tenant with all features enabled
     if subdomain == "localhost" || subdomain == "127" {
         return Ok(TenantConfig {
             id: "dev".to_string(),
-            schema: "dev".to_string(),
             subdomain: "localhost".to_string(),
             plan: "hobby".to_string(),
-            features: Default::default(),
+            db_id: None,
+            db_binding: Some("DB".to_string()), // use shared DB binding for dev
+            config: tenant::TenantAppConfig::all_enabled(),
             blocks: Vec::new(),
         });
     }

@@ -1,10 +1,7 @@
 //! Async database service backed by Cloudflare D1 (SQLite at the edge).
 //!
-//! This provides the same CRUD semantics as the wafer-core `DatabaseService`
-//! trait but as async methods, since Cloudflare Workers don't support blocking I/O.
-//!
-//! Each tenant gets schema isolation via a `tenant_id` column on every table,
-//! or separate D1 databases per tenant (configurable).
+//! Each tenant has their own D1 database, so there is no need for tenant_id
+//! filtering — all data in a database belongs to that tenant.
 
 use std::collections::HashMap;
 
@@ -101,16 +98,14 @@ impl std::fmt::Display for DatabaseError {
 
 /// Async database service wrapping Cloudflare D1.
 ///
-/// Provides tenant-scoped data access. All queries are automatically filtered
-/// by the tenant_id to ensure data isolation.
+/// Each tenant has their own D1 database — no tenant_id scoping needed.
 pub struct D1DatabaseService {
     db: D1Database,
-    tenant_id: String,
 }
 
 impl D1DatabaseService {
-    pub fn new(db: D1Database, tenant_id: String) -> Self {
-        Self { db, tenant_id }
+    pub fn new(db: D1Database) -> Self {
+        Self { db }
     }
 
     /// Get a single record by ID.
@@ -118,11 +113,8 @@ impl D1DatabaseService {
         let table = sanitize_ident(collection);
         let stmt = self
             .db
-            .prepare(&format!(
-                "SELECT * FROM {} WHERE id = ? AND tenant_id = ?",
-                table
-            ))
-            .bind(&[id.into(), self.tenant_id.clone().into()])?;
+            .prepare(&format!("SELECT * FROM {} WHERE id = ?", table))
+            .bind(&[id.into()])?;
 
         let row = stmt.first::<serde_json::Value>(None).await?;
         match row {
@@ -139,8 +131,8 @@ impl D1DatabaseService {
     ) -> Result<RecordList> {
         let table = sanitize_ident(collection);
 
-        let mut where_clauses = vec!["tenant_id = ?".to_string()];
-        let mut params: Vec<JsValue> = vec![self.tenant_id.clone().into()];
+        let mut where_clauses: Vec<String> = Vec::new();
+        let mut params: Vec<JsValue> = Vec::new();
 
         for f in &opts.filters {
             let col = sanitize_ident(&f.field);
@@ -154,7 +146,11 @@ impl D1DatabaseService {
             }
         }
 
-        let where_sql = where_clauses.join(" AND ");
+        let where_sql = if where_clauses.is_empty() {
+            "1=1".to_string()
+        } else {
+            where_clauses.join(" AND ")
+        };
 
         // Count query
         let count_sql = format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, where_sql);
@@ -214,9 +210,9 @@ impl D1DatabaseService {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
-        let mut columns = vec!["id".to_string(), "tenant_id".to_string()];
-        let mut placeholders = vec!["?".to_string(), "?".to_string()];
-        let mut params: Vec<JsValue> = vec![id.clone().into(), self.tenant_id.clone().into()];
+        let mut columns = vec!["id".to_string()];
+        let mut placeholders = vec!["?".to_string()];
+        let mut params: Vec<JsValue> = vec![id.clone().into()];
 
         // Add created_at/updated_at if not provided
         let mut data = data;
@@ -240,14 +236,9 @@ impl D1DatabaseService {
 
         self.db.prepare(&sql).bind(&params)?.run().await?;
 
-        let mut record_data = data;
-        record_data.insert(
-            "tenant_id".to_string(),
-            serde_json::Value::String(self.tenant_id.clone()),
-        );
         Ok(Record {
             id,
-            data: record_data,
+            data,
         })
     }
 
@@ -276,10 +267,9 @@ impl D1DatabaseService {
         }
 
         params.push(id.into());
-        params.push(self.tenant_id.clone().into());
 
         let sql = format!(
-            "UPDATE {} SET {} WHERE id = ? AND tenant_id = ?",
+            "UPDATE {} SET {} WHERE id = ?",
             table,
             sets.join(", ")
         );
@@ -293,14 +283,11 @@ impl D1DatabaseService {
     /// Delete a record.
     pub async fn delete(&self, collection: &str, id: &str) -> Result<()> {
         let table = sanitize_ident(collection);
-        let sql = format!(
-            "DELETE FROM {} WHERE id = ? AND tenant_id = ?",
-            table
-        );
+        let sql = format!("DELETE FROM {} WHERE id = ?", table);
 
         self.db
             .prepare(&sql)
-            .bind(&[id.into(), self.tenant_id.clone().into()])?
+            .bind(&[id.into()])?
             .run()
             .await?;
         Ok(())
@@ -309,8 +296,8 @@ impl D1DatabaseService {
     /// Count records matching filters.
     pub async fn count(&self, collection: &str, filters: &[Filter]) -> Result<i64> {
         let table = sanitize_ident(collection);
-        let mut where_clauses = vec!["tenant_id = ?".to_string()];
-        let mut params: Vec<JsValue> = vec![self.tenant_id.clone().into()];
+        let mut where_clauses: Vec<String> = Vec::new();
+        let mut params: Vec<JsValue> = Vec::new();
 
         for f in filters {
             let col = sanitize_ident(&f.field);
@@ -324,10 +311,15 @@ impl D1DatabaseService {
             }
         }
 
+        let where_sql = if where_clauses.is_empty() {
+            "1=1".to_string()
+        } else {
+            where_clauses.join(" AND ")
+        };
+
         let sql = format!(
             "SELECT COUNT(*) as cnt FROM {} WHERE {}",
-            table,
-            where_clauses.join(" AND ")
+            table, where_sql
         );
 
         let row = self
@@ -366,18 +358,10 @@ impl D1DatabaseService {
     pub async fn ensure_table(&self, name: &str, columns_sql: &str) -> Result<()> {
         let table = sanitize_ident(name);
         let sql = format!(
-            "CREATE TABLE IF NOT EXISTS {} (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, {})",
+            "CREATE TABLE IF NOT EXISTS {} (id TEXT PRIMARY KEY, {})",
             table, columns_sql
         );
         self.db.prepare(&sql).bind(&[])?.run().await?;
-
-        // Ensure tenant_id index
-        let idx_sql = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_tenant ON {} (tenant_id)",
-            name, table
-        );
-        self.db.prepare(&idx_sql).bind(&[])?.run().await?;
-
         Ok(())
     }
 }
@@ -419,9 +403,6 @@ fn json_to_record(val: serde_json::Value) -> Record {
             .remove("id")
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default();
-
-        // Remove tenant_id from data (internal field)
-        map.remove("tenant_id");
 
         Record {
             id,

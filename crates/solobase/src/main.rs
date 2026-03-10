@@ -4,6 +4,7 @@
 //! the Block trait. The WAFER runtime handles HTTP serving, flow execution,
 //! and block lifecycle. Infrastructure blocks self-configure from `blocks.json`.
 
+use solobase::app_config::AppConfig;
 use solobase::blocks;
 use solobase::flows;
 
@@ -24,11 +25,8 @@ async fn main() {
     // 2. Create WAFER runtime
     let mut wafer = Wafer::new();
 
-    // 3. Load infrastructure block configs from blocks.json
-    let blocks_json = std::env::var("BLOCKS_JSON").unwrap_or_else(|_| "blocks.json".into());
-    if let Err(e) = wafer.load_blocks_json(&blocks_json) {
-        tracing::warn!("could not load {}: {} — using defaults", blocks_json, e);
-    }
+    // 3. Load config: try app.json first, then fall back to blocks.json
+    let app_config = load_config(&mut wafer);
     tracing::info!("block configs loaded");
 
     // 4. Register wafer-core infrastructure blocks
@@ -37,13 +35,25 @@ async fn main() {
     wafer_core::register_all(&mut wafer);
     tracing::info!("wafer-core blocks registered");
 
-    // 5. Register native Rust feature blocks (env-var-driven)
-    blocks::register_selected(&mut wafer);
+    // 5. Register native Rust feature blocks
+    if let Some(ref cfg) = app_config {
+        // App config mode: register only enabled features
+        let enabled = cfg.enabled_features();
+        blocks::register_blocks(&mut wafer, |name| enabled.contains(&name));
+    } else {
+        // Legacy blocks.json mode: use FEATURE_* env vars
+        blocks::register_selected(&mut wafer);
+    }
     tracing::info!("native feature blocks registered");
 
     // 6. Register flow definitions (wafer-core base flows + solobase feature flows)
     let _ = wafer_core::flows::register_flows(&mut wafer);
-    flows::register_selected_flows(&mut wafer);
+    if let Some(ref cfg) = app_config {
+        let enabled = cfg.enabled_features();
+        flows::register_flows(&mut wafer, |name| enabled.contains(&name));
+    } else {
+        flows::register_selected_flows(&mut wafer);
+    }
     tracing::info!("flow definitions registered");
 
     // 7. Register observability hooks
@@ -121,6 +131,41 @@ fn register_observability_hooks(wafer: &mut Wafer) {
             "flow completed"
         );
     });
+}
+
+// ---------------------------------------------------------------------------
+// Config loading: app.json (preferred) or blocks.json (legacy)
+// ---------------------------------------------------------------------------
+
+fn load_config(wafer: &mut Wafer) -> Option<AppConfig> {
+    let app_json = std::env::var("APP_JSON").unwrap_or_else(|_| "app.json".into());
+    let blocks_json = std::env::var("BLOCKS_JSON").unwrap_or_else(|_| "blocks.json".into());
+
+    // Try app.json first
+    if std::path::Path::new(&app_json).exists() {
+        match AppConfig::load(&app_json) {
+            Ok(cfg) => {
+                let name = cfg.app.as_deref().unwrap_or("solobase");
+                tracing::info!(app = name, version = cfg.version, config = %app_json, "loaded app config");
+
+                // Expand app config into block configs and load them
+                for (name, config) in cfg.to_blocks_json() {
+                    wafer.add_block_config(name, config);
+                }
+                return Some(cfg);
+            }
+            Err(e) => {
+                tracing::error!("failed to load {app_json}: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Fall back to blocks.json
+    if let Err(e) = wafer.load_blocks_json(&blocks_json) {
+        tracing::warn!("could not load {blocks_json}: {e} — using defaults");
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------

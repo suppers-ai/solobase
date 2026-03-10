@@ -36,6 +36,7 @@ export default defineConfig({
 				logs: resolve(__dirname, '../blocks/logs/frontend/index.html'),
 				wafer: resolve(__dirname, '../blocks/admin/frontend/index.html'),
 				products: resolve(__dirname, '../blocks/products/frontend/index.html'),
+				'products-user': resolve(__dirname, '../blocks/products/frontend/user/index.html'),
 				deployments: resolve(__dirname, '../blocks/deployments/frontend/index.html'),
 				dashboard: resolve(__dirname, '../blocks/dashboard/frontend/index.html'),
 			}

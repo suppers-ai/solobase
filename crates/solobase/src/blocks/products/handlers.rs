@@ -5,7 +5,7 @@ use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use super::{PRODUCTS_COLLECTION, GROUPS_COLLECTION, TYPES_COLLECTION, PRICING_COLLECTION};
-use crate::blocks::helpers::RecordExt;
+use crate::blocks::helpers::{RecordExt, field_as_string};
 
 pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -54,8 +54,27 @@ pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
 
     match (action, path) {
+        // User's own products
+        ("retrieve", "/ext/products/products") => handle_user_list_products(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/ext/products/products/") => handle_user_get_product(ctx, msg).await,
+        ("create", "/ext/products/products") => handle_user_create_product(ctx, msg).await,
+        ("update", _) if path.starts_with("/ext/products/products/") => handle_user_update_product(ctx, msg).await,
+        ("delete", _) if path.starts_with("/ext/products/products/") => handle_user_delete_product(ctx, msg).await,
+        // User's own groups
+        ("retrieve", "/ext/products/groups") => handle_user_list_groups(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/ext/products/groups/") && !path.ends_with("/products") => handle_user_get_group(ctx, msg).await,
+        ("create", "/ext/products/groups") => handle_user_create_group(ctx, msg).await,
+        ("update", _) if path.starts_with("/ext/products/groups/") && !path.ends_with("/products") => handle_user_update_group(ctx, msg).await,
+        ("delete", _) if path.starts_with("/ext/products/groups/") && !path.ends_with("/products") => handle_user_delete_group(ctx, msg).await,
+        // Products in a group
+        ("retrieve", _) if path.starts_with("/ext/products/groups/") && path.ends_with("/products") => handle_user_group_products(ctx, msg).await,
+        // Read-only: types and group templates
+        ("retrieve", "/ext/products/types") => handle_list_types(ctx, msg).await,
+        ("retrieve", "/ext/products/group-templates") => handle_user_list_group_templates(ctx, msg).await,
+        // Catalog (public)
         ("retrieve", "/ext/products/catalog") => handle_catalog(ctx, msg).await,
         ("retrieve", _) if path.starts_with("/ext/products/catalog/") => handle_get_product_public(ctx, msg).await,
+        // Pricing, purchases, checkout
         ("create", "/ext/products/calculate-price") => super::pricing::handle_calculate(ctx, msg).await,
         ("create", "/ext/products/purchases") => super::purchase::handle_create(ctx, msg).await,
         ("retrieve", "/ext/products/purchases") => super::purchase::handle_list_user(ctx, msg).await,
@@ -317,6 +336,296 @@ async fn handle_get_product_public(ctx: &dyn Context, msg: &mut Message) -> Resu
             json_respond(msg, &record)
         }
         Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+// --- User's own products ---
+
+async fn handle_user_list_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let user_id = msg.user_id().to_string();
+    if user_id.is_empty() { return err_unauthorized(msg, "Not authenticated"); }
+
+    let (page, page_size, _) = msg.pagination_params(20);
+    let mut filters = vec![Filter {
+        field: "created_by".to_string(), operator: FilterOp::Equal,
+        value: serde_json::Value::String(user_id),
+    }];
+    let group_id = msg.query("group_id").to_string();
+    if !group_id.is_empty() {
+        filters.push(Filter { field: "group_id".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(group_id) });
+    }
+    let status = msg.query("status").to_string();
+    if !status.is_empty() {
+        filters.push(Filter { field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(status) });
+    }
+    let search = msg.query("search").to_string();
+    if !search.is_empty() {
+        filters.push(Filter { field: "name".to_string(), operator: FilterOp::Like, value: serde_json::Value::String(format!("%{}%", search)) });
+    }
+
+    let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
+    match db::paginated_list(ctx, PRODUCTS_COLLECTION, page as i64, page_size as i64, filters, sort).await {
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+async fn handle_user_get_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let user_id = msg.user_id().to_string();
+    let path = msg.path();
+    let id = path.strip_prefix("/ext/products/products/").unwrap_or("");
+    if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
+
+    match db::get(ctx, PRODUCTS_COLLECTION, id).await {
+        Ok(record) => {
+            if field_as_string(&record, "created_by") != user_id {
+                return err_not_found(msg, "Product not found");
+            }
+            json_respond(msg, &record)
+        }
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+async fn handle_user_create_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let user_id = msg.user_id().to_string();
+    if user_id.is_empty() { return err_unauthorized(msg, "Not authenticated"); }
+
+    let mut data: HashMap<String, serde_json::Value> = match msg.decode() {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+    };
+
+    // Verify user owns the group (if provided)
+    let group_id_str = data.get("group_id").and_then(|v| v.as_str().map(|s| s.to_string()))
+        .or_else(|| data.get("group_id").and_then(|v| v.as_i64().map(|n| n.to_string())))
+        .unwrap_or_default();
+    if !group_id_str.is_empty() {
+        match db::get(ctx, GROUPS_COLLECTION, &group_id_str).await {
+            Ok(group) => {
+                if field_as_string(&group, "user_id") != user_id {
+                    return err_bad_request(msg, "You don't own this group");
+                }
+            }
+            Err(_) => return err_bad_request(msg, "Group not found"),
+        }
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    data.entry("status".to_string()).or_insert(serde_json::Value::String("draft".to_string()));
+    data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
+    data.insert("updated_at".to_string(), serde_json::Value::String(now));
+    data.insert("created_by".to_string(), serde_json::Value::String(user_id));
+    // Default product_template_id to the seeded template (id=1) if not provided
+    data.entry("product_template_id".to_string()).or_insert(serde_json::json!(1));
+
+    match db::create(ctx, PRODUCTS_COLLECTION, data).await {
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+async fn handle_user_update_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let user_id = msg.user_id().to_string();
+    let path = msg.path();
+    let id = path.strip_prefix("/ext/products/products/").unwrap_or("");
+    if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
+
+    // Verify ownership
+    match db::get(ctx, PRODUCTS_COLLECTION, id).await {
+        Ok(record) => {
+            if field_as_string(&record, "created_by") != user_id {
+                return err_not_found(msg, "Product not found");
+            }
+        }
+        Err(e) if e.code == "not_found" => return err_not_found(msg, "Product not found"),
+        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+    }
+
+    let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+    };
+    body.remove("created_by"); // prevent ownership change
+    body.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+
+    match db::update(ctx, PRODUCTS_COLLECTION, id, body).await {
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+async fn handle_user_delete_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let user_id = msg.user_id().to_string();
+    let path = msg.path();
+    let id = path.strip_prefix("/ext/products/products/").unwrap_or("");
+    if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
+
+    // Verify ownership
+    match db::get(ctx, PRODUCTS_COLLECTION, id).await {
+        Ok(record) => {
+            if field_as_string(&record, "created_by") != user_id {
+                return err_not_found(msg, "Product not found");
+            }
+        }
+        Err(e) if e.code == "not_found" => return err_not_found(msg, "Product not found"),
+        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+    }
+
+    match db::delete(ctx, PRODUCTS_COLLECTION, id).await {
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+// --- User's own groups ---
+
+async fn handle_user_list_groups(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let user_id = msg.user_id().to_string();
+    if user_id.is_empty() { return err_unauthorized(msg, "Not authenticated"); }
+
+    let opts = ListOptions {
+        filters: vec![Filter {
+            field: "user_id".to_string(), operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id),
+        }],
+        sort: vec![SortField { field: "name".to_string(), desc: false }],
+        limit: 1000,
+        ..Default::default()
+    };
+    match db::list(ctx, GROUPS_COLLECTION, &opts).await {
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+async fn handle_user_get_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let user_id = msg.user_id().to_string();
+    let path = msg.path();
+    let id = path.strip_prefix("/ext/products/groups/").unwrap_or("");
+    if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
+
+    match db::get(ctx, GROUPS_COLLECTION, id).await {
+        Ok(record) => {
+            if field_as_string(&record, "user_id") != user_id {
+                return err_not_found(msg, "Group not found");
+            }
+            json_respond(msg, &record)
+        }
+        Err(e) if e.code == "not_found" => err_not_found(msg, "Group not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+async fn handle_user_create_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let user_id = msg.user_id().to_string();
+    if user_id.is_empty() { return err_unauthorized(msg, "Not authenticated"); }
+
+    let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+    };
+    body.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+    body.insert("user_id".to_string(), serde_json::Value::String(user_id));
+    // Default group_template_id to the seeded template (id=1) if not provided
+    body.entry("group_template_id".to_string()).or_insert(serde_json::json!(1));
+
+    match db::create(ctx, GROUPS_COLLECTION, body).await {
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+async fn handle_user_update_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let user_id = msg.user_id().to_string();
+    let path = msg.path();
+    let id = path.strip_prefix("/ext/products/groups/").unwrap_or("");
+    if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
+
+    // Verify ownership
+    match db::get(ctx, GROUPS_COLLECTION, id).await {
+        Ok(record) => {
+            if field_as_string(&record, "user_id") != user_id {
+                return err_not_found(msg, "Group not found");
+            }
+        }
+        Err(e) if e.code == "not_found" => return err_not_found(msg, "Group not found"),
+        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+    }
+
+    let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+    };
+    body.remove("user_id"); // prevent ownership change
+
+    match db::update(ctx, GROUPS_COLLECTION, id, body).await {
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+async fn handle_user_delete_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let user_id = msg.user_id().to_string();
+    let path = msg.path();
+    let id = path.strip_prefix("/ext/products/groups/").unwrap_or("");
+    if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
+
+    // Verify ownership
+    match db::get(ctx, GROUPS_COLLECTION, id).await {
+        Ok(record) => {
+            if field_as_string(&record, "user_id") != user_id {
+                return err_not_found(msg, "Group not found");
+            }
+        }
+        Err(e) if e.code == "not_found" => return err_not_found(msg, "Group not found"),
+        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+    }
+
+    match db::delete(ctx, GROUPS_COLLECTION, id).await {
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+// Products in a user's group
+async fn handle_user_group_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let user_id = msg.user_id().to_string();
+    let path = msg.path();
+    // Path: /ext/products/groups/{id}/products
+    let rest = path.strip_prefix("/ext/products/groups/").unwrap_or("");
+    let group_id = rest.strip_suffix("/products").unwrap_or("");
+    if group_id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
+
+    // Verify group ownership
+    match db::get(ctx, GROUPS_COLLECTION, group_id).await {
+        Ok(record) => {
+            if field_as_string(&record, "user_id") != user_id {
+                return err_not_found(msg, "Group not found");
+            }
+        }
+        Err(_) => return err_not_found(msg, "Group not found"),
+    }
+
+    let (page, page_size, _) = msg.pagination_params(20);
+    let filters = vec![Filter {
+        field: "group_id".to_string(), operator: FilterOp::Equal,
+        value: serde_json::Value::String(group_id.to_string()),
+    }];
+    let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
+    match db::paginated_list(ctx, PRODUCTS_COLLECTION, page as i64, page_size as i64, filters, sort).await {
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+// User-accessible group templates (read-only)
+async fn handle_user_list_group_templates(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let opts = ListOptions { limit: 1000, ..Default::default() };
+    match db::list(ctx, "ext_products_group_templates", &opts).await {
+        Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }

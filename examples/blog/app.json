@@ -1,0 +1,14 @@
+{
+    "version": 0,
+    "app": "inkwell",
+    "listen": "0.0.0.0:8091",
+    "database": { "type": "sqlite", "path": "data/blog.db" },
+    "storage": { "type": "local", "root": "data/storage" },
+    "jwt_secret": "${JWT_SECRET}",
+    "web_root": "./frontend/build",
+
+    "auth": {},
+    "admin": {},
+    "files": {},
+    "legalpages": {}
+}

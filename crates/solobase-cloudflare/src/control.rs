@@ -83,6 +83,8 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
                 subdomain: String,
                 #[serde(default = "default_plan")]
                 plan: String,
+                /// Optional app config (same as app.json). If omitted, all features enabled.
+                config: Option<crate::tenant::TenantAppConfig>,
             }
             fn default_plan() -> String {
                 "hobby".into()
@@ -91,8 +93,8 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             let req: Req = serde_json::from_slice(body)
                 .map_err(|e| Error::RustError(format!("invalid body: {e}")))?;
 
-            let config = provision::create_tenant(&kv, &db, &req.subdomain, &req.plan).await?;
-            json_response(&config, 201)
+            let tenant = provision::create_tenant(&kv, &db, &req.subdomain, &req.plan, req.config).await?;
+            json_response(&tenant, 201)
         }
 
         // Update a tenant
@@ -110,9 +112,9 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             if let Some(plan) = updates.get("plan").and_then(|v| v.as_str()) {
                 config.plan = plan.to_string();
             }
-            if let Some(features) = updates.get("features") {
-                if let Ok(f) = serde_json::from_value(features.clone()) {
-                    config.features = f;
+            if let Some(app_config) = updates.get("config") {
+                if let Ok(c) = serde_json::from_value(app_config.clone()) {
+                    config.config = c;
                 }
             }
 
