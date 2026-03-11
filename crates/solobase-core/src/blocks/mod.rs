@@ -1,0 +1,120 @@
+pub mod errors;
+pub mod rate_limit;
+pub mod helpers;
+pub mod admin;
+pub mod auth;
+pub mod deployments;
+pub mod files;
+pub mod legalpages;
+pub mod products;
+pub mod profile;
+pub mod router;
+pub mod system;
+pub mod userportal;
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::routing::BlockId;
+use wafer_run::block::Block;
+
+/// Mapping from feature name (used in app.json) to BlockId.
+const FEATURE_BLOCKS: &[(&str, BlockId)] = &[
+    ("profile",     BlockId::Profile),
+    ("system",      BlockId::System),
+    ("userportal",  BlockId::UserPortal),
+    ("legalpages",  BlockId::LegalPages),
+    ("auth",        BlockId::Auth),
+    ("admin",       BlockId::Admin),
+    ("files",       BlockId::Files),
+    ("products",    BlockId::Products),
+    ("deployments", BlockId::Deployments),
+];
+
+/// Create a block instance for a given BlockId.
+fn make_block(id: BlockId) -> Arc<dyn Block> {
+    match id {
+        BlockId::Profile     => Arc::new(profile::ProfileBlock),
+        BlockId::System      => Arc::new(system::SystemBlock),
+        BlockId::UserPortal  => Arc::new(userportal::UserPortalBlock),
+        BlockId::LegalPages  => Arc::new(legalpages::LegalPagesBlock),
+        BlockId::Auth        => Arc::new(auth::AuthBlock::new()),
+        BlockId::Admin       => Arc::new(admin::AdminBlock),
+        BlockId::Files       => Arc::new(files::FilesBlock::new()),
+        BlockId::Products    => Arc::new(products::ProductsBlock::new()),
+        BlockId::Deployments => Arc::new(deployments::DeploymentsBlock::new()),
+    }
+}
+
+/// Create shared block instances filtered by a predicate.
+///
+/// Returns a map of BlockId → Arc<dyn Block> for enabled features.
+/// The same Arc instances should be registered with the WAFER runtime
+/// (for lifecycle hooks) and passed to the `NativeBlockFactory` (for
+/// request dispatch), ensuring state is shared.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn create_blocks(filter: impl Fn(&str) -> bool) -> HashMap<BlockId, Arc<dyn Block>> {
+    let mut map = HashMap::new();
+    for &(name, id) in FEATURE_BLOCKS {
+        if filter(name) {
+            map.insert(id, make_block(id));
+        }
+    }
+    map
+}
+
+/// Register pre-created block instances with the WAFER runtime.
+///
+/// This registers the blocks for lifecycle hooks (Init, Shutdown) and
+/// for `ctx.call_block("@solobase/...", ...)` calls.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn register_shared_blocks(
+    w: &mut wafer_run::Wafer,
+    blocks: &HashMap<BlockId, Arc<dyn Block>>,
+) {
+    for (&id, block) in blocks {
+        let name = block_id_to_name(id);
+        w.register_block(format!("@solobase/{name}"), block.clone());
+    }
+}
+
+/// Register blocks, optionally gated by a predicate.
+///
+/// If `filter` returns `true` for a block name, that block is registered.
+/// Pass `|_| true` to register all blocks unconditionally.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn register_blocks(w: &mut wafer_run::Wafer, filter: impl Fn(&str) -> bool) {
+    let blocks = create_blocks(filter);
+    register_shared_blocks(w, &blocks);
+}
+
+/// Register all blocks unconditionally.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn register_all(w: &mut wafer_run::Wafer) {
+    register_blocks(w, |_| true);
+}
+
+/// Register only blocks enabled via `FEATURE_<NAME>` env vars.
+/// Missing or non-"false" values mean enabled.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn register_selected(w: &mut wafer_run::Wafer) {
+    register_blocks(w, |name| {
+        std::env::var(format!("FEATURE_{}", name.to_uppercase()))
+            .map(|v| v != "false")
+            .unwrap_or(true)
+    });
+}
+
+fn block_id_to_name(id: BlockId) -> &'static str {
+    match id {
+        BlockId::Profile     => "profile",
+        BlockId::System      => "system",
+        BlockId::UserPortal  => "userportal",
+        BlockId::LegalPages  => "legalpages",
+        BlockId::Auth        => "auth",
+        BlockId::Admin       => "admin",
+        BlockId::Files       => "files",
+        BlockId::Products    => "products",
+        BlockId::Deployments => "deployments",
+    }
+}

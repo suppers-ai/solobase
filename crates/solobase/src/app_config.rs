@@ -24,6 +24,7 @@
 
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use solobase_core::features;
 
 // ---------------------------------------------------------------------------
 // AppConfig struct
@@ -119,37 +120,73 @@ fn default_storage_root() -> String { "data/storage".into() }
 // Feature detection
 // ---------------------------------------------------------------------------
 
+/// Frozen snapshot of feature flags, suitable for sharing via `Arc`.
+pub struct FeatureSnapshot {
+    pub auth: bool,
+    pub admin: bool,
+    pub files: bool,
+    pub products: bool,
+    pub deployments: bool,
+    pub legalpages: bool,
+    pub userportal: bool,
+}
+
+impl features::FeatureConfig for FeatureSnapshot {
+    fn auth_enabled(&self) -> bool { self.auth }
+    fn admin_enabled(&self) -> bool { self.admin }
+    fn files_enabled(&self) -> bool { self.files }
+    fn products_enabled(&self) -> bool { self.products }
+    fn deployments_enabled(&self) -> bool { self.deployments }
+    fn legalpages_enabled(&self) -> bool { self.legalpages }
+    fn userportal_enabled(&self) -> bool { self.userportal }
+}
+
+impl features::FeatureConfig for AppConfig {
+    fn auth_enabled(&self) -> bool { features::is_feature_enabled(&self.auth) }
+    fn admin_enabled(&self) -> bool { features::is_feature_enabled(&self.admin) }
+    fn files_enabled(&self) -> bool { features::is_feature_enabled(&self.files) }
+    fn products_enabled(&self) -> bool { features::is_feature_enabled(&self.products) }
+    fn deployments_enabled(&self) -> bool { features::is_feature_enabled(&self.deployments) }
+    fn legalpages_enabled(&self) -> bool { features::is_feature_enabled(&self.legalpages) }
+    fn userportal_enabled(&self) -> bool { features::is_feature_enabled(&self.userportal) }
+}
+
 impl AppConfig {
-    /// Returns true if the feature value means "enabled".
-    /// `None` (absent) and `false` mean disabled. Object or `true` means enabled.
-    fn is_enabled(val: &Option<Value>) -> bool {
-        !matches!(val, None | Some(Value::Bool(false)) | Some(Value::Null))
-    }
-
-    pub fn auth_enabled(&self) -> bool { Self::is_enabled(&self.auth) }
-    pub fn admin_enabled(&self) -> bool { Self::is_enabled(&self.admin) }
-    pub fn files_enabled(&self) -> bool { Self::is_enabled(&self.files) }
-    pub fn products_enabled(&self) -> bool { Self::is_enabled(&self.products) }
-    pub fn deployments_enabled(&self) -> bool { Self::is_enabled(&self.deployments) }
-    pub fn legalpages_enabled(&self) -> bool { Self::is_enabled(&self.legalpages) }
-    pub fn userportal_enabled(&self) -> bool { Self::is_enabled(&self.userportal) }
-
     /// Returns the list of enabled feature names (for FEATURE_* env var gating).
     pub fn enabled_features(&self) -> Vec<&str> {
+        use features::FeatureConfig;
         // system and profile are always enabled
-        let mut features = vec!["system", "profile"];
-        if self.auth_enabled() { features.push("auth"); }
-        if self.admin_enabled() { features.push("admin"); }
-        if self.files_enabled() { features.push("files"); }
-        if self.products_enabled() { features.push("products"); }
-        if self.deployments_enabled() { features.push("deployments"); }
-        if self.legalpages_enabled() { features.push("legalpages"); }
-        if self.userportal_enabled() { features.push("userportal"); }
-        features
+        let mut f = vec!["system", "profile"];
+        if self.auth_enabled() { f.push("auth"); }
+        if self.admin_enabled() { f.push("admin"); }
+        if self.files_enabled() { f.push("files"); }
+        if self.products_enabled() { f.push("products"); }
+        if self.deployments_enabled() { f.push("deployments"); }
+        if self.legalpages_enabled() { f.push("legalpages"); }
+        if self.userportal_enabled() { f.push("userportal"); }
+        f
+    }
+
+    /// Create a snapshot of the feature config for use in the shared router.
+    ///
+    /// Returns a `Send + Sync` struct capturing which features are enabled,
+    /// suitable for storing in an `Arc<dyn FeatureConfig + Send + Sync>`.
+    pub fn feature_config(&self) -> FeatureSnapshot {
+        use features::FeatureConfig;
+        FeatureSnapshot {
+            auth: self.auth_enabled(),
+            admin: self.admin_enabled(),
+            files: self.files_enabled(),
+            products: self.products_enabled(),
+            deployments: self.deployments_enabled(),
+            legalpages: self.legalpages_enabled(),
+            userportal: self.userportal_enabled(),
+        }
     }
 
     /// Returns the list of disabled feature names (for FEATURE_*=false env vars).
     pub fn disabled_features(&self) -> Vec<&str> {
+        use features::FeatureConfig;
         let mut disabled = Vec::new();
         if !self.auth_enabled() { disabled.push("auth"); }
         if !self.admin_enabled() { disabled.push("admin"); }
@@ -188,6 +225,7 @@ impl AppConfig {
     /// like `@db` → `@wafer/database` so feature blocks can use short,
     /// backend-agnostic names.
     pub fn to_blocks_json(&self) -> (Map<String, Value>, Vec<(String, String)>) {
+        use features::FeatureConfig;
         let mut blocks = Map::new();
         let mut aliases: Vec<(String, String)> = Vec::new();
 
@@ -1024,6 +1062,7 @@ mod schemas {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use features::FeatureConfig;
 
     fn parse_config(json: &str) -> AppConfig {
         serde_json::from_str(json).expect("valid JSON config")

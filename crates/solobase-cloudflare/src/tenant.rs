@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use solobase_core::features;
 
 /// Per-tenant configuration stored in KV.
 ///
@@ -85,24 +86,14 @@ fn default_plan() -> String {
 // Feature detection (same logic as standalone AppConfig)
 // ---------------------------------------------------------------------------
 
-impl TenantAppConfig {
-    /// Returns true if the feature value means "enabled".
-    fn is_enabled(val: &Option<Value>) -> bool {
-        match val {
-            None => false,
-            Some(Value::Bool(false)) => false,
-            Some(Value::Null) => false,
-            _ => true,
-        }
-    }
-
-    pub fn auth_enabled(&self) -> bool { Self::is_enabled(&self.auth) }
-    pub fn admin_enabled(&self) -> bool { Self::is_enabled(&self.admin) }
-    pub fn files_enabled(&self) -> bool { Self::is_enabled(&self.files) }
-    pub fn products_enabled(&self) -> bool { Self::is_enabled(&self.products) }
-    pub fn deployments_enabled(&self) -> bool { Self::is_enabled(&self.deployments) }
-    pub fn legalpages_enabled(&self) -> bool { Self::is_enabled(&self.legalpages) }
-    pub fn userportal_enabled(&self) -> bool { Self::is_enabled(&self.userportal) }
+impl features::FeatureConfig for TenantAppConfig {
+    fn auth_enabled(&self) -> bool { features::is_feature_enabled(&self.auth) }
+    fn admin_enabled(&self) -> bool { features::is_feature_enabled(&self.admin) }
+    fn files_enabled(&self) -> bool { features::is_feature_enabled(&self.files) }
+    fn products_enabled(&self) -> bool { features::is_feature_enabled(&self.products) }
+    fn deployments_enabled(&self) -> bool { features::is_feature_enabled(&self.deployments) }
+    fn legalpages_enabled(&self) -> bool { features::is_feature_enabled(&self.legalpages) }
+    fn userportal_enabled(&self) -> bool { features::is_feature_enabled(&self.userportal) }
 }
 
 impl TenantAppConfig {

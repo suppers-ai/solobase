@@ -1,12 +1,15 @@
 //! Solobase — Rust binary entry point.
 //!
 //! All feature blocks are implemented as native Rust structs implementing
-//! the Block trait. The WAFER runtime handles HTTP serving, flow execution,
-//! and block lifecycle. Infrastructure blocks self-configure from `blocks.json`.
+//! the Block trait. The WAFER runtime handles HTTP serving and block lifecycle.
+//! Routing is handled by `solobase-core`'s shared pipeline via the
+//! `@solobase/router` block, which replaces individual per-feature flow files.
+
+use std::sync::Arc;
 
 use solobase::app_config::AppConfig;
 use solobase::blocks;
-use solobase::flows;
+use solobase::blocks::router::{NativeBlockFactory, SolobaseRouterBlock};
 
 use tracing_subscriber::{fmt, EnvFilter};
 use wafer_run::Wafer;
@@ -29,30 +32,61 @@ async fn main() {
     let app_config = load_config(&mut wafer);
     tracing::info!("block configs loaded");
 
-    // 4. Register wafer-core infrastructure blocks
-    //    (http-listener, security-headers, cors, rate-limit, readonly-guard,
-    //     monitoring, auth, iam, web)
-    wafer_core::register_all(&mut wafer);
-    tracing::info!("wafer-core blocks registered");
+    // 4. Register blocks explicitly (no register_all — runtime is minimal)
+    //    wafer-core infrastructure blocks:
+    wafer_core::blocks::auth::register(&mut wafer);
+    wafer_core::blocks::cors::register(&mut wafer);
+    wafer_core::blocks::iam::register(&mut wafer);
+    wafer_core::blocks::inspector::register(&mut wafer);
+    wafer_core::blocks::monitoring::register(&mut wafer);
+    wafer_core::blocks::rate_limit::register(&mut wafer);
+    wafer_core::blocks::readonly_guard::register(&mut wafer);
+    wafer_core::blocks::router::register(&mut wafer);
+    wafer_core::blocks::security_headers::register(&mut wafer);
+    wafer_core::blocks::web::register(&mut wafer);
+    wafer_core::blocks::config::register(&mut wafer);
+    wafer_core::blocks::logger::register(&mut wafer);
+    #[cfg(feature = "server")]
+    {
+        wafer_core::blocks::crypto::register(&mut wafer);
+        wafer_core::blocks::network::register(&mut wafer);
+        wafer_core::blocks::http::register(&mut wafer);
+    }
+    //    database + storage blocks:
+    wafer_core::blocks::sqlite::register(&mut wafer);
+    wafer_core::blocks::local_storage::register(&mut wafer);
+    tracing::info!("blocks registered");
 
-    // 5. Register native Rust feature blocks
+    // 5. Create shared block instances and register the solobase router
     if let Some(ref cfg) = app_config {
-        // App config mode: register only enabled features
+        // App config mode: create blocks for enabled features, share them
+        // between the WAFER runtime (lifecycle) and the router (dispatch).
         let enabled = cfg.enabled_features();
-        blocks::register_blocks(&mut wafer, |name| enabled.contains(&name));
+        let shared_blocks = blocks::create_blocks(|name| enabled.contains(&name));
+
+        // Register blocks with runtime for lifecycle hooks
+        blocks::register_shared_blocks(&mut wafer, &shared_blocks);
+
+        // Build the router block with shared factory
+        let jwt_secret = cfg.jwt_secret.clone().unwrap_or_default();
+        let features: Arc<dyn solobase_core::FeatureConfig> =
+            Arc::new(cfg.feature_config());
+        let factory = NativeBlockFactory::new(shared_blocks);
+        let router = SolobaseRouterBlock::new(jwt_secret, features, factory);
+        wafer.register_block("@solobase/router", Arc::new(router));
     } else {
-        // Legacy blocks.json mode: use FEATURE_* env vars
+        // Legacy blocks.json mode: use FEATURE_* env vars, no shared router
         blocks::register_selected(&mut wafer);
     }
     tracing::info!("native feature blocks registered");
 
-    // 6. Register flow definitions (wafer-core base flows + solobase feature flows)
+    // 6. Register flow definitions (wafer-core base flows + solobase site-main)
     let _ = wafer_core::flows::register_flows(&mut wafer);
-    if let Some(ref cfg) = app_config {
-        let enabled = cfg.enabled_features();
-        flows::register_flows(&mut wafer, |name| enabled.contains(&name));
+    if app_config.is_some() {
+        // Only need site-main (routes everything through @solobase/router)
+        solobase::flows::register_site_main(&mut wafer);
     } else {
-        flows::register_selected_flows(&mut wafer);
+        solobase::flows::register_selected_flows(&mut wafer);
     }
     tracing::info!("flow definitions registered");
 

@@ -23,13 +23,16 @@ server = [
     "dep:tokio",
     "dep:tracing-subscriber",
 ]
-storage-s3 = ["wafer-core/storage-s3"]
-postgres = ["wafer-core/postgres"]
+storage-s3 = ["solobase-core/storage-s3"]
+postgres = ["solobase-core/postgres"]
 
 [dependencies]
 # WAFER runtime and shared blocks (minimal — types + clients only)
 wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
 wafer-core = { path = "../../../wafer-run/crates/wafer-core", default-features = false }
+
+# Solobase shared core (routing, crypto, features, pipeline, backend blocks)
+solobase-core = { path = "../solobase-core" }
 
 # Async
 async-trait = { workspace = true }
@@ -51,4 +54,3 @@ hmac = "0.12"
 
 # Time
 chrono = { workspace = true }
-

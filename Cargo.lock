@@ -2852,6 +2852,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "solobase-core",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2860,13 +2861,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "solobase-cli"
+name = "solobase-core"
 version = "0.1.0"
 dependencies = [
- "reqwest",
+ "argon2",
+ "async-trait",
+ "base64",
+ "chrono",
+ "getrandom 0.2.17",
+ "hmac",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
+ "tracing",
+ "wafer-core",
+ "wafer-run",
 ]
 
 [[package]]
@@ -3654,6 +3664,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 
 [[package]]
+name = "wafer-block"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wafer-block-macro",
+]
+
+[[package]]
+name = "wafer-block-macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "wafer-core"
 version = "0.1.0"
 dependencies = [
@@ -3700,6 +3728,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "wafer-block",
  "wasmi",
 ]
 

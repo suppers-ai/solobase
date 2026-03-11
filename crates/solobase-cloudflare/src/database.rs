@@ -1,104 +1,16 @@
 //! Async database service backed by Cloudflare D1 (SQLite at the edge).
 //!
-//! Each tenant has their own D1 database, so there is no need for tenant_id
-//! filtering — all data in a database belongs to that tenant.
+//! Implements the shared `DatabaseService` trait from wafer-core so D1Block
+//! can reuse the shared message handler.
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
 use worker::*;
 
-/// Record returned from D1 queries.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Record {
-    pub id: String,
-    pub data: HashMap<String, serde_json::Value>,
-}
-
-/// Paginated list of records.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RecordList {
-    pub records: Vec<Record>,
-    pub total_count: i64,
-    pub page: i64,
-    pub page_size: i64,
-}
-
-/// Filter for list queries.
-#[derive(Debug, Clone)]
-pub struct Filter {
-    pub field: String,
-    pub operator: FilterOp,
-    pub value: serde_json::Value,
-}
-
-#[derive(Debug, Clone)]
-pub enum FilterOp {
-    Equal,
-    NotEqual,
-    GreaterThan,
-    GreaterEqual,
-    LessThan,
-    LessEqual,
-    Like,
-    In,
-    IsNull,
-    IsNotNull,
-}
-
-impl FilterOp {
-    pub fn as_sql(&self) -> &'static str {
-        match self {
-            Self::Equal => "=",
-            Self::NotEqual => "!=",
-            Self::GreaterThan => ">",
-            Self::GreaterEqual => ">=",
-            Self::LessThan => "<",
-            Self::LessEqual => "<=",
-            Self::Like => "LIKE",
-            Self::In => "IN",
-            Self::IsNull => "IS NULL",
-            Self::IsNotNull => "IS NOT NULL",
-        }
-    }
-}
-
-/// Sort directive.
-#[derive(Debug, Clone)]
-pub struct SortField {
-    pub field: String,
-    pub desc: bool,
-}
-
-/// List query options.
-#[derive(Debug, Clone, Default)]
-pub struct ListOptions {
-    pub filters: Vec<Filter>,
-    pub sort: Vec<SortField>,
-    pub limit: i64,
-    pub offset: i64,
-}
-
-/// Database error.
-#[derive(Debug)]
-pub enum DatabaseError {
-    NotFound,
-    Internal(String),
-}
-
-impl std::fmt::Display for DatabaseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotFound => write!(f, "record not found"),
-            Self::Internal(msg) => write!(f, "database error: {msg}"),
-        }
-    }
-}
+use wafer_core::interfaces::database::service::*;
 
 /// Async database service wrapping Cloudflare D1.
-///
-/// Each tenant has their own D1 database — no tenant_id scoping needed.
 pub struct D1DatabaseService {
     db: D1Database,
 }
@@ -107,28 +19,33 @@ impl D1DatabaseService {
     pub fn new(db: D1Database) -> Self {
         Self { db }
     }
+}
 
-    /// Get a single record by ID.
-    pub async fn get(&self, collection: &str, id: &str) -> Result<Record> {
+// Safety: wasm32-unknown-unknown is single-threaded.
+unsafe impl Send for D1DatabaseService {}
+unsafe impl Sync for D1DatabaseService {}
+
+#[async_trait::async_trait(?Send)]
+impl DatabaseService for D1DatabaseService {
+    async fn get(&self, collection: &str, id: &str) -> Result<Record, DatabaseError> {
         let table = sanitize_ident(collection);
         let stmt = self
             .db
             .prepare(&format!("SELECT * FROM {} WHERE id = ?", table))
-            .bind(&[id.into()])?;
+            .bind(&[id.into()])
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
 
-        let row = stmt.first::<serde_json::Value>(None).await?;
+        let row = stmt
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
         match row {
             Some(val) => Ok(json_to_record(val)),
-            None => Err(Error::RustError("record not found".into())),
+            None => Err(DatabaseError::NotFound),
         }
     }
 
-    /// List records with filtering, sorting, and pagination.
-    pub async fn list(
-        &self,
-        collection: &str,
-        opts: &ListOptions,
-    ) -> Result<RecordList> {
+    async fn list(&self, collection: &str, opts: &ListOptions) -> Result<RecordList, DatabaseError> {
         let table = sanitize_ident(collection);
 
         let mut where_clauses: Vec<String> = Vec::new();
@@ -154,8 +71,15 @@ impl D1DatabaseService {
 
         // Count query
         let count_sql = format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, where_sql);
-        let count_stmt = self.db.prepare(&count_sql).bind(&params)?;
-        let count_row = count_stmt.first::<serde_json::Value>(None).await?;
+        let count_stmt = self
+            .db
+            .prepare(&count_sql)
+            .bind(&params)
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
+        let count_row = count_stmt
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
         let total_count = count_row
             .and_then(|v| v.get("cnt").and_then(|c| c.as_i64()))
             .unwrap_or(0);
@@ -182,9 +106,18 @@ impl D1DatabaseService {
         let limit = if opts.limit > 0 { opts.limit } else { 100 };
         sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, opts.offset));
 
-        let stmt = self.db.prepare(&sql).bind(&params)?;
-        let results = stmt.all().await?;
-        let rows: Vec<serde_json::Value> = results.results()?;
+        let stmt = self
+            .db
+            .prepare(&sql)
+            .bind(&params)
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
+        let results = stmt
+            .all()
+            .await
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
+        let rows: Vec<serde_json::Value> = results
+            .results()
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
 
         let page = if limit > 0 {
             (opts.offset / limit) + 1
@@ -200,12 +133,11 @@ impl D1DatabaseService {
         })
     }
 
-    /// Create a new record.
-    pub async fn create(
+    async fn create(
         &self,
         collection: &str,
         data: HashMap<String, serde_json::Value>,
-    ) -> Result<Record> {
+    ) -> Result<Record, DatabaseError> {
         let table = sanitize_ident(collection);
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
@@ -214,7 +146,6 @@ impl D1DatabaseService {
         let mut placeholders = vec!["?".to_string()];
         let mut params: Vec<JsValue> = vec![id.clone().into()];
 
-        // Add created_at/updated_at if not provided
         let mut data = data;
         data.entry("created_at".to_string())
             .or_insert_with(|| serde_json::Value::String(now.clone()));
@@ -234,21 +165,23 @@ impl D1DatabaseService {
             placeholders.join(", ")
         );
 
-        self.db.prepare(&sql).bind(&params)?.run().await?;
+        self.db
+            .prepare(&sql)
+            .bind(&params)
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?
+            .run()
+            .await
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
 
-        Ok(Record {
-            id,
-            data,
-        })
+        Ok(Record { id, data })
     }
 
-    /// Update an existing record.
-    pub async fn update(
+    async fn update(
         &self,
         collection: &str,
         id: &str,
         data: HashMap<String, serde_json::Value>,
-    ) -> Result<Record> {
+    ) -> Result<Record, DatabaseError> {
         let table = sanitize_ident(collection);
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -274,27 +207,32 @@ impl D1DatabaseService {
             sets.join(", ")
         );
 
-        self.db.prepare(&sql).bind(&params)?.run().await?;
+        self.db
+            .prepare(&sql)
+            .bind(&params)
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?
+            .run()
+            .await
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
 
-        // Return updated record
         self.get(collection, id).await
     }
 
-    /// Delete a record.
-    pub async fn delete(&self, collection: &str, id: &str) -> Result<()> {
+    async fn delete(&self, collection: &str, id: &str) -> Result<(), DatabaseError> {
         let table = sanitize_ident(collection);
         let sql = format!("DELETE FROM {} WHERE id = ?", table);
 
         self.db
             .prepare(&sql)
-            .bind(&[id.into()])?
+            .bind(&[id.into()])
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?
             .run()
-            .await?;
+            .await
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
         Ok(())
     }
 
-    /// Count records matching filters.
-    pub async fn count(&self, collection: &str, filters: &[Filter]) -> Result<i64> {
+    async fn count(&self, collection: &str, filters: &[Filter]) -> Result<i64, DatabaseError> {
         let table = sanitize_ident(collection);
         let mut where_clauses: Vec<String> = Vec::new();
         let mut params: Vec<JsValue> = Vec::new();
@@ -317,52 +255,123 @@ impl D1DatabaseService {
             where_clauses.join(" AND ")
         };
 
-        let sql = format!(
-            "SELECT COUNT(*) as cnt FROM {} WHERE {}",
-            table, where_sql
-        );
+        let sql = format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, where_sql);
 
         let row = self
             .db
             .prepare(&sql)
-            .bind(&params)?
+            .bind(&params)
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?
             .first::<serde_json::Value>(None)
-            .await?;
+            .await
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
 
         Ok(row
             .and_then(|v| v.get("cnt").and_then(|c| c.as_i64()))
             .unwrap_or(0))
     }
 
-    /// Execute a raw SQL query.
-    pub async fn query_raw(
+    async fn sum(
+        &self,
+        collection: &str,
+        field: &str,
+        filters: &[Filter],
+    ) -> Result<f64, DatabaseError> {
+        let col = sanitize_ident(field);
+        let table = sanitize_ident(collection);
+        let mut where_parts: Vec<String> = Vec::new();
+        let mut args: Vec<JsValue> = Vec::new();
+
+        for f in filters {
+            let fc = sanitize_ident(&f.field);
+            match f.operator {
+                FilterOp::IsNull => where_parts.push(format!("{} IS NULL", fc)),
+                FilterOp::IsNotNull => where_parts.push(format!("{} IS NOT NULL", fc)),
+                _ => {
+                    where_parts.push(format!("{} {} ?", fc, f.operator.as_sql()));
+                    args.push(json_value_to_js(&f.value));
+                }
+            }
+        }
+
+        let where_sql = if where_parts.is_empty() {
+            "1=1".to_string()
+        } else {
+            where_parts.join(" AND ")
+        };
+
+        let sql = format!(
+            "SELECT COALESCE(SUM({}), 0) as s FROM {} WHERE {}",
+            col, table, where_sql
+        );
+
+        let row = self
+            .db
+            .prepare(&sql)
+            .bind(&args)
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?
+            .first::<serde_json::Value>(None)
+            .await
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
+
+        Ok(row
+            .and_then(|v| v.get("s").and_then(|s| s.as_f64()))
+            .unwrap_or(0.0))
+    }
+
+    async fn query_raw(
         &self,
         query: &str,
         args: &[serde_json::Value],
-    ) -> Result<Vec<Record>> {
+    ) -> Result<Vec<Record>, DatabaseError> {
         let params: Vec<JsValue> = args.iter().map(json_value_to_js).collect();
-        let stmt = self.db.prepare(query).bind(&params)?;
-        let results = stmt.all().await?;
-        let rows: Vec<serde_json::Value> = results.results()?;
+        let stmt = self
+            .db
+            .prepare(query)
+            .bind(&params)
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
+        let results = stmt
+            .all()
+            .await
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
+        let rows: Vec<serde_json::Value> = results
+            .results()
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
         Ok(rows.into_iter().map(json_to_record).collect())
     }
 
-    /// Execute a raw SQL statement (INSERT/UPDATE/DELETE).
-    pub async fn exec_raw(&self, query: &str, args: &[serde_json::Value]) -> Result<()> {
+    async fn exec_raw(
+        &self,
+        query: &str,
+        args: &[serde_json::Value],
+    ) -> Result<i64, DatabaseError> {
         let params: Vec<JsValue> = args.iter().map(json_value_to_js).collect();
-        self.db.prepare(query).bind(&params)?.run().await?;
+        self.db
+            .prepare(query)
+            .bind(&params)
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?
+            .run()
+            .await
+            .map_err(|e| DatabaseError::Internal(e.to_string()))?;
+        Ok(0)
+    }
+
+    async fn ensure_schema_table(&self, table: &Table) -> Result<(), DatabaseError> {
+        // D1 schema is managed externally via Wrangler migrations
+        let _ = table;
         Ok(())
     }
 
-    /// Ensure a table exists with the given columns.
-    pub async fn ensure_table(&self, name: &str, columns_sql: &str) -> Result<()> {
-        let table = sanitize_ident(name);
-        let sql = format!(
-            "CREATE TABLE IF NOT EXISTS {} (id TEXT PRIMARY KEY, {})",
-            table, columns_sql
-        );
-        self.db.prepare(&sql).bind(&[])?.run().await?;
-        Ok(())
+    async fn schema_table_exists(&self, _name: &str) -> Result<bool, DatabaseError> {
+        Ok(true) // Assume tables exist (managed by Wrangler)
+    }
+
+    async fn schema_drop_table(&self, _name: &str) -> Result<(), DatabaseError> {
+        Ok(()) // No-op on D1
+    }
+
+    async fn schema_add_column(&self, _table: &str, _column: &Column) -> Result<(), DatabaseError> {
+        Ok(()) // No-op on D1
     }
 }
 

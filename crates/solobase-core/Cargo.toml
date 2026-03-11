@@ -1,0 +1,47 @@
+[package]
+name = "solobase-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Solobase shared platform abstraction — routing, crypto, features, pipeline, and backend block factories"
+
+[lib]
+name = "solobase_core"
+path = "src/lib.rs"
+
+[features]
+default = ["sqlite", "storage-local"]
+sqlite = ["wafer-core/sqlite"]
+postgres = ["wafer-core/postgres", "dep:tokio"]
+storage-local = ["wafer-core/storage-local"]
+storage-s3 = ["wafer-core/storage-s3", "dep:tokio"]
+
+[dependencies]
+# WAFER types (minimal — no full runtime)
+wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
+# wafer-core for shared block types, service traits, and backend implementations
+wafer-core = { path = "../../../wafer-run/crates/wafer-core", default-features = false }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Crypto
+sha2 = { workspace = true }
+hmac = "0.12"
+base64 = "0.22"
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "rand"] }
+getrandom = "0.2"
+
+# Time
+chrono = { workspace = true }
+
+# Async
+async-trait = { workspace = true }
+tokio = { workspace = true, optional = true }
+
+# Logging
+tracing = "0.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }

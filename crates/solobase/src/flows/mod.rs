@@ -1,9 +1,12 @@
 //! Flow definitions for Solobase.
 //!
-//! The wafer-core base flows (@wafer/infra, @wafer/auth-pipe, @wafer/admin-pipe)
-//! are registered separately by `wafer_core::flows::register_flows`.
-//! This module registers the feature-level flows that compose those
-//! base pipelines with solobase's native Rust feature blocks.
+//! With the `@solobase/router` block, all API routing is handled by
+//! `solobase-core`'s shared pipeline. The only flow needed is `site-main`,
+//! which dispatches API paths to the router and serves the SPA for everything
+//! else. The wafer-core base flows (@wafer/infra) provide middleware.
+//!
+//! Legacy per-feature flows (auth, admin, files, etc.) are kept for backwards
+//! compatibility with the `blocks.json` configuration mode.
 
 mod admin;
 mod auth;
@@ -19,6 +22,18 @@ mod system;
 mod userportal;
 
 use wafer_run::Wafer;
+
+/// Register only the site-main flow (used with @solobase/router).
+///
+/// This is the preferred mode when using app.json configuration. All API
+/// routing goes through the shared solobase-core pipeline.
+pub fn register_site_main(w: &mut Wafer) {
+    register_flow(w, site_main::JSON);
+}
+
+// ---------------------------------------------------------------------------
+// Legacy flow registration (blocks.json mode — kept for backwards compat)
+// ---------------------------------------------------------------------------
 
 /// Feature flows with their gate name (None = always registered).
 const FEATURE_FLOWS: &[(&str, Option<&str>)] = &[
@@ -36,10 +51,7 @@ const FEATURE_FLOWS: &[(&str, Option<&str>)] = &[
     (site_main::JSON, None),        // top-level dispatch — always
 ];
 
-/// Register flows, optionally gated by a predicate.
-///
-/// Flows with `gate = None` are always registered. Flows with a gate name
-/// are only registered if `filter(gate_name)` returns `true`.
+/// Register flows, optionally gated by a predicate (legacy blocks.json mode).
 pub fn register_flows(w: &mut Wafer, filter: impl Fn(&str) -> bool) {
     for &(json, gate) in FEATURE_FLOWS {
         if gate.is_none_or(&filter) {

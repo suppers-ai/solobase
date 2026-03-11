@@ -1,39 +1,28 @@
 /// The top-level flow that @wafer/http-listener dispatches all requests to.
-/// Routes to the appropriate feature flow based on path matching.
-/// The @wafer/web block serves the frontend SPA as a final fallback.
+///
+/// API requests are routed to @solobase/router, which delegates to the
+/// shared solobase-core pipeline (JWT validation, feature gates, admin checks,
+/// block dispatch). Non-API requests fall through to @wafer/web for SPA serving.
+///
+/// Middleware (CORS, security headers, rate limiting) is applied by @wafer/infra.
 pub const JSON: &str = r#"{
     "id": "site-main",
-    "summary": "Top-level HTTP dispatch — routes to feature flows and frontend",
+    "summary": "Top-level HTTP dispatch — API router + frontend SPA",
     "config": { "on_error": "stop" },
     "root": {
         "flow": "@wafer/infra",
         "next": [
-            { "match": "*:/auth/**",                 "flow": "auth" },
-            { "match": "*:/internal/oauth/**",       "flow": "auth" },
-            { "match": "*:/admin/users/**",          "flow": "admin" },
-            { "match": "*:/admin/database/**",       "flow": "admin" },
-            { "match": "*:/admin/logs/**",           "flow": "admin" },
-            { "match": "*:/admin/iam/**",            "flow": "admin" },
-            { "match": "*:/admin/wafer/**",          "flow": "admin" },
-            { "match": "*:/admin/custom-tables/**",  "flow": "admin" },
-            { "match": "*:/admin/settings/**",       "flow": "settings" },
-            { "match": "*:/settings/**",             "flow": "settings" },
-            { "match": "*:/admin/storage/**",        "flow": "files" },
-            { "match": "*:/admin/b/cloudstorage/**", "flow": "files" },
-            { "match": "*:/storage/**",              "flow": "files" },
-            { "match": "*:/b/cloudstorage/**",     "flow": "files" },
-            { "match": "*:/admin/legalpages/**",     "flow": "legalpages" },
-            { "match": "*:/b/legalpages/**",       "flow": "legalpages" },
-            { "match": "*:/admin/b/products/**",   "flow": "products" },
-            { "match": "*:/b/products/**",         "flow": "products" },
-            { "match": "*:/admin/b/deployments/**", "flow": "deployments" },
-            { "match": "*:/b/deployments/**",      "flow": "deployments" },
-            { "match": "*:/b/userportal/**",       "flow": "userportal" },
-            { "match": "*:/profile/**",              "flow": "profile" },
-            { "match": "*:/health",                  "flow": "system" },
-            { "match": "*:/debug/**",                "flow": "system" },
-            { "match": "*:/nav",                     "flow": "system" },
-            { "match": "*:/**",                      "block": "@wafer/web", "config": { "web_root": "./frontend/build", "web_spa": "true", "web_index": "index.html" } }
+            { "match": "*:/auth/**",       "block": "@solobase/router" },
+            { "match": "*:/internal/**",   "block": "@solobase/router" },
+            { "match": "*:/admin/**",      "block": "@solobase/router" },
+            { "match": "*:/settings/**",   "block": "@solobase/router" },
+            { "match": "*:/storage/**",    "block": "@solobase/router" },
+            { "match": "*:/b/**",          "block": "@solobase/router" },
+            { "match": "*:/profile/**",    "block": "@solobase/router" },
+            { "match": "*:/health",        "block": "@solobase/router" },
+            { "match": "*:/nav",           "block": "@solobase/router" },
+            { "match": "*:/debug/**",      "block": "@solobase/router" },
+            { "match": "*:/**",            "block": "@wafer/web", "config": { "web_root": "./frontend/build", "web_spa": "true", "web_index": "index.html" } }
         ]
     }
 }"#;

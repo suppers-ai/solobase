@@ -5,6 +5,6 @@
 //! Cloudflare Workers adapter).
 
 pub mod app_config;
-pub mod blocks;
+pub use solobase_core::blocks;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod flows;

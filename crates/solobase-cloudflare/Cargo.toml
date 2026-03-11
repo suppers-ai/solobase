@@ -15,6 +15,12 @@ wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = f
 # Solobase blocks (no server features — just the block implementations)
 solobase = { path = "../solobase", default-features = false }
 
+# Solobase shared core (routing, crypto, features, pipeline)
+solobase-core = { path = "../solobase-core", default-features = false }
+
+# WAFER core blocks (shared DatabaseService/StorageService traits + handlers)
+wafer-core = { path = "../../../wafer-run/crates/wafer-core", default-features = false }
+
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -22,11 +28,7 @@ serde_json = "1"
 # Time
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
 
-# Crypto
-sha2 = "0.10"
-base64 = "0.22"
-hmac = "0.12"
-argon2 = { version = "0.5", default-features = false, features = ["alloc", "rand"] }
+# Crypto (sha2, hmac, argon2, base64 now in solobase-core)
 uuid = { version = "1", features = ["v4", "js"] }
 getrandom = { version = "0.2", features = ["js"] }
 

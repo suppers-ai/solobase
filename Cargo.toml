@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "crates/solobase",
-    "crates/solobase-cli",
+    "crates/solobase-core",
 ]
 exclude = [
     "crates/solobase-cloudflare",

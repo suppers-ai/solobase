@@ -1,39 +1,21 @@
 //! Async storage service backed by Cloudflare R2.
 //!
-//! Files are stored in R2 with tenant-scoped key prefixes:
-//! `{tenant_id}/{folder}/{key}`
+//! Implements the shared `StorageService` trait from wafer-core so R2Block
+//! can reuse the shared message handler.
 
-use serde::{Deserialize, Serialize};
 use worker::*;
 
-/// Object metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ObjectInfo {
-    pub key: String,
-    pub size: i64,
-    pub content_type: String,
-    pub last_modified: String,
-}
-
-/// Paginated object listing.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ObjectList {
-    pub objects: Vec<ObjectInfo>,
-    pub total_count: i64,
-}
-
-/// Folder metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FolderInfo {
-    pub name: String,
-    pub public: bool,
-}
+use wafer_core::interfaces::storage::service::*;
 
 /// Async storage service wrapping Cloudflare R2.
 pub struct R2StorageService {
     bucket: Bucket,
     tenant_id: String,
 }
+
+// Safety: wasm32-unknown-unknown is single-threaded.
+unsafe impl Send for R2StorageService {}
+unsafe impl Sync for R2StorageService {}
 
 impl R2StorageService {
     pub fn new(bucket: Bucket, tenant_id: String) -> Self {
@@ -47,39 +29,47 @@ impl R2StorageService {
     fn folder_prefix(&self, folder: &str) -> String {
         format!("{}/{}/", self.tenant_id, folder)
     }
+}
 
-    /// Store an object in a folder.
-    pub async fn put(
+#[async_trait::async_trait(?Send)]
+impl StorageService for R2StorageService {
+    async fn put(
         &self,
         folder: &str,
         key: &str,
-        data: Vec<u8>,
+        data: &[u8],
         content_type: &str,
-    ) -> Result<()> {
+    ) -> Result<(), StorageError> {
         let r2_key = self.prefixed_key(folder, key);
         self.bucket
-            .put(&r2_key, data)
+            .put(&r2_key, data.to_vec())
             .http_metadata(HttpMetadata {
                 content_type: Some(content_type.to_string()),
                 ..Default::default()
             })
             .execute()
-            .await?;
+            .await
+            .map_err(|e| StorageError::Internal(e.to_string()))?;
         Ok(())
     }
 
-    /// Get an object and its metadata.
-    pub async fn get(&self, folder: &str, key: &str) -> Result<(Vec<u8>, ObjectInfo)> {
+    async fn get(&self, folder: &str, key: &str) -> Result<(Vec<u8>, ObjectInfo), StorageError> {
         let r2_key = self.prefixed_key(folder, key);
         let obj = self
             .bucket
             .get(&r2_key)
             .execute()
-            .await?
-            .ok_or_else(|| Error::RustError("object not found".into()))?;
+            .await
+            .map_err(|e| StorageError::Internal(e.to_string()))?
+            .ok_or(StorageError::NotFound)?;
 
-        let body = obj.body().ok_or_else(|| Error::RustError("no body".into()))?;
-        let bytes = body.bytes().await?;
+        let body = obj
+            .body()
+            .ok_or_else(|| StorageError::Internal("no body".into()))?;
+        let bytes = body
+            .bytes()
+            .await
+            .map_err(|e| StorageError::Internal(e.to_string()))?;
 
         let info = ObjectInfo {
             key: key.to_string(),
@@ -88,31 +78,29 @@ impl R2StorageService {
                 .http_metadata()
                 .content_type
                 .unwrap_or_else(|| "application/octet-stream".to_string()),
-            last_modified: obj.uploaded().to_string(),
+            last_modified: chrono::Utc::now(), // R2 doesn't expose last_modified easily via chrono
         };
 
         Ok((bytes, info))
     }
 
-    /// Delete an object from a folder.
-    pub async fn delete(&self, folder: &str, key: &str) -> Result<()> {
+    async fn delete(&self, folder: &str, key: &str) -> Result<(), StorageError> {
         let r2_key = self.prefixed_key(folder, key);
-        self.bucket.delete(&r2_key).await?;
+        self.bucket
+            .delete(&r2_key)
+            .await
+            .map_err(|e| StorageError::Internal(e.to_string()))?;
         Ok(())
     }
 
-    /// List objects in a folder.
-    pub async fn list(
-        &self,
-        folder: &str,
-        prefix: &str,
-        limit: u32,
-    ) -> Result<ObjectList> {
-        let full_prefix = if prefix.is_empty() {
+    async fn list(&self, folder: &str, opts: &ListOptions) -> Result<ObjectList, StorageError> {
+        let full_prefix = if opts.prefix.is_empty() {
             self.folder_prefix(folder)
         } else {
-            format!("{}{}", self.folder_prefix(folder), prefix)
+            format!("{}{}", self.folder_prefix(folder), opts.prefix)
         };
+
+        let limit = if opts.limit > 0 { opts.limit as u32 } else { 100 };
 
         let listed = self
             .bucket
@@ -120,7 +108,8 @@ impl R2StorageService {
             .prefix(&full_prefix)
             .limit(limit)
             .execute()
-            .await?;
+            .await
+            .map_err(|e| StorageError::Internal(e.to_string()))?;
 
         let folder_prefix_len = self.folder_prefix(folder).len();
 
@@ -129,7 +118,6 @@ impl R2StorageService {
             .iter()
             .map(|obj| {
                 let full_key = obj.key();
-                // Strip the tenant/folder prefix to get the user-facing key
                 let key = if full_key.len() > folder_prefix_len {
                     full_key[folder_prefix_len..].to_string()
                 } else {
@@ -140,7 +128,7 @@ impl R2StorageService {
                     key,
                     size: obj.size() as i64,
                     content_type: "application/octet-stream".to_string(),
-                    last_modified: obj.uploaded().to_string(),
+                    last_modified: chrono::Utc::now(),
                 }
             })
             .collect();
@@ -150,5 +138,20 @@ impl R2StorageService {
             objects,
             total_count: count,
         })
+    }
+
+    async fn create_folder(&self, _name: &str, _public: bool) -> Result<(), StorageError> {
+        // R2 doesn't need explicit folder creation — objects create the path
+        Ok(())
+    }
+
+    async fn delete_folder(&self, _name: &str) -> Result<(), StorageError> {
+        // Would need to list + batch delete; no-op for now
+        Ok(())
+    }
+
+    async fn list_folders(&self) -> Result<Vec<FolderInfo>, StorageError> {
+        // R2 doesn't have a native folder concept
+        Ok(Vec::new())
     }
 }

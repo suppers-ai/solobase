@@ -14,13 +14,12 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use wafer_run::block::Block;
+use wafer_core::interfaces::database::handler as db_handler;
+use wafer_core::interfaces::storage::handler as storage_handler;
 use wafer_run::context::Context;
 use wafer_run::types::*;
 
-use crate::d1_block::D1Block;
 use crate::database::D1DatabaseService;
-use crate::r2_block::R2Block;
 use crate::storage::R2StorageService;
 
 /// WAFER Context backed by Cloudflare Workers services (D1, R2, KV).
@@ -28,8 +27,8 @@ use crate::storage::R2StorageService;
 /// Solobase blocks call `ctx.call_block("@wafer/database", ...)` etc.
 /// This context handles those calls by routing to the appropriate CF service.
 pub struct CloudflareContext {
-    d1_block: Arc<D1Block>,
-    r2_block: Arc<R2Block>,
+    db_service: Arc<D1DatabaseService>,
+    storage_service: Arc<R2StorageService>,
     jwt_secret: String,
     env_vars: HashMap<String, String>,
 }
@@ -47,8 +46,8 @@ impl CloudflareContext {
         env_vars: HashMap<String, String>,
     ) -> Self {
         Self {
-            d1_block: Arc::new(D1Block::new(db)),
-            r2_block: Arc::new(R2Block::new(storage)),
+            db_service: Arc::new(db),
+            storage_service: Arc::new(storage),
             jwt_secret,
             env_vars,
         }
@@ -63,8 +62,12 @@ impl CloudflareContext {
 impl Context for CloudflareContext {
     async fn call_block(&self, block_name: &str, msg: &mut Message) -> Result_ {
         match block_name {
-            "@wafer/database" | "@db" | "solobase/d1" => self.d1_block.handle(self, msg).await,
-            "@wafer/storage" | "@storage" | "solobase/r2" => self.r2_block.handle(self, msg).await,
+            "@wafer/database" | "@db" | "solobase/d1" => {
+                db_handler::handle_message(self.db_service.as_ref(), msg).await
+            }
+            "@wafer/storage" | "@storage" | "solobase/r2" => {
+                storage_handler::handle_message(self.storage_service.as_ref(), msg).await
+            }
             "@wafer/config" => self.handle_config(msg),
             "@wafer/crypto" => self.handle_crypto(msg),
             "@wafer/network" => self.handle_network(msg).await,
@@ -195,24 +198,24 @@ impl CloudflareContext {
         match msg.kind.as_str() {
             "crypto.hash" => {
                 let req = decode_req::<CryptoHashReq>(msg, "crypto.hash")?;
-                match crypto_hash_password(&req.password) {
+                match solobase_core::crypto::hash_password(&req.password) {
                     Ok(hash) => respond_json(msg, &CryptoHashResp { hash }),
                     Err(e) => err_result("internal", e),
                 }
             }
             "crypto.compare_hash" => {
                 let req = decode_req::<CryptoCompareReq>(msg, "crypto.compare_hash")?;
-                let matches = crypto_verify_password(&req.password, &req.hash);
+                let matches = solobase_core::crypto::verify_password(&req.password, &req.hash);
                 respond_json(msg, &CryptoCompareResp { matches })
             }
             "crypto.sign" => {
                 let req = decode_req::<CryptoSignReq>(msg, "crypto.sign")?;
-                let token = jwt_sign(&req.claims, Duration::from_secs(req.expiry_secs), &self.jwt_secret);
+                let token = solobase_core::crypto::jwt_sign(&req.claims, Duration::from_secs(req.expiry_secs), &self.jwt_secret);
                 respond_json(msg, &CryptoSignResp { token })
             }
             "crypto.verify" => {
                 let req = decode_req::<CryptoVerifyReq>(msg, "crypto.verify")?;
-                match jwt_verify(&req.token, &self.jwt_secret) {
+                match solobase_core::crypto::jwt_verify(&req.token, &self.jwt_secret) {
                     Ok(claims) => respond_json(msg, &CryptoVerifyResp { claims }),
                     Err(e) => err_result("unauthenticated", e),
                 }
@@ -222,9 +225,10 @@ impl CloudflareContext {
                 if req.n > 1_048_576 {
                     return err_result("invalid_argument", "random_bytes n exceeds 1 MiB limit");
                 }
-                let mut buf = vec![0u8; req.n];
-                getrandom::getrandom(&mut buf).unwrap_or_default();
-                respond_json(msg, &CryptoRandomResp { bytes: buf })
+                match solobase_core::crypto::random_bytes(req.n) {
+                    Ok(bytes) => respond_json(msg, &CryptoRandomResp { bytes }),
+                    Err(e) => err_result("internal", e),
+                }
             }
             other => err_result("unimplemented", format!("unknown crypto op: {other}")),
         }
@@ -325,123 +329,3 @@ impl CloudflareContext {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Crypto implementation: argon2 + HMAC-SHA256 JWT
-// ---------------------------------------------------------------------------
-
-fn crypto_hash_password(password: &str) -> Result<String, String> {
-    use argon2::{
-        password_hash::SaltString,
-        Argon2, PasswordHasher, Params,
-    };
-    // Use lower-cost params for Workers (4 MiB memory, 2 iterations)
-    let params = Params::new(4096, 2, 1, None)
-        .map_err(|e| format!("argon2 params: {e}"))?;
-    // Generate salt using getrandom (JS crypto on wasm32)
-    let mut salt_bytes = [0u8; 16];
-    getrandom::getrandom(&mut salt_bytes).map_err(|e| format!("rng error: {e}"))?;
-    let salt = SaltString::encode_b64(&salt_bytes)
-        .map_err(|e| format!("salt encode: {e}"))?;
-    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
-    argon2
-        .hash_password(password.as_bytes(), &salt)
-        .map(|h| h.to_string())
-        .map_err(|e| format!("argon2 hash: {e}"))
-}
-
-fn crypto_verify_password(password: &str, hash: &str) -> bool {
-    use argon2::{password_hash::PasswordHash, Argon2, PasswordVerifier};
-    let parsed = match PasswordHash::new(hash) {
-        Ok(h) => h,
-        Err(_) => return false,
-    };
-    Argon2::default()
-        .verify_password(password.as_bytes(), &parsed)
-        .is_ok()
-}
-
-// --- HMAC-SHA256 JWT ---
-
-fn hmac_sha256(data: &[u8], key: &[u8]) -> Vec<u8> {
-    use hmac::{Hmac, Mac};
-    use sha2::Sha256;
-    type HmacSha256 = Hmac<Sha256>;
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC key");
-    mac.update(data);
-    mac.finalize().into_bytes().to_vec()
-}
-
-fn base64_url_encode(input: &[u8]) -> String {
-    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-    URL_SAFE_NO_PAD.encode(input)
-}
-
-fn base64_url_decode(input: &str) -> Result<Vec<u8>, String> {
-    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-    URL_SAFE_NO_PAD.decode(input).map_err(|e| format!("invalid base64: {e}"))
-}
-
-fn jwt_sign(
-    claims: &HashMap<String, serde_json::Value>,
-    expiry: Duration,
-    secret: &str,
-) -> String {
-    let now = chrono::Utc::now();
-    let exp = now + chrono::Duration::seconds(expiry.as_secs() as i64);
-
-    let mut payload = claims.clone();
-    payload.insert("iat".to_string(), serde_json::json!(now.timestamp()));
-    payload.insert("exp".to_string(), serde_json::json!(exp.timestamp()));
-
-    let header = r#"{"alg":"HS256","typ":"JWT"}"#;
-    let header_b64 = base64_url_encode(header.as_bytes());
-    let payload_json = serde_json::to_string(&payload).unwrap_or_default();
-    let payload_b64 = base64_url_encode(payload_json.as_bytes());
-
-    let signing_input = format!("{}.{}", header_b64, payload_b64);
-    let sig = hmac_sha256(signing_input.as_bytes(), secret.as_bytes());
-    let sig_b64 = base64_url_encode(&sig);
-
-    format!("{}.{}.{}", header_b64, payload_b64, sig_b64)
-}
-
-fn jwt_verify(
-    token: &str,
-    secret: &str,
-) -> Result<HashMap<String, serde_json::Value>, String> {
-    let parts: Vec<&str> = token.split('.').collect();
-    if parts.len() != 3 {
-        return Err("invalid JWT format".into());
-    }
-
-    // Verify signature
-    let signing_input = format!("{}.{}", parts[0], parts[1]);
-    let expected_sig = hmac_sha256(signing_input.as_bytes(), secret.as_bytes());
-    let actual_sig = base64_url_decode(parts[2])?;
-    if expected_sig != actual_sig {
-        return Err("invalid JWT signature".into());
-    }
-
-    // Decode payload
-    let payload = base64_url_decode(parts[1])?;
-    let claims: HashMap<String, serde_json::Value> = serde_json::from_slice(&payload)
-        .map_err(|e| format!("invalid JWT claims: {e}"))?;
-
-    // Check expiration
-    if let Some(exp) = claims.get("exp").and_then(|v| v.as_i64()) {
-        let now = chrono::Utc::now().timestamp();
-        if exp < now {
-            return Err("JWT expired".into());
-        }
-    }
-
-    Ok(claims)
-}
-
-/// Public JWT verify function for use by lib.rs auth middleware.
-pub fn verify_jwt_public(
-    token: &str,
-    secret: &str,
-) -> Result<HashMap<String, serde_json::Value>, String> {
-    jwt_verify(token, secret)
-}
