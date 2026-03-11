@@ -10,6 +10,7 @@ use std::sync::Arc;
 use solobase::app_config::AppConfig;
 use solobase::blocks;
 use solobase::blocks::router::{NativeBlockFactory, SolobaseRouterBlock};
+use solobase::flows;
 
 use tracing_subscriber::{fmt, EnvFilter};
 use wafer_run::Wafer;
@@ -28,7 +29,7 @@ async fn main() {
     // 2. Create WAFER runtime
     let mut wafer = Wafer::new();
 
-    // 3. Load config: try app.json first, then fall back to blocks.json
+    // 3. Load app.json config
     let app_config = load_config(&mut wafer);
     tracing::info!("block configs loaded");
 
@@ -58,36 +59,24 @@ async fn main() {
     tracing::info!("blocks registered");
 
     // 5. Create shared block instances and register the solobase router
-    if let Some(ref cfg) = app_config {
-        // App config mode: create blocks for enabled features, share them
-        // between the WAFER runtime (lifecycle) and the router (dispatch).
-        let enabled = cfg.enabled_features();
-        let shared_blocks = blocks::create_blocks(|name| enabled.contains(&name));
+    let enabled = app_config.enabled_features();
+    let shared_blocks = blocks::create_blocks(|name| enabled.contains(&name));
 
-        // Register blocks with runtime for lifecycle hooks
-        blocks::register_shared_blocks(&mut wafer, &shared_blocks);
+    // Register blocks with runtime for lifecycle hooks
+    blocks::register_shared_blocks(&mut wafer, &shared_blocks);
 
-        // Build the router block with shared factory
-        let jwt_secret = cfg.jwt_secret.clone().unwrap_or_default();
-        let features: Arc<dyn solobase_core::FeatureConfig> =
-            Arc::new(cfg.feature_config());
-        let factory = NativeBlockFactory::new(shared_blocks);
-        let router = SolobaseRouterBlock::new(jwt_secret, features, factory);
-        wafer.register_block("@solobase/router", Arc::new(router));
-    } else {
-        // Legacy blocks.json mode: use FEATURE_* env vars, no shared router
-        blocks::register_selected(&mut wafer);
-    }
+    // Build the router block with shared factory
+    let jwt_secret = app_config.jwt_secret.clone().unwrap_or_default();
+    let features: Arc<dyn solobase_core::FeatureConfig> =
+        Arc::new(app_config.feature_config());
+    let factory = NativeBlockFactory::new(shared_blocks);
+    let router = SolobaseRouterBlock::new(jwt_secret, features, factory);
+    wafer.register_block("@solobase/router", Arc::new(router));
     tracing::info!("native feature blocks registered");
 
     // 6. Register flow definitions (wafer-core base flows + solobase site-main)
     let _ = wafer_core::flows::register_flows(&mut wafer);
-    if app_config.is_some() {
-        // Only need site-main (routes everything through @solobase/router)
-        solobase::flows::register_site_main(&mut wafer);
-    } else {
-        solobase::flows::register_selected_flows(&mut wafer);
-    }
+    flows::register_site_main(&mut wafer);
     tracing::info!("flow definitions registered");
 
     // 7. Register observability hooks
@@ -168,42 +157,29 @@ fn register_observability_hooks(wafer: &mut Wafer) {
 }
 
 // ---------------------------------------------------------------------------
-// Config loading: app.json (preferred) or blocks.json (legacy)
+// Config loading
 // ---------------------------------------------------------------------------
 
-fn load_config(wafer: &mut Wafer) -> Option<AppConfig> {
+fn load_config(wafer: &mut Wafer) -> AppConfig {
     let app_json = std::env::var("APP_JSON").unwrap_or_else(|_| "app.json".into());
-    let blocks_json = std::env::var("BLOCKS_JSON").unwrap_or_else(|_| "blocks.json".into());
 
-    // Try app.json first
-    if std::path::Path::new(&app_json).exists() {
-        match AppConfig::load(&app_json) {
-            Ok(cfg) => {
-                let name = cfg.app.as_deref().unwrap_or("solobase");
-                tracing::info!(app = name, version = cfg.version, config = %app_json, "loaded app config");
+    let cfg = AppConfig::load(&app_json).unwrap_or_else(|e| {
+        tracing::error!("failed to load {app_json}: {e}");
+        std::process::exit(1);
+    });
 
-                // Expand app config into block configs and aliases
-                let (block_configs, aliases) = cfg.to_blocks_json();
-                for (name, config) in block_configs {
-                    wafer.add_block_config(name, config);
-                }
-                for (alias, target) in aliases {
-                    wafer.add_alias(alias, target);
-                }
-                return Some(cfg);
-            }
-            Err(e) => {
-                tracing::error!("failed to load {app_json}: {e}");
-                std::process::exit(1);
-            }
-        }
+    let name = cfg.app.as_deref().unwrap_or("solobase");
+    tracing::info!(app = name, version = cfg.version, config = %app_json, "loaded app config");
+
+    // Expand app config into block configs and aliases
+    let (block_configs, aliases) = cfg.to_blocks_json();
+    for (name, config) in block_configs {
+        wafer.add_block_config(name, config);
     }
-
-    // Fall back to blocks.json
-    if let Err(e) = wafer.load_blocks_json(&blocks_json) {
-        tracing::warn!("could not load {blocks_json}: {e} — using defaults");
+    for (alias, target) in aliases {
+        wafer.add_alias(alias, target);
     }
-    None
+    cfg
 }
 
 // ---------------------------------------------------------------------------

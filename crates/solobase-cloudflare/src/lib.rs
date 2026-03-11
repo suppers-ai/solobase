@@ -30,6 +30,7 @@ mod cf_context;
 mod control;
 mod convert;
 mod database;
+mod helpers;
 mod provision;
 mod schema;
 mod storage;
@@ -146,6 +147,14 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 struct SolobaseBlockFactory;
 
 impl solobase_core::BlockFactory for SolobaseBlockFactory {
+    /// Create a fresh block instance for each request.
+    ///
+    /// NOTE: Blocks like Auth, Files, Products, and Deployments contain in-memory
+    /// `UserRateLimiter` instances. On Cloudflare Workers, each request gets a new
+    /// block instance, so these rate limiters never accumulate counts and are effectively
+    /// no-ops. This is intentional — the wasm32 build of `UserRateLimiter::check()` always
+    /// returns `Ok` (see `rate_limit.rs`). Per-request rate limiting on CF should be handled
+    /// at the platform level (e.g. Cloudflare Rate Limiting rules).
     fn create(&self, block_id: BlockId) -> Arc<dyn wafer_run::block::Block> {
         match block_id {
             BlockId::System      => Arc::new(blocks::system::SystemBlock),
@@ -215,11 +224,5 @@ fn add_cors_headers(mut resp: Response) -> Result<Response> {
     Ok(resp)
 }
 
-/// JSON error response helper.
-fn error_json(code: &str, message: &str, status: u16) -> Result<Response> {
-    let body = serde_json::json!({"error": code, "message": message}).to_string();
-    let resp = Response::ok(body)?;
-    let mut resp = resp.with_status(status);
-    resp.headers_mut().set("Content-Type", "application/json")?;
-    Ok(resp)
-}
+// Use shared JSON error helper from helpers module.
+use helpers::error_json;

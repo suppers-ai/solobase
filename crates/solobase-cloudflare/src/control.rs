@@ -10,17 +10,8 @@ use std::collections::HashMap;
 
 use worker::*;
 
+use crate::helpers::json_response;
 use crate::provision;
-
-/// JSON response helper.
-fn json_response<T: serde::Serialize>(data: &T, status: u16) -> Result<Response> {
-    let body = serde_json::to_string(data)
-        .map_err(|e| Error::RustError(format!("JSON serialize: {e}")))?;
-    let resp = Response::ok(body)?;
-    let mut resp = resp.with_status(status);
-    resp.headers_mut().set("Content-Type", "application/json")?;
-    Ok(resp)
-}
 
 /// Handle a control plane request.
 ///

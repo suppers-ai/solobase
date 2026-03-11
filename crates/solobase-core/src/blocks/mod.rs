@@ -78,33 +78,6 @@ pub fn register_shared_blocks(
     }
 }
 
-/// Register blocks, optionally gated by a predicate.
-///
-/// If `filter` returns `true` for a block name, that block is registered.
-/// Pass `|_| true` to register all blocks unconditionally.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn register_blocks(w: &mut wafer_run::Wafer, filter: impl Fn(&str) -> bool) {
-    let blocks = create_blocks(filter);
-    register_shared_blocks(w, &blocks);
-}
-
-/// Register all blocks unconditionally.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn register_all(w: &mut wafer_run::Wafer) {
-    register_blocks(w, |_| true);
-}
-
-/// Register only blocks enabled via `FEATURE_<NAME>` env vars.
-/// Missing or non-"false" values mean enabled.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn register_selected(w: &mut wafer_run::Wafer) {
-    register_blocks(w, |name| {
-        std::env::var(format!("FEATURE_{}", name.to_uppercase()))
-            .map(|v| v != "false")
-            .unwrap_or(true)
-    });
-}
-
 fn block_id_to_name(id: BlockId) -> &'static str {
     match id {
         BlockId::Profile     => "profile",

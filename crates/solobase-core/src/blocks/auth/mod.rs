@@ -12,7 +12,7 @@ use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
 use wafer_core::clients::{crypto, config};
 use super::helpers::{hex_encode, json_map};
-use super::rate_limit::{UserRateLimiter, RateLimit, set_rate_limit_headers, rate_limited_response};
+use super::rate_limit::{UserRateLimiter, RateLimit, check_rate_limit};
 
 pub struct AuthBlock {
     limiter: UserRateLimiter,
@@ -27,21 +27,6 @@ impl Default for AuthBlock {
 impl AuthBlock {
     pub fn new() -> Self {
         Self { limiter: UserRateLimiter::new() }
-    }
-
-    async fn check_rate_limit(&self, ctx: &dyn Context, msg: &mut Message, identity: &str, category: &str, default: RateLimit) -> Option<Result_> {
-        let limit = match default.resolve(ctx, category).await {
-            Some(l) => l,
-            None => return None, // disabled via config
-        };
-        let key = UserRateLimiter::key(identity, category);
-        match self.limiter.check(&key, limit) {
-            Ok(remaining) => {
-                set_rate_limit_headers(msg, limit.max_requests, remaining);
-                None
-            }
-            Err(retry_after) => Some(rate_limited_response(msg, retry_after)),
-        }
     }
 }
 
@@ -257,14 +242,14 @@ impl Block for AuthBlock {
             ("create", "/auth/login") | ("create", "/auth/signup") => {
                 let ip = msg.remote_addr().to_string();
                 let identity = if ip.is_empty() { "unknown".to_string() } else { ip };
-                if let Some(r) = self.check_rate_limit(ctx, msg, &identity, "auth", RateLimit::AUTH).await {
+                if let Some(r) = check_rate_limit(&self.limiter, ctx, msg, &identity, "auth", RateLimit::AUTH).await {
                     return r;
                 }
             }
             ("create", "/auth/refresh") => {
                 let ip = msg.remote_addr().to_string();
                 let identity = if ip.is_empty() { "unknown".to_string() } else { ip };
-                if let Some(r) = self.check_rate_limit(ctx, msg, &identity, "refresh", RateLimit::REFRESH).await {
+                if let Some(r) = check_rate_limit(&self.limiter, ctx, msg, &identity, "refresh", RateLimit::REFRESH).await {
                     return r;
                 }
             }
@@ -272,7 +257,7 @@ impl Block for AuthBlock {
             ("update", _) | ("create", "/auth/change-password") | ("create", "/auth/api-keys") | ("delete", _) => {
                 let user_id = msg.user_id().to_string();
                 if !user_id.is_empty() {
-                    if let Some(r) = self.check_rate_limit(ctx, msg, &user_id, "auth_write", RateLimit::API_WRITE).await {
+                    if let Some(r) = check_rate_limit(&self.limiter, ctx, msg, &user_id, "auth_write", RateLimit::API_WRITE).await {
                         return r;
                     }
                 }
@@ -281,7 +266,7 @@ impl Block for AuthBlock {
             ("retrieve", "/auth/me") | ("retrieve", "/auth/api-keys") => {
                 let user_id = msg.user_id().to_string();
                 if !user_id.is_empty() {
-                    if let Some(r) = self.check_rate_limit(ctx, msg, &user_id, "auth_read", RateLimit::API_READ).await {
+                    if let Some(r) = check_rate_limit(&self.limiter, ctx, msg, &user_id, "auth_read", RateLimit::API_READ).await {
                         return r;
                     }
                 }
