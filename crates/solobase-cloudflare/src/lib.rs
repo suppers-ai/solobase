@@ -172,7 +172,9 @@ impl solobase_core::BlockFactory for SolobaseBlockFactory {
 
 /// Resolve tenant config from hostname subdomain.
 async fn resolve_tenant(host: &str, env: &Env) -> std::result::Result<TenantConfig, String> {
-    let subdomain = host
+    // Strip port from host (e.g. "localhost:8787" → "localhost")
+    let host_no_port = host.split(':').next().unwrap_or(host);
+    let subdomain = host_no_port
         .split('.')
         .next()
         .ok_or_else(|| "invalid hostname".to_string())?;

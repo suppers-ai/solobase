@@ -433,7 +433,7 @@ curl <span class="string">"http://localhost:8090/auth/oauth/login?provider=googl
     <tr><td><code>storage_objects</code></td><td>Files</td><td>File object metadata</td></tr>
     <tr><td><code>settings</code></td><td>Admin</td><td>Key-value application settings</td></tr>
     <tr><td><code>audit_logs</code></td><td>Admin</td><td>Audit trail</td></tr>
-    <tr><td><code>ext_products_*</code></td><td>Products</td><td>Products, groups, pricing, purchases</td></tr>
+    <tr><td><code>block_products_*</code></td><td>Products</td><td>Products, groups, pricing, purchases</td></tr>
     <tr><td><code>cloud_shares</code></td><td>Files</td><td>Shared file links</td></tr>
 </table>
 
@@ -569,7 +569,7 @@ curl -X POST http://localhost:8090/admin/b/products/products \
   -d <span class="string">'{
     "name": "Cloud Hosting",
     "description": "Managed cloud hosting plan",
-    "price": 29.99,
+    "base_price": 29.99,
     "status": "active",
     "group_id": "1"
   }'</span>

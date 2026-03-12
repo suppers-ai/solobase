@@ -6,7 +6,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use super::rate_limit::{UserRateLimiter, RateLimit, check_rate_limit};
 
-pub(crate) const DEPLOYMENTS_COLLECTION: &str = "ext_deployments";
+pub(crate) const DEPLOYMENTS_COLLECTION: &str = "block_deployments";
 
 pub struct DeploymentsBlock {
     limiter: UserRateLimiter,

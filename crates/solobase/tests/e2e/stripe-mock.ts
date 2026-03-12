@@ -153,7 +153,16 @@ export function startStripeMock(): Promise<void> {
       console.log(`Stripe mock listening on http://127.0.0.1:${STRIPE_MOCK_PORT}`);
       resolve();
     });
-    server.on('error', reject);
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        // External mock already running (e.g. started by test.sh or dev.sh)
+        console.log(`Stripe mock already running on :${STRIPE_MOCK_PORT} — reusing`);
+        server = null;
+        resolve();
+      } else {
+        reject(err);
+      }
+    });
   });
 }
 

@@ -9,7 +9,23 @@ use super::helpers::{self, json_map};
 
 pub struct LegalPagesBlock;
 
-const COLLECTION: &str = "ext_legalpages_legal_documents";
+const COLLECTION: &str = "block_legalpages_legal_documents";
+
+/// Extract document ID from path like `/admin/legalpages/documents/{id}` or
+/// `/admin/legalpages/documents/{id}/publish`.
+fn extract_doc_id(msg: &Message) -> &str {
+    // Try router-extracted var first (native axum), fall back to path parsing (CF)
+    let var = msg.var("id");
+    if !var.is_empty() {
+        return var;
+    }
+    let path = msg.path();
+    let suffix = path.strip_prefix("/admin/legalpages/documents/")
+        .or_else(|| path.strip_prefix("/b/legalpages/documents/"))
+        .unwrap_or("");
+    // Strip trailing /publish or /
+    suffix.split('/').next().unwrap_or("")
+}
 
 impl LegalPagesBlock {
     async fn handle_get_public(&self, ctx: &dyn Context, msg: &mut Message, doc_type: &str) -> Result_ {
@@ -89,7 +105,7 @@ impl LegalPagesBlock {
     }
 
     async fn handle_admin_get(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let id = msg.var("id");
+        let id = extract_doc_id(msg);
         if id.is_empty() {
             return err_bad_request(msg, "Missing document ID");
         }
@@ -129,7 +145,7 @@ impl LegalPagesBlock {
     }
 
     async fn handle_admin_update(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let id = msg.var("id");
+        let id = extract_doc_id(msg);
         if id.is_empty() {
             return err_bad_request(msg, "Missing document ID");
         }
@@ -150,7 +166,7 @@ impl LegalPagesBlock {
     }
 
     async fn handle_admin_publish(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let id = msg.var("id");
+        let id = extract_doc_id(msg);
         if id.is_empty() {
             return err_bad_request(msg, "Missing document ID");
         }
@@ -197,7 +213,7 @@ impl LegalPagesBlock {
     }
 
     async fn handle_admin_delete(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let id = msg.var("id");
+        let id = extract_doc_id(msg);
         if id.is_empty() {
             return err_bad_request(msg, "Missing document ID");
         }

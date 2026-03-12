@@ -248,8 +248,8 @@ impl AppConfig {
         let db = self.database.as_ref();
         let db_type = db.map(|d| d.db_type.as_str()).unwrap_or("sqlite");
         let db_block_name = match db_type {
-            "postgres" | "postgresql" => "solobase/postgres",
-            _ => "solobase/sqlite",
+            "postgres" | "postgresql" => "@wafer/postgres",
+            _ => "@wafer/sqlite",
         };
         let mut db_config = json!({
             "path": db.map(|d| d.path.as_str()).unwrap_or("data/solobase.db")
@@ -268,8 +268,8 @@ impl AppConfig {
         let storage = self.storage.as_ref();
         let storage_type = storage.map(|s| s.storage_type.as_str()).unwrap_or("local");
         let storage_block_name = match storage_type {
-            "s3" => "solobase/s3",
-            _ => "solobase/local-storage",
+            "s3" => "@wafer/s3",
+            _ => "@wafer/local-storage",
         };
         let storage_config = json!({
             "root": storage.map(|s| s.root.as_str()).unwrap_or("data/storage")
@@ -694,7 +694,7 @@ mod schemas {
                         "client_ip": { "type": "string", "optional": true }
                     }
                 },
-                "ext_cloudstorage_storage_shares": {
+                "block_cloudstorage_storage_shares": {
                     "fields": {
                         "id": { "type": "string", "primary": true },
                         "object_id": { "type": "string" },
@@ -714,7 +714,7 @@ mod schemas {
                         { "fields": ["shared_with_user_id"] }
                     ]
                 },
-                "ext_cloudstorage_storage_access_logs": {
+                "block_cloudstorage_storage_access_logs": {
                     "fields": {
                         "id": { "type": "string", "primary": true },
                         "object_id": { "type": "string" },
@@ -730,7 +730,7 @@ mod schemas {
                         { "fields": ["user_id"] }
                     ]
                 },
-                "ext_cloudstorage_storage_quotas": {
+                "block_cloudstorage_storage_quotas": {
                     "fields": {
                         "id": { "type": "string", "primary": true },
                         "user_id": { "type": "string", "unique": true },
@@ -743,7 +743,7 @@ mod schemas {
                         "updated_at": { "type": "datetime", "auto": true }
                     }
                 },
-                "ext_cloudstorage_role_quotas": {
+                "block_cloudstorage_role_quotas": {
                     "fields": {
                         "id": { "type": "string", "primary": true },
                         "role_id": { "type": "string", "unique": true },
@@ -761,7 +761,7 @@ mod schemas {
                         { "fields": ["role_name"] }
                     ]
                 },
-                "ext_cloudstorage_user_quota_overrides": {
+                "block_cloudstorage_user_quota_overrides": {
                     "fields": {
                         "id": { "type": "string", "primary": true },
                         "user_id": { "type": "string", "unique": true },
@@ -791,7 +791,7 @@ mod schemas {
     "uses": {
         "@wafer/database": {
             "collections": {
-                "ext_products_variables": {
+                "block_products_variables": {
                     "fields": {
                         "id": { "type": "int", "primary": true, "auto": true },
                         "name": { "type": "string", "unique": true },
@@ -805,7 +805,7 @@ mod schemas {
                         "updated_at": { "type": "datetime", "auto": true }
                     }
                 },
-                "ext_products_group_templates": {
+                "block_products_group_templates": {
                     "fields": {
                         "id": { "type": "int", "primary": true, "auto": true },
                         "name": { "type": "string", "unique": true },
@@ -818,11 +818,11 @@ mod schemas {
                         "updated_at": { "type": "datetime", "auto": true }
                     }
                 },
-                "ext_products_groups": {
+                "block_products_groups": {
                     "fields": {
                         "id": { "type": "int", "primary": true, "auto": true },
                         "user_id": { "type": "string" },
-                        "group_template_id": { "type": "int", "ref": "ext_products_group_templates.id" },
+                        "group_template_id": { "type": "int", "ref": "block_products_group_templates.id" },
                         "name": { "type": "string" },
                         "description": { "type": "text", "optional": true },
                         "filter_numeric_1": { "type": "float", "optional": true },
@@ -865,7 +865,7 @@ mod schemas {
                         { "fields": ["filter_enum_1"] }
                     ]
                 },
-                "ext_products_product_templates": {
+                "block_products_product_templates": {
                     "fields": {
                         "id": { "type": "int", "primary": true, "auto": true },
                         "name": { "type": "string", "unique": true },
@@ -885,11 +885,11 @@ mod schemas {
                         "updated_at": { "type": "datetime", "auto": true }
                     }
                 },
-                "ext_products_products": {
+                "block_products_products": {
                     "fields": {
                         "id": { "type": "int", "primary": true, "auto": true },
-                        "group_id": { "type": "int", "ref": "ext_products_groups.id" },
-                        "product_template_id": { "type": "int", "ref": "ext_products_product_templates.id" },
+                        "group_id": { "type": "int", "ref": "block_products_groups.id" },
+                        "product_template_id": { "type": "int", "ref": "block_products_product_templates.id" },
                         "name": { "type": "string" },
                         "description": { "type": "text", "optional": true },
                         "base_price": { "type": "float", "optional": true },
@@ -943,14 +943,14 @@ mod schemas {
                         { "fields": ["filter_enum_1"] }
                     ]
                 },
-                "ext_products_pricing_templates": {
+                "block_products_pricing_templates": {
                     "fields": {
                         "id": { "type": "int", "primary": true, "auto": true },
                         "name": { "type": "string", "unique": true },
                         "display_name": { "type": "string", "optional": true },
                         "description": { "type": "text", "optional": true },
                         "price_formula": { "type": "text" },
-                        "condition_formula": { "type": "text", "optional": true },
+                        "conditions": { "type": "json", "optional": true },
                         "variables": { "type": "json", "optional": true },
                         "category": { "type": "string", "optional": true },
                         "status": { "type": "string", "default": "active" },
@@ -958,7 +958,7 @@ mod schemas {
                         "updated_at": { "type": "datetime", "auto": true }
                     }
                 },
-                "ext_products_purchases": {
+                "block_products_purchases": {
                     "fields": {
                         "id": { "type": "int", "primary": true, "auto": true },
                         "user_id": { "type": "string" },
@@ -1010,7 +1010,7 @@ mod schemas {
     "uses": {
         "@wafer/database": {
             "collections": {
-                "ext_deployments": {
+                "block_deployments": {
                     "fields": {
                         "user_id": { "type": "string" },
                         "name": { "type": "string" },
@@ -1037,7 +1037,7 @@ mod schemas {
     "uses": {
         "@wafer/database": {
             "collections": {
-                "ext_legalpages_legal_documents": {
+                "block_legalpages_legal_documents": {
                     "fields": {
                         "id": { "type": "string", "primary": true },
                         "doc_type": { "type": "string" },
@@ -1208,19 +1208,19 @@ mod tests {
         assert!(blocks.contains_key("@wafer/http-listener"));
 
         // Should contain the specific backend blocks (defaults: sqlite + local-storage)
-        assert!(blocks.contains_key("solobase/sqlite"));
-        assert!(blocks.contains_key("solobase/local-storage"));
+        assert!(blocks.contains_key("@wafer/sqlite"));
+        assert!(blocks.contains_key("@wafer/local-storage"));
 
         // Should contain the solobase feature blocks
         assert!(blocks.contains_key("@solobase/auth"));
         assert!(blocks.contains_key("@solobase/admin"));
 
         // Should have @db and @storage aliases pointing to specific backends
-        assert!(aliases.iter().any(|(a, t)| a == "@db" && t == "solobase/sqlite"));
-        assert!(aliases.iter().any(|(a, t)| a == "@storage" && t == "solobase/local-storage"));
+        assert!(aliases.iter().any(|(a, t)| a == "@db" && t == "@wafer/sqlite"));
+        assert!(aliases.iter().any(|(a, t)| a == "@storage" && t == "@wafer/local-storage"));
         // Backward-compat aliases
-        assert!(aliases.iter().any(|(a, t)| a == "@wafer/database" && t == "solobase/sqlite"));
-        assert!(aliases.iter().any(|(a, t)| a == "@wafer/storage" && t == "solobase/local-storage"));
+        assert!(aliases.iter().any(|(a, t)| a == "@wafer/database" && t == "@wafer/sqlite"));
+        assert!(aliases.iter().any(|(a, t)| a == "@wafer/storage" && t == "@wafer/local-storage"));
     }
 
     #[test]

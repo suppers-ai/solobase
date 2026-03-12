@@ -4,7 +4,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use super::{PRODUCTS_COLLECTION, GROUPS_COLLECTION, TYPES_COLLECTION, PRICING_COLLECTION};
+use super::{PRODUCTS_COLLECTION, GROUPS_COLLECTION, TYPES_COLLECTION, PRICING_COLLECTION, PURCHASES_COLLECTION};
 use crate::blocks::helpers::{RecordExt, field_as_string};
 
 pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -624,7 +624,7 @@ async fn handle_user_group_products(ctx: &dyn Context, msg: &mut Message) -> Res
 // User-accessible group templates (read-only)
 async fn handle_user_list_group_templates(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let opts = ListOptions { limit: 1000, ..Default::default() };
-    match db::list(ctx, "ext_products_group_templates", &opts).await {
+    match db::list(ctx, super::GROUP_TEMPLATES_COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
@@ -637,8 +637,8 @@ async fn handle_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let active_products = db::count(ctx, PRODUCTS_COLLECTION, &[Filter {
         field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("active".to_string()),
     }]).await.unwrap_or(0);
-    let total_purchases = db::count(ctx, "ext_products_purchases", &[]).await.unwrap_or(0);
-    let total_revenue = db::sum(ctx, "ext_products_purchases", "total_amount", &[Filter {
+    let total_purchases = db::count(ctx, PURCHASES_COLLECTION, &[]).await.unwrap_or(0);
+    let total_revenue = db::sum(ctx, PURCHASES_COLLECTION, "total_cents", &[Filter {
         field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("completed".to_string()),
     }]).await.unwrap_or(0.0);
     let total_groups = db::count(ctx, GROUPS_COLLECTION, &[]).await.unwrap_or(0);

@@ -4,7 +4,7 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use super::{PURCHASES_COLLECTION, LINE_ITEMS_COLLECTION, PRODUCTS_COLLECTION};
+use super::{PURCHASES_COLLECTION, LINE_ITEMS_COLLECTION, PRODUCTS_COLLECTION, PRICING_COLLECTION};
 use crate::blocks::helpers::RecordExt;
 
 pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -49,20 +49,20 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
         let product_name = product.data.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
 
-        // Calculate price
+        // Calculate price — use pricing template if set, otherwise fall back to base_price
         let unit_price = if let Some(template_id) = product.data.get("pricing_template_id").and_then(|v| v.as_str()) {
             if !template_id.is_empty() {
-                if let Ok(template) = db::get(ctx, "ext_products_pricing_templates", template_id).await {
-                    let formula = template.data.get("formula").and_then(|v| v.as_str()).unwrap_or("0");
+                if let Ok(template) = db::get(ctx, PRICING_COLLECTION, template_id).await {
+                    let formula = template.data.get("price_formula").and_then(|v| v.as_str()).unwrap_or("0");
                     super::pricing::evaluate_formula(formula, &item.variables).unwrap_or(0.0)
                 } else {
-                    product.data.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0)
+                    product.data.get("base_price").and_then(|v| v.as_f64()).unwrap_or(0.0)
                 }
             } else {
-                product.data.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0)
+                product.data.get("base_price").and_then(|v| v.as_f64()).unwrap_or(0.0)
             }
         } else {
-            product.data.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0)
+            product.data.get("base_price").and_then(|v| v.as_f64()).unwrap_or(0.0)
         };
 
         let line_total = unit_price * item.quantity as f64;
@@ -71,13 +71,16 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         line_items_data.push((item.product_id.clone(), product_name, item.quantity, unit_price, line_total, &item.variables));
     }
 
+    let total_cents = (total_amount * 100.0).round() as i64;
+
     // Create purchase
     let mut purchase_data = HashMap::new();
     purchase_data.insert("user_id".to_string(), serde_json::Value::String(user_id.clone()));
     purchase_data.insert("status".to_string(), serde_json::Value::String("pending".to_string()));
-    purchase_data.insert("total_amount".to_string(), serde_json::json!(total_amount));
+    purchase_data.insert("total_cents".to_string(), serde_json::json!(total_cents));
+    purchase_data.insert("amount_cents".to_string(), serde_json::json!(total_cents));
     purchase_data.insert("currency".to_string(), serde_json::Value::String(currency));
-    purchase_data.insert("payment_provider".to_string(), serde_json::Value::String("manual".to_string()));
+    purchase_data.insert("provider".to_string(), serde_json::Value::String("manual".to_string()));
     purchase_data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
     purchase_data.insert("updated_at".to_string(), serde_json::Value::String(now.clone()));
 
@@ -86,7 +89,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(e) => return err_internal(msg, &format!("Failed to create purchase: {e}")),
     };
 
-    // Create line items
+    // Create line items — roll back purchase on failure
     for (product_id, product_name, qty, unit_price, line_total, variables) in &line_items_data {
         let mut item_data = HashMap::new();
         item_data.insert("purchase_id".to_string(), serde_json::Value::String(purchase.id.clone()));
@@ -98,14 +101,16 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         item_data.insert("variables".to_string(), serde_json::json!(variables));
         item_data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
         if let Err(e) = db::create(ctx, LINE_ITEMS_COLLECTION, item_data).await {
-            tracing::warn!("Failed to create purchase line item: {e}");
+            // Clean up the purchase since line items are incomplete
+            let _ = db::delete(ctx, PURCHASES_COLLECTION, &purchase.id).await;
+            return err_internal(msg, &format!("Failed to create line item: {e}"));
         }
     }
 
     json_respond(msg, &serde_json::json!({
         "id": purchase.id,
         "status": "pending",
-        "total_amount": total_amount,
+        "total_cents": total_cents,
         "item_count": line_items_data.len()
     }))
 }

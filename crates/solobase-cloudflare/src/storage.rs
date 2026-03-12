@@ -5,7 +5,9 @@
 
 use worker::*;
 
-use wafer_core::interfaces::storage::service::*;
+use wafer_core::interfaces::storage::service::{
+    FolderInfo, ListOptions, ObjectInfo, ObjectList, StorageError, StorageService,
+};
 
 /// Async storage service wrapping Cloudflare R2.
 pub struct R2StorageService {
@@ -31,7 +33,8 @@ impl R2StorageService {
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl StorageService for R2StorageService {
     async fn put(
         &self,

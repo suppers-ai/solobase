@@ -5,7 +5,7 @@
 use serde_json::Value;
 
 /// Trait for querying which solobase features are enabled.
-pub trait FeatureConfig: Send + Sync {
+pub trait FeatureConfig: wafer_run::MaybeSend + wafer_run::MaybeSync {
     fn auth_enabled(&self) -> bool;
     fn admin_enabled(&self) -> bool;
     fn files_enabled(&self) -> bool;

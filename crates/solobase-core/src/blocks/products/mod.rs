@@ -5,18 +5,23 @@ mod stripe;
 mod variables;
 pub(crate) mod models;
 
+#[cfg(test)]
+mod tests;
+
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
 use super::rate_limit::{UserRateLimiter, RateLimit, check_rate_limit};
 
-pub(crate) const PRODUCTS_COLLECTION: &str = "ext_products_products";
-pub(crate) const GROUPS_COLLECTION: &str = "ext_products_groups";
-pub(crate) const TYPES_COLLECTION: &str = "ext_products_types";
-pub(crate) const PRICING_COLLECTION: &str = "ext_products_pricing_templates";
-pub(crate) const PURCHASES_COLLECTION: &str = "ext_products_purchases";
-pub(crate) const LINE_ITEMS_COLLECTION: &str = "ext_products_line_items";
+pub(crate) const PRODUCTS_COLLECTION: &str = "block_products_products";
+pub(crate) const GROUPS_COLLECTION: &str = "block_products_groups";
+pub(crate) const TYPES_COLLECTION: &str = "block_products_types";
+pub(crate) const PRICING_COLLECTION: &str = "block_products_pricing_templates";
+pub(crate) const PURCHASES_COLLECTION: &str = "block_products_purchases";
+pub(crate) const LINE_ITEMS_COLLECTION: &str = "block_products_line_items";
+pub(crate) const GROUP_TEMPLATES_COLLECTION: &str = "block_products_group_templates";
+pub(crate) const PRODUCT_TEMPLATES_COLLECTION: &str = "block_products_product_templates";
 
 pub struct ProductsBlock {
     limiter: UserRateLimiter,
@@ -96,12 +101,12 @@ impl Block for ProductsBlock {
             let check_opts = ListOptions { limit: 1, ..Default::default() };
 
             // Default group template
-            match db::list(ctx, "ext_products_group_templates", &check_opts).await {
+            match db::list(ctx, GROUP_TEMPLATES_COLLECTION, &check_opts).await {
                 Ok(list) if list.records.is_empty() => {
                     let mut data = std::collections::HashMap::new();
                     data.insert("name".to_string(), serde_json::Value::String("default".to_string()));
                     data.insert("display_name".to_string(), serde_json::Value::String("Default".to_string()));
-                    match db::create(ctx, "ext_products_group_templates", data).await {
+                    match db::create(ctx, GROUP_TEMPLATES_COLLECTION, data).await {
                         Ok(_) => tracing::info!("seeded default group template"),
                         Err(e) => tracing::warn!("failed to seed group template: {e}"),
                     }
@@ -111,12 +116,12 @@ impl Block for ProductsBlock {
             }
 
             // Default product template
-            match db::list(ctx, "ext_products_product_templates", &check_opts).await {
+            match db::list(ctx, PRODUCT_TEMPLATES_COLLECTION, &check_opts).await {
                 Ok(list) if list.records.is_empty() => {
                     let mut data = std::collections::HashMap::new();
                     data.insert("name".to_string(), serde_json::Value::String("default".to_string()));
                     data.insert("display_name".to_string(), serde_json::Value::String("Default".to_string()));
-                    match db::create(ctx, "ext_products_product_templates", data).await {
+                    match db::create(ctx, PRODUCT_TEMPLATES_COLLECTION, data).await {
                         Ok(_) => tracing::info!("seeded default product template"),
                         Err(e) => tracing::warn!("failed to seed product template: {e}"),
                     }

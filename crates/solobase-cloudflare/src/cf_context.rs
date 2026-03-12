@@ -58,7 +58,8 @@ impl CloudflareContext {
 // Context implementation
 // ---------------------------------------------------------------------------
 
-#[async_trait::async_trait(?Send)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Context for CloudflareContext {
     async fn call_block(&self, block_name: &str, msg: &mut Message) -> Result_ {
         match block_name {
@@ -111,8 +112,13 @@ fn err_result(code: &str, message: impl Into<String>) -> Result_ {
 }
 
 /// Decode a request from the message, returning an error Result_ on failure.
-fn decode_req<T: serde::de::DeserializeOwned>(msg: &mut Message, op: &str) -> Result<T, Result_> {
-    msg.decode::<T>().map_err(|e| err_result("invalid_argument", format!("invalid {op}: {e}")))
+macro_rules! decode_req {
+    ($ty:ty, $msg:expr, $op:expr) => {
+        match $msg.decode::<$ty>() {
+            Ok(v) => v,
+            Err(e) => return err_result("invalid_argument", format!("invalid {}: {e}", $op)),
+        }
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -197,31 +203,31 @@ impl CloudflareContext {
     fn handle_crypto(&self, msg: &mut Message) -> Result_ {
         match msg.kind.as_str() {
             "crypto.hash" => {
-                let req = decode_req::<CryptoHashReq>(msg, "crypto.hash")?;
+                let req = decode_req!(CryptoHashReq, msg, "crypto.hash");
                 match solobase_core::crypto::hash_password(&req.password) {
                     Ok(hash) => respond_json(msg, &CryptoHashResp { hash }),
                     Err(e) => err_result("internal", e),
                 }
             }
             "crypto.compare_hash" => {
-                let req = decode_req::<CryptoCompareReq>(msg, "crypto.compare_hash")?;
+                let req = decode_req!(CryptoCompareReq, msg, "crypto.compare_hash");
                 let matches = solobase_core::crypto::verify_password(&req.password, &req.hash);
                 respond_json(msg, &CryptoCompareResp { matches })
             }
             "crypto.sign" => {
-                let req = decode_req::<CryptoSignReq>(msg, "crypto.sign")?;
+                let req = decode_req!(CryptoSignReq, msg, "crypto.sign");
                 let token = solobase_core::crypto::jwt_sign(&req.claims, Duration::from_secs(req.expiry_secs), &self.jwt_secret);
                 respond_json(msg, &CryptoSignResp { token })
             }
             "crypto.verify" => {
-                let req = decode_req::<CryptoVerifyReq>(msg, "crypto.verify")?;
+                let req = decode_req!(CryptoVerifyReq, msg, "crypto.verify");
                 match solobase_core::crypto::jwt_verify(&req.token, &self.jwt_secret) {
                     Ok(claims) => respond_json(msg, &CryptoVerifyResp { claims }),
                     Err(e) => err_result("unauthenticated", e),
                 }
             }
             "crypto.random_bytes" => {
-                let req = decode_req::<CryptoRandomReq>(msg, "crypto.random_bytes")?;
+                let req = decode_req!(CryptoRandomReq, msg, "crypto.random_bytes");
                 if req.n > 1_048_576 {
                     return err_result("invalid_argument", "random_bytes n exceeds 1 MiB limit");
                 }
@@ -260,7 +266,7 @@ impl CloudflareContext {
     async fn handle_network(&self, msg: &mut Message) -> Result_ {
         match msg.kind.as_str() {
             "network.do" => {
-                let req = decode_req::<NetworkDoReq>(msg, "network.do")?;
+                let req = decode_req!(NetworkDoReq, msg, "network.do");
 
                 let method = match req.method.to_uppercase().as_str() {
                     "GET" => worker::Method::Get,

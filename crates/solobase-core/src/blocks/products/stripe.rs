@@ -31,7 +31,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(_) => return err_not_found(msg, "Purchase not found"),
     };
 
-    let total = purchase.data.get("total_amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let total_cents = purchase.data.get("total_cents").and_then(|v| v.as_i64()).unwrap_or(0);
     let currency = purchase.data.get("currency").and_then(|v| v.as_str()).unwrap_or("usd").to_lowercase();
 
     let base_url = config::get_default(ctx, "FRONTEND_URL", "http://localhost:5173").await;
@@ -42,7 +42,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let stripe_body = format!(
         "payment_method_types[]=card&line_items[0][price_data][currency]={}&line_items[0][price_data][unit_amount]={}&line_items[0][price_data][product_data][name]=Order {}&line_items[0][quantity]=1&mode=payment&success_url={}&cancel_url={}&metadata[purchase_id]={}",
         currency,
-        (total * 100.0) as i64, // Stripe uses cents
+        total_cents,
         body.purchase_id,
         urlencoding(&success_url),
         urlencoding(&cancel_url),
@@ -82,7 +82,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     // Update purchase with Stripe session ID
     let mut upd = HashMap::new();
-    upd.insert("payment_provider".to_string(), serde_json::Value::String("stripe".to_string()));
+    upd.insert("provider".to_string(), serde_json::Value::String("stripe".to_string()));
     upd.insert("provider_session_id".to_string(), serde_json::Value::String(session_id.to_string()));
     upd.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
     if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &body.purchase_id, upd).await {
@@ -138,7 +138,8 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     data.insert("approved_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
                     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
                     if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, purchase_id, data).await {
-                        tracing::warn!("Failed to mark purchase as completed: {e}");
+                        tracing::error!("Failed to mark purchase as completed: {e}");
+                        return err_internal(msg, &format!("Failed to update purchase: {e}"));
                     }
                 }
             }
@@ -162,7 +163,8 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                         data.insert("refunded_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
                         data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
                         if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &purchase.id, data).await {
-                            tracing::warn!("Failed to mark purchase as refunded: {e}");
+                            tracing::error!("Failed to mark purchase as refunded: {e}");
+                            return err_internal(msg, &format!("Failed to update purchase: {e}"));
                         }
                     }
                 }

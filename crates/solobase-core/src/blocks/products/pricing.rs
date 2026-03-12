@@ -32,7 +32,7 @@ pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let template_id = product.str_field("pricing_template_id");
     if template_id.is_empty() {
         // Direct price from product
-        let base_price = product.data.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let base_price = product.data.get("base_price").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let total = base_price * body.quantity as f64;
         return json_respond(msg, &serde_json::json!({
             "unit_price": base_price,
@@ -47,7 +47,7 @@ pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(_) => return err_internal(msg, "Pricing template not found"),
     };
 
-    let formula = template.str_field("formula");
+    let formula = template.str_field("price_formula");
     if formula.is_empty() {
         return err_internal(msg, "Empty pricing formula");
     }

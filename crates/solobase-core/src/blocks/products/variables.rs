@@ -5,7 +5,7 @@ use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 
-const COLLECTION: &str = "ext_products_variables";
+const COLLECTION: &str = "block_products_variables";
 
 pub async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let mut filters = Vec::new();

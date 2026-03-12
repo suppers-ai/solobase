@@ -8,7 +8,10 @@ use std::collections::HashMap;
 use wasm_bindgen::JsValue;
 use worker::*;
 
-use wafer_core::interfaces::database::service::*;
+use wafer_core::interfaces::database::service::{
+    Column, DatabaseError, DatabaseService, Filter, FilterOp, ListOptions, Record, RecordList,
+    SortField, Table,
+};
 
 /// Async database service wrapping Cloudflare D1.
 pub struct D1DatabaseService {
@@ -25,7 +28,8 @@ impl D1DatabaseService {
 unsafe impl Send for D1DatabaseService {}
 unsafe impl Sync for D1DatabaseService {}
 
-#[async_trait::async_trait(?Send)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl DatabaseService for D1DatabaseService {
     async fn get(&self, collection: &str, id: &str) -> Result<Record, DatabaseError> {
         let table = sanitize_ident(collection);

@@ -79,7 +79,7 @@ fn is_block_enabled(block_id: BlockId, features: &dyn FeatureConfig) -> bool {
 ///
 /// This keeps solobase-core decoupled from the actual block implementations.
 /// Implementations may return fresh instances (CF) or shared `Arc` clones (native).
-pub trait BlockFactory: Send + Sync {
+pub trait BlockFactory: wafer_run::MaybeSend + wafer_run::MaybeSync {
     fn create(&self, block_id: BlockId) -> Arc<dyn Block>;
 }
 

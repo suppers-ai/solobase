@@ -20,6 +20,8 @@ server = [
     "wafer-run/full",
     "wafer-core/full",
     "wafer-core/http",
+    "solobase-core/sqlite",
+    "solobase-core/storage-local",
     "dep:tokio",
     "dep:tracing-subscriber",
 ]
@@ -32,7 +34,7 @@ wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = f
 wafer-core = { path = "../../../wafer-run/crates/wafer-core", default-features = false }
 
 # Solobase shared core (routing, crypto, features, pipeline, backend blocks)
-solobase-core = { path = "../solobase-core" }
+solobase-core = { path = "../solobase-core", default-features = false }
 
 # Async
 async-trait = { workspace = true }
