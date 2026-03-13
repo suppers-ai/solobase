@@ -76,7 +76,7 @@ pub async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match db::update(ctx, COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Variable not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Variable not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -87,7 +87,7 @@ pub async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if id.is_empty() { return err_bad_request(msg, "Missing variable ID"); }
     match db::delete(ctx, COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Variable not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Variable not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }

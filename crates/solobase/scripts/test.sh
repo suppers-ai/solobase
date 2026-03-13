@@ -31,7 +31,15 @@ for arg in "$@"; do
 done
 
 if [[ -n "$SPEC_FILTER" ]]; then
-  PW_ARGS+=("tests/e2e/${SPEC_FILTER}.spec.ts")
+  # Check top-level first, then subdirectories
+  if [[ -f "tests/e2e/${SPEC_FILTER}.spec.ts" ]]; then
+    PW_ARGS+=("tests/e2e/${SPEC_FILTER}.spec.ts")
+  elif found=$(find tests/e2e -name "${SPEC_FILTER}.spec.ts" -print -quit 2>/dev/null) && [[ -n "$found" ]]; then
+    PW_ARGS+=("$found")
+  else
+    # Fall back to grep filter (matches test describe names too)
+    PW_ARGS+=("--grep" "$SPEC_FILTER")
+  fi
 fi
 
 # ── Colors ──────────────────────────────────────────────────────────

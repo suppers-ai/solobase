@@ -84,7 +84,7 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Resul
                 .set_header("Cache-Control", "private, max-age=3600")
                 .body(data, &info.content_type)
         }
-        Err(e) if e.code == "not_found" => err_not_found(msg, "File not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "File not found"),
         Err(e) => err_internal(msg, &format!("Storage error: {e}")),
     }
 }

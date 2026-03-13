@@ -116,7 +116,7 @@ async fn handle_get_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
     match db::get(ctx, PRODUCTS_COLLECTION, id).await {
         Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Product not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -153,7 +153,7 @@ async fn handle_update_product(ctx: &dyn Context, msg: &mut Message) -> Result_ 
 
     match db::update(ctx, PRODUCTS_COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Product not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -164,7 +164,7 @@ async fn handle_delete_product(ctx: &dyn Context, msg: &mut Message) -> Result_ 
     if id.is_empty() { return err_bad_request(msg, "Missing product ID"); }
     match db::delete(ctx, PRODUCTS_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Product not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -206,7 +206,7 @@ async fn handle_update_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
     match db::update(ctx, GROUPS_COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Group not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Group not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -217,7 +217,7 @@ async fn handle_delete_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if id.is_empty() { return err_bad_request(msg, "Missing group ID"); }
     match db::delete(ctx, GROUPS_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Group not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Group not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -249,7 +249,7 @@ async fn handle_delete_type(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if id.is_empty() { return err_bad_request(msg, "Missing type ID"); }
     match db::delete(ctx, TYPES_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Type not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Type not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -290,7 +290,7 @@ async fn handle_update_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ 
     };
     match db::update(ctx, PRICING_COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Pricing template not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Pricing template not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -301,7 +301,7 @@ async fn handle_delete_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ 
     if id.is_empty() { return err_bad_request(msg, "Missing pricing template ID"); }
     match db::delete(ctx, PRICING_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Pricing template not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Pricing template not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -335,7 +335,7 @@ async fn handle_get_product_public(ctx: &dyn Context, msg: &mut Message) -> Resu
             }
             json_respond(msg, &record)
         }
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Product not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -384,7 +384,7 @@ async fn handle_user_get_product(ctx: &dyn Context, msg: &mut Message) -> Result
             }
             json_respond(msg, &record)
         }
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Product not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Product not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -440,7 +440,7 @@ async fn handle_user_update_product(ctx: &dyn Context, msg: &mut Message) -> Res
                 return err_not_found(msg, "Product not found");
             }
         }
-        Err(e) if e.code == "not_found" => return err_not_found(msg, "Product not found"),
+        Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Product not found"),
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     }
 
@@ -470,7 +470,7 @@ async fn handle_user_delete_product(ctx: &dyn Context, msg: &mut Message) -> Res
                 return err_not_found(msg, "Product not found");
             }
         }
-        Err(e) if e.code == "not_found" => return err_not_found(msg, "Product not found"),
+        Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Product not found"),
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     }
 
@@ -514,7 +514,7 @@ async fn handle_user_get_group(ctx: &dyn Context, msg: &mut Message) -> Result_ 
             }
             json_respond(msg, &record)
         }
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Group not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Group not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -551,7 +551,7 @@ async fn handle_user_update_group(ctx: &dyn Context, msg: &mut Message) -> Resul
                 return err_not_found(msg, "Group not found");
             }
         }
-        Err(e) if e.code == "not_found" => return err_not_found(msg, "Group not found"),
+        Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Group not found"),
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     }
 
@@ -580,7 +580,7 @@ async fn handle_user_delete_group(ctx: &dyn Context, msg: &mut Message) -> Resul
                 return err_not_found(msg, "Group not found");
             }
         }
-        Err(e) if e.code == "not_found" => return err_not_found(msg, "Group not found"),
+        Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Group not found"),
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     }
 

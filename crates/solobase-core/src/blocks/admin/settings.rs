@@ -49,7 +49,7 @@ async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match db::get_by_field(ctx, COLLECTION, "key", serde_json::Value::String(key.to_string())).await {
         Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Setting not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Setting not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }

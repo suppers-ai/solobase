@@ -174,7 +174,7 @@ async fn handle_get_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match store::get(ctx, bucket, key).await {
         Ok((data, info)) => respond(msg, data, &info.content_type),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Object not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Object not found"),
         Err(e) => err_internal(msg, &format!("Storage error: {e}")),
     }
 }
@@ -192,7 +192,10 @@ async fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         return err_bad_request(msg, "Invalid object key");
     }
 
-    let content_type = if msg.content_type().is_empty() { "application/octet-stream" } else { msg.content_type() };
+    let content_type = {
+        let ct = msg.get_meta("req.content_type");
+        if ct.is_empty() { "application/octet-stream" } else { ct }
+    };
 
     // Check quota
     if let Err(r) = super::quota::check_quota(ctx, msg.user_id(), msg.body().len() as i64).await {
@@ -238,7 +241,7 @@ async fn handle_delete_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             ]).await.ok();
             json_respond(msg, &serde_json::json!({"deleted": true}))
         }
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Object not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Object not found"),
         Err(e) => err_internal(msg, &format!("Delete failed: {e}")),
     }
 }

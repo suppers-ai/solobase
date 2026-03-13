@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Run Playwright E2E tests for solobase examples.
-# Each example uses app.json (the @solobase/app config format).
+# Each example uses solobase.json (the @solobase/app config format).
 #
 # Usage:
 #   ./run-tests.sh              # test all three examples

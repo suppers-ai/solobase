@@ -95,7 +95,7 @@ async fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
             }
             json_respond(msg, &resp)
         }
-        Err(e) if e.code == "not_found" => err_not_found(msg, "User not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "User not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -127,7 +127,7 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             record.data.remove("password_hash");
             json_respond(msg, &record)
         }
-        Err(e) if e.code == "not_found" => err_not_found(msg, "User not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "User not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -143,7 +143,7 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Soft delete
     match db::soft_delete(ctx, COLLECTION, id).await {
         Ok(_) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "User not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "User not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }

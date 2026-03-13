@@ -117,7 +117,7 @@ async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             }
             json_respond(msg, &record)
         }
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Deployment not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Deployment not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -239,7 +239,7 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 return err_not_found(msg, "Deployment not found");
             }
         }
-        Err(e) if e.code == "not_found" => return err_not_found(msg, "Deployment not found"),
+        Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Deployment not found"),
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     }
 
@@ -256,7 +256,7 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match db::update(ctx, DEPLOYMENTS_COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Deployment not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Deployment not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -282,7 +282,7 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             }
             record
         }
-        Err(e) if e.code == "not_found" => return err_not_found(msg, "Deployment not found"),
+        Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Deployment not found"),
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
 
@@ -347,7 +347,7 @@ async fn handle_admin_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match db::get(ctx, DEPLOYMENTS_COLLECTION, id).await {
         Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Deployment not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Deployment not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -368,7 +368,7 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if let Some(admin_action) = body.remove("action").and_then(|v| v.as_str().map(String::from)) {
         let record = match db::get(ctx, DEPLOYMENTS_COLLECTION, id).await {
             Ok(r) => r,
-            Err(e) if e.code == "not_found" => return err_not_found(msg, "Deployment not found"),
+            Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Deployment not found"),
             Err(e) => return err_internal(msg, &format!("Database error: {e}")),
         };
 
@@ -442,7 +442,7 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match db::update(ctx, DEPLOYMENTS_COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Deployment not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Deployment not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }

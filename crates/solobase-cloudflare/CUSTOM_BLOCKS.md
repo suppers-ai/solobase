@@ -2,59 +2,40 @@
 
 ## Goal
 
-Allow users to run custom blocks (written in Rust or TypeScript) on the Cloudflare Worker deployment of Solobase.
+Allow users to run custom blocks (written in Rust, Go, or TypeScript) on the Cloudflare Worker deployment of Solobase.
 
-## Approach: V8 WebAssembly API
+## Approach: Wasm Component Model + `jco`
 
-The CF Worker already runs inside V8. Instead of embedding a WASM interpreter (wasmi) inside the Worker WASM binary, we call `WebAssembly.instantiate()` directly via wasm-bindgen. V8 JIT-compiles the guest block natively — no double-interpretation overhead.
+The CF Worker runs inside V8. Instead of embedding a WASM interpreter (`wasmi`) inside the Worker WASM binary—which causes severe double-interpretation overhead—we will utilize the **Wasm Component Model**. 
+
+By compiling guest blocks to `.wit` defined Components, we can use the Bytecode Alliance's [`jco`](https://github.com/bytecodealliance/jco) toolchain to transpile the Component into native JavaScript + standard Core Wasm. 
+
+This allows Cloudflare's V8 engine to natively instantiate the component as a standard ES Module, completely eliminating the need for complex manual memory bridging and serialization boilerplate.
 
 ### Flow
 
-1. User writes a block in Rust or TypeScript (using `wafer-sdk-ts`)
-2. Compiles to `wasm32-unknown-unknown` → `.wasm` file
-3. Uploads the `.wasm` to R2 (e.g. `blocks/my-block.wasm`)
-4. Registers the block in tenant config (D1 or KV)
-5. On request, the Worker loads the `.wasm` from R2, instantiates it via V8, and calls it
+1. User writes a block in Rust, Go, or TypeScript targeting the `wafer` `.wit` Component interface.
+2. User compiles the block to a `.wasm` Component.
+3. The Solobase CLI runs `jco transpile block.wasm -o out/` to generate the `.js` glue code and `.core.wasm` file.
+4. The transpiled assets are uploaded to R2 (or bundled with the Worker depending on deployment strategy).
+5. On request, the Worker dynamically imports the generated JS module, which natively instantiates the Wasm via V8 with auto-managed memory lifting/lowering.
 
-### ABI
+### ABI (The Component Model)
 
-Reuse the existing WAFER thin ABI defined in `wafer-run/crates/wafer-run/src/wasm/loader.rs`:
+The custom thin-ABI (`__wafer_handle`, `__wafer_alloc`, JSON over memory) is **deprecated**. 
 
-**Guest exports:**
-- `__wafer_alloc(len: i32) -> i32` — allocate guest memory
-- `__wafer_info() -> i64` — return block info (packed ptr|len)
-- `__wafer_handle(ptr: i32, len: i32) -> i64` — handle a message
-- `__wafer_lifecycle(ptr: i32, len: i32) -> i64` — lifecycle events
-
-**Host imports (`wafer` namespace):**
-- `wafer.call_block(name_ptr, name_len, msg_ptr, msg_len) -> i32` — call another block
-- `wafer.read_result(dest_ptr, dest_len) -> i32` — read result back into guest memory
-- `wafer.is_cancelled() -> i32` — check cancellation
-- `wafer.log(level_ptr, level_len, msg_ptr, msg_len)` — logging
-
-The WIT (Component Model) definitions in `wafer-run/wit/wit/` also apply.
+We now strictly follow the Wasm Component Model defined in `wafer-run/wit/wit/`.
+Guest blocks use `wit-bindgen` to safely and natively ingest structured data (like `Message`) and return structured responses (`BlockResult`), without any JSON serialization overhead.
 
 ### Implementation Tasks
 
-- [ ] Create wasm-bindgen bindings to `WebAssembly.instantiate()` and `WebAssembly.Memory`
-- [ ] Implement host imports as JS functions that bridge back into the Rust Worker
-- [ ] Handle async `call_block` — guest traps, host resolves, guest resumes (match the resumable call pattern from wasmi loader)
-- [ ] Load `.wasm` bytes from R2 on demand (cache instantiated modules in-memory for the Worker lifetime)
-- [ ] Add capabilities/sandbox enforcement (reuse `BlockCapabilities` from wafer-run)
-- [ ] Register custom blocks in `CloudflareContext.call_block()` dispatch
-- [ ] Add tenant config for custom block mappings (block name → R2 path)
+- [ ] Define the official `.wit` interface for Wafer Blocks (`wafer-run/wit/`)
+- [ ] Implement a `wit-bindgen` based guest SDK for Rust (`wafer-block`)
+- [ ] Migrate the standalone engine (`wafer-run`) to `wasmtime` for native Component execution
+- [ ] Implement `jco` transpilation in `solobase-cli` for uploading custom blocks to Cloudflare
+- [ ] Update `solobase-cloudflare` Worker router to dynamically `import()` the `jco`-generated ES Modules from R2/KV.
 
-### Why not wasmi?
+### Why not `wasmi` or manual `wasm-bindgen`?
 
-wasmi is a WASM interpreter written in Rust. It compiles to WASM itself, so it *could* run inside the Worker. But:
-- Double interpretation: V8 interprets Worker WASM which interprets guest WASM
-- Adds significant binary size to the Worker
-- CPU time limits on Workers (10-50ms) would be consumed by interpreter overhead
-- V8's native `WebAssembly.instantiate()` JIT-compiles guest blocks — much faster
-
-### References
-
-- Thin ABI: `wafer-run/crates/wafer-run/src/wasm/loader.rs`
-- Capabilities: `wafer-run/crates/wafer-run/src/wasm/capabilities.rs`
-- WIT definitions: `wafer-run/wit/wit/`
-- TypeScript SDK: `wafer-run/packages/wafer-sdk-ts/`
+- **`wasmi`**: Running an interpreter inside a Cloudflare Wasm environment creates double-interpretation overhead, consuming the limited CPU time threshold (10-50ms) almost instantly.
+- **Manual `wasm-bindgen`**: Writing custom host imports to bridge memory between V8 and the Worker's Rust code is error-prone, fundamentally defeats the purpose of the Component Model, and requires expensive JSON serialization. `jco` generates all of this bridging code automatically, fully optimized for V8.

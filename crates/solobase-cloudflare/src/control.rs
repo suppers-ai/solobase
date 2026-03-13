@@ -74,7 +74,7 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
                 subdomain: String,
                 #[serde(default = "default_plan")]
                 plan: String,
-                /// Optional app config (same as app.json). If omitted, all features enabled.
+                /// Optional app config (same as solobase.json). If omitted, all features enabled.
                 config: Option<crate::tenant::TenantAppConfig>,
             }
             fn default_plan() -> String {

@@ -91,7 +91,7 @@ impl AuthBlock {
             Err(_) => return err_not_found(msg, "API key not found"),
         };
         let key_owner = key.str_field("user_id");
-        if key_owner != user_id && !msg.is_admin() {
+        if key_owner != user_id && !msg.get_meta("auth.user_roles").split(',').any(|r| r.trim() == "admin") {
             return err_forbidden(msg, "Cannot revoke another user's API key");
         }
 

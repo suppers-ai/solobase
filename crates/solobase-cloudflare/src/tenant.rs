@@ -8,7 +8,7 @@ use solobase_core::features;
 ///
 /// KV key: `tenant:{subdomain}:config`
 ///
-/// The `config` field holds the tenant's `app.json` — the same format used
+/// The `config` field holds the tenant's `solobase.json` — the same format used
 /// by the standalone binary.  Feature blocks are present = enabled, absent
 /// = disabled.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,7 +28,7 @@ pub struct TenantConfig {
     /// Falls back to the shared `DB` binding if not set.
     #[serde(default)]
     pub db_binding: Option<String>,
-    /// The tenant's app config (same schema as `app.json`).
+    /// The tenant's app config (same schema as `solobase.json`).
     #[serde(default)]
     pub config: TenantAppConfig,
     /// Custom WASM block names installed by this tenant.
@@ -40,7 +40,7 @@ pub struct TenantConfig {
 /// Embedded app config — mirrors the standalone `AppConfig` struct but
 /// without infrastructure fields that are handled by the Worker (D1, R2, etc.).
 ///
-/// Feature presence rules (same as standalone `app.json`):
+/// Feature presence rules (same as standalone `solobase.json`):
 /// - Present as `{}` or `true` → enabled
 /// - Absent or `false` or `null` → disabled
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

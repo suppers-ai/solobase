@@ -160,13 +160,13 @@ pub async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let purchase = match db::get(ctx, PURCHASES_COLLECTION, id).await {
         Ok(p) => p,
-        Err(e) if e.code == "not_found" => return err_not_found(msg, "Purchase not found"),
+        Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Purchase not found"),
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
 
     // Verify access: user can only view their own, admin can view all
     let purchase_user = purchase.str_field("user_id");
-    if purchase_user != msg.user_id() && !msg.is_admin() {
+    if purchase_user != msg.user_id() && !msg.get_meta("auth.user_roles").split(',').any(|r| r.trim() == "admin") {
         return err_forbidden(msg, "Access denied");
     }
 
@@ -203,7 +203,7 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let purchase = match db::get(ctx, PURCHASES_COLLECTION, id).await {
         Ok(p) => p,
-        Err(e) if e.code == "not_found" => return err_not_found(msg, "Purchase not found"),
+        Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Purchase not found"),
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
 

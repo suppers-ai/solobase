@@ -111,7 +111,7 @@ impl LegalPagesBlock {
         }
         match db::get(ctx, COLLECTION, id).await {
             Ok(record) => json_respond(msg, &record),
-            Err(e) if e.code == "not_found" => err_not_found(msg, "Document not found"),
+            Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Document not found"),
             Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
@@ -160,7 +160,7 @@ impl LegalPagesBlock {
 
         match db::update(ctx, COLLECTION, id, data).await {
             Ok(record) => json_respond(msg, &record),
-            Err(e) if e.code == "not_found" => err_not_found(msg, "Document not found"),
+            Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Document not found"),
             Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
@@ -174,7 +174,7 @@ impl LegalPagesBlock {
         // Get current document
         let doc = match db::get(ctx, COLLECTION, id).await {
             Ok(r) => r,
-            Err(e) if e.code == "not_found" => return err_not_found(msg, "Document not found"),
+            Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Document not found"),
             Err(e) => return err_internal(msg, &format!("Database error: {e}")),
         };
 
@@ -219,7 +219,7 @@ impl LegalPagesBlock {
         }
         match db::delete(ctx, COLLECTION, id).await {
             Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-            Err(e) if e.code == "not_found" => err_not_found(msg, "Document not found"),
+            Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Document not found"),
             Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
@@ -407,9 +407,8 @@ impl Block for LegalPagesBlock {
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: Some(AdminUIInfo {
-                path: "/b/legalpages/admin".to_string(),
-                icon: "Scale".to_string(),
-                title: "Legal Pages".to_string(),
+                label: "Legal Pages".to_string(),
+                description: "Legal pages management with versioning and publishing".to_string(),
             }),
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),

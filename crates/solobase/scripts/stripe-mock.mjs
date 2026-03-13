@@ -20,8 +20,11 @@ function handler(req, res) {
     const body = Buffer.concat(chunks).toString();
     const auth = req.headers['authorization'] || '';
 
-    // Require Bearer auth (like real Stripe)
-    if (!auth.startsWith('Bearer ')) {
+    // Browser-facing routes don't require auth
+    const isBrowserRoute = url.startsWith('/checkout/') || url.startsWith('/simulate-payment/');
+
+    // Require Bearer auth for Stripe API routes (like real Stripe)
+    if (!isBrowserRoute && !auth.startsWith('Bearer ')) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: { message: 'Missing API key', type: 'authentication_error' } }));
       return;

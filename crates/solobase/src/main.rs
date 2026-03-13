@@ -29,18 +29,18 @@ async fn main() {
     // 2. Create WAFER runtime
     let mut wafer = Wafer::new();
 
-    // 3. Load app.json config
+    // 3. Load solobase.json config
     let app_config = load_config(&mut wafer);
     tracing::info!("block configs loaded");
 
     // 4. Register blocks explicitly (no register_all — runtime is minimal)
     //    wafer-core infrastructure blocks:
-    wafer_core::blocks::auth::register(&mut wafer);
+    wafer_core::blocks::auth_validator::register(&mut wafer);
     wafer_core::blocks::cors::register(&mut wafer);
-    wafer_core::blocks::iam::register(&mut wafer);
+    wafer_core::blocks::iam_guard::register(&mut wafer);
     wafer_core::blocks::inspector::register(&mut wafer);
     wafer_core::blocks::monitoring::register(&mut wafer);
-    wafer_core::blocks::rate_limit::register(&mut wafer);
+    wafer_core::blocks::ip_rate_limit::register(&mut wafer);
     wafer_core::blocks::readonly_guard::register(&mut wafer);
     wafer_core::blocks::router::register(&mut wafer);
     wafer_core::blocks::security_headers::register(&mut wafer);
@@ -51,7 +51,7 @@ async fn main() {
     {
         wafer_core::blocks::crypto::register(&mut wafer);
         wafer_core::blocks::network::register(&mut wafer);
-        wafer_core::blocks::http::register(&mut wafer);
+        wafer_core::blocks::http_listener::register(&mut wafer);
     }
     //    database + storage blocks:
     wafer_core::blocks::sqlite::register(&mut wafer);
@@ -161,7 +161,7 @@ fn register_observability_hooks(wafer: &mut Wafer) {
 // ---------------------------------------------------------------------------
 
 fn load_config(wafer: &mut Wafer) -> AppConfig {
-    let app_json = std::env::var("APP_JSON").unwrap_or_else(|_| "app.json".into());
+    let app_json = std::env::var("SOLOBASE_CONFIG").unwrap_or_else(|_| "solobase.json".into());
 
     let cfg = AppConfig::load(&app_json).unwrap_or_else(|e| {
         tracing::error!("failed to load {app_json}: {e}");

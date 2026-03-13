@@ -18,7 +18,7 @@ use std::sync::Arc;
 use crate::routing::BlockId;
 use wafer_run::block::Block;
 
-/// Mapping from feature name (used in app.json) to BlockId.
+/// Mapping from feature name (used in solobase.json) to BlockId.
 const FEATURE_BLOCKS: &[(&str, BlockId)] = &[
     ("profile",     BlockId::Profile),
     ("system",      BlockId::System),

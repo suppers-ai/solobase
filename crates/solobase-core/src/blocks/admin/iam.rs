@@ -82,7 +82,7 @@ async fn handle_update_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     helpers::stamp_updated(&mut data);
     match db::update(ctx, ROLES_COLLECTION, id, data).await {
         Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Role not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Role not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -101,7 +101,7 @@ async fn handle_delete_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match db::delete(ctx, ROLES_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Role not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Role not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -139,7 +139,7 @@ async fn handle_delete_permission(ctx: &dyn Context, msg: &mut Message) -> Resul
     if id.is_empty() { return err_bad_request(msg, "Missing permission ID"); }
     match db::delete(ctx, PERMISSIONS_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Permission not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Permission not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
@@ -198,7 +198,7 @@ async fn handle_remove_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if id.is_empty() { return err_bad_request(msg, "Missing user-role ID"); }
     match db::delete(ctx, USER_ROLES_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "User-role assignment not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "User-role assignment not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }

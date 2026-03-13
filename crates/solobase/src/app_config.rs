@@ -1,10 +1,11 @@
 //! AppConfig — simplified configuration for solobase instances.
 //!
 //! Instead of the verbose blocks.json (700+ lines of schema definitions),
-//! `app.json` lets you configure an instance in ~15 lines:
+//! `solobase.json` lets you configure an instance in ~15 lines:
 //!
 //! ```json
 //! {
+//!     "$schema": "https://solobase.dev/schemas/solobase.json",
 //!     "version": 1,
 //!     "app": "my-store",
 //!     "listen": "0.0.0.0:8090",
@@ -12,16 +13,19 @@
 //!     "storage": { "type": "local", "root": "data/storage" },
 //!     "jwt_secret": "${JWT_SECRET}",
 //!     "web_root": "./frontend/build",
-//!     "auth": {},
-//!     "products": {},
-//!     "files": {},
-//!     "legalpages": {}
+//!     "features": {
+//!         "auth": {},
+//!         "products": {},
+//!         "files": {},
+//!         "legalpages": {}
+//!     }
 //! }
 //! ```
 //!
-//! Feature blocks are enabled by including their key (even as `{}`).
+//! Feature blocks are enabled by including their key under `features` (even as `{}`).
 //! Omit the key to disable the feature. Set to `false` to explicitly disable.
 
+use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use solobase_core::features;
@@ -30,8 +34,13 @@ use solobase_core::features;
 // AppConfig struct
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct AppConfig {
+    /// JSON Schema reference (ignored at runtime, enables editor autocomplete).
+    #[serde(rename = "$schema", default)]
+    #[schemars(rename = "$schema", url)]
+    pub _schema: Option<String>,
+
     /// Config format version. Used to select the correct runtime binary
     /// (e.g. on Cloudflare where multiple major versions may coexist).
     #[serde(default = "default_version")]
@@ -61,8 +70,15 @@ pub struct AppConfig {
     #[serde(default)]
     pub web_root: Option<String>,
 
-    // -- Feature blocks (present = enabled, absent = disabled) --
+    /// Feature blocks. Present = enabled, absent = disabled.
+    #[serde(default)]
+    pub features: Features,
+}
 
+/// Feature block configuration. Each field controls a feature block.
+/// Present (even as `{}`) = enabled. Absent, `false`, or `null` = disabled.
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+pub struct Features {
     /// Authentication & user accounts.
     #[serde(default)]
     pub auth: Option<Value>,
@@ -92,20 +108,27 @@ pub struct AppConfig {
     pub userportal: Option<Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct DatabaseConfig {
+    /// Database type: "sqlite" or "postgres".
     #[serde(rename = "type", default = "default_db_type")]
+    #[schemars(rename = "type")]
     pub db_type: String,
+    /// Path to the SQLite database file (used when type is "sqlite").
     #[serde(default = "default_db_path")]
     pub path: String,
+    /// Connection URL (used when type is "postgres").
     #[serde(default)]
     pub url: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct StorageConfig {
+    /// Storage type: "local" or "s3".
     #[serde(rename = "type", default = "default_storage_type")]
+    #[schemars(rename = "type")]
     pub storage_type: String,
+    /// Root directory for local storage.
     #[serde(default = "default_storage_root")]
     pub root: String,
 }
@@ -142,13 +165,13 @@ impl features::FeatureConfig for FeatureSnapshot {
 }
 
 impl features::FeatureConfig for AppConfig {
-    fn auth_enabled(&self) -> bool { features::is_feature_enabled(&self.auth) }
-    fn admin_enabled(&self) -> bool { features::is_feature_enabled(&self.admin) }
-    fn files_enabled(&self) -> bool { features::is_feature_enabled(&self.files) }
-    fn products_enabled(&self) -> bool { features::is_feature_enabled(&self.products) }
-    fn deployments_enabled(&self) -> bool { features::is_feature_enabled(&self.deployments) }
-    fn legalpages_enabled(&self) -> bool { features::is_feature_enabled(&self.legalpages) }
-    fn userportal_enabled(&self) -> bool { features::is_feature_enabled(&self.userportal) }
+    fn auth_enabled(&self) -> bool { features::is_feature_enabled(&self.features.auth) }
+    fn admin_enabled(&self) -> bool { features::is_feature_enabled(&self.features.admin) }
+    fn files_enabled(&self) -> bool { features::is_feature_enabled(&self.features.files) }
+    fn products_enabled(&self) -> bool { features::is_feature_enabled(&self.features.products) }
+    fn deployments_enabled(&self) -> bool { features::is_feature_enabled(&self.features.deployments) }
+    fn legalpages_enabled(&self) -> bool { features::is_feature_enabled(&self.features.legalpages) }
+    fn userportal_enabled(&self) -> bool { features::is_feature_enabled(&self.features.userportal) }
 }
 
 impl AppConfig {
@@ -291,42 +314,42 @@ impl AppConfig {
         if self.auth_enabled() {
             blocks.insert("@solobase/auth".into(), schema_with_config(
                 schemas::AUTH_SCHEMA,
-                &self.auth,
+                &self.features.auth,
             ));
         }
 
         if self.admin_enabled() {
             blocks.insert("@solobase/admin".into(), schema_with_config(
                 schemas::ADMIN_SCHEMA,
-                &self.admin,
+                &self.features.admin,
             ));
         }
 
         if self.files_enabled() {
             blocks.insert("@solobase/files".into(), schema_with_config(
                 schemas::FILES_SCHEMA,
-                &self.files,
+                &self.features.files,
             ));
         }
 
         if self.products_enabled() {
             blocks.insert("@solobase/products".into(), schema_with_config(
                 schemas::PRODUCTS_SCHEMA,
-                &self.products,
+                &self.features.products,
             ));
         }
 
         if self.deployments_enabled() {
             blocks.insert("@solobase/deployments".into(), schema_with_config(
                 schemas::DEPLOYMENTS_SCHEMA,
-                &self.deployments,
+                &self.features.deployments,
             ));
         }
 
         if self.legalpages_enabled() {
             blocks.insert("@solobase/legalpages".into(), schema_with_config(
                 schemas::LEGALPAGES_SCHEMA,
-                &self.legalpages,
+                &self.features.legalpages,
             ));
         }
 

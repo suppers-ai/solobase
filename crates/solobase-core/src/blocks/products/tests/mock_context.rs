@@ -298,7 +298,7 @@ impl Context for MockContext {
         match result {
             Ok(response_data) => Result_ {
                 action: Action::Respond,
-                response: Some(Response { data: response_data, meta: HashMap::new() }),
+                response: Some(Response { data: response_data, meta: Vec::new() }),
                 error: None,
                 message: None,
             },
@@ -374,6 +374,7 @@ pub fn response_json(result: &Result_) -> serde_json::Value {
 
 /// Check if a result is an error with a specific code.
 pub fn is_error(result: &Result_, code: &str) -> bool {
+    let code: ErrorCode = code.into();
     result.action == Action::Error
         && result.error.as_ref().map_or(false, |e| e.code == code)
 }

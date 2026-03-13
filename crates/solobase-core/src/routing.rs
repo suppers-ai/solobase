@@ -107,7 +107,7 @@ pub async fn route_to_block(
         }
 
         // Admin gate
-        if route.requires_admin && !msg.is_admin() {
+        if route.requires_admin && !msg.get_meta("auth.user_roles").split(',').any(|r| r.trim() == "admin") {
             return wafer_run::helpers::err_forbidden(msg, "admin access required");
         }
 

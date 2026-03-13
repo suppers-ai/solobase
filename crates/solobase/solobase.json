@@ -1,4 +1,5 @@
 {
+    "$schema": "https://solobase.dev/schemas/solobase.json",
     "version": 0,
     "app": "solobase-e2e",
     "listen": "0.0.0.0:8090",
@@ -6,9 +7,10 @@
     "storage": { "type": "local", "root": "data/storage" },
     "jwt_secret": "${JWT_SECRET}",
     "web_root": "./frontend/build",
-
-    "auth": {},
-    "admin": {},
-    "products": {},
-    "legalpages": {}
+    "features": {
+        "auth": {},
+        "admin": {},
+        "products": {},
+        "legalpages": {}
+    }
 }

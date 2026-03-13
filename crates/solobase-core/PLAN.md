@@ -111,7 +111,7 @@ pub trait BlockFactory: Send + Sync {
 | Database block | D1Block (JS FFI) | solobase/sqlite, solobase/postgres |
 | Storage block | R2Block (JS FFI) | solobase/local-storage, solobase/s3 |
 | Crypto implementation | `solobase_core::crypto` (manual HMAC) | `wafer-core` Argon2JwtCryptoService (jsonwebtoken) |
-| Tenant resolution | KV lookup by subdomain | Single tenant from app.json |
+| Tenant resolution | KV lookup by subdomain | Single tenant from solobase.json |
 | SPA serving | N/A | `@wafer/web` block |
 | Control plane | CF-specific `/_control/` API | N/A |
 
@@ -142,4 +142,4 @@ pub trait BlockFactory: Send + Sync {
 
 The individual per-feature flow files (auth.rs, admin.rs, etc.) are preserved for
 backwards compatibility with the `blocks.json` configuration mode. When using
-`app.json` (the preferred mode), only the simplified `site-main` flow is registered.
+`solobase.json` (the preferred mode), only the simplified `site-main` flow is registered.

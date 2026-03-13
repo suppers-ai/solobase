@@ -104,14 +104,14 @@ async fn handle_delete_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Verify ownership
     if let Ok(share) = db::get(ctx, SHARES_COLLECTION, id).await {
         let owner = share.data.get("created_by").and_then(|v| v.as_str()).unwrap_or("");
-        if owner != msg.user_id() && !msg.is_admin() {
+        if owner != msg.user_id() && !msg.get_meta("auth.user_roles").split(',').any(|r| r.trim() == "admin") {
             return err_forbidden(msg, "Cannot delete another user's share");
         }
     }
 
     match db::delete(ctx, SHARES_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == "not_found" => err_not_found(msg, "Share not found"),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Share not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
