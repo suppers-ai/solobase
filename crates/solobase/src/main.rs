@@ -74,8 +74,7 @@ async fn main() {
     wafer.register_block("@solobase/router", Arc::new(router));
     tracing::info!("native feature blocks registered");
 
-    // 6. Register flow definitions (wafer-core base flows + solobase site-main)
-    let _ = wafer_core::flows::register_flows(&mut wafer);
+    // 6. Register flow definitions
     flows::register_site_main(&mut wafer);
     tracing::info!("flow definitions registered");
 
