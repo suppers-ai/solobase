@@ -31,7 +31,7 @@ impl FilesBlock {
 impl Block for FilesBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "@solobase/files".to_string(),
+            name: "suppers-ai/files".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "File storage, sharing, quotas, and access logging".to_string(),

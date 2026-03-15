@@ -245,7 +245,7 @@ impl AppConfig {
     /// Expand this config into blocks + aliases that WAFER expects.
     ///
     /// Returns `(block_configs, aliases)`. The aliases map canonical names
-    /// like `@db` → `@wafer/database` so feature blocks can use short,
+    /// like `db` → `wafer-run/database` so feature blocks can use short,
     /// backend-agnostic names.
     pub fn to_blocks_json(&self) -> (Map<String, Value>, Vec<(String, String)>) {
         use features::FeatureConfig;
@@ -255,24 +255,24 @@ impl AppConfig {
         // -- Infrastructure blocks --
 
         let listen = self.listen.clone().unwrap_or_else(|| "0.0.0.0:8090".into());
-        blocks.insert("@wafer/http-listener".into(), json!({
+        blocks.insert("wafer-run/http-listener".into(), json!({
             "flow": "site-main",
             "listen": listen
         }));
 
         let web_root = self.web_root.clone().unwrap_or_else(|| "./frontend/build".into());
-        blocks.insert("@wafer/web".into(), json!({
+        blocks.insert("wafer-run/web".into(), json!({
             "web_root": web_root,
             "web_spa": "true",
             "web_index": "index.html"
         }));
 
-        // Database — register the specific backend block and alias @db to it
+        // Database — register the specific backend block and alias db to it
         let db = self.database.as_ref();
         let db_type = db.map(|d| d.db_type.as_str()).unwrap_or("sqlite");
         let db_block_name = match db_type {
-            "postgres" | "postgresql" => "@wafer/postgres",
-            _ => "@wafer/sqlite",
+            "postgres" | "postgresql" => "wafer-run/postgres",
+            _ => "wafer-run/sqlite",
         };
         let mut db_config = json!({
             "path": db.map(|d| d.path.as_str()).unwrap_or("data/solobase.db")
@@ -283,71 +283,71 @@ impl AppConfig {
             }
         }
         blocks.insert(db_block_name.into(), db_config);
-        aliases.push(("@db".into(), db_block_name.into()));
-        // Keep @wafer/database as an alias too for backward compatibility
-        aliases.push(("@wafer/database".into(), db_block_name.into()));
+        aliases.push(("db".into(), db_block_name.into()));
+        // Keep wafer-run/database as an alias too for backward compatibility
+        aliases.push(("wafer-run/database".into(), db_block_name.into()));
 
-        // Storage — register the specific backend block and alias @storage to it
+        // Storage — register the specific backend block and alias storage to it
         let storage = self.storage.as_ref();
         let storage_type = storage.map(|s| s.storage_type.as_str()).unwrap_or("local");
         let storage_block_name = match storage_type {
-            "s3" => "@wafer/s3",
-            _ => "@wafer/local-storage",
+            "s3" => "wafer-run/s3",
+            _ => "wafer-run/local-storage",
         };
         let storage_config = json!({
             "root": storage.map(|s| s.root.as_str()).unwrap_or("data/storage")
         });
         blocks.insert(storage_block_name.into(), storage_config);
-        aliases.push(("@storage".into(), storage_block_name.into()));
-        // Keep @wafer/storage as an alias too for backward compatibility
-        aliases.push(("@wafer/storage".into(), storage_block_name.into()));
+        aliases.push(("storage".into(), storage_block_name.into()));
+        // Keep wafer-run/storage as an alias too for backward compatibility
+        aliases.push(("wafer-run/storage".into(), storage_block_name.into()));
 
         let jwt = self.jwt_secret.clone().unwrap_or_default();
-        blocks.insert("@wafer/crypto".into(), json!({ "jwt_secret": jwt }));
+        blocks.insert("wafer-run/crypto".into(), json!({ "jwt_secret": jwt }));
 
-        blocks.insert("@wafer/network".into(), json!({}));
-        blocks.insert("@wafer/logger".into(), json!({}));
-        blocks.insert("@wafer/config".into(), json!({}));
+        blocks.insert("wafer-run/network".into(), json!({}));
+        blocks.insert("wafer-run/logger".into(), json!({}));
+        blocks.insert("wafer-run/config".into(), json!({}));
 
         // -- Feature blocks (only if enabled) --
 
         if self.auth_enabled() {
-            blocks.insert("@solobase/auth".into(), schema_with_config(
+            blocks.insert("suppers-ai/auth".into(), schema_with_config(
                 schemas::AUTH_SCHEMA,
                 &self.features.auth,
             ));
         }
 
         if self.admin_enabled() {
-            blocks.insert("@solobase/admin".into(), schema_with_config(
+            blocks.insert("suppers-ai/admin".into(), schema_with_config(
                 schemas::ADMIN_SCHEMA,
                 &self.features.admin,
             ));
         }
 
         if self.files_enabled() {
-            blocks.insert("@solobase/files".into(), schema_with_config(
+            blocks.insert("suppers-ai/files".into(), schema_with_config(
                 schemas::FILES_SCHEMA,
                 &self.features.files,
             ));
         }
 
         if self.products_enabled() {
-            blocks.insert("@solobase/products".into(), schema_with_config(
+            blocks.insert("suppers-ai/products".into(), schema_with_config(
                 schemas::PRODUCTS_SCHEMA,
                 &self.features.products,
             ));
         }
 
         if self.deployments_enabled() {
-            blocks.insert("@solobase/deployments".into(), schema_with_config(
+            blocks.insert("suppers-ai/deployments".into(), schema_with_config(
                 schemas::DEPLOYMENTS_SCHEMA,
                 &self.features.deployments,
             ));
         }
 
         if self.legalpages_enabled() {
-            blocks.insert("@solobase/legalpages".into(), schema_with_config(
+            blocks.insert("suppers-ai/legalpages".into(), schema_with_config(
                 schemas::LEGALPAGES_SCHEMA,
                 &self.features.legalpages,
             ));
@@ -384,7 +384,7 @@ fn schema_with_config(schema_json: &str, user_config: &Option<Value>) -> Value {
 mod schemas {
     pub const AUTH_SCHEMA: &str = r#"{
     "uses": {
-        "@wafer/database": {
+        "wafer-run/database": {
             "collections": {
                 "auth_users": {
                     "fields": {
@@ -481,7 +481,7 @@ mod schemas {
 
     pub const ADMIN_SCHEMA: &str = r#"{
     "uses": {
-        "@wafer/database": {
+        "wafer-run/database": {
             "collections": {
                 "iam_roles": {
                     "fields": {
@@ -642,7 +642,7 @@ mod schemas {
 
     pub const FILES_SCHEMA: &str = r#"{
     "uses": {
-        "@wafer/database": {
+        "wafer-run/database": {
             "collections": {
                 "storage_buckets": {
                     "fields": {
@@ -812,7 +812,7 @@ mod schemas {
 
     pub const PRODUCTS_SCHEMA: &str = r#"{
     "uses": {
-        "@wafer/database": {
+        "wafer-run/database": {
             "collections": {
                 "block_products_variables": {
                     "fields": {
@@ -1031,7 +1031,7 @@ mod schemas {
 
     pub const DEPLOYMENTS_SCHEMA: &str = r#"{
     "uses": {
-        "@wafer/database": {
+        "wafer-run/database": {
             "collections": {
                 "block_deployments": {
                     "fields": {
@@ -1058,7 +1058,7 @@ mod schemas {
 
     pub const LEGALPAGES_SCHEMA: &str = r#"{
     "uses": {
-        "@wafer/database": {
+        "wafer-run/database": {
             "collections": {
                 "block_legalpages_legal_documents": {
                     "fields": {
@@ -1228,22 +1228,22 @@ mod tests {
         let (blocks, aliases) = config.to_blocks_json();
 
         // Should have infrastructure blocks
-        assert!(blocks.contains_key("@wafer/http-listener"));
+        assert!(blocks.contains_key("wafer-run/http-listener"));
 
         // Should contain the specific backend blocks (defaults: sqlite + local-storage)
-        assert!(blocks.contains_key("@wafer/sqlite"));
-        assert!(blocks.contains_key("@wafer/local-storage"));
+        assert!(blocks.contains_key("wafer-run/sqlite"));
+        assert!(blocks.contains_key("wafer-run/local-storage"));
 
         // Should contain the solobase feature blocks
-        assert!(blocks.contains_key("@solobase/auth"));
-        assert!(blocks.contains_key("@solobase/admin"));
+        assert!(blocks.contains_key("suppers-ai/auth"));
+        assert!(blocks.contains_key("suppers-ai/admin"));
 
-        // Should have @db and @storage aliases pointing to specific backends
-        assert!(aliases.iter().any(|(a, t)| a == "@db" && t == "@wafer/sqlite"));
-        assert!(aliases.iter().any(|(a, t)| a == "@storage" && t == "@wafer/local-storage"));
+        // Should have db and storage aliases pointing to specific backends
+        assert!(aliases.iter().any(|(a, t)| a == "db" && t == "wafer-run/sqlite"));
+        assert!(aliases.iter().any(|(a, t)| a == "storage" && t == "wafer-run/local-storage"));
         // Backward-compat aliases
-        assert!(aliases.iter().any(|(a, t)| a == "@wafer/database" && t == "@wafer/sqlite"));
-        assert!(aliases.iter().any(|(a, t)| a == "@wafer/storage" && t == "@wafer/local-storage"));
+        assert!(aliases.iter().any(|(a, t)| a == "wafer-run/database" && t == "wafer-run/sqlite"));
+        assert!(aliases.iter().any(|(a, t)| a == "wafer-run/storage" && t == "wafer-run/local-storage"));
     }
 
     #[test]

@@ -3,7 +3,7 @@
 //! This block replaces the individual per-feature flow definitions (auth, admin,
 //! files, etc.) by routing all API requests through `crate::handle_request()`.
 //! The WAFER flow engine still provides middleware (CORS, security headers) via
-//! `@wafer/infra`, but routing, feature gates, admin checks, and JWT validation
+//! `wafer-run/infra`, but routing, feature gates, admin checks, and JWT validation
 //! are handled by the shared pipeline.
 
 use std::collections::HashMap;
@@ -68,7 +68,7 @@ impl SolobaseRouterBlock {
 impl Block for SolobaseRouterBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "@solobase/router".to_string(),
+            name: "suppers-ai/router".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Solobase shared router — delegates to solobase-core pipeline".to_string(),

@@ -307,7 +307,7 @@ export JWT_SECRET=<span class="string">"your-secret-key-at-least-32-chars"</span
   data/
     solobase.db        <span class="comment"># SQLite database</span>
     storage/           <span class="comment"># Local file storage root</span>
-  site/                <span class="comment"># Frontend assets (served by @wafer/web)</span></code></pre>
+  site/                <span class="comment"># Frontend assets (served by wafer-run/web)</span></code></pre>
 
 <!-- ====================================================================== -->
 <h1 id="authentication" style="margin-top:3rem">Authentication</h1>
@@ -766,35 +766,35 @@ curl -X POST http://localhost:8090/admin/settings \
 <h3>Infrastructure Blocks (wafer-core)</h3>
 <table>
     <tr><th>Block</th><th>Purpose</th></tr>
-    <tr><td><code>@wafer/http-listener</code></td><td>HTTP server (binds to a port)</td></tr>
-    <tr><td><code>@wafer/database</code></td><td>SQLite database driver</td></tr>
-    <tr><td><code>@wafer/storage</code></td><td>File storage driver (local or S3)</td></tr>
-    <tr><td><code>@wafer/crypto</code></td><td>JWT signing, password hashing</td></tr>
-    <tr><td><code>@wafer/auth</code></td><td>JWT verification middleware</td></tr>
-    <tr><td><code>@wafer/iam</code></td><td>Role-based access control middleware</td></tr>
-    <tr><td><code>@wafer/cors</code></td><td>CORS headers</td></tr>
-    <tr><td><code>@wafer/ip-rate-limit</code></td><td>Rate limiting</td></tr>
-    <tr><td><code>@wafer/security-headers</code></td><td>Security response headers</td></tr>
-    <tr><td><code>@wafer/web</code></td><td>Static file serving (SPA support)</td></tr>
-    <tr><td><code>@wafer/config</code></td><td>Configuration provider</td></tr>
-    <tr><td><code>@wafer/logger</code></td><td>Request logging</td></tr>
-    <tr><td><code>@wafer/network</code></td><td>Outbound HTTP client</td></tr>
-    <tr><td><code>@wafer/monitoring</code></td><td>Metrics collection</td></tr>
-    <tr><td><code>@wafer/router</code></td><td>Path-based flow routing</td></tr>
-    <tr><td><code>@wafer/readonly-guard</code></td><td>Read-only mode enforcement</td></tr>
+    <tr><td><code>wafer-run/http-listener</code></td><td>HTTP server (binds to a port)</td></tr>
+    <tr><td><code>wafer-run/database</code></td><td>SQLite database driver</td></tr>
+    <tr><td><code>wafer-run/storage</code></td><td>File storage driver (local or S3)</td></tr>
+    <tr><td><code>wafer-run/crypto</code></td><td>JWT signing, password hashing</td></tr>
+    <tr><td><code>wafer-run/auth</code></td><td>JWT verification middleware</td></tr>
+    <tr><td><code>wafer-run/iam</code></td><td>Role-based access control middleware</td></tr>
+    <tr><td><code>wafer-run/cors</code></td><td>CORS headers</td></tr>
+    <tr><td><code>wafer-run/ip-rate-limit</code></td><td>Rate limiting</td></tr>
+    <tr><td><code>wafer-run/security-headers</code></td><td>Security response headers</td></tr>
+    <tr><td><code>wafer-run/web</code></td><td>Static file serving (SPA support)</td></tr>
+    <tr><td><code>wafer-run/config</code></td><td>Configuration provider</td></tr>
+    <tr><td><code>wafer-run/logger</code></td><td>Request logging</td></tr>
+    <tr><td><code>wafer-run/network</code></td><td>Outbound HTTP client</td></tr>
+    <tr><td><code>wafer-run/monitoring</code></td><td>Metrics collection</td></tr>
+    <tr><td><code>wafer-run/router</code></td><td>Path-based flow routing</td></tr>
+    <tr><td><code>wafer-run/readonly-guard</code></td><td>Read-only mode enforcement</td></tr>
 </table>
 
 <h3>Feature Blocks (solobase)</h3>
 <table>
     <tr><th>Block</th><th>Purpose</th></tr>
-    <tr><td><code>@solobase/auth</code></td><td>Signup, login, JWT, refresh, API keys, OAuth</td></tr>
-    <tr><td><code>@solobase/admin</code></td><td>User management, database, IAM, logs, settings, custom tables</td></tr>
-    <tr><td><code>@solobase/files</code></td><td>File storage, sharing, quotas, cloud storage</td></tr>
-    <tr><td><code>@solobase/products</code></td><td>Product catalog, pricing, purchases, Stripe</td></tr>
-    <tr><td><code>@solobase/system</code></td><td>Health checks, debug info, admin navigation</td></tr>
-    <tr><td><code>@solobase/profile</code></td><td>Profile sections endpoint</td></tr>
-    <tr><td><code>@solobase/userportal</code></td><td>Frontend configuration (branding, features)</td></tr>
-    <tr><td><code>@solobase/legalpages</code></td><td>Legal document management (TOS, privacy)</td></tr>
+    <tr><td><code>@suppers-ai/solobase/auth</code></td><td>Signup, login, JWT, refresh, API keys, OAuth</td></tr>
+    <tr><td><code>@suppers-ai/solobase/admin</code></td><td>User management, database, IAM, logs, settings, custom tables</td></tr>
+    <tr><td><code>@suppers-ai/solobase/files</code></td><td>File storage, sharing, quotas, cloud storage</td></tr>
+    <tr><td><code>@suppers-ai/solobase/products</code></td><td>Product catalog, pricing, purchases, Stripe</td></tr>
+    <tr><td><code>@suppers-ai/solobase/system</code></td><td>Health checks, debug info, admin navigation</td></tr>
+    <tr><td><code>@suppers-ai/solobase/profile</code></td><td>Profile sections endpoint</td></tr>
+    <tr><td><code>@suppers-ai/solobase/userportal</code></td><td>Frontend configuration (branding, features)</td></tr>
+    <tr><td><code>@suppers-ai/solobase/legalpages</code></td><td>Legal document management (TOS, privacy)</td></tr>
 </table>
 
 <h2 id="wafer-flows">Flows</h2>
@@ -870,32 +870,32 @@ curl -X POST http://localhost:8090/admin/settings \
 <p>The <code>blocks.json</code> file configures infrastructure blocks. Key entries:</p>
 <pre><code>{
   <span class="comment">// HTTP listener</span>
-  <span class="string">"@wafer/http-listener"</span>: {
+  <span class="string">"wafer-run/http-listener"</span>: {
     <span class="string">"flow"</span>: <span class="string">"site-main"</span>,
     <span class="string">"listen"</span>: <span class="string">"0.0.0.0:8090"</span>
   },
 
   <span class="comment">// Static file serving</span>
-  <span class="string">"@wafer/web"</span>: {
+  <span class="string">"wafer-run/web"</span>: {
     <span class="string">"web_root"</span>: <span class="string">"./site"</span>,
     <span class="string">"web_spa"</span>: <span class="string">"true"</span>,
     <span class="string">"web_index"</span>: <span class="string">"index.html"</span>
   },
 
   <span class="comment">// Database</span>
-  <span class="string">"@wafer/database"</span>: {
+  <span class="string">"wafer-run/database"</span>: {
     <span class="string">"type"</span>: <span class="string">"sqlite"</span>,
     <span class="string">"path"</span>: <span class="string">"data/solobase.db"</span>
   },
 
   <span class="comment">// Storage</span>
-  <span class="string">"@wafer/storage"</span>: {
+  <span class="string">"wafer-run/storage"</span>: {
     <span class="string">"type"</span>: <span class="string">"local"</span>,
     <span class="string">"root"</span>: <span class="string">"data/storage"</span>
   },
 
   <span class="comment">// Crypto (JWT)</span>
-  <span class="string">"@wafer/crypto"</span>: {
+  <span class="string">"wafer-run/crypto"</span>: {
     <span class="string">"jwt_secret"</span>: <span class="string">"${JWT_SECRET}"</span>
   }
 }</code></pre>
@@ -906,12 +906,12 @@ curl -X POST http://localhost:8090/admin/settings \
 <pre><code>{
   <span class="comment">// Aliases — feature blocks call @db and @storage</span>
   <span class="string">"aliases"</span>: {
-    <span class="string">"@db"</span>: <span class="string">"@wafer/database"</span>,
-    <span class="string">"@storage"</span>: <span class="string">"@wafer/storage"</span>
+    <span class="string">"db"</span>: <span class="string">"wafer-run/database"</span>,
+    <span class="string">"storage"</span>: <span class="string">"wafer-run/storage"</span>
   },
 
   <span class="comment">// The actual backend block</span>
-  <span class="string">"@wafer/database"</span>: {
+  <span class="string">"wafer-run/database"</span>: {
     <span class="string">"type"</span>: <span class="string">"sqlite"</span>,
     <span class="string">"path"</span>: <span class="string">"data/solobase.db"</span>
   }

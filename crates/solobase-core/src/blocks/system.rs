@@ -10,7 +10,7 @@ pub struct SystemBlock;
 impl Block for SystemBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "@solobase/system".to_string(),
+            name: "suppers-ai/system".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "System health, debug, and navigation endpoints".to_string(),

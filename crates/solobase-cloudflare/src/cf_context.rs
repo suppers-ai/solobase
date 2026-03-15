@@ -1,12 +1,12 @@
 //! CloudflareContext — implements the WAFER Context trait backed by Cloudflare services.
 //!
 //! Routes `call_block` to:
-//! - `@wafer/database` → D1 via D1DatabaseService
-//! - `@wafer/storage` → R2 via R2StorageService
-//! - `@wafer/config` → env vars / KV
-//! - `@wafer/crypto` → argon2 + HMAC-SHA256 JWT
-//! - `@wafer/network` → Worker fetch()
-//! - `@wafer/logger` → console_log
+//! - `wafer-run/database` → D1 via D1DatabaseService
+//! - `wafer-run/storage` → R2 via R2StorageService
+//! - `wafer-run/config` → env vars / KV
+//! - `wafer-run/crypto` → argon2 + HMAC-SHA256 JWT
+//! - `wafer-run/network` → Worker fetch()
+//! - `wafer-run/logger` → console_log
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,7 +24,7 @@ use crate::storage::R2StorageService;
 
 /// WAFER Context backed by Cloudflare Workers services (D1, R2, KV).
 ///
-/// Solobase blocks call `ctx.call_block("@wafer/database", ...)` etc.
+/// Solobase blocks call `ctx.call_block("wafer-run/database", ...)` etc.
 /// This context handles those calls by routing to the appropriate CF service.
 pub struct CloudflareContext {
     db_service: Arc<D1DatabaseService>,
@@ -63,16 +63,16 @@ impl CloudflareContext {
 impl Context for CloudflareContext {
     async fn call_block(&self, block_name: &str, msg: &mut Message) -> Result_ {
         match block_name {
-            "@wafer/database" | "@db" | "solobase/d1" => {
+            "wafer-run/database" | "db" | "solobase/d1" => {
                 db_handler::handle_message(self.db_service.as_ref(), msg).await
             }
-            "@wafer/storage" | "@storage" | "solobase/r2" => {
+            "wafer-run/storage" | "storage" | "solobase/r2" => {
                 storage_handler::handle_message(self.storage_service.as_ref(), msg).await
             }
-            "@wafer/config" => self.handle_config(msg),
-            "@wafer/crypto" => self.handle_crypto(msg),
-            "@wafer/network" => self.handle_network(msg).await,
-            "@wafer/logger" => self.handle_logger(msg),
+            "wafer-run/config" => self.handle_config(msg),
+            "wafer-run/crypto" => self.handle_crypto(msg),
+            "wafer-run/network" => self.handle_network(msg).await,
+            "wafer-run/logger" => self.handle_logger(msg),
             _ => err_result("not_found", format!("block '{}' not found", block_name)),
         }
     }

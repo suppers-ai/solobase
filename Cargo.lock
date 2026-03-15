@@ -1720,12 +1720,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "http-range-header"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
-
-[[package]]
 name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2238,16 +2232,6 @@ name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
-
-[[package]]
-name = "mime_guess"
-version = "2.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
-dependencies = [
- "mime",
- "unicase",
-]
 
 [[package]]
 name = "mio"
@@ -3338,6 +3322,25 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "wafer-block-auth-validator",
+ "wafer-block-config",
+ "wafer-block-cors",
+ "wafer-block-crypto",
+ "wafer-block-http-listener",
+ "wafer-block-iam-guard",
+ "wafer-block-inspector",
+ "wafer-block-ip-rate-limit",
+ "wafer-block-local-storage",
+ "wafer-block-logger",
+ "wafer-block-monitoring",
+ "wafer-block-network",
+ "wafer-block-postgres",
+ "wafer-block-readonly-guard",
+ "wafer-block-router",
+ "wafer-block-s3",
+ "wafer-block-security-headers",
+ "wafer-block-sqlite",
+ "wafer-block-web",
  "wafer-core",
  "wafer-run",
 ]
@@ -3956,24 +3959,14 @@ checksum = "d4e6559d53cc268e5031cd8429d05415bc4cb4aefc4aa5d6cc35fbf5b924a1f8"
 dependencies = [
  "bitflags",
  "bytes",
- "futures-core",
  "futures-util",
  "http 1.4.0",
  "http-body 1.0.1",
- "http-body-util",
- "http-range-header",
- "httpdate",
  "iri-string",
- "mime",
- "mime_guess",
- "percent-encoding",
  "pin-project-lite",
- "tokio",
- "tokio-util",
  "tower",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -4074,12 +4067,6 @@ name = "typenum"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
-
-[[package]]
-name = "unicase"
-version = "2.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
 
 [[package]]
 name = "unicode-bidi"
@@ -4196,6 +4183,120 @@ dependencies = [
 ]
 
 [[package]]
+name = "wafer-block-auth-validator"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde_json",
+ "tracing",
+ "wafer-core",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-config"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tracing",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-cors"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "tracing",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-crypto"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "async-trait",
+ "chrono",
+ "jsonwebtoken",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+ "uuid",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-http-listener"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "hyper 1.8.1",
+ "parking_lot",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-iam-guard"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde_json",
+ "tracing",
+ "wafer-core",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-inspector"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde_json",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-ip-rate-limit"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "parking_lot",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-local-storage"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "tracing",
+ "wafer-core",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-logger"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tracing",
+ "wafer-run",
+]
+
+[[package]]
 name = "wafer-block-macro"
 version = "0.1.0"
 dependencies = [
@@ -4205,31 +4306,119 @@ dependencies = [
 ]
 
 [[package]]
-name = "wafer-core"
+name = "wafer-block-monitoring"
 version = "0.1.0"
 dependencies = [
- "argon2",
  "async-trait",
- "aws-config",
- "aws-sdk-s3",
- "axum",
- "bytes",
- "chrono",
- "hyper 1.8.1",
- "jsonwebtoken",
  "parking_lot",
+ "serde_json",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-network"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
  "reqwest",
- "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
  "serde",
  "serde_json",
  "sqlx",
- "thiserror 2.0.18",
  "tokio",
- "toml",
- "tower",
- "tower-http",
  "tracing",
  "uuid",
+ "wafer-core",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-readonly-guard"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-router"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "tracing",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-s3"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
+ "chrono",
+ "tokio",
+ "tracing",
+ "wafer-core",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-security-headers"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-sqlite"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tracing",
+ "uuid",
+ "wafer-core",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-block-web"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "tracing",
+ "wafer-run",
+]
+
+[[package]]
+name = "wafer-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
  "wafer-run",
 ]
 

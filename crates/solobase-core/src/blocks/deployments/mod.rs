@@ -29,7 +29,7 @@ impl DeploymentsBlock {
 impl Block for DeploymentsBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "@solobase/deployments".to_string(),
+            name: "suppers-ai/deployments".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Deployment management for users and admins".to_string(),

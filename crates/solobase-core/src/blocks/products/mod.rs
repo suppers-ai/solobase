@@ -44,7 +44,7 @@ impl ProductsBlock {
 impl Block for ProductsBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "@solobase/products".to_string(),
+            name: "suppers-ai/products".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Products, pricing, purchases, and payment integration".to_string(),

@@ -11,16 +11,16 @@ path = "src/lib.rs"
 
 [features]
 default = ["sqlite", "storage-local"]
-sqlite = ["wafer-core/sqlite"]
-postgres = ["wafer-core/postgres", "dep:tokio"]
-storage-local = ["wafer-core/storage-local"]
-storage-s3 = ["wafer-core/storage-s3", "dep:tokio"]
+sqlite = []
+postgres = ["dep:tokio"]
+storage-local = []
+storage-s3 = ["dep:tokio"]
 
 [dependencies]
 # WAFER types (minimal — no full runtime)
 wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
-# wafer-core for shared block types, service traits, and backend implementations
-wafer-core = { path = "../../../wafer-run/crates/wafer-core", default-features = false }
+# wafer-core for clients and interface traits
+wafer-core = { path = "../../../wafer-run/crates/wafer-core" }
 
 # Serialization
 serde = { workspace = true }

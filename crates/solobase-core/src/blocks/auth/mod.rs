@@ -220,7 +220,7 @@ pub async fn seed_admin_user(ctx: &dyn Context) {
 impl Block for AuthBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "@solobase/auth".to_string(),
+            name: "suppers-ai/auth".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Authentication: login, signup, JWT, refresh tokens, OAuth, API keys".to_string(),

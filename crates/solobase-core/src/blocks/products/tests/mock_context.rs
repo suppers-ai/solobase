@@ -290,8 +290,8 @@ impl Context for MockContext {
         let data = msg.data.clone();
 
         let result = match block_name {
-            "@wafer/database" => self.handle_db_call(&kind, &data),
-            "@wafer/config" => self.handle_config_call(&kind, &data),
+            "wafer-run/database" => self.handle_db_call(&kind, &data),
+            "wafer-run/config" => self.handle_config_call(&kind, &data),
             _ => Err(WaferError::new("not_found", format!("block '{}' not found", block_name))),
         };
 

@@ -66,7 +66,7 @@ pub fn create_blocks(filter: impl Fn(&str) -> bool) -> HashMap<BlockId, Arc<dyn 
 /// Register pre-created block instances with the WAFER runtime.
 ///
 /// This registers the blocks for lifecycle hooks (Init, Shutdown) and
-/// for `ctx.call_block("@solobase/...", ...)` calls.
+/// for `ctx.call_block("suppers-ai/...", ...)` calls.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn register_shared_blocks(
     w: &mut wafer_run::Wafer,
@@ -74,7 +74,7 @@ pub fn register_shared_blocks(
 ) {
     for (&id, block) in blocks {
         let name = block_id_to_name(id);
-        w.register_block(format!("@solobase/{name}"), block.clone());
+        w.register_block(format!("suppers-ai/{name}"), block.clone());
     }
 }
 

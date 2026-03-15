@@ -3,7 +3,7 @@
 //! All feature blocks are implemented as native Rust structs implementing
 //! the Block trait. The WAFER runtime handles HTTP serving and block lifecycle.
 //! Routing is handled by `solobase-core`'s shared pipeline via the
-//! `@solobase/router` block, which replaces individual per-feature flow files.
+//! `suppers-ai/router` block, which replaces individual per-feature flow files.
 
 use std::sync::Arc;
 
@@ -34,28 +34,28 @@ async fn main() {
     tracing::info!("block configs loaded");
 
     // 4. Register blocks explicitly (no register_all — runtime is minimal)
-    //    wafer-core infrastructure blocks:
-    wafer_core::blocks::auth_validator::register(&mut wafer);
-    wafer_core::blocks::cors::register(&mut wafer);
-    wafer_core::blocks::iam_guard::register(&mut wafer);
-    wafer_core::blocks::inspector::register(&mut wafer);
-    wafer_core::blocks::monitoring::register(&mut wafer);
-    wafer_core::blocks::ip_rate_limit::register(&mut wafer);
-    wafer_core::blocks::readonly_guard::register(&mut wafer);
-    wafer_core::blocks::router::register(&mut wafer);
-    wafer_core::blocks::security_headers::register(&mut wafer);
-    wafer_core::blocks::web::register(&mut wafer);
-    wafer_core::blocks::config::register(&mut wafer);
-    wafer_core::blocks::logger::register(&mut wafer);
+    //    Infrastructure blocks:
+    wafer_block_auth_validator::register(&mut wafer);
+    wafer_block_cors::register(&mut wafer);
+    wafer_block_iam_guard::register(&mut wafer);
+    wafer_block_inspector::register(&mut wafer);
+    wafer_block_monitoring::register(&mut wafer);
+    wafer_block_ip_rate_limit::register(&mut wafer);
+    wafer_block_readonly_guard::register(&mut wafer);
+    wafer_block_router::register(&mut wafer);
+    wafer_block_security_headers::register(&mut wafer);
+    wafer_block_web::register(&mut wafer);
+    wafer_block_config::register(&mut wafer);
+    wafer_block_logger::register(&mut wafer);
     #[cfg(feature = "server")]
     {
-        wafer_core::blocks::crypto::register(&mut wafer);
-        wafer_core::blocks::network::register(&mut wafer);
-        wafer_core::blocks::http_listener::register(&mut wafer);
+        wafer_block_crypto::register(&mut wafer);
+        wafer_block_network::register(&mut wafer);
+        wafer_block_http_listener::register(&mut wafer);
     }
-    //    database + storage blocks:
-    wafer_core::blocks::sqlite::register(&mut wafer);
-    wafer_core::blocks::local_storage::register(&mut wafer);
+    //    Database + storage blocks:
+    wafer_block_sqlite::register(&mut wafer);
+    wafer_block_local_storage::register(&mut wafer);
     tracing::info!("blocks registered");
 
     // 5. Create shared block instances and register the solobase router
@@ -71,7 +71,7 @@ async fn main() {
         Arc::new(app_config.feature_config());
     let factory = NativeBlockFactory::new(shared_blocks);
     let router = SolobaseRouterBlock::new(jwt_secret, features, factory);
-    wafer.register_block("@solobase/router", Arc::new(router));
+    wafer.register_block("suppers-ai/router", Arc::new(router));
     tracing::info!("native feature blocks registered");
 
     // 6. Register flow definitions

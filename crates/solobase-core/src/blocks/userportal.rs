@@ -11,7 +11,7 @@ pub struct UserPortalBlock;
 impl Block for UserPortalBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "@solobase/userportal".to_string(),
+            name: "suppers-ai/userportal".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "User portal configuration endpoint".to_string(),

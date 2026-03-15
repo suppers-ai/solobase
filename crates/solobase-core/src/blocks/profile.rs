@@ -10,7 +10,7 @@ pub struct ProfileBlock;
 impl Block for ProfileBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "@solobase/profile".to_string(),
+            name: "suppers-ai/profile".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Profile sections endpoint".to_string(),

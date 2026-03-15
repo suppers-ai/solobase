@@ -400,7 +400,7 @@ fn remove_dangerous_attrs(tag: &str, _tag_lower: &str) -> String {
 impl Block for LegalPagesBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "@solobase/legalpages".to_string(),
+            name: "suppers-ai/legalpages".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Legal pages management with versioning and publishing".to_string(),

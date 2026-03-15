@@ -26,7 +26,7 @@ pub struct AdminBlock;
 impl Block for AdminBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
-            name: "@solobase/admin".to_string(),
+            name: "suppers-ai/admin".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
             summary: "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables".to_string(),
