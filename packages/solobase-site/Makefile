@@ -31,8 +31,7 @@ solobase: ## Build solobase binary to dist/
 	@echo "Built: $(SOLOBASE)"
 
 run: build solobase ## Build everything and run solobase serving the site
-	@echo "Starting solobase with WEB_ROOT=./dist/site on port 8090..."
-	WEB_ROOT=./dist/site \
+	@echo "Starting solobase-site on port 8090..."
 	ENVIRONMENT=development \
 	JWT_SECRET="dev-secret-key-minimum-32-characters-long" \
 	DEFAULT_ADMIN_EMAIL="admin@example.com" \

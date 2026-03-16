@@ -26,7 +26,7 @@ export default defineConfig({
 		__BUILD_DATE__: JSON.stringify(buildDate)
 	},
 	build: {
-		outDir: resolve(__dirname, 'build'),  // frontend/build/ (absolute, unchanged)
+		outDir: resolve(__dirname, '..', 'data', 'storage', 'site'),  // data/storage/site/ (served by wafer-run/web via storage)
 		emptyOutDir: true,
 		sourcemap: true,
 		rollupOptions: {

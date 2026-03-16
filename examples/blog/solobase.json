@@ -6,7 +6,7 @@
     "database": { "type": "sqlite", "path": "data/blog.db" },
     "storage": { "type": "local", "root": "data/storage" },
     "jwt_secret": "${JWT_SECRET}",
-    "web_root": "./frontend/build",
+    "web_root": "site",
     "features": {
         "auth": {},
         "admin": {},

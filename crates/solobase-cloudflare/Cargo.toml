@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 # WAFER runtime (types + meta only, no full runtime)
 wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
+wafer-block = { path = "../../../wafer-run/crates/wafer-block" }
 
 # Solobase blocks (no server features — just the block implementations)
 solobase = { path = "../solobase", default-features = false }
@@ -20,6 +21,9 @@ solobase-core = { path = "../solobase-core", default-features = false }
 
 # WAFER core blocks (shared DatabaseService/StorageService traits + handlers)
 wafer-core = { path = "../../../wafer-run/crates/wafer-core", default-features = false }
+
+# WAFER web block (static file serving from storage)
+wafer-block-web = { path = "../../../wafer-run/crates/wafer-block-web" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

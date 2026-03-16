@@ -74,7 +74,7 @@
       "minimum": 0.0
     },
     "web_root": {
-      "description": "Web root directory for the SPA frontend (default: \"./frontend/build\").",
+      "description": "Storage folder name for the SPA frontend (default: \"site\"). Files served from {storage_root}/{web_root}/ via wafer-run/web.",
       "default": null,
       "type": [
         "string",

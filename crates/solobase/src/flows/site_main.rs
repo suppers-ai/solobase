@@ -31,7 +31,7 @@ pub const JSON: &str = r#"{
                             { "match": "*:/health",        "block": "suppers-ai/router" },
                             { "match": "*:/nav",           "block": "suppers-ai/router" },
                             { "match": "*:/debug/**",      "block": "suppers-ai/router" },
-                            { "match": "*:/**",            "block": "wafer-run/web", "config": { "web_root": "./frontend/build", "web_spa": "true", "web_index": "index.html" } }
+                            { "match": "*:/**",            "block": "wafer-run/web", "config": { "web_root": "site", "web_spa": "true", "web_index": "index.html" } }
                         ]
                     }]
                 }]

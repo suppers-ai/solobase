@@ -12,7 +12,7 @@
 //!     "database": { "type": "sqlite", "path": "data/app.db" },
 //!     "storage": { "type": "local", "root": "data/storage" },
 //!     "jwt_secret": "${JWT_SECRET}",
-//!     "web_root": "./frontend/build",
+//!     "web_root": "site",
 //!     "features": {
 //!         "auth": {},
 //!         "products": {},
@@ -66,7 +66,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub jwt_secret: Option<String>,
 
-    /// Web root directory for the SPA frontend (default: "./frontend/build").
+    /// Storage folder name for the SPA frontend (default: "site").
+    /// Files are served from `{storage_root}/{web_root}/` via the wafer-run/web block.
     #[serde(default)]
     pub web_root: Option<String>,
 
@@ -228,12 +229,21 @@ impl AppConfig {
 
 impl AppConfig {
     /// Load from a JSON file, expanding `${ENV_VAR}` references.
+    /// Native-only: requires filesystem and environment variable access.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load(path: &str) -> Result<Self, String> {
         let data = std::fs::read_to_string(path)
             .map_err(|e| format!("cannot read {path}: {e}"))?;
         let expanded = wafer_run::helpers::expand_env_vars(&data);
         serde_json::from_str(&expanded)
             .map_err(|e| format!("invalid app config in {path}: {e}"))
+    }
+
+    /// Parse from a JSON string (no env var expansion).
+    /// Available on all targets including wasm32.
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        serde_json::from_str(json)
+            .map_err(|e| format!("invalid app config: {e}"))
     }
 }
 
@@ -260,7 +270,7 @@ impl AppConfig {
             "listen": listen
         }));
 
-        let web_root = self.web_root.clone().unwrap_or_else(|| "./frontend/build".into());
+        let web_root = self.web_root.clone().unwrap_or_else(|| "site".into());
         blocks.insert("wafer-run/web".into(), json!({
             "web_root": web_root,
             "web_spa": "true",
@@ -1200,7 +1210,7 @@ mod tests {
             "database": {"type": "sqlite", "path": "my.db"},
             "storage": {"type": "local", "root": "/data"},
             "jwt_secret": "test-secret",
-            "web_root": "./dist",
+            "web_root": "site",
             "auth": {},
             "admin": {},
             "files": {},
@@ -1212,7 +1222,7 @@ mod tests {
         assert_eq!(config.app.as_deref().unwrap(), "my-store");
         assert_eq!(config.listen.as_deref().unwrap(), "127.0.0.1:3000");
         assert_eq!(config.jwt_secret.as_deref().unwrap(), "test-secret");
-        assert_eq!(config.web_root.as_deref().unwrap(), "./dist");
+        assert_eq!(config.web_root.as_deref().unwrap(), "site");
         assert!(config.auth_enabled());
         assert!(config.admin_enabled());
         assert!(config.files_enabled());

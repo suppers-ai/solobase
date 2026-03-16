@@ -5,7 +5,7 @@
 //! which dispatches API paths to the router and serves the SPA for everything
 //! else. The wafer-core base flows (wafer-run/infra) provide middleware.
 
-mod site_main;
+pub mod site_main;
 
 use wafer_run::Wafer;
 

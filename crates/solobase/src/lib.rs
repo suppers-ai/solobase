@@ -6,5 +6,4 @@
 
 pub mod app_config;
 pub use solobase_core::blocks;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod flows;

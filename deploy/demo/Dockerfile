@@ -38,8 +38,8 @@ WORKDIR /app
 # Copy the built binary
 COPY --from=builder /app/target/release/solobase ./solobase
 
-# Copy frontend build
-COPY --from=builder /app/frontend/build ./frontend/build
+# Copy frontend build into storage directory (served by wafer-run/web via storage)
+COPY --from=builder /app/data/storage/site ./data/storage/site
 
 # Create data directory
 RUN mkdir -p /app/data
