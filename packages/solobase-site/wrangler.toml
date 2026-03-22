@@ -1,5 +1,0 @@
-name = "solobase-site"
-pages_build_output_dir = "dist/site"
-
-[build]
-command = "npm run build"
