@@ -14,7 +14,7 @@
 //!   → register solobase blocks + CF service blocks
 //!   → register site-main flow
 //!   → convert HTTP Request → WAFER Message
-//!   → wafer.execute("site-main", &mut msg)
+//!   → wafer.run("site-main", &mut msg)
 //!   → convert Result_ → HTTP Response
 //! ```
 
@@ -165,9 +165,8 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     wafer.register_block("suppers-ai/router", Arc::new(router));
 
     // Register the site-main flow (from solobase's flow definitions)
-    let flow_def: wafer_run::FlowDef = serde_json::from_str(solobase::flows::site_main::JSON)
+    wafer.add_flow_json(solobase::flows::site_main::JSON)
         .expect("invalid site-main flow JSON");
-    wafer.add_flow_def(&flow_def);
 
     // Resolve (lifecycle init + flow node resolution)
     wafer.start_without_bind().await.map_err(|e| Error::RustError(e))?;
@@ -182,7 +181,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         msg.set_meta("http.header.authorization", auth);
     }
 
-    let result = wafer.execute("site-main", &mut msg).await;
+    let result = wafer.run("site-main", &mut msg).await;
 
     // 9. Convert Result_ to HTTP Response + CORS headers
     let response = convert::wafer_result_to_worker_response(result)?;

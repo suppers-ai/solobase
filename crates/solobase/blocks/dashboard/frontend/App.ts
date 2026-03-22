@@ -131,13 +131,47 @@ function DashboardHeader() {
 	`;
 }
 
+// ─── Usage Bar ──────────────────────────────────────────────────────
+function UsageBar({ label, used, limit, unit }: { label: string, used: number, limit: number, unit: string }) {
+	const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+	const color = pct > 90 ? '#ef4444' : pct > 70 ? '#f59e0b' : '#0ea5e9';
+	const fmt = (n: number) => {
+		if (unit === 'bytes') {
+			if (n >= 1073741824) return `${(n / 1073741824).toFixed(1)} GB`;
+			if (n >= 1048576) return `${(n / 1048576).toFixed(0)} MB`;
+			return `${(n / 1024).toFixed(0)} KB`;
+		}
+		if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+		if (n >= 1000) return `${(n / 1000).toFixed(0)}K`;
+		return String(n);
+	};
+
+	return html`
+		<div style=${{ marginBottom: '1rem' }}>
+			<div style=${{ display: 'flex', justifyContent: 'space-between', fontSize: '0.813rem', marginBottom: '0.375rem' }}>
+				<span style=${{ fontWeight: 500, color: '#1e293b' }}>${label}</span>
+				<span style=${{ color: '#64748b' }}>${fmt(used)} / ${fmt(limit)}</span>
+			</div>
+			<div style=${{ height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+				<div style=${{ height: '100%', width: `${pct}%`, background: color, borderRadius: '4px', transition: 'width 0.3s' }}></div>
+			</div>
+		</div>
+	`;
+}
+
+// ─── Plan limits (must match worker/types.ts PLANS) ─────────────────
+const PLAN_LIMITS: Record<string, { requests: number, r2: number, d1: number, projects: number }> = {
+	starter: { requests: 500000, r2: 2 * 1024 * 1024 * 1024, d1: 500 * 1024 * 1024, projects: 2 },
+	pro: { requests: 3000000, r2: 20 * 1024 * 1024 * 1024, d1: 5 * 1024 * 1024 * 1024, projects: Infinity },
+};
+
 // ─── Overview Tab ────────────────────────────────────────────────────
 function OverviewTab() {
 	const user = currentUser.value;
 	const [planName, setPlanName] = useState<string>('...');
 	const [deploymentCount, setDeploymentCount] = useState<string>('...');
 	const [apiKeyCount, setApiKeyCount] = useState<string>('...');
-	const [productCount, setProductCount] = useState<string>('...');
+	const [usage, setUsage] = useState<any>(null);
 
 	useEffect(() => {
 		// Fetch current plan from purchases
@@ -148,9 +182,9 @@ function OverviewTab() {
 				const latest = completed[completed.length - 1];
 				setPlanName(latest.product_name || latest.name || 'Paid');
 			} else {
-				setPlanName('Free');
+				setPlanName('Starter');
 			}
-		}).catch(() => setPlanName('Free'));
+		}).catch(() => setPlanName('Starter'));
 
 		// Fetch deployments count
 		api.get('/b/deployments').then((data: any) => {
@@ -164,24 +198,49 @@ function OverviewTab() {
 			setApiKeyCount(String(records.length));
 		}).catch(() => setApiKeyCount('0'));
 
-		// Fetch products count
-		api.get('/b/products/products').then((data: any) => {
-			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
-			setProductCount(String(records.length));
-		}).catch(() => setProductCount('0'));
+		// Fetch usage
+		api.get('/b/usage').then((data: any) => {
+			setUsage(data);
+		}).catch(() => setUsage(null));
 	}, []);
 
 	const displayName = user?.name || user?.email?.split('@')[0] || 'there';
+	const plan = planName.toLowerCase();
+	const limits = PLAN_LIMITS[plan] || PLAN_LIMITS['starter'];
 
 	return html`
 		<div>
 			<${PageHeader} title=${`Welcome back, ${displayName}`} description="Here's an overview of your account" />
 			<div style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
 				<${StatCard} title="Plan" value=${planName} icon=${CreditCard} />
-				<${StatCard} title="Products" value=${productCount} icon=${Package} />
 				<${StatCard} title="Deployments" value=${deploymentCount} icon=${Server} />
 				<${StatCard} title="API Keys" value=${apiKeyCount} icon=${Key} />
+				<${StatCard} title="Month" value=${usage?.month || '...'} icon=${Activity} />
 			</div>
+
+			${usage ? html`
+				<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', marginBottom: '2rem' }}>
+					<h3 style=${{ fontSize: '1rem', fontWeight: 600, color: '#1e293b', marginBottom: '1rem' }}>Usage This Month</h3>
+					<${UsageBar}
+						label="API Requests"
+						used=${usage.requests?.used || 0}
+						limit=${limits.requests + (usage.requests?.addon || 0)}
+						unit="count" />
+					<${UsageBar}
+						label="File Storage"
+						used=${usage.storage?.r2_bytes || 0}
+						limit=${limits.r2 + (usage.storage?.r2_addon_bytes || 0)}
+						unit="bytes" />
+					<${UsageBar}
+						label="Database Storage"
+						used=${usage.storage?.d1_bytes || 0}
+						limit=${limits.d1 + (usage.storage?.d1_addon_bytes || 0)}
+						unit="bytes" />
+					<div style=${{ textAlign: 'right', marginTop: '0.5rem' }}>
+						<a href="/pricing/" style=${{ fontSize: '0.75rem', color: '#0ea5e9', textDecoration: 'none' }}>Upgrade plan →</a>
+					</div>
+				</div>
+			` : null}
 
 			<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '2rem', textAlign: 'center' }}>
 				<${Rocket} size=${48} style=${{ color: '#0ea5e9', marginBottom: '1rem' }} />

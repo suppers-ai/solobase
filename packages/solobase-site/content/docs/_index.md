@@ -11,7 +11,7 @@ Welcome to the Solobase documentation.
 
 ```bash
 # Install
-curl -fsSL https://solobase.app/install.sh | sh
+curl -fsSL https://solobase.dev/install.sh | sh
 
 # Or run with Docker
 docker run -p 8090:8090 solobase/solobase

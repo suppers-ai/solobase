@@ -111,9 +111,10 @@ DEVVARS
 fi
 
 # ── 3. Build frontend (if source exists) ───────────────────────────
-if [[ -f frontend/package.json ]] && [[ ! -d frontend/build ]]; then
+if [[ -f frontend/package.json ]] && [[ ! -d data/storage/site ]]; then
   echo -e "${cyan}Building frontend...${reset}"
-  npm run build 2>&1 | tail -3
+  (cd frontend && npm install --prefer-offline 2>/dev/null)
+  npx vite build --config frontend/vite.config.ts 2>&1 | tail -5
 fi
 
 # ── 4. Solobase server ─────────────────────────────────────────────

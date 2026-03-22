@@ -19,6 +19,7 @@ impl Block for ProfileBlock {
             admin_ui: None,
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
+            collections: Vec::new(),
         }
     }
 

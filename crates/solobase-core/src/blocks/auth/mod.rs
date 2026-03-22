@@ -219,6 +219,8 @@ pub async fn seed_admin_user(ctx: &dyn Context) {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for AuthBlock {
     fn info(&self) -> BlockInfo {
+        use wafer_run::types::CollectionSchema;
+
         BlockInfo {
             name: "suppers-ai/auth".to_string(),
             version: "1.0.0".to_string(),
@@ -229,6 +231,30 @@ impl Block for AuthBlock {
             admin_ui: None,
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
+            collections: vec![
+                CollectionSchema::new("auth_users")
+                    .field_unique("email", "string")
+                    .field_default("password_hash", "string", "")
+                    .field_default("name", "string", "")
+                    .field_default("disabled", "bool", "false")
+                    .field_default("avatar_url", "string", "")
+                    .field_default("oauth_provider", "string", "")
+                    .field_optional("last_login_at", "datetime")
+                    .field_optional("deleted_at", "datetime"),
+                CollectionSchema::new("auth_tokens")
+                    .field_ref("user_id", "string", "auth_users.id")
+                    .field("token", "string")
+                    .index(&["user_id"]),
+                CollectionSchema::new("api_keys")
+                    .field_ref("user_id", "string", "auth_users.id")
+                    .field_default("name", "string", "")
+                    .field("key_hash", "string")
+                    .field_default("key_prefix", "string", "")
+                    .field_optional("last_used", "datetime")
+                    .field_optional("revoked_at", "datetime")
+                    .field_optional("expires_at", "datetime")
+                    .index(&["user_id"]),
+            ],
         }
     }
 

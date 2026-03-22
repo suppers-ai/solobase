@@ -13,7 +13,7 @@ Solobase Cloud is fully managed hosting for Solobase. Get a production-ready bac
 
 Solobase Cloud runs your Solobase instances on shared infrastructure managed by the Solobase team. Each instance gets:
 
-- A dedicated subdomain (`yourapp.solobase.app`)
+- A dedicated subdomain (`yoursolobase.dev`)
 - Managed PostgreSQL database
 - S3-compatible file storage
 - Automatic TLS certificates
@@ -23,13 +23,13 @@ Solobase Cloud runs your Solobase instances on shared infrastructure managed by 
 
 ### 1. Sign Up
 
-Visit [app.solobase.app](https://app.solobase.app) and sign in with GitHub or Google.
+Visit [solobase.dev](https://solobase.dev) and sign in with GitHub or Google.
 
 ### 2. Create an Instance
 
 After signing in, click **Create Instance** and choose:
 
-- **Subdomain** -- your instance will be available at `yourapp.solobase.app`
+- **Subdomain** -- your instance will be available at `yoursolobase.dev`
 - **Plan** -- select the plan that fits your needs (see [Plans](#plans) below)
 
 ### 3. Access Your Instance
@@ -37,13 +37,13 @@ After signing in, click **Create Instance** and choose:
 Once created, your instance is immediately available at:
 
 ```
-https://yourapp.solobase.app
+https://yoursolobase.dev
 ```
 
 The admin dashboard is at:
 
 ```
-https://yourapp.solobase.app/admin
+https://yoursolobase.dev/admin
 ```
 
 ## Plans
@@ -59,7 +59,7 @@ https://yourapp.solobase.app/admin
 | Backups | No | No | No | Daily | Real-time |
 | SLA | -- | -- | -- | -- | 99.9% |
 
-See the [Pricing page](https://solobase.app/pricing/) for full details.
+See the [Pricing page](https://solobase.dev/pricing/) for full details.
 
 ## Custom Domains
 
@@ -70,7 +70,7 @@ Professional and Business plans support custom domains. To set up a custom domai
 3. Enter your domain (e.g., `api.example.com`)
 4. Add the CNAME record shown to your DNS provider:
    ```
-   api.example.com  CNAME  yourapp.solobase.app
+   api.example.com  CNAME  yoursolobase.dev
    ```
 5. Wait for DNS propagation (usually a few minutes)
 6. Solobase Cloud automatically provisions a TLS certificate
@@ -92,14 +92,14 @@ Your cloud instance exposes the same REST API as a self-hosted Solobase:
 
 ```bash
 # Authenticate
-TOKEN=$(curl -s -X POST https://yourapp.solobase.app/api/auth/login \
+TOKEN=$(curl -s -X POST https://yoursolobase.dev/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@solobase.local","password":"solobase"}' \
   | jq -r '.token')
 
 # Use the API
 curl -H "Authorization: Bearer $TOKEN" \
-  https://yourapp.solobase.app/api/collections
+  https://yoursolobase.dev/api/collections
 ```
 
 ## Managing Instances
@@ -131,4 +131,4 @@ Choose **self-hosted** if you need full control over infrastructure or have comp
 - Starter: Email support (48h response)
 - Professional: Email support (24h response)
 - Business: Priority support (12h response)
-- Enterprise: [Contact us](mailto:sales@solobase.app)
+- Enterprise: [Contact us](mailto:sales@solobase.dev)

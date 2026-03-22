@@ -14,7 +14,7 @@ Solobase is a self-contained Rust binary with no runtime dependencies. Download 
 The fastest way to get started:
 
 ```bash
-curl -fsSL https://solobase.app/install.sh | sh
+curl -fsSL https://solobase.dev/install.sh | sh
 ```
 
 This downloads the latest release for your platform and places it in your PATH.

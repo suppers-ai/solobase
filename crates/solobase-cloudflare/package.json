@@ -1,15 +1,22 @@
 {
   "name": "solobase-cloudflare",
   "version": "1.0.0",
-  "main": "index.js",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:prod": "wrangler deploy --env production",
+    "build:blocks": "bash build-blocks.sh",
+    "generate:migration": "tsx worker/generate-migration.ts",
+    "db:migrate": "wrangler d1 migrations apply solobase-db-dev --local",
+    "db:migrate:prod": "wrangler d1 migrations apply solobase-db --remote --env production"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
     "wrangler": "^4.72.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260301.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0"
   }
 }

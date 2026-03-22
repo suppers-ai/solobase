@@ -30,6 +30,8 @@ impl FilesBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for FilesBlock {
     fn info(&self) -> BlockInfo {
+        use wafer_run::types::CollectionSchema;
+
         BlockInfo {
             name: "suppers-ai/files".to_string(),
             version: "1.0.0".to_string(),
@@ -40,6 +42,46 @@ impl Block for FilesBlock {
             admin_ui: None,
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
+            collections: vec![
+                CollectionSchema::new("storage_buckets")
+                    .field("name", "string")
+                    .field_default("public", "bool", "false")
+                    .field_default("created_by", "string", ""),
+                CollectionSchema::new("storage_objects")
+                    .field("bucket", "string")
+                    .field("key", "string")
+                    .field_default("size", "int", "0")
+                    .field_default("content_type", "string", "application/octet-stream")
+                    .field_default("uploaded_by", "string", "")
+                    .field_optional("uploaded_at", "datetime")
+                    .index(&["bucket"]),
+                CollectionSchema::new("storage_views")
+                    .field("bucket", "string")
+                    .field("key", "string")
+                    .field_default("user_id", "string", "")
+                    .field_optional("viewed_at", "datetime"),
+                CollectionSchema::new("cloud_shares")
+                    .field("token", "string")
+                    .field("bucket", "string")
+                    .field("key", "string")
+                    .field_default("created_by", "string", "")
+                    .field_optional("expires_at", "datetime")
+                    .field_default("access_count", "int", "0")
+                    .field_optional("max_access_count", "int")
+                    .index(&["token"]),
+                CollectionSchema::new("cloud_access_logs")
+                    .field("share_id", "string")
+                    .field_optional("accessed_at", "datetime")
+                    .field_default("ip_address", "string", "")
+                    .field_default("user_agent", "string", "")
+                    .index(&["share_id"]),
+                CollectionSchema::new("cloud_quotas")
+                    .field_unique("user_id", "string")
+                    .field_default("max_storage_bytes", "int64", "1073741824")
+                    .field_default("max_file_size_bytes", "int64", "104857600")
+                    .field_default("max_files_per_bucket", "int", "10000")
+                    .field_default("reset_period_days", "int", "0"),
+            ],
         }
     }
 

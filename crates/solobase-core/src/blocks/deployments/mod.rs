@@ -28,6 +28,8 @@ impl DeploymentsBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for DeploymentsBlock {
     fn info(&self) -> BlockInfo {
+        use wafer_run::types::CollectionSchema;
+
         BlockInfo {
             name: "suppers-ai/deployments".to_string(),
             version: "1.0.0".to_string(),
@@ -38,6 +40,23 @@ impl Block for DeploymentsBlock {
             admin_ui: None,
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
+            collections: vec![
+                CollectionSchema::new("block_deployments")
+                    .field_ref("user_id", "string", "auth_users.id")
+                    .field("name", "string")
+                    .field_default("slug", "string", "")
+                    .field_default("status", "string", "pending")
+                    .field_default("config", "json", "{}")
+                    .field_default("plan_id", "string", "")
+                    .field_default("purchase_id", "string", "")
+                    .field_default("tenant_id", "string", "")
+                    .field_default("subdomain", "string", "")
+                    .field_optional("provision_error", "string")
+                    .field_optional("deprovision_error", "string")
+                    .field_optional("deleted_at", "datetime")
+                    .index(&["user_id"])
+                    .index(&["status"]),
+            ],
         }
     }
 

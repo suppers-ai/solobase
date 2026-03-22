@@ -399,6 +399,8 @@ fn remove_dangerous_attrs(tag: &str, _tag_lower: &str) -> String {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for LegalPagesBlock {
     fn info(&self) -> BlockInfo {
+        use wafer_run::types::CollectionSchema;
+
         BlockInfo {
             name: "suppers-ai/legalpages".to_string(),
             version: "1.0.0".to_string(),
@@ -412,6 +414,17 @@ impl Block for LegalPagesBlock {
             }),
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
+            collections: vec![
+                CollectionSchema::new("block_legalpages_legal_documents")
+                    .field("doc_type", "string")
+                    .field("title", "string")
+                    .field_default("content", "text", "")
+                    .field_default("status", "string", "draft")
+                    .field_default("version", "int", "1")
+                    .field_default("created_by", "string", "")
+                    .field_optional("published_at", "datetime")
+                    .index(&["doc_type", "status"]),
+            ],
         }
     }
 

@@ -25,6 +25,8 @@ pub struct AdminBlock;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for AdminBlock {
     fn info(&self) -> BlockInfo {
+        use wafer_run::types::CollectionSchema;
+
         BlockInfo {
             name: "suppers-ai/admin".to_string(),
             version: "1.0.0".to_string(),
@@ -35,6 +37,33 @@ impl Block for AdminBlock {
             admin_ui: None,
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
+            collections: vec![
+                CollectionSchema::new("iam_roles")
+                    .field("name", "string")
+                    .field_default("description", "string", "")
+                    .field_default("permissions", "json", "[]")
+                    .field_default("is_system", "bool", "false"),
+                CollectionSchema::new("iam_permissions")
+                    .field("name", "string")
+                    .field_default("resource", "string", "")
+                    .field_default("actions", "json", "[]"),
+                CollectionSchema::new("iam_user_roles")
+                    .field_ref("user_id", "string", "auth_users.id")
+                    .field("role", "string")
+                    .field_optional("assigned_at", "datetime")
+                    .field_default("assigned_by", "string", "")
+                    .index(&["user_id"]),
+                CollectionSchema::new("settings")
+                    .field_unique("key", "string")
+                    .field_default("value", "string", "")
+                    .field_default("updated_by", "string", ""),
+                CollectionSchema::new("audit_logs")
+                    .field_default("user_id", "string", "")
+                    .field("action", "string")
+                    .field_default("resource", "string", "")
+                    .field_default("ip_address", "string", "")
+                    .index(&["created_at"]),
+            ],
         }
     }
 

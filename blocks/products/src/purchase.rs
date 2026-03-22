@@ -1,0 +1,237 @@
+use std::collections::HashMap;
+use crate::wafer::block_world::types::*;
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+use crate::helpers::*;
+use crate::{PURCHASES_COLLECTION, LINE_ITEMS_COLLECTION, PRODUCTS_COLLECTION, PRICING_COLLECTION};
+
+pub fn handle_create(msg: &Message) -> BlockResult {
+    #[derive(serde::Deserialize)]
+    struct CreateReq {
+        items: Vec<PurchaseItem>,
+        currency: Option<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct PurchaseItem {
+        product_id: String,
+        quantity: i64,
+        #[serde(default)]
+        variables: HashMap<String, f64>,
+    }
+
+    let body: CreateReq = match decode_body(msg) {
+        Ok(b) => b,
+        Err(r) => return r,
+    };
+
+    if body.items.is_empty() {
+        return err_bad_request(msg, "No items in purchase");
+    }
+
+    let currency = body.currency.unwrap_or_else(|| "USD".to_string());
+    let now = now_rfc3339();
+    let user_id = msg_user_id(msg).to_string();
+
+    // Calculate totals
+    let mut total_amount = 0.0;
+    let mut line_items_data: Vec<(String, String, i64, f64, f64, HashMap<String, f64>)> = Vec::new();
+
+    for item in &body.items {
+        if item.quantity <= 0 {
+            return err_bad_request(msg, "Quantity must be positive");
+        }
+        let product = match db::get(PRODUCTS_COLLECTION, &item.product_id) {
+            Ok(p) => p,
+            Err(_) => return err_not_found(msg, &format!("Product {} not found", item.product_id)),
+        };
+
+        let product_name = product.data.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
+
+        // Calculate price — use pricing template if set, otherwise fall back to base_price
+        let unit_price = if let Some(template_id) = product.data.get("pricing_template_id").and_then(|v| v.as_str()) {
+            if !template_id.is_empty() {
+                if let Ok(template) = db::get(PRICING_COLLECTION, template_id) {
+                    let formula = template.data.get("price_formula").and_then(|v| v.as_str()).unwrap_or("0");
+                    crate::pricing::evaluate_formula(formula, &item.variables).unwrap_or(0.0)
+                } else {
+                    product.data.get("base_price").and_then(|v| v.as_f64()).unwrap_or(0.0)
+                }
+            } else {
+                product.data.get("base_price").and_then(|v| v.as_f64()).unwrap_or(0.0)
+            }
+        } else {
+            product.data.get("base_price").and_then(|v| v.as_f64()).unwrap_or(0.0)
+        };
+
+        let line_total = unit_price * item.quantity as f64;
+        total_amount += line_total;
+
+        line_items_data.push((item.product_id.clone(), product_name, item.quantity, unit_price, line_total, item.variables.clone()));
+    }
+
+    let total_cents = (total_amount * 100.0).round() as i64;
+
+    // Create purchase
+    let mut purchase_data = HashMap::new();
+    purchase_data.insert("user_id".to_string(), serde_json::Value::String(user_id));
+    purchase_data.insert("status".to_string(), serde_json::Value::String("pending".to_string()));
+    purchase_data.insert("total_cents".to_string(), serde_json::json!(total_cents));
+    purchase_data.insert("amount_cents".to_string(), serde_json::json!(total_cents));
+    purchase_data.insert("currency".to_string(), serde_json::Value::String(currency));
+    purchase_data.insert("provider".to_string(), serde_json::Value::String("manual".to_string()));
+    purchase_data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
+    purchase_data.insert("updated_at".to_string(), serde_json::Value::String(now.clone()));
+
+    let purchase = match db::create(PURCHASES_COLLECTION, purchase_data) {
+        Ok(p) => p,
+        Err(e) => return err_internal(msg, &format!("Failed to create purchase: {e}")),
+    };
+
+    // Create line items — roll back purchase on failure
+    for (product_id, product_name, qty, unit_price, line_total, variables) in &line_items_data {
+        let mut item_data = HashMap::new();
+        item_data.insert("purchase_id".to_string(), serde_json::Value::String(purchase.id.clone()));
+        item_data.insert("product_id".to_string(), serde_json::Value::String(product_id.clone()));
+        item_data.insert("product_name".to_string(), serde_json::Value::String(product_name.clone()));
+        item_data.insert("quantity".to_string(), serde_json::json!(qty));
+        item_data.insert("unit_price".to_string(), serde_json::json!(unit_price));
+        item_data.insert("total_price".to_string(), serde_json::json!(line_total));
+        item_data.insert("variables".to_string(), serde_json::json!(variables));
+        item_data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
+        if let Err(e) = db::create(LINE_ITEMS_COLLECTION, item_data) {
+            // Clean up the purchase since line items are incomplete
+            let _ = db::delete(PURCHASES_COLLECTION, &purchase.id);
+            return err_internal(msg, &format!("Failed to create line item: {e}"));
+        }
+    }
+
+    json_respond(msg, &serde_json::json!({
+        "id": purchase.id,
+        "status": "pending",
+        "total_cents": total_cents,
+        "item_count": line_items_data.len()
+    }))
+}
+
+pub fn handle_list_user(msg: &Message) -> BlockResult {
+    let user_id = msg_user_id(msg);
+    let (page, page_size) = pagination_params(msg);
+
+    let filters = vec![Filter {
+        field: "user_id".to_string(),
+        operator: FilterOp::Equal,
+        value: serde_json::Value::String(user_id.to_string()),
+    }];
+    let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
+
+    match db::paginated_list(PURCHASES_COLLECTION, page, page_size, filters, sort) {
+        Ok(result) => json_respond(msg, &serde_json::to_value(&result).unwrap_or_default()),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+pub fn handle_list_admin(msg: &Message) -> BlockResult {
+    let (page, page_size) = pagination_params(msg);
+
+    let mut filters = Vec::new();
+    let status = msg_query(msg, "status");
+    if !status.is_empty() {
+        filters.push(Filter { field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(status.to_string()) });
+    }
+    let user_id = msg_query(msg, "user_id");
+    if !user_id.is_empty() {
+        filters.push(Filter { field: "user_id".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(user_id.to_string()) });
+    }
+
+    let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
+
+    match db::paginated_list(PURCHASES_COLLECTION, page, page_size, filters, sort) {
+        Ok(result) => json_respond(msg, &serde_json::to_value(&result).unwrap_or_default()),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+pub fn handle_get(msg: &Message) -> BlockResult {
+    let path = msg_path(msg);
+    let id = path.rsplit('/').next().unwrap_or("");
+    if id.is_empty() || id == "purchases" { return err_bad_request(msg, "Missing purchase ID"); }
+
+    let purchase = match db::get(PURCHASES_COLLECTION, id) {
+        Ok(p) => p,
+        Err(e) if e.code == wafer_block::ErrorCode::NotFound => return err_not_found(msg, "Purchase not found"),
+        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+    };
+
+    // Verify access: user can only view their own, admin can view all
+    let purchase_user = str_field(&purchase, "user_id");
+    let current_user = msg_user_id(msg);
+    let user_roles = msg_get_meta(msg, "auth.user_roles");
+    if purchase_user != current_user && !user_roles.split(',').any(|r| r.trim() == "admin") {
+        return err_forbidden(msg, "Access denied");
+    }
+
+    // Get line items
+    let items_opts = ListOptions {
+        filters: vec![Filter {
+            field: "purchase_id".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(id.to_string()),
+        }],
+        ..Default::default()
+    };
+    let line_items = db::list(LINE_ITEMS_COLLECTION, &items_opts).map(|r| r.records).unwrap_or_default();
+
+    json_respond(msg, &serde_json::json!({
+        "purchase": purchase,
+        "line_items": line_items
+    }))
+}
+
+pub fn handle_refund(msg: &Message) -> BlockResult {
+    let path = msg_path(msg);
+    // /admin/b/products/purchases/{id}/refund
+    let id = path.strip_prefix("/admin/b/products/purchases/")
+        .and_then(|s| s.strip_suffix("/refund"))
+        .unwrap_or("");
+    if id.is_empty() { return err_bad_request(msg, "Missing purchase ID"); }
+
+    #[derive(serde::Deserialize, Default)]
+    struct RefundReq {
+        reason: Option<String>,
+    }
+    let body: RefundReq = decode_body(msg).unwrap_or_default();
+
+    let purchase = match db::get(PURCHASES_COLLECTION, id) {
+        Ok(p) => p,
+        Err(e) if e.code == wafer_block::ErrorCode::NotFound => return err_not_found(msg, "Purchase not found"),
+        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+    };
+
+    let status = str_field(&purchase, "status");
+    if status != "completed" {
+        return err_bad_request(msg, &format!("Can only refund completed purchases (current status: {})", status));
+    }
+
+    let now = now_rfc3339();
+    let user_id = msg_user_id(msg);
+
+    let mut data = HashMap::new();
+    data.insert("status".to_string(), serde_json::Value::String("refunded".to_string()));
+    data.insert("refunded_at".to_string(), serde_json::Value::String(now.clone()));
+    data.insert("refunded_by".to_string(), serde_json::Value::String(user_id.to_string()));
+    if let Some(reason) = body.reason {
+        data.insert("refund_reason".to_string(), serde_json::Value::String(reason));
+    }
+    data.insert("updated_at".to_string(), serde_json::Value::String(now));
+
+    match db::update(PURCHASES_COLLECTION, id, data) {
+        Ok(record) => {
+            let new_status = str_field(&record, "status");
+            if new_status != "refunded" {
+                return err_internal(msg, "Refund failed — purchase status was modified concurrently");
+            }
+            json_respond(msg, &serde_json::to_value(&record).unwrap_or_default())
+        }
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}

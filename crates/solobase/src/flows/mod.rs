@@ -11,7 +11,12 @@ use wafer_run::Wafer;
 
 /// Register the site-main flow (used with suppers-ai/router).
 pub fn register_site_main(w: &mut Wafer) {
-    let def: wafer_run::FlowDef = serde_json::from_str(site_main::JSON)
+    // Inject default routes into the router block config
+    w.add_block_config(
+        "wafer-run/router",
+        serde_json::json!({ "routes": site_main::default_routes() }),
+    );
+
+    w.add_flow_json(site_main::JSON)
         .unwrap_or_else(|e| panic!("invalid flow JSON: {e}\n---\n{}", site_main::JSON));
-    w.add_flow_def(&def);
 }

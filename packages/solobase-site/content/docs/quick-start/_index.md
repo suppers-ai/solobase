@@ -19,7 +19,7 @@ No runtime dependencies are required -- Solobase is a single binary.
 ## Step 1: Download Solobase
 
 ```bash
-curl -fsSL https://solobase.app/install.sh | sh
+curl -fsSL https://solobase.dev/install.sh | sh
 ```
 
 Or download the binary directly from [GitHub Releases](https://github.com/suppers-ai/solobase/releases/latest) and extract it.

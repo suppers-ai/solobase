@@ -8,34 +8,38 @@
 /// are applied inline before routing.
 pub const JSON: &str = r#"{
     "id": "site-main",
-    "summary": "Top-level HTTP dispatch — API router + frontend SPA",
+    "name": "Site Main",
+    "version": "0.1.0",
+    "description": "Top-level HTTP dispatch — API router + frontend SPA",
+    "steps": [
+        { "id": "security-headers", "block": "wafer-run/security-headers" },
+        { "id": "cors", "block": "wafer-run/cors" },
+        { "id": "readonly-guard", "block": "wafer-run/readonly-guard" },
+        { "id": "rate-limit", "block": "wafer-run/ip-rate-limit" },
+        { "id": "monitoring", "block": "wafer-run/monitoring" },
+        { "id": "router", "block": "wafer-run/router" }
+    ],
     "config": { "on_error": "stop" },
-    "root": {
-        "block": "wafer-run/security-headers",
-        "next": [{
-            "block": "wafer-run/cors",
-            "next": [{
-                "block": "wafer-run/readonly-guard",
-                "next": [{
-                    "block": "wafer-run/ip-rate-limit",
-                    "next": [{
-                        "block": "wafer-run/monitoring",
-                        "next": [
-                            { "match": "*:/auth/**",       "block": "suppers-ai/router" },
-                            { "match": "*:/internal/**",   "block": "suppers-ai/router" },
-                            { "match": "*:/admin/**",      "block": "suppers-ai/router" },
-                            { "match": "*:/settings/**",   "block": "suppers-ai/router" },
-                            { "match": "*:/storage/**",    "block": "suppers-ai/router" },
-                            { "match": "*:/b/**",          "block": "suppers-ai/router" },
-                            { "match": "*:/profile/**",    "block": "suppers-ai/router" },
-                            { "match": "*:/health",        "block": "suppers-ai/router" },
-                            { "match": "*:/nav",           "block": "suppers-ai/router" },
-                            { "match": "*:/debug/**",      "block": "suppers-ai/router" },
-                            { "match": "*:/**",            "block": "wafer-run/web", "config": { "web_root": "site", "web_spa": "true", "web_index": "index.html" } }
-                        ]
-                    }]
-                }]
-            }]
-        }]
+    "config_map": {
+        "routes": { "target": "wafer-run/router", "key": "routes" }
     }
 }"#;
+
+/// Default routes for the site-main flow.
+///
+/// API paths go to `suppers-ai/router`; everything else to `wafer-run/web` (SPA).
+pub fn default_routes() -> serde_json::Value {
+    serde_json::json!([
+        { "path": "/auth/**",       "block": "suppers-ai/router" },
+        { "path": "/internal/**",   "block": "suppers-ai/router" },
+        { "path": "/admin/**",      "block": "suppers-ai/router" },
+        { "path": "/settings/**",   "block": "suppers-ai/router" },
+        { "path": "/storage/**",    "block": "suppers-ai/router" },
+        { "path": "/b/**",          "block": "suppers-ai/router" },
+        { "path": "/profile/**",    "block": "suppers-ai/router" },
+        { "path": "/health",        "block": "suppers-ai/router" },
+        { "path": "/nav",           "block": "suppers-ai/router" },
+        { "path": "/debug/**",      "block": "suppers-ai/router" },
+        { "path": "/**",            "block": "wafer-run/web", "config": { "web_root": "site", "web_spa": "true", "web_index": "index.html" } }
+    ])
+}

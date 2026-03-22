@@ -1,30 +1,75 @@
 name = "solobase"
-main = "build/worker/shim.mjs"
+# Set via: export CLOUDFLARE_ACCOUNT_ID=your-account-id
+# Or uncomment below:
+# account_id = ""
+main = "worker/index.ts"
 compatibility_date = "2026-03-01"
+compatibility_flags = ["nodejs_compat"]
 
-[build]
-command = "cargo install -q worker-build && worker-build --release"
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
 
-# D1 database (SQLite at the edge)
-# Create with: npx wrangler d1 create solobase-db
+# =============================================================================
+# Default environment (development / local)
+# =============================================================================
+#
+# Used by: npx wrangler dev
+#
+# Local dev uses .dev.vars for secrets (JWT_SECRET, ADMIN_SECRET, ADMIN_EMAIL).
+# Binding IDs below are placeholders — wrangler dev creates local emulations.
+# Tables are auto-created on first API request (no manual migrations needed).
+
+[vars]
+ENVIRONMENT = "development"
+
 [[d1_databases]]
 binding = "DB"
-database_name = "solobase-db"
-database_id = "local-dev-db"  # Placeholder for local dev; replace after `wrangler d1 create` for production
+database_name = "solobase-db-dev"
+database_id = "local-dev-db"
+migrations_dir = "migrations"
 
-# File storage (S3-compatible)
-# Create with: npx wrangler r2 bucket create solobase-storage
 [[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "solobase-storage-dev"
+
+[[kv_namespaces]]
+binding = "TENANTS"
+id = "local-dev-kv"
+
+# =============================================================================
+# Production environment
+# =============================================================================
+#
+# Used by: npx wrangler deploy --env production
+#
+# Setup (one-time):
+#   npx wrangler d1 create solobase-db
+#   npx wrangler r2 bucket create solobase-storage
+#   npx wrangler kv namespace create TENANTS
+#   npx wrangler secret put JWT_SECRET --env production
+#   npx wrangler secret put ADMIN_SECRET --env production
+#   npx wrangler secret put ADMIN_EMAIL --env production
+#
+# Tables are auto-created on first request — no manual migrations.
+# DNS: Add a wildcard route *.solobase.dev → solobase-production worker
+
+[env.production]
+name = "solobase-production"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "solobase-db"
+database_id = "4e2ec8f8-fc62-440a-8406-7bc522045c12"
+migrations_dir = "migrations"
+
+[[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "solobase-storage"
 
-# Tenant config
-# Create with: npx wrangler kv namespace create TENANTS
-[[kv_namespaces]]
+[[env.production.kv_namespaces]]
 binding = "TENANTS"
-id = "local-dev-kv"  # Placeholder for local dev; replace after `wrangler kv namespace create` for production
-
-# Environment variables
-[vars]
-ENVIRONMENT = "production"
-# Set JWT_SECRET via: wrangler secret put JWT_SECRET
+id = "e264871f50d641908e2e4982a6395232"

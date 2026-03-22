@@ -43,6 +43,8 @@ impl ProductsBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for ProductsBlock {
     fn info(&self) -> BlockInfo {
+        use wafer_run::types::CollectionSchema;
+
         BlockInfo {
             name: "suppers-ai/products".to_string(),
             version: "1.0.0".to_string(),
@@ -53,6 +55,83 @@ impl Block for ProductsBlock {
             admin_ui: None,
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
+            collections: vec![
+                CollectionSchema::new("block_products_products")
+                    .field("name", "string")
+                    .field_default("description", "text", "")
+                    .field_default("slug", "string", "")
+                    .field_default("price", "float", "0")
+                    .field_default("base_price", "float", "0")
+                    .field_default("currency", "string", "USD")
+                    .field_default("status", "string", "draft")
+                    .field_default("category", "string", "")
+                    .field_default("tags", "json", "[]")
+                    .field_default("metadata", "json", "{}")
+                    .field_default("image_url", "string", "")
+                    .field_default("stock", "int", "0")
+                    .field_default("group_id", "string", "")
+                    .field_default("type_id", "string", "")
+                    .field_default("group_template_id", "string", "")
+                    .field_default("product_template_id", "string", "")
+                    .field_default("pricing_template_id", "string", "")
+                    .field_default("created_by", "string", "")
+                    .field_optional("deleted_at", "datetime")
+                    .index(&["status"])
+                    .index(&["group_id"])
+                    .index(&["created_by"]),
+                CollectionSchema::new("block_products_groups")
+                    .field("name", "string")
+                    .field_default("description", "string", "")
+                    .field_default("template_id", "string", "")
+                    .field_default("group_template_id", "string", "")
+                    .field_default("user_id", "string", "")
+                    .field_default("status", "string", "active")
+                    .field_default("created_by", "string", ""),
+                CollectionSchema::new("block_products_types")
+                    .field("name", "string")
+                    .field_default("description", "string", "")
+                    .field_default("is_system", "bool", "false"),
+                CollectionSchema::new("block_products_pricing_templates")
+                    .field("name", "string")
+                    .field_default("price_formula", "string", "")
+                    .field_default("template_data", "json", "{}"),
+                CollectionSchema::new("block_products_purchases")
+                    .field_ref("user_id", "string", "auth_users.id")
+                    .field_default("status", "string", "pending")
+                    .field_default("total_cents", "int", "0")
+                    .field_default("amount_cents", "int", "0")
+                    .field_default("currency", "string", "USD")
+                    .field_default("provider", "string", "manual")
+                    .field_default("metadata", "json", "{}")
+                    .field_default("stripe_payment_intent_id", "string", "")
+                    .field_optional("refunded_at", "datetime")
+                    .field_default("refunded_by", "string", "")
+                    .field_default("refund_reason", "string", "")
+                    .field_optional("payment_at", "datetime")
+                    .index(&["user_id"])
+                    .index(&["status"]),
+                CollectionSchema::new("block_products_line_items")
+                    .field("purchase_id", "string")
+                    .field("product_id", "string")
+                    .field_default("product_name", "string", "")
+                    .field_default("quantity", "int", "1")
+                    .field_default("unit_price", "float", "0")
+                    .field_default("total_price", "float", "0")
+                    .field_default("variables", "json", "{}")
+                    .index(&["purchase_id"]),
+                CollectionSchema::new("block_products_group_templates")
+                    .field("name", "string")
+                    .field_default("display_name", "string", ""),
+                CollectionSchema::new("block_products_product_templates")
+                    .field("name", "string")
+                    .field_default("display_name", "string", ""),
+                CollectionSchema::new("block_products_variables")
+                    .field("name", "string")
+                    .field_default("var_type", "string", "number")
+                    .field_optional("default_value", "string")
+                    .field_default("scope", "string", "system")
+                    .field_default("product_id", "string", ""),
+            ],
         }
     }
 
