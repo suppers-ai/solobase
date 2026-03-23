@@ -18,9 +18,9 @@ jobs:
           node-version: 22
 
       - name: Install and build
-        working-directory: packages/solobase-site
         run: |
-          npm install
+          cd packages/solobase-site
+          npm install --install-links=false --ignore-scripts --no-workspaces
           npm run build
 
       - name: Deploy to Cloudflare Pages
