@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 
 export default function Hero() {
-  const [currentVideoIndex, setCurrentVideoIndex] = useState(1);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const videoRef = useRef(null);
   const heroImgRef = useRef(null);
@@ -53,7 +52,6 @@ export default function Hero() {
     if (!video || !heroImg) return;
 
     setIsVideoPlaying(true);
-    video.querySelector('source').src = `/videos/video_${currentVideoIndex}.mp4`;
     video.load();
     video.style.display = 'block';
     video.play();
@@ -61,16 +59,10 @@ export default function Hero() {
 
     function onEnded() {
       video.removeEventListener('ended', onEnded);
-      if (currentVideoIndex < 6) {
-        video.style.display = 'none';
-        heroImg.style.opacity = '1';
-        video.currentTime = 0;
-        setCurrentVideoIndex((i) => i + 1);
-        setIsVideoPlaying(false);
-      } else {
-        video.pause();
-        if (doNotTouchRef.current) doNotTouchRef.current.style.display = 'none';
-      }
+      video.style.display = 'none';
+      heroImg.style.opacity = '1';
+      video.currentTime = 0;
+      setIsVideoPlaying(false);
     }
 
     video.addEventListener('ended', onEnded);

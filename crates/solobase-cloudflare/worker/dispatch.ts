@@ -285,10 +285,11 @@ const blockCache = new Map<string, Block>();
 // All blocks run as WASM Components via JSPI.
 // Only exception: /b/usage routes to TS system handler (needs raw D1 queries
 // that the WASM system block doesn't support — no system clock in WASM).
+// WASM blocks disabled — all blocks run on TS while WASM issues are debugged.
+// JSPI is confirmed working (WebAssembly.Suspending + promising available).
+// The jco transpile output needs investigation — blocks crash on execution.
 const WASM_BLOCKS = new Set<BlockId>([
-  'system', 'profile', 'userportal', 'legalpages',
-  'admin', 'files', 'products', 'projects',
-  // 'auth' stays on TS — WASM auth crashes on login (needs debugging)
+  'system',  // Testing WASM — simplest block, no runtime import
 ]);
 
 const WASM_JS_MODULES: Record<string, string> = {
@@ -321,18 +322,25 @@ async function callBlock(
     try {
       return await callWasmBlock(blockId, msg, host);
     } catch (e: any) {
-      console.error(`WASM block '${blockId}' failed:`, e.message);
-      return errorResult('internal', `block execution failed`);
+      console.error(`WASM block '${blockId}' failed:`, e.message, e.stack);
+      // Return detailed error for debugging
+      return errorResult('internal', `WASM block '${blockId}' failed: ${e.message}`);
     }
   }
 
-  // TS fallback for auth (WASM auth needs debugging)
-  if (blockId === 'auth') {
-    const { handle } = await import('./blocks-ts/auth');
-    return handle(msg, host);
+  // All blocks on TS while WASM is being debugged
+  switch (blockId) {
+    case 'system': { const { handle } = await import('./blocks-ts/system'); return handle(msg, host); }
+    case 'auth': { const { handle } = await import('./blocks-ts/auth'); return handle(msg, host); }
+    case 'projects': { const { handle } = await import('./blocks-ts/projects'); return handle(msg, host); }
+    case 'profile': { const { handle } = await import('./blocks-ts/profile'); return handle(msg); }
+    case 'userportal': { const { handle } = await import('./blocks-ts/userportal'); return handle(msg, host); }
+    case 'legalpages': { const { handle } = await import('./blocks-ts/legalpages'); return handle(msg, host); }
+    case 'admin': { const { handle } = await import('./blocks-ts/admin'); return handle(msg, host); }
+    case 'files': { const { handle } = await import('./blocks-ts/files'); return handle(msg, host); }
+    case 'products': { const { handle } = await import('./blocks-ts/products'); return handle(msg, host); }
+    default: return errorResult('unimplemented', `block '${blockId}' not available`);
   }
-
-  return errorResult('unimplemented', `block '${blockId}' not available`);
 }
 
 // ---------------------------------------------------------------------------
@@ -351,6 +359,12 @@ async function callWasmBlock(
 
   const { instantiate } = await import(jsModule);
 
+  // CF Workers: provide custom instantiateCore that uses synchronous WebAssembly.Instance
+  // because WebAssembly.instantiate() may be restricted in the Workers runtime.
+  const cfInstantiateCore = (module: WebAssembly.Module, imports: Record<string, any>) => {
+    return new WebAssembly.Instance(module, imports);
+  };
+
   const instance = await instantiate(
     getCoreModuleFor(blockId),
     {
@@ -361,6 +375,7 @@ async function callWasmBlock(
         },
       },
     },
+    cfInstantiateCore,
   );
 
   return instance.block.handle(msg);
