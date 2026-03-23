@@ -10,12 +10,6 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         pricing: resolve(__dirname, 'pricing/index.html'),
-        docs: resolve(__dirname, 'docs/index.html'),
-      },
-      output: {
-        manualChunks: {
-          'highlight': ['highlight.js'],
-        },
       },
     },
   },
