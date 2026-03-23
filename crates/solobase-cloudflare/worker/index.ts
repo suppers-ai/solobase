@@ -84,7 +84,7 @@ export default {
     if (isPlatform) {
       // Redirect cloud.solobase.dev root to dashboard
       if (pathname === '/' || pathname === '') {
-        const dashUrl = isDev(env) ? '/blocks/dashboard/' : 'https://cloud.solobase.dev/blocks/dashboard/';
+        const dashUrl = isDev(env) ? '/blocks/dashboard/frontend/' : 'https://cloud.solobase.dev/blocks/dashboard/frontend/';
         return new Response(null, { status: 302, headers: { 'Location': dashUrl } });
       }
 
@@ -96,6 +96,12 @@ export default {
       const project = await resolveProject(url.hostname, env);
       if (!project) {
         return addCorsHeaders(jsonError('not_found', 'project not found', 404), request);
+      }
+      if (project.status === 'inactive') {
+        return addSecurityHeaders(new Response(
+          '<html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h1>Project Inactive</h1><p>This project is inactive. The owner needs to upgrade their plan to activate it.</p></div></body></html>',
+          { status: 403, headers: { 'Content-Type': 'text/html' } },
+        ));
       }
       const response = await serveStatic(env.STORAGE, `${project.id}/site/`, pathname);
       if (response) return addSecurityHeaders(response);
@@ -159,6 +165,20 @@ async function handleTenantApi(
     return addCorsHeaders(jsonError('not_found', 'project not found', 404), request);
   }
 
+  // Check if the project is active — inactive projects cannot serve API responses
+  if (project.status === 'inactive') {
+    return addCorsHeaders(
+      new Response(
+        JSON.stringify({
+          error: 'project-inactive',
+          message: 'This project is inactive. Upgrade your plan to activate it.',
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      ),
+      request,
+    );
+  }
+
   const db = getD1ForProject(env, project);
 
   // Enforce plan limits
@@ -207,11 +227,17 @@ async function readRequestMessage(
     'unknown';
   const message = requestToMessage(request, url, body, remoteAddr);
 
-  // Strip /api prefix
+  // Strip /api prefix and normalize /ext/ to /b/
   if (message.meta) {
     const idx = message.meta.findIndex(m => m.key === 'req.resource');
-    if (idx >= 0 && message.meta[idx].value.startsWith('/api')) {
-      message.meta[idx].value = message.meta[idx].value.substring(4) || '/';
+    if (idx >= 0) {
+      let path = message.meta[idx].value;
+      if (path.startsWith('/api')) path = path.substring(4) || '/';
+      if (path.startsWith('/ext/')) path = '/b/' + path.substring(5);
+      // Alias: /b/deployments → /b/projects (frontend uses old name)
+      path = path.replace('/b/deployments', '/b/projects');
+      path = path.replace('/admin/b/deployments', '/admin/b/projects');
+      message.meta[idx].value = path;
     }
   }
 
@@ -222,7 +248,7 @@ function isApiRoute(pathname: string): boolean {
   const apiPrefixes = [
     '/health', '/nav', '/debug/',
     '/auth/', '/admin/', '/storage/',
-    '/b/', '/profile/', '/settings/',
+    '/b/', '/ext/', '/profile/', '/settings/',
     '/internal/', '/billing/',
   ];
   return apiPrefixes.some(p => pathname === p.replace(/\/$/, '') || pathname.startsWith(p));

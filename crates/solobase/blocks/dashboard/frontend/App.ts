@@ -65,7 +65,7 @@ function LoginSignup() {
 				<div style=${{ textAlign: 'center', marginBottom: '2rem' }}>
 					<img src="/images/logo_long.png" alt="Solobase" style=${{ height: '40px', width: 'auto', marginBottom: '1rem' }} />
 					<p style=${{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.25rem' }}>
-						${mode === 'login' ? 'Sign in to your dashboard' : 'Create your account'}
+						${mode === 'login' ? 'Sign in to Solobase Cloud' : 'Create your Solobase account'}
 					</p>
 				</div>
 
@@ -161,6 +161,7 @@ function UsageBar({ label, used, limit, unit }: { label: string, used: number, l
 
 // ─── Plan limits (must match worker/types.ts PLANS) ─────────────────
 const PLAN_LIMITS: Record<string, { requests: number, r2: number, d1: number, projects: number }> = {
+	free: { requests: 0, r2: 0, d1: 0, projects: 0 },
 	starter: { requests: 500000, r2: 2 * 1024 * 1024 * 1024, d1: 500 * 1024 * 1024, projects: 2 },
 	pro: { requests: 3000000, r2: 20 * 1024 * 1024 * 1024, d1: 5 * 1024 * 1024 * 1024, projects: Infinity },
 };
@@ -169,28 +170,26 @@ const PLAN_LIMITS: Record<string, { requests: number, r2: number, d1: number, pr
 function OverviewTab() {
 	const user = currentUser.value;
 	const [planName, setPlanName] = useState<string>('...');
-	const [deploymentCount, setDeploymentCount] = useState<string>('...');
+	const [projectCount, setProjectCount] = useState<string>('...');
 	const [apiKeyCount, setApiKeyCount] = useState<string>('...');
 	const [usage, setUsage] = useState<any>(null);
 
 	useEffect(() => {
-		// Fetch current plan from purchases
-		api.get('/b/products/purchases').then((data: any) => {
-			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
-			const completed = records.filter((p: any) => p.status === 'completed');
-			if (completed.length > 0) {
-				const latest = completed[completed.length - 1];
-				setPlanName(latest.product_name || latest.name || 'Paid');
+		// Fetch subscription/plan
+		api.get('/billing/subscription').then((data: any) => {
+			const sub = data?.subscription;
+			if (sub?.status === 'active') {
+				setPlanName(sub.plan === 'pro' ? 'Pro' : 'Starter');
 			} else {
-				setPlanName('Starter');
+				setPlanName('Free');
 			}
-		}).catch(() => setPlanName('Starter'));
+		}).catch(() => setPlanName('Free'));
 
-		// Fetch deployments count
-		api.get('/b/deployments').then((data: any) => {
+		// Fetch projects count
+		api.get('/ext/deployments').then((data: any) => {
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
-			setDeploymentCount(String(records.length));
-		}).catch(() => setDeploymentCount('0'));
+			setProjectCount(String(records.length));
+		}).catch(() => setProjectCount('0'));
 
 		// Fetch API keys count
 		api.get('/auth/api-keys').then((data: any) => {
@@ -213,7 +212,7 @@ function OverviewTab() {
 			<${PageHeader} title=${`Welcome back, ${displayName}`} description="Here's an overview of your account" />
 			<div style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
 				<${StatCard} title="Plan" value=${planName} icon=${CreditCard} />
-				<${StatCard} title="Deployments" value=${deploymentCount} icon=${Server} />
+				<${StatCard} title="Projects" value=${projectCount} icon=${Server} />
 				<${StatCard} title="API Keys" value=${apiKeyCount} icon=${Key} />
 				<${StatCard} title="Month" value=${usage?.month || '...'} icon=${Activity} />
 			</div>
@@ -242,54 +241,80 @@ function OverviewTab() {
 				</div>
 			` : null}
 
-			<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '2rem', textAlign: 'center' }}>
+			${planName === 'Free' ? html`
+			<div style=${{ background: 'linear-gradient(135deg, #ecfeff 0%, #e0f2fe 100%)', border: '1px solid #a5f3fc', borderRadius: '12px', padding: '2rem', textAlign: 'center' }}>
 				<${Rocket} size=${48} style=${{ color: '#0ea5e9', marginBottom: '1rem' }} />
-				<h2 style=${{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', marginBottom: '0.5rem' }}>Get Started</h2>
+				<h2 style=${{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', marginBottom: '0.5rem' }}>Activate Your Projects</h2>
 				<p style=${{ fontSize: '0.875rem', color: '#64748b', maxWidth: '400px', margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
-					Choose a plan, deploy your backend, and start building your application.
+					Your projects are inactive on the free plan. Choose a plan to activate them and go live.
 				</p>
-				<div style=${{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
-					<a href="/docs/" style=${{ padding: '0.5rem 1rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.813rem', color: '#1e293b', textDecoration: 'none' }}>Read Docs</a>
+				<div style=${{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+					<a href="https://solobase.dev/pricing/" style=${{ padding: '0.625rem 1.25rem', background: 'linear-gradient(135deg, #189AB4, #0ea5e9)', color: 'white', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, textDecoration: 'none' }}>View Plans</a>
+					<a href="#projects" onClick=${(e: any) => { e.preventDefault(); window.location.hash = 'projects'; }} style=${{ padding: '0.625rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.875rem', color: '#1e293b', textDecoration: 'none' }}>Create Project</a>
+					<a href="https://solobase.dev/docs/" style=${{ padding: '0.625rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.875rem', color: '#1e293b', textDecoration: 'none' }}>Read Docs</a>
 				</div>
 			</div>
+		` : html`
+			<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '2rem', textAlign: 'center' }}>
+				<${Rocket} size=${48} style=${{ color: '#0ea5e9', marginBottom: '1rem' }} />
+				<h2 style=${{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', marginBottom: '0.5rem' }}>Create a Project</h2>
+				<p style=${{ fontSize: '0.875rem', color: '#64748b', maxWidth: '400px', margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
+					Create a new backend project and start building your application.
+				</p>
+				<div style=${{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+					<a href="#projects" onClick=${(e: any) => { e.preventDefault(); window.location.hash = 'projects'; }} style=${{ padding: '0.625rem 1.25rem', background: 'linear-gradient(135deg, #189AB4, #0ea5e9)', color: 'white', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, textDecoration: 'none' }}>Create Project</a>
+					<a href="https://solobase.dev/docs/" style=${{ padding: '0.625rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.875rem', color: '#1e293b', textDecoration: 'none' }}>Read Docs</a>
+				</div>
+			</div>
+		`}
 		</div>
 	`;
 }
 
-// ─── Deployments Tab ─────────────────────────────────────────────────
-function DeploymentsTab() {
-	const [deployments, setDeployments] = useState<any[]>([]);
+// ─── Projects Tab ─────────────────────────────────────────────────
+function ProjectsTab() {
+	const [projects, setProjects] = useState<any[]>([]);
+	const [plan, setPlan] = useState<string>('free');
 	const [loading, setLoading] = useState(true);
 	const [showCreateForm, setShowCreateForm] = useState(false);
 	const [newName, setNewName] = useState('');
 	const [creating, setCreating] = useState(false);
 	const [deleting, setDeleting] = useState<string | null>(null);
+	const [lastCreatedStatus, setLastCreatedStatus] = useState<string | null>(null);
 
-	const fetchDeployments = useCallback(async () => {
+	const fetchProjects = useCallback(async () => {
 		try {
-			const data: any = await api.get('/b/deployments');
+			const data: any = await api.get('/ext/deployments');
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
-			setDeployments(records);
+			setProjects(records);
+			if (data?.plan) setPlan(data.plan);
 		} catch {
-			setDeployments([]);
+			setProjects([]);
 		}
 		setLoading(false);
 	}, []);
 
-	useEffect(() => { fetchDeployments(); }, [fetchDeployments]);
+	useEffect(() => { fetchProjects(); }, [fetchProjects]);
 
 	async function handleCreate(e: Event) {
 		e.preventDefault();
 		if (!newName.trim()) return;
 		setCreating(true);
+		setLastCreatedStatus(null);
 		try {
-			await api.post('/b/deployments', { name: newName.trim() });
-			toasts.success('Deployment created successfully');
+			const result: any = await api.post('/ext/deployments', { name: newName.trim() });
+			const status = result?.data?.status || result?.status || 'inactive';
+			setLastCreatedStatus(status);
+			if (status === 'active') {
+				toasts.success('Project created and activated!');
+			} else {
+				toasts.success('Project created (inactive). Subscribe to a plan to activate it.');
+			}
 			setNewName('');
 			setShowCreateForm(false);
-			await fetchDeployments();
+			await fetchProjects();
 		} catch (err: any) {
-			toasts.error(err.message || 'Failed to create deployment');
+			toasts.error(err.message || 'Failed to create project');
 		}
 		setCreating(false);
 	}
@@ -297,11 +322,11 @@ function DeploymentsTab() {
 	async function handleDelete(id: string) {
 		setDeleting(id);
 		try {
-			await api.delete(`/b/deployments/${id}`);
-			toasts.success('Deployment deleted');
-			await fetchDeployments();
+			await api.delete(`/ext/deployments/${id}`);
+			toasts.success('Project deleted');
+			await fetchProjects();
 		} catch (err: any) {
-			toasts.error(err.message || 'Failed to delete deployment');
+			toasts.error(err.message || 'Failed to delete project');
 		}
 		setDeleting(null);
 	}
@@ -309,6 +334,7 @@ function DeploymentsTab() {
 	function getStatusVariant(status: string): 'success' | 'warning' | 'danger' | 'neutral' {
 		switch (status) {
 			case 'active': return 'success';
+			case 'inactive': return 'warning';
 			case 'pending': return 'warning';
 			case 'stopped': return 'danger';
 			case 'deleted': return 'neutral';
@@ -316,17 +342,32 @@ function DeploymentsTab() {
 		}
 	}
 
-	if (loading) return html`<${LoadingSpinner} message="Loading deployments..." />`;
+	if (loading) return html`<${LoadingSpinner} message="Loading projects..." />`;
+
+	const hasInactiveProjects = projects.some((d: any) => (d.data?.status || d.status) === 'inactive');
 
 	return html`
 		<div>
-			<${PageHeader} title="Deployments" description="Manage your backend instances">
-				<${Button} icon=${Plus} onClick=${() => setShowCreateForm(true)}>Create Deployment<//>
+			<${PageHeader} title="Projects" description="Manage your backend instances">
+				<${Button} icon=${Plus} onClick=${() => setShowCreateForm(true)}>Create Project<//>
 			<//>
+
+			${lastCreatedStatus === 'inactive' ? html`
+				<div style=${{ background: '#fffbeb', border: '1px solid #fed7aa', borderRadius: '8px', padding: '0.875rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+					<div>
+						<div style=${{ fontWeight: 600, fontSize: '0.813rem', color: '#92400e' }}>Project created (inactive)</div>
+						<div style=${{ fontSize: '0.75rem', color: '#a16207', marginTop: '0.25rem' }}>Subscribe to a plan to activate your projects.</div>
+					</div>
+					<a href="https://solobase.dev/pricing/" target="_blank" rel="noopener"
+						style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.375rem 0.75rem', background: '#f59e0b', color: 'white', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, textDecoration: 'none' }}>
+						<${CreditCard} size=${12} /> View Plans
+					</a>
+				</div>
+			` : null}
 
 			${showCreateForm ? html`
 				<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
-					<h3 style=${{ fontSize: '1rem', fontWeight: 600, color: '#1e293b', marginBottom: '1rem' }}>New Deployment</h3>
+					<h3 style=${{ fontSize: '1rem', fontWeight: 600, color: '#1e293b', marginBottom: '1rem' }}>New Project</h3>
 					<form onSubmit=${handleCreate}>
 						<div>
 							<label style=${{ display: 'block', fontSize: '0.813rem', fontWeight: 500, color: '#1e293b', marginBottom: '0.375rem' }}>Name</label>
@@ -342,33 +383,43 @@ function DeploymentsTab() {
 				</div>
 			` : null}
 
-			${deployments.length === 0 && !showCreateForm ? html`
+			${projects.length === 0 && !showCreateForm ? html`
 				<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-					<${EmptyState} icon=${Server} title="No deployments yet" description="Deploy your first Solobase backend instance to get started.">
-						<${Button} icon=${Rocket} onClick=${() => setShowCreateForm(true)}>Create Deployment<//>
+					<${EmptyState} icon=${Server} title="No projects yet" description="Deploy your first Solobase backend instance to get started.">
+						<${Button} icon=${Rocket} onClick=${() => setShowCreateForm(true)}>Create Project<//>
 					<//>
 				</div>
 			` : null}
 
-			${deployments.length > 0 ? html`
+			${projects.length > 0 ? html`
 				<div style=${{ display: 'grid', gap: '0.5rem' }}>
-					${deployments.map((d: any) => html`
+					${projects.map((d: any) => {
+						const status = d.data?.status || d.status || 'inactive';
+						const canActivate = d.can_activate === true;
+						return html`
 						<div key=${d.id} style=${{
 							display: 'flex', justifyContent: 'space-between', alignItems: 'center',
 							background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px',
-							padding: '0.875rem 1rem'
+							padding: '0.875rem 1rem',
+							opacity: status === 'inactive' ? 0.85 : 1
 						}}>
 							<div style=${{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1 }}>
-								<${Server} size=${18} style=${{ color: '#64748b', flexShrink: 0 }} />
+								<${Server} size=${18} style=${{ color: status === 'inactive' ? '#94a3b8' : '#64748b', flexShrink: 0 }} />
 								<div style=${{ minWidth: 0 }}>
-									<div style=${{ fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>${d.name}</div>
+									<div style=${{ fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>${d.data?.name || d.name || 'Unnamed'}</div>
 									<div style=${{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
-										Created ${d.created_at ? new Date(d.created_at).toLocaleDateString() : ''}
+										${status === 'active' ? html`<span style=${{ color: '#0ea5e9' }}>${(d.data?.slug || d.data?.name || '').toLowerCase().replace(/\s+/g, '-')}.solobase.dev</span> · ` : ''}Created ${(d.data?.created_at || d.created_at) ? new Date(d.data?.created_at || d.created_at).toLocaleDateString() : ''}
 									</div>
 								</div>
 							</div>
 							<div style=${{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-								<${StatusBadge} status=${d.status || 'pending'} variant=${getStatusVariant(d.status || 'pending')} />
+								<${StatusBadge} status=${status} variant=${getStatusVariant(status)} />
+								${status === 'inactive' && !canActivate ? html`
+									<a href="https://solobase.dev/pricing/" target="_blank" rel="noopener"
+										style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.25rem 0.5rem', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.75rem', color: '#0ea5e9', textDecoration: 'none', fontWeight: 500 }}>
+										Upgrade to activate
+									</a>
+								` : null}
 								<button onClick=${() => handleDelete(d.id)} disabled=${deleting === d.id}
 									style=${{
 										background: 'none', border: '1px solid #fecaca', borderRadius: '6px',
@@ -381,8 +432,20 @@ function DeploymentsTab() {
 								</button>
 							</div>
 						</div>
-					`)}
+					`;})}
 				</div>
+
+				${hasInactiveProjects && plan === 'free' ? html`
+					<div style=${{ marginTop: '1rem', padding: '0.875rem 1rem', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+						<div style=${{ fontSize: '0.813rem', color: '#0369a1' }}>
+							Some projects are inactive. Subscribe to a plan to activate them.
+						</div>
+						<a href="https://solobase.dev/pricing/" target="_blank" rel="noopener"
+							style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.375rem 0.75rem', background: '#0ea5e9', color: 'white', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, textDecoration: 'none' }}>
+							<${CreditCard} size=${12} /> View Plans
+						</a>
+					</div>
+				` : null}
 			` : null}
 		</div>
 	`;
@@ -541,7 +604,7 @@ function SettingsTab() {
 function DashboardNav({ active, onNavigate }: { active: string, onNavigate: (page: string) => void }) {
 	const tabs = [
 		{ id: 'overview', label: 'Overview', icon: Activity },
-		{ id: 'deployments', label: 'Deployments', icon: Server },
+		{ id: 'projects', label: 'Projects', icon: Server },
 		{ id: 'api-keys', label: 'API Keys', icon: Key },
 		{ id: 'settings', label: 'Settings', icon: Settings },
 	];
@@ -549,8 +612,8 @@ function DashboardNav({ active, onNavigate }: { active: string, onNavigate: (pag
 	return html`
 		<nav style=${{ padding: '0 1.5rem', background: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
 			<${TabNavigation} tabs=${tabs} activeTab=${active} onTabChange=${onNavigate} />
-			<a href="/blocks/products/frontend/user/index.html" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#0ea5e9', textDecoration: 'none', fontWeight: 600, padding: '0.5rem 0' }}>
-				<${Package} size=${14} /> Products
+			<a href="https://solobase.dev/pricing/" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#0ea5e9', textDecoration: 'none', fontWeight: 600, padding: '0.5rem 0' }}>
+				<${CreditCard} size=${14} /> Plans
 			</a>
 		</nav>
 	`;
@@ -576,7 +639,7 @@ function Dashboard() {
 			<${DashboardNav} active=${page} onNavigate=${setPage} />
 			<main style=${{ padding: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
 				${page === 'overview' ? html`<${OverviewTab} />` : null}
-				${page === 'deployments' ? html`<${DeploymentsTab} />` : null}
+				${page === 'projects' ? html`<${ProjectsTab} />` : null}
 				${page === 'api-keys' ? html`<${ApiKeysTab} />` : null}
 				${page === 'settings' ? html`<${SettingsTab} />` : null}
 			</main>

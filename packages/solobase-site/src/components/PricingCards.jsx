@@ -148,7 +148,7 @@ export default function PricingCards() {
 
   useEffect(() => {
     // Fetch published products from the API
-    fetch('https://cloud.solobase.dev/api/b/products/products?status=published')
+    fetch('https://cloud.solobase.dev/api/b/products/catalog')
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(data => {
         const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];

@@ -124,11 +124,8 @@ export async function serveStatic(
  * Everything else returns 404 — marketing routes belong on CF Pages.
  */
 function isSpaRoute(pathname: string): boolean {
-  const spaRoutes = [
-    '/blocks/', '/admin', '/auth', '/dashboard',
-    '/settings', '/login', '/signup',
-  ];
-  return pathname === '/' || spaRoutes.some(r => pathname.startsWith(r));
+  // Only SPA-fallback for block frontend routes
+  return pathname === '/' || pathname.startsWith('/blocks/');
 }
 
 function buildFileResponse(object: R2ObjectBody, filePath: string): Response {

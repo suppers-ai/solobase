@@ -88,6 +88,7 @@ const PUBLIC_PREFIXES: string[] = [
   '/b/legalpages/privacy',
   '/storage/direct/',
   '/b/products/webhooks',
+  '/b/products/catalog',
   '/auth/forgot-password',
   '/auth/reset-password',
   '/auth/verify-email',

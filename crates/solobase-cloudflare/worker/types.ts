@@ -104,6 +104,7 @@ export interface ProjectConfig {
   id: string;
   subdomain: string;
   plan: string;
+  status?: 'active' | 'inactive';
   owner_user_id?: string;
   db_id?: string;
   db_binding?: string;
@@ -123,6 +124,13 @@ export interface PlanLimits {
 }
 
 export const PLANS: Record<string, PlanLimits> = {
+  free: {
+    maxProjects: 0,
+    maxRequestsPerMonth: 0,
+    maxD1StorageBytes: 0,
+    maxR2StorageBytes: 0,
+    customDomain: false,
+  },
   starter: {
     maxProjects: 2,
     maxRequestsPerMonth: 500_000,
@@ -147,7 +155,7 @@ export const PLANS: Record<string, PlanLimits> = {
 };
 
 export function getPlanLimits(plan: string): PlanLimits {
-  return PLANS[plan] ?? PLANS['starter'];
+  return PLANS[plan] ?? PLANS['free'];
 }
 
 export interface ProjectAppConfig {

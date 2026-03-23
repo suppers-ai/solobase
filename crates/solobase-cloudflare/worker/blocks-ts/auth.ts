@@ -1,13 +1,14 @@
 // TypeScript-native auth block handler (for testing without WASM).
 // Calls host.callBlock() for database/crypto operations — same pattern as WASM blocks.
 
-import type { Message, BlockResult } from '../types';
+import type { Message, BlockResult, MetaEntry } from '../types';
 import type { RuntimeHost } from '../host';
 import { metaGet } from '../convert';
 
 const USERS = 'auth_users';
 const TOKENS = 'auth_tokens';
 const USER_ROLES = 'iam_user_roles';
+const API_KEYS = 'api_keys';
 const USED_TOKENS = 'used_one_time_tokens';
 
 export async function handle(msg: Message, host: RuntimeHost): Promise<BlockResult> {
@@ -25,6 +26,14 @@ export async function handle(msg: Message, host: RuntimeHost): Promise<BlockResu
     case action === 'create' && path === '/auth/resend-verification': return handleResendVerification(msg, host);
     case action === 'create' && path === '/auth/forgot-password': return handleForgotPassword(msg, host);
     case action === 'create' && path === '/auth/reset-password': return handleResetPassword(msg, host);
+    // API keys
+    case action === 'retrieve' && path === '/auth/api-keys': return handleApiKeysList(msg, host);
+    case action === 'create' && path === '/auth/api-keys': return handleApiKeysCreate(msg, host);
+    case action === 'delete' && path.startsWith('/auth/api-keys/'): return handleApiKeysRevoke(msg, host);
+    // OAuth
+    case action === 'retrieve' && path === '/auth/oauth/providers': return handleOAuthProviders(msg, host);
+    case action === 'retrieve' && path === '/auth/oauth/login': return handleOAuthLogin(msg, host);
+    case action === 'retrieve' && path === '/auth/oauth/callback': return handleOAuthCallback(msg, host);
     default: return errResult('not-found', 'not found');
   }
 }
@@ -67,11 +76,12 @@ async function handleSignup(msg: Message, host: RuntimeHost): Promise<BlockResul
 
   await dbCreate(host, TOKENS, { user_id: user.id, token: tokens.refresh });
 
-  return jsonRespond(msg, {
+  const cookie = buildAuthCookie(tokens.access, 86400);
+  return jsonRespondWithCookie(msg, {
     access_token: tokens.access, refresh_token: tokens.refresh,
     token_type: 'Bearer', expires_in: 86400,
     user: { id: user.id, email, roles: [role], name: body.name ?? '' },
-  }, 201);
+  }, cookie, 201);
 }
 
 async function handleLogin(msg: Message, host: RuntimeHost): Promise<BlockResult> {
@@ -102,11 +112,12 @@ async function handleLogin(msg: Message, host: RuntimeHost): Promise<BlockResult
 
   await dbCreate(host, TOKENS, { user_id: user.id, token: tokens.refresh });
 
-  return jsonRespond(msg, {
+  const cookie = buildAuthCookie(tokens.access, 86400);
+  return jsonRespondWithCookie(msg, {
     access_token: tokens.access, refresh_token: tokens.refresh,
     token_type: 'Bearer', expires_in: 86400,
     user: { id: user.id, email, roles, name: user.data.name ?? '' },
-  });
+  }, cookie);
 }
 
 async function handleRefresh(msg: Message, host: RuntimeHost): Promise<BlockResult> {
@@ -142,10 +153,11 @@ async function handleRefresh(msg: Message, host: RuntimeHost): Promise<BlockResu
   // Store the new refresh token
   await dbCreate(host, TOKENS, { user_id: userId, token: tokens.refresh });
 
-  return jsonRespond(msg, {
+  const cookie = buildAuthCookie(tokens.access, 86400);
+  return jsonRespondWithCookie(msg, {
     access_token: tokens.access, refresh_token: tokens.refresh,
     token_type: 'Bearer', expires_in: 86400,
-  });
+  }, cookie);
 }
 
 async function handleLogout(msg: Message, host: RuntimeHost): Promise<BlockResult> {
@@ -157,7 +169,8 @@ async function handleLogout(msg: Message, host: RuntimeHost): Promise<BlockResul
       await callService(host, 'wafer-run/database', 'database.delete', { collection: TOKENS, id: t.id });
     }
   }
-  return jsonRespond(msg, { message: 'logged out' });
+  const cookie = buildAuthCookie('', 0);
+  return jsonRespondWithCookie(msg, { message: 'logged out' }, cookie);
 }
 
 async function handleMe(msg: Message, host: RuntimeHost): Promise<BlockResult> {
@@ -198,6 +211,272 @@ async function handleMeUpdate(msg: Message, host: RuntimeHost): Promise<BlockRes
 }
 
 // ---------------------------------------------------------------------------
+// API keys
+// ---------------------------------------------------------------------------
+
+async function handleApiKeysList(msg: Message, host: RuntimeHost): Promise<BlockResult> {
+  const userId = metaGet(msg.meta, 'auth.user_id') ?? '';
+  if (!userId) return errResult('unauthenticated', 'not authenticated');
+
+  const result = await callService(host, 'wafer-run/database', 'database.list', {
+    collection: API_KEYS,
+    filters: [{ field: 'user_id', operator: 'eq', value: userId }],
+    sort: [{ field: 'created_at', direction: 'desc' }],
+    limit: 100,
+    offset: 0,
+  });
+  const records: { id: string; data: Record<string, any> }[] = result?.records ?? [];
+
+  // Strip key_hash from response
+  for (const record of records) {
+    delete record.data.key_hash;
+  }
+
+  return jsonRespond(msg, { records, total: records.length });
+}
+
+async function handleApiKeysCreate(msg: Message, host: RuntimeHost): Promise<BlockResult> {
+  const userId = metaGet(msg.meta, 'auth.user_id') ?? '';
+  if (!userId) return errResult('unauthenticated', 'not authenticated');
+
+  const body = parseBody<{ name: string; expires_at?: string }>(msg);
+  if (!body?.name) return errResult('invalid-argument', 'name is required');
+
+  // Generate random key bytes
+  const randomBytes = new Uint8Array(24);
+  crypto.getRandomValues(randomBytes);
+  const keyString = 'sb_' + Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+
+  // SHA-256 hash for storage (deterministic, not argon2)
+  const keyHash = await sha256hex(keyString);
+
+  const keyPrefix = keyString.substring(0, 10);
+  const now = new Date().toISOString();
+
+  const data: Record<string, unknown> = {
+    user_id: userId,
+    name: body.name,
+    key_hash: keyHash,
+    key_prefix: keyPrefix,
+    created_at: now,
+  };
+  if (body.expires_at) {
+    data.expires_at = body.expires_at;
+  }
+
+  const record = await dbCreate(host, API_KEYS, data);
+  if (!record) return errResult('internal', 'failed to create API key');
+
+  return jsonRespond(msg, {
+    id: record.id,
+    key: keyString,
+    name: record.data.name,
+    key_prefix: record.data.key_prefix,
+    message: "Save this key — it won't be shown again",
+  });
+}
+
+async function handleApiKeysRevoke(msg: Message, host: RuntimeHost): Promise<BlockResult> {
+  const path = metaGet(msg.meta, 'req.resource') ?? '';
+  const id = path.replace('/auth/api-keys/', '');
+  if (!id) return errResult('invalid-argument', 'missing key ID');
+
+  const userId = metaGet(msg.meta, 'auth.user_id') ?? '';
+  if (!userId) return errResult('unauthenticated', 'not authenticated');
+
+  // Verify ownership
+  const key = await dbGet(host, API_KEYS, id);
+  if (!key) return errResult('not-found', 'API key not found');
+
+  const keyOwner = (key.data.user_id ?? '') as string;
+  const userRoles = metaGet(msg.meta, 'auth.user_roles') ?? '';
+  if (keyOwner !== userId && !userRoles.split(',').some(r => r.trim() === 'admin')) {
+    return errResult('permission-denied', "cannot revoke another user's API key");
+  }
+
+  const updated = await dbUpdate(host, API_KEYS, id, { revoked_at: new Date().toISOString() });
+  if (!updated) return errResult('internal', 'failed to revoke API key');
+
+  return jsonRespond(msg, { message: 'API key revoked' });
+}
+
+// ---------------------------------------------------------------------------
+// OAuth
+// ---------------------------------------------------------------------------
+
+async function handleOAuthProviders(_msg: Message, host: RuntimeHost): Promise<BlockResult> {
+  const providers: { name: string; enabled: boolean }[] = [];
+
+  for (const providerName of ['google', 'github', 'microsoft']) {
+    const clientIdKey = `OAUTH_${providerName.toUpperCase()}_CLIENT_ID`;
+    const clientId = await getConfig(host, clientIdKey, '');
+    if (clientId) {
+      providers.push({ name: providerName, enabled: true });
+    }
+  }
+
+  return jsonRespond(_msg, { providers });
+}
+
+async function handleOAuthLogin(msg: Message, host: RuntimeHost): Promise<BlockResult> {
+  const provider = metaGet(msg.meta, 'req.query.provider') ?? '';
+  if (!provider) return errResult('invalid-argument', 'missing provider parameter');
+
+  const clientIdKey = `OAUTH_${provider.toUpperCase()}_CLIENT_ID`;
+  const clientId = await getConfig(host, clientIdKey, '');
+  if (!clientId) return errResult('invalid-argument', `OAuth provider '${provider}' not configured`);
+
+  const redirectUri = await getConfig(host, 'OAUTH_REDIRECT_URI', 'http://localhost:8090/auth/oauth/callback');
+
+  // Generate CSRF state token (signed JWT containing the provider name)
+  const stateResult = await callService(host, 'wafer-run/crypto', 'crypto.sign', {
+    claims: { provider, type: 'oauth_state' },
+    expiry_secs: 600,
+  });
+  if (!stateResult?.token) return errResult('internal', 'failed to generate state');
+  const state = stateResult.token;
+
+  let authUrl: string;
+  switch (provider) {
+    case 'google':
+      authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encURI(clientId)}&redirect_uri=${encURI(redirectUri)}&response_type=code&scope=openid%20email%20profile&state=${encURI(state)}`;
+      break;
+    case 'github':
+      authUrl = `https://github.com/login/oauth/authorize?client_id=${encURI(clientId)}&redirect_uri=${encURI(redirectUri)}&scope=user:email&state=${encURI(state)}`;
+      break;
+    case 'microsoft':
+      authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=${encURI(clientId)}&redirect_uri=${encURI(redirectUri)}&response_type=code&scope=openid%20email%20profile&state=${encURI(state)}`;
+      break;
+    default:
+      return errResult('invalid-argument', `unsupported provider: ${provider}`);
+  }
+
+  return jsonRespond(msg, { auth_url: authUrl, provider });
+}
+
+async function handleOAuthCallback(msg: Message, host: RuntimeHost): Promise<BlockResult> {
+  const code = metaGet(msg.meta, 'req.query.code') ?? '';
+  const state = metaGet(msg.meta, 'req.query.state') ?? '';
+  if (!code || !state) return errResult('invalid-argument', 'missing code or state parameter');
+
+  // Verify CSRF state token and extract provider name
+  const stateClaims = await verifyToken(host, state);
+  if (!stateClaims) return errResult('invalid-argument', 'invalid or expired OAuth state');
+
+  const stateType = stateClaims.type as string;
+  if (stateType !== 'oauth_state') return errResult('invalid-argument', 'invalid OAuth state token');
+
+  const provider = (stateClaims.provider as string) ?? '';
+  if (!provider) return errResult('invalid-argument', 'missing provider in OAuth state');
+
+  const clientId = await getConfig(host, `OAUTH_${provider.toUpperCase()}_CLIENT_ID`, '');
+  const clientSecret = await getConfig(host, `OAUTH_${provider.toUpperCase()}_CLIENT_SECRET`, '');
+  const redirectUri = await getConfig(host, 'OAUTH_REDIRECT_URI', 'http://localhost:8090/auth/oauth/callback');
+
+  if (!clientId || !clientSecret) return errResult('internal', 'OAuth provider not fully configured');
+
+  // Exchange code for token
+  let tokenUrl: string;
+  let tokenBody: string;
+  switch (provider) {
+    case 'google':
+      tokenUrl = 'https://oauth2.googleapis.com/token';
+      tokenBody = `code=${encURI(code)}&client_id=${encURI(clientId)}&client_secret=${encURI(clientSecret)}&redirect_uri=${encURI(redirectUri)}&grant_type=authorization_code`;
+      break;
+    case 'github':
+      tokenUrl = 'https://github.com/login/oauth/access_token';
+      tokenBody = `code=${encURI(code)}&client_id=${encURI(clientId)}&client_secret=${encURI(clientSecret)}&redirect_uri=${encURI(redirectUri)}`;
+      break;
+    default:
+      return errResult('invalid-argument', 'unsupported OAuth provider');
+  }
+
+  const tokenResp = await networkRequest(host, 'POST', tokenUrl, {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Accept': 'application/json',
+  }, new TextEncoder().encode(tokenBody));
+  if (!tokenResp) return errResult('internal', 'token exchange failed');
+
+  const tokenData = tokenResp as Record<string, unknown>;
+  const oauthAccessToken = (tokenData.access_token as string) ?? '';
+  if (!oauthAccessToken) return errResult('internal', 'no access token in OAuth response');
+
+  // Get user info
+  let userinfoUrl: string;
+  let authHeader: string;
+  switch (provider) {
+    case 'google':
+      userinfoUrl = 'https://www.googleapis.com/oauth2/v2/userinfo';
+      authHeader = `Bearer ${oauthAccessToken}`;
+      break;
+    case 'github':
+      userinfoUrl = 'https://api.github.com/user';
+      authHeader = `token ${oauthAccessToken}`;
+      break;
+    default:
+      return errResult('internal', 'unsupported provider');
+  }
+
+  const userInfo = await networkRequest(host, 'GET', userinfoUrl, {
+    'Authorization': authHeader,
+    'Accept': 'application/json',
+  });
+  if (!userInfo) return errResult('internal', 'user info request failed');
+
+  const info = userInfo as Record<string, unknown>;
+  const email = ((info.email as string) ?? '').toLowerCase();
+  const name = (info.name as string) ?? '';
+  const avatar = (info.picture as string) ?? (info.avatar_url as string) ?? '';
+
+  if (!email) return errResult('internal', 'no email returned by OAuth provider');
+
+  // Upsert user
+  const existingUsers = await dbListFiltered(host, USERS, 'email', email);
+  let user: { id: string; data: Record<string, any> };
+
+  if (existingUsers.length > 0) {
+    user = existingUsers[0];
+    // Update existing user profile
+    const updateData: Record<string, unknown> = {
+      last_login_at: new Date().toISOString(),
+      oauth_provider: provider,
+    };
+    if (name) updateData.name = name;
+    if (avatar) updateData.avatar_url = avatar;
+    await dbUpdate(host, USERS, user.id, updateData);
+  } else {
+    // Create new user
+    const newUser = await dbCreate(host, USERS, {
+      email,
+      name,
+      avatar_url: avatar,
+      oauth_provider: provider,
+      disabled: 0,
+    });
+    if (!newUser) return errResult('internal', 'failed to create user');
+    user = newUser;
+
+    // Assign role
+    const adminEmail = await getConfig(host, 'ADMIN_EMAIL', '');
+    const role = adminEmail && email.toLowerCase() === adminEmail.toLowerCase() ? 'admin' : 'user';
+    await dbCreate(host, USER_ROLES, { user_id: user.id, role, assigned_at: new Date().toISOString() });
+  }
+
+  const roles = await getUserRoles(host, user.id);
+  const tokens = await generateTokens(host, user.id, email, roles);
+  if (!tokens) return errResult('internal', 'failed to generate tokens');
+
+  await dbCreate(host, TOKENS, { user_id: user.id, token: tokens.refresh });
+
+  // Redirect to frontend with token
+  const frontendUrl = await getConfig(host, 'FRONTEND_URL', 'http://localhost:5173');
+  const redirectUrl = `${frontendUrl}/?token=${tokens.access}`;
+
+  const cookie = buildAuthCookie(tokens.access, 86400);
+  return redirectWithCookie(msg, redirectUrl, cookie);
+}
+
+// ---------------------------------------------------------------------------
 // Service call helpers
 // ---------------------------------------------------------------------------
 
@@ -207,6 +486,31 @@ async function callService(host: RuntimeHost, block: string, kind: string, data:
   });
   if (result.action !== 'respond' || !result.response) return null;
   try { return JSON.parse(new TextDecoder().decode(result.response.data)); } catch { return null; }
+}
+
+async function networkRequest(
+  host: RuntimeHost,
+  method: string,
+  url: string,
+  headers: Record<string, string>,
+  body?: Uint8Array,
+): Promise<Record<string, unknown> | null> {
+  const reqData: { method: string; url: string; headers: Record<string, string>; body?: number[] } = {
+    method,
+    url,
+    headers,
+  };
+  if (body) {
+    reqData.body = Array.from(body);
+  }
+  const result = await callService(host, 'wafer-run/network', 'network.do', reqData);
+  if (!result || !result.body) return null;
+  try {
+    const bodyBytes = new Uint8Array(result.body as number[]);
+    return JSON.parse(new TextDecoder().decode(bodyBytes));
+  } catch {
+    return null;
+  }
 }
 
 async function dbGet(host: RuntimeHost, collection: string, id: string): Promise<{ id: string; data: Record<string, any> } | null> {
@@ -265,8 +569,12 @@ function parseBody<T>(msg: Message): T | null {
   try { return JSON.parse(new TextDecoder().decode(msg.data)) as T; } catch { return null; }
 }
 
+function buildAuthCookie(token: string, maxAge: number): string {
+  return `auth_token=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}`;
+}
+
 function jsonRespond(msg: Message, data: unknown, status?: number): BlockResult {
-  const meta = [{ key: 'resp.content_type', value: 'application/json' }];
+  const meta: MetaEntry[] = [{ key: 'resp.content_type', value: 'application/json' }];
   if (status) meta.push({ key: 'resp.status', value: String(status) });
   return {
     action: 'respond',
@@ -275,8 +583,47 @@ function jsonRespond(msg: Message, data: unknown, status?: number): BlockResult 
   };
 }
 
+function jsonRespondWithCookie(msg: Message, data: unknown, cookie: string, status?: number): BlockResult {
+  const meta: MetaEntry[] = [
+    { key: 'resp.content_type', value: 'application/json' },
+    { key: 'resp.set_cookie.0', value: cookie },
+  ];
+  if (status) meta.push({ key: 'resp.status', value: String(status) });
+  return {
+    action: 'respond',
+    response: { data: new TextEncoder().encode(JSON.stringify(data)), meta },
+    message: msg,
+  };
+}
+
+function redirectWithCookie(msg: Message, location: string, cookie: string): BlockResult {
+  const meta: MetaEntry[] = [
+    { key: 'resp.status', value: '302' },
+    { key: 'resp.content_type', value: 'application/json' },
+    { key: 'resp.header.Location', value: location },
+    { key: 'resp.set_cookie.0', value: cookie },
+  ];
+  return {
+    action: 'respond',
+    response: {
+      data: new TextEncoder().encode(JSON.stringify({ redirect: location })),
+      meta,
+    },
+    message: msg,
+  };
+}
+
 function errResult(code: string, message: string): BlockResult {
   return { action: 'error', error: { code: code as any, message, meta: [] } };
+}
+
+async function sha256hex(data: string): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function encURI(s: string): string {
+  return encodeURIComponent(s);
 }
 
 // ---------------------------------------------------------------------------

@@ -53,17 +53,31 @@ async function handleList(msg: Message, host: RuntimeHost): Promise<BlockResult>
   const userId = metaGet(msg.meta, 'auth.user_id') ?? '';
   if (!userId) return errResult('permission-denied', 'Authentication required');
 
-  const { page, limit, offset } = paginationParams(msg, 20);
+  const { limit, offset } = paginationParams(msg, 20);
 
-  const result = await callService(host, 'wafer-run/database', 'database.paginated_list', {
+  const result = await callService(host, 'wafer-run/database', 'database.list', {
     collection: COLLECTION,
-    page,
-    page_size: limit,
     filters: [{ field: 'user_id', operator: 'eq', value: userId }],
     sort: [{ field: 'created_at', desc: true }],
+    limit,
+    offset,
   });
 
   if (!result) return errResult('internal', 'Database error');
+
+  // Enrich each project with can_activate flag
+  const { plan, maxActive, activeCount } = await getActivationCapacity(host, userId);
+  const hasRoom = activeCount < maxActive;
+
+  if (result.records && Array.isArray(result.records)) {
+    for (const record of result.records) {
+      record.can_activate = record.data?.status === 'inactive' && hasRoom;
+    }
+  }
+
+  // Include plan info in the response for frontend use
+  result.plan = plan;
+
   return jsonRespond(msg, result);
 }
 
@@ -111,7 +125,7 @@ async function handleCreate(msg: Message, host: RuntimeHost): Promise<BlockResul
     user_id: userId,
     name,
     slug,
-    status: 'pending',
+    status: 'inactive',
     created_at: now,
     updated_at: now,
   };
@@ -122,36 +136,47 @@ async function handleCreate(msg: Message, host: RuntimeHost): Promise<BlockResul
   const record = await dbCreate(host, COLLECTION, data);
   if (!record) return errResult('internal', 'Database error');
 
-  // Provision project on the control plane (best-effort)
-  const plan = typeof body.plan_id === 'string' ? body.plan_id : 'hobby';
-  const provisionResult = await callService(host, 'wafer-run/network', 'network.control_plane_request', {
-    method: 'POST',
-    path: '/_control/projects',
-    body: { subdomain: slug, plan },
-  });
+  // Check if the project should be activated based on the user's plan
+  await activateProjectIfAllowed(host, userId, record.id);
 
-  if (provisionResult && provisionResult.status_code && provisionResult.status_code < 300) {
-    const updateData: Record<string, unknown> = {
-      status: 'active',
-      updated_at: new Date().toISOString(),
-    };
-    if (provisionResult.body?.id) updateData.project_id = provisionResult.body.id;
-    if (provisionResult.body?.subdomain) updateData.subdomain = provisionResult.body.subdomain;
+  // Re-fetch to get the possibly updated status
+  const finalRecord = await dbGet(host, COLLECTION, record.id);
 
-    const updated = await dbUpdate(host, COLLECTION, record.id, updateData);
-    return jsonRespond(msg, updated ?? record);
-  } else if (provisionResult && provisionResult.status_code && provisionResult.status_code >= 300) {
-    const errorMsg = provisionResult.body?.error ?? 'Provisioning failed';
-    await dbUpdate(host, COLLECTION, record.id, {
-      status: 'failed',
-      provision_error: `HTTP ${provisionResult.status_code}: ${errorMsg}`,
-      updated_at: new Date().toISOString(),
+  // Provision project on the control plane (best-effort) — only if active
+  if (finalRecord?.data?.status === 'active') {
+    const plan = typeof body.plan_id === 'string' ? body.plan_id : 'hobby';
+    const provisionResult = await callService(host, 'wafer-run/network', 'network.control_plane_request', {
+      method: 'POST',
+      path: '/_control/projects',
+      body: { subdomain: slug, plan },
     });
-    return errResult('internal', `Provisioning failed: ${errorMsg}`);
+
+    if (provisionResult && provisionResult.status_code && provisionResult.status_code < 300) {
+      const updateData: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+      // Note: project_id column is reserved for D1 project isolation (set automatically).
+      // The control-plane provisioned ID is stored in the config JSON if needed.
+      if (provisionResult.body?.id) {
+        updateData.config = JSON.stringify({ ...(typeof body.config === 'object' && body.config ? body.config : {}), provisioned_id: provisionResult.body.id });
+      }
+      if (provisionResult.body?.subdomain) updateData.subdomain = provisionResult.body.subdomain;
+
+      const updated = await dbUpdate(host, COLLECTION, record.id, updateData);
+      return jsonRespond(msg, updated ?? finalRecord);
+    } else if (provisionResult && provisionResult.status_code && provisionResult.status_code >= 300) {
+      const errorMsg = provisionResult.body?.error ?? 'Provisioning failed';
+      await dbUpdate(host, COLLECTION, record.id, {
+        status: 'failed',
+        provision_error: `HTTP ${provisionResult.status_code}: ${errorMsg}`,
+        updated_at: new Date().toISOString(),
+      });
+      return errResult('internal', `Provisioning failed: ${errorMsg}`);
+    }
   }
 
-  // Control plane unreachable — return record in pending status
-  return jsonRespond(msg, record);
+  // Return the project (inactive if no plan, or active if plan allows it)
+  return jsonRespond(msg, finalRecord ?? record);
 }
 
 // ---------------------------------------------------------------------------
@@ -261,12 +286,12 @@ async function handleAdminList(msg: Message, host: RuntimeHost): Promise<BlockRe
     filters.push({ field: 'status', operator: 'eq', value: filterStatus });
   }
 
-  const result = await callService(host, 'wafer-run/database', 'database.paginated_list', {
+  const result = await callService(host, 'wafer-run/database', 'database.list', {
     collection: COLLECTION,
-    page,
-    page_size: limit,
     filters,
     sort: [{ field: 'created_at', desc: true }],
+    limit,
+    offset: (page - 1) * limit,
   });
 
   if (!result) return errResult('internal', 'Database error');
@@ -326,6 +351,58 @@ async function dbCreate(host: RuntimeHost, collection: string, data: Record<stri
 
 async function dbUpdate(host: RuntimeHost, collection: string, id: string, data: Record<string, unknown>): Promise<{ id: string; data: Record<string, any> } | null> {
   return callService(host, 'wafer-run/database', 'database.update', { collection, id, data });
+}
+
+async function dbListFiltered(host: RuntimeHost, collection: string, field: string, value: string, limit = 100): Promise<{ id: string; data: Record<string, any> }[]> {
+  const result = await callService(host, 'wafer-run/database', 'database.list', {
+    collection, filters: [{ field, operator: 'eq', value }], sort: [{ field: 'created_at', desc: false }], limit, offset: 0,
+  });
+  return result?.records ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Activation logic
+// ---------------------------------------------------------------------------
+
+/**
+ * After creating a project, check whether it should be activated based on the
+ * user's current plan. Free users get 0 active projects, starter gets 2, pro
+ * gets unlimited.
+ */
+async function activateProjectIfAllowed(host: RuntimeHost, userId: string, projectId: string): Promise<void> {
+  // Get user's subscription/plan
+  const subs = await dbListFiltered(host, 'subscriptions', 'user_id', userId);
+  const activeSub = subs.find(s => s.data.status === 'active');
+  const plan = activeSub?.data.plan ?? 'free';
+
+  // Get plan limits for active projects
+  const limits: Record<string, number> = { free: 0, starter: 2, pro: Infinity, platform: Infinity };
+  const maxActive = limits[plan] ?? 0;
+
+  // Count current active projects (excluding the one we just created, which is still inactive)
+  const projects = await dbListFiltered(host, COLLECTION, 'user_id', userId);
+  const activeCount = projects.filter(p => p.data.status === 'active').length;
+
+  if (activeCount < maxActive) {
+    await dbUpdate(host, COLLECTION, projectId, { status: 'active', updated_at: new Date().toISOString() });
+  }
+}
+
+/**
+ * Compute how many more projects the user can activate under their current plan.
+ */
+async function getActivationCapacity(host: RuntimeHost, userId: string): Promise<{ plan: string; maxActive: number; activeCount: number }> {
+  const subs = await dbListFiltered(host, 'subscriptions', 'user_id', userId);
+  const activeSub = subs.find(s => s.data.status === 'active');
+  const plan = activeSub?.data.plan ?? 'free';
+
+  const limits: Record<string, number> = { free: 0, starter: 2, pro: Infinity, platform: Infinity };
+  const maxActive = limits[plan] ?? 0;
+
+  const projects = await dbListFiltered(host, COLLECTION, 'user_id', userId);
+  const activeCount = projects.filter(p => p.data.status === 'active').length;
+
+  return { plan, maxActive, activeCount };
 }
 
 // ---------------------------------------------------------------------------

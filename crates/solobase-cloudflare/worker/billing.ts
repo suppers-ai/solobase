@@ -4,7 +4,7 @@
 // authenticated routes uses Web Crypto HMAC-SHA256 directly.
 
 import type { Env } from './types';
-import { getPlanLimits } from './types';
+import { getPlanLimits, PLANS } from './types';
 
 // ---------------------------------------------------------------------------
 // Env extensions — Stripe-specific bindings
@@ -239,21 +239,6 @@ async function handleCheckout(
     return jsonError('already-exists', 'you already have an active subscription', 409);
   }
 
-  // Check project count vs plan limit
-  const limits = getPlanLimits(plan);
-  const projectCount = await db.prepare(
-    `SELECT COUNT(*) as cnt FROM projects WHERE user_id = ? AND deleted_at IS NULL`,
-  ).bind(userId).first<{ cnt: number }>();
-
-  const currentProjects = projectCount?.cnt ?? 0;
-  if (currentProjects >= limits.maxProjects && limits.maxProjects !== Infinity) {
-    return jsonError(
-      'resource-exhausted',
-      `plan "${plan}" allows ${limits.maxProjects} projects, you already have ${currentProjects}`,
-      400,
-    );
-  }
-
   // Look up or create Stripe customer
   let stripeCustomerId: string | undefined;
   const sub = await db.prepare(
@@ -361,7 +346,7 @@ async function handleWebhook(
         break;
 
       case 'customer.subscription.deleted':
-        await onSubscriptionDeleted(event.data.object, db);
+        await onSubscriptionDeleted(event.data.object, db, kv);
         break;
 
       default:
@@ -374,6 +359,87 @@ async function handleWebhook(
   }
 
   return jsonOk({ received: true });
+}
+
+// ---------------------------------------------------------------------------
+// Project activation helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Activate or deactivate a user's projects based on their plan limits.
+ * Projects are sorted by created_at ascending — oldest projects get priority.
+ * Also updates KV config status for each project.
+ */
+async function syncProjectActivation(
+  db: D1Database,
+  kv: KVNamespace,
+  userId: string,
+  plan: string,
+): Promise<void> {
+  const limits = PLANS[plan] ?? PLANS['free'];
+  const maxActive = limits.maxProjects;
+
+  // Get all non-deleted projects for this user, ordered by created_at (oldest first)
+  const projects = await db.prepare(
+    `SELECT id, subdomain, status FROM projects WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at ASC`,
+  ).bind(userId).all<{ id: string; subdomain: string; status: string }>();
+
+  const rows = projects.results ?? [];
+  const now = new Date().toISOString();
+
+  for (let i = 0; i < rows.length; i++) {
+    const shouldBeActive = i < maxActive;
+    const desiredStatus = shouldBeActive ? 'active' : 'inactive';
+
+    if (rows[i].status !== desiredStatus) {
+      // Update DB
+      await db.prepare(
+        `UPDATE projects SET status = ?, updated_at = ? WHERE id = ?`,
+      ).bind(desiredStatus, now, rows[i].id).run();
+
+      // Update KV config
+      if (rows[i].subdomain) {
+        const key = `project:${rows[i].subdomain}:config`;
+        const raw = await kv.get(key, 'json') as any;
+        if (raw) {
+          raw.status = desiredStatus;
+          await kv.put(key, JSON.stringify(raw));
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Deactivate ALL projects for a user (e.g. when subscription is cancelled).
+ */
+async function deactivateAllProjects(
+  db: D1Database,
+  kv: KVNamespace,
+  userId: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+
+  // Update all non-deleted projects to inactive
+  await db.prepare(
+    `UPDATE projects SET status = 'inactive', updated_at = ? WHERE user_id = ? AND deleted_at IS NULL`,
+  ).bind(now, userId).run();
+
+  // Update KV configs
+  const projects = await db.prepare(
+    `SELECT subdomain FROM projects WHERE user_id = ? AND deleted_at IS NULL`,
+  ).bind(userId).all<{ subdomain: string }>();
+
+  for (const p of projects.results ?? []) {
+    if (p.subdomain) {
+      const key = `project:${p.subdomain}:config`;
+      const raw = await kv.get(key, 'json') as any;
+      if (raw) {
+        raw.status = 'inactive';
+        await kv.put(key, JSON.stringify(raw));
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -424,22 +490,23 @@ async function onCheckoutCompleted(
 
     const projectId = `dep_${userId}_${Date.now()}`;
 
+    // New projects start inactive — syncProjectActivation below will activate them if allowed
     await db.prepare(
       `INSERT INTO projects (id, user_id, name, subdomain, plan, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+       VALUES (?, ?, ?, ?, ?, 'inactive', ?, ?)
        ON CONFLICT (subdomain) DO UPDATE SET
          plan = excluded.plan,
-         status = 'active',
          updated_at = excluded.updated_at`,
     ).bind(
       projectId, userId, projectName, subdomain, plan, now, now,
     ).run();
 
-    // Create project config in KV
+    // Create project config in KV (initially inactive)
     const projectConfig = {
       id: projectId,
       subdomain,
       plan,
+      status: 'inactive' as const,
       config: {
         version: 1,
         auth: {},
@@ -451,6 +518,9 @@ async function onCheckoutCompleted(
     };
     await kv.put(`project:${subdomain}:config`, JSON.stringify(projectConfig));
   }
+
+  // Activate the user's projects up to the plan limit (oldest first)
+  await syncProjectActivation(db, kv, userId, plan);
 }
 
 async function onSubscriptionUpdated(
@@ -485,14 +555,14 @@ async function onSubscriptionUpdated(
     `UPDATE subscriptions SET ${updates.join(', ')} WHERE stripe_subscription_id = ?`,
   ).bind(...binds).run();
 
-  // Update project plan in KV if we have a plan change
-  if (plan) {
-    const sub = await db.prepare(
-      `SELECT user_id FROM subscriptions WHERE stripe_subscription_id = ?`,
-    ).bind(stripeSubscriptionId).first<{ user_id: string }>();
+  // Update project plan in KV and re-evaluate activation if plan changed
+  const sub = await db.prepare(
+    `SELECT user_id FROM subscriptions WHERE stripe_subscription_id = ?`,
+  ).bind(stripeSubscriptionId).first<{ user_id: string }>();
 
-    if (sub) {
-      // Find projects for this user and update their KV configs
+  if (sub) {
+    if (plan) {
+      // Find projects for this user and update their KV configs with the new plan
       const projects = await db.prepare(
         `SELECT subdomain FROM projects WHERE user_id = ? AND deleted_at IS NULL`,
       ).bind(sub.user_id).all<{ subdomain: string }>();
@@ -506,6 +576,10 @@ async function onSubscriptionUpdated(
         }
       }
     }
+
+    // Re-evaluate project activation based on the (possibly new) plan
+    const effectivePlan = plan ?? 'free';
+    await syncProjectActivation(db, kv, sub.user_id, effectivePlan);
   }
 }
 
@@ -529,15 +603,26 @@ async function onPaymentFailed(
 async function onSubscriptionDeleted(
   subscription: any,
   db: D1Database,
+  kv: KVNamespace,
 ): Promise<void> {
   const stripeSubscriptionId = subscription.id;
   const now = new Date().toISOString();
+
+  // Look up the user before updating the subscription status
+  const sub = await db.prepare(
+    `SELECT user_id FROM subscriptions WHERE stripe_subscription_id = ?`,
+  ).bind(stripeSubscriptionId).first<{ user_id: string }>();
 
   await db.prepare(
     `UPDATE subscriptions
      SET status = 'cancelled', updated_at = ?
      WHERE stripe_subscription_id = ?`,
   ).bind(now, stripeSubscriptionId).run();
+
+  // Deactivate all projects for this user
+  if (sub) {
+    await deactivateAllProjects(db, kv, sub.user_id);
+  }
 }
 
 // ---------------------------------------------------------------------------

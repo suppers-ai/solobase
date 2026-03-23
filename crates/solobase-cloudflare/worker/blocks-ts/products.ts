@@ -711,7 +711,7 @@ async function handleCatalog(msg: Message, host: RuntimeHost): Promise<BlockResu
   const pageSize = parseInt(queryParam(msg, 'page_size') ?? '20', 10);
 
   return dbPaginatedList(host, msg, PRODUCTS, page, pageSize,
-    [{ field: 'status', operator: 'eq', value: 'active' }],
+    [{ field: 'status', operator: 'eq', value: 'published' }],
     [{ field: 'name', desc: false }]);
 }
 
@@ -1330,8 +1330,10 @@ async function dbListFiltered(host: RuntimeHost, collection: string, field: stri
 }
 
 async function dbPaginatedList(host: RuntimeHost, msg: Message, collection: string, page: number, pageSize: number, filters: Filter[], sort: SortField[]): Promise<BlockResult> {
-  const result = await callService(host, 'wafer-run/database', 'database.paginated_list', {
-    collection, page, page_size: pageSize, filters, sort,
+  const limit = pageSize > 0 ? pageSize : 20;
+  const offset = ((page > 0 ? page : 1) - 1) * limit;
+  const result = await callService(host, 'wafer-run/database', 'database.list', {
+    collection, filters, sort, limit, offset,
   });
   if (!result) return errResult('internal', 'Database error');
   return jsonRespond(msg, result);
