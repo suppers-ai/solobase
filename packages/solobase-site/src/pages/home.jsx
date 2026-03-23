@@ -2,7 +2,6 @@ import { render } from 'preact';
 import { useState } from 'preact/hooks';
 import '../css/main.css';
 import Header from '../components/Header';
-import HackathonBanner from '../components/HackathonBanner';
 import Hero from '../components/Hero';
 import SnapshotShowcase from '../components/SnapshotShowcase';
 import Features from '../components/Features';
@@ -16,7 +15,6 @@ function HomePage() {
   return (
     <>
       <Header onOpenDemo={() => setDemoOpen(true)} />
-      <HackathonBanner />
       <main>
         <Hero />
         <SnapshotShowcase onOpenDemo={() => setDemoOpen(true)} />

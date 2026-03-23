@@ -12,10 +12,9 @@ export const mainMenu = [
   { name: 'Home', url: '/' },
   { name: 'Pricing', url: '/pricing/' },
   { name: 'Documentation', url: '/docs/' },
-  { name: 'Live Demo', url: '#', isDemo: true },
-  { name: 'Dashboard', url: 'https://app.solobase.dev/blocks/dashboard/', external: true },
   { name: 'Discord', url: 'https://discord.gg/jKqMcbrVzm', external: true },
   { name: 'GitHub', url: 'https://github.com/suppers-ai/solobase', external: true },
+  { name: 'Sign In', url: 'https://cloud.solobase.dev/blocks/dashboard/', external: true },
 ];
 
 export const docsSidebar = [

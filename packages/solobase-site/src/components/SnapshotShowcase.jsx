@@ -55,7 +55,7 @@ export default function SnapshotShowcase({ onOpenDemo }) {
 
           {/* Features checkmarks */}
           <div class="mt-8 flex flex-wrap justify-center gap-6 text-sm">
-            {['SQLite or Postgres database', 'Authentication', 'Local or S3 storage', 'Extensions'].map((text) => (
+            {['SQLite or Postgres', 'JWT Authentication', 'File Storage', 'Stripe Payments', 'Admin Panel'].map((text) => (
               <div key={text} class="flex items-center" style={{ color: '#6b7280' }}>
                 <svg class="w-5 h-5 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
