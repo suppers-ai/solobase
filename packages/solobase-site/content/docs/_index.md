@@ -52,4 +52,4 @@ Visit `http://localhost:8090/admin` to access your admin dashboard.
 
 ## Support
 
-[GitHub Issues](https://github.com/suppers-ai/solobase/issues) · [Live Demo](https://solobase-demo.fly.dev/) · [Discord Community](https://discord.gg/jKqMcbrVzm)
+[GitHub Issues](https://github.com/suppers-ai/solobase/issues) · [Discord Community](https://discord.gg/jKqMcbrVzm)

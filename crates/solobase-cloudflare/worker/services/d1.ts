@@ -1,4 +1,8 @@
 // D1 Database service handler — implements database.* operations against Cloudflare D1.
+//
+// Project isolation: when a `projectId` is provided, all operations are scoped
+// to that project via a `project_id` column. This prevents cross-project data
+// leakage in the shared D1 database.
 
 import type { Message, BlockResult } from '../types';
 
@@ -172,7 +176,7 @@ function buildWhere(filters: FilterDef[]): { sql: string; params: unknown[] } {
 // Main handler
 // ---------------------------------------------------------------------------
 
-export async function d1Handler(db: D1Database, msg: Message): Promise<BlockResult> {
+export async function d1Handler(db: D1Database, msg: Message, projectId?: string): Promise<BlockResult> {
   let req: any;
   try {
     req = msg.data.length > 0 ? JSON.parse(decoder.decode(msg.data)) : {};
@@ -186,16 +190,26 @@ export async function d1Handler(db: D1Database, msg: Message): Promise<BlockResu
       case 'database.get': {
         const { collection, id } = req as GetReq;
         const table = sanitize(collection);
-        const stmt = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(id);
-        const row = await stmt.first<Record<string, unknown>>();
+        if (projectId) {
+          const row = await db.prepare(`SELECT * FROM ${table} WHERE id = ? AND project_id = ?`)
+            .bind(id, projectId).first<Record<string, unknown>>();
+          if (!row) return error('not-found', 'record not found');
+          return success(rowToRecord(row));
+        }
+        const row = await db.prepare(`SELECT * FROM ${table} WHERE id = ?`)
+          .bind(id).first<Record<string, unknown>>();
         if (!row) return error('not-found', 'record not found');
         return success(rowToRecord(row));
       }
 
       // ----- LIST -----
       case 'database.list': {
-        const { collection, filters = [], sort = [], limit: rawLimit, offset: rawOffset } = req as ListReq;
+        const { collection, filters: rawFilters = [], sort = [], limit: rawLimit, offset: rawOffset } = req as ListReq;
         const table = sanitize(collection);
+        // Inject project_id filter for project isolation
+        const filters = projectId
+          ? [{ field: 'project_id', operator: 'eq', value: projectId }, ...rawFilters]
+          : rawFilters;
         const where = buildWhere(filters);
         const limit = Math.min(rawLimit && rawLimit > 0 ? rawLimit : 100, MAX_LIMIT);
         const offset = rawOffset ?? 0;
@@ -247,6 +261,8 @@ export async function d1Handler(db: D1Database, msg: Message): Promise<BlockResu
         }
         if (!fields.created_at) fields.created_at = now;
         if (!fields.updated_at) fields.updated_at = now;
+        // Tag record with project_id for project isolation
+        if (projectId) fields.project_id = projectId;
 
         const columns = ['id', ...Object.keys(fields).map(sanitize)];
         const placeholders = columns.map(() => '?').join(', ');
@@ -264,19 +280,28 @@ export async function d1Handler(db: D1Database, msg: Message): Promise<BlockResu
         const table = sanitize(collection);
         const now = new Date().toISOString();
 
-        const fields: Record<string, unknown> = { ...data, updated_at: now };
+        // Prevent callers from overwriting project_id
+        const { project_id: _drop, ...safeData } = data;
+        const fields: Record<string, unknown> = { ...safeData, updated_at: now };
 
         const sets = Object.keys(fields).map((k) => `${sanitize(k)} = ?`);
-        const params = [...Object.values(fields), id];
+        const params: unknown[] = [...Object.values(fields), id];
 
-        const sql = `UPDATE ${table} SET ${sets.join(', ')} WHERE id = ?`;
+        let sql = `UPDATE ${table} SET ${sets.join(', ')} WHERE id = ?`;
+        if (projectId) {
+          sql += ` AND project_id = ?`;
+          params.push(projectId);
+        }
         await db.prepare(sql).bind(...params).run();
 
         // Re-read the updated record
-        const row = await db
-          .prepare(`SELECT * FROM ${table} WHERE id = ?`)
-          .bind(id)
-          .first<Record<string, unknown>>();
+        const readParams: unknown[] = [id];
+        let readSql = `SELECT * FROM ${table} WHERE id = ?`;
+        if (projectId) {
+          readSql += ` AND project_id = ?`;
+          readParams.push(projectId);
+        }
+        const row = await db.prepare(readSql).bind(...readParams).first<Record<string, unknown>>();
         if (!row) return error('not-found', 'record not found after update');
         return success(rowToRecord(row));
       }
@@ -285,14 +310,33 @@ export async function d1Handler(db: D1Database, msg: Message): Promise<BlockResu
       case 'database.delete': {
         const { collection, id } = req as DeleteReq;
         const table = sanitize(collection);
-        await db.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(id).run();
+        if (projectId) {
+          await db.prepare(`DELETE FROM ${table} WHERE id = ? AND project_id = ?`).bind(id, projectId).run();
+        } else {
+          await db.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(id).run();
+        }
+        return successEmpty();
+      }
+
+      // ----- DELETE_BY_FILTERS -----
+      case 'database.delete_by_filters': {
+        const { collection, filters: rawFilters = [] } = req as { collection: string; filters?: FilterDef[] };
+        const table = sanitize(collection);
+        const filters = projectId
+          ? [{ field: 'project_id', operator: 'eq', value: projectId }, ...rawFilters]
+          : rawFilters;
+        const where = buildWhere(filters);
+        await db.prepare(`DELETE FROM ${table} WHERE ${where.sql}`).bind(...where.params).run();
         return successEmpty();
       }
 
       // ----- COUNT -----
       case 'database.count': {
-        const { collection, filters = [] } = req as CountReq;
+        const { collection, filters: rawFilters = [] } = req as CountReq;
         const table = sanitize(collection);
+        const filters = projectId
+          ? [{ field: 'project_id', operator: 'eq', value: projectId }, ...rawFilters]
+          : rawFilters;
         const where = buildWhere(filters);
         const row = await db
           .prepare(`SELECT COUNT(*) as cnt FROM ${table} WHERE ${where.sql}`)
@@ -303,9 +347,12 @@ export async function d1Handler(db: D1Database, msg: Message): Promise<BlockResu
 
       // ----- SUM -----
       case 'database.sum': {
-        const { collection, field, filters = [] } = req as SumReq;
+        const { collection, field, filters: rawFilters = [] } = req as SumReq;
         const table = sanitize(collection);
         const col = sanitize(field);
+        const filters = projectId
+          ? [{ field: 'project_id', operator: 'eq', value: projectId }, ...rawFilters]
+          : rawFilters;
         const where = buildWhere(filters);
         const row = await db
           .prepare(`SELECT COALESCE(SUM(${col}), 0) as s FROM ${table} WHERE ${where.sql}`)

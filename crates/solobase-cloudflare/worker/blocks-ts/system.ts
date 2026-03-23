@@ -1,6 +1,6 @@
 // TypeScript-native system block handler.
 
-import type { Message, BlockResult, TenantConfig } from '../types';
+import type { Message, BlockResult } from '../types';
 import type { RuntimeHost } from '../host';
 import { metaGet } from '../convert';
 import { getUsageSummary } from '../usage';
@@ -40,20 +40,20 @@ export function handle(msg: Message, host?: RuntimeHost): BlockResult | Promise<
 }
 
 async function handleUsage(msg: Message, host?: RuntimeHost): Promise<BlockResult> {
-  // Usage is only available for tenant API requests (not platform)
+  // Usage is only available for project API requests (not platform)
   // We need access to the D1 database via the host
   if (!host) {
     return jsonRespond(msg, { error: 'usage not available' });
   }
 
-  // Get tenant info from dispatch context — passed via meta by the worker
+  // Get project info from dispatch context — passed via meta by the worker
   // For now, return a basic response; the actual usage query needs the DB directly
   // which we'll access through a special service call
   try {
     const result = await host.callBlock('wafer-run/database', {
       kind: 'database.query_raw',
       data: new TextEncoder().encode(JSON.stringify({
-        query: 'SELECT requests, addon_requests, addon_r2_bytes, addon_d1_bytes FROM tenant_usage WHERE month = ? ORDER BY requests DESC LIMIT 1',
+        query: 'SELECT requests, addon_requests, addon_r2_bytes, addon_d1_bytes FROM project_usage WHERE month = ? ORDER BY requests DESC LIMIT 1',
         args: [currentMonth()],
       })),
       meta: [],

@@ -558,8 +558,20 @@ async function handleDirectAccess(msg: Message, host: RuntimeHost, path: string)
   const key = (share.data?.key ?? '') as string;
   if (!bucket || !key) return errResult('internal', 'Invalid share data');
 
-  // Increment access count
-  await dbUpdate(host, SHARES, share.id, { access_count: accessCount + 1 });
+  // Atomic increment: use exec_raw to do a conditional UPDATE that only
+  // succeeds if the access count is still below the limit. This prevents
+  // race conditions where concurrent requests bypass the count check.
+  if (maxAccess != null && maxAccess > 0) {
+    const atomicResult = await callService(host, 'wafer-run/database', 'database.exec_raw', {
+      query: `UPDATE ${SHARES} SET access_count = access_count + 1 WHERE id = ? AND access_count < ?`,
+      args: [share.id, maxAccess],
+    });
+    if (!atomicResult || (atomicResult.rows_affected ?? 0) === 0) {
+      return errResult('permission-denied', 'Share link access limit reached');
+    }
+  } else {
+    await dbUpdate(host, SHARES, share.id, { access_count: accessCount + 1 });
+  }
 
   // Log access
   const ipAddress = metaGet(msg.meta, 'req.client.ip') ?? metaGet(msg.meta, 'http.remote_addr') ?? '';
@@ -586,7 +598,7 @@ async function handleDirectAccess(msg: Message, host: RuntimeHost, path: string)
       data,
       meta: [
         { key: 'resp.content_type', value: contentType },
-        { key: 'resp.header.Content-Disposition', value: `inline; filename="${key}"` },
+        { key: 'resp.header.Content-Disposition', value: `inline; filename="${sanitizeFilename(key)}"` },
         { key: 'resp.header.Cache-Control', value: 'private, max-age=3600' },
       ],
     },
@@ -794,4 +806,15 @@ function base64ToUint8Array(b64: string): Uint8Array {
     arr[i] = binary.charCodeAt(i);
   }
   return arr;
+}
+
+/** Sanitize a filename for use in Content-Disposition header to prevent header injection. */
+function sanitizeFilename(name: string): string {
+  // Extract just the filename (last path segment)
+  const basename = name.split('/').pop() ?? name;
+  // Remove characters that could break the header or enable injection
+  return basename
+    .replace(/["\r\n\0\\]/g, '')
+    .replace(/[^\x20-\x7E]/g, '_')  // Replace non-ASCII with underscore
+    .slice(0, 255);                   // Limit length
 }

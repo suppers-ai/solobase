@@ -84,7 +84,7 @@ export interface Block {
 export interface Env {
   DB: D1Database;
   STORAGE: R2Bucket;
-  TENANTS: KVNamespace;
+  PROJECTS: KVNamespace;
   JWT_SECRET?: string;
   ADMIN_SECRET?: string;
   ENVIRONMENT?: string;
@@ -98,18 +98,19 @@ export interface Env {
   [key: string]: unknown;
 }
 
-// --- Tenant types ---
+// --- Project types ---
 
-export interface TenantConfig {
+export interface ProjectConfig {
   id: string;
   subdomain: string;
   plan: string;
   owner_user_id?: string;
   db_id?: string;
   db_binding?: string;
-  config: TenantAppConfig;
+  config: ProjectAppConfig;
   blocks: string[];
 }
+
 
 // --- Plan limits ---
 
@@ -149,17 +150,18 @@ export function getPlanLimits(plan: string): PlanLimits {
   return PLANS[plan] ?? PLANS['starter'];
 }
 
-export interface TenantAppConfig {
+export interface ProjectAppConfig {
   version?: number;
   app?: string;
   auth?: unknown;
   admin?: unknown;
   files?: unknown;
   products?: unknown;
-  deployments?: unknown;
+  projects?: unknown;
   legalpages?: unknown;
   userportal?: unknown;
 }
+
 
 export type SubscriptionStatus = 'active' | 'past_due' | 'cancelled' | 'suspended';
 

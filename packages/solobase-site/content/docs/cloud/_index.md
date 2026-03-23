@@ -1,134 +1,125 @@
 ---
 title: "Solobase Cloud"
-description: "Managed Solobase hosting with automatic scaling and zero ops"
+description: "Managed Solobase hosting on Cloudflare's global edge network"
 weight: 20
-tags: ["cloud", "hosting", "managed", "deployment"]
+tags: ["cloud", "hosting", "managed", "cloudflare"]
 ---
 
 # Solobase Cloud
 
-Solobase Cloud is fully managed hosting for Solobase. Get a production-ready backend in seconds without managing servers, databases, or infrastructure.
+Solobase Cloud is fully managed hosting on Cloudflare's global edge network. Get a production-ready backend in seconds — no servers, no infrastructure, no ops.
 
-## What is Solobase Cloud?
+## How It Works
 
-Solobase Cloud runs your Solobase instances on shared infrastructure managed by the Solobase team. Each instance gets:
+Solobase Cloud runs on Cloudflare Workers with D1 (SQLite at the edge) for database and R2 for file storage. Each project gets:
 
-- A dedicated subdomain (`yoursolobase.dev`)
-- Managed PostgreSQL database
-- S3-compatible file storage
+- A dedicated subdomain (`{name}.solobase.dev`)
+- D1 database (SQLite, globally replicated)
+- R2 file storage (S3-compatible)
 - Automatic TLS certificates
-- Scale-to-zero for inactive instances (on applicable plans)
+- Always-on serverless — no cold starts, no sleep
 
 ## Getting Started
 
 ### 1. Sign Up
 
-Visit [solobase.dev](https://solobase.dev) and sign in with GitHub or Google.
+Visit [solobase.dev](https://solobase.dev) and create an account.
 
-### 2. Create an Instance
+### 2. Choose a Plan
 
-After signing in, click **Create Instance** and choose:
+Go to [Pricing](https://solobase.dev/pricing/) and pick a plan:
 
-- **Subdomain** -- your instance will be available at `yoursolobase.dev`
-- **Plan** -- select the plan that fits your needs (see [Plans](#plans) below)
+| Feature | Starter ($5/mo) | Pro ($25/mo) |
+|---------|-----------------|--------------|
+| Projects | 2 | Unlimited |
+| API Requests | 500K/month | 3M/month |
+| Database (D1) | 500 MB | 5 GB |
+| File Storage (R2) | 2 GB | 20 GB |
+| Custom Domain | No | Yes |
+| Support | Community | Priority email |
 
-### 3. Access Your Instance
+### 3. Create a Project
 
-Once created, your instance is immediately available at:
+After payment, create your project from the [dashboard](https://cloud.solobase.dev/blocks/dashboard/). Choose a name — your project will be available at:
 
 ```
-https://yoursolobase.dev
+https://{name}.solobase.dev
 ```
 
-The admin dashboard is at:
+### 4. Access Your Project
 
-```
-https://yoursolobase.dev/admin
-```
-
-## Plans
-
-| Feature | Free | Hobby ($5) | Starter ($15) | Professional ($79) | Business ($199) |
-|---------|------|-----------|--------------|-------------------|----------------|
-| Instances | 1 | 1 | 1 | 3 | 10 |
-| Database | 100MB | 500MB | 5GB | 20GB | 100GB dedicated |
-| Storage | 512MB | 2GB | 10GB | 50GB | 200GB |
-| API Requests | 100K/mo | 1M/mo | 10M/mo | 100M/mo | Unlimited |
-| Always-on | No | No | Yes | Yes | Yes |
-| Custom domain | No | No | No | Yes | Yes |
-| Backups | No | No | No | Daily | Real-time |
-| SLA | -- | -- | -- | -- | 99.9% |
-
-See the [Pricing page](https://solobase.dev/pricing/) for full details.
-
-## Custom Domains
-
-Professional and Business plans support custom domains. To set up a custom domain:
-
-1. Go to your instance settings in the dashboard
-2. Click **Custom Domain**
-3. Enter your domain (e.g., `api.example.com`)
-4. Add the CNAME record shown to your DNS provider:
-   ```
-   api.example.com  CNAME  yoursolobase.dev
-   ```
-5. Wait for DNS propagation (usually a few minutes)
-6. Solobase Cloud automatically provisions a TLS certificate
-
-## Scale-to-Zero
-
-Free and Hobby plan instances automatically sleep after 15 minutes of inactivity. When a request arrives:
-
-1. The request is held briefly while the instance wakes up
-2. The instance boots in ~2 seconds
-3. The request is forwarded to the running instance
-4. Subsequent requests are served instantly
-
-Starter, Professional, and Business plans are **always-on** and never sleep.
+- **Admin panel:** `https://{name}.solobase.dev/blocks/admin/`
+- **API:** `https://{name}.solobase.dev/api/...`
+- **Dashboard:** `https://cloud.solobase.dev/blocks/dashboard/`
 
 ## API Access
 
-Your cloud instance exposes the same REST API as a self-hosted Solobase:
+Your cloud project exposes the same REST API as a self-hosted Solobase:
 
 ```bash
-# Authenticate
-TOKEN=$(curl -s -X POST https://yoursolobase.dev/api/auth/login \
+# Sign up / login
+TOKEN=$(curl -s -X POST https://{name}.solobase.dev/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@solobase.local","password":"solobase"}' \
-  | jq -r '.token')
+  -d '{"email":"you@example.com","password":"yourpassword"}' \
+  | jq -r '.access_token')
 
 # Use the API
 curl -H "Authorization: Bearer $TOKEN" \
-  https://yoursolobase.dev/api/collections
+  https://{name}.solobase.dev/api/admin/users
 ```
 
-## Managing Instances
+## Custom Domains (Pro)
 
-From the Solobase Cloud dashboard you can:
+Pro plan projects support custom domains:
 
-- **Pause** an instance to stop it without deleting data
-- **Resume** a paused instance
-- **Delete** an instance and all its data
-- **Upgrade/downgrade** your plan
+1. Go to your project settings in the admin panel
+2. Add your custom domain (e.g., `api.example.com`)
+3. Add a CNAME record at your DNS provider:
+   ```
+   api.example.com  CNAME  {name}.solobase.dev
+   ```
+4. TLS certificate is provisioned automatically
+
+## Usage & Limits
+
+Your dashboard shows real-time usage:
+
+- **API Requests** — counted per HTTP request to API endpoints (static files don't count)
+- **Database Storage** — total D1 storage used
+- **File Storage** — total R2 storage used
+
+At 80% usage, you'll see a warning. At 100%, API requests return `429 Too Many Requests`. Add more capacity with add-ons:
+
+| Add-on | Price |
+|--------|-------|
+| +100K API requests | $1/month |
+| +1 GB file storage | $1/month |
+| +1 GB database storage | $3/month |
+
+## Billing
+
+- Managed via Stripe
+- Upgrade or downgrade anytime (prorated)
+- If payment fails, you get a 7-day grace period before service is suspended
+- 14-day money-back guarantee
+- Manage your subscription from the [dashboard](https://cloud.solobase.dev/blocks/dashboard/#settings)
 
 ## Self-Hosting vs Cloud
 
 | | Self-Hosted | Solobase Cloud |
 |---|-----------|----------------|
-| Control | Full | Managed |
+| Infrastructure | You manage | Cloudflare edge |
+| Database | SQLite or PostgreSQL | D1 (SQLite) |
+| Storage | Local or S3 | R2 |
 | Setup time | Minutes | Seconds |
 | Maintenance | You | Us |
-| Scaling | Manual | Automatic |
-| Backups | DIY | Included (Pro+) |
-| Cost | Server costs | Plan pricing |
-| Custom WASM | Yes | Yes |
+| Cost | Server costs | $5-25/month |
+| Custom WASM blocks | Yes | Coming soon |
 
-Choose **self-hosted** if you need full control over infrastructure or have compliance requirements. Choose **Cloud** if you want zero-ops deployment.
+Choose **self-hosted** if you need full control or have compliance requirements. Choose **Cloud** for zero-ops deployment.
 
 ## Support
 
-- Free and Hobby: Community support via [Discord](https://discord.gg/jKqMcbrVzm)
-- Starter: Email support (48h response)
-- Professional: Email support (24h response)
-- Business: Priority support (12h response)
-- Enterprise: [Contact us](mailto:sales@solobase.dev)
+- **Starter:** Community support via [Discord](https://discord.gg/jKqMcbrVzm)
+- **Pro:** Priority email support
+- **Enterprise:** [Contact us](mailto:enterprise@solobase.dev)

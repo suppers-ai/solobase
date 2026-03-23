@@ -2,26 +2,27 @@
 //
 // Two modes based on hostname:
 //
-// 1. Platform (app.solobase.dev / localhost):
+// 1. Platform (cloud.solobase.dev / localhost):
 //    - Platform SPA (dashboard/admin/auth) from R2 `_site/`
-//    - Platform API: auth (signup/login), deployments, admin, billing
+//    - Platform API: auth (signup/login), projects, admin, billing
 //    - Control plane at /_control/*
-//    - Uses the shared DB directly (no tenant lookup)
+//    - Uses the shared DB directly (no project lookup)
 //    - Marketing site (solobase.dev) is served by Cloudflare Pages, not here
 //
-// 2. Tenant instance ({tenant}.solobase.dev):
-//    - Tenant SPA from R2 `{tenantId}/site/`
-//    - Tenant API: all block endpoints
-//    - Tenant resolved from KV
+// 2. Project instance ({project}.solobase.dev):
+//    - Project SPA from R2 `{projectId}/site/`
+//    - Project API: all block endpoints
+//    - Project: resolve from KV
 
-import type { Env, TenantConfig } from './types';
+import type { Env, ProjectConfig } from './types';
 import { requestToMessage, blockResultToResponse } from './convert';
-import { resolveTenant, getD1ForTenant } from './tenant';
+import { resolveProject, getD1ForProject } from './project';
 import { createHost } from './host';
 import { dispatchToBlock } from './dispatch';
 import { handleControlPlane } from './control';
 import { serveStatic, isMarketingHost } from './static';
 import { checkAndIncrementUsage } from './usage';
+import { classifyRequest, checkRateLimit, rateLimitHeaders } from './rate-limit';
 // Schema is managed via D1 migrations, generated from block declarations:
 //   npm run generate:migration > migrations/0001_init.sql
 //   npm run db:migrate (local) or npm run db:migrate:prod (production)
@@ -49,27 +50,54 @@ export default {
 
     // 3. API routes → dispatch
     if (pathname.startsWith('/api/') || pathname === '/api' || isApiRoute(pathname)) {
+      // Rate limiting (per-IP, using KV)
+      const clientIp =
+        request.headers.get('cf-connecting-ip') ??
+        request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+        'unknown';
+      const apiPath = pathname.startsWith('/api') ? pathname.substring(4) || '/' : pathname;
+      const rlBucket = classifyRequest(apiPath);
+      if (rlBucket && env.PROJECTS) {
+        const rl = await checkRateLimit(env.PROJECTS, clientIp, rlBucket);
+        if (!rl.allowed) {
+          const rlHeaders = rateLimitHeaders(rl);
+          return addCorsHeaders(
+            new Response(JSON.stringify({ error: 'rate-limited', message: 'too many requests' }), {
+              status: 429,
+              headers: { 'Content-Type': 'application/json', ...rlHeaders },
+            }),
+            request,
+          );
+        }
+      }
+
       if (isPlatform) {
-        // Platform: use shared DB directly, no tenant lookup
+        // Platform: use shared DB directly, no project lookup
         return handlePlatformApi(request, env, url);
       } else {
-        // Tenant: resolve from KV
+        // Project: resolve from KV
         return handleTenantApi(request, env, url);
       }
     }
 
     // 4. Static file serving from R2
     if (isPlatform) {
-      // Platform (app.solobase.dev): serve SPA (dashboard/admin/auth) from _site/
+      // Redirect cloud.solobase.dev root to dashboard
+      if (pathname === '/' || pathname === '') {
+        const dashUrl = isDev(env) ? '/blocks/dashboard/' : 'https://cloud.solobase.dev/blocks/dashboard/';
+        return new Response(null, { status: 302, headers: { 'Location': dashUrl } });
+      }
+
+      // Platform (cloud.solobase.dev): serve SPA (dashboard/admin/auth) from _site/
       const response = await serveStatic(env.STORAGE, '_site/', pathname);
       if (response) return addSecurityHeaders(response);
     } else {
-      // Tenant: resolve tenant, serve from {tenantId}/site/
-      const tenant = await resolveTenant(url.hostname, env);
-      if (!tenant) {
-        return addCorsHeaders(jsonError('not_found', 'tenant not found', 404), request);
+      // Project: resolve project, serve from {tenantId}/site/
+      const project = await resolveProject(url.hostname, env);
+      if (!project) {
+        return addCorsHeaders(jsonError('not_found', 'project not found', 404), request);
       }
-      const response = await serveStatic(env.STORAGE, `${tenant.id}/site/`, pathname);
+      const response = await serveStatic(env.STORAGE, `${project.id}/site/`, pathname);
       if (response) return addSecurityHeaders(response);
     }
 
@@ -78,7 +106,7 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 // ---------------------------------------------------------------------------
-// Platform API (app.solobase.dev) — uses shared DB, no tenant
+// Platform API (cloud.solobase.dev) — uses shared DB, no project
 // ---------------------------------------------------------------------------
 
 async function handlePlatformApi(
@@ -98,13 +126,13 @@ async function handlePlatformApi(
   const db = env.DB;
 
   // Build a platform "config" with all features enabled
-  const platformConfig: TenantConfig = {
+  const platformConfig: ProjectConfig = {
     id: 'platform',
     subdomain: 'solobase',
     plan: 'platform',
     config: {
       auth: {}, admin: {}, files: {}, products: {},
-      deployments: {}, legalpages: {}, userportal: {},
+      projects: {}, legalpages: {}, userportal: {},
     },
     blocks: [],
   };
@@ -118,7 +146,7 @@ async function handlePlatformApi(
 }
 
 // ---------------------------------------------------------------------------
-// Tenant API ({tenant}.solobase.dev, excluding app) — resolves tenant from KV
+// Project API ({project}.solobase.dev, excluding app) — resolves project from KV
 // ---------------------------------------------------------------------------
 
 async function handleTenantApi(
@@ -126,24 +154,24 @@ async function handleTenantApi(
   env: Env,
   url: URL,
 ): Promise<Response> {
-  const tenant = await resolveTenant(url.hostname, env);
-  if (!tenant) {
-    return addCorsHeaders(jsonError('not_found', 'tenant not found', 404), request);
+  const project = await resolveProject(url.hostname, env);
+  if (!project) {
+    return addCorsHeaders(jsonError('not_found', 'project not found', 404), request);
   }
 
-  const db = getD1ForTenant(env, tenant);
+  const db = getD1ForProject(env, project);
 
   // Enforce plan limits
-  const usageCheck = await checkAndIncrementUsage(db, tenant);
+  const usageCheck = await checkAndIncrementUsage(db, project);
   if (usageCheck.error) {
     return addCorsHeaders(jsonError('resource-exhausted', usageCheck.error, 429), request);
   }
 
-  const host = createHost(env, tenant, db);
+  const host = createHost(env, project, db);
   const msg = await readRequestMessage(request, url);
   if ('error' in msg) return addCorsHeaders(msg.error, request);
 
-  const result = await dispatchToBlock(msg.message, tenant, host, env);
+  const result = await dispatchToBlock(msg.message, project, host, env);
   const response = addCorsHeaders(blockResultToResponse(result), request);
 
   // Add warning header if payment is failing or usage is high
@@ -222,8 +250,12 @@ function getAllowedOrigin(request: Request): string {
   try {
     const u = new URL(origin);
     if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return origin;
-    if (u.hostname.endsWith('.solobase.dev')) return origin;
+    // Only allow the platform subdomain and the exact marketing domain.
+    // Project subdomains are NOT allowed as CORS origins for other projects
+    // — each project should only access its own API (same-origin).
+    if (u.hostname === 'cloud.solobase.dev') return origin;
     if (u.hostname === 'solobase.dev') return origin;
+    // Allow same-origin: the request's own host is always allowed
     const reqHost = request.headers.get('Host')?.split(':')[0];
     if (reqHost && u.hostname === reqHost) return origin;
   } catch { /* invalid origin */ }
@@ -246,7 +278,14 @@ function addSecurityHeaders(response: Response): Response {
   const r = new Response(response.body, response);
   r.headers.set('X-Content-Type-Options', 'nosniff');
   r.headers.set('X-Frame-Options', 'DENY');
+  r.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  r.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  r.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   return r;
+}
+
+function isDev(env: Env): boolean {
+  return (env.ENVIRONMENT as string) === 'development';
 }
 
 function jsonError(code: string, message: string, status: number): Response {

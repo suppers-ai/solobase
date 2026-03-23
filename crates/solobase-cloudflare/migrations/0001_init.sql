@@ -309,7 +309,7 @@ CREATE TABLE IF NOT EXISTS block_legalpages_legal_documents (
 
 CREATE INDEX IF NOT EXISTS idx_block_legalpages_legal_documents_doc_type_status ON block_legalpages_legal_documents (doc_type, status);
 
-CREATE TABLE IF NOT EXISTS block_deployments (
+CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL DEFAULT '',
   name TEXT NOT NULL DEFAULT '',
@@ -318,7 +318,7 @@ CREATE TABLE IF NOT EXISTS block_deployments (
   config TEXT NOT NULL DEFAULT '{}',
   plan_id TEXT NOT NULL DEFAULT '',
   purchase_id TEXT NOT NULL DEFAULT '',
-  tenant_id TEXT NOT NULL DEFAULT '',
+  project_id TEXT NOT NULL DEFAULT '',
   subdomain TEXT NOT NULL DEFAULT '',
   provision_error TEXT DEFAULT '',
   deprovision_error TEXT DEFAULT '',
@@ -328,23 +328,23 @@ CREATE TABLE IF NOT EXISTS block_deployments (
   FOREIGN KEY (user_id) REFERENCES auth_users(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_block_deployments_user_id ON block_deployments (user_id);
+CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_block_deployments_status ON block_deployments (status);
+CREATE INDEX IF NOT EXISTS idx_projects_status ON projects (status);
 
-CREATE TABLE IF NOT EXISTS tenant_usage (
+CREATE TABLE IF NOT EXISTS project_usage (
   id TEXT PRIMARY KEY,
-  tenant_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
   month TEXT NOT NULL,
   requests INTEGER NOT NULL DEFAULT 0,
   r2_bytes INTEGER NOT NULL DEFAULT 0,
   addon_requests INTEGER NOT NULL DEFAULT 0,
   addon_r2_bytes INTEGER NOT NULL DEFAULT 0,
   addon_d1_bytes INTEGER NOT NULL DEFAULT 0,
-  UNIQUE (tenant_id, month)
+  UNIQUE (project_id, month)
 );
 
-CREATE INDEX IF NOT EXISTS idx_tenant_usage_tenant_month ON tenant_usage (tenant_id, month);
+CREATE INDEX IF NOT EXISTS idx_project_usage_project_month ON project_usage (project_id, month);
 
 CREATE TABLE IF NOT EXISTS subscriptions (
   id TEXT PRIMARY KEY,

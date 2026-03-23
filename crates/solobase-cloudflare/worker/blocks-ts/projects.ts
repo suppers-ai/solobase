@@ -1,23 +1,23 @@
-// TypeScript-native deployments block handler (for testing without WASM).
+// TypeScript-native projects block handler (for testing without WASM).
 // Calls host.callBlock() for database operations — same pattern as WASM blocks.
 
 import type { Message, BlockResult } from '../types';
 import type { RuntimeHost } from '../host';
 import { metaGet } from '../convert';
 
-const COLLECTION = 'block_deployments';
+const COLLECTION = 'projects';
 
 export async function handle(msg: Message, host: RuntimeHost): Promise<BlockResult> {
   const action = metaGet(msg.meta, 'req.action') ?? '';
   const path = metaGet(msg.meta, 'req.resource') ?? '';
 
   // Admin routes
-  if (path.startsWith('/admin/b/deployments')) {
+  if (path.startsWith('/admin/b/projects')) {
     return handleAdmin(msg, host, action, path);
   }
 
   // User-facing routes
-  if (path.startsWith('/b/deployments')) {
+  if (path.startsWith('/b/projects')) {
     return handleUser(msg, host, action, path);
   }
 
@@ -30,15 +30,15 @@ export async function handle(msg: Message, host: RuntimeHost): Promise<BlockResu
 
 async function handleUser(msg: Message, host: RuntimeHost, action: string, path: string): Promise<BlockResult> {
   switch (true) {
-    case action === 'retrieve' && path === '/b/deployments':
+    case action === 'retrieve' && path === '/b/projects':
       return handleList(msg, host);
-    case action === 'retrieve' && path.startsWith('/b/deployments/'):
+    case action === 'retrieve' && path.startsWith('/b/projects/'):
       return handleGet(msg, host);
-    case action === 'create' && path === '/b/deployments':
+    case action === 'create' && path === '/b/projects':
       return handleCreate(msg, host);
-    case action === 'update' && path.startsWith('/b/deployments/'):
+    case action === 'update' && path.startsWith('/b/projects/'):
       return handleUpdate(msg, host);
-    case action === 'delete' && path.startsWith('/b/deployments/'):
+    case action === 'delete' && path.startsWith('/b/projects/'):
       return handleDelete(msg, host);
     default:
       return errResult('not-found', 'not found');
@@ -46,7 +46,7 @@ async function handleUser(msg: Message, host: RuntimeHost, action: string, path:
 }
 
 // ---------------------------------------------------------------------------
-// User: list own deployments
+// User: list own projects
 // ---------------------------------------------------------------------------
 
 async function handleList(msg: Message, host: RuntimeHost): Promise<BlockResult> {
@@ -68,29 +68,29 @@ async function handleList(msg: Message, host: RuntimeHost): Promise<BlockResult>
 }
 
 // ---------------------------------------------------------------------------
-// User: get own deployment
+// User: get own project
 // ---------------------------------------------------------------------------
 
 async function handleGet(msg: Message, host: RuntimeHost): Promise<BlockResult> {
   const userId = metaGet(msg.meta, 'auth.user_id') ?? '';
   if (!userId) return errResult('permission-denied', 'Authentication required');
 
-  const id = extractId(msg, '/b/deployments/');
-  if (!id) return errResult('invalid-argument', 'Missing deployment ID');
+  const id = extractId(msg, '/b/projects/');
+  if (!id) return errResult('invalid-argument', 'Missing project ID');
 
   const record = await dbGet(host, COLLECTION, id);
-  if (!record) return errResult('not-found', 'Deployment not found');
+  if (!record) return errResult('not-found', 'Project not found');
 
   // Verify ownership
   if (record.data?.user_id !== userId) {
-    return errResult('not-found', 'Deployment not found');
+    return errResult('not-found', 'Project not found');
   }
 
   return jsonRespond(msg, record);
 }
 
 // ---------------------------------------------------------------------------
-// User: create deployment
+// User: create project
 // ---------------------------------------------------------------------------
 
 async function handleCreate(msg: Message, host: RuntimeHost): Promise<BlockResult> {
@@ -122,11 +122,11 @@ async function handleCreate(msg: Message, host: RuntimeHost): Promise<BlockResul
   const record = await dbCreate(host, COLLECTION, data);
   if (!record) return errResult('internal', 'Database error');
 
-  // Provision tenant on the control plane (best-effort)
+  // Provision project on the control plane (best-effort)
   const plan = typeof body.plan_id === 'string' ? body.plan_id : 'hobby';
   const provisionResult = await callService(host, 'wafer-run/network', 'network.control_plane_request', {
     method: 'POST',
-    path: '/_control/tenants',
+    path: '/_control/projects',
     body: { subdomain: slug, plan },
   });
 
@@ -135,7 +135,7 @@ async function handleCreate(msg: Message, host: RuntimeHost): Promise<BlockResul
       status: 'active',
       updated_at: new Date().toISOString(),
     };
-    if (provisionResult.body?.id) updateData.tenant_id = provisionResult.body.id;
+    if (provisionResult.body?.id) updateData.project_id = provisionResult.body.id;
     if (provisionResult.body?.subdomain) updateData.subdomain = provisionResult.body.subdomain;
 
     const updated = await dbUpdate(host, COLLECTION, record.id, updateData);
@@ -155,56 +155,56 @@ async function handleCreate(msg: Message, host: RuntimeHost): Promise<BlockResul
 }
 
 // ---------------------------------------------------------------------------
-// User: update own deployment
+// User: update own project
 // ---------------------------------------------------------------------------
 
 async function handleUpdate(msg: Message, host: RuntimeHost): Promise<BlockResult> {
   const userId = metaGet(msg.meta, 'auth.user_id') ?? '';
   if (!userId) return errResult('permission-denied', 'Authentication required');
 
-  const id = extractId(msg, '/b/deployments/');
-  if (!id) return errResult('invalid-argument', 'Missing deployment ID');
+  const id = extractId(msg, '/b/projects/');
+  if (!id) return errResult('invalid-argument', 'Missing project ID');
 
   // Verify ownership
   const existing = await dbGet(host, COLLECTION, id);
-  if (!existing) return errResult('not-found', 'Deployment not found');
-  if (existing.data?.user_id !== userId) return errResult('not-found', 'Deployment not found');
+  if (!existing) return errResult('not-found', 'Project not found');
+  if (existing.data?.user_id !== userId) return errResult('not-found', 'Project not found');
 
   const body = parseBody<Record<string, unknown>>(msg);
   if (!body) return errResult('invalid-argument', 'Invalid body');
 
-  // Users cannot change status or user_id directly
-  delete body.status;
-  delete body.user_id;
-  body.updated_at = new Date().toISOString();
+  // Allowlist: only permit safe user-editable fields
+  const data: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (typeof body.name === 'string') data.name = body.name;
+  if (body.config !== undefined) data.config = body.config;
 
-  const record = await dbUpdate(host, COLLECTION, id, body);
-  if (!record) return errResult('not-found', 'Deployment not found');
+  const record = await dbUpdate(host, COLLECTION, id, data);
+  if (!record) return errResult('not-found', 'Project not found');
   return jsonRespond(msg, record);
 }
 
 // ---------------------------------------------------------------------------
-// User: delete own deployment (soft delete)
+// User: delete own project (soft delete)
 // ---------------------------------------------------------------------------
 
 async function handleDelete(msg: Message, host: RuntimeHost): Promise<BlockResult> {
   const userId = metaGet(msg.meta, 'auth.user_id') ?? '';
   if (!userId) return errResult('permission-denied', 'Authentication required');
 
-  const id = extractId(msg, '/b/deployments/');
-  if (!id) return errResult('invalid-argument', 'Missing deployment ID');
+  const id = extractId(msg, '/b/projects/');
+  if (!id) return errResult('invalid-argument', 'Missing project ID');
 
   // Verify ownership
   const existing = await dbGet(host, COLLECTION, id);
-  if (!existing) return errResult('not-found', 'Deployment not found');
-  if (existing.data?.user_id !== userId) return errResult('not-found', 'Deployment not found');
+  if (!existing) return errResult('not-found', 'Project not found');
+  if (existing.data?.user_id !== userId) return errResult('not-found', 'Project not found');
 
-  // Deprovision tenant on the control plane (best-effort)
+  // Deprovision project on the control plane (best-effort)
   const subdomain = existing.data?.subdomain || existing.data?.slug || '';
   if (subdomain) {
     const deprovisionResult = await callService(host, 'wafer-run/network', 'network.control_plane_request', {
       method: 'DELETE',
-      path: `/_control/tenants/${subdomain}`,
+      path: `/_control/projects/${subdomain}`,
     });
     if (!deprovisionResult || (deprovisionResult.status_code && deprovisionResult.status_code >= 300 && deprovisionResult.status_code !== 404)) {
       // Log error but don't block deletion
@@ -233,11 +233,11 @@ async function handleDelete(msg: Message, host: RuntimeHost): Promise<BlockResul
 
 async function handleAdmin(msg: Message, host: RuntimeHost, action: string, path: string): Promise<BlockResult> {
   switch (true) {
-    case action === 'retrieve' && path === '/admin/b/deployments':
+    case action === 'retrieve' && path === '/admin/b/projects':
       return handleAdminList(msg, host);
-    case action === 'retrieve' && path.startsWith('/admin/b/deployments/'):
+    case action === 'retrieve' && path.startsWith('/admin/b/projects/'):
       return handleAdminGet(msg, host);
-    case action === 'update' && path.startsWith('/admin/b/deployments/'):
+    case action === 'update' && path.startsWith('/admin/b/projects/'):
       return handleAdminUpdate(msg, host);
     default:
       return errResult('not-found', 'not found');
@@ -245,7 +245,7 @@ async function handleAdmin(msg: Message, host: RuntimeHost, action: string, path
 }
 
 // ---------------------------------------------------------------------------
-// Admin: list all deployments (with optional filters)
+// Admin: list all projects (with optional filters)
 // ---------------------------------------------------------------------------
 
 async function handleAdminList(msg: Message, host: RuntimeHost): Promise<BlockResult> {
@@ -274,25 +274,25 @@ async function handleAdminList(msg: Message, host: RuntimeHost): Promise<BlockRe
 }
 
 // ---------------------------------------------------------------------------
-// Admin: get any deployment
+// Admin: get any project
 // ---------------------------------------------------------------------------
 
 async function handleAdminGet(msg: Message, host: RuntimeHost): Promise<BlockResult> {
-  const id = extractId(msg, '/admin/b/deployments/');
-  if (!id) return errResult('invalid-argument', 'Missing deployment ID');
+  const id = extractId(msg, '/admin/b/projects/');
+  if (!id) return errResult('invalid-argument', 'Missing project ID');
 
   const record = await dbGet(host, COLLECTION, id);
-  if (!record) return errResult('not-found', 'Deployment not found');
+  if (!record) return errResult('not-found', 'Project not found');
   return jsonRespond(msg, record);
 }
 
 // ---------------------------------------------------------------------------
-// Admin: update any deployment
+// Admin: update any project
 // ---------------------------------------------------------------------------
 
 async function handleAdminUpdate(msg: Message, host: RuntimeHost): Promise<BlockResult> {
-  const id = extractId(msg, '/admin/b/deployments/');
-  if (!id) return errResult('invalid-argument', 'Missing deployment ID');
+  const id = extractId(msg, '/admin/b/projects/');
+  if (!id) return errResult('invalid-argument', 'Missing project ID');
 
   const body = parseBody<Record<string, unknown>>(msg);
   if (!body) return errResult('invalid-argument', 'Invalid body');
@@ -300,7 +300,7 @@ async function handleAdminUpdate(msg: Message, host: RuntimeHost): Promise<Block
   body.updated_at = new Date().toISOString();
 
   const record = await dbUpdate(host, COLLECTION, id, body);
-  if (!record) return errResult('not-found', 'Deployment not found');
+  if (!record) return errResult('not-found', 'Project not found');
   return jsonRespond(msg, record);
 }
 

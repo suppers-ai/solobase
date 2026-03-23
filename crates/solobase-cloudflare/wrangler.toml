@@ -34,7 +34,7 @@ binding = "STORAGE"
 bucket_name = "solobase-storage-dev"
 
 [[kv_namespaces]]
-binding = "TENANTS"
+binding = "PROJECTS"
 id = "local-dev-kv"
 
 # =============================================================================
@@ -46,7 +46,7 @@ id = "local-dev-kv"
 # Setup (one-time):
 #   npx wrangler d1 create solobase-db
 #   npx wrangler r2 bucket create solobase-storage
-#   npx wrangler kv namespace create TENANTS
+#   npx wrangler kv namespace create PROJECTS
 #   npx wrangler secret put JWT_SECRET --env production
 #   npx wrangler secret put ADMIN_SECRET --env production
 #   npx wrangler secret put ADMIN_EMAIL --env production
@@ -71,5 +71,5 @@ binding = "STORAGE"
 bucket_name = "solobase-storage"
 
 [[env.production.kv_namespaces]]
-binding = "TENANTS"
-id = "e264871f50d641908e2e4982a6395232"
+binding = "PROJECTS"
+id = "4b124a049ff04024b71c27d2ef02b181"

@@ -120,24 +120,74 @@ function isAllowedUrl(url: string): boolean {
   // Must be http or https
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
 
+  // Block userinfo in URL (bypass technique)
+  if (parsed.username || parsed.password) return false;
+
   const hostname = parsed.hostname.toLowerCase();
 
-  // Block localhost
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') return false;
+  // Block localhost variants
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '0.0.0.0') return false;
 
-  // Block private IP ranges
+  // Block cloud metadata hostnames
+  if (hostname.includes('metadata') || hostname === 'instance' || hostname.endsWith('.internal')) return false;
+
+  // Block IPv6 addresses that map to private/loopback IPv4
+  if (hostname.startsWith('[')) {
+    const inner = hostname.slice(1, -1).toLowerCase();
+    // Block loopback
+    if (inner === '::1' || inner === '0:0:0:0:0:0:0:1') return false;
+    // Block link-local (fe80::/10)
+    if (inner.startsWith('fe80:')) return false;
+    // Block unique local (fc00::/7 = fc00:: and fd00::)
+    if (inner.startsWith('fc') || inner.startsWith('fd')) return false;
+    // Block IPv4-mapped IPv6 (::ffff:x.x.x.x)
+    const v4Mapped = inner.match(/^::ffff:(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (v4Mapped) {
+      const octets = [Number(v4Mapped[1]), Number(v4Mapped[2]), Number(v4Mapped[3]), Number(v4Mapped[4])];
+      if (isPrivateIPv4(octets)) return false;
+    }
+    // Block IPv4-compatible IPv6 (::x.x.x.x)
+    const v4Compat = inner.match(/^::(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (v4Compat) {
+      const octets = [Number(v4Compat[1]), Number(v4Compat[2]), Number(v4Compat[3]), Number(v4Compat[4])];
+      if (isPrivateIPv4(octets)) return false;
+    }
+    return true;
+  }
+
+  // Parse as IPv4
   const parts = hostname.split('.');
   if (parts.length === 4 && parts.every(p => /^\d+$/.test(p))) {
     const octets = parts.map(Number);
-    if (octets[0] === 10) return false;                                         // 10.0.0.0/8
-    if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return false;  // 172.16.0.0/12
-    if (octets[0] === 192 && octets[1] === 168) return false;                   // 192.168.0.0/16
-    if (octets[0] === 169 && octets[1] === 254) return false;                   // 169.254.0.0/16 (link-local / metadata)
-    if (octets[0] === 0) return false;                                          // 0.0.0.0/8
+    if (octets.some(o => o > 255)) return false;
+    if (isPrivateIPv4(octets)) return false;
   }
 
-  // Block IPv6 link-local and loopback
-  if (hostname.startsWith('[fe80:') || hostname.startsWith('[::1]')) return false;
+  // Block decimal IP notation (e.g., 2130706433 = 127.0.0.1)
+  if (/^\d+$/.test(hostname)) {
+    const num = Number(hostname);
+    if (num >= 0 && num <= 0xFFFFFFFF) {
+      const octets = [(num >> 24) & 0xFF, (num >> 16) & 0xFF, (num >> 8) & 0xFF, num & 0xFF];
+      if (isPrivateIPv4(octets)) return false;
+    }
+  }
+
+  // Block octal IP notation (e.g., 0177.0.0.1 = 127.0.0.1)
+  if (parts.length === 4 && parts.every(p => /^0\d+$/.test(p) || /^\d+$/.test(p))) {
+    const octets = parts.map(p => p.startsWith('0') && p.length > 1 ? parseInt(p, 8) : parseInt(p, 10));
+    if (octets.every(o => !isNaN(o) && o >= 0 && o <= 255) && isPrivateIPv4(octets)) return false;
+  }
 
   return true;
+}
+
+/** Check if an IPv4 address (as 4 octets) is in a private/reserved range. */
+function isPrivateIPv4(octets: number[]): boolean {
+  if (octets[0] === 0) return true;                                            // 0.0.0.0/8
+  if (octets[0] === 10) return true;                                           // 10.0.0.0/8
+  if (octets[0] === 127) return true;                                          // 127.0.0.0/8
+  if (octets[0] === 169 && octets[1] === 254) return true;                    // 169.254.0.0/16 (link-local / cloud metadata)
+  if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return true;   // 172.16.0.0/12
+  if (octets[0] === 192 && octets[1] === 168) return true;                    // 192.168.0.0/16
+  return false;
 }

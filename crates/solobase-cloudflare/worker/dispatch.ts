@@ -6,7 +6,7 @@
 
 import type {
   Env,
-  TenantConfig,
+  ProjectConfig,
   Message,
   BlockResult,
   ErrorCode,
@@ -14,7 +14,7 @@ import type {
 } from './types';
 import type { RuntimeHost } from './host';
 import { META, metaGet, metaSet } from './convert';
-import { isFeatureEnabled } from './tenant';
+import { isFeatureEnabled } from './project';
 
 // ---------------------------------------------------------------------------
 // Block identifiers (mirrors solobase-core/src/routing.rs BlockId)
@@ -27,7 +27,7 @@ type BlockId =
   | 'files'
   | 'legalpages'
   | 'products'
-  | 'deployments'
+  | 'projects'
   | 'userportal'
   | 'profile';
 
@@ -58,14 +58,14 @@ const ROUTES: Route[] = [
   { prefix: '/admin/b/cloudstorage/', requiresAdmin: true, blockId: 'files', feature: 'files' },
   { prefix: '/admin/legalpages/', requiresAdmin: true, blockId: 'legalpages', feature: 'legalpages' },
   { prefix: '/admin/b/products', requiresAdmin: true, blockId: 'products', feature: 'products' },
-  { prefix: '/admin/b/deployments', requiresAdmin: true, blockId: 'deployments', feature: 'deployments' },
+  { prefix: '/admin/b/projects', requiresAdmin: true, blockId: 'projects', feature: 'projects' },
   { prefix: '/admin/', requiresAdmin: true, blockId: 'admin', feature: 'admin' },
   // Non-admin feature routes
   { prefix: '/storage/', requiresAdmin: false, blockId: 'files', feature: 'files' },
   { prefix: '/b/cloudstorage/', requiresAdmin: false, blockId: 'files', feature: 'files' },
   { prefix: '/b/products', requiresAdmin: false, blockId: 'products', feature: 'products' },
   { prefix: '/b/legalpages', requiresAdmin: false, blockId: 'legalpages', feature: 'legalpages' },
-  { prefix: '/b/deployments', requiresAdmin: false, blockId: 'deployments', feature: 'deployments' },
+  { prefix: '/b/projects', requiresAdmin: false, blockId: 'projects', feature: 'projects' },
   { prefix: '/b/userportal', requiresAdmin: false, blockId: 'userportal', feature: 'userportal' },
   { prefix: '/b/usage', requiresAdmin: false, blockId: 'system', feature: 'system' },
   { prefix: '/profile', requiresAdmin: false, blockId: 'profile', feature: 'profile' },
@@ -117,7 +117,7 @@ function isPublicRoute(path: string): boolean {
  */
 export async function dispatchToBlock(
   msg: Message,
-  tenant: TenantConfig,
+  project: ProjectConfig,
   host: RuntimeHost,
   env: Env,
 ): Promise<BlockResult> {
@@ -141,7 +141,7 @@ export async function dispatchToBlock(
   }
 
   // 4. Feature gate
-  if (!isFeatureEnabled(tenant.config, route.feature)) {
+  if (!isFeatureEnabled(project.config, route.feature)) {
     return errorResult('not-found', 'endpoint not found');
   }
 
@@ -276,7 +276,7 @@ const blockCache = new Map<string, Block>();
  * - `handle(msg: Message): BlockResult`
  * - `lifecycle(event: LifecycleEvent): void`
  *
- * TODO: Support loading blocks from KV (tenant.blocks) for custom WASM blocks.
+ * TODO: Support loading blocks from KV (project.blocks) for custom WASM blocks.
  */
 async function callBlock(
   blockId: BlockId,
@@ -324,8 +324,8 @@ async function callBlock(
       const { handle } = await import('./blocks-ts/legalpages');
       return handle(msg, host);
     }
-    case 'deployments': {
-      const { handle } = await import('./blocks-ts/deployments');
+    case 'projects': {
+      const { handle } = await import('./blocks-ts/projects');
       return handle(msg, host);
     }
     case 'files': {

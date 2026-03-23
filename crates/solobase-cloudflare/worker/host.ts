@@ -22,7 +22,7 @@
 
 import type {
   Env,
-  TenantConfig,
+  ProjectConfig,
   Message,
   BlockResult,
 } from './types';
@@ -47,18 +47,18 @@ export interface RuntimeHost {
 // ---------------------------------------------------------------------------
 
 /**
- * Create a RuntimeHost wired to the given tenant's Cloudflare bindings.
+ * Create a RuntimeHost wired to the given project's Cloudflare bindings.
  *
  * @param env       Cloudflare Worker environment bindings
- * @param tenant    Resolved tenant configuration
- * @param db        The tenant's D1Database binding
+ * @param project   Resolved project configuration
+ * @param db        The project's D1Database binding
  */
 export function createHost(
   env: Env,
-  tenant: TenantConfig,
+  project: ProjectConfig,
   db: D1Database,
 ): RuntimeHost {
-  const envVars = buildEnvVars(env, tenant);
+  const envVars = buildEnvVars(env, project);
   const jwtSecret = envVars['JWT_SECRET'] ?? '';
 
   return {
@@ -71,14 +71,14 @@ export function createHost(
         case 'wafer-run/d1':
         case 'db': {
           const { d1Handler } = await import('./services/d1');
-          return d1Handler(db, msg);
+          return d1Handler(db, msg, project.id);
         }
 
         case 'wafer-run/storage':
         case 'wafer-run/r2':
         case 'storage': {
           const { r2Handler } = await import('./services/r2');
-          return r2Handler(env.STORAGE, tenant.id, msg, db, tenant);
+          return r2Handler(env.STORAGE, project.id, msg, db, project);
         }
 
         case 'wafer-run/crypto': {
@@ -134,7 +134,7 @@ const ENV_KEYS = [
   'CONTROL_PLANE_SECRET',
 ] as const;
 
-function buildEnvVars(env: Env, _tenant: TenantConfig): Record<string, string> {
+function buildEnvVars(env: Env, _project: ProjectConfig): Record<string, string> {
   const vars: Record<string, string> = {};
 
   for (const key of ENV_KEYS) {

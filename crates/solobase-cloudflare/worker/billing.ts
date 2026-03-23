@@ -150,16 +150,20 @@ function hexEncode(buf: ArrayBuffer): string {
     .join('');
 }
 
-/**
- * Constant-time string comparison.
- */
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+/** Constant-time comparison via SHA-256 to prevent timing and length leaks. */
+async function timingSafeEqualAsync(a: string, b: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [ha, hb] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(a)),
+    crypto.subtle.digest('SHA-256', enc.encode(b)),
+  ]);
+  const ua = new Uint8Array(ha);
+  const ub = new Uint8Array(hb);
+  let result = 0;
+  for (let i = 0; i < ua.length; i++) {
+    result |= ua[i] ^ ub[i];
   }
-  return diff === 0;
+  return result === 0;
 }
 
 async function verifyStripeSignature(
@@ -195,7 +199,7 @@ async function verifyStripeSignature(
   const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
   const computedSig = hexEncode(sig);
 
-  return timingSafeEqual(computedSig, expectedSig);
+  return await timingSafeEqualAsync(computedSig, expectedSig);
 }
 
 // ---------------------------------------------------------------------------
@@ -238,7 +242,7 @@ async function handleCheckout(
   // Check project count vs plan limit
   const limits = getPlanLimits(plan);
   const projectCount = await db.prepare(
-    `SELECT COUNT(*) as cnt FROM block_deployments WHERE user_id = ? AND deleted_at IS NULL`,
+    `SELECT COUNT(*) as cnt FROM projects WHERE user_id = ? AND deleted_at IS NULL`,
   ).bind(userId).first<{ cnt: number }>();
 
   const currentProjects = projectCount?.cnt ?? 0;
@@ -288,13 +292,13 @@ async function handleCheckout(
     'customer': stripeCustomerId!,
     'line_items[0][price]': priceId,
     'line_items[0][quantity]': '1',
-    'success_url': 'https://app.solobase.dev/blocks/dashboard/?checkout=success',
+    'success_url': 'https://cloud.solobase.dev/blocks/dashboard/?checkout=success',
     'cancel_url': 'https://solobase.dev/pricing/?checkout=cancelled',
     'metadata[user_id]': userId,
     'metadata[plan]': plan,
   };
   if (name) {
-    sessionParams['metadata[deployment_name]'] = name;
+    sessionParams['metadata[project_name]'] = name;
   }
 
   const session = await stripeRequest(
@@ -340,7 +344,7 @@ async function handleWebhook(
   }
 
   const db = env.DB;
-  const kv = env.TENANTS;
+  const kv = env.PROJECTS;
 
   try {
     switch (event.type) {
@@ -384,7 +388,7 @@ async function onCheckoutCompleted(
 ): Promise<void> {
   const userId = session.metadata?.user_id;
   const plan = session.metadata?.plan ?? 'starter';
-  const deploymentName = session.metadata?.deployment_name;
+  const projectName = session.metadata?.project_name;
   const stripeCustomerId = session.customer;
   const stripeSubscriptionId = session.subscription;
 
@@ -410,30 +414,30 @@ async function onCheckoutCompleted(
     subscriptionId, userId, stripeCustomerId, stripeSubscriptionId, plan, now, now,
   ).run();
 
-  // Create deployment if deployment_name provided
-  if (deploymentName) {
-    const subdomain = deploymentName
+  // Create project if project_name provided
+  if (projectName) {
+    const subdomain = projectName
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, '-')
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '');
 
-    const deploymentId = `dep_${userId}_${Date.now()}`;
+    const projectId = `dep_${userId}_${Date.now()}`;
 
     await db.prepare(
-      `INSERT INTO block_deployments (id, user_id, name, subdomain, plan, status, created_at, updated_at)
+      `INSERT INTO projects (id, user_id, name, subdomain, plan, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
        ON CONFLICT (subdomain) DO UPDATE SET
          plan = excluded.plan,
          status = 'active',
          updated_at = excluded.updated_at`,
     ).bind(
-      deploymentId, userId, deploymentName, subdomain, plan, now, now,
+      projectId, userId, projectName, subdomain, plan, now, now,
     ).run();
 
-    // Create tenant in KV
-    const tenantConfig = {
-      id: deploymentId,
+    // Create project config in KV
+    const projectConfig = {
+      id: projectId,
       subdomain,
       plan,
       config: {
@@ -445,7 +449,7 @@ async function onCheckoutCompleted(
       },
       blocks: [],
     };
-    await kv.put(`tenant:${subdomain}:config`, JSON.stringify(tenantConfig));
+    await kv.put(`project:${subdomain}:config`, JSON.stringify(projectConfig));
   }
 }
 
@@ -481,20 +485,20 @@ async function onSubscriptionUpdated(
     `UPDATE subscriptions SET ${updates.join(', ')} WHERE stripe_subscription_id = ?`,
   ).bind(...binds).run();
 
-  // Update tenant plan in KV if we have a plan change
+  // Update project plan in KV if we have a plan change
   if (plan) {
     const sub = await db.prepare(
       `SELECT user_id FROM subscriptions WHERE stripe_subscription_id = ?`,
     ).bind(stripeSubscriptionId).first<{ user_id: string }>();
 
     if (sub) {
-      // Find deployments for this user and update their KV configs
-      const deployments = await db.prepare(
-        `SELECT subdomain FROM block_deployments WHERE user_id = ? AND deleted_at IS NULL`,
+      // Find projects for this user and update their KV configs
+      const projects = await db.prepare(
+        `SELECT subdomain FROM projects WHERE user_id = ? AND deleted_at IS NULL`,
       ).bind(sub.user_id).all<{ subdomain: string }>();
 
-      for (const dep of deployments.results ?? []) {
-        const key = `tenant:${dep.subdomain}:config`;
+      for (const dep of projects.results ?? []) {
+        const key = `project:${dep.subdomain}:config`;
         const raw = await kv.get(key, 'json') as any;
         if (raw) {
           raw.plan = plan;
@@ -575,7 +579,7 @@ async function handleSubscription(
   const month = currentMonth();
   const usage = await db.prepare(
     `SELECT requests, addon_requests, r2_bytes, addon_r2_bytes
-     FROM tenant_usage WHERE tenant_id = ? AND month = ?`,
+     FROM project_usage WHERE project_id = ? AND month = ?`,
   ).bind(userId, month).first<{
     requests: number;
     addon_requests: number;
@@ -637,7 +641,7 @@ async function handlePortal(
     '/billing_portal/sessions',
     {
       customer: sub.stripe_customer_id,
-      return_url: 'https://app.solobase.dev/blocks/dashboard/',
+      return_url: 'https://cloud.solobase.dev/blocks/dashboard/',
     },
   );
 

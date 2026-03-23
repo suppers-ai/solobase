@@ -8,6 +8,7 @@ import { metaGet } from '../convert';
 const USERS = 'auth_users';
 const TOKENS = 'auth_tokens';
 const USER_ROLES = 'iam_user_roles';
+const USED_TOKENS = 'used_one_time_tokens';
 
 export async function handle(msg: Message, host: RuntimeHost): Promise<BlockResult> {
   const action = metaGet(msg.meta, 'req.action') ?? '';
@@ -292,7 +293,15 @@ async function handleVerifyEmail(msg: Message, host: RuntimeHost): Promise<Block
   }
 
   const userId = claims.sub as string;
-  if (!userId) return errResult('invalid-argument', 'invalid token');
+  const jti = claims.jti as string;
+  if (!userId || !jti) return errResult('invalid-argument', 'invalid token');
+
+  // Ensure token is single-use
+  const usedTokens = await dbListFiltered(host, USED_TOKENS, 'jti', jti);
+  if (usedTokens.length > 0) {
+    return errResult('invalid-argument', 'verification token has already been used');
+  }
+  await dbCreate(host, USED_TOKENS, { jti, type: 'email_verification', consumed_at: new Date().toISOString() });
 
   // Mark email as verified
   await dbUpdate(host, USERS, userId, { email_verified: 1 });
@@ -320,15 +329,12 @@ async function handleResendVerification(msg: Message, host: RuntimeHost): Promis
   });
   if (!tokenResult?.token) return errResult('internal', 'failed to generate token');
 
-  // Send email — import dynamically to avoid circular deps
-  const { sendVerificationEmail } = await import('../email');
-  // We need env to send email, but we don't have it here.
-  // The email sending needs to be done at the index.ts level or via a service call.
-  // For now, return the token so the caller can trigger the email.
+  // TODO: Send verification email via network service (Mailgun).
+  // The email module needs env which isn't available here. Wire through
+  // a service call (e.g. host.callBlock('wafer-run/network', ...)) to
+  // POST to Mailgun API with the token embedded in the verification link.
   return jsonRespond(msg, {
     message: 'Verification email sent',
-    // In production, don't return the token — send via email only
-    _verification_token: tokenResult.token,
   });
 }
 
@@ -354,17 +360,16 @@ async function handleForgotPassword(msg: Message, host: RuntimeHost): Promise<Bl
   const user = users[0];
 
   // Generate reset token (1h expiry)
+  const resetJti = crypto.randomUUID();
   const tokenResult = await callService(host, 'wafer-run/crypto', 'crypto.sign', {
-    claims: { sub: user.id, email, type: 'password_reset', jti: crypto.randomUUID() },
+    claims: { sub: user.id, email, type: 'password_reset', jti: resetJti },
     expiry_secs: 3600,
   });
   if (!tokenResult?.token) return successResponse;
 
-  // Return token (in production, send via email and don't return it)
-  return jsonRespond(msg, {
-    message: 'If an account exists with that email, a password reset link has been sent.',
-    _reset_token: tokenResult.token,
-  });
+  // TODO: Send reset email via network service (Mailgun).
+  // POST to Mailgun API with the token embedded in the reset link.
+  return successResponse;
 }
 
 async function handleResetPassword(msg: Message, host: RuntimeHost): Promise<BlockResult> {
@@ -380,7 +385,16 @@ async function handleResetPassword(msg: Message, host: RuntimeHost): Promise<Blo
   }
 
   const userId = claims.sub as string;
-  if (!userId) return errResult('invalid-argument', 'invalid token');
+  const jti = claims.jti as string;
+  if (!userId || !jti) return errResult('invalid-argument', 'invalid token');
+
+  // Ensure token is single-use: check if jti has already been consumed
+  const usedTokens = await dbListFiltered(host, USED_TOKENS, 'jti', jti);
+  if (usedTokens.length > 0) {
+    return errResult('invalid-argument', 'reset token has already been used');
+  }
+  // Mark token as consumed
+  await dbCreate(host, USED_TOKENS, { jti, type: 'password_reset', consumed_at: new Date().toISOString() });
 
   // Hash new password
   const hashResult = await callService(host, 'wafer-run/crypto', 'crypto.hash', { password: body.new_password });

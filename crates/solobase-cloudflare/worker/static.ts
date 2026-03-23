@@ -2,15 +2,15 @@
  * Static file serving from R2 with SPA fallback.
  *
  * Serves two kinds of sites:
- * - Platform SPA: files under `_site/` prefix in R2 (for app.solobase.dev)
- * - Tenant SPA: files under `{tenantId}/site/` prefix in R2
+ * - Platform SPA: files under `_site/` prefix in R2 (for cloud.solobase.dev)
+ * - Project SPA: files under `{projectId}/site/` prefix in R2
  *
  * The marketing site (solobase.dev) is served by Cloudflare Pages, not here.
  *
  * SPA fallback: if no file is found, serves index.html for client-side routing.
  */
 
-import type { Env, TenantConfig } from './types';
+import type { Env, ProjectConfig } from './types';
 
 /** MIME types by extension. */
 const MIME_TYPES: Record<string, string> = {
@@ -59,7 +59,7 @@ function getCacheControl(path: string): string {
  * Serve a static file from R2.
  *
  * @param bucket R2 bucket
- * @param prefix R2 key prefix (e.g., "_site/" or "{tenantId}/site/")
+ * @param prefix R2 key prefix (e.g., "_site/" or "{projectId}/site/")
  * @param pathname URL path (e.g., "/", "/about", "/assets/app.js")
  * @returns Response or null if file not found (and SPA fallback also missing)
  */
@@ -104,15 +104,31 @@ export async function serveStatic(
     return buildFileResponse(object, filePath);
   }
 
-  // SPA fallback: serve index.html for non-file routes
-  const indexKey = prefix + 'index.html';
-  const indexObject = await bucket.get(indexKey);
-  if (indexObject) {
-    return buildFileResponse(indexObject, '/index.html');
+  // SPA fallback: serve index.html ONLY for known app routes.
+  // Marketing routes (/docs, /pricing, /about) should NOT fallback —
+  // those belong on CF Pages (solobase.dev), not the Worker (cloud.solobase.dev).
+  if (isSpaRoute(pathname)) {
+    const indexKey = prefix + 'index.html';
+    const indexObject = await bucket.get(indexKey);
+    if (indexObject) {
+      return buildFileResponse(indexObject, '/index.html');
+    }
   }
 
   // No site deployed
   return null;
+}
+
+/**
+ * Only these routes should get SPA fallback (index.html).
+ * Everything else returns 404 — marketing routes belong on CF Pages.
+ */
+function isSpaRoute(pathname: string): boolean {
+  const spaRoutes = [
+    '/blocks/', '/admin', '/auth', '/dashboard',
+    '/settings', '/login', '/signup',
+  ];
+  return pathname === '/' || spaRoutes.some(r => pathname.startsWith(r));
 }
 
 function buildFileResponse(object: R2ObjectBody, filePath: string): Response {
@@ -131,21 +147,21 @@ function buildFileResponse(object: R2ObjectBody, filePath: string): Response {
 /**
  * Determine the R2 prefix for a request.
  *
- * - Platform (app.solobase.dev): `_site/`
- * - Tenant site: `{tenantId}/site/`
+ * - Platform (cloud.solobase.dev): `_site/`
+ * - Project site: `{projectId}/site/`
  */
-export function getR2Prefix(tenant: TenantConfig | null, isMarketingSite: boolean): string {
+export function getR2Prefix(project: ProjectConfig | null, isMarketingSite: boolean): string {
   if (isMarketingSite) return '_site/';
-  return tenant ? `${tenant.id}/site/` : '_site/';
+  return project ? `${project.id}/site/` : '_site/';
 }
 
 /**
- * Check if this is the platform host (app.solobase.dev or localhost in dev).
+ * Check if this is the platform host (cloud.solobase.dev or localhost in dev).
  *
  * The marketing site (solobase.dev) is now served by Cloudflare Pages, not
  * this Worker. The Worker only handles:
- * - app.solobase.dev → platform API + SPA (dashboard/admin/auth from R2)
- * - {tenant}.solobase.dev → tenant API + SPA
+ * - cloud.solobase.dev → platform API + SPA (dashboard/admin/auth from R2)
+ * - {project}.solobase.dev → project API + SPA
  */
 export function isMarketingHost(hostname: string): boolean {
   const hostNoPort = hostname.split(':')[0];
@@ -154,8 +170,8 @@ export function isMarketingHost(hostname: string): boolean {
   // localhost → platform (dev mode)
   if (hostNoPort === 'localhost' || hostNoPort.startsWith('127.')) return true;
 
-  // app.solobase.dev → platform
-  if (parts[0] === 'app') return true;
+  // cloud.solobase.dev → platform
+  if (parts[0] === 'cloud') return true;
 
   return false;
 }

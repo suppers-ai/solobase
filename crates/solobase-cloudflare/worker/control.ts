@@ -1,10 +1,11 @@
 /**
- * Control plane API — platform-level tenant management.
+ * Control plane API — platform-level project management.
  *
  * All endpoints under /_control/ require X-Admin-Secret header.
  */
 
-import type { Env, TenantConfig, TenantAppConfig } from './types';
+import type { Env, ProjectConfig, ProjectAppConfig } from './types';
+import { RESERVED_SUBDOMAINS } from './project';
 
 export async function handleControlPlane(
   request: Request,
@@ -21,60 +22,60 @@ export async function handleControlPlane(
     return json({ error: 'unauthorized', message: 'invalid admin secret' }, 401);
   }
 
-  const kv = env.TENANTS;
+  const kv = env.PROJECTS;
   const db = env.DB;
 
   // Health
   if (method === 'GET' && path === 'health') {
-    const tenants = await listTenants(kv);
-    return json({ status: 'ok', tenant_count: tenants.length, version: '1.0.0' }, 200);
+    const projects = await listProjects(kv);
+    return json({ status: 'ok', project_count: projects.length, version: '1.0.0' }, 200);
   }
 
-  // List tenants
-  if (method === 'GET' && path === 'tenants') {
-    const tenants = await listTenants(kv);
-    return json({ tenants }, 200);
+  // List projects
+  if (method === 'GET' && path === 'projects') {
+    const projects = await listProjects(kv);
+    return json({ projects }, 200);
   }
 
-  // Get tenant
-  if (method === 'GET' && path.startsWith('tenants/')) {
-    const subdomain = path.slice('tenants/'.length);
-    const config = await getTenant(kv, subdomain);
-    if (!config) return json({ error: 'not_found', message: 'tenant not found' }, 404);
+  // Get project
+  if (method === 'GET' && path.startsWith('projects/')) {
+    const subdomain = path.slice('projects/'.length);
+    const config = await getProject(kv, subdomain);
+    if (!config) return json({ error: 'not_found', message: 'project not found' }, 404);
     return json(config, 200);
   }
 
-  // Create tenant
-  if (method === 'POST' && path === 'tenants') {
+  // Create project
+  if (method === 'POST' && path === 'projects') {
     try {
-      const body = await request.json() as { subdomain: string; plan?: string; config?: TenantAppConfig };
-      const tenant = await createTenant(kv, db, body.subdomain, body.plan ?? 'hobby', body.config);
-      return json(tenant, 201);
+      const body = await request.json() as { subdomain: string; plan?: string; config?: ProjectAppConfig };
+      const project = await createProject(kv, db, body.subdomain, body.plan ?? 'hobby', body.config);
+      return json(project, 201);
     } catch (e: any) {
-      const msg = e?.message ?? 'failed to create tenant';
-      const status = msg.includes('already exists') ? 409 : msg.includes('subdomain must') ? 400 : 500;
+      const msg = e?.message ?? 'failed to create project';
+      const status = msg.includes('already exists') ? 409 : (msg.includes('subdomain must') || msg.includes('reserved')) ? 400 : 500;
       return json({ error: 'failed', message: msg }, status);
     }
   }
 
-  // Update tenant
-  if ((method === 'PUT' || method === 'PATCH') && path.startsWith('tenants/')) {
-    const subdomain = path.slice('tenants/'.length);
-    const current = await getTenant(kv, subdomain);
-    if (!current) return json({ error: 'not_found', message: 'tenant not found' }, 404);
+  // Update project
+  if ((method === 'PUT' || method === 'PATCH') && path.startsWith('projects/')) {
+    const subdomain = path.slice('projects/'.length);
+    const current = await getProject(kv, subdomain);
+    if (!current) return json({ error: 'not_found', message: 'project not found' }, 404);
 
     const updates = await request.json() as Record<string, unknown>;
     if (typeof updates.plan === 'string') current.plan = updates.plan;
-    if (updates.config) current.config = updates.config as TenantAppConfig;
+    if (updates.config) current.config = updates.config as ProjectAppConfig;
 
-    await updateTenant(kv, subdomain, current);
+    await updateProject(kv, subdomain, current);
     return json(current, 200);
   }
 
-  // Delete tenant
-  if (method === 'DELETE' && path.startsWith('tenants/')) {
-    const subdomain = path.slice('tenants/'.length);
-    await deleteTenant(kv, subdomain);
+  // Delete project
+  if (method === 'DELETE' && path.startsWith('projects/')) {
+    const subdomain = path.slice('projects/'.length);
+    await deleteProject(kv, subdomain);
     return json({ deleted: true }, 200);
   }
 
@@ -82,35 +83,40 @@ export async function handleControlPlane(
 }
 
 // ---------------------------------------------------------------------------
-// Tenant CRUD
+// Project CRUD
 // ---------------------------------------------------------------------------
 
-async function listTenants(kv: KVNamespace): Promise<string[]> {
-  const raw = await kv.get('tenants:list');
+async function listProjects(kv: KVNamespace): Promise<string[]> {
+  const raw = await kv.get('projects:list');
   return raw ? JSON.parse(raw) : [];
 }
 
-async function getTenant(kv: KVNamespace, subdomain: string): Promise<TenantConfig | null> {
-  const raw = await kv.get(`tenant:${subdomain}:config`);
+async function getProject(kv: KVNamespace, subdomain: string): Promise<ProjectConfig | null> {
+  const raw = await kv.get(`project:${subdomain}:config`);
   return raw ? JSON.parse(raw) : null;
 }
 
-async function createTenant(
+async function createProject(
   kv: KVNamespace,
   _db: D1Database,
   subdomain: string,
   plan: string,
-  appConfig?: TenantAppConfig,
-): Promise<TenantConfig> {
-  const existing = await getTenant(kv, subdomain);
-  if (existing) throw new Error(`tenant '${subdomain}' already exists`);
+  appConfig?: ProjectAppConfig,
+): Promise<ProjectConfig> {
+  const existing = await getProject(kv, subdomain);
+  if (existing) throw new Error(`project '${subdomain}' already exists`);
 
   // Validate subdomain: alphanumeric + hyphens only, 3-63 chars
   if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(subdomain)) {
     throw new Error('subdomain must be 3-63 lowercase alphanumeric characters or hyphens');
   }
 
-  const config: TenantConfig = {
+  // Reject reserved subdomains
+  if (RESERVED_SUBDOMAINS.has(subdomain)) {
+    throw new Error('this subdomain is reserved');
+  }
+
+  const config: ProjectConfig = {
     id: crypto.randomUUID(),
     subdomain,
     plan,
@@ -119,30 +125,30 @@ async function createTenant(
   };
 
   // Migrations are applied via: npx wrangler d1 migrations apply solobase-db
-  await kv.put(`tenant:${subdomain}:config`, JSON.stringify(config));
+  await kv.put(`project:${subdomain}:config`, JSON.stringify(config));
 
   // Add to list
-  const list = await listTenants(kv);
+  const list = await listProjects(kv);
   if (!list.includes(subdomain)) {
     list.push(subdomain);
-    await kv.put('tenants:list', JSON.stringify(list));
+    await kv.put('projects:list', JSON.stringify(list));
   }
 
   return config;
 }
 
-async function updateTenant(kv: KVNamespace, subdomain: string, config: TenantConfig): Promise<void> {
-  await kv.put(`tenant:${subdomain}:config`, JSON.stringify(config));
+async function updateProject(kv: KVNamespace, subdomain: string, config: ProjectConfig): Promise<void> {
+  await kv.put(`project:${subdomain}:config`, JSON.stringify(config));
 }
 
-async function deleteTenant(kv: KVNamespace, subdomain: string): Promise<void> {
-  await kv.delete(`tenant:${subdomain}:config`);
-  const list = await listTenants(kv);
-  await kv.put('tenants:list', JSON.stringify(list.filter(s => s !== subdomain)));
+async function deleteProject(kv: KVNamespace, subdomain: string): Promise<void> {
+  await kv.delete(`project:${subdomain}:config`);
+  const list = await listProjects(kv);
+  await kv.put('projects:list', JSON.stringify(list.filter(s => s !== subdomain)));
 }
 
-function allFeaturesEnabled(): TenantAppConfig {
-  return { auth: {}, admin: {}, files: {}, products: {}, deployments: {}, legalpages: {}, userportal: {} };
+function allFeaturesEnabled(): ProjectAppConfig {
+  return { auth: {}, admin: {}, files: {}, products: {}, projects: {}, legalpages: {}, userportal: {} };
 }
 
 function json(data: unknown, status: number): Response {

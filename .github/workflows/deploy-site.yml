@@ -1,0 +1,32 @@
+name: Deploy Marketing Site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/solobase-site/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install and build
+        working-directory: packages/solobase-site
+        run: |
+          npm install
+          npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist/site --project-name=solobase-site
+          workingDirectory: packages/solobase-site
