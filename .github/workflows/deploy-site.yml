@@ -11,6 +11,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/solobase-site
     steps:
       - uses: actions/checkout@v4
 
@@ -18,16 +21,20 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install and build
-        run: |
-          cd packages/solobase-site
-          npm install --install-links=false --ignore-scripts --no-workspaces
-          npm run build
+      - name: Remove workspace config
+        run: rm -f .npmrc
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Build
+        run: npm run build
+
+      - name: Install wrangler
+        run: npm install wrangler@latest
 
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist/site --project-name=solobase-site
-          workingDirectory: packages/solobase-site
+        run: npx wrangler pages deploy dist/site --project-name=solobase-site
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
