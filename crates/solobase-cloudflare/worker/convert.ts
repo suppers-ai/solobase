@@ -265,6 +265,7 @@ function applyMetaHeaders(headers: Headers, meta: MetaEntry[]): void {
   for (const entry of meta) {
     if (
       entry.key.startsWith(META.RESP_COOKIE_PREFIX) ||
+      entry.key.startsWith('resp.cookie.') ||
       entry.key.startsWith('http.resp.set-cookie.')
     ) {
       headers.append('Set-Cookie', entry.value);

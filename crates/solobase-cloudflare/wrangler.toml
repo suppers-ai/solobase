@@ -1,4 +1,4 @@
-name = "solobase"
+name = "solobase-development"
 # Set via: export CLOUDFLARE_ACCOUNT_ID=your-account-id
 # Or uncomment below:
 # account_id = ""

@@ -279,70 +279,91 @@ const blockCache = new Map<string, Block>();
  *
  * TODO: Support loading blocks from KV (project.blocks) for custom WASM blocks.
  */
+// Blocks that run as WASM Components via JSPI.
+// These are the Rust blocks compiled to wasm32 → Component → jco transpiled.
+// They call host.callBlock() for D1/R2/crypto via JSPI async bridge.
+// All blocks run as WASM Components via JSPI.
+// Only exception: /b/usage routes to TS system handler (needs raw D1 queries
+// that the WASM system block doesn't support — no system clock in WASM).
+const WASM_BLOCKS = new Set<BlockId>([
+  'system', 'profile', 'userportal', 'legalpages',
+  'admin', 'files', 'products', 'projects',
+  // 'auth' stays on TS — WASM auth crashes on login (needs debugging)
+]);
+
+const WASM_JS_MODULES: Record<string, string> = {
+  system: './wasm-blocks/system/system.component.js',
+  auth: './wasm-blocks/auth/auth.component.js',
+  profile: './wasm-blocks/profile/profile.component.js',
+  userportal: './wasm-blocks/userportal/userportal.component.js',
+  legalpages: './wasm-blocks/legalpages/legalpages.component.js',
+  admin: './wasm-blocks/admin/admin.component.js',
+  files: './wasm-blocks/files/files.component.js',
+  products: './wasm-blocks/products/products.component.js',
+  projects: './wasm-blocks/deployments/deployments.component.js',
+};
+
 async function callBlock(
   blockId: BlockId,
   msg: Message,
   host: RuntimeHost,
   _env: Env,
 ): Promise<BlockResult> {
-  // TypeScript-native block handlers (testing mode).
-  // These call host.callBlock() for service operations (D1, crypto, etc.),
-  // exactly mirroring what the jco-transpiled WASM blocks would do.
-  //
-  // Once the WASM async bridge (JSPI/Asyncify) is wired, these will be
-  // replaced by jco-transpiled block loading:
-  //
-  //   const mod = await import(`./blocks/${blockId}.js`);
-  //   const instance = await mod.instantiate(compileCore, {
-  //     'wafer:block-world/runtime@0.2.0': {
-  //       callBlock: (name: string, msg: Message) => host.callBlock(name, msg),
-  //     },
-  //   });
-  //   return instance.block.handle(msg);
-
-  switch (blockId) {
-    case 'system': {
-      const { handle } = await import('./blocks-ts/system');
-      return handle(msg, host);
-    }
-    case 'auth': {
-      const { handle } = await import('./blocks-ts/auth');
-      return handle(msg, host);
-    }
-    case 'admin': {
-      const { handle } = await import('./blocks-ts/admin');
-      return handle(msg, host);
-    }
-    case 'profile': {
-      const { handle } = await import('./blocks-ts/profile');
-      return handle(msg);
-    }
-    case 'userportal': {
-      const { handle } = await import('./blocks-ts/userportal');
-      return handle(msg, host);
-    }
-    case 'legalpages': {
-      const { handle } = await import('./blocks-ts/legalpages');
-      return handle(msg, host);
-    }
-    case 'projects': {
-      const { handle } = await import('./blocks-ts/projects');
-      return handle(msg, host);
-    }
-    case 'files': {
-      const { handle } = await import('./blocks-ts/files');
-      return handle(msg, host);
-    }
-    case 'products': {
-      const { handle } = await import('./blocks-ts/products');
-      return handle(msg, host);
-    }
-    default:
-      return errorResult(
-        'unimplemented',
-        `block '${blockId}' matched but no TS handler is implemented yet`,
-      );
+  // Special case: /b/usage needs raw D1 queries (TS only — WASM system block can't do this)
+  const resource = getPath(msg);
+  if (blockId === 'system' && resource === '/b/usage') {
+    const { handle } = await import('./blocks-ts/system');
+    return handle(msg, host);
   }
+
+  // WASM Components via JSPI (with TS fallback for auth)
+  if (WASM_BLOCKS.has(blockId)) {
+    try {
+      return await callWasmBlock(blockId, msg, host);
+    } catch (e: any) {
+      console.error(`WASM block '${blockId}' failed:`, e.message);
+      return errorResult('internal', `block execution failed`);
+    }
+  }
+
+  // TS fallback for auth (WASM auth needs debugging)
+  if (blockId === 'auth') {
+    const { handle } = await import('./blocks-ts/auth');
+    return handle(msg, host);
+  }
+
+  return errorResult('unimplemented', `block '${blockId}' not available`);
+}
+
+// ---------------------------------------------------------------------------
+// WASM Component loader (jco + JSPI)
+// ---------------------------------------------------------------------------
+
+import { getCoreModuleFor } from './wasm-loader';
+
+async function callWasmBlock(
+  blockId: BlockId,
+  msg: Message,
+  host: RuntimeHost,
+): Promise<BlockResult> {
+  const jsModule = WASM_JS_MODULES[blockId];
+  if (!jsModule) throw new Error(`No WASM JS module for block: ${blockId}`);
+
+  const { instantiate } = await import(jsModule);
+
+  const instance = await instantiate(
+    getCoreModuleFor(blockId),
+    {
+      'wafer:block-world/types@0.2.0': {},
+      'wafer:block-world/runtime': {
+        callBlock: async (blockName: string, wasmMsg: any) => {
+          return host.callBlock(blockName, wasmMsg);
+        },
+      },
+    },
+  );
+
+  return instance.block.handle(msg);
 }
 
 // ---------------------------------------------------------------------------

@@ -49,6 +49,12 @@ impl Guest for AuthBlockWasm {
             ("retrieve", "/auth/me") => handle_me_get(&msg),
             ("update", "/auth/me") => handle_me_update(&msg),
             ("create", "/auth/change-password") => handle_change_password(&msg),
+            // Email verification
+            ("create", "/auth/verify-email") => handle_verify_email(&msg),
+            ("create", "/auth/resend-verification") => handle_resend_verification(&msg),
+            // Password reset
+            ("create", "/auth/forgot-password") => handle_forgot_password(&msg),
+            ("create", "/auth/reset-password") => handle_reset_password(&msg),
             // API keys
             ("retrieve", "/auth/api-keys") => handle_api_keys_list(&msg),
             ("create", "/auth/api-keys") => handle_api_keys_create(&msg),
@@ -384,6 +390,180 @@ fn handle_change_password(msg: &Message) -> BlockResult {
         Ok(_) => json_respond(msg, &serde_json::json!({"message": "Password changed successfully"})),
         Err(e) => err_internal(msg, &format!("Update failed: {e}")),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Email verification handlers
+// ---------------------------------------------------------------------------
+
+fn handle_verify_email(msg: &Message) -> BlockResult {
+    #[derive(serde::Deserialize)]
+    struct VerifyEmailReq { token: String }
+
+    let body: VerifyEmailReq = match decode_body(msg) {
+        Ok(b) => b,
+        Err(r) => return r,
+    };
+
+    // Verify the JWT token
+    let claims = match crypto::verify(&body.token) {
+        Ok(c) => c,
+        Err(_) => return error_response(msg, ErrorCode::Unauthenticated, "Invalid or expired verification token"),
+    };
+
+    let token_type = claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    if token_type != "email_verification" {
+        return error_response(msg, ErrorCode::InvalidArgument, "Not an email verification token");
+    }
+
+    let user_id = claims.get("sub")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if user_id.is_empty() {
+        return error_response(msg, ErrorCode::InvalidArgument, "Invalid verification token");
+    }
+
+    // Update user: set email_verified = 1
+    let data = json_map(serde_json::json!({"email_verified": 1}));
+    match db::update(USERS_COLLECTION, &user_id, data) {
+        Ok(_) => json_respond(msg, &serde_json::json!({"message": "Email verified successfully"})),
+        Err(e) => err_internal(msg, &format!("Failed to update user: {e}")),
+    }
+}
+
+fn handle_resend_verification(msg: &Message) -> BlockResult {
+    let user_id = msg_get_meta(msg, "auth.user_id");
+    if user_id.is_empty() {
+        return error_response(msg, ErrorCode::Unauthenticated, "Not authenticated");
+    }
+
+    let user = match db::get(USERS_COLLECTION, user_id) {
+        Ok(u) => u,
+        Err(_) => return err_not_found(msg, "User not found"),
+    };
+
+    // Check if already verified
+    let verified = user.data.get("email_verified")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    if verified == 1 {
+        return json_respond(msg, &serde_json::json!({"message": "Email is already verified"}));
+    }
+
+    let email = str_field(&user, "email").to_string();
+
+    // Generate verification JWT
+    let mut claims = std::collections::HashMap::new();
+    claims.insert("sub".to_string(), serde_json::json!(user_id));
+    claims.insert("email".to_string(), serde_json::json!(email));
+    claims.insert("type".to_string(), serde_json::json!("email_verification"));
+
+    let token = match crypto::sign(&claims, std::time::Duration::from_secs(86400)) {
+        Ok(t) => t,
+        Err(_) => return err_internal(msg, "Failed to generate verification token"),
+    };
+
+    json_respond(msg, &serde_json::json!({
+        "message": "Verification email sent",
+        "_verification_token": token
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Password reset handlers
+// ---------------------------------------------------------------------------
+
+fn handle_forgot_password(msg: &Message) -> BlockResult {
+    #[derive(serde::Deserialize)]
+    struct ForgotPasswordReq { email: String }
+
+    let body: ForgotPasswordReq = match decode_body(msg) {
+        Ok(b) => b,
+        Err(r) => return r,
+    };
+    let email_lower = body.email.trim().to_lowercase();
+
+    let success_msg = "If an account exists with that email, a password reset link has been sent.";
+
+    // Look up user — always return same message regardless
+    let user = match db::get_by_field(USERS_COLLECTION, "email", serde_json::json!(email_lower)) {
+        Ok(u) => u,
+        Err(_) => return json_respond(msg, &serde_json::json!({"message": success_msg})),
+    };
+
+    // Generate password reset JWT
+    let mut claims = std::collections::HashMap::new();
+    claims.insert("sub".to_string(), serde_json::json!(user.id));
+    claims.insert("email".to_string(), serde_json::json!(email_lower));
+    claims.insert("type".to_string(), serde_json::json!("password_reset"));
+
+    let token = match crypto::sign(&claims, std::time::Duration::from_secs(3600)) {
+        Ok(t) => t,
+        Err(_) => return json_respond(msg, &serde_json::json!({"message": success_msg})),
+    };
+
+    json_respond(msg, &serde_json::json!({
+        "message": success_msg,
+        "_reset_token": token
+    }))
+}
+
+fn handle_reset_password(msg: &Message) -> BlockResult {
+    #[derive(serde::Deserialize)]
+    struct ResetPasswordReq { token: String, new_password: String }
+
+    let body: ResetPasswordReq = match decode_body(msg) {
+        Ok(b) => b,
+        Err(r) => return r,
+    };
+
+    // Validate password length
+    if body.new_password.len() < 8 {
+        return error_response(msg, ErrorCode::InvalidArgument, "Password must be at least 8 characters");
+    }
+    if body.new_password.len() > 256 {
+        return error_response(msg, ErrorCode::InvalidArgument, "Password must not exceed 256 characters");
+    }
+
+    // Verify the JWT token
+    let claims = match crypto::verify(&body.token) {
+        Ok(c) => c,
+        Err(_) => return error_response(msg, ErrorCode::Unauthenticated, "Invalid or expired reset token"),
+    };
+
+    let token_type = claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    if token_type != "password_reset" {
+        return error_response(msg, ErrorCode::InvalidArgument, "Not a password reset token");
+    }
+
+    let user_id = claims.get("sub")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if user_id.is_empty() {
+        return error_response(msg, ErrorCode::InvalidArgument, "Invalid reset token");
+    }
+
+    // Hash new password
+    let password_hash = match crypto::hash(&body.new_password) {
+        Ok(h) => h,
+        Err(e) => return err_internal(msg, &format!("Failed to hash password: {e}")),
+    };
+
+    // Update user's password
+    let mut data = json_map(serde_json::json!({"password_hash": password_hash}));
+    stamp_updated(&mut data);
+    if let Err(e) = db::update(USERS_COLLECTION, &user_id, data) {
+        return err_internal(msg, &format!("Failed to update password: {e}"));
+    }
+
+    // Delete all refresh tokens for the user (force re-login)
+    let _ = db::delete_by_field(TOKENS_COLLECTION, "user_id", serde_json::json!(user_id));
+
+    json_respond(msg, &serde_json::json!({
+        "message": "Password reset successfully. Please log in with your new password."
+    }))
 }
 
 // ---------------------------------------------------------------------------

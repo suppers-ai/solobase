@@ -1,5 +1,4 @@
 /* All @import statements must come first */
-@import url('https://fonts.googleapis.com/css2?family=Fredoka&family=Itim&display=swap');
 @import '@solobase/ui/css/variables.css';
 @import '@solobase/ui/css/layout.css';
 @import '@solobase/ui/css/sidebar.css';

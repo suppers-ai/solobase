@@ -135,12 +135,36 @@ fn handle_list(msg: &Message) -> BlockResult {
     let filters = vec![Filter {
         field: "user_id".to_string(),
         operator: FilterOp::Equal,
-        value: serde_json::Value::String(user_id),
+        value: serde_json::Value::String(user_id.clone()),
     }];
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
     match paginated_list(DEPLOYMENTS_COLLECTION, page as i64, page_size as i64, filters, sort) {
-        Ok(result) => json_respond(msg, &serde_json::to_value(&result).unwrap_or_default()),
+        Ok(result) => {
+            // Enrich each record with can_activate flag based on user's plan
+            let cap = get_activation_capacity(DEPLOYMENTS_COLLECTION, &user_id);
+            let has_room = cap.active_count < cap.max_active;
+
+            let mut json_val = serde_json::to_value(&result).unwrap_or_default();
+            if let Some(records) = json_val.get_mut("records").and_then(|v| v.as_array_mut()) {
+                for record in records.iter_mut() {
+                    let status = record.get("data")
+                        .and_then(|d| d.get("status"))
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("");
+                    let can_activate = status == "inactive" && has_room;
+                    record.as_object_mut().map(|obj| {
+                        obj.insert("can_activate".to_string(), serde_json::Value::Bool(can_activate));
+                    });
+                }
+            }
+            // Include plan info in the response
+            json_val.as_object_mut().map(|obj| {
+                obj.insert("plan".to_string(), serde_json::Value::String(cap.plan));
+            });
+
+            json_respond(msg, &json_val)
+        }
         Err(e) => err_internal(msg, &format!("Database error: {}", e.message)),
     }
 }
@@ -193,10 +217,10 @@ fn handle_create(msg: &Message) -> BlockResult {
     let now = now_rfc3339();
 
     let mut data = HashMap::new();
-    data.insert("user_id".to_string(), serde_json::Value::String(user_id));
+    data.insert("user_id".to_string(), serde_json::Value::String(user_id.clone()));
     data.insert("name".to_string(), serde_json::Value::String(name));
     data.insert("slug".to_string(), serde_json::Value::String(slug.clone()));
-    data.insert("status".to_string(), serde_json::Value::String("pending".to_string()));
+    data.insert("status".to_string(), serde_json::Value::String("inactive".to_string()));
     if let Some(cfg) = body.get("config") {
         data.insert("config".to_string(), cfg.clone());
     }
@@ -216,7 +240,19 @@ fn handle_create(msg: &Message) -> BlockResult {
 
     let record_id = record.id.clone();
 
-    // Provision tenant on the control plane
+    // Check whether this deployment should be auto-activated based on the user's plan
+    let activated = activate_if_allowed(DEPLOYMENTS_COLLECTION, &user_id, &record_id);
+
+    if !activated {
+        // Plan does not allow more active deployments — return as inactive
+        // Re-fetch to get the final state
+        return match db::get(DEPLOYMENTS_COLLECTION, &record_id) {
+            Ok(r) => json_respond(msg, &serde_json::to_value(&r).unwrap_or_default()),
+            Err(_) => json_respond(msg, &serde_json::to_value(&record).unwrap_or_default()),
+        };
+    }
+
+    // Deployment was activated — provision tenant on the control plane
     let plan = body.get("plan_id").and_then(|v| v.as_str()).unwrap_or("hobby");
     let provision_body = serde_json::json!({
         "subdomain": slug,
@@ -228,7 +264,6 @@ fn handle_create(msg: &Message) -> BlockResult {
         Ok((status_code, resp_json)) if status_code < 300 => {
             // Store the tenant ID from the control plane response
             let mut update_data = HashMap::new();
-            update_data.insert("status".to_string(), serde_json::Value::String("active".to_string()));
             if let Some(tenant_id) = resp_json.get("id").and_then(|v| v.as_str()) {
                 update_data.insert("tenant_id".to_string(), serde_json::Value::String(tenant_id.to_string()));
             }
@@ -255,13 +290,16 @@ fn handle_create(msg: &Message) -> BlockResult {
             err_internal(msg, &format!("Provisioning failed: {error_msg}"))
         }
         Err(e) => {
-            // Control plane unreachable -- keep as pending, user can retry
+            // Control plane unreachable -- keep as active, admin can provision later
             let mut update_data = HashMap::new();
             update_data.insert("provision_error".to_string(), serde_json::Value::String(e));
             update_data.insert("updated_at".to_string(), serde_json::Value::String(now_rfc3339()));
             let _ = db::update(DEPLOYMENTS_COLLECTION, &record_id, update_data);
-            // Still return the record -- it's in "pending" status, admin can provision later
-            json_respond(msg, &serde_json::to_value(&record).unwrap_or_default())
+            // Re-fetch to return current state (active, but with provision_error)
+            match db::get(DEPLOYMENTS_COLLECTION, &record_id) {
+                Ok(r) => json_respond(msg, &serde_json::to_value(&r).unwrap_or_default()),
+                Err(_) => json_respond(msg, &serde_json::to_value(&record).unwrap_or_default()),
+            }
         }
     }
 }

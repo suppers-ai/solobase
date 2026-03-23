@@ -86,6 +86,14 @@ pub fn str_field<'a>(record: &'a Record, key: &str) -> &'a str {
         .unwrap_or("")
 }
 
+pub fn i64_field(record: &Record, key: &str) -> i64 {
+    record
+        .data
+        .get(key)
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+}
+
 // ---------------------------------------------------------------------------
 // Data helpers
 // ---------------------------------------------------------------------------
@@ -126,6 +134,90 @@ pub fn paginated_list(
     sort: Vec<SortField>,
 ) -> Result<db::RecordList, wafer_block::WaferError> {
     db::paginated_list(collection, page, page_size, filters, sort)
+}
+
+// ---------------------------------------------------------------------------
+// Plan / activation helpers
+// ---------------------------------------------------------------------------
+
+const SUBSCRIPTIONS_COLLECTION: &str = "subscriptions";
+
+/// Map a plan name to the maximum number of active deployments allowed.
+fn plan_max_active(plan: &str) -> i64 {
+    match plan {
+        "starter" => 2,
+        "pro" | "platform" => i64::MAX,
+        _ => 0, // "free" or unknown
+    }
+}
+
+/// Look up the user's active subscription and return the plan name.
+pub fn get_user_plan(user_id: &str) -> String {
+    let filters = vec![
+        Filter {
+            field: "user_id".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id.to_string()),
+        },
+        Filter {
+            field: "status".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String("active".to_string()),
+        },
+    ];
+    match db::list_all(SUBSCRIPTIONS_COLLECTION, filters) {
+        Ok(records) if !records.is_empty() => {
+            str_field(&records[0], "plan").to_string()
+        }
+        _ => "free".to_string(),
+    }
+}
+
+/// Count the user's active deployments in the given collection.
+pub fn count_active_deployments(collection: &str, user_id: &str) -> i64 {
+    let filters = vec![
+        Filter {
+            field: "user_id".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id.to_string()),
+        },
+        Filter {
+            field: "status".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String("active".to_string()),
+        },
+    ];
+    db::count(collection, &filters).unwrap_or(0)
+}
+
+/// Activation capacity for a user: plan name, max allowed, current active count.
+pub struct ActivationCapacity {
+    pub plan: String,
+    pub max_active: i64,
+    pub active_count: i64,
+}
+
+/// Compute how many more deployments the user can activate under their current plan.
+pub fn get_activation_capacity(collection: &str, user_id: &str) -> ActivationCapacity {
+    let plan = get_user_plan(user_id);
+    let max_active = plan_max_active(&plan);
+    let active_count = count_active_deployments(collection, user_id);
+    ActivationCapacity { plan, max_active, active_count }
+}
+
+/// After creating a deployment, auto-activate it if the user's plan allows.
+/// Returns true if the deployment was activated.
+pub fn activate_if_allowed(collection: &str, user_id: &str, record_id: &str) -> bool {
+    let cap = get_activation_capacity(collection, user_id);
+    if cap.active_count < cap.max_active {
+        let mut data = std::collections::HashMap::new();
+        data.insert("status".to_string(), serde_json::Value::String("active".to_string()));
+        data.insert("updated_at".to_string(), serde_json::Value::String(now_rfc3339()));
+        let _ = db::update(collection, record_id, data);
+        true
+    } else {
+        false
+    }
 }
 
 // ---------------------------------------------------------------------------
