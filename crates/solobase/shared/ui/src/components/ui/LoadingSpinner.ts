@@ -15,7 +15,7 @@ export function LoadingSpinner({ size = 'md', message }: LoadingSpinnerProps) {
 				width: dim,
 				height: dim,
 				border: '3px solid #e5e7eb',
-				borderTopColor: 'var(--primary-color, #189AB4)',
+				borderTopColor: 'var(--primary-color, #fe6627)',
 				borderRadius: '50%',
 				animation: 'spin 0.6s linear infinite'
 			}} />

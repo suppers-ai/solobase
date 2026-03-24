@@ -112,7 +112,7 @@
 .login-button {
 	width: 100%;
 	padding: 0.875rem 1.5rem;
-	background: var(--primary-color, #189AB4);
+	background: var(--primary-color, #fe6627);
 	color: white;
 	border: none;
 	border-radius: 10px;
@@ -124,18 +124,18 @@
 	align-items: center;
 	justify-content: center;
 	gap: 0.5rem;
-	box-shadow: 0 1px 3px rgba(24, 154, 180, 0.3);
+	box-shadow: 0 1px 3px rgba(254, 102, 39, 0.3);
 }
 
 .login-button:hover:not(:disabled) {
-	background: var(--primary-hover, #0284c7);
+	background: var(--primary-hover, #b72a07);
 	transform: translateY(-1px);
-	box-shadow: 0 4px 12px rgba(24, 154, 180, 0.3);
+	box-shadow: 0 4px 12px rgba(254, 102, 39, 0.3);
 }
 
 .login-button:active:not(:disabled) {
 	transform: translateY(0);
-	box-shadow: 0 1px 3px rgba(24, 154, 180, 0.3);
+	box-shadow: 0 1px 3px rgba(254, 102, 39, 0.3);
 }
 
 .login-button:disabled {
@@ -151,14 +151,14 @@
 }
 
 .signup-link a {
-	color: var(--primary-color, #189AB4);
+	color: var(--primary-color, #fe6627);
 	text-decoration: none;
 	font-weight: 600;
 	transition: color 0.2s;
 }
 
 .signup-link a:hover {
-	color: var(--primary-hover, #0284c7);
+	color: var(--primary-hover, #b72a07);
 	text-decoration: underline;
 }
 

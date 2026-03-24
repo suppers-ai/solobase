@@ -209,16 +209,16 @@ export default function PricingCards() {
 
       {/* Enterprise */}
       <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
-        <div class="bg-gradient-to-r from-primary-400 to-primary-700 rounded-2xl shadow-xl p-12 text-center text-white">
-          <h2 class="text-3xl font-bold mb-4">Enterprise</h2>
-          <p class="text-xl mb-6 opacity-90">
-            Custom solutions for large organizations with dedicated infrastructure.
-          </p>
+        <div class="bg-white border-2 border-primary-400 rounded-xl px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div>
+            <h3 class="text-lg font-bold text-gray-900">Enterprise</h3>
+            <p class="text-gray-600 text-sm">Custom solutions for large organizations with dedicated infrastructure.</p>
+          </div>
           <a
             href="https://discord.gg/jKqMcbrVzm"
             target="_blank"
             rel="noopener noreferrer"
-            class="inline-block bg-white text-primary-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
+            class="shrink-0 inline-block bg-primary-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-700 transition-colors"
           >
             Contact Us
           </a>

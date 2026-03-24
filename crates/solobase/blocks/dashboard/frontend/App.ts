@@ -88,15 +88,15 @@ function LoginSignup() {
 								style=${{ width: '100%', padding: '0.625rem 0.75rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }} />
 						</div>
 						<button type="submit" disabled=${loading}
-							style=${{ width: '100%', padding: '0.75rem', background: 'linear-gradient(135deg, #189AB4, #0ea5e9)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+							style=${{ width: '100%', padding: '0.75rem', background: 'linear-gradient(135deg, #fe6627, #fc4c03)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
 							${loading ? (mode === 'signup' ? 'Creating account...' : 'Signing in...') : (mode === 'signup' ? 'Create Account' : 'Sign In')}
 						</button>
 					</form>
 
 					<div style=${{ textAlign: 'center', marginTop: '1rem', fontSize: '0.813rem', color: '#64748b' }}>
 						${mode === 'login'
-							? html`Don't have an account? <button onClick=${() => { setMode('signup'); setError(''); }} style=${{ background: 'none', border: 'none', color: '#0ea5e9', cursor: 'pointer', fontWeight: 600, fontSize: '0.813rem' }}>Sign up</button>`
-							: html`Already have an account? <button onClick=${() => { setMode('login'); setError(''); }} style=${{ background: 'none', border: 'none', color: '#0ea5e9', cursor: 'pointer', fontWeight: 600, fontSize: '0.813rem' }}>Sign in</button>`
+							? html`Don't have an account? <button onClick=${() => { setMode('signup'); setError(''); }} style=${{ background: 'none', border: 'none', color: '#fe6627', cursor: 'pointer', fontWeight: 600, fontSize: '0.813rem' }}>Sign up</button>`
+							: html`Already have an account? <button onClick=${() => { setMode('login'); setError(''); }} style=${{ background: 'none', border: 'none', color: '#fe6627', cursor: 'pointer', fontWeight: 600, fontSize: '0.813rem' }}>Sign in</button>`
 						}
 					</div>
 				</div>
@@ -118,7 +118,7 @@ function DashboardHeader() {
 			</div>
 			<div style=${{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
 				${isAdmin ? html`
-					<a href="/blocks/admin" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#0ea5e9', textDecoration: 'none', fontWeight: 600 }}>
+					<a href="/blocks/admin" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#fe6627', textDecoration: 'none', fontWeight: 600 }}>
 						<${Shield} size=${16} /> Admin
 					</a>
 				` : null}
@@ -134,7 +134,7 @@ function DashboardHeader() {
 // ─── Usage Bar ──────────────────────────────────────────────────────
 function UsageBar({ label, used, limit, unit }: { label: string, used: number, limit: number, unit: string }) {
 	const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
-	const color = pct > 90 ? '#ef4444' : pct > 70 ? '#f59e0b' : '#0ea5e9';
+	const color = pct > 90 ? '#ef4444' : pct > 70 ? '#f59e0b' : '#fe6627';
 	const fmt = (n: number) => {
 		if (unit === 'bytes') {
 			if (n >= 1073741824) return `${(n / 1073741824).toFixed(1)} GB`;
@@ -236,19 +236,19 @@ function OverviewTab() {
 						limit=${limits.d1 + (usage.storage?.d1_addon_bytes || 0)}
 						unit="bytes" />
 					<div style=${{ textAlign: 'right', marginTop: '0.5rem' }}>
-						<a href="/pricing/" style=${{ fontSize: '0.75rem', color: '#0ea5e9', textDecoration: 'none' }}>Upgrade plan →</a>
+						<a href="/pricing/" style=${{ fontSize: '0.75rem', color: '#fe6627', textDecoration: 'none' }}>Upgrade plan →</a>
 					</div>
 				</div>
 			` : null}
 
 			<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '2rem', textAlign: 'center' }}>
-				<${Rocket} size=${48} style=${{ color: '#0ea5e9', marginBottom: '1rem' }} />
+				<${Rocket} size=${48} style=${{ color: '#fe6627', marginBottom: '1rem' }} />
 				<h2 style=${{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', marginBottom: '0.5rem' }}>Create a Project</h2>
 				<p style=${{ fontSize: '0.875rem', color: '#64748b', maxWidth: '400px', margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
 					Create a new backend project and start building your application.
 				</p>
 				<div style=${{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
-					<a href="#projects" onClick=${(e: any) => { e.preventDefault(); window.location.hash = 'projects'; }} style=${{ padding: '0.625rem 1.25rem', background: 'linear-gradient(135deg, #189AB4, #0ea5e9)', color: 'white', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, textDecoration: 'none' }}>Create Project</a>
+					<a href="#projects" onClick=${(e: any) => { e.preventDefault(); window.location.hash = 'projects'; }} style=${{ padding: '0.625rem 1.25rem', background: 'linear-gradient(135deg, #fe6627, #fc4c03)', color: 'white', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, textDecoration: 'none' }}>Create Project</a>
 					<a href="https://solobase.dev/docs/" style=${{ padding: '0.625rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.875rem', color: '#1e293b', textDecoration: 'none' }}>Read Docs</a>
 				</div>
 			</div>
@@ -393,7 +393,7 @@ function ProjectsTab() {
 								<div style=${{ minWidth: 0 }}>
 									<div style=${{ fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>${d.data?.name || d.name || 'Unnamed'}</div>
 									<div style=${{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
-										${status === 'active' ? html`<span style=${{ color: '#0ea5e9' }}>${(d.data?.slug || d.data?.name || '').toLowerCase().replace(/\s+/g, '-')}.solobase.dev</span> · ` : ''}Created ${(d.data?.created_at || d.created_at) ? new Date(d.data?.created_at || d.created_at).toLocaleDateString() : ''}
+										${status === 'active' ? html`<span style=${{ color: '#fe6627' }}>${(d.data?.slug || d.data?.name || '').toLowerCase().replace(/\s+/g, '-')}.solobase.dev</span> · ` : ''}Created ${(d.data?.created_at || d.created_at) ? new Date(d.data?.created_at || d.created_at).toLocaleDateString() : ''}
 									</div>
 								</div>
 							</div>
@@ -401,7 +401,7 @@ function ProjectsTab() {
 								<${StatusBadge} status=${status} variant=${getStatusVariant(status)} />
 								${status === 'inactive' && !canActivate ? html`
 									<a href="https://solobase.dev/pricing/" target="_blank" rel="noopener"
-										style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.25rem 0.5rem', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.75rem', color: '#0ea5e9', textDecoration: 'none', fontWeight: 500 }}>
+										style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.25rem 0.5rem', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.75rem', color: '#fe6627', textDecoration: 'none', fontWeight: 500 }}>
 										Upgrade to activate
 									</a>
 								` : null}
@@ -426,7 +426,7 @@ function ProjectsTab() {
 							Some projects are inactive. Subscribe to a plan to activate them.
 						</div>
 						<a href="https://solobase.dev/pricing/" target="_blank" rel="noopener"
-							style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.375rem 0.75rem', background: '#0ea5e9', color: 'white', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, textDecoration: 'none' }}>
+							style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.375rem 0.75rem', background: '#fe6627', color: 'white', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, textDecoration: 'none' }}>
 							<${CreditCard} size=${12} /> View Plans
 						</a>
 					</div>

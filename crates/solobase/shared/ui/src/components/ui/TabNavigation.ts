@@ -28,9 +28,9 @@ export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationPro
 						padding: '0.75rem 1rem',
 						background: 'none',
 						border: 'none',
-						borderBottom: `2px solid ${activeTab === tab.id ? 'var(--primary-color, #189AB4)' : 'transparent'}`,
+						borderBottom: `2px solid ${activeTab === tab.id ? 'var(--primary-color, #fe6627)' : 'transparent'}`,
 						marginBottom: '-2px',
-						color: activeTab === tab.id ? 'var(--primary-color, #189AB4)' : 'var(--text-secondary, #64748b)',
+						color: activeTab === tab.id ? 'var(--primary-color, #fe6627)' : 'var(--text-secondary, #64748b)',
 						fontWeight: activeTab === tab.id ? 600 : 400,
 						fontSize: '0.875rem',
 						cursor: 'pointer',
@@ -45,7 +45,7 @@ export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationPro
 					${tab.label}
 					${tab.badge != null ? html`
 						<span style=${{
-							background: 'var(--primary-color, #189AB4)',
+							background: 'var(--primary-color, #fe6627)',
 							color: 'white',
 							fontSize: '0.688rem',
 							padding: '0 0.375rem',

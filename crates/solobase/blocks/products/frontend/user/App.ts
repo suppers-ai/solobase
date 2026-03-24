@@ -53,7 +53,7 @@ function ProductsHeader() {
 			</div>
 			<div style=${{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
 				${isAdmin ? html`
-					<a href="/blocks/admin/frontend/index.html" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#0ea5e9', textDecoration: 'none', fontWeight: 600 }}>
+					<a href="/blocks/admin/frontend/index.html" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#fe6627', textDecoration: 'none', fontWeight: 600 }}>
 						<${Shield} size=${16} /> Admin
 					</a>
 				` : null}
@@ -437,13 +437,13 @@ function PlansTab() {
 
 					return html`
 						<div key=${plan.id} style=${{
-							background: 'white', border: isPro ? '2px solid #0ea5e9' : '1px solid #e2e8f0',
+							background: 'white', border: isPro ? '2px solid #fe6627' : '1px solid #e2e8f0',
 							borderRadius: '12px', padding: '1.5rem', display: 'flex', flexDirection: 'column', position: 'relative'
 						}}>
 							${isCurrent ? html`
 								<span style=${{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: '#22c55e', color: 'white', fontSize: '0.688rem', fontWeight: 600, padding: '0.125rem 0.75rem', borderRadius: '9999px' }}>Current Plan</span>
 							` : isPro ? html`
-								<span style=${{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: '#0ea5e9', color: 'white', fontSize: '0.688rem', fontWeight: 600, padding: '0.125rem 0.75rem', borderRadius: '9999px' }}>Popular</span>
+								<span style=${{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: '#fe6627', color: 'white', fontSize: '0.688rem', fontWeight: 600, padding: '0.125rem 0.75rem', borderRadius: '9999px' }}>Popular</span>
 							` : null}
 							<h3 style=${{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b' }}>${plan.name}</h3>
 							<p style=${{ fontSize: '0.813rem', color: '#64748b', marginTop: '0.25rem', marginBottom: '1rem' }}>${plan.description}</p>
@@ -466,7 +466,7 @@ function PlansTab() {
 									border: isPro && !isCurrent ? 'none' : '1px solid #e2e8f0',
 									borderRadius: '8px', fontSize: '0.813rem', fontWeight: 600,
 									cursor: isCurrent || isSubscribing ? 'default' : 'pointer',
-									background: isCurrent ? '#f1f5f9' : isPro ? 'linear-gradient(135deg, #189AB4, #0ea5e9)' : 'white',
+									background: isCurrent ? '#f1f5f9' : isPro ? 'linear-gradient(135deg, #fe6627, #fc4c03)' : 'white',
 									color: isCurrent ? '#64748b' : isPro ? 'white' : '#1e293b',
 									opacity: isSubscribing ? 0.7 : 1
 								}}>

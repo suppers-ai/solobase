@@ -28,7 +28,7 @@ export function Toggle({ checked, onChange, label, disabled = false }: TogglePro
 					height: '24px',
 					borderRadius: '12px',
 					border: 'none',
-					background: checked ? 'var(--primary-color, #189AB4)' : '#d1d5db',
+					background: checked ? 'var(--primary-color, #fe6627)' : '#d1d5db',
 					cursor: disabled ? 'not-allowed' : 'pointer',
 					transition: 'background 0.2s',
 					flexShrink: 0

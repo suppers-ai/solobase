@@ -8,7 +8,7 @@ interface StatCardProps {
 	color?: string;
 }
 
-export function StatCard({ title, value, icon: Icon, trend, color = 'var(--primary-color, #189AB4)' }: StatCardProps) {
+export function StatCard({ title, value, icon: Icon, trend, color = 'var(--primary-color, #fe6627)' }: StatCardProps) {
 	return html`
 		<div style=${{
 			background: 'white',

@@ -61,7 +61,7 @@ function LoginForm() {
 						style=${{
 							width: '100%',
 							padding: '0.75rem',
-							background: 'var(--primary-color, #189AB4)',
+							background: 'var(--primary-color, #fe6627)',
 							color: 'white',
 							border: 'none',
 							borderRadius: '8px',
