@@ -199,6 +199,11 @@ async fn send_email(
         format!("subject={}", url_encode(subject)),
         format!("html={}", url_encode(html)),
     ];
+    if let Some(reply_to) = ctx.config_get("MAILGUN_REPLY_TO") {
+        if !reply_to.is_empty() {
+            parts.push(format!("h:Reply-To={}", url_encode(reply_to)));
+        }
+    }
     if let Some(text) = text {
         parts.push(format!("text={}", url_encode(text)));
     }
