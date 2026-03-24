@@ -39,6 +39,7 @@ fn block_info(name: &str, summary: &str) -> BlockInfo {
         admin_ui: None,
         runtime: BlockRuntime::default(),
         requires: Vec::new(),
+        collections: Vec::new(),
     }
 }
 

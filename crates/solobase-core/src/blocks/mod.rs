@@ -4,6 +4,7 @@ pub mod helpers;
 pub mod admin;
 pub mod auth;
 pub mod deployments;
+pub mod email;
 pub mod files;
 pub mod legalpages;
 pub mod products;

@@ -12,6 +12,7 @@ export const mainMenu = [
   { name: 'Home', url: '/' },
   { name: 'Pricing', url: '/pricing/' },
   { name: 'Docs', url: '/docs/' },
+  { name: 'Demo', isDemo: true },
   { name: 'Sign In', url: 'https://cloud.solobase.dev/blocks/dashboard/', external: true },
 ];
 

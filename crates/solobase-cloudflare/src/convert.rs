@@ -1,25 +1,42 @@
 //! HTTP ↔ Message conversion for Cloudflare Workers.
 //!
-//! This mirrors the logic in `wafer-core/src/blocks/http/mod.rs` but uses
-//! Cloudflare Worker `Request`/`Response` types instead of axum.
+//! Handles Request→Message (with path normalization) and Result_→Response
+//! (with cookie/header support from meta).
 
 use wafer_run::meta::*;
 use wafer_run::types::*;
 use worker::{Request, Response, Result};
 
 /// Convert a Cloudflare Worker Request into a WAFER Message.
+///
+/// Also normalizes paths:
+/// - Strips `/api` prefix
+/// - Rewrites `/ext/` → `/b/`
+/// - Rewrites `/b/deployments` → `/b/projects`
 pub async fn worker_request_to_message(req: &Request) -> Result<Message> {
     let method = req.method().to_string();
     let url = req.url()?;
-    let path = url.path().to_string();
+    let raw_path = url.path().to_string();
     let query = url.query().unwrap_or("").to_string();
+
+    // Normalize path
+    let mut path = raw_path.clone();
+    if path.starts_with("/api") {
+        path = path[4..].to_string();
+        if path.is_empty() {
+            path = "/".to_string();
+        }
+    }
+    if path.starts_with("/ext/") {
+        path = format!("/b/{}", &path[5..]);
+    }
+    // Alias: /b/deployments → /b/projects (frontend uses old name)
+    path = path.replace("/b/deployments", "/b/projects");
+    path = path.replace("/admin/b/deployments", "/admin/b/projects");
 
     // Read body
     let mut req_clone = req.clone()?;
-    let body = req_clone
-        .bytes()
-        .await
-        .unwrap_or_default();
+    let body = req_clone.bytes().await.unwrap_or_default();
 
     // Extract remote address
     let remote_addr = req
@@ -34,7 +51,7 @@ pub async fn worker_request_to_message(req: &Request) -> Result<Message> {
 
     // HTTP-specific meta
     meta.push(MetaEntry { key: "http.method".into(), value: method.clone() });
-    meta.push(MetaEntry { key: "http.path".into(), value: path.clone() });
+    meta.push(MetaEntry { key: "http.path".into(), value: raw_path });
     meta.push(MetaEntry { key: "http.raw_query".into(), value: query.clone() });
     meta.push(MetaEntry { key: "http.remote_addr".into(), value: remote_addr.clone() });
 
@@ -54,7 +71,7 @@ pub async fn worker_request_to_message(req: &Request) -> Result<Message> {
         .unwrap_or_default();
     meta.push(MetaEntry { key: "http.host".into(), value: host });
 
-    // Normalized request meta
+    // Normalized request meta (using the rewritten path)
     let action = match method.as_str() {
         "GET" | "HEAD" => "retrieve",
         "POST" => "create",
@@ -111,7 +128,7 @@ pub fn wafer_result_to_worker_response(result: Result_) -> Result<Response> {
             let headers = resp.headers_mut();
             headers.set("Content-Type", &content_type)?;
 
-            // Apply response headers from meta
+            // Apply response headers from meta (response meta + message meta)
             apply_meta_headers(headers, &resp_meta)?;
             if let Some(ref msg) = result.message {
                 apply_meta_headers(headers, &msg.meta)?;
@@ -226,14 +243,27 @@ fn error_code_to_http_status(code: &ErrorCode) -> u16 {
     }
 }
 
+/// Apply response headers from meta to the Worker response.
+///
+/// Recognizes:
+/// - `resp.cookie.*` / `resp.set_cookie.*` → Set-Cookie header
+/// - `http.resp.set-cookie.*` → Set-Cookie header
+/// - `resp.header.*` → custom response header
+/// - `http.resp.header.*` → custom response header
 fn apply_meta_headers(
     headers: &mut worker::Headers,
     meta: &[MetaEntry],
 ) -> Result<()> {
     for entry in meta {
-        if entry.key.starts_with(META_RESP_COOKIE_PREFIX) || entry.key.starts_with("http.resp.set-cookie.") {
+        // Cookie headers
+        if entry.key.starts_with(META_RESP_COOKIE_PREFIX)
+            || entry.key.starts_with("resp.set_cookie.")
+            || entry.key.starts_with("http.resp.set-cookie.")
+        {
             headers.append("Set-Cookie", &entry.value)?;
-        } else if let Some(name) = entry.key.strip_prefix(META_RESP_HEADER_PREFIX)
+        }
+        // Custom response headers
+        else if let Some(name) = entry.key.strip_prefix(META_RESP_HEADER_PREFIX)
             .or_else(|| entry.key.strip_prefix("http.resp.header."))
         {
             headers.set(name, &entry.value)?;

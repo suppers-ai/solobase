@@ -9,11 +9,11 @@ description = "Solobase on Cloudflare Workers — multi-tenant WAFER runtime ada
 crate-type = ["cdylib"]
 
 [dependencies]
-# WAFER runtime (types + meta only, no full runtime)
+# WAFER runtime
 wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
 wafer-block = { path = "../../../wafer-run/crates/wafer-block" }
 
-# Solobase blocks (no server features — just the block implementations)
+# Solobase blocks
 solobase = { path = "../solobase", default-features = false }
 
 # Solobase shared core (routing, crypto, features, pipeline)
@@ -32,9 +32,11 @@ serde_json = "1"
 # Time
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
 
-# Crypto (sha2, hmac, argon2, base64 now in solobase-core)
+# Crypto
 uuid = { version = "1", features = ["v4", "js"] }
 getrandom = { version = "0.2", features = ["js"] }
+hmac = "0.12"
+sha2 = "0.10"
 
 # Async
 async-trait = "0.1"

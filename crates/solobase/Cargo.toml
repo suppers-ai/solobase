@@ -93,6 +93,7 @@ tracing-subscriber = { workspace = true, optional = true }
 # Crypto
 sha2 = { workspace = true }
 hmac = "0.12"
+getrandom = "0.2"
 schemars = { workspace = true }
 
 # Time

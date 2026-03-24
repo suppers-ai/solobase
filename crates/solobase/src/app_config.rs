@@ -312,7 +312,20 @@ impl AppConfig {
         // Keep wafer-run/storage as an alias too for backward compatibility
         aliases.push(("wafer-run/storage".into(), storage_block_name.into()));
 
-        let jwt = self.jwt_secret.clone().unwrap_or_default();
+        let jwt = match &self.jwt_secret {
+            Some(s) if !s.is_empty() => s.clone(),
+            _ => {
+                let mut bytes = [0u8; 32];
+                getrandom::getrandom(&mut bytes).expect("failed to generate random JWT secret");
+                let generated: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+                tracing::warn!("==========================================================");
+                tracing::warn!("JWT_SECRET was not set — generated a random secret.");
+                tracing::warn!("Save this for future use (or tokens will invalidate on restart):");
+                tracing::warn!("  export JWT_SECRET=\"{generated}\"");
+                tracing::warn!("==========================================================");
+                generated
+            }
+        };
         blocks.insert("wafer-run/crypto".into(), json!({ "jwt_secret": jwt }));
 
         blocks.insert("wafer-run/network".into(), json!({}));

@@ -127,7 +127,7 @@ export default function Hero() {
           Solobase
         </h1>
         <p class="text-xl md:text-2xl mb-12 max-w-2xl mx-auto" style={{ color: '#6b7280' }}>
-          Open source backend with authentication, storage, database, and payments — all in a single binary powered by the WAFER block runtime.
+          A fast backend without the overcomplicated setup or dependencies. Just a single binary.
         </p>
       </div>
     </section>

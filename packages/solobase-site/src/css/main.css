@@ -204,8 +204,7 @@ html {
 }
 
 /* Code blocks - VS Code Dark+ inspired */
-.docs-content pre,
-pre {
+.docs-content pre {
   background: var(--code-bg) !important;
   border-radius: 0.5rem !important;
   padding: 0 !important;
@@ -216,8 +215,7 @@ pre {
   position: relative;
 }
 
-.docs-content pre code,
-pre code {
+.docs-content pre code {
   background: transparent !important;
   padding: 1rem 1.25rem !important;
   color: var(--code-text) !important;

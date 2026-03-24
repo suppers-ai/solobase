@@ -1,24 +1,13 @@
 name = "solobase-development"
-# Set via: export CLOUDFLARE_ACCOUNT_ID=your-account-id
-# Or uncomment below:
-# account_id = ""
-main = "worker/index.ts"
+main = "build/worker/shim.mjs"
 compatibility_date = "2026-03-01"
-compatibility_flags = ["nodejs_compat"]
 
-[[rules]]
-type = "CompiledWasm"
-globs = ["**/*.wasm"]
+[build]
+command = "cargo install worker-build && worker-build --release"
 
 # =============================================================================
 # Default environment (development / local)
 # =============================================================================
-#
-# Used by: npx wrangler dev
-#
-# Local dev uses .dev.vars for secrets (JWT_SECRET, ADMIN_SECRET, ADMIN_EMAIL).
-# Binding IDs below are placeholders — wrangler dev creates local emulations.
-# Tables are auto-created on first API request (no manual migrations needed).
 
 [vars]
 ENVIRONMENT = "development"
@@ -27,7 +16,6 @@ ENVIRONMENT = "development"
 binding = "DB"
 database_name = "solobase-db-dev"
 database_id = "local-dev-db"
-migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "STORAGE"
@@ -40,19 +28,6 @@ id = "local-dev-kv"
 # =============================================================================
 # Production environment
 # =============================================================================
-#
-# Used by: npx wrangler deploy --env production
-#
-# Setup (one-time):
-#   npx wrangler d1 create solobase-db
-#   npx wrangler r2 bucket create solobase-storage
-#   npx wrangler kv namespace create PROJECTS
-#   npx wrangler secret put JWT_SECRET --env production
-#   npx wrangler secret put ADMIN_SECRET --env production
-#   npx wrangler secret put ADMIN_EMAIL --env production
-#
-# Tables are auto-created on first request — no manual migrations.
-# DNS: Add a wildcard route *.solobase.dev → solobase-production worker
 
 [env.production]
 name = "solobase-production"
@@ -64,7 +39,6 @@ ENVIRONMENT = "production"
 binding = "DB"
 database_name = "solobase-db"
 database_id = "4e2ec8f8-fc62-440a-8406-7bc522045c12"
-migrations_dir = "migrations"
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"

@@ -1,23 +1,20 @@
-//! Control plane API — platform-level tenant management.
-//!
-//! These endpoints are protected by a platform admin secret and handle
-//! tenant provisioning, configuration, and monitoring.
+//! Control plane API — platform-level project management.
 //!
 //! All control plane routes are under `/_control/` and require the
 //! `X-Admin-Secret` header to match the `ADMIN_SECRET` environment variable.
+//! Uses constant-time comparison to prevent timing attacks.
 
 use std::collections::HashMap;
 
 use worker::*;
 
 use crate::helpers::json_response;
+use crate::project::is_reserved_subdomain;
 use crate::provision;
 
 /// Handle a control plane request.
-///
-/// Called when the path starts with `/_control/`.
 pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result<Response> {
-    // Verify admin secret
+    // Verify admin secret with constant-time comparison
     let provided = req
         .headers()
         .get("x-admin-secret")
@@ -31,7 +28,7 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
         .or_else(|_| env.var("ADMIN_SECRET").map(|v| v.to_string()))
         .unwrap_or_default();
 
-    if expected.is_empty() || provided != expected {
+    if expected.is_empty() || !constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
         return json_response(
             &serde_json::json!({"error": "unauthorized", "message": "invalid admin secret"}),
             401,
@@ -39,7 +36,7 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
     }
 
     let kv = env
-        .kv("TENANTS")
+        .kv("PROJECTS")
         .map_err(|e| Error::RustError(format!("KV binding: {e}")))?;
 
     let db = env
@@ -49,51 +46,63 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
     let method = req.method().to_string();
 
     match (method.as_str(), path) {
-        // List all tenants
-        ("GET", "tenants") => {
-            let tenants = provision::list_tenants(&kv).await?;
-            json_response(&serde_json::json!({"tenants": tenants}), 200)
+        // List all projects
+        ("GET", "projects") => {
+            let projects = provision::list_projects(&kv).await?;
+            json_response(&serde_json::json!({"projects": projects}), 200)
         }
 
-        // Get a specific tenant
-        ("GET", _) if path.starts_with("tenants/") => {
-            let subdomain = path.strip_prefix("tenants/").unwrap_or("");
-            match provision::get_tenant(&kv, subdomain).await? {
+        // Get a specific project
+        ("GET", _) if path.starts_with("projects/") => {
+            let subdomain = path.strip_prefix("projects/").unwrap_or("");
+            match provision::get_project(&kv, subdomain).await? {
                 Some(config) => json_response(&config, 200),
                 None => json_response(
-                    &serde_json::json!({"error": "not_found", "message": "tenant not found"}),
+                    &serde_json::json!({"error": "not_found", "message": "project not found"}),
                     404,
                 ),
             }
         }
 
-        // Create a new tenant
-        ("POST", "tenants") => {
+        // Create a new project
+        ("POST", "projects") => {
             #[derive(serde::Deserialize)]
             struct Req {
                 subdomain: String,
+                #[serde(default)]
+                name: String,
                 #[serde(default = "default_plan")]
                 plan: String,
-                /// Optional app config (same as solobase.json). If omitted, all features enabled.
-                config: Option<crate::tenant::TenantAppConfig>,
+                #[serde(default)]
+                owner_user_id: Option<String>,
+                config: Option<crate::project::ProjectAppConfig>,
             }
-            fn default_plan() -> String {
-                "hobby".into()
-            }
+            fn default_plan() -> String { "free".into() }
 
             let req: Req = serde_json::from_slice(body)
                 .map_err(|e| Error::RustError(format!("invalid body: {e}")))?;
 
-            let tenant = provision::create_tenant(&kv, &db, &req.subdomain, &req.plan, req.config).await?;
-            json_response(&tenant, 201)
+            // Validate subdomain
+            if is_reserved_subdomain(&req.subdomain) {
+                return json_response(
+                    &serde_json::json!({"error": "invalid_argument", "message": "subdomain is reserved"}),
+                    400,
+                );
+            }
+
+            let project = provision::create_project(
+                &kv, &db, &req.subdomain, &req.name, &req.plan,
+                req.owner_user_id.as_deref(), req.config,
+            ).await?;
+            json_response(&project, 201)
         }
 
-        // Update a tenant
-        ("PUT" | "PATCH", _) if path.starts_with("tenants/") => {
-            let subdomain = path.strip_prefix("tenants/").unwrap_or("");
-            let current = provision::get_tenant(&kv, subdomain)
+        // Update a project
+        ("PUT" | "PATCH", _) if path.starts_with("projects/") => {
+            let subdomain = path.strip_prefix("projects/").unwrap_or("");
+            let current = provision::get_project(&kv, subdomain)
                 .await?
-                .ok_or_else(|| Error::RustError("tenant not found".into()))?;
+                .ok_or_else(|| Error::RustError("project not found".into()))?;
 
             let updates: HashMap<String, serde_json::Value> =
                 serde_json::from_slice(body)
@@ -103,20 +112,26 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             if let Some(plan) = updates.get("plan").and_then(|v| v.as_str()) {
                 config.plan = plan.to_string();
             }
+            if let Some(status) = updates.get("status").and_then(|v| v.as_str()) {
+                config.status = status.to_string();
+            }
+            if let Some(name) = updates.get("name").and_then(|v| v.as_str()) {
+                config.name = name.to_string();
+            }
             if let Some(app_config) = updates.get("config") {
                 if let Ok(c) = serde_json::from_value(app_config.clone()) {
                     config.config = c;
                 }
             }
 
-            provision::update_tenant(&kv, subdomain, &config).await?;
+            provision::update_project(&kv, subdomain, &config).await?;
             json_response(&config, 200)
         }
 
-        // Delete a tenant
-        ("DELETE", _) if path.starts_with("tenants/") => {
-            let subdomain = path.strip_prefix("tenants/").unwrap_or("");
-            provision::delete_tenant(&kv, subdomain).await?;
+        // Delete a project
+        ("DELETE", _) if path.starts_with("projects/") => {
+            let subdomain = path.strip_prefix("projects/").unwrap_or("");
+            provision::delete_project(&kv, subdomain).await?;
             json_response(&serde_json::json!({"deleted": true}), 200)
         }
 
@@ -131,11 +146,11 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
 
         // Platform health
         ("GET", "health") => {
-            let tenants = provision::list_tenants(&kv).await?;
+            let projects = provision::list_projects(&kv).await?;
             json_response(
                 &serde_json::json!({
                     "status": "ok",
-                    "tenant_count": tenants.len(),
+                    "project_count": projects.len(),
                     "version": env!("CARGO_PKG_VERSION"),
                 }),
                 200,
@@ -147,4 +162,16 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             404,
         ),
     }
+}
+
+/// Constant-time byte comparison.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }

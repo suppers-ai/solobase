@@ -1,18 +1,13 @@
 //! D1 database schema definitions and migration.
 //!
-//! Each tenant has their own D1 database, so tables do not need a tenant_id
-//! column — all data in the database belongs to that single tenant.
+//! Each project has its own D1 database, so tables do not need a tenant_id
+//! column — all data in the database belongs to that single project.
 //!
 //! Table names and columns must match what solobase-core blocks expect.
-//! The D1DatabaseService dynamically builds INSERT/SELECT SQL from HashMap
-//! keys, so every column referenced in block code must exist here.
 
 use worker::*;
 
 /// SQL statements to create the standard Solobase tables.
-///
-/// Grouped by block for clarity. All tables use `id TEXT PRIMARY KEY`
-/// (the D1DatabaseService generates UUIDs). Timestamps are TEXT (RFC 3339).
 const MIGRATIONS: &[&str] = &[
     // =========================================================================
     // AUTH BLOCK — auth_users, auth_tokens, api_keys
@@ -25,6 +20,10 @@ const MIGRATIONS: &[&str] = &[
         name TEXT DEFAULT '',
         disabled INTEGER DEFAULT 0,
         avatar_url TEXT DEFAULT '',
+        email_verified INTEGER DEFAULT 0,
+        verification_token TEXT DEFAULT '',
+        reset_token TEXT DEFAULT '',
+        reset_token_expires TEXT,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now')),
         deleted_at TEXT
@@ -115,7 +114,7 @@ const MIGRATIONS: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs (created_at)",
 
     // =========================================================================
-    // STORAGE / FILES BLOCK — storage_buckets, storage_objects, storage_views
+    // STORAGE / FILES BLOCK
     // =========================================================================
 
     "CREATE TABLE IF NOT EXISTS storage_buckets (
@@ -151,7 +150,7 @@ const MIGRATIONS: &[&str] = &[
     )",
 
     // =========================================================================
-    // CLOUD STORAGE — cloud_shares, cloud_access_logs, cloud_quotas
+    // CLOUD STORAGE
     // =========================================================================
 
     "CREATE TABLE IF NOT EXISTS cloud_shares (
@@ -177,7 +176,6 @@ const MIGRATIONS: &[&str] = &[
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
     )",
-    "CREATE INDEX IF NOT EXISTS idx_cloud_access_share ON cloud_access_logs (share_id)",
 
     "CREATE TABLE IF NOT EXISTS cloud_quotas (
         id TEXT PRIMARY KEY,
@@ -192,8 +190,7 @@ const MIGRATIONS: &[&str] = &[
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_quotas_user ON cloud_quotas (user_id)",
 
     // =========================================================================
-    // PRODUCTS BLOCK — products, groups, types, pricing, purchases, line items,
-    //                   group templates, product templates, variables
+    // PRODUCTS BLOCK
     // =========================================================================
 
     "CREATE TABLE IF NOT EXISTS block_products_products (
@@ -222,7 +219,6 @@ const MIGRATIONS: &[&str] = &[
     )",
     "CREATE INDEX IF NOT EXISTS idx_products_status ON block_products_products (status)",
     "CREATE INDEX IF NOT EXISTS idx_products_group ON block_products_products (group_id)",
-    "CREATE INDEX IF NOT EXISTS idx_products_created_by ON block_products_products (created_by)",
 
     "CREATE TABLE IF NOT EXISTS block_products_groups (
         id TEXT PRIMARY KEY,
@@ -335,7 +331,7 @@ const MIGRATIONS: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_legalpages_type_status ON block_legalpages_legal_documents (doc_type, status)",
 
     // =========================================================================
-    // DEPLOYMENTS BLOCK
+    // PROJECTS BLOCK (was deployments)
     // =========================================================================
 
     "CREATE TABLE IF NOT EXISTS block_deployments (
@@ -343,12 +339,13 @@ const MIGRATIONS: &[&str] = &[
         user_id TEXT NOT NULL,
         name TEXT NOT NULL,
         slug TEXT DEFAULT '',
-        status TEXT DEFAULT 'pending',
+        status TEXT DEFAULT 'inactive',
         config TEXT DEFAULT '{}',
+        plan TEXT DEFAULT 'free',
         plan_id TEXT DEFAULT '',
         purchase_id TEXT DEFAULT '',
         tenant_id TEXT DEFAULT '',
-        subdomain TEXT DEFAULT '',
+        subdomain TEXT DEFAULT '' UNIQUE,
         provision_error TEXT,
         deprovision_error TEXT,
         deleted_at TEXT,
@@ -357,6 +354,68 @@ const MIGRATIONS: &[&str] = &[
     )",
     "CREATE INDEX IF NOT EXISTS idx_deployments_user ON block_deployments (user_id)",
     "CREATE INDEX IF NOT EXISTS idx_deployments_status ON block_deployments (status)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_deployments_subdomain ON block_deployments (subdomain) WHERE subdomain != ''",
+
+    // =========================================================================
+    // USERPORTAL BLOCK
+    // =========================================================================
+
+    "CREATE TABLE IF NOT EXISTS block_userportal_profiles (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL UNIQUE,
+        display_name TEXT DEFAULT '',
+        bio TEXT DEFAULT '',
+        avatar_url TEXT DEFAULT '',
+        preferences TEXT DEFAULT '{}',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    )",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_userportal_user ON block_userportal_profiles (user_id)",
+
+    // =========================================================================
+    // PLATFORM TABLES — subscriptions, project_usage
+    // =========================================================================
+
+    "CREATE TABLE IF NOT EXISTS subscriptions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL UNIQUE,
+        stripe_customer_id TEXT DEFAULT '',
+        stripe_subscription_id TEXT DEFAULT '',
+        plan TEXT DEFAULT 'free',
+        status TEXT DEFAULT 'active',
+        grace_period_end TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    )",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions (user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe ON subscriptions (stripe_subscription_id)",
+
+    "CREATE TABLE IF NOT EXISTS project_usage (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        month TEXT NOT NULL,
+        requests INTEGER DEFAULT 0,
+        r2_bytes INTEGER DEFAULT 0,
+        addon_requests INTEGER DEFAULT 0,
+        addon_r2_bytes INTEGER DEFAULT 0,
+        addon_d1_bytes INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(project_id, month)
+    )",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_project_usage_pm ON project_usage (project_id, month)",
+
+    // =========================================================================
+    // SEED DATA — default IAM roles, settings
+    // =========================================================================
+
+    "INSERT OR IGNORE INTO iam_roles (id, name, description, permissions, is_system) VALUES
+        ('role_admin', 'admin', 'Full administrative access', '[\"*\"]', 1),
+        ('role_user', 'user', 'Standard user access', '[\"read\",\"write\"]', 1)",
+
+    "INSERT OR IGNORE INTO settings (id, key, value) VALUES
+        ('setting_site_name', 'site_name', 'Solobase'),
+        ('setting_site_url', 'site_url', 'https://solobase.dev')",
 ];
 
 /// Run all schema migrations on a D1 database.

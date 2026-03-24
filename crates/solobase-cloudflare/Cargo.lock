@@ -927,8 +927,10 @@ dependencies = [
  "async-trait",
  "chrono",
  "getrandom 0.2.17",
+ "hmac",
  "serde",
  "serde_json",
+ "sha2",
  "solobase",
  "solobase-core",
  "uuid",
@@ -1164,7 +1166,17 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tracing",
+ "wafer-block",
  "wafer-run",
+]
+
+[[package]]
+name = "wafer-flow"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -1183,6 +1195,7 @@ dependencies = [
  "tracing",
  "url",
  "wafer-block",
+ "wafer-flow",
  "web-time",
 ]
 

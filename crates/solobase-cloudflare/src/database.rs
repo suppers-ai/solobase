@@ -10,7 +10,7 @@ use worker::*;
 
 use wafer_core::interfaces::database::service::{
     Column, DatabaseError, DatabaseService, Filter, FilterOp, ListOptions, Record, RecordList,
-    SortField, Table,
+    Table,
 };
 
 /// Async database service wrapping Cloudflare D1.
