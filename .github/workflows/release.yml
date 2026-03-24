@@ -47,7 +47,6 @@ jobs:
         with:
           repository: wafer-run/wafer-run
           path: ../wafer-run
-          token: ${{ secrets.WAFER_RUN_TOKEN }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
