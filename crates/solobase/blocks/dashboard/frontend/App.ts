@@ -243,16 +243,9 @@ function OverviewTab() {
 				</div>
 			` : null}
 
-			<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '2rem', textAlign: 'center' }}>
-				<${Rocket} size=${48} style=${{ color: '#fe6627', marginBottom: '1rem' }} />
-				<h2 style=${{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', marginBottom: '0.5rem' }}>Create a Project</h2>
-				<p style=${{ fontSize: '0.875rem', color: '#64748b', maxWidth: '400px', margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
-					Create a new backend project and start building your application.
-				</p>
-				<div style=${{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
-					<a href="#projects" onClick=${(e: any) => { e.preventDefault(); window.location.hash = 'projects'; }} style=${{ padding: '0.625rem 1.25rem', background: 'linear-gradient(135deg, #fe6627, #fc4c03)', color: 'white', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, textDecoration: 'none' }}>Create Project</a>
-					<a href="https://solobase.dev/docs/" style=${{ padding: '0.625rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.875rem', color: '#1e293b', textDecoration: 'none' }}>Read Docs</a>
-				</div>
+			<div style=${{ display: 'flex', gap: '0.75rem' }}>
+				<a href="#projects" onClick=${(e: any) => { e.preventDefault(); window.location.hash = 'projects'; }} style=${{ padding: '0.625rem 1.25rem', background: '#fe6627', color: 'white', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, textDecoration: 'none' }}>Create Project</a>
+				<a href="https://solobase.dev/docs/" style=${{ padding: '0.625rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.875rem', color: '#1e293b', textDecoration: 'none' }}>Read Docs</a>
 			</div>
 		</div>
 	`;
@@ -537,6 +530,7 @@ function SettingsTab() {
 	const [name, setName] = useState(user?.name || '');
 	const [saving, setSaving] = useState(false);
 	const [loaded, setLoaded] = useState(false);
+	const [planName, setPlanName] = useState('...');
 
 	useEffect(() => {
 		api.get('/auth/me').then((data: any) => {
@@ -546,6 +540,15 @@ function SettingsTab() {
 			}
 			setLoaded(true);
 		}).catch(() => setLoaded(true));
+
+		api.get('/billing/subscription').then((data: any) => {
+			const sub = data?.subscription;
+			if (sub?.status === 'active') {
+				setPlanName(sub.plan === 'pro' ? 'Pro' : 'Starter');
+			} else {
+				setPlanName('Free');
+			}
+		}).catch(() => setPlanName('Free'));
 	}, []);
 
 	async function handleSave(e: Event) {
@@ -554,7 +557,6 @@ function SettingsTab() {
 		try {
 			await api.put('/auth/me', { name });
 			toasts.success('Profile updated successfully');
-			// Re-check auth to update the global user state
 			await checkAuth();
 		} catch (err: any) {
 			toasts.error(err.message || 'Failed to update profile');
@@ -567,7 +569,19 @@ function SettingsTab() {
 	return html`
 		<div>
 			<${PageHeader} title="Account Settings" description="Manage your profile and preferences" />
+
+			<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', maxWidth: '500px', marginBottom: '1.5rem' }}>
+				<h3 style=${{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b', marginBottom: '1rem' }}>Current Plan</h3>
+				<div style=${{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+					<div>
+						<span style=${{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b' }}>${planName}</span>
+					</div>
+					<a href="/pricing/" style=${{ padding: '0.5rem 1rem', background: '#fe6627', color: 'white', borderRadius: '8px', fontSize: '0.813rem', fontWeight: 600, textDecoration: 'none' }}>Manage Plan</a>
+				</div>
+			</div>
+
 			<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', maxWidth: '500px' }}>
+				<h3 style=${{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b', marginBottom: '1rem' }}>Profile</h3>
 				<form onSubmit=${handleSave}>
 					<div style=${{ marginBottom: '1rem' }}>
 						<label style=${{ display: 'block', fontSize: '0.813rem', fontWeight: 500, color: '#1e293b', marginBottom: '0.375rem' }}>Email</label>

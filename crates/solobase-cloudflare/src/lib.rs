@@ -75,18 +75,14 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
     // 4. Static file serving
     if is_platform {
-        // Redirect cloud.solobase.dev root to dashboard
-        if pathname == "/" || pathname.is_empty() {
-            let dash_url = if is_dev {
-                "/blocks/dashboard/frontend/"
-            } else {
-                "https://cloud.solobase.dev/blocks/dashboard/frontend/"
-            };
-            return redirect(dash_url);
-        }
-
-        // Platform: serve SPA from R2 _site/
-        if let Some(resp) = serve_static(&env, "_site/", &pathname).await {
+        // Platform: serve from R2 _site/
+        // For root path, serve the dashboard directly
+        let serve_path = if pathname == "/" || pathname.is_empty() {
+            "/blocks/dashboard/frontend/"
+        } else {
+            &pathname
+        };
+        if let Some(resp) = serve_static(&env, "_site/", serve_path).await {
             return add_security_headers(resp);
         }
     } else {
@@ -432,13 +428,6 @@ fn get_env_str(env: &Env, key: &str) -> String {
         .map(|s| s.to_string())
         .or_else(|_| env.var(key).map(|v| v.to_string()))
         .unwrap_or_default()
-}
-
-fn redirect(url: &str) -> Result<Response> {
-    let resp = Response::empty()?;
-    let mut resp = resp.with_status(302);
-    resp.headers_mut().set("Location", url)?;
-    Ok(resp)
 }
 
 // ---------------------------------------------------------------------------

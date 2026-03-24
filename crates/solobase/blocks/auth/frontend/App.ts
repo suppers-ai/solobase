@@ -21,9 +21,9 @@ function LoginForm() {
 	return html`
 		<div style=${{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-secondary, #f8fafc)' }}>
 			<div style=${{ width: '100%', maxWidth: '400px', padding: '2rem' }}>
-				<div style=${{ textAlign: 'center', marginBottom: '2rem' }}>
-					<img src="/images/logo_long.png" alt="Solobase" style=${{ height: '40px', width: 'auto', marginBottom: '1rem' }} />
-					<p style=${{ fontSize: '0.875rem', color: 'var(--text-secondary, #64748b)', marginTop: '0.25rem' }}>Sign in to your account</p>
+				<div style=${{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2rem' }}>
+					<img src="/images/logo_long.png" alt="Solobase" style=${{ height: '40px', width: 'auto', marginBottom: '0.75rem', display: 'block' }} />
+					<p style=${{ fontSize: '0.875rem', color: 'var(--text-secondary, #64748b)', margin: 0 }}>Sign in to your account</p>
 				</div>
 
 				${error ? html`

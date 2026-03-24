@@ -6,8 +6,9 @@ node_modules/
 dist/
 
 # Data & test artifacts
-data/
-.data/
+/data/
+/.data/
+crates/solobase/data/
 *.db
 *.db-shm
 *.db-wal

@@ -29,7 +29,7 @@ export function Button({
 	class: className = ''
 }: ButtonProps) {
 	const iconSize = size === 'sm' ? 14 : size === 'lg' ? 18 : 16;
-	const classes = `btn ${variant} ${size}${iconOnly ? ' icon-only' : ''}${disabled ? ' disabled' : ''} ${className}`.trim();
+	const classes = `btn btn-${variant} btn-${size}${iconOnly ? ' icon-only' : ''}${disabled ? ' disabled' : ''} ${className}`.trim();
 
 	function handleClick(e: MouseEvent) {
 		if (!disabled && !loading && onClick) {

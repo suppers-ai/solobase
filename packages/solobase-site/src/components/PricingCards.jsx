@@ -180,7 +180,7 @@ export default function PricingCards() {
       </div>
 
       {/* Plan Cards */}
-      <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+      <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
         {loading ? (
           <Spinner />
         ) : (
@@ -190,6 +190,12 @@ export default function PricingCards() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Cloudflare badge */}
+      <div class="flex flex-col items-center gap-2 pb-16">
+        <span class="text-sm text-gray-500">Deployed on the edge, powered by</span>
+        <img src="/images/cloudflare.png" alt="Cloudflare" style={{ height: '28px' }} />
       </div>
 
       {/* Add-ons */}
