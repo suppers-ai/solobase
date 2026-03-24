@@ -4,9 +4,9 @@
 
 /* CSS Custom Properties */
 :root {
-  --primary: #06b6d4;
-  --primary-hover: #0891b2;
-  --primary-dark: #0e7490;
+  --primary: #fe6627;
+  --primary-hover: #b72a07;
+  --primary-dark: #9a1f0a;
   --text-primary: #1f2937;
   --text-secondary: #6b7280;
   --bg-white: #ffffff;
@@ -161,8 +161,8 @@ html {
 }
 
 .docs-toc a.active {
-  color: #3182ce;
-  border-left-color: #3182ce;
+  color: #fe6627;
+  border-left-color: #fe6627;
   font-weight: 500;
 }
 

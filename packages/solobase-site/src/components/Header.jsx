@@ -42,7 +42,7 @@ export default function Header({ onOpenDemo }) {
                   onClick={(e) => { e.preventDefault(); onOpenDemo?.(); }}
                   class="cursor-pointer"
                   style={{ color: '#6b7280', transition: 'color 0.2s' }}
-                  onMouseOver={(e) => (e.currentTarget.style.color = '#06b6d4')}
+                  onMouseOver={(e) => (e.currentTarget.style.color = '#fe6627')}
                   onMouseOut={(e) => (e.currentTarget.style.color = '#6b7280')}
                 >
                   {item.name}
@@ -52,7 +52,7 @@ export default function Header({ onOpenDemo }) {
                   key={item.name}
                   href={item.url}
                   style={{ color: '#6b7280', transition: 'color 0.2s' }}
-                  onMouseOver={(e) => (e.currentTarget.style.color = '#06b6d4')}
+                  onMouseOver={(e) => (e.currentTarget.style.color = '#fe6627')}
                   onMouseOut={(e) => (e.currentTarget.style.color = '#6b7280')}
                   {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 >
@@ -71,7 +71,7 @@ export default function Header({ onOpenDemo }) {
                 rel="noopener noreferrer"
                 aria-label={item.name}
                 style={{ color: '#6b7280', transition: 'color 0.2s' }}
-                onMouseOver={(e) => (e.currentTarget.style.color = '#06b6d4')}
+                onMouseOver={(e) => (e.currentTarget.style.color = '#fe6627')}
                 onMouseOut={(e) => (e.currentTarget.style.color = '#6b7280')}
               >
                 {icons[item.icon]}

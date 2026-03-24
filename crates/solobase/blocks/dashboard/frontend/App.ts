@@ -186,7 +186,7 @@ function OverviewTab() {
 		}).catch(() => setPlanName('Free'));
 
 		// Fetch projects count
-		api.get('/ext/deployments').then((data: any) => {
+		api.get('/b/projects').then((data: any) => {
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
 			setProjectCount(String(records.length));
 		}).catch(() => setProjectCount('0'));
@@ -241,20 +241,6 @@ function OverviewTab() {
 				</div>
 			` : null}
 
-			${planName === 'Free' ? html`
-			<div style=${{ background: 'linear-gradient(135deg, #ecfeff 0%, #e0f2fe 100%)', border: '1px solid #a5f3fc', borderRadius: '12px', padding: '2rem', textAlign: 'center' }}>
-				<${Rocket} size=${48} style=${{ color: '#0ea5e9', marginBottom: '1rem' }} />
-				<h2 style=${{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', marginBottom: '0.5rem' }}>Activate Your Projects</h2>
-				<p style=${{ fontSize: '0.875rem', color: '#64748b', maxWidth: '400px', margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
-					Your projects are inactive on the free plan. Choose a plan to activate them and go live.
-				</p>
-				<div style=${{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-					<a href="https://solobase.dev/pricing/" style=${{ padding: '0.625rem 1.25rem', background: 'linear-gradient(135deg, #189AB4, #0ea5e9)', color: 'white', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, textDecoration: 'none' }}>View Plans</a>
-					<a href="#projects" onClick=${(e: any) => { e.preventDefault(); window.location.hash = 'projects'; }} style=${{ padding: '0.625rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.875rem', color: '#1e293b', textDecoration: 'none' }}>Create Project</a>
-					<a href="https://solobase.dev/docs/" style=${{ padding: '0.625rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.875rem', color: '#1e293b', textDecoration: 'none' }}>Read Docs</a>
-				</div>
-			</div>
-		` : html`
 			<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '2rem', textAlign: 'center' }}>
 				<${Rocket} size=${48} style=${{ color: '#0ea5e9', marginBottom: '1rem' }} />
 				<h2 style=${{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', marginBottom: '0.5rem' }}>Create a Project</h2>
@@ -266,7 +252,6 @@ function OverviewTab() {
 					<a href="https://solobase.dev/docs/" style=${{ padding: '0.625rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.875rem', color: '#1e293b', textDecoration: 'none' }}>Read Docs</a>
 				</div>
 			</div>
-		`}
 		</div>
 	`;
 }
@@ -284,7 +269,7 @@ function ProjectsTab() {
 
 	const fetchProjects = useCallback(async () => {
 		try {
-			const data: any = await api.get('/ext/deployments');
+			const data: any = await api.get('/b/projects');
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
 			setProjects(records);
 			if (data?.plan) setPlan(data.plan);
@@ -302,7 +287,7 @@ function ProjectsTab() {
 		setCreating(true);
 		setLastCreatedStatus(null);
 		try {
-			const result: any = await api.post('/ext/deployments', { name: newName.trim() });
+			const result: any = await api.post('/b/projects', { name: newName.trim() });
 			const status = result?.data?.status || result?.status || 'inactive';
 			setLastCreatedStatus(status);
 			if (status === 'active') {
@@ -322,7 +307,7 @@ function ProjectsTab() {
 	async function handleDelete(id: string) {
 		setDeleting(id);
 		try {
-			await api.delete(`/ext/deployments/${id}`);
+			await api.delete(`/b/projects/${id}`);
 			toasts.success('Project deleted');
 			await fetchProjects();
 		} catch (err: any) {
@@ -610,11 +595,8 @@ function DashboardNav({ active, onNavigate }: { active: string, onNavigate: (pag
 	];
 
 	return html`
-		<nav style=${{ padding: '0 1.5rem', background: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+		<nav style=${{ padding: '0 1.5rem', background: 'white', borderBottom: '1px solid #e2e8f0' }}>
 			<${TabNavigation} tabs=${tabs} activeTab=${active} onTabChange=${onNavigate} />
-			<a href="https://solobase.dev/pricing/" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#0ea5e9', textDecoration: 'none', fontWeight: 600, padding: '0.5rem 0' }}>
-				<${CreditCard} size=${14} /> Plans
-			</a>
 		</nav>
 	`;
 }

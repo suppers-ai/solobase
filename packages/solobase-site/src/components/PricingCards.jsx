@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import { enterpriseFeatures, faqs, addons } from '../data/pricing';
+import { faqs, addons } from '../data/pricing';
 
 function CheckIcon({ className }) {
   return (
@@ -22,7 +22,7 @@ function Spinner() {
     <div class="flex justify-center py-16">
       <div style={{
         width: '40px', height: '40px', border: '3px solid #e2e8f0',
-        borderTopColor: '#0ea5e9', borderRadius: '50%',
+        borderTopColor: '#fe6627', borderRadius: '50%',
         animation: 'spin 0.6s linear infinite',
       }} />
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -89,15 +89,15 @@ function PlanCard({ plan }) {
   return (
     <div
       class={`bg-white rounded-2xl shadow-lg p-8 border-2 transition-all duration-300 hover:shadow-xl relative flex flex-col ${
-        isPopular ? 'border-cyan-500 transform lg:scale-105' : 'border-gray-200 hover:border-cyan-300'
+        isPopular ? 'border-primary-400 transform lg:scale-105' : 'border-gray-200 hover:border-primary-300'
       }`}
     >
       {isPopular && (
-        <div class="absolute top-0 right-0 bg-cyan-500 text-white px-4 py-1 text-xs font-bold uppercase rounded-bl-lg rounded-tr-2xl">
+        <div class="absolute top-0 right-0 bg-primary-400 text-white px-4 py-1 text-xs font-bold uppercase rounded-bl-lg rounded-tr-2xl">
           Most Popular
         </div>
       )}
-      <div class="text-sm font-semibold text-cyan-600 uppercase tracking-wide mb-2">{plan.name}</div>
+      <div class="text-sm font-semibold text-primary-600 uppercase tracking-wide mb-2">{plan.name}</div>
       <div class="flex items-baseline mb-2">
         <span class="text-5xl font-bold text-gray-900">${plan.price}</span>
         <span class="text-gray-500 ml-2">/month</span>
@@ -118,7 +118,7 @@ function PlanCard({ plan }) {
       <a
         href={`https://cloud.solobase.dev/blocks/auth/?plan=${plan.slug || plan.name.toLowerCase()}`}
         class={`block w-full text-center text-white py-3 rounded-lg font-semibold transition-colors ${
-          isPopular ? 'bg-cyan-600 hover:bg-cyan-700' : 'bg-gray-900 hover:bg-gray-800'
+          isPopular ? 'bg-primary-600 hover:bg-primary-700' : 'bg-gray-900 hover:bg-gray-800'
         }`}
       >
         Get Started
@@ -129,7 +129,7 @@ function PlanCard({ plan }) {
 
 function AddonCard({ addon }) {
   return (
-    <div class="bg-white rounded-xl border border-gray-200 p-6 hover:border-cyan-300 transition-colors">
+    <div class="bg-white rounded-xl border border-gray-200 p-6 hover:border-primary-300 transition-colors">
       <div class="flex justify-between items-start mb-2">
         <h3 class="font-semibold text-gray-900">{addon.name}</h3>
         <div class="text-right">
@@ -209,24 +209,18 @@ export default function PricingCards() {
 
       {/* Enterprise */}
       <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
-        <div class="bg-gradient-to-r from-cyan-500 to-blue-600 rounded-2xl shadow-xl p-12 text-center text-white">
+        <div class="bg-gradient-to-r from-primary-400 to-primary-700 rounded-2xl shadow-xl p-12 text-center text-white">
           <h2 class="text-3xl font-bold mb-4">Enterprise</h2>
           <p class="text-xl mb-6 opacity-90">
             Custom solutions for large organizations with dedicated infrastructure.
           </p>
-          <div class="flex flex-wrap justify-center gap-6 mb-8">
-            {enterpriseFeatures.map((feat) => (
-              <div key={feat} class="flex items-center">
-                <CheckIcon className="w-5 h-5 mr-2" />
-                <span>{feat}</span>
-              </div>
-            ))}
-          </div>
           <a
-            href="mailto:enterprise@solobase.dev"
-            class="inline-block bg-white text-cyan-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
+            href="https://discord.gg/jKqMcbrVzm"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-block bg-white text-primary-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
           >
-            Contact Sales
+            Contact Us
           </a>
         </div>
       </div>

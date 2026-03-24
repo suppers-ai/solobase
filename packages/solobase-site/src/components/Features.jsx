@@ -84,7 +84,7 @@ export default function Features() {
                 class="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow duration-200"
                 style={{ border: '1px solid #e5e7eb' }}
               >
-                <div class="mb-4 text-cyan-600">
+                <div class="mb-4 text-primary-400">
                   {card.icon}
                 </div>
                 <h3 class="text-lg font-semibold text-gray-900 mb-2">{card.title}</h3>

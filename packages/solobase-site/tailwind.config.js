@@ -10,17 +10,17 @@ export default {
     extend: {
       colors: {
         primary: {
-          50: '#ecfeff',
-          100: '#cffafe',
-          200: '#a5f3fc',
-          300: '#67e8f9',
-          400: '#22d3ee',
-          500: '#06b6d4',
-          600: '#0891b2',
-          700: '#0e7490',
-          800: '#155e75',
-          900: '#164e63',
-          950: '#083344',
+          50: '#fff4ed',
+          100: '#ffe6d5',
+          200: '#ffc9a8',
+          300: '#ffa470',
+          400: '#fe6627',
+          500: '#fc4c03',
+          600: '#b72a07',
+          700: '#9a1f0a',
+          800: '#7c1b0e',
+          900: '#661a10',
+          950: '#380a06',
         },
         gray: {
           50: '#f9fafb',
@@ -46,12 +46,12 @@ export default {
             maxWidth: 'none',
             color: '#374151',
             a: {
-              color: '#06b6d4',
+              color: '#fe6627',
               textDecoration: 'underline',
               fontWeight: '500',
             },
             'a:hover': {
-              color: '#0891b2',
+              color: '#b72a07',
             },
             h1: { color: '#111827', fontWeight: '700' },
             h2: { color: '#111827', fontWeight: '600' },

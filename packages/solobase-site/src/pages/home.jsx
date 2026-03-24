@@ -32,7 +32,7 @@ function CodeBlock() {
               background: i === active ? '#1e1e1e' : '#252526',
               color: i === active ? '#d4d4d4' : '#6b7280',
               border: 'none',
-              borderBottom: i === active ? '2px solid #06b6d4' : '2px solid transparent',
+              borderBottom: i === active ? '2px solid #fe6627' : '2px solid transparent',
               cursor: 'pointer',
               fontSize: '0.75rem',
               fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
