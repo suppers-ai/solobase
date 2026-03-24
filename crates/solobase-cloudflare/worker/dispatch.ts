@@ -288,8 +288,10 @@ const blockCache = new Map<string, Block>();
 // WASM blocks disabled — all blocks run on TS while WASM issues are debugged.
 // JSPI is confirmed working (WebAssembly.Suspending + promising available).
 // The jco transpile output needs investigation — blocks crash on execution.
+// WASM blocks that DON'T need JSPI (no runtime/callBlock import — pure logic only)
+// Blocks with callBlock imports fail because CF Workers JSPI isn't fully functional
 const WASM_BLOCKS = new Set<BlockId>([
-  'system',  // Testing WASM — simplest block, no runtime import
+  'system', 'profile',
 ]);
 
 const WASM_JS_MODULES: Record<string, string> = {
@@ -349,22 +351,38 @@ async function callBlock(
 
 import { getCoreModuleFor } from './wasm-loader';
 
+// Static imports for jco-transpiled block JS modules (CF Workers can't do dynamic imports)
+import { instantiate as instantiateSystem } from './wasm-blocks/system/system.component.js';
+import { instantiate as instantiateProfile } from './wasm-blocks/profile/profile.component.js';
+import { instantiate as instantiateUserportal } from './wasm-blocks/userportal/userportal.component.js';
+import { instantiate as instantiateLegalpages } from './wasm-blocks/legalpages/legalpages.component.js';
+import { instantiate as instantiateAdmin } from './wasm-blocks/admin/admin.component.js';
+import { instantiate as instantiateFiles } from './wasm-blocks/files/files.component.js';
+import { instantiate as instantiateProducts } from './wasm-blocks/products/products.component.js';
+import { instantiate as instantiateAuth } from './wasm-blocks/auth/auth.component.js';
+import { instantiate as instantiateDeployments } from './wasm-blocks/deployments/deployments.component.js';
+
+const WASM_INSTANTIATORS: Record<string, Function> = {
+  system: instantiateSystem,
+  profile: instantiateProfile,
+  userportal: instantiateUserportal,
+  legalpages: instantiateLegalpages,
+  admin: instantiateAdmin,
+  files: instantiateFiles,
+  products: instantiateProducts,
+  auth: instantiateAuth,
+  deployments: instantiateDeployments,
+};
+
 async function callWasmBlock(
   blockId: BlockId,
   msg: Message,
   host: RuntimeHost,
 ): Promise<BlockResult> {
-  const jsModule = WASM_JS_MODULES[blockId];
-  if (!jsModule) throw new Error(`No WASM JS module for block: ${blockId}`);
+  const instantiate = WASM_INSTANTIATORS[blockId === 'projects' ? 'deployments' : blockId];
+  if (!instantiate) throw new Error(`No WASM instantiator for block: ${blockId}`);
 
-  const { instantiate } = await import(jsModule);
-
-  // CF Workers: provide custom instantiateCore that uses synchronous WebAssembly.Instance
-  // because WebAssembly.instantiate() may be restricted in the Workers runtime.
-  const cfInstantiateCore = (module: WebAssembly.Module, imports: Record<string, any>) => {
-    return new WebAssembly.Instance(module, imports);
-  };
-
+  // Use default WebAssembly.instantiate (required for JSPI — WebAssembly.Instance doesn't support it)
   const instance = await instantiate(
     getCoreModuleFor(blockId),
     {
@@ -375,7 +393,6 @@ async function callWasmBlock(
         },
       },
     },
-    cfInstantiateCore,
   );
 
   return instance.block.handle(msg);

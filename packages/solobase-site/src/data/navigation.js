@@ -11,10 +11,13 @@ export const siteConfig = {
 export const mainMenu = [
   { name: 'Home', url: '/' },
   { name: 'Pricing', url: '/pricing/' },
-  { name: 'Documentation', url: '/docs/' },
-  { name: 'Discord', url: 'https://discord.gg/jKqMcbrVzm', external: true },
-  { name: 'GitHub', url: 'https://github.com/suppers-ai/solobase', external: true },
+  { name: 'Docs', url: '/docs/' },
   { name: 'Sign In', url: 'https://cloud.solobase.dev/blocks/dashboard/', external: true },
+];
+
+export const socialLinks = [
+  { name: 'Discord', url: 'https://discord.gg/jKqMcbrVzm', icon: 'discord' },
+  { name: 'GitHub', url: 'https://github.com/suppers-ai/solobase', icon: 'github' },
 ];
 
 export const docsSidebar = [

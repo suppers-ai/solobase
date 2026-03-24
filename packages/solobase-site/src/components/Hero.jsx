@@ -69,7 +69,7 @@ export default function Hero() {
   }
 
   return (
-    <section class="flex items-center" style={{ paddingBottom: '32px', background: 'linear-gradient(135deg, #ecfeff 0%, #ffffff 50%, #ecfeff 100%)' }}>
+    <section class="flex items-center" style={{ paddingBottom: '32px', background: '#ffffff' }}>
       <div class="container max-w-6xl mx-auto px-6 text-center">
         <div class="relative mx-auto" style={{ maxWidth: '1280px', width: '100%' }}>
           <div class="mb-8 relative inline-block">
@@ -77,12 +77,12 @@ export default function Hero() {
               ref={heroImgRef}
               src="/images/hero.png"
               alt="Solobase Dashboard"
-              class="mx-auto rounded-lg shadow-lg"
+              class="mx-auto rounded-lg"
               style={{ maxWidth: '400px', width: '100%', height: 'auto', position: 'relative' }}
             />
             <video
               ref={videoRef}
-              class="absolute top-0 left-0 rounded-lg shadow-lg"
+              class="absolute top-0 left-0 rounded-lg"
               style={{ maxWidth: '400px', width: '100%', height: '100%', objectFit: 'cover', display: 'none', zIndex: 25 }}
             >
               <source src="/videos/video_1.mp4" type="video/mp4" />
