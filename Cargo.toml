@@ -26,6 +26,7 @@ reqwest = { version = "0.12", features = ["json"] }
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
 schemars = "0.8"
+openssl = { version = "0.10", features = ["vendored"] }
 
 [profile.release]
 opt-level = "z"

@@ -41,7 +41,7 @@ function parseFeatures(product) {
     if (meta.d1_storage) features.push({ text: `${meta.d1_storage} database storage`, included: true });
     if (meta.r2_storage) features.push({ text: `${meta.r2_storage} file storage`, included: true });
 
-    features.push({ text: 'Subdomain (cloud.solobase.dev)', included: true });
+    features.push({ text: 'Subdomain', included: true });
     features.push({ text: 'SSL included', included: true });
 
     if (meta.custom_domain !== undefined) {
@@ -69,7 +69,7 @@ const FALLBACK_PLANS = [
     features: [
       { text: '2 projects', included: true }, { text: '500K API requests/month', included: true },
       { text: '500MB database storage', included: true }, { text: '2GB file storage', included: true },
-      { text: 'Subdomain (cloud.solobase.dev)', included: true }, { text: 'SSL included', included: true },
+      { text: 'Subdomain', included: true }, { text: 'SSL included', included: true },
       { text: 'Custom domain', included: false },
     ],
   },
@@ -84,19 +84,10 @@ const FALLBACK_PLANS = [
 ];
 
 function PlanCard({ plan }) {
-  const isPopular = plan.popular;
-
   return (
     <div
-      class={`bg-white rounded-2xl shadow-lg p-8 border-2 transition-all duration-300 hover:shadow-xl relative flex flex-col ${
-        isPopular ? 'border-primary-400 transform lg:scale-105' : 'border-gray-200 hover:border-primary-300'
-      }`}
+      class="bg-white rounded-2xl shadow-lg p-8 border-2 border-gray-200 transition-all duration-300 hover:shadow-xl flex flex-col"
     >
-      {isPopular && (
-        <div class="absolute top-0 right-0 bg-primary-400 text-white px-4 py-1 text-xs font-bold uppercase rounded-bl-lg rounded-tr-2xl">
-          Most Popular
-        </div>
-      )}
       <div class="text-sm font-semibold text-primary-600 uppercase tracking-wide mb-2">{plan.name}</div>
       <div class="flex items-baseline mb-2">
         <span class="text-5xl font-bold text-gray-900">${plan.price}</span>
@@ -117,9 +108,7 @@ function PlanCard({ plan }) {
 
       <a
         href={`https://cloud.solobase.dev/blocks/auth/?plan=${plan.slug || plan.name.toLowerCase()}`}
-        class={`block w-full text-center text-white py-3 rounded-lg font-semibold transition-colors ${
-          isPopular ? 'bg-primary-600 hover:bg-primary-700' : 'bg-gray-900 hover:bg-gray-800'
-        }`}
+        class="block w-full text-center text-white py-3 rounded-lg font-semibold transition-colors bg-gray-900 hover:bg-gray-800"
       >
         Get Started
       </a>

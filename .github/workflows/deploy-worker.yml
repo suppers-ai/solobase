@@ -1,0 +1,73 @@
+name: Deploy Cloudflare Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/solobase-cloudflare/**'
+      - 'crates/solobase-core/**'
+      - 'crates/solobase/**'
+      - '.github/workflows/deploy-worker.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/solobase-cloudflare
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install worker-build and wrangler
+        run: |
+          cargo install worker-build
+          npm install -g wrangler
+
+      - name: Build and deploy worker
+        working-directory: crates/solobase-cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: wrangler deploy --env production
+
+      - name: Build and upload frontend assets
+        working-directory: crates/solobase/frontend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npm install
+          npm run build
+
+          cd ../data/storage/site
+          for f in $(find . -type f); do
+            key="_site/${f#./}"
+            ct="application/octet-stream"
+            case "$f" in
+              *.html) ct="text/html; charset=utf-8" ;;
+              *.js)   ct="application/javascript" ;;
+              *.css)  ct="text/css" ;;
+              *.json) ct="application/json" ;;
+              *.png)  ct="image/png" ;;
+              *.ico)  ct="image/x-icon" ;;
+              *.svg)  ct="image/svg+xml" ;;
+              *.map)  ct="application/json" ;;
+              *.woff2) ct="font/woff2" ;;
+              *.woff) ct="font/woff" ;;
+            esac
+            wrangler r2 object put "solobase-storage/$key" \
+              --file "$f" --content-type "$ct" --remote
+          done
