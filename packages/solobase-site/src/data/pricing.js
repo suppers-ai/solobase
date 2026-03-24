@@ -4,22 +4,19 @@
 
 export const addons = [
   {
-    name: 'Extra API Requests',
-    unit: '100K requests',
+    name: 'API Requests',
+    unit: '100K',
     price: 1,
-    description: 'Additional API requests per month',
   },
   {
-    name: 'Extra File Storage',
+    name: 'File Storage',
     unit: '1 GB',
     price: 1,
-    description: 'Additional R2 file storage',
   },
   {
-    name: 'Extra Database Storage',
-    unit: '1 GB',
-    price: 3,
-    description: 'Additional D1 database storage',
+    name: 'Database Storage',
+    unit: '250 MB',
+    price: 1,
   },
 ];
 

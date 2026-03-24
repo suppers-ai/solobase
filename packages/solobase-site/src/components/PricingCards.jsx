@@ -83,12 +83,22 @@ const FALLBACK_PLANS = [
   },
 ];
 
+const planLogos = {
+  starter: '/images/starter_logo.png',
+  pro: '/images/pro_logo.png',
+};
+
 function PlanCard({ plan }) {
+  const logo = planLogos[plan.name.toLowerCase()];
+
   return (
     <div
       class="bg-white rounded-2xl shadow-lg p-8 border-2 border-gray-200 transition-all duration-300 hover:shadow-xl flex flex-col"
     >
-      <div class="text-sm font-semibold text-primary-600 uppercase tracking-wide mb-2">{plan.name}</div>
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-sm font-semibold text-primary-600 uppercase tracking-wide">{plan.name}</div>
+        {logo && <img src={logo} alt={plan.name} class="h-10 object-contain" />}
+      </div>
       <div class="flex items-baseline mb-2">
         <span class="text-5xl font-bold text-gray-900">${plan.price}</span>
         <span class="text-gray-500 ml-2">/month</span>
@@ -118,15 +128,11 @@ function PlanCard({ plan }) {
 
 function AddonCard({ addon }) {
   return (
-    <div class="bg-white rounded-xl border border-gray-200 p-6 hover:border-primary-300 transition-colors">
-      <div class="flex justify-between items-start mb-2">
-        <h3 class="font-semibold text-gray-900">{addon.name}</h3>
-        <div class="text-right">
-          <span class="text-2xl font-bold text-gray-900">${addon.price}</span>
-          <span class="text-gray-500 text-sm">/{addon.unit}</span>
-        </div>
-      </div>
-      <p class="text-gray-600 text-sm">{addon.description}</p>
+    <div class="bg-white rounded-xl border border-gray-200 p-4 hover:border-primary-300 transition-colors flex items-center justify-between">
+      <span class="font-semibold text-gray-900 text-sm">{addon.name}</span>
+      <span class="text-gray-600 text-sm whitespace-nowrap">
+        <span class="font-bold text-gray-900">${addon.price}</span>/{addon.unit}
+      </span>
     </div>
   );
 }

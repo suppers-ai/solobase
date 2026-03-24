@@ -52,6 +52,8 @@ function LoginSignup() {
 			const ok = await login(email, password);
 			if (!ok) {
 				setError('Invalid credentials');
+			} else {
+				window.location.reload();
 			}
 		} catch (err: any) {
 			setError(err.message || 'Something went wrong');

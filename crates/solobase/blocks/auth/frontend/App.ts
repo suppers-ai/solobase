@@ -14,7 +14,7 @@ function LoginForm() {
 		setLoading(false);
 		if (ok) {
 			const params = new URLSearchParams(window.location.search);
-			window.location.href = params.get('redirect') || '/blocks/admin/frontend/index.html';
+			window.location.href = params.get('redirect') || '/blocks/dashboard/frontend/';
 		}
 	}
 
@@ -85,7 +85,7 @@ export function App() {
 	useEffect(() => {
 		checkAuth().then(authenticated => {
 			if (authenticated) {
-				window.location.href = '/blocks/admin/frontend/index.html';
+				window.location.href = '/blocks/dashboard/frontend/';
 			} else {
 				setChecked(true);
 			}

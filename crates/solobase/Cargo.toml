@@ -46,7 +46,6 @@ server = [
 ]
 storage-s3 = ["solobase-core/storage-s3", "dep:wafer-block-s3"]
 postgres = ["solobase-core/postgres", "dep:wafer-block-postgres"]
-vendored-openssl = ["dep:openssl"]
 
 [dependencies]
 # WAFER runtime (minimal — types + clients only)
@@ -96,9 +95,6 @@ sha2 = { workspace = true }
 hmac = "0.12"
 getrandom = "0.2"
 schemars = { workspace = true }
-
-# TLS (vendored OpenSSL for cross-compilation)
-openssl = { workspace = true, optional = true }
 
 # Time
 chrono = { workspace = true }
