@@ -238,7 +238,7 @@ function OverviewTab() {
 						limit=${limits.d1 + (usage.storage?.d1_addon_bytes || 0)}
 						unit="bytes" />
 					<div style=${{ textAlign: 'right', marginTop: '0.5rem' }}>
-						<a href="/pricing/" style=${{ fontSize: '0.75rem', color: '#fe6627', textDecoration: 'none' }}>Upgrade plan →</a>
+						<a href="/blocks/products/frontend/user/" style=${{ fontSize: '0.75rem', color: '#fe6627', textDecoration: 'none' }}>Upgrade plan →</a>
 					</div>
 				</div>
 			` : null}
@@ -576,7 +576,7 @@ function SettingsTab() {
 					<div>
 						<span style=${{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b' }}>${planName}</span>
 					</div>
-					<a href="/pricing/" style=${{ padding: '0.5rem 1rem', background: '#fe6627', color: 'white', borderRadius: '8px', fontSize: '0.813rem', fontWeight: 600, textDecoration: 'none' }}>Manage Plan</a>
+					<a href="/blocks/products/frontend/user/" style=${{ padding: '0.5rem 1rem', background: '#fe6627', color: 'white', borderRadius: '8px', fontSize: '0.813rem', fontWeight: 600, textDecoration: 'none' }}>Manage Plan</a>
 				</div>
 			</div>
 
