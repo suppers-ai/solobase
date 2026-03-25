@@ -223,9 +223,13 @@ async fn admin_stats() {
 // User Product CRUD — ownership isolation
 // ============================================================
 
+fn user_products_ctx() -> MockContext {
+    MockContext::new().with_config("FEATURE_USER_PRODUCTS", "true")
+}
+
 #[tokio::test]
 async fn user_create_product_in_own_group() {
-    let ctx = MockContext::new();
+    let ctx = user_products_ctx();
 
     // Create a group for user_1
     let mut create_group = create_msg("/b/products/groups", "user_1", serde_json::json!({
@@ -249,7 +253,7 @@ async fn user_create_product_in_own_group() {
 
 #[tokio::test]
 async fn user_cannot_create_product_in_other_users_group() {
-    let ctx = MockContext::new();
+    let ctx = user_products_ctx();
 
     // Create a group for user_1
     let mut create_group = create_msg("/b/products/groups", "user_1", serde_json::json!({
@@ -269,7 +273,7 @@ async fn user_cannot_create_product_in_other_users_group() {
 
 #[tokio::test]
 async fn user_cannot_see_other_users_products() {
-    let ctx = MockContext::new();
+    let ctx = user_products_ctx();
 
     // user_1 creates a product
     let mut create = create_msg("/b/products/products", "user_1", serde_json::json!({
@@ -286,7 +290,7 @@ async fn user_cannot_see_other_users_products() {
 
 #[tokio::test]
 async fn user_cannot_update_other_users_products() {
-    let ctx = MockContext::new();
+    let ctx = user_products_ctx();
 
     let mut create = create_msg("/b/products/products", "user_1", serde_json::json!({
         "name": "My Product"
@@ -303,7 +307,7 @@ async fn user_cannot_update_other_users_products() {
 
 #[tokio::test]
 async fn user_cannot_delete_other_users_products() {
-    let ctx = MockContext::new();
+    let ctx = user_products_ctx();
 
     let mut create = create_msg("/b/products/products", "user_1", serde_json::json!({
         "name": "My Product"
@@ -318,7 +322,7 @@ async fn user_cannot_delete_other_users_products() {
 
 #[tokio::test]
 async fn user_list_only_own_products() {
-    let ctx = MockContext::new();
+    let ctx = user_products_ctx();
 
     // user_1 creates a product
     let mut c1 = create_msg("/b/products/products", "user_1", serde_json::json!({"name": "U1 Product"}));
@@ -339,7 +343,7 @@ async fn user_list_only_own_products() {
 
 #[tokio::test]
 async fn user_update_prevents_ownership_change() {
-    let ctx = MockContext::new();
+    let ctx = user_products_ctx();
 
     let mut create = create_msg("/b/products/products", "user_1", serde_json::json!({"name": "Mine"}));
     let create_result = handlers::handle_user(&ctx, &mut create).await;
@@ -362,7 +366,7 @@ async fn user_update_prevents_ownership_change() {
 
 #[tokio::test]
 async fn user_list_only_own_groups() {
-    let ctx = MockContext::new();
+    let ctx = user_products_ctx();
 
     let mut g1 = create_msg("/b/products/groups", "user_1", serde_json::json!({"name": "U1 Group"}));
     handlers::handle_user(&ctx, &mut g1).await;
@@ -380,7 +384,7 @@ async fn user_list_only_own_groups() {
 
 #[tokio::test]
 async fn user_cannot_update_other_users_group() {
-    let ctx = MockContext::new();
+    let ctx = user_products_ctx();
 
     let mut create = create_msg("/b/products/groups", "user_1", serde_json::json!({"name": "My Group"}));
     let create_result = handlers::handle_user(&ctx, &mut create).await;
@@ -395,7 +399,7 @@ async fn user_cannot_update_other_users_group() {
 
 #[tokio::test]
 async fn user_group_update_prevents_ownership_change() {
-    let ctx = MockContext::new();
+    let ctx = user_products_ctx();
 
     let mut create = create_msg("/b/products/groups", "user_1", serde_json::json!({"name": "My Group"}));
     let create_result = handlers::handle_user(&ctx, &mut create).await;
@@ -457,7 +461,7 @@ async fn catalog_get_hides_non_active() {
 
 #[tokio::test]
 async fn user_group_products_list() {
-    let ctx = MockContext::new();
+    let ctx = user_products_ctx();
 
     // Create group
     let mut cg = create_msg("/b/products/groups", "user_1", serde_json::json!({"name": "Store"}));
@@ -481,7 +485,7 @@ async fn user_group_products_list() {
 
 #[tokio::test]
 async fn user_cannot_list_other_users_group_products() {
-    let ctx = MockContext::new();
+    let ctx = user_products_ctx();
 
     let mut cg = create_msg("/b/products/groups", "user_1", serde_json::json!({"name": "Private"}));
     let gr = handlers::handle_user(&ctx, &mut cg).await;
@@ -491,6 +495,43 @@ async fn user_cannot_list_other_users_group_products() {
     let mut list = get_msg(&format!("/b/products/groups/{}/products", gid), "user_2");
     let result = handlers::handle_user(&ctx, &mut list).await;
     assert!(is_error(&result, "not_found"));
+}
+
+// ============================================================
+// User products disabled by default
+// ============================================================
+
+#[tokio::test]
+async fn user_products_rejected_when_disabled() {
+    let ctx = MockContext::new(); // no FEATURE_USER_PRODUCTS config → defaults to false
+
+    let mut create = create_msg("/b/products/products", "user_1", serde_json::json!({"name": "Test"}));
+    let result = handlers::handle_user(&ctx, &mut create).await;
+    assert!(is_error(&result, "permission_denied"));
+
+    let mut list = get_msg("/b/products/products", "user_1");
+    let result = handlers::handle_user(&ctx, &mut list).await;
+    assert!(is_error(&result, "permission_denied"));
+
+    let mut group = create_msg("/b/products/groups", "user_1", serde_json::json!({"name": "Group"}));
+    let result = handlers::handle_user(&ctx, &mut group).await;
+    assert!(is_error(&result, "permission_denied"));
+}
+
+#[tokio::test]
+async fn catalog_still_works_when_user_products_disabled() {
+    let ctx = MockContext::new(); // user products disabled
+
+    let mut d = std::collections::HashMap::new();
+    d.insert("name".to_string(), serde_json::json!("Plan"));
+    d.insert("status".to_string(), serde_json::json!("active"));
+    ctx.seed("block_products_products", "p1", d);
+
+    let mut msg = get_msg("/b/products/catalog", "");
+    let result = handlers::handle_user(&ctx, &mut msg).await;
+    assert_eq!(result.action, Action::Respond);
+    let body = response_json(&result);
+    assert_eq!(body["records"].as_array().unwrap().len(), 1);
 }
 
 // ============================================================

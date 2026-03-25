@@ -45,7 +45,7 @@ impl Block for DeploymentsBlock {
                     .field_ref("user_id", "string", "auth_users.id")
                     .field("name", "string")
                     .field_default("slug", "string", "")
-                    .field_default("status", "string", "pending")
+                    .field_default("status", "string", "inactive")
                     .field_default("config", "json", "{}")
                     .field_default("plan_id", "string", "")
                     .field_default("purchase_id", "string", "")

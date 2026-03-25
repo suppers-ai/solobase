@@ -213,6 +213,7 @@ const MIGRATIONS: &[&str] = &[
         group_template_id TEXT DEFAULT '',
         product_template_id TEXT DEFAULT '',
         pricing_template_id TEXT DEFAULT '',
+        sort_order INTEGER DEFAULT 0,
         created_by TEXT DEFAULT '',
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now')),

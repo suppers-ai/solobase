@@ -91,7 +91,7 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             }
 
             let project = provision::create_project(
-                &kv, &db, &req.subdomain, &req.name, &req.plan,
+                &kv, &req.subdomain, &req.name, &req.plan,
                 req.owner_user_id.as_deref(), req.config,
             ).await?;
             json_response(&project, 201)

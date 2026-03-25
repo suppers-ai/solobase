@@ -162,9 +162,22 @@ async fn handle_project_api(
         return add_cors_headers(resp, req);
     }
 
-    // Usage tracking
-    let db = env.d1(project.db_binding.as_deref().unwrap_or("DB"))
+    // Resolve project's D1 database — projects must have a db_binding configured
+    let db_binding = match project.db_binding.as_deref() {
+        Some(b) => b,
+        None => {
+            let resp = helpers::error_json(
+                "not_configured",
+                "project database not provisioned",
+                503,
+            )?;
+            return add_cors_headers(resp, req);
+        }
+    };
+    let db = env.d1(db_binding)
         .map_err(|e| Error::RustError(format!("D1: {e}")))?;
+
+    // Usage tracking
     let usage_result = usage::check_and_increment_usage(&db, &project).await;
 
     if let Some(ref err) = usage_result.error {
@@ -192,8 +205,10 @@ async fn dispatch_to_blocks(
     project: &ProjectConfig,
     _is_dev: bool,
 ) -> Result<Response> {
-    // Get bindings
-    let db_binding = project.db_binding.as_deref().unwrap_or("DB");
+    // Get bindings — db_binding must be set (platform sets it explicitly,
+    // projects must have it provisioned).
+    let db_binding = project.db_binding.as_deref()
+        .ok_or_else(|| Error::RustError("project has no database binding configured".into()))?;
     let db = env.d1(db_binding)
         .map_err(|e| Error::RustError(format!("D1 binding '{}' error: {e}", db_binding)))?;
     let bucket = env.bucket("STORAGE")

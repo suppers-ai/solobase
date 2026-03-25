@@ -93,8 +93,13 @@ function PlanCard({ plan }) {
 
   return (
     <div
-      class="bg-white rounded-2xl shadow-lg p-8 border-2 border-gray-200 transition-all duration-300 hover:shadow-xl flex flex-col"
+      class={`bg-white rounded-2xl shadow-lg p-8 border-2 transition-all duration-300 hover:shadow-xl flex flex-col relative ${plan.popular ? 'border-primary-500' : 'border-gray-200'}`}
     >
+      {plan.popular && (
+        <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary-500 text-white text-xs font-semibold px-3 py-1 rounded-full">
+          Most Popular
+        </div>
+      )}
       <div class="flex items-center justify-between mb-2">
         <div class="text-sm font-semibold text-primary-600 uppercase tracking-wide">{plan.name}</div>
         {logo && <img src={logo} alt={plan.name} class="h-10 object-contain" />}
@@ -148,16 +153,21 @@ export default function PricingCards() {
       .then(data => {
         const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
         if (records.length > 0) {
-          // Sort by price ascending
-          const sorted = records.sort((a, b) => (a.price || 0) - (b.price || 0));
-          const mapped = sorted.map((p, i) => ({
-            name: p.name,
-            price: p.price || 0,
-            description: p.description || '',
-            slug: p.slug || p.name.toLowerCase(),
-            popular: i === sorted.length - 1, // Last (most expensive) is "popular"
-            features: parseFeatures(p),
-          }));
+          // Flatten: API returns { id, data: {...} }
+          const flat = records.map(r => ({ id: r.id, ...r.data }));
+          // Sort by sort_order, then price
+          const sorted = flat.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || (a.price || 0) - (b.price || 0));
+          const mapped = sorted.map(p => {
+            const meta = typeof p.metadata === 'string' ? JSON.parse(p.metadata || '{}') : (p.metadata || {});
+            return {
+              name: p.name,
+              price: p.price || 0,
+              description: p.description || '',
+              slug: p.slug || p.name.toLowerCase(),
+              popular: meta.popular === true || meta.popular === 'true',
+              features: parseFeatures(p),
+            };
+          });
           setPlans(mapped);
         } else {
           setPlans(FALLBACK_PLANS);

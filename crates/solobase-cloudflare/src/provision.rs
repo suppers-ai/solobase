@@ -11,7 +11,6 @@ use crate::project::{ProjectConfig, ProjectAppConfig};
 /// Provision a new project.
 pub async fn create_project(
     kv: &kv::KvStore,
-    db: &D1Database,
     subdomain: &str,
     name: &str,
     plan: &str,
@@ -33,13 +32,10 @@ pub async fn create_project(
         status: "active".to_string(),
         owner_user_id: owner_user_id.map(String::from),
         db_id: None,
-        db_binding: Some("DB".to_string()),
+        db_binding: None,
         config: app_config.unwrap_or_else(ProjectAppConfig::all_enabled),
         blocks: Vec::new(),
     };
-
-    // Run schema migrations on shared DB
-    crate::schema::run_migrations(db).await?;
 
     // Store project config
     let config_json = serde_json::to_string(&config)

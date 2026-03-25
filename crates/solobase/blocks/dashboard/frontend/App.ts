@@ -354,7 +354,6 @@ function ProjectsTab() {
 	const [newName, setNewName] = useState('');
 	const [creating, setCreating] = useState(false);
 	const [deleting, setDeleting] = useState<string | null>(null);
-	const [lastCreatedStatus, setLastCreatedStatus] = useState<string | null>(null);
 
 	const fetchProjects = useCallback(async () => {
 		try {
@@ -374,15 +373,13 @@ function ProjectsTab() {
 		e.preventDefault();
 		if (!newName.trim()) return;
 		setCreating(true);
-		setLastCreatedStatus(null);
 		try {
 			const result: any = await api.post('/b/projects', { name: newName.trim() });
 			const status = result?.data?.status || result?.status || 'inactive';
-			setLastCreatedStatus(status);
 			if (status === 'active') {
 				toasts.success('Project created and activated!');
 			} else {
-				toasts.success('Project created (inactive). Subscribe to a plan to activate it.');
+				toasts.success('Project created.');
 			}
 			setNewName('');
 			setShowCreateForm(false);
@@ -426,14 +423,14 @@ function ProjectsTab() {
 				<${Button} icon=${Plus} onClick=${() => setShowCreateForm(true)}>Create Project<//>
 			<//>
 
-			${lastCreatedStatus === 'inactive' ? html`
+			${hasInactiveProjects ? html`
 				<div style=${{ background: '#fffbeb', border: '1px solid #fed7aa', borderRadius: '8px', padding: '0.875rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
 					<div>
-						<div style=${{ fontWeight: 600, fontSize: '0.813rem', color: '#92400e' }}>Project created (inactive)</div>
-						<div style=${{ fontSize: '0.75rem', color: '#a16207', marginTop: '0.25rem' }}>Subscribe to a plan to activate your projects.</div>
+						<div style=${{ fontWeight: 600, fontSize: '0.813rem', color: '#92400e' }}>You have inactive projects</div>
+						<div style=${{ fontSize: '0.75rem', color: '#a16207', marginTop: '0.25rem' }}>Subscribe to a plan to activate your projects and make them live.</div>
 					</div>
 					<a href="https://solobase.dev/pricing/" target="_blank" rel="noopener"
-						style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.375rem 0.75rem', background: '#f59e0b', color: 'white', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, textDecoration: 'none' }}>
+						style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.375rem 0.75rem', background: '#f59e0b', color: 'white', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
 						<${CreditCard} size=${12} /> View Plans
 					</a>
 				</div>

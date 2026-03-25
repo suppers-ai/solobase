@@ -149,7 +149,7 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("user_id".to_string(), serde_json::Value::String(user_id));
     data.insert("name".to_string(), serde_json::Value::String(name));
     data.insert("slug".to_string(), serde_json::Value::String(slug.clone()));
-    data.insert("status".to_string(), serde_json::Value::String("pending".to_string()));
+    data.insert("status".to_string(), serde_json::Value::String("inactive".to_string()));
     if let Some(config) = body.get("config") {
         data.insert("config".to_string(), config.clone());
     }
