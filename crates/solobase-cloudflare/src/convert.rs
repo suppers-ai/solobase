@@ -30,9 +30,9 @@ pub async fn worker_request_to_message(req: &Request) -> Result<Message> {
     if path.starts_with("/ext/") {
         path = format!("/b/{}", &path[5..]);
     }
-    // Alias: /b/deployments → /b/projects (frontend uses old name)
-    path = path.replace("/b/deployments", "/b/projects");
-    path = path.replace("/admin/b/deployments", "/admin/b/projects");
+    // Alias: /b/projects → /b/deployments (frontend uses "projects", routing table uses "deployments")
+    path = path.replace("/b/projects", "/b/deployments");
+    path = path.replace("/admin/b/projects", "/admin/b/deployments");
 
     // Read body
     let mut req_clone = req.clone()?;

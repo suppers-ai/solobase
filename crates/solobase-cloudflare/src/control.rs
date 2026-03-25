@@ -164,13 +164,23 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
     }
 }
 
-/// Constant-time byte comparison.
+/// Constant-time byte comparison using HMAC to avoid leaking input length.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    // HMAC both inputs with a fixed key so the comparison is always
+    // over two 32-byte digests, regardless of the original lengths.
+    let key = b"solobase-constant-time-eq";
+    let mut mac_a = Hmac::<Sha256>::new_from_slice(key).unwrap();
+    mac_a.update(a);
+    let hash_a = mac_a.finalize().into_bytes();
+
+    let mut mac_b = Hmac::<Sha256>::new_from_slice(key).unwrap();
+    mac_b.update(b);
+    let hash_b = mac_b.finalize().into_bytes();
+
     let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
+    for (x, y) in hash_a.iter().zip(hash_b.iter()) {
         diff |= x ^ y;
     }
     diff == 0

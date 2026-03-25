@@ -30,18 +30,18 @@ async function getApi() {
 	return _api;
 }
 
-export async function login(email: string, password: string): Promise<boolean> {
+export async function login(email: string, password: string): Promise<{ ok: boolean; error?: string; code?: string }> {
 	authState.value = { ...authState.value, loading: true, error: null };
 
 	const api = await getApi();
 	const response = await api.login({ email, password });
 
 	if (response.error) {
-		const errorMessage = typeof response.error === 'string'
-			? response.error
-			: response.error.message;
+		const err = response.error;
+		const errorMessage = typeof err === 'string' ? err : err.message;
+		const errorCode = typeof err === 'string' ? '' : (err.code || '');
 		authState.value = { ...authState.value, loading: false, error: errorMessage };
-		return false;
+		return { ok: false, error: errorMessage, code: errorCode };
 	}
 
 	// API returns { access_token, user: { email, id, name, roles } }
@@ -54,7 +54,7 @@ export async function login(email: string, password: string): Promise<boolean> {
 		loading: false,
 		error: null
 	};
-	return true;
+	return { ok: true };
 }
 
 export async function logout(): Promise<void> {
@@ -84,7 +84,7 @@ export async function checkAuth(): Promise<boolean> {
 		loading: false,
 		error: null
 	};
-	return true;
+	return { ok: true };
 }
 
 export function setUser(user: AuthUser | null): void {

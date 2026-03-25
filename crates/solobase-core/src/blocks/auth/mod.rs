@@ -239,6 +239,11 @@ impl Block for AuthBlock {
                     .field_default("disabled", "bool", "false")
                     .field_default("avatar_url", "string", "")
                     .field_default("oauth_provider", "string", "")
+                    .field_default("email_verified", "bool", "false")
+                    .field_default("verification_token", "string", "")
+                    .field_default("reset_token", "string", "")
+                    .field_optional("reset_token_expires", "datetime")
+                    .field_optional("last_verification_sent", "datetime")
                     .field_optional("last_login_at", "datetime")
                     .field_optional("deleted_at", "datetime"),
                 CollectionSchema::new("auth_tokens")
@@ -312,6 +317,13 @@ impl Block for AuthBlock {
             ("retrieve", "/auth/api-keys") => self.handle_api_keys_list(ctx, msg).await,
             ("create", "/auth/api-keys") => self.handle_api_keys_create(ctx, msg).await,
             ("delete", _) if path.starts_with("/auth/api-keys/") => self.handle_api_keys_revoke(ctx, msg).await,
+            // Email verification
+            ("retrieve" | "create", "/auth/verify") => self.handle_verify_email(ctx, msg).await,
+            ("create", "/auth/resend-verification") => self.handle_resend_verification(ctx, msg).await,
+            // Password reset
+            ("create", "/auth/forgot-password") => self.handle_forgot_password(ctx, msg).await,
+            ("retrieve", "/auth/reset-password") => self.handle_reset_password_form(ctx, msg).await,
+            ("create", "/auth/reset-password") => self.handle_reset_password(ctx, msg).await,
             // OAuth
             ("retrieve", "/auth/oauth/providers") => self.handle_oauth_providers(ctx, msg).await,
             ("retrieve", "/auth/oauth/login") => self.handle_oauth_login(ctx, msg).await,

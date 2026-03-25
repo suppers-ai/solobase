@@ -37,7 +37,7 @@ impl Guest for UserPortalBlockWasm {
             "features": {
                 "files": config::get_default("FEATURE_FILES", "true"),
                 "products": config::get_default("FEATURE_PRODUCTS", "true"),
-                "user_products": config::get_default("FEATURE_USER_PRODUCTS", "true"),
+                "user_products": config::get_default("FEATURE_USER_PRODUCTS", "false"),
                 "legal_pages": config::get_default("FEATURE_LEGAL_PAGES", "true"),
                 "monitoring": config::get_default("FEATURE_MONITORING", "true"),
                 "deployments": config::get_default("FEATURE_DEPLOYMENTS", "true")

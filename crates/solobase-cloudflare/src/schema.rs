@@ -24,6 +24,7 @@ const MIGRATIONS: &[&str] = &[
         verification_token TEXT DEFAULT '',
         reset_token TEXT DEFAULT '',
         reset_token_expires TEXT,
+        last_verification_sent TEXT,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now')),
         deleted_at TEXT

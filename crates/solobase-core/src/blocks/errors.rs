@@ -9,6 +9,7 @@ pub enum ErrorCode {
     NotAuthenticated,
     InvalidToken,
     TokenExpired,
+    EmailNotVerified,
     PasswordTooShort,
     PasswordTooLong,
     InvalidEmail,
@@ -49,6 +50,7 @@ impl ErrorCode {
             Self::NotAuthenticated => "not_authenticated",
             Self::InvalidToken => "invalid_token",
             Self::TokenExpired => "token_expired",
+            Self::EmailNotVerified => "email_not_verified",
             Self::PasswordTooShort => "password_too_short",
             Self::PasswordTooLong => "password_too_long",
             Self::InvalidEmail => "invalid_email",
@@ -74,7 +76,8 @@ impl ErrorCode {
             Self::InvalidCredentials | Self::NotAuthenticated |
             Self::InvalidToken | Self::TokenExpired => 401,
 
-            Self::Forbidden | Self::AdminRequired | Self::AccountDisabled => 403,
+            Self::Forbidden | Self::AdminRequired | Self::AccountDisabled |
+            Self::EmailNotVerified => 403,
 
             Self::NotFound => 404,
 

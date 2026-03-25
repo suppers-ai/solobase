@@ -6,8 +6,16 @@ compatibility_date = "2026-03-01"
 command = "cargo install worker-build && worker-build --release"
 
 # =============================================================================
-# Default environment (development / local)
+# Default environment (development)
 # =============================================================================
+#
+# Deployed via: npx wrangler deploy
+# Secrets:      npx wrangler secret put JWT_SECRET
+#               npx wrangler secret put ADMIN_SECRET
+#               npx wrangler secret put MAILGUN_API_KEY
+#               npx wrangler secret put MAILGUN_DOMAIN
+#               npx wrangler secret put MAILGUN_FROM
+#               npx wrangler secret put MAILGUN_REPLY_TO
 
 [vars]
 ENVIRONMENT = "development"
@@ -15,7 +23,7 @@ ENVIRONMENT = "development"
 [[d1_databases]]
 binding = "DB"
 database_name = "solobase-db-dev"
-database_id = "local-dev-db"
+database_id = "b2da17b4-a047-4e61-b61b-6f5b25613b7c"
 
 [[r2_buckets]]
 binding = "STORAGE"
@@ -23,11 +31,19 @@ bucket_name = "solobase-storage-dev"
 
 [[kv_namespaces]]
 binding = "PROJECTS"
-id = "local-dev-kv"
+id = "e78c1706611f4c03b723fda81ae7c22e"
 
 # =============================================================================
 # Production environment
 # =============================================================================
+#
+# Deployed via: npx wrangler deploy --env production
+# Secrets:      npx wrangler secret put JWT_SECRET --env production
+#               npx wrangler secret put ADMIN_SECRET --env production
+#               npx wrangler secret put MAILGUN_API_KEY --env production
+#               npx wrangler secret put MAILGUN_DOMAIN --env production
+#               npx wrangler secret put MAILGUN_FROM --env production
+#               npx wrangler secret put MAILGUN_REPLY_TO --env production
 
 [env.production]
 name = "solobase-production"

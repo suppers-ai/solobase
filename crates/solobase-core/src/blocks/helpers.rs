@@ -32,7 +32,12 @@ impl RecordExt for Record {
     }
 
     fn bool_field(&self, key: &str) -> bool {
-        self.data.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+        match self.data.get(key) {
+            Some(serde_json::Value::Bool(b)) => *b,
+            Some(serde_json::Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
+            Some(serde_json::Value::String(s)) => s == "true" || s == "1",
+            _ => false,
+        }
     }
 }
 

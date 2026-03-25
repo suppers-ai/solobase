@@ -58,9 +58,12 @@ class ApiClient {
 			}
 
 			if (!response.ok) {
-				const errMsg = typeof data.error === 'string' ? data.error
-					: data.error?.message || data.message || `HTTP ${response.status}`;
-				throw new Error(errMsg);
+				const err = data.error;
+				if (typeof err === 'object' && err !== null) {
+					return { error: err };
+				}
+				const errMsg = typeof err === 'string' ? err : (data.message || `HTTP ${response.status}`);
+				return { error: errMsg };
 			}
 
 			return { data: data as T };

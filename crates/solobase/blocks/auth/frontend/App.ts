@@ -11,13 +11,13 @@ function LoginForm() {
 		e.preventDefault();
 		setError(null);
 		setLoading(true);
-		const ok = await login(email, password);
+		const result = await login(email, password);
 		setLoading(false);
-		if (ok) {
+		if (result.ok) {
 			const params = new URLSearchParams(window.location.search);
 			window.location.href = params.get('redirect') || '/blocks/dashboard/frontend/';
 		} else {
-			setError(authState.value.error || 'Invalid email or password');
+			setError(result.error || 'Invalid email or password');
 		}
 	}
 

@@ -14,7 +14,6 @@
 //!    - Usage tracking and plan limit enforcement
 //!    - Inactive projects return 403
 
-mod billing;
 mod control;
 mod convert;
 mod database;
@@ -117,16 +116,6 @@ async fn handle_platform_api(
     pathname: &str,
     is_dev: bool,
 ) -> Result<Response> {
-    // Billing routes — handled directly, not through block dispatch
-    let api_path = strip_api_prefix(pathname);
-    if api_path.starts_with("/billing/") || api_path == "/billing" {
-        let billing_path = api_path.strip_prefix("/billing/").unwrap_or("").to_string();
-        let mut req_clone = req.clone()?;
-        let body = req_clone.bytes().await.unwrap_or_default();
-        let resp = billing::handle_billing_route(req, env, &billing_path, &body).await?;
-        return add_cors_headers(resp, req);
-    }
-
     // Platform uses the shared DB directly
     let platform_config = ProjectConfig {
         id: "platform".to_string(),
@@ -217,7 +206,8 @@ async fn dispatch_to_blocks(
     for key in &[
         "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
         "STRIPE_PRICE_STARTER", "STRIPE_PRICE_PRO",
-        "MAILGUN_API_KEY", "MAILGUN_DOMAIN", "MAILGUN_FROM",
+        "MAILGUN_API_KEY", "MAILGUN_DOMAIN", "MAILGUN_FROM", "MAILGUN_REPLY_TO",
+        "AUTH_REQUIRE_VERIFICATION",
         "SITE_NAME", "SITE_URL", "ADMIN_EMAIL",
         "STORAGE_MAX_FILE_SIZE", "STORAGE_QUOTA_MB",
         "CONTROL_PLANE_URL", "CONTROL_PLANE_SECRET",
@@ -401,7 +391,7 @@ fn is_api_route(pathname: &str) -> bool {
         "/health", "/nav", "/debug/",
         "/auth/", "/admin/", "/storage/",
         "/b/", "/ext/", "/profile/", "/settings/",
-        "/internal/", "/billing/",
+        "/internal/",
     ];
     PREFIXES.iter().any(|p| {
         pathname == p.trim_end_matches('/') || pathname.starts_with(p)

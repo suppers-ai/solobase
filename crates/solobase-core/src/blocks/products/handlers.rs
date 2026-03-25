@@ -4,8 +4,13 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::config;
 use super::{PRODUCTS_COLLECTION, GROUPS_COLLECTION, TYPES_COLLECTION, PRICING_COLLECTION, PURCHASES_COLLECTION};
 use crate::blocks::helpers::{RecordExt, field_as_string};
+
+async fn user_products_enabled(ctx: &dyn Context) -> bool {
+    config::get_default(ctx, "FEATURE_USER_PRODUCTS", "false").await == "true"
+}
 
 pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -52,22 +57,23 @@ pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
     let path = msg.path();
+    let user_products = user_products_enabled(ctx).await;
 
     match (action, path) {
-        // User's own products
-        ("retrieve", "/b/products/products") => handle_user_list_products(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/b/products/products/") => handle_user_get_product(ctx, msg).await,
-        ("create", "/b/products/products") => handle_user_create_product(ctx, msg).await,
-        ("update", _) if path.starts_with("/b/products/products/") => handle_user_update_product(ctx, msg).await,
-        ("delete", _) if path.starts_with("/b/products/products/") => handle_user_delete_product(ctx, msg).await,
-        // User's own groups
-        ("retrieve", "/b/products/groups") => handle_user_list_groups(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/b/products/groups/") && !path.ends_with("/products") => handle_user_get_group(ctx, msg).await,
-        ("create", "/b/products/groups") => handle_user_create_group(ctx, msg).await,
-        ("update", _) if path.starts_with("/b/products/groups/") && !path.ends_with("/products") => handle_user_update_group(ctx, msg).await,
-        ("delete", _) if path.starts_with("/b/products/groups/") && !path.ends_with("/products") => handle_user_delete_group(ctx, msg).await,
-        // Products in a group
-        ("retrieve", _) if path.starts_with("/b/products/groups/") && path.ends_with("/products") => handle_user_group_products(ctx, msg).await,
+        // User's own products (requires FEATURE_USER_PRODUCTS)
+        ("retrieve", "/b/products/products") if user_products => handle_user_list_products(ctx, msg).await,
+        ("retrieve", _) if user_products && path.starts_with("/b/products/products/") => handle_user_get_product(ctx, msg).await,
+        ("create", "/b/products/products") if user_products => handle_user_create_product(ctx, msg).await,
+        ("update", _) if user_products && path.starts_with("/b/products/products/") => handle_user_update_product(ctx, msg).await,
+        ("delete", _) if user_products && path.starts_with("/b/products/products/") => handle_user_delete_product(ctx, msg).await,
+        // User's own groups (requires FEATURE_USER_PRODUCTS)
+        ("retrieve", "/b/products/groups") if user_products => handle_user_list_groups(ctx, msg).await,
+        ("retrieve", _) if user_products && path.starts_with("/b/products/groups/") && !path.ends_with("/products") => handle_user_get_group(ctx, msg).await,
+        ("create", "/b/products/groups") if user_products => handle_user_create_group(ctx, msg).await,
+        ("update", _) if user_products && path.starts_with("/b/products/groups/") && !path.ends_with("/products") => handle_user_update_group(ctx, msg).await,
+        ("delete", _) if user_products && path.starts_with("/b/products/groups/") && !path.ends_with("/products") => handle_user_delete_group(ctx, msg).await,
+        // Products in a group (requires FEATURE_USER_PRODUCTS)
+        ("retrieve", _) if user_products && path.starts_with("/b/products/groups/") && path.ends_with("/products") => handle_user_group_products(ctx, msg).await,
         // Read-only: types and group templates
         ("retrieve", "/b/products/types") => handle_list_types(ctx, msg).await,
         ("retrieve", "/b/products/group-templates") => handle_user_list_group_templates(ctx, msg).await,
@@ -80,6 +86,11 @@ pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ("retrieve", "/b/products/purchases") => super::purchase::handle_list_user(ctx, msg).await,
         ("retrieve", _) if path.starts_with("/b/products/purchases/") => super::purchase::handle_get(ctx, msg).await,
         ("create", "/b/products/checkout") => super::stripe::handle_checkout(ctx, msg).await,
+        // Subscription status
+        ("retrieve", "/b/products/subscription") => handle_subscription(ctx, msg).await,
+        // User products/groups disabled
+        (_, _) if path.starts_with("/b/products/products") || path.starts_with("/b/products/groups") =>
+            err_forbidden(msg, "user products are not enabled"),
         _ => err_not_found(msg, "not found"),
     }
 }
@@ -627,6 +638,71 @@ async fn handle_user_list_group_templates(ctx: &dyn Context, msg: &mut Message) 
     match db::list(ctx, super::GROUP_TEMPLATES_COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+// --- Subscription status ---
+
+async fn handle_subscription(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let user_id = msg.user_id().to_string();
+    if user_id.is_empty() { return err_unauthorized(msg, "Not authenticated"); }
+
+    // Query subscriptions table (platform table, populated by Stripe webhooks)
+    let rows = db::query_raw(
+        ctx,
+        "SELECT id, plan, status, stripe_subscription_id, grace_period_end, created_at, updated_at FROM subscriptions WHERE user_id = ?1",
+        &[serde_json::Value::String(user_id.clone())],
+    ).await;
+
+    let sub = match rows {
+        Ok(records) if !records.is_empty() => {
+            let r = &records[0];
+            Some(r.data.clone())
+        }
+        _ => None,
+    };
+
+    match sub {
+        Some(s) => {
+            let plan = s.get("plan").and_then(|v| v.as_str()).unwrap_or("free");
+            let (max_requests, max_r2_bytes) = plan_limits(plan);
+            let month = chrono::Utc::now().format("%Y-%m").to_string();
+
+            // Query project usage
+            let usage_rows = db::query_raw(
+                ctx,
+                "SELECT requests, addon_requests, r2_bytes, addon_r2_bytes FROM project_usage WHERE project_id = ?1 AND month = ?2",
+                &[serde_json::Value::String(user_id), serde_json::Value::String(month.clone())],
+            ).await;
+
+            let usage = usage_rows.ok().and_then(|r| r.into_iter().next()).map(|r| r.data).unwrap_or_default();
+            let addon_req = usage.get("addon_requests").and_then(|v| v.as_u64()).unwrap_or(0);
+            let addon_r2 = usage.get("addon_r2_bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+
+            json_respond(msg, &serde_json::json!({
+                "subscription": s,
+                "usage": {
+                    "month": month,
+                    "requests": {
+                        "used": usage.get("requests").and_then(|v| v.as_u64()).unwrap_or(0),
+                        "limit": max_requests + addon_req,
+                    },
+                    "r2Storage": {
+                        "usedBytes": usage.get("r2_bytes").and_then(|v| v.as_u64()).unwrap_or(0),
+                        "limitBytes": max_r2_bytes + addon_r2,
+                    },
+                }
+            }))
+        }
+        None => json_respond(msg, &serde_json::json!({"subscription": null, "usage": null})),
+    }
+}
+
+fn plan_limits(plan: &str) -> (u64, u64) {
+    match plan {
+        "starter" => (500_000, 1_073_741_824),
+        "pro" => (3_000_000, 10_737_418_240),
+        _ => (10_000, 104_857_600),
     }
 }
 

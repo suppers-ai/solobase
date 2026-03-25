@@ -404,13 +404,7 @@ function PlansTab() {
 
 	if (loading) return html`<${LoadingSpinner} message="Loading plans..." />`;
 
-	const fallbackPlans = [
-		{ id: 'free', name: 'Free', description: 'Perfect for getting started', price: 0, features: ['1 deployment', '100MB storage', 'Community support'] },
-		{ id: 'pro', name: 'Pro', description: 'For growing applications', price: 29, features: ['5 deployments', '10GB storage', 'Priority support', 'Custom domains'] },
-		{ id: 'enterprise', name: 'Enterprise', description: 'For large-scale applications', price: 99, features: ['Unlimited deployments', '100GB storage', 'Dedicated support', 'SLA guarantee', 'SSO'] },
-	];
-
-	const plans = products.length > 0 ? products : fallbackPlans;
+	const plans = products;
 
 	function isCurrentPlan(plan: any): boolean {
 		if (plan.id === currentPlanId) return true;
@@ -422,6 +416,17 @@ function PlansTab() {
 		if (isCurrentPlan(plan)) return 'Current Plan';
 		if (plan.price === 0 || plan.id === 'free') return currentPlanId ? 'Downgrade' : 'Current Plan';
 		return 'Subscribe';
+	}
+
+	if (plans.length === 0) {
+		return html`
+			<div>
+				<${PageHeader} title="Plans" description="Available plans" />
+				<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+					<${EmptyState} icon=${CreditCard} title="No plans available" description="There are no plans configured yet." />
+				</div>
+			</div>
+		`;
 	}
 
 	return html`
@@ -552,21 +557,43 @@ function PurchasesTab() {
 
 // ─── Main App ────────────────────────────────────────────────────────
 function ProductsApp() {
-	const [page, setPage] = useState(() => window.location.hash.slice(1) || 'products');
+	const [userProductsEnabled, setUserProductsEnabled] = useState(false);
+	const [configLoaded, setConfigLoaded] = useState(false);
+	const defaultTab = 'plans';
+	const [page, setPage] = useState(() => window.location.hash.slice(1) || defaultTab);
+
+	useEffect(() => {
+		api.get('/b/userportal/config').then((data: any) => {
+			const up = data?.features?.user_products;
+			setUserProductsEnabled(up === true || up === 'true');
+			setConfigLoaded(true);
+		}).catch(() => setConfigLoaded(true));
+	}, []);
 
 	useEffect(() => { window.location.hash = page; }, [page]);
 	useEffect(() => {
-		function onHash() { setPage(window.location.hash.slice(1) || 'products'); }
+		function onHash() { setPage(window.location.hash.slice(1) || defaultTab); }
 		window.addEventListener('hashchange', onHash);
 		return () => window.removeEventListener('hashchange', onHash);
 	}, []);
 
+	// Redirect to default tab if on a disabled tab
+	useEffect(() => {
+		if (configLoaded && !userProductsEnabled && (page === 'products' || page === 'groups')) {
+			setPage(defaultTab);
+		}
+	}, [configLoaded, userProductsEnabled, page]);
+
 	const tabs = [
-		{ id: 'products', label: 'My Products', icon: Package },
-		{ id: 'groups', label: 'My Groups', icon: FolderOpen },
+		...(userProductsEnabled ? [
+			{ id: 'products', label: 'My Products', icon: Package },
+			{ id: 'groups', label: 'My Groups', icon: FolderOpen },
+		] : []),
 		{ id: 'plans', label: 'Plans', icon: CreditCard },
 		{ id: 'purchases', label: 'Purchases', icon: Receipt },
 	];
+
+	if (!configLoaded) return html`<div style=${{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><${LoadingSpinner} message="Loading..." /></div>`;
 
 	return html`
 		<div style=${{ minHeight: '100vh', background: '#f8fafc' }}>
@@ -575,8 +602,8 @@ function ProductsApp() {
 				<${TabNavigation} tabs=${tabs} activeTab=${page} onTabChange=${setPage} />
 			</nav>
 			<main style=${{ padding: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
-				${page === 'products' ? html`<${MyProductsTab} />` : null}
-				${page === 'groups' ? html`<${MyGroupsTab} />` : null}
+				${page === 'products' && userProductsEnabled ? html`<${MyProductsTab} />` : null}
+				${page === 'groups' && userProductsEnabled ? html`<${MyGroupsTab} />` : null}
 				${page === 'plans' ? html`<${PlansTab} />` : null}
 				${page === 'purchases' ? html`<${PurchasesTab} />` : null}
 			</main>

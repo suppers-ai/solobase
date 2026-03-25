@@ -22,12 +22,16 @@ pub fn is_reserved_subdomain(subdomain: &str) -> bool {
     RESERVED_SUBDOMAINS.contains(&subdomain.to_lowercase().as_str())
 }
 
-/// Check if the host is the platform host (cloud.solobase.dev or localhost).
+/// Check if the host is the platform host.
+///
+/// Platform hosts serve the shared DB (auth, billing, dashboard).
+/// Project hosts ({project}.solobase.dev) serve per-project data.
 pub fn is_platform_host(host: &str) -> bool {
     let host_no_port = host.split(':').next().unwrap_or(host);
     host_no_port == "localhost"
         || host_no_port == "127.0.0.1"
         || host_no_port == "cloud.solobase.dev"
+        || host_no_port.ends_with(".workers.dev") // workers.dev preview URLs
 }
 
 /// Per-project configuration stored in KV.

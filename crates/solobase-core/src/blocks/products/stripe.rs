@@ -117,65 +117,194 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
+    let data_object = event.get("data").and_then(|d| d.get("object")).cloned().unwrap_or_default();
+
     match event_type {
         "checkout.session.completed" => {
-            let data = event.get("data").and_then(|d| d.get("object"));
-            if let Some(session) = data {
-                let purchase_id = session.get("metadata")
-                    .and_then(|m| m.get("purchase_id"))
+            // Handle product purchase completion
+            let purchase_id = data_object.pointer("/metadata/purchase_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if !purchase_id.is_empty() {
+                let payment_intent = data_object.get("payment_intent")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                    .unwrap_or("")
+                    .to_string();
 
-                if !purchase_id.is_empty() {
-                    let payment_intent = session.get("payment_intent")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
+                let mut data = HashMap::new();
+                data.insert("status".to_string(), serde_json::Value::String("completed".to_string()));
+                data.insert("provider_payment_intent_id".to_string(), serde_json::Value::String(payment_intent));
+                data.insert("approved_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+                data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+                if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, purchase_id, data).await {
+                    tracing::error!("Failed to mark purchase as completed: {e}");
+                    return err_internal(msg, &format!("Failed to update purchase: {e}"));
+                }
+            }
 
+            // Handle subscription creation (platform billing)
+            let user_id = data_object.pointer("/metadata/user_id").and_then(|v| v.as_str()).unwrap_or("");
+            let plan = data_object.pointer("/metadata/plan").and_then(|v| v.as_str()).unwrap_or("");
+            let stripe_customer_id = data_object.get("customer").and_then(|v| v.as_str()).unwrap_or("");
+            let stripe_sub_id = data_object.get("subscription").and_then(|v| v.as_str()).unwrap_or("");
+
+            if !user_id.is_empty() && !plan.is_empty() {
+                let now = chrono::Utc::now().to_rfc3339();
+                let sub_id = format!("sub_{}_{}", user_id, chrono::Utc::now().timestamp_millis());
+
+                let _ = db::exec_raw(
+                    ctx,
+                    "INSERT INTO subscriptions (id, user_id, stripe_customer_id, stripe_subscription_id, plan, status, created_at, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?6) \
+                     ON CONFLICT (user_id) DO UPDATE SET \
+                       stripe_customer_id = excluded.stripe_customer_id, \
+                       stripe_subscription_id = excluded.stripe_subscription_id, \
+                       plan = excluded.plan, \
+                       status = 'active', \
+                       updated_at = excluded.updated_at",
+                    &[sub_id.into(), user_id.into(), stripe_customer_id.into(),
+                      stripe_sub_id.into(), plan.into(), now.into()],
+                ).await;
+
+                // Notify control plane to sync project activation
+                notify_control_plane(ctx, "sync-activation", &serde_json::json!({
+                    "user_id": user_id, "plan": plan
+                })).await;
+            }
+        }
+
+        "customer.subscription.updated" => {
+            let stripe_sub_id = data_object.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let status = data_object.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            let plan = data_object.pointer("/items/data/0/price/lookup_key")
+                .or_else(|| data_object.pointer("/items/data/0/price/metadata/plan"))
+                .and_then(|v| v.as_str());
+            let now = chrono::Utc::now().to_rfc3339();
+
+            if let Some(plan) = plan {
+                let _ = db::exec_raw(
+                    ctx,
+                    "UPDATE subscriptions SET status = ?1, plan = ?2, updated_at = ?3 WHERE stripe_subscription_id = ?4",
+                    &[status.into(), plan.into(), now.clone().into(), stripe_sub_id.into()],
+                ).await;
+            } else {
+                let _ = db::exec_raw(
+                    ctx,
+                    "UPDATE subscriptions SET status = ?1, updated_at = ?2 WHERE stripe_subscription_id = ?3",
+                    &[status.into(), now.clone().into(), stripe_sub_id.into()],
+                ).await;
+            }
+
+            // Look up user and notify control plane
+            let user_id = get_user_for_stripe_sub(ctx, stripe_sub_id).await;
+            if let Some(uid) = user_id {
+                notify_control_plane(ctx, "sync-activation", &serde_json::json!({
+                    "user_id": uid, "plan": plan.unwrap_or("free")
+                })).await;
+            }
+        }
+
+        "invoice.payment_failed" => {
+            let stripe_sub_id = data_object.get("subscription").and_then(|v| v.as_str()).unwrap_or("");
+            if !stripe_sub_id.is_empty() {
+                let now = chrono::Utc::now().to_rfc3339();
+                let grace_end = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
+                let _ = db::exec_raw(
+                    ctx,
+                    "UPDATE subscriptions SET status = 'past_due', grace_period_end = ?1, updated_at = ?2 WHERE stripe_subscription_id = ?3",
+                    &[grace_end.into(), now.into(), stripe_sub_id.into()],
+                ).await;
+            }
+        }
+
+        "customer.subscription.deleted" => {
+            let stripe_sub_id = data_object.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let now = chrono::Utc::now().to_rfc3339();
+
+            let user_id = get_user_for_stripe_sub(ctx, stripe_sub_id).await;
+
+            let _ = db::exec_raw(
+                ctx,
+                "UPDATE subscriptions SET status = 'cancelled', updated_at = ?1 WHERE stripe_subscription_id = ?2",
+                &[now.into(), stripe_sub_id.into()],
+            ).await;
+
+            if let Some(uid) = user_id {
+                notify_control_plane(ctx, "deactivate-all", &serde_json::json!({
+                    "user_id": uid
+                })).await;
+            }
+        }
+
+        "charge.refunded" => {
+            let payment_intent = data_object.get("payment_intent")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            if !payment_intent.is_empty() {
+                if let Ok(purchase) = db::get_by_field(
+                    ctx, PURCHASES_COLLECTION,
+                    "provider_payment_intent_id", serde_json::Value::String(payment_intent),
+                ).await {
                     let mut data = HashMap::new();
-                    data.insert("status".to_string(), serde_json::Value::String("completed".to_string()));
-                    data.insert("provider_payment_intent_id".to_string(), serde_json::Value::String(payment_intent));
-                    data.insert("approved_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+                    data.insert("status".to_string(), serde_json::Value::String("refunded".to_string()));
+                    data.insert("refunded_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
                     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-                    if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, purchase_id, data).await {
-                        tracing::error!("Failed to mark purchase as completed: {e}");
+                    if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &purchase.id, data).await {
+                        tracing::error!("Failed to mark purchase as refunded: {e}");
                         return err_internal(msg, &format!("Failed to update purchase: {e}"));
                     }
                 }
             }
         }
-        "charge.refunded" => {
-            let data = event.get("data").and_then(|d| d.get("object"));
-            if let Some(charge) = data {
-                let payment_intent = charge.get("payment_intent")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
 
-                if !payment_intent.is_empty() {
-                    // Find purchase by provider_payment_intent_id
-                    if let Ok(purchase) = db::get_by_field(
-                        ctx, PURCHASES_COLLECTION,
-                        "provider_payment_intent_id", serde_json::Value::String(payment_intent),
-                    ).await {
-                        let mut data = HashMap::new();
-                        data.insert("status".to_string(), serde_json::Value::String("refunded".to_string()));
-                        data.insert("refunded_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-                        data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-                        if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &purchase.id, data).await {
-                            tracing::error!("Failed to mark purchase as refunded: {e}");
-                            return err_internal(msg, &format!("Failed to update purchase: {e}"));
-                        }
-                    }
-                }
-            }
-        }
         _ => {
             // Ignore unhandled event types
         }
     }
 
     json_respond(msg, &serde_json::json!({"received": true}))
+}
+
+async fn get_user_for_stripe_sub(ctx: &dyn Context, stripe_sub_id: &str) -> Option<String> {
+    let rows = db::query_raw(
+        ctx,
+        "SELECT user_id FROM subscriptions WHERE stripe_subscription_id = ?1",
+        &[serde_json::Value::String(stripe_sub_id.to_string())],
+    ).await.ok()?;
+    rows.first()?.data.get("user_id").and_then(|v| v.as_str()).map(String::from)
+}
+
+/// Notify the control plane to sync project activation/deactivation.
+/// Best-effort — failures are logged but don't break the webhook.
+async fn notify_control_plane(ctx: &dyn Context, action: &str, body: &serde_json::Value) {
+    let url = config::get_default(ctx, "CONTROL_PLANE_URL", "").await;
+    let secret = config::get_default(ctx, "CONTROL_PLANE_SECRET", "").await;
+    if url.is_empty() || secret.is_empty() {
+        tracing::warn!("CONTROL_PLANE_URL or CONTROL_PLANE_SECRET not configured, skipping project sync");
+        return;
+    }
+
+    let endpoint = format!("{}/_control/{}", url.trim_end_matches('/'), action);
+    let mut headers = HashMap::new();
+    headers.insert("X-Admin-Secret".to_string(), secret);
+    headers.insert("Content-Type".to_string(), "application/json".to_string());
+
+    let payload = serde_json::to_vec(body).unwrap_or_default();
+    match network::do_request(ctx, "POST", &endpoint, &headers, Some(&payload)).await {
+        Ok(resp) if resp.status_code < 400 => {
+            tracing::info!("Control plane {} succeeded", action);
+        }
+        Ok(resp) => {
+            tracing::warn!("Control plane {} returned {}: {}", action, resp.status_code,
+                String::from_utf8_lossy(&resp.body));
+        }
+        Err(e) => {
+            tracing::warn!("Control plane {} failed: {e}", action);
+        }
+    }
 }
 
 fn urlencoding(s: &str) -> String {

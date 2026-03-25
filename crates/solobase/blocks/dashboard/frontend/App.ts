@@ -14,7 +14,7 @@ function AuthGuard({ children }: { children: any }) {
 		checkAuth().then(() => setChecked(true));
 	}, []);
 
-	if (!checked || authLoading.value) {
+	if (!checked) {
 		return html`<div style=${{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><${LoadingSpinner} message="Loading..." /></div>`;
 	}
 
@@ -32,6 +32,10 @@ function LoginSignup() {
 	const [password, setPassword] = useState('');
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
+	const [info, setInfo] = useState('');
+	const [signedUp, setSignedUp] = useState(false);
+	const [needsVerification, setNeedsVerification] = useState(false);
+	const [resendCooldown, setResendCooldown] = useState(0);
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
@@ -47,11 +51,19 @@ function LoginSignup() {
 					setLoading(false);
 					return;
 				}
+				// Check if verification is required
+				const data = res.data as any;
+				if (data?.email_verified === false) {
+					setSignedUp(true);
+					setLoading(false);
+					return;
+				}
 			}
 			const { login } = await import('@solobase/ui');
-			const ok = await login(email, password);
-			if (!ok) {
-				setError('Invalid credentials');
+			const result = await login(email, password);
+			if (!result.ok) {
+				setError(result.error || 'Invalid credentials');
+				setNeedsVerification(result.code === 'email_not_verified');
 			} else {
 				window.location.reload();
 			}
@@ -61,11 +73,76 @@ function LoginSignup() {
 		setLoading(false);
 	}
 
+	async function handleResendVerification() {
+		if (!email.trim()) return;
+		setLoading(true);
+		try {
+			const res = await api.post('/auth/resend-verification', { email: email.trim() });
+			const data = res.data as any;
+			if (data?.retry_after) {
+				setResendCooldown(data.retry_after);
+			} else {
+				setInfo('Verification email sent. Check your inbox.');
+				setResendCooldown(60);
+			}
+		} catch {
+			setInfo('Verification email sent.');
+			setResendCooldown(60);
+		}
+		setLoading(false);
+		// Countdown timer
+		const interval = setInterval(() => {
+			setResendCooldown((c: number) => {
+				if (c <= 1) { clearInterval(interval); return 0; }
+				return c - 1;
+			});
+		}, 1000);
+	}
+
+	async function handleForgotPassword() {
+		if (!email.trim()) {
+			setError('Enter your email address first.');
+			return;
+		}
+		setLoading(true);
+		setError('');
+		setInfo('');
+		try {
+			const res = await api.post('/auth/forgot-password', { email: email.trim() });
+			const data = res.data as any;
+			setInfo(data?.message || 'If that email is registered, a password reset link has been sent.');
+		} catch {
+			setInfo('If that email is registered, a password reset link has been sent.');
+		}
+		setLoading(false);
+	}
+
+	if (signedUp) {
+		return html`
+			<div style=${{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #f0f9ff 100%)' }}>
+				<div style=${{ width: '100%', maxWidth: '420px', padding: '2rem', textAlign: 'center' }}>
+					<img src="/images/logo_long.png" alt="Solobase" style=${{ height: '42px', width: 'auto', display: 'block', margin: '0 auto 1.5rem' }} />
+					<div style=${{ background: 'white', borderRadius: '12px', padding: '2rem', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+						<div style=${{ width: '48px', height: '48px', background: '#ecfdf5', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem', fontSize: '1.5rem' }}>✉</div>
+						<h2 style=${{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', marginBottom: '0.5rem' }}>Check your email</h2>
+						<p style=${{ fontSize: '0.875rem', color: '#64748b', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+							We sent a verification link to <strong style=${{ color: '#1e293b' }}>${email}</strong>. Click the link to verify your account.
+						</p>
+						<button onClick=${() => { setSignedUp(false); setMode('login'); setError(''); }}
+							style=${{ padding: '0.625rem 1.25rem', background: 'linear-gradient(135deg, #189AB4, #0ea5e9)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}>
+							Back to Sign In
+						</button>
+					</div>
+				</div>
+			</div>
+		`;
+	}
+
 	return html`
 		<div style=${{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #f0f9ff 100%)' }}>
 			<div style=${{ width: '100%', maxWidth: '420px', padding: '2rem' }}>
 				<div style=${{ textAlign: 'center', marginBottom: '2rem' }}>
-					<img src="/images/logo_long.png" alt="Solobase" style=${{ height: '40px', width: 'auto', marginBottom: '1rem' }} />
+					<img src="/images/logo_long.png" alt="Solobase" style=${{ height: '42px', width: 'auto', display: 'block', margin: '0 auto 1rem' }} />
 					<p style=${{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.25rem' }}>
 						${mode === 'login' ? 'Sign in to Solobase Cloud' : 'Create your Solobase account'}
 					</p>
@@ -73,7 +150,20 @@ function LoginSignup() {
 
 				<div style=${{ background: 'white', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
 					${error ? html`
-						<div style=${{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem', fontSize: '0.813rem', color: '#dc2626' }}>${error}</div>
+						<div style=${{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem', fontSize: '0.813rem', color: '#dc2626' }}>
+							${error}
+							${needsVerification ? html`
+								<div style=${{ marginTop: '0.5rem' }}>
+									<button onClick=${handleResendVerification} disabled=${loading || resendCooldown > 0}
+										style=${{ background: 'none', border: 'none', color: '#dc2626', cursor: resendCooldown > 0 ? 'default' : 'pointer', fontWeight: 600, fontSize: '0.813rem', textDecoration: 'underline', padding: 0 }}>
+										${resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend verification email'}
+									</button>
+								</div>
+							` : null}
+						</div>
+					` : null}
+					${info ? html`
+						<div style=${{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem', fontSize: '0.813rem', color: '#059669' }}>${info}</div>
 					` : null}
 
 					<form onSubmit=${handleSubmit}>
@@ -83,12 +173,17 @@ function LoginSignup() {
 								placeholder="you@example.com"
 								style=${{ width: '100%', padding: '0.625rem 0.75rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }} />
 						</div>
-						<div style=${{ marginBottom: '1.5rem' }}>
+						<div style=${{ marginBottom: mode === 'login' ? '0.5rem' : '1.5rem' }}>
 							<label style=${{ display: 'block', fontSize: '0.813rem', fontWeight: 500, color: '#1e293b', marginBottom: '0.375rem' }}>Password</label>
 							<input type="password" value=${password} onInput=${(e: any) => setPassword(e.target.value)} required
 								placeholder=${mode === 'signup' ? 'Min 8 characters' : 'Enter your password'}
 								style=${{ width: '100%', padding: '0.625rem 0.75rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }} />
 						</div>
+						${mode === 'login' ? html`
+							<div style=${{ textAlign: 'right', marginBottom: '1rem' }}>
+								<button type="button" onClick=${handleForgotPassword} style=${{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '0.75rem' }}>Forgot password?</button>
+							</div>
+						` : null}
 						<button type="submit" disabled=${loading}
 							style=${{ width: '100%', padding: '0.75rem', background: 'linear-gradient(135deg, #fe6627, #fc4c03)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
 							${loading ? (mode === 'signup' ? 'Creating account...' : 'Signing in...') : (mode === 'signup' ? 'Create Account' : 'Sign In')}
@@ -97,8 +192,8 @@ function LoginSignup() {
 
 					<div style=${{ textAlign: 'center', marginTop: '1rem', fontSize: '0.813rem', color: '#64748b' }}>
 						${mode === 'login'
-							? html`Don't have an account? <button onClick=${() => { setMode('signup'); setError(''); }} style=${{ background: 'none', border: 'none', color: '#fe6627', cursor: 'pointer', fontWeight: 600, fontSize: '0.813rem' }}>Sign up</button>`
-							: html`Already have an account? <button onClick=${() => { setMode('login'); setError(''); }} style=${{ background: 'none', border: 'none', color: '#fe6627', cursor: 'pointer', fontWeight: 600, fontSize: '0.813rem' }}>Sign in</button>`
+							? html`Don't have an account? <button onClick=${() => { setMode('signup'); setError(''); setInfo(''); }} style=${{ background: 'none', border: 'none', color: '#fe6627', cursor: 'pointer', fontWeight: 600, fontSize: '0.813rem' }}>Sign up</button>`
+							: html`Already have an account? <button onClick=${() => { setMode('login'); setError(''); setInfo(''); }} style=${{ background: 'none', border: 'none', color: '#fe6627', cursor: 'pointer', fontWeight: 600, fontSize: '0.813rem' }}>Sign in</button>`
 						}
 					</div>
 				</div>
@@ -177,13 +272,17 @@ function OverviewTab() {
 	const [usage, setUsage] = useState<any>(null);
 
 	useEffect(() => {
-		// Fetch subscription/plan
-		api.get('/billing/subscription').then((data: any) => {
+		// Fetch subscription/plan + usage in one call
+		api.get('/b/products/subscription').then((data: any) => {
 			const sub = data?.subscription;
-			if (sub?.status === 'active') {
-				setPlanName(sub.plan === 'pro' ? 'Pro' : 'Starter');
+			if (sub?.status === 'active' || sub?.plan) {
+				const p = sub.plan || 'free';
+				setPlanName(p === 'pro' ? 'Pro' : p === 'starter' ? 'Starter' : 'Free');
 			} else {
 				setPlanName('Free');
+			}
+			if (data?.usage) {
+				setUsage(data.usage);
 			}
 		}).catch(() => setPlanName('Free'));
 
@@ -198,11 +297,6 @@ function OverviewTab() {
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
 			setApiKeyCount(String(records.length));
 		}).catch(() => setApiKeyCount('0'));
-
-		// Fetch usage
-		api.get('/b/usage').then((data: any) => {
-			setUsage(data);
-		}).catch(() => setUsage(null));
 	}, []);
 
 	const displayName = user?.name || user?.email?.split('@')[0] || 'there';
@@ -541,7 +635,7 @@ function SettingsTab() {
 			setLoaded(true);
 		}).catch(() => setLoaded(true));
 
-		api.get('/billing/subscription').then((data: any) => {
+		api.get('/b/products/subscription').then((data: any) => {
 			const sub = data?.subscription;
 			if (sub?.status === 'active') {
 				setPlanName(sub.plan === 'pro' ? 'Pro' : 'Starter');

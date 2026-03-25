@@ -180,12 +180,14 @@ async fn send_email(
     html: &str,
     text: Option<&str>,
 ) -> bool {
-    let api_key = ctx.config_get("MAILGUN_API_KEY").unwrap_or("").to_string();
-    let domain = ctx.config_get("MAILGUN_DOMAIN").unwrap_or("").to_string();
-    let from = match ctx.config_get("MAILGUN_FROM") {
-        Some(f) if !f.is_empty() => f.to_string(),
-        _ => format!("Solobase <noreply@{domain}>"),
+    let api_key = wafer_core::clients::config::get_default(ctx, "MAILGUN_API_KEY", "").await;
+    let domain = wafer_core::clients::config::get_default(ctx, "MAILGUN_DOMAIN", "").await;
+    let from = {
+        let f = wafer_core::clients::config::get_default(ctx, "MAILGUN_FROM", "").await;
+        if f.is_empty() { format!("Solobase <noreply@{domain}>") } else { f }
     };
+
+
 
     if api_key.is_empty() || domain.is_empty() {
         // Email not configured — log but don't fail
@@ -199,10 +201,9 @@ async fn send_email(
         format!("subject={}", url_encode(subject)),
         format!("html={}", url_encode(html)),
     ];
-    if let Some(reply_to) = ctx.config_get("MAILGUN_REPLY_TO") {
-        if !reply_to.is_empty() {
-            parts.push(format!("h:Reply-To={}", url_encode(reply_to)));
-        }
+    let reply_to = wafer_core::clients::config::get_default(ctx, "MAILGUN_REPLY_TO", "").await;
+    if !reply_to.is_empty() {
+        parts.push(format!("h:Reply-To={}", url_encode(&reply_to)));
     }
     if let Some(text) = text {
         parts.push(format!("text={}", url_encode(text)));
