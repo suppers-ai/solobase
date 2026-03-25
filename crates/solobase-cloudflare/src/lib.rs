@@ -1,41 +1,29 @@
-//! Solobase on Cloudflare Workers — multi-tenant WAFER runtime.
+//! Solobase Dispatch Worker — thin routing layer for Workers for Platforms.
 //!
-//! Two modes based on hostname:
+//! Routes requests based on hostname:
 //!
-//! 1. Platform (cloud.solobase.dev / localhost):
-//!    - Root redirects to dashboard SPA
-//!    - Platform API: auth, projects, admin, billing
-//!    - Control plane at /_control/*
-//!    - Uses the shared DB directly (no project lookup)
+//! 1. `/_control/*` → handled directly (project CRUD, deploy, migrations)
+//! 2. Platform (cloud.solobase.dev):
+//!    - Static files from R2 `_site/`
+//!    - API routes dispatched to "cloud" user worker
+//! 3. Project ({project}.solobase.dev):
+//!    - Static files from R2 `{projectId}/site/`
+//!    - API routes: usage tracking → dispatched to project's user worker
 //!
-//! 2. Project instance ({project}.solobase.dev):
-//!    - Project SPA from R2 `{projectId}/site/`
-//!    - Project API: all block endpoints
-//!    - Usage tracking and plan limit enforcement
-//!    - Inactive projects return 403
+//! This worker has NO WAFER/block dependencies — all block execution
+//! happens in user workers deployed to the dispatch namespace.
 
+pub mod cf_api;
 mod control;
-mod convert;
-mod database;
 mod helpers;
 mod project;
 mod provision;
 mod schema;
-mod service_blocks;
-mod storage;
 mod usage;
-
-use std::collections::HashMap;
-use std::sync::Arc;
 
 use worker::*;
 
-use database::D1DatabaseService;
-use storage::R2StorageService;
-use project::{ProjectConfig, ProjectAppConfig, is_platform_host};
-
-use solobase::blocks;
-use solobase_core::routing::BlockId;
+use project::is_platform_host;
 
 /// The main Cloudflare Worker fetch handler.
 #[event(fetch)]
@@ -50,32 +38,30 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let url = req.url()?;
     let pathname = url.path().to_string();
     let host = req.headers().get("host")?.unwrap_or_default();
-    let is_dev = is_dev_env(&env);
 
-    // 2. Control plane routes (/_control/*) — platform admin
+    // 2. Control plane routes (/_control/*) — handled directly
     if pathname.starts_with("/_control/") {
         let sub_path = pathname.strip_prefix("/_control/").unwrap_or("");
         let mut req_clone = req.clone()?;
         let body = req_clone.bytes().await.unwrap_or_default();
         let resp = control::handle(&req, &env, sub_path, &body).await?;
-        return add_cors_headers(resp, &req);
+        return add_cors_headers(resp, &req).await;
     }
 
     let is_platform = is_platform_host(&host);
+    let is_dev = is_dev_env(&env);
 
-    // 3. API routes → dispatch
+    // 3. API routes → dispatch to user worker
     if pathname.starts_with("/api/") || pathname == "/api" || is_api_route(&pathname) {
         if is_platform {
-            return handle_platform_api(&req, &env, &pathname, is_dev).await;
+            return handle_platform_api(&req, &env).await;
         } else {
             return handle_project_api(&req, &env, &host, is_dev).await;
         }
     }
 
-    // 4. Static file serving
+    // 4. Static file serving from R2
     if is_platform {
-        // Platform: serve from R2 _site/
-        // For root path, serve the dashboard directly
         let serve_path = if pathname == "/" || pathname.is_empty() {
             "/blocks/dashboard/frontend/"
         } else {
@@ -85,7 +71,6 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             return add_security_headers(resp);
         }
     } else {
-        // Project: resolve and serve from {projectId}/site/
         let kv = env.kv("PROJECTS").map_err(|e| Error::RustError(format!("KV: {e}")))?;
         match project::resolve_project(&host, &kv, is_dev).await {
             Ok(proj) => {
@@ -107,35 +92,23 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 }
 
 // ---------------------------------------------------------------------------
-// Platform API (cloud.solobase.dev) — uses shared DB, no project
+// Platform API — dispatch to "cloud" user worker
 // ---------------------------------------------------------------------------
 
-async fn handle_platform_api(
-    req: &Request,
-    env: &Env,
-    pathname: &str,
-    is_dev: bool,
-) -> Result<Response> {
-    // Platform uses the shared DB directly
-    let platform_config = ProjectConfig {
-        id: "platform".to_string(),
-        subdomain: "cloud".to_string(),
-        name: "Solobase Platform".to_string(),
-        plan: "platform".to_string(),
-        status: "active".to_string(),
-        owner_user_id: None,
-        db_id: None,
-        db_binding: Some("DB".to_string()),
-        config: ProjectAppConfig::all_enabled(),
-        blocks: Vec::new(),
-    };
+async fn handle_platform_api(req: &Request, env: &Env) -> Result<Response> {
+    let dispatcher = env.dynamic_dispatcher("DISPATCHER")
+        .map_err(|e| Error::RustError(format!("dispatcher: {e}")))?;
 
-    let resp = dispatch_to_blocks(req, env, &platform_config, is_dev).await?;
-    add_cors_headers(resp, req)
+    let resp = dispatcher.get("cloud")
+        .map_err(|e| Error::RustError(format!("dispatch get 'cloud': {e}")))?
+        .fetch_request(req.clone()?)
+        .await?;
+
+    add_cors_headers(resp, req).await
 }
 
 // ---------------------------------------------------------------------------
-// Project API ({project}.solobase.dev) — resolves project from KV
+// Project API — usage tracking + dispatch to project's user worker
 // ---------------------------------------------------------------------------
 
 async fn handle_project_api(
@@ -150,7 +123,7 @@ async fn handle_project_api(
         Ok(p) => p,
         Err(e) => {
             let resp = helpers::error_json("not_found", &format!("project not found: {e}"), 404)?;
-            return add_cors_headers(resp, req);
+            return add_cors_headers(resp, req).await;
         }
     };
 
@@ -159,168 +132,36 @@ async fn handle_project_api(
         let resp = Response::ok(
             serde_json::json!({"error":"project-inactive","message":"This project is inactive. Upgrade your plan to activate it."}).to_string()
         )?.with_status(403);
-        return add_cors_headers(resp, req);
+        return add_cors_headers(resp, req).await;
     }
 
-    // Resolve project's D1 database — projects must have a db_binding configured
-    let db_binding = match project.db_binding.as_deref() {
-        Some(b) => b,
-        None => {
-            let resp = helpers::error_json(
-                "not_configured",
-                "project database not provisioned",
-                503,
-            )?;
-            return add_cors_headers(resp, req);
-        }
-    };
-    let db = env.d1(db_binding)
+    // Usage tracking against platform DB
+    let platform_db = env.d1("DB")
         .map_err(|e| Error::RustError(format!("D1: {e}")))?;
-
-    // Usage tracking
-    let usage_result = usage::check_and_increment_usage(&db, &project).await;
+    let usage_result = usage::check_and_increment_usage(&platform_db, &project).await;
 
     if let Some(ref err) = usage_result.error {
         let resp = helpers::error_json("resource_exhausted", err, 429)?;
-        return add_cors_headers(resp, req);
+        return add_cors_headers(resp, req).await;
     }
 
-    let mut resp = dispatch_to_blocks(req, env, &project, is_dev).await?;
+    // Dispatch to project's user worker
+    let dispatcher = env.dynamic_dispatcher("DISPATCHER")
+        .map_err(|e| Error::RustError(format!("dispatcher: {e}")))?;
 
-    // Add warning header if usage is high
+    let mut resp = make_mutable(
+        dispatcher.get(&project.subdomain)
+            .map_err(|e| Error::RustError(format!("dispatch get '{}': {e}", project.subdomain)))?
+            .fetch_request(req.clone()?)
+            .await?
+    ).await?;
+
+    // Add usage warning header
     if let Some(ref warning) = usage_result.warning {
         resp.headers_mut().set("X-Solobase-Warning", warning)?;
     }
 
-    add_cors_headers(resp, req)
-}
-
-// ---------------------------------------------------------------------------
-// Block dispatch — creates WAFER runtime and runs the request through it
-// ---------------------------------------------------------------------------
-
-async fn dispatch_to_blocks(
-    req: &Request,
-    env: &Env,
-    project: &ProjectConfig,
-    _is_dev: bool,
-) -> Result<Response> {
-    // Get bindings — db_binding must be set (platform sets it explicitly,
-    // projects must have it provisioned).
-    let db_binding = project.db_binding.as_deref()
-        .ok_or_else(|| Error::RustError("project has no database binding configured".into()))?;
-    let db = env.d1(db_binding)
-        .map_err(|e| Error::RustError(format!("D1 binding '{}' error: {e}", db_binding)))?;
-    let bucket = env.bucket("STORAGE")
-        .map_err(|e| Error::RustError(format!("R2 binding error: {e}")))?;
-    let jwt_secret = get_env_str(env, "JWT_SECRET");
-
-    // Build env vars map
-    let mut env_vars = HashMap::new();
-    env_vars.insert("JWT_SECRET".to_string(), jwt_secret.clone());
-    for key in &[
-        "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
-        "STRIPE_PRICE_STARTER", "STRIPE_PRICE_PRO",
-        "MAILGUN_API_KEY", "MAILGUN_DOMAIN", "MAILGUN_FROM", "MAILGUN_REPLY_TO",
-        "AUTH_REQUIRE_VERIFICATION",
-        "SITE_NAME", "SITE_URL", "ADMIN_EMAIL",
-        "STORAGE_MAX_FILE_SIZE", "STORAGE_QUOTA_MB",
-        "CONTROL_PLANE_URL", "CONTROL_PLANE_SECRET",
-    ] {
-        if let Ok(val) = env.var(key).map(|v| v.to_string()) {
-            env_vars.insert(key.to_string(), val);
-        } else if let Ok(val) = env.secret(key).map(|s| s.to_string()) {
-            env_vars.insert(key.to_string(), val);
-        }
-    }
-
-    // Create Wafer runtime
-    let mut wafer = wafer_run::runtime::Wafer::new();
-
-    // Register CF service blocks
-    let db_service = D1DatabaseService::new(db);
-    let storage_service = R2StorageService::new(bucket, project.id.clone());
-    wafer.register_block("wafer-run/d1", Arc::new(service_blocks::D1Block::new(db_service)));
-    wafer.register_block("wafer-run/r2", Arc::new(service_blocks::R2Block::new(storage_service)));
-    wafer.register_block("wafer-run/config", Arc::new(service_blocks::ConfigBlock::new(env_vars)));
-    wafer.register_block("wafer-run/crypto", Arc::new(service_blocks::CryptoBlock::new(jwt_secret.clone())));
-    wafer.register_block("wafer-run/network", Arc::new(service_blocks::NetworkBlock));
-    wafer.register_block("wafer-run/logger", Arc::new(service_blocks::LoggerBlock));
-
-    // Aliases
-    wafer.add_alias("wafer-run/database", "wafer-run/d1");
-    wafer.add_alias("db", "wafer-run/d1");
-    wafer.add_alias("wafer-run/storage", "wafer-run/r2");
-    wafer.add_alias("storage", "wafer-run/r2");
-
-    // Register pass-through flow blocks (handled at CF platform level)
-    for name in &[
-        "wafer-run/security-headers",
-        "wafer-run/cors",
-        "wafer-run/readonly-guard",
-        "wafer-run/ip-rate-limit",
-        "wafer-run/monitoring",
-    ] {
-        wafer.register_block_func(*name, |_ctx, msg| {
-            wafer_run::Result_::continue_with(msg.clone())
-        });
-    }
-
-    // The site-main flow references wafer-run/router — alias to suppers-ai/router
-    wafer.add_alias("wafer-run/router", "suppers-ai/router");
-
-    // Register wafer-run/web for SPA frontend
-    wafer_block_web::register(&mut wafer);
-    wafer.add_block_config("wafer-run/web", serde_json::json!({
-        "web_root": "site",
-        "web_spa": "true",
-        "web_index": "index.html"
-    }));
-
-    // Register solobase feature blocks via the router
-    let auth_header = req.headers().get("authorization")?;
-
-    let mut shared_blocks = HashMap::new();
-    shared_blocks.insert(BlockId::System, Arc::new(blocks::system::SystemBlock) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::Auth, Arc::new(blocks::auth::AuthBlock::new()) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::Admin, Arc::new(blocks::admin::AdminBlock) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::Files, Arc::new(blocks::files::FilesBlock::new()) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::LegalPages, Arc::new(blocks::legalpages::LegalPagesBlock) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::Products, Arc::new(blocks::products::ProductsBlock::new()) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::Deployments, Arc::new(blocks::deployments::DeploymentsBlock::new()) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::UserPortal, Arc::new(blocks::userportal::UserPortalBlock) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::Profile, Arc::new(blocks::profile::ProfileBlock) as Arc<dyn wafer_run::block::Block>);
-
-    // Register email block
-    wafer.register_block("suppers-ai/email", Arc::new(blocks::email::EmailBlock));
-
-    // Register the solobase router block
-    let features: Arc<dyn solobase_core::FeatureConfig> = Arc::new(project.config.clone());
-    use solobase::blocks::router::{NativeBlockFactory, SolobaseRouterBlock};
-    let factory = NativeBlockFactory::new(shared_blocks);
-    let router = SolobaseRouterBlock::new(jwt_secret, features, factory);
-    wafer.register_block("suppers-ai/router", Arc::new(router));
-
-    // Register the site-main flow
-    wafer.add_flow_json(solobase::flows::site_main::JSON)
-        .expect("invalid site-main flow JSON");
-
-    // Resolve
-    wafer.start_without_bind().await.map_err(|e| Error::RustError(e))?;
-
-    // Convert HTTP request to WAFER Message
-    let mut msg = convert::worker_request_to_message(req).await?;
-
-    // Set auth header in meta for the router block
-    if let Some(ref auth) = auth_header {
-        msg.set_meta("http.header.authorization", auth);
-    }
-
-    // Execute flow
-    let result = wafer.run("site-main", &mut msg).await;
-
-    // Convert result to HTTP response
-    convert::wafer_result_to_worker_response(result)
+    add_cors_headers(resp, req).await
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +171,6 @@ async fn dispatch_to_blocks(
 async fn serve_static(env: &Env, prefix: &str, path: &str) -> Option<Response> {
     let bucket = env.bucket("STORAGE").ok()?;
 
-    // Build the R2 key
     let clean_path = path.trim_start_matches('/');
     let key = if clean_path.is_empty() || clean_path.ends_with('/') {
         format!("{}{}index.html", prefix, clean_path)
@@ -365,7 +205,7 @@ async fn serve_static(env: &Env, prefix: &str, path: &str) -> Option<Response> {
         }
     }
 
-    // SPA fallback — only for /blocks/ paths (not for arbitrary routes)
+    // SPA fallback — only for /blocks/ paths
     if path.starts_with("/blocks/") {
         let spa_key = format!("{}index.html", prefix);
         if let Ok(Some(obj)) = bucket.get(&spa_key).execute().await {
@@ -406,33 +246,17 @@ fn is_api_route(pathname: &str) -> bool {
         "/health", "/nav", "/debug/",
         "/auth/", "/admin/", "/storage/",
         "/b/", "/ext/", "/profile/", "/settings/",
-        "/internal/",
+        "/internal/", "/_internal/",
     ];
     PREFIXES.iter().any(|p| {
         pathname == p.trim_end_matches('/') || pathname.starts_with(p)
     })
 }
 
-fn strip_api_prefix(pathname: &str) -> String {
-    if pathname.starts_with("/api") {
-        let rest = &pathname[4..];
-        if rest.is_empty() { "/".to_string() } else { rest.to_string() }
-    } else {
-        pathname.to_string()
-    }
-}
-
 fn is_dev_env(env: &Env) -> bool {
     env.var("ENVIRONMENT")
         .map(|v| v.to_string() == "development")
         .unwrap_or(false)
-}
-
-fn get_env_str(env: &Env, key: &str) -> String {
-    env.secret(key)
-        .map(|s| s.to_string())
-        .or_else(|_| env.var(key).map(|v| v.to_string()))
-        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -461,15 +285,14 @@ fn get_allowed_origin(req: &Request) -> String {
     }
     if let Ok(u) = Url::parse(&origin) {
         let host = u.host_str().unwrap_or("");
-        // Localhost always allowed
         if host == "localhost" || host == "127.0.0.1" {
             return origin;
         }
-        // Platform hosts
-        if host == "cloud.solobase.dev" || host == "solobase.dev" {
+        if host == "cloud.solobase.dev" || host == "solobase.dev"
+            || host == "cloud.solobase-dev.dev" || host == "solobase-dev.dev"
+            || host.ends_with(".solobase-dev.dev") {
             return origin;
         }
-        // Same-origin: request's own host
         let req_host = req.headers().get("host").ok().flatten().unwrap_or_default();
         let req_host_only = req_host.split(':').next().unwrap_or("");
         if !req_host_only.is_empty() && host == req_host_only {
@@ -479,7 +302,10 @@ fn get_allowed_origin(req: &Request) -> String {
     String::new()
 }
 
-fn add_cors_headers(mut resp: Response, req: &Request) -> Result<Response> {
+async fn add_cors_headers(resp: Response, req: &Request) -> Result<Response> {
+    // Responses from WfP dispatch have immutable headers, so we must
+    // create a new mutable Response to add our headers.
+    let mut resp = make_mutable(resp).await?;
     let origin = get_allowed_origin(req);
     let headers = resp.headers_mut();
     if !origin.is_empty() {
@@ -489,6 +315,18 @@ fn add_cors_headers(mut resp: Response, req: &Request) -> Result<Response> {
     headers.set("X-Content-Type-Options", "nosniff")?;
     headers.set("X-Frame-Options", "DENY")?;
     Ok(resp)
+}
+
+/// Create a mutable copy of a response (works around immutable headers from WfP dispatch).
+async fn make_mutable(mut resp: Response) -> Result<Response> {
+    let status = resp.status_code();
+    let orig_headers = resp.headers().clone();
+    let body = resp.bytes().await.unwrap_or_default();
+    let mut new_resp = Response::from_bytes(body)?.with_status(status);
+    for (key, value) in orig_headers.entries() {
+        let _ = new_resp.headers_mut().set(&key, &value);
+    }
+    Ok(new_resp)
 }
 
 fn add_security_headers(mut resp: Response) -> Result<Response> {

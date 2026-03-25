@@ -7,7 +7,6 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use solobase_core::features;
 
 /// Reserved subdomains that cannot be used as project names.
 pub const RESERVED_SUBDOMAINS: &[&str] = &[
@@ -31,7 +30,7 @@ pub fn is_platform_host(host: &str) -> bool {
     host_no_port == "localhost"
         || host_no_port == "127.0.0.1"
         || host_no_port == "cloud.solobase.dev"
-        || host_no_port.ends_with(".workers.dev") // workers.dev preview URLs
+        || host_no_port == "cloud.solobase-dev.dev"
 }
 
 /// Per-project configuration stored in KV.
@@ -44,7 +43,7 @@ pub struct ProjectConfig {
     /// Display name of the project.
     #[serde(default)]
     pub name: String,
-    /// Billing plan: "free", "starter", "pro", "platform".
+    /// Billing plan: "free", "starter", "pro".
     #[serde(default = "default_plan")]
     pub plan: String,
     /// Project status: "active" or "inactive".
@@ -59,9 +58,10 @@ pub struct ProjectConfig {
     /// Worker binding name for this project's D1.
     #[serde(default)]
     pub db_binding: Option<String>,
-    /// The project's app config (feature flags).
+    /// The project's app config (feature flags). Stored as opaque JSON —
+    /// the dispatch worker doesn't interpret it, just passes it to user workers.
     #[serde(default)]
-    pub config: ProjectAppConfig,
+    pub config: Value,
     /// Custom WASM block names installed by this project.
     #[serde(default)]
     pub blocks: Vec<String>,
@@ -70,56 +70,6 @@ pub struct ProjectConfig {
 fn default_plan() -> String { "free".to_string() }
 fn default_status() -> String { "active".to_string() }
 
-/// App config — mirrors solobase.json feature flags.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ProjectAppConfig {
-    #[serde(default)]
-    pub version: u32,
-    #[serde(default)]
-    pub app: Option<String>,
-    #[serde(default)]
-    pub auth: Option<Value>,
-    #[serde(default)]
-    pub admin: Option<Value>,
-    #[serde(default)]
-    pub files: Option<Value>,
-    #[serde(default)]
-    pub products: Option<Value>,
-    #[serde(default)]
-    pub deployments: Option<Value>,
-    #[serde(default)]
-    pub legalpages: Option<Value>,
-    #[serde(default)]
-    pub userportal: Option<Value>,
-}
-
-impl features::FeatureConfig for ProjectAppConfig {
-    fn auth_enabled(&self) -> bool { features::is_feature_enabled(&self.auth) }
-    fn admin_enabled(&self) -> bool { features::is_feature_enabled(&self.admin) }
-    fn files_enabled(&self) -> bool { features::is_feature_enabled(&self.files) }
-    fn products_enabled(&self) -> bool { features::is_feature_enabled(&self.products) }
-    fn deployments_enabled(&self) -> bool { features::is_feature_enabled(&self.deployments) }
-    fn legalpages_enabled(&self) -> bool { features::is_feature_enabled(&self.legalpages) }
-    fn userportal_enabled(&self) -> bool { features::is_feature_enabled(&self.userportal) }
-}
-
-impl ProjectAppConfig {
-    /// Create a config with all features enabled.
-    pub fn all_enabled() -> Self {
-        let on = Some(Value::Object(Default::default()));
-        Self {
-            version: 1,
-            app: None,
-            auth: on.clone(),
-            admin: on.clone(),
-            files: on.clone(),
-            products: on.clone(),
-            deployments: on.clone(),
-            legalpages: on.clone(),
-            userportal: on,
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Plan limits
@@ -148,12 +98,6 @@ pub fn get_plan_limits(plan: &str) -> PlanLimits {
             max_requests_per_month: 3_000_000,
             max_r2_storage_bytes: 10_737_418_240, // 10 GB
             max_d1_storage_bytes: 5_368_709_120,  // 5 GB
-        },
-        "platform" => PlanLimits {
-            max_projects: usize::MAX,
-            max_requests_per_month: u64::MAX,
-            max_r2_storage_bytes: u64::MAX,
-            max_d1_storage_bytes: u64::MAX,
         },
         // "free" or unknown
         _ => PlanLimits {
@@ -187,12 +131,12 @@ pub async fn resolve_project(
             id: "dev".to_string(),
             subdomain: "localhost".to_string(),
             name: "Development".to_string(),
-            plan: "platform".to_string(),
+            plan: "pro".to_string(),
             status: "active".to_string(),
             owner_user_id: None,
             db_id: None,
             db_binding: Some("DB".to_string()),
-            config: ProjectAppConfig::all_enabled(),
+            config: serde_json::json!({"version": 1, "auth": {}, "admin": {}, "files": {}, "products": {}, "deployments": {}, "legalpages": {}, "userportal": {}}),
             blocks: Vec::new(),
         });
     }

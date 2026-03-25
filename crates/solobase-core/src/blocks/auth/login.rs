@@ -92,6 +92,17 @@ impl AuthBlock {
         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() || !parts[1].contains('.') {
             return error_response(msg, ErrorCode::InvalidEmail, "Invalid email address");
         }
+
+        // Check allowed email domains (if configured)
+        let allowed_domains = config::get_default(ctx, "AUTH_ALLOWED_EMAIL_DOMAINS", "").await;
+        if !allowed_domains.is_empty() {
+            let email_domain = parts[1];
+            let allowed = allowed_domains.split(',').any(|d| d.trim() == email_domain);
+            if !allowed {
+                return error_response(msg, ErrorCode::InvalidEmail, "Signups from this email domain are not allowed");
+            }
+        }
+
         if body.password.len() < 8 {
             return error_response(msg, ErrorCode::PasswordTooShort, "Password must be at least 8 characters");
         }

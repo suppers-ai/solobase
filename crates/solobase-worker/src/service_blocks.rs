@@ -89,7 +89,8 @@ impl D1Block {
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for D1Block {
     fn info(&self) -> BlockInfo {
         block_info("wafer-run/d1", "Cloudflare D1 database service")
@@ -117,7 +118,8 @@ impl R2Block {
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for R2Block {
     fn info(&self) -> BlockInfo {
         block_info("wafer-run/r2", "Cloudflare R2 storage service")
@@ -157,7 +159,8 @@ struct ConfigGetReq { key: String }
 #[derive(Serialize)]
 struct ConfigGetResp { value: String }
 
-#[async_trait::async_trait(?Send)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for ConfigBlock {
     fn info(&self) -> BlockInfo {
         block_info("wafer-run/config", "Configuration from environment variables")
@@ -231,7 +234,8 @@ fn default_rand_n() -> usize { 32 }
 #[derive(Serialize)]
 struct CryptoRandomResp { bytes: Vec<u8> }
 
-#[async_trait::async_trait(?Send)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for CryptoBlock {
     fn info(&self) -> BlockInfo {
         block_info("wafer-run/crypto", "Cryptographic operations (argon2, JWT, random)")
@@ -304,7 +308,8 @@ struct NetworkDoResp {
     body: Vec<u8>,
 }
 
-#[async_trait::async_trait(?Send)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for NetworkBlock {
     fn info(&self) -> BlockInfo {
         block_info("wafer-run/network", "HTTP fetch via Worker runtime")
@@ -364,7 +369,8 @@ impl Block for NetworkBlock {
 pub struct LoggerBlock;
 unsafe_send_sync!(LoggerBlock);
 
-#[async_trait::async_trait(?Send)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for LoggerBlock {
     fn info(&self) -> BlockInfo {
         block_info("wafer-run/logger", "Console logging for Workers")

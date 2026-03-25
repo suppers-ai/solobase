@@ -26,11 +26,6 @@ pub async fn check_and_increment_usage(
     db: &D1Database,
     project: &ProjectConfig,
 ) -> UsageCheckResult {
-    // Skip checks for platform
-    if project.plan == "platform" {
-        return UsageCheckResult::ok();
-    }
-
     let limits = get_plan_limits(&project.plan);
     let month = current_month();
     let mut result = UsageCheckResult::ok();

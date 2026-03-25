@@ -1,0 +1,23 @@
+name = "solobase-worker-dev"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-03-01"
+
+[build]
+command = "cargo install worker-build && worker-build --release"
+
+# Local development bindings only.
+# In production, user workers are deployed via the CF API with per-project
+# bindings — this file is NOT used for production deployment.
+
+[vars]
+PROJECT_ID = "dev"
+PROJECT_CONFIG = '{"version":1,"auth":{},"admin":{},"files":{},"products":{},"deployments":{},"legalpages":{},"userportal":{}}'
+
+[[d1_databases]]
+binding = "DB"
+database_name = "solobase-db-dev"
+database_id = "b2da17b4-a047-4e61-b61b-6f5b25613b7c"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "solobase-storage-dev"

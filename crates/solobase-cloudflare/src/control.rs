@@ -2,19 +2,19 @@
 //!
 //! All control plane routes are under `/_control/` and require the
 //! `X-Admin-Secret` header to match the `ADMIN_SECRET` environment variable.
-//! Uses constant-time comparison to prevent timing attacks.
 
 use std::collections::HashMap;
 
 use worker::*;
 
+use crate::cf_api::{self, CfCredentials};
 use crate::helpers::json_response;
 use crate::project::is_reserved_subdomain;
 use crate::provision;
 
 /// Handle a control plane request.
 pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result<Response> {
-    // Verify admin secret with constant-time comparison
+    // Verify admin secret
     let provided = req
         .headers()
         .get("x-admin-secret")
@@ -64,7 +64,7 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             }
         }
 
-        // Create a new project
+        // Create a new project (provisions D1 + user worker)
         ("POST", "projects") => {
             #[derive(serde::Deserialize)]
             struct Req {
@@ -75,14 +75,14 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
                 plan: String,
                 #[serde(default)]
                 owner_user_id: Option<String>,
-                config: Option<crate::project::ProjectAppConfig>,
+                #[serde(default)]
+                config: Option<serde_json::Value>,
             }
             fn default_plan() -> String { "free".into() }
 
             let req: Req = serde_json::from_slice(body)
                 .map_err(|e| Error::RustError(format!("invalid body: {e}")))?;
 
-            // Validate subdomain
             if is_reserved_subdomain(&req.subdomain) {
                 return json_response(
                     &serde_json::json!({"error": "invalid_argument", "message": "subdomain is reserved"}),
@@ -91,7 +91,7 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             }
 
             let project = provision::create_project(
-                &kv, &req.subdomain, &req.name, &req.plan,
+                env, &kv, &req.subdomain, &req.name, &req.plan,
                 req.owner_user_id.as_deref(), req.config,
             ).await?;
             json_response(&project, 201)
@@ -119,29 +119,80 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
                 config.name = name.to_string();
             }
             if let Some(app_config) = updates.get("config") {
-                if let Ok(c) = serde_json::from_value(app_config.clone()) {
-                    config.config = c;
-                }
+                config.config = app_config.clone();
             }
 
             provision::update_project(&kv, subdomain, &config).await?;
             json_response(&config, 200)
         }
 
-        // Delete a project
+        // Delete a project (cleans up D1 + user worker)
         ("DELETE", _) if path.starts_with("projects/") => {
             let subdomain = path.strip_prefix("projects/").unwrap_or("");
-            provision::delete_project(&kv, subdomain).await?;
+            provision::delete_project(env, &kv, subdomain).await?;
             json_response(&serde_json::json!({"deleted": true}), 200)
         }
 
-        // Run schema migrations
+        // Run platform schema migrations (subscriptions, project_usage)
         ("POST", "migrate") => {
             crate::schema::run_migrations(&db).await?;
             json_response(
-                &serde_json::json!({"status": "ok", "message": "migrations applied"}),
+                &serde_json::json!({"status": "ok", "message": "platform migrations applied"}),
                 200,
             )
+        }
+
+        // Deploy updated code to all user workers (reads artifacts from R2)
+        ("POST", "deploy") => {
+            let creds = CfCredentials::from_env(env)?;
+            let bucket = env.bucket("STORAGE")
+                .map_err(|e| Error::RustError(format!("R2: {e}")))?;
+
+            let js_module = read_r2_bytes(&bucket, "_system/worker/index.js").await?;
+            let wasm_bytes = read_r2_bytes(&bucket, "_system/worker/index_bg.wasm").await?;
+
+            let updated = cf_api::update_all_workers(&creds, &js_module, &wasm_bytes).await?;
+
+            json_response(
+                &serde_json::json!({"status": "ok", "updated": updated.len(), "workers": updated}),
+                200,
+            )
+        }
+
+        // Trigger migrations on all user workers
+        ("POST", "migrate-workers") => {
+            let projects = provision::list_projects(&kv).await?;
+            let dispatcher = env.dynamic_dispatcher("DISPATCHER")
+                .map_err(|e| Error::RustError(format!("dispatcher: {e}")))?;
+
+            let mut results = Vec::new();
+            for subdomain in &projects {
+                let migrate_req = Request::new(
+                    "https://internal/_internal/migrate",
+                    Method::Post,
+                )?;
+
+                match dispatcher.get(subdomain) {
+                    Ok(fetcher) => {
+                        match fetcher.fetch_request(migrate_req).await {
+                            Ok(resp) => results.push(serde_json::json!({
+                                "project": subdomain,
+                                "status": resp.status_code(),
+                            })),
+                            Err(e) => results.push(serde_json::json!({
+                                "project": subdomain,
+                                "error": e.to_string(),
+                            })),
+                        }
+                    }
+                    Err(e) => results.push(serde_json::json!({
+                        "project": subdomain,
+                        "error": e.to_string(),
+                    })),
+                }
+            }
+
+            json_response(&serde_json::json!({"status": "ok", "results": results}), 200)
         }
 
         // Platform health
@@ -164,24 +215,28 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
     }
 }
 
-/// Constant-time byte comparison using HMAC to avoid leaking input length.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    use hmac::{Hmac, Mac};
-    use sha2::Sha256;
-    // HMAC both inputs with a fixed key so the comparison is always
-    // over two 32-byte digests, regardless of the original lengths.
-    let key = b"solobase-constant-time-eq";
-    let mut mac_a = Hmac::<Sha256>::new_from_slice(key).unwrap();
-    mac_a.update(a);
-    let hash_a = mac_a.finalize().into_bytes();
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-    let mut mac_b = Hmac::<Sha256>::new_from_slice(key).unwrap();
-    mac_b.update(b);
-    let hash_b = mac_b.finalize().into_bytes();
+/// Constant-time byte comparison using SHA-256 to avoid timing attacks.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    use sha2::{Sha256, Digest};
+
+    let hash_a = Sha256::digest(a);
+    let hash_b = Sha256::digest(b);
 
     let mut diff = 0u8;
     for (x, y) in hash_a.iter().zip(hash_b.iter()) {
         diff |= x ^ y;
     }
     diff == 0
+}
+
+async fn read_r2_bytes(bucket: &Bucket, key: &str) -> Result<Vec<u8>> {
+    let obj = bucket.get(key).execute().await?
+        .ok_or_else(|| Error::RustError(format!("R2 object '{}' not found", key)))?;
+    let body = obj.body()
+        .ok_or_else(|| Error::RustError(format!("R2 object '{}' has no body", key)))?;
+    body.bytes().await
 }

@@ -19,6 +19,7 @@ command = "cargo install worker-build && worker-build --release"
 
 [vars]
 ENVIRONMENT = "development"
+DISPATCHER_NAMESPACE = "solobase-workers-dev"
 
 [[d1_databases]]
 binding = "DB"
@@ -32,6 +33,17 @@ bucket_name = "solobase-storage-dev"
 [[kv_namespaces]]
 binding = "PROJECTS"
 id = "e78c1706611f4c03b723fda81ae7c22e"
+
+# Workers for Platforms dispatch namespace
+# Create with: npx wrangler dispatch-namespace create solobase-workers-dev
+[[dispatch_namespaces]]
+binding = "DISPATCHER"
+namespace = "solobase-workers-dev"
+
+# Additional secrets/vars for WfP provisioning:
+#   npx wrangler secret put CF_API_TOKEN
+#   npx wrangler secret put CF_ACCOUNT_ID
+# DISPATCHER_NAMESPACE is read from vars below (matches the dispatch_namespaces binding)
 
 # =============================================================================
 # Production environment
@@ -50,6 +62,7 @@ name = "solobase-production"
 
 [env.production.vars]
 ENVIRONMENT = "production"
+DISPATCHER_NAMESPACE = "solobase-workers"
 
 [[env.production.d1_databases]]
 binding = "DB"
@@ -63,3 +76,7 @@ bucket_name = "solobase-storage"
 [[env.production.kv_namespaces]]
 binding = "PROJECTS"
 id = "4b124a049ff04024b71c27d2ef02b181"
+
+[[env.production.dispatch_namespaces]]
+binding = "DISPATCHER"
+namespace = "solobase-workers"

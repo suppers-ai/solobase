@@ -6,6 +6,7 @@ members = [
 ]
 exclude = [
     "crates/solobase-cloudflare",
+    "crates/solobase-worker",
 ]
 
 [workspace.package]
