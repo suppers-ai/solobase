@@ -53,9 +53,12 @@ impl Block for AdminBlock {
                     .field_optional("assigned_at", "datetime")
                     .field_default("assigned_by", "string", "")
                     .index(&["user_id"]),
-                CollectionSchema::new("settings")
+                CollectionSchema::new("variables")
                     .field_unique("key", "string")
+                    .field_default("name", "string", "")
+                    .field_default("description", "string", "")
                     .field_default("value", "string", "")
+                    .field_default("warning", "string", "")
                     .field_default("updated_by", "string", ""),
                 CollectionSchema::new("audit_logs")
                     .field_default("user_id", "string", "")

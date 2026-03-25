@@ -53,28 +53,14 @@ pub async fn create_project(
         .map(|v| v.to_string())
         .unwrap_or_else(|_| "solobase-storage".into());
 
-    let mut secrets = Vec::new();
-    for key in &[
-        "JWT_SECRET", "ADMIN_SECRET",
-        "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
-        "STRIPE_PRICE_STARTER", "STRIPE_PRICE_PRO",
-        "MAILGUN_API_KEY", "MAILGUN_DOMAIN", "MAILGUN_FROM", "MAILGUN_REPLY_TO",
-    ] {
-        if let Ok(val) = env.secret(key).map(|s| s.to_string()) {
-            secrets.push((key.to_string(), val));
-        }
-    }
-
-    let vars = vec![
-        ("PROJECT_ID".to_string(), project_id.clone()),
-        ("PROJECT_CONFIG".to_string(), config_json.clone()),
-    ];
-
+    // Only infrastructure bindings — all config lives in the D1 variables table.
     let bindings = WorkerBindings {
         d1_database_id: db_id.clone(),
         r2_bucket_name,
-        secrets,
-        vars,
+        secrets: Vec::new(),
+        vars: vec![
+            ("PROJECT_ID".to_string(), project_id.clone()),
+        ],
     };
 
     // 4. Upload user worker to dispatch namespace

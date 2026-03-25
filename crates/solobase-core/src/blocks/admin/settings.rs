@@ -6,7 +6,7 @@ use wafer_core::clients::database as db;
 use wafer_core::clients::database::ListOptions;
 use crate::blocks::helpers::{self, json_map, RecordExt};
 
-const COLLECTION: &str = "settings";
+const COLLECTION: &str = "variables";
 
 pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -106,20 +106,23 @@ pub async fn seed_defaults(ctx: &dyn Context) {
     if count > 0 { return; }
 
     let defaults = vec![
-        ("APP_NAME", serde_json::json!("Solobase")),
-        ("ALLOW_SIGNUP", serde_json::json!(true)),
-        ("ENABLE_OAUTH", serde_json::json!(false)),
-        ("PRIMARY_COLOR", serde_json::json!("#6366f1")),
+        ("APP_NAME", "App Name", "Display name shown in the UI and emails", "Solobase", ""),
+        ("ALLOW_SIGNUP", "Allow Signup", "Allow new users to register", "true", ""),
+        ("ENABLE_OAUTH", "Enable OAuth", "Enable third-party OAuth login", "false", ""),
+        ("PRIMARY_COLOR", "Primary Color", "Brand color used in the UI", "#6366f1", ""),
     ];
 
-    for (key, value) in defaults {
+    for (key, name, description, value, warning) in defaults {
         let data = json_map(serde_json::json!({
             "key": key,
+            "name": name,
+            "description": description,
             "value": value,
+            "warning": warning,
             "created_at": helpers::now_rfc3339()
         }));
         if let Err(e) = db::create(ctx, COLLECTION, data).await {
-            tracing::warn!("Failed to seed default setting '{key}': {e}");
+            tracing::warn!("Failed to seed default variable '{key}': {e}");
         }
     }
 }

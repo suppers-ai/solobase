@@ -17,8 +17,7 @@ playwright-report/
 
 # Env
 .env
-.env.local
-.env.*.local
+.env.*
 .dev.vars
 .wrangler-dev.toml
 

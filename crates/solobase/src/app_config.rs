@@ -611,7 +611,7 @@ mod schemas {
                         { "fields": ["created_at"] }
                     ]
                 },
-                "sys_settings": {
+                "variables": {
                     "fields": {
                         "id": { "type": "string", "primary": true },
                         "key": { "type": "string", "unique": true },

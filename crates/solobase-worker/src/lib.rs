@@ -84,7 +84,35 @@ async fn handle_migrate(env: &Env) -> Result<Response> {
 
     schema::run_migrations(&db).await?;
 
+    // Ensure JWT_SECRET exists in variables table — generate if missing
+    seed_jwt_secret(&db).await?;
+
     helpers::json_response(&serde_json::json!({"ok": true}), 200)
+}
+
+/// Generate and store a JWT_SECRET in the variables table if one doesn't exist.
+async fn seed_jwt_secret(db: &D1Database) -> Result<()> {
+    let existing = db
+        .prepare("SELECT value FROM variables WHERE key = 'JWT_SECRET'")
+        .bind(&[])?.first::<serde_json::Value>(None).await?;
+
+    if existing.is_some() {
+        return Ok(());
+    }
+
+    let secret = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+    let id = format!("var_{}", uuid::Uuid::new_v4());
+
+    db.prepare(
+        "INSERT INTO variables (id, key, name, description, value, warning, created_at, updated_at) \
+         VALUES (?1, 'JWT_SECRET', 'JWT Secret', 'Secret key used to sign authentication tokens', ?2, \
+         'Changing this will invalidate all existing user sessions and tokens', datetime('now'), datetime('now'))"
+    )
+    .bind(&[id.into(), secret.into()])?
+    .run().await?;
+
+    console_log!("Generated JWT_SECRET for project");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -93,38 +121,37 @@ async fn handle_migrate(env: &Env) -> Result<Response> {
 
 async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     let project_id = get_env_str(env, "PROJECT_ID");
-    let project_config: ProjectAppConfig = env
-        .var("PROJECT_CONFIG")
-        .map(|v| v.to_string())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default();
 
     // Get bindings
     let db = env.d1("DB")
         .map_err(|e| Error::RustError(format!("D1: {e}")))?;
     let bucket = env.bucket("STORAGE")
         .map_err(|e| Error::RustError(format!("R2: {e}")))?;
-    let jwt_secret = get_env_str(env, "JWT_SECRET");
 
-    // Build env vars map
+    // Load all config from the D1 variables table — the single source of
+    // truth for project configuration. Set via the admin dashboard.
     let mut env_vars = HashMap::new();
-    env_vars.insert("JWT_SECRET".to_string(), jwt_secret.clone());
-    for key in &[
-        "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
-        "STRIPE_PRICE_STARTER", "STRIPE_PRICE_PRO",
-        "MAILGUN_API_KEY", "MAILGUN_DOMAIN", "MAILGUN_FROM", "MAILGUN_REPLY_TO",
-        "AUTH_REQUIRE_VERIFICATION", "AUTH_ALLOWED_EMAIL_DOMAINS",
-        "SITE_NAME", "SITE_URL", "ADMIN_EMAIL",
-        "STORAGE_MAX_FILE_SIZE", "STORAGE_QUOTA_MB",
-        "CONTROL_PLANE_URL", "CONTROL_PLANE_SECRET",
-    ] {
-        if let Ok(val) = env.var(key).map(|v| v.to_string()) {
-            env_vars.insert(key.to_string(), val);
-        } else if let Ok(val) = env.secret(key).map(|s| s.to_string()) {
-            env_vars.insert(key.to_string(), val);
+    if let Ok(stmt) = db.prepare("SELECT key, value FROM variables").bind(&[]) {
+        if let Ok(result) = stmt.all().await {
+            for row in result.results::<serde_json::Value>().unwrap_or_default() {
+                if let (Some(key), Some(value)) = (
+                    row.get("key").and_then(|v| v.as_str()),
+                    row.get("value").and_then(|v| v.as_str()),
+                ) {
+                    if !key.is_empty() {
+                        env_vars.insert(key.to_string(), value.to_string());
+                    }
+                }
+            }
         }
     }
+
+    let jwt_secret = env_vars.get("JWT_SECRET").cloned().unwrap_or_default();
+
+    // Feature flags — read from variables or default to all enabled
+    let project_config: ProjectAppConfig = env_vars.get("PROJECT_CONFIG")
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
 
     // Create WAFER runtime
     let mut wafer = wafer_run::runtime::Wafer::new();

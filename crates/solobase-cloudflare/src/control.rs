@@ -1,7 +1,7 @@
 //! Control plane API — platform-level project management.
 //!
 //! All control plane routes are under `/_control/` and require the
-//! `X-Admin-Secret` header to match the `ADMIN_SECRET` environment variable.
+//! `X-Control-Api-Key` header to match the `CONTROL_API_KEY` secret.
 
 use std::collections::HashMap;
 
@@ -14,23 +14,23 @@ use crate::provision;
 
 /// Handle a control plane request.
 pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result<Response> {
-    // Verify admin secret
+    // Verify control plane API key
     let provided = req
         .headers()
-        .get("x-admin-secret")
+        .get("x-control-api-key")
         .ok()
         .flatten()
         .unwrap_or_default();
 
     let expected = env
-        .secret("ADMIN_SECRET")
+        .secret("CONTROL_API_KEY")
         .map(|s| s.to_string())
-        .or_else(|_| env.var("ADMIN_SECRET").map(|v| v.to_string()))
+        .or_else(|_| env.var("CONTROL_API_KEY").map(|v| v.to_string()))
         .unwrap_or_default();
 
     if expected.is_empty() || !constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
         return json_response(
-            &serde_json::json!({"error": "unauthorized", "message": "invalid admin secret"}),
+            &serde_json::json!({"error": "unauthorized", "message": "invalid control API key"}),
             401,
         );
     }

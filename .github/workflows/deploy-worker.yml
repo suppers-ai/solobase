@@ -71,22 +71,22 @@ jobs:
       # 4. Update all existing user workers with new code
       - name: Deploy code to all user workers
         env:
-          ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+          CONTROL_API_KEY: ${{ secrets.CONTROL_API_KEY }}
           PLATFORM_URL: ${{ vars.PLATFORM_URL || 'https://cloud.solobase.dev' }}
         run: |
           curl -sf -X POST "$PLATFORM_URL/_control/deploy" \
-            -H "X-Admin-Secret: $ADMIN_SECRET" \
+            -H "X-Control-Api-Key: $CONTROL_API_KEY" \
             -H "Content-Type: application/json" \
             --max-time 120 || echo "Warning: deploy endpoint returned non-zero"
 
       # 5. Run migrations on all user workers
       - name: Run migrations on all user workers
         env:
-          ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+          CONTROL_API_KEY: ${{ secrets.CONTROL_API_KEY }}
           PLATFORM_URL: ${{ vars.PLATFORM_URL || 'https://cloud.solobase.dev' }}
         run: |
           curl -sf -X POST "$PLATFORM_URL/_control/migrate-workers" \
-            -H "X-Admin-Secret: $ADMIN_SECRET" \
+            -H "X-Control-Api-Key: $CONTROL_API_KEY" \
             -H "Content-Type: application/json" \
             --max-time 120 || echo "Warning: migrate-workers endpoint returned non-zero"
 

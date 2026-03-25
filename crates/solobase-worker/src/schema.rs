@@ -91,18 +91,21 @@ const MIGRATIONS: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_iam_user_roles_user ON iam_user_roles (user_id)",
 
     // =========================================================================
-    // ADMIN BLOCK — settings, audit_logs
+    // ADMIN BLOCK — variables, audit_logs
     // =========================================================================
 
-    "CREATE TABLE IF NOT EXISTS settings (
+    "CREATE TABLE IF NOT EXISTS variables (
         id TEXT PRIMARY KEY,
         key TEXT NOT NULL UNIQUE,
+        name TEXT DEFAULT '',
+        description TEXT DEFAULT '',
         value TEXT DEFAULT '',
+        warning TEXT DEFAULT '',
         updated_by TEXT DEFAULT '',
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
     )",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_settings_key ON settings (key)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_variables_key ON variables (key)",
 
     "CREATE TABLE IF NOT EXISTS audit_logs (
         id TEXT PRIMARY KEY,
@@ -383,9 +386,10 @@ const MIGRATIONS: &[&str] = &[
         ('role_admin', 'admin', 'Full administrative access', '[\"*\"]', 1),
         ('role_user', 'user', 'Standard user access', '[\"read\",\"write\"]', 1)",
 
-    "INSERT OR IGNORE INTO settings (id, key, value) VALUES
-        ('setting_site_name', 'site_name', 'Solobase'),
-        ('setting_site_url', 'site_url', 'https://solobase.dev')",
+    "INSERT OR IGNORE INTO variables (id, key, name, description, value) VALUES
+        ('var_app_name', 'APP_NAME', 'App Name', 'Display name shown in the UI and emails', 'Solobase'),
+        ('var_allow_signup', 'ALLOW_SIGNUP', 'Allow Signup', 'Allow new users to register', 'true'),
+        ('var_primary_color', 'PRIMARY_COLOR', 'Primary Color', 'Brand color used in the UI', '#6366f1')",
 ];
 
 /// Run all schema migrations on a D1 database.
