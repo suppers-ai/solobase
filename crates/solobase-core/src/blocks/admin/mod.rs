@@ -59,6 +59,7 @@ impl Block for AdminBlock {
                     .field_default("description", "string", "")
                     .field_default("value", "string", "")
                     .field_default("warning", "string", "")
+                    .field_default("sensitive", "int", "0")
                     .field_default("updated_by", "string", ""),
                 CollectionSchema::new("audit_logs")
                     .field_default("user_id", "string", "")
@@ -87,6 +88,9 @@ impl Block for AdminBlock {
         }
         if path.starts_with("/admin/settings") || path.starts_with("/settings") {
             return settings::handle(ctx, msg).await;
+        }
+        if path.starts_with("/admin/extensions") {
+            return wafer_run::helpers::json_respond(msg, &serde_json::json!([]));
         }
         if path.starts_with("/admin/wafer") {
             return wafer_info::handle(ctx, msg);

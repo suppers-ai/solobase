@@ -136,7 +136,7 @@ pub async fn resolve_project(
             owner_user_id: None,
             db_id: None,
             db_binding: Some("DB".to_string()),
-            config: serde_json::json!({"version": 1, "auth": {}, "admin": {}, "files": {}, "products": {}, "deployments": {}, "legalpages": {}, "userportal": {}}),
+            config: serde_json::json!({"version": 1, "auth": {}, "admin": {}, "files": {}, "products": {}, "projects": {},"legalpages": {}, "userportal": {}}),
             blocks: Vec::new(),
         });
     }

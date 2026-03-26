@@ -6,19 +6,19 @@ use wafer_run::types::*;
 use wafer_run::helpers::*;
 use super::rate_limit::{UserRateLimiter, RateLimit, check_rate_limit};
 
-pub(crate) const DEPLOYMENTS_COLLECTION: &str = "block_deployments";
+pub(crate) const PROJECTS_COLLECTION: &str = "block_deployments";
 
-pub struct DeploymentsBlock {
+pub struct ProjectsBlock {
     limiter: UserRateLimiter,
 }
 
-impl Default for DeploymentsBlock {
+impl Default for ProjectsBlock {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl DeploymentsBlock {
+impl ProjectsBlock {
     pub fn new() -> Self {
         Self { limiter: UserRateLimiter::new() }
     }
@@ -26,15 +26,15 @@ impl DeploymentsBlock {
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl Block for DeploymentsBlock {
+impl Block for ProjectsBlock {
     fn info(&self) -> BlockInfo {
         use wafer_run::types::CollectionSchema;
 
         BlockInfo {
-            name: "suppers-ai/deployments".to_string(),
+            name: "suppers-ai/projects".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
-            summary: "Deployment management for users and admins".to_string(),
+            summary: "Project management for users and admins".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: None,
@@ -78,12 +78,12 @@ impl Block for DeploymentsBlock {
         }
 
         // Admin routes
-        if path.starts_with("/admin/b/deployments") {
+        if path.starts_with("/admin/b/projects") {
             return handlers::handle_admin(ctx, msg).await;
         }
 
         // User-facing routes
-        if path.starts_with("/b/deployments") {
+        if path.starts_with("/b/projects") {
             return handlers::handle_user(ctx, msg).await;
         }
 

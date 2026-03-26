@@ -5,6 +5,9 @@
 //!
 //! Receives requests forwarded from the dispatch worker. Does NOT handle
 //! CORS (dispatch adds those headers), usage tracking, or static files.
+//!
+//! Config is loaded from the D1 `variables` table — the single source of
+//! truth for project configuration. Feature flags use `FEATURE_*` variables.
 
 mod convert;
 mod database;
@@ -16,67 +19,24 @@ mod storage;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use worker::*;
 
 use database::D1DatabaseService;
 use storage::R2StorageService;
 
+use solobase::app_config::FeatureSnapshot;
 use solobase::blocks;
-use solobase_core::features;
 use solobase_core::routing::BlockId;
 
-/// App config — mirrors solobase.json feature flags.
-/// Deserialized from the PROJECT_CONFIG env var set at upload time.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct ProjectAppConfig {
-    #[serde(default)]
-    pub version: u32,
-    #[serde(default)]
-    pub app: Option<Value>,
-    #[serde(default)]
-    pub auth: Option<Value>,
-    #[serde(default)]
-    pub admin: Option<Value>,
-    #[serde(default)]
-    pub files: Option<Value>,
-    #[serde(default)]
-    pub products: Option<Value>,
-    #[serde(default)]
-    pub deployments: Option<Value>,
-    #[serde(default)]
-    pub legalpages: Option<Value>,
-    #[serde(default)]
-    pub userportal: Option<Value>,
-}
-
-impl ProjectAppConfig {
-    fn all_enabled() -> Self {
-        let on = Some(Value::Object(Default::default()));
-        Self {
-            version: 1,
-            app: None,
-            auth: on.clone(),
-            admin: on.clone(),
-            files: on.clone(),
-            products: on.clone(),
-            deployments: on.clone(),
-            legalpages: on.clone(),
-            userportal: on,
-        }
-    }
-}
-
-impl features::FeatureConfig for ProjectAppConfig {
-    fn auth_enabled(&self) -> bool { features::is_feature_enabled(&self.auth) }
-    fn admin_enabled(&self) -> bool { features::is_feature_enabled(&self.admin) }
-    fn files_enabled(&self) -> bool { features::is_feature_enabled(&self.files) }
-    fn products_enabled(&self) -> bool { features::is_feature_enabled(&self.products) }
-    fn deployments_enabled(&self) -> bool { features::is_feature_enabled(&self.deployments) }
-    fn legalpages_enabled(&self) -> bool { features::is_feature_enabled(&self.legalpages) }
-    fn userportal_enabled(&self) -> bool { features::is_feature_enabled(&self.userportal) }
-}
+/// Keys read from worker env bindings, overriding any D1 variables table values.
+/// FEATURE_* flags are protected — set at provisioning by the dispatcher,
+/// preventing tenant projects from enabling platform features like projects.
+/// Platform credentials are infrastructure secrets, not dashboard-editable.
+const WORKER_BINDING_KEYS: &[&str] = &[
+    "FEATURE_AUTH", "FEATURE_ADMIN", "FEATURE_FILES", "FEATURE_PRODUCTS",
+    "FEATURE_PROJECTS", "FEATURE_LEGALPAGES", "FEATURE_USERPORTAL",
+    "CONTROL_PLANE_URL", "CONTROL_PLANE_SECRET",
+];
 
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
@@ -121,9 +81,9 @@ async fn seed_jwt_secret(db: &D1Database) -> Result<()> {
     let id = format!("var_{}", uuid::Uuid::new_v4());
 
     db.prepare(
-        "INSERT INTO variables (id, key, name, description, value, warning, created_at, updated_at) \
+        "INSERT INTO variables (id, key, name, description, value, warning, sensitive, created_at, updated_at) \
          VALUES (?1, 'JWT_SECRET', 'JWT Secret', 'Secret key used to sign authentication tokens', ?2, \
-         'Changing this will invalidate all existing user sessions and tokens', datetime('now'), datetime('now'))"
+         'Changing this will invalidate all existing user sessions and tokens', 1, datetime('now'), datetime('now'))"
     )
     .bind(&[id.into(), secret.into()])?
     .run().await?;
@@ -163,12 +123,20 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
         }
     }
 
+    // Merge worker env bindings — these ALWAYS override D1 variables table values.
+    // FEATURE_* flags are protected (set at provisioning, not dashboard-editable).
+    // Platform credentials are infrastructure secrets.
+    for key in WORKER_BINDING_KEYS {
+        let val = get_env_str(env, key);
+        if !val.is_empty() {
+            env_vars.insert(key.to_string(), val);
+        }
+    }
+
     let jwt_secret = env_vars.get("JWT_SECRET").cloned().unwrap_or_default();
 
-    // Feature flags — read from variables or default to all enabled
-    let project_config: ProjectAppConfig = env_vars.get("PROJECT_CONFIG")
-        .and_then(|s| serde_json::from_str(s).ok())
-        .unwrap_or_else(ProjectAppConfig::all_enabled);
+    // Feature flags — read FEATURE_* variables, default to all enabled
+    let features = FeatureSnapshot::from_vars(&env_vars);
 
     // Create WAFER runtime
     let mut wafer = wafer_run::runtime::Wafer::new();
@@ -213,28 +181,46 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
         "web_index": "index.html"
     }));
 
-    // Register solobase feature blocks via the router
+    // Register solobase feature blocks — only enabled features get instantiated.
+    // Feature flags come from worker env bindings (set at provisioning),
+    // so tenant projects cannot enable platform features like projects.
     let auth_header = req.headers().get("authorization")?;
 
     let mut shared_blocks = HashMap::new();
+    // System and profile are always enabled
     shared_blocks.insert(BlockId::System, Arc::new(blocks::system::SystemBlock) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::Auth, Arc::new(blocks::auth::AuthBlock::new()) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::Admin, Arc::new(blocks::admin::AdminBlock) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::Files, Arc::new(blocks::files::FilesBlock::new()) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::LegalPages, Arc::new(blocks::legalpages::LegalPagesBlock) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::Products, Arc::new(blocks::products::ProductsBlock::new()) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::Deployments, Arc::new(blocks::deployments::DeploymentsBlock::new()) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::UserPortal, Arc::new(blocks::userportal::UserPortalBlock) as Arc<dyn wafer_run::block::Block>);
     shared_blocks.insert(BlockId::Profile, Arc::new(blocks::profile::ProfileBlock) as Arc<dyn wafer_run::block::Block>);
+    // Feature-gated blocks
+    if features.is_enabled("auth") {
+        shared_blocks.insert(BlockId::Auth, Arc::new(blocks::auth::AuthBlock::new()) as Arc<dyn wafer_run::block::Block>);
+    }
+    if features.is_enabled("admin") {
+        shared_blocks.insert(BlockId::Admin, Arc::new(blocks::admin::AdminBlock) as Arc<dyn wafer_run::block::Block>);
+    }
+    if features.is_enabled("files") {
+        shared_blocks.insert(BlockId::Files, Arc::new(blocks::files::FilesBlock::new()) as Arc<dyn wafer_run::block::Block>);
+    }
+    if features.is_enabled("products") {
+        shared_blocks.insert(BlockId::Products, Arc::new(blocks::products::ProductsBlock::new()) as Arc<dyn wafer_run::block::Block>);
+    }
+    if features.is_enabled("projects") {
+        shared_blocks.insert(BlockId::Projects, Arc::new(blocks::projects::ProjectsBlock::new()) as Arc<dyn wafer_run::block::Block>);
+    }
+    if features.is_enabled("legalpages") {
+        shared_blocks.insert(BlockId::LegalPages, Arc::new(blocks::legalpages::LegalPagesBlock) as Arc<dyn wafer_run::block::Block>);
+    }
+    if features.is_enabled("userportal") {
+        shared_blocks.insert(BlockId::UserPortal, Arc::new(blocks::userportal::UserPortalBlock) as Arc<dyn wafer_run::block::Block>);
+    }
 
     // Register email block
     wafer.register_block("suppers-ai/email", Arc::new(blocks::email::EmailBlock));
 
     // Register the solobase router block
-    let features: Arc<dyn solobase_core::FeatureConfig> = Arc::new(project_config);
+    let feature_config: Arc<dyn solobase_core::FeatureConfig> = Arc::new(features);
     use solobase::blocks::router::{NativeBlockFactory, SolobaseRouterBlock};
     let factory = NativeBlockFactory::new(shared_blocks);
-    let router = SolobaseRouterBlock::new(jwt_secret, features, factory);
+    let router = SolobaseRouterBlock::new(jwt_secret, feature_config, factory);
     wafer.register_block("suppers-ai/router", Arc::new(router));
 
     // Register the site-main flow

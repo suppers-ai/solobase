@@ -2,6 +2,7 @@ import { html } from '../../htm';
 import { useState, useEffect } from 'preact/hooks';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { currentUser, userRoles, logout } from '../../stores/auth';
+import { API_BASE } from '../../api';
 import {
 	ChevronsLeft, ChevronsRight, LogOut, Settings,
 	LayoutDashboard, Users, Database, HardDrive, Shield,
@@ -45,7 +46,7 @@ export function Sidebar() {
 	const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
 
 	useEffect(() => {
-		fetch('/api/nav', { credentials: 'include' })
+		fetch(`${API_BASE}/nav`, { credentials: 'include' })
 			.then(r => r.json())
 			.then(items => setNavItems(items))
 			.catch(() => {});
@@ -144,7 +145,7 @@ export function Sidebar() {
 						<div class="profile-menu-divider" />
 						<button
 							class="profile-menu-item profile-menu-item-danger"
-							onClick=${() => { logout(); window.location.href = '/blocks/dashboard/frontend/'; }}
+							onClick=${() => { logout(); window.location.href = '/auth/login'; }}
 							type="button"
 						>
 							<${LogOut} size=${16} />

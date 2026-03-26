@@ -13,12 +13,6 @@ deps: ## Install npm dependencies
 		echo "Dependencies already installed."; \
 	fi
 
-schema: ## Regenerate JSON Schema from Rust types
-	@echo "Generating solobase.json schema..."
-	@mkdir -p public/schemas
-	@cd ../../ && cargo run --bin solobase-gen-schema --no-default-features > packages/solobase-site/public/schemas/solobase.json
-	@echo "Written to public/schemas/solobase.json"
-
 build: deps ## Build site with Vite (outputs to dist/site/)
 	@echo "Building site with Vite..."
 	@npx vite build

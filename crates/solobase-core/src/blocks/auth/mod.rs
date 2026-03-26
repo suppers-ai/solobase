@@ -1,6 +1,7 @@
 mod login;
 mod api_keys;
 mod oauth;
+mod pages;
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -306,6 +307,16 @@ impl Block for AuthBlock {
         }
 
         match (action.as_str(), path.as_str()) {
+            // SSR auth pages
+            ("retrieve", "/auth/login") => pages::login_page(ctx, msg).await,
+            ("retrieve", "/auth/signup") => pages::signup_page(ctx, msg).await,
+            ("retrieve", "/auth/change-password") => {
+                if msg.user_id().is_empty() {
+                    return pages::login_page(ctx, msg).await;
+                }
+                pages::change_password_page(ctx, msg).await
+            }
+            // API endpoints
             ("create", "/auth/login") => self.handle_login(ctx, msg).await,
             ("create", "/auth/signup") => self.handle_signup(ctx, msg).await,
             ("create", "/auth/refresh") => self.handle_refresh(ctx, msg).await,

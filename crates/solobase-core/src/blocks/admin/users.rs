@@ -45,9 +45,25 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match db::paginated_list(ctx, COLLECTION, page as i64, page_size as i64, filters, sort).await {
         Ok(mut result) => {
-            // Strip password hashes from response
+            // Strip password hashes and enrich with roles
             for record in &mut result.records {
                 record.data.remove("password_hash");
+                let roles_opts = ListOptions {
+                    filters: vec![Filter {
+                        field: "user_id".to_string(),
+                        operator: FilterOp::Equal,
+                        value: serde_json::Value::String(record.id.clone()),
+                    }],
+                    ..Default::default()
+                };
+                let roles: Vec<String> = match db::list(ctx, "iam_user_roles", &roles_opts).await {
+                    Ok(r) => r.records.iter()
+                        .map(|rec| rec.str_field("role").to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect(),
+                    Err(_) => Vec::new(),
+                };
+                record.data.insert("roles".to_string(), serde_json::json!(roles));
             }
             json_respond(msg, &result)
         }

@@ -7,6 +7,7 @@ use wafer_core::clients::database::ListOptions;
 use crate::blocks::helpers::{self, json_map, RecordExt};
 
 const COLLECTION: &str = "variables";
+const MASKED_VALUE: &str = "********";
 
 pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -25,11 +26,16 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let opts = ListOptions { limit: 1000, ..Default::default() };
     match db::list(ctx, COLLECTION, &opts).await {
         Ok(result) => {
-            // Convert to key-value map
+            // Convert to key-value map, masking sensitive values
             let mut settings = HashMap::new();
             for record in &result.records {
                 let key = record.str_field("key");
-                let value = record.data.get("value").cloned().unwrap_or(serde_json::Value::Null);
+                let is_sensitive = record.i64_field("sensitive") == 1;
+                let value = if is_sensitive {
+                    serde_json::Value::String(MASKED_VALUE.to_string())
+                } else {
+                    record.data.get("value").cloned().unwrap_or(serde_json::Value::Null)
+                };
                 if !key.is_empty() {
                     settings.insert(key.to_string(), value);
                 }
@@ -48,7 +54,13 @@ async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if key.is_empty() { return err_bad_request(msg, "Missing setting key"); }
 
     match db::get_by_field(ctx, COLLECTION, "key", serde_json::Value::String(key.to_string())).await {
-        Ok(record) => json_respond(msg, &record),
+        Ok(mut record) => {
+            let is_sensitive = record.i64_field("sensitive") == 1;
+            if is_sensitive {
+                record.data.insert("value".to_string(), serde_json::Value::String(MASKED_VALUE.to_string()));
+            }
+            json_respond(msg, &record)
+        }
         Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Setting not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
@@ -105,20 +117,23 @@ pub async fn seed_defaults(ctx: &dyn Context) {
     let count = db::count(ctx, COLLECTION, &[]).await.unwrap_or(0);
     if count > 0 { return; }
 
-    let defaults = vec![
-        ("APP_NAME", "App Name", "Display name shown in the UI and emails", "Solobase", ""),
-        ("ALLOW_SIGNUP", "Allow Signup", "Allow new users to register", "true", ""),
-        ("ENABLE_OAUTH", "Enable OAuth", "Enable third-party OAuth login", "false", ""),
-        ("PRIMARY_COLOR", "Primary Color", "Brand color used in the UI", "#6366f1", ""),
+    // (key, name, description, value, warning, sensitive)
+    let defaults: Vec<(&str, &str, &str, &str, &str, i32)> = vec![
+        ("APP_NAME", "App Name", "Display name shown in the UI and emails", "Solobase", "", 0),
+        ("ALLOW_SIGNUP", "Allow Signup", "Allow new users to register", "true", "", 0),
+        ("ENABLE_OAUTH", "Enable OAuth", "Enable third-party OAuth login", "false", "", 0),
+        ("PRIMARY_COLOR", "Primary Color", "Brand color used in the UI", "#6366f1", "", 0),
+        ("POST_LOGIN_REDIRECT", "Post-Login Redirect", "URL to redirect to after login", "/blocks/admin/frontend/", "", 0),
     ];
 
-    for (key, name, description, value, warning) in defaults {
+    for (key, name, description, value, warning, sensitive) in defaults {
         let data = json_map(serde_json::json!({
             "key": key,
             "name": name,
             "description": description,
             "value": value,
             "warning": warning,
+            "sensitive": sensitive,
             "created_at": helpers::now_rfc3339()
         }));
         if let Err(e) = db::create(ctx, COLLECTION, data).await {

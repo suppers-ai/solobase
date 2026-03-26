@@ -5,7 +5,7 @@ use wafer_run::helpers::*;
 use wafer_core::clients::{config, network};
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, SortField};
-use super::DEPLOYMENTS_COLLECTION;
+use super::PROJECTS_COLLECTION;
 use crate::blocks::helpers::RecordExt;
 
 /// Call the control plane API. Returns the parsed JSON response body on success.
@@ -44,7 +44,7 @@ async fn update_status(ctx: &dyn Context, id: &str, status: &str) {
     let mut data = HashMap::new();
     data.insert("status".to_string(), serde_json::Value::String(status.to_string()));
     data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-    let _ = db::update(ctx, DEPLOYMENTS_COLLECTION, id, data).await;
+    let _ = db::update(ctx, PROJECTS_COLLECTION, id, data).await;
 }
 
 pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -52,10 +52,10 @@ pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/admin/b/deployments") => handle_admin_list(ctx, msg).await,
-        ("retrieve", "/admin/b/deployments/stats") => handle_admin_stats(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/admin/b/deployments/") => handle_admin_get(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/b/deployments/") => handle_admin_update(ctx, msg).await,
+        ("retrieve", "/admin/b/projects") => handle_admin_list(ctx, msg).await,
+        ("retrieve", "/admin/b/projects/stats") => handle_admin_stats(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/admin/b/projects/") => handle_admin_get(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/b/projects/") => handle_admin_update(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
@@ -65,11 +65,11 @@ pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/b/deployments") => handle_list(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/b/deployments/") => handle_get(ctx, msg).await,
-        ("create", "/b/deployments") => handle_create(ctx, msg).await,
-        ("update", _) if path.starts_with("/b/deployments/") => handle_update(ctx, msg).await,
-        ("delete", _) if path.starts_with("/b/deployments/") => handle_delete(ctx, msg).await,
+        ("retrieve", "/b/projects") => handle_list(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/b/projects/") => handle_get(ctx, msg).await,
+        ("create", "/b/projects") => handle_create(ctx, msg).await,
+        ("update", _) if path.starts_with("/b/projects/") => handle_update(ctx, msg).await,
+        ("delete", _) if path.starts_with("/b/projects/") => handle_delete(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
@@ -91,7 +91,7 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }];
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
-    match db::paginated_list(ctx, DEPLOYMENTS_COLLECTION, page as i64, page_size as i64, filters, sort).await {
+    match db::paginated_list(ctx, PROJECTS_COLLECTION, page as i64, page_size as i64, filters, sort).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
@@ -104,12 +104,12 @@ async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     let path = msg.path();
-    let id = path.strip_prefix("/b/deployments/").unwrap_or("");
+    let id = path.strip_prefix("/b/projects/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request(msg, "Missing deployment ID");
     }
 
-    match db::get(ctx, DEPLOYMENTS_COLLECTION, id).await {
+    match db::get(ctx, PROJECTS_COLLECTION, id).await {
         Ok(record) => {
             let owner = record.str_field("user_id");
             if owner != user_id {
@@ -162,7 +162,7 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
     data.insert("updated_at".to_string(), serde_json::Value::String(now));
 
-    let record = match db::create(ctx, DEPLOYMENTS_COLLECTION, data).await {
+    let record = match db::create(ctx, PROJECTS_COLLECTION, data).await {
         Ok(r) => r,
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
@@ -189,7 +189,7 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 update_data.insert("subdomain".to_string(), serde_json::Value::String(subdomain.to_string()));
             }
             update_data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-            match db::update(ctx, DEPLOYMENTS_COLLECTION, &record_id, update_data).await {
+            match db::update(ctx, PROJECTS_COLLECTION, &record_id, update_data).await {
                 Ok(updated) => json_respond(msg, &updated),
                 Err(_) => json_respond(msg, &record),
             }
@@ -204,7 +204,7 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 format!("HTTP {}: {}", status_code, error_msg)
             ));
             update_data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-            let _ = db::update(ctx, DEPLOYMENTS_COLLECTION, &record_id, update_data).await;
+            let _ = db::update(ctx, PROJECTS_COLLECTION, &record_id, update_data).await;
             err_internal(msg, &format!("Provisioning failed: {error_msg}"))
         }
         Err(e) => {
@@ -212,7 +212,7 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             let mut update_data = HashMap::new();
             update_data.insert("provision_error".to_string(), serde_json::Value::String(e.clone()));
             update_data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-            let _ = db::update(ctx, DEPLOYMENTS_COLLECTION, &record_id, update_data).await;
+            let _ = db::update(ctx, PROJECTS_COLLECTION, &record_id, update_data).await;
             // Still return the record — it's in "pending" status, admin can provision later
             json_respond(msg, &record)
         }
@@ -226,13 +226,13 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     let path = msg.path();
-    let id = path.strip_prefix("/b/deployments/").unwrap_or("");
+    let id = path.strip_prefix("/b/projects/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request(msg, "Missing deployment ID");
     }
 
     // Verify ownership
-    match db::get(ctx, DEPLOYMENTS_COLLECTION, id).await {
+    match db::get(ctx, PROJECTS_COLLECTION, id).await {
         Ok(record) => {
             let owner = record.str_field("user_id");
             if owner != user_id {
@@ -254,7 +254,7 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     body.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-    match db::update(ctx, DEPLOYMENTS_COLLECTION, id, body).await {
+    match db::update(ctx, PROJECTS_COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Deployment not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
@@ -268,13 +268,13 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     let path = msg.path();
-    let id = path.strip_prefix("/b/deployments/").unwrap_or("");
+    let id = path.strip_prefix("/b/projects/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request(msg, "Missing deployment ID");
     }
 
     // Verify ownership and get deployment details
-    let record = match db::get(ctx, DEPLOYMENTS_COLLECTION, id).await {
+    let record = match db::get(ctx, PROJECTS_COLLECTION, id).await {
         Ok(record) => {
             let owner = record.str_field("user_id");
             if owner != user_id {
@@ -298,7 +298,7 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             let mut err_data = HashMap::new();
             err_data.insert("deprovision_error".to_string(), serde_json::Value::String(e));
             err_data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-            let _ = db::update(ctx, DEPLOYMENTS_COLLECTION, id, err_data).await;
+            let _ = db::update(ctx, PROJECTS_COLLECTION, id, err_data).await;
         }
     }
 
@@ -309,7 +309,7 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("deleted_at".to_string(), serde_json::Value::String(now.clone()));
     data.insert("updated_at".to_string(), serde_json::Value::String(now));
 
-    match db::update(ctx, DEPLOYMENTS_COLLECTION, id, data).await {
+    match db::update(ctx, PROJECTS_COLLECTION, id, data).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
@@ -332,7 +332,7 @@ async fn handle_admin_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
 
-    match db::paginated_list(ctx, DEPLOYMENTS_COLLECTION, page as i64, page_size as i64, filters, sort).await {
+    match db::paginated_list(ctx, PROJECTS_COLLECTION, page as i64, page_size as i64, filters, sort).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
@@ -340,12 +340,12 @@ async fn handle_admin_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_admin_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/b/deployments/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/projects/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request(msg, "Missing deployment ID");
     }
 
-    match db::get(ctx, DEPLOYMENTS_COLLECTION, id).await {
+    match db::get(ctx, PROJECTS_COLLECTION, id).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Deployment not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
@@ -354,7 +354,7 @@ async fn handle_admin_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
-    let id = path.strip_prefix("/admin/b/deployments/").unwrap_or("");
+    let id = path.strip_prefix("/admin/b/projects/").unwrap_or("");
     if id.is_empty() {
         return err_bad_request(msg, "Missing deployment ID");
     }
@@ -366,7 +366,7 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     // Handle admin actions that interact with the control plane
     if let Some(admin_action) = body.remove("action").and_then(|v| v.as_str().map(String::from)) {
-        let record = match db::get(ctx, DEPLOYMENTS_COLLECTION, id).await {
+        let record = match db::get(ctx, PROJECTS_COLLECTION, id).await {
             Ok(r) => r,
             Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Deployment not found"),
             Err(e) => return err_internal(msg, &format!("Database error: {e}")),
@@ -397,7 +397,7 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                         }
                         update_data.insert("provision_error".to_string(), serde_json::Value::Null);
                         update_data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-                        match db::update(ctx, DEPLOYMENTS_COLLECTION, id, update_data).await {
+                        match db::update(ctx, PROJECTS_COLLECTION, id, update_data).await {
                             Ok(updated) => return json_respond(msg, &updated),
                             Err(e) => return err_internal(msg, &format!("Database error: {e}")),
                         }
@@ -429,7 +429,7 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 del_data.insert("status".to_string(), serde_json::Value::String("deleted".to_string()));
                 del_data.insert("deleted_at".to_string(), serde_json::Value::String(now.clone()));
                 del_data.insert("updated_at".to_string(), serde_json::Value::String(now));
-                match db::update(ctx, DEPLOYMENTS_COLLECTION, id, del_data).await {
+                match db::update(ctx, PROJECTS_COLLECTION, id, del_data).await {
                     Ok(updated) => return json_respond(msg, &updated),
                     Err(e) => return err_internal(msg, &format!("Database error: {e}")),
                 }
@@ -440,7 +440,7 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     body.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
 
-    match db::update(ctx, DEPLOYMENTS_COLLECTION, id, body).await {
+    match db::update(ctx, PROJECTS_COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Deployment not found"),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
@@ -448,20 +448,20 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 async fn handle_admin_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let total = db::count(ctx, DEPLOYMENTS_COLLECTION, &[]).await.unwrap_or(0);
-    let pending = db::count(ctx, DEPLOYMENTS_COLLECTION, &[Filter {
+    let total = db::count(ctx, PROJECTS_COLLECTION, &[]).await.unwrap_or(0);
+    let pending = db::count(ctx, PROJECTS_COLLECTION, &[Filter {
         field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("pending".to_string()),
     }]).await.unwrap_or(0);
-    let active = db::count(ctx, DEPLOYMENTS_COLLECTION, &[Filter {
+    let active = db::count(ctx, PROJECTS_COLLECTION, &[Filter {
         field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("active".to_string()),
     }]).await.unwrap_or(0);
-    let stopped = db::count(ctx, DEPLOYMENTS_COLLECTION, &[Filter {
+    let stopped = db::count(ctx, PROJECTS_COLLECTION, &[Filter {
         field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("stopped".to_string()),
     }]).await.unwrap_or(0);
-    let failed = db::count(ctx, DEPLOYMENTS_COLLECTION, &[Filter {
+    let failed = db::count(ctx, PROJECTS_COLLECTION, &[Filter {
         field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("failed".to_string()),
     }]).await.unwrap_or(0);
-    let deleted = db::count(ctx, DEPLOYMENTS_COLLECTION, &[Filter {
+    let deleted = db::count(ctx, PROJECTS_COLLECTION, &[Filter {
         field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("deleted".to_string()),
     }]).await.unwrap_or(0);
 

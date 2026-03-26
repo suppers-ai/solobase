@@ -10,7 +10,7 @@ pub trait FeatureConfig: wafer_run::MaybeSend + wafer_run::MaybeSync {
     fn admin_enabled(&self) -> bool;
     fn files_enabled(&self) -> bool;
     fn products_enabled(&self) -> bool;
-    fn deployments_enabled(&self) -> bool;
+    fn projects_enabled(&self) -> bool;
     fn legalpages_enabled(&self) -> bool;
     fn userportal_enabled(&self) -> bool;
 }
@@ -32,7 +32,7 @@ impl FeatureConfig for AllEnabled {
     fn admin_enabled(&self) -> bool { true }
     fn files_enabled(&self) -> bool { true }
     fn products_enabled(&self) -> bool { true }
-    fn deployments_enabled(&self) -> bool { true }
+    fn projects_enabled(&self) -> bool { true }
     fn legalpages_enabled(&self) -> bool { true }
     fn userportal_enabled(&self) -> bool { true }
 }

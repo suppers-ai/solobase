@@ -19,7 +19,7 @@ export function BlockShell({ title, children }: BlockShellProps) {
 	useEffect(() => {
 		checkAuth().then(authenticated => {
 			if (!authenticated) {
-				safeRedirect('/blocks/dashboard/frontend/');
+				safeRedirect('/auth/login');
 			}
 		});
 	}, []);

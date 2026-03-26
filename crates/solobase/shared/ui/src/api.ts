@@ -4,7 +4,7 @@ import type {
 } from '@solobase/types';
 import { ErrorHandler } from './utils/error-handler';
 
-const API_BASE = import.meta.env.DEV ? '/api' : '';
+export const API_BASE = import.meta.env.DEV ? '/api' : '';
 
 export { ErrorHandler };
 
@@ -58,6 +58,16 @@ class ApiClient {
 			}
 
 			if (!response.ok) {
+				// Auto-logout on 401 — token is invalid (expired, secret rotated, etc.)
+				if (response.status === 401 && !url.includes('/auth/login')) {
+					const { authState } = await import('./stores/auth');
+					if (authState.value.user) {
+						authState.value = { user: null, roles: [], loading: false, error: null };
+						window.location.href = '/auth/login';
+						return { error: 'Session expired. Please log in again.' };
+					}
+				}
+
 				const err = data.error;
 				if (typeof err === 'object' && err !== null) {
 					return { error: err };

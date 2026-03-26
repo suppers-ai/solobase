@@ -44,23 +44,31 @@ pub async fn create_project(
     let wasm_bytes = read_r2_bytes(&bucket, "_system/worker/index_bg.wasm").await
         .map_err(|e| Error::RustError(format!("read worker WASM from R2: {e}")))?;
 
-    // 3. Collect secrets to forward to the user worker
-    let config_json = app_config
-        .unwrap_or_else(|| all_features_enabled())
-        .to_string();
+    // 3. Build worker bindings — infrastructure + feature flags
+    let feature_config = app_config.unwrap_or_else(|| all_features_enabled());
 
     let r2_bucket_name = env.var("R2_BUCKET_NAME")
         .map(|v| v.to_string())
         .unwrap_or_else(|_| "solobase-storage".into());
 
-    // Only infrastructure bindings — all config lives in the D1 variables table.
+    // Feature flags as worker bindings — protected from dashboard changes.
+    // Tenant instances get standard features; FEATURE_PROJECTS is platform-only.
+    let mut vars = vec![
+        ("PROJECT_ID".to_string(), project_id.clone()),
+    ];
+    for feature in &["auth", "admin", "files", "products", "legalpages", "userportal", "projects"] {
+        let key = format!("FEATURE_{}", feature.to_uppercase());
+        let enabled = feature_config.get(*feature)
+            .map(|v| !v.is_null() && v != &serde_json::Value::Bool(false))
+            .unwrap_or(false);
+        vars.push((key, enabled.to_string()));
+    }
+
     let bindings = WorkerBindings {
         d1_database_id: db_id.clone(),
         r2_bucket_name,
         secrets: Vec::new(),
-        vars: vec![
-            ("PROJECT_ID".to_string(), project_id.clone()),
-        ],
+        vars,
     };
 
     // 4. Upload user worker to dispatch namespace
@@ -110,7 +118,7 @@ pub async fn create_project(
         owner_user_id: owner_user_id.map(String::from),
         db_id: Some(db_id),
         db_binding: None, // User workers use their own DB binding, not the dispatch's
-        config: serde_json::from_str(&config_json).unwrap_or_default(),
+        config: feature_config,
         blocks: Vec::new(),
     };
 
@@ -128,7 +136,7 @@ pub async fn create_project(
     Ok(config)
 }
 
-/// Delete a project: remove user worker, D1 database, and KV config.
+/// Delete a project: remove user worker, D1 database, R2 storage, and KV config.
 pub async fn delete_project(
     env: &Env,
     kv: &kv::KvStore,
@@ -136,7 +144,7 @@ pub async fn delete_project(
 ) -> Result<()> {
     let creds = CfCredentials::from_env(env)?;
 
-    // Look up project config to get db_id
+    // Look up project config to get db_id and project_id
     let key = format!("project:{}:config", subdomain);
     let config = kv.get(&key).json::<ProjectConfig>().await?;
 
@@ -154,11 +162,62 @@ pub async fn delete_project(
         }
     }
 
+    // Clean up R2 storage (best-effort — don't block deletion on failure)
+    if let Some(ref cfg) = config {
+        if let Err(e) = cleanup_r2_storage(env, &cfg.id).await {
+            console_log!("Warning: failed to clean up R2 for project '{}': {e}", subdomain);
+        }
+    }
+
     // Remove from KV
     kv.delete(&key).await?;
     remove_from_project_list(kv, subdomain).await?;
 
     console_log!("Project '{}' deleted", subdomain);
+    Ok(())
+}
+
+/// Delete all R2 objects with the project's prefix.
+async fn cleanup_r2_storage(env: &Env, project_id: &str) -> Result<()> {
+    let bucket = env.bucket("STORAGE")
+        .map_err(|e| Error::RustError(format!("R2: {e}")))?;
+
+    let prefix = format!("{}/", project_id);
+    let mut cursor: Option<String> = None;
+    let mut total_deleted = 0u32;
+
+    loop {
+        let mut list_opts = bucket.list().prefix(&prefix).limit(1000);
+        if let Some(ref c) = cursor {
+            list_opts = list_opts.cursor(c);
+        }
+
+        let result = list_opts.execute().await?;
+        let objects = result.objects();
+
+        if objects.is_empty() {
+            break;
+        }
+
+        let keys: Vec<String> = objects.iter().map(|o| o.key().to_string()).collect();
+        for key in &keys {
+            if let Err(e) = bucket.delete(key).await {
+                console_log!("Warning: failed to delete R2 object '{}': {e}", key);
+            }
+        }
+        total_deleted += keys.len() as u32;
+
+        // Check if there are more objects
+        if result.truncated() {
+            cursor = result.cursor();
+        } else {
+            break;
+        }
+    }
+
+    if total_deleted > 0 {
+        console_log!("Deleted {} R2 objects for project {}", total_deleted, project_id);
+    }
     Ok(())
 }
 
@@ -207,6 +266,8 @@ async fn read_r2_bytes(bucket: &Bucket, key: &str) -> Result<Vec<u8>> {
     body.bytes().await
 }
 
+/// Default features for tenant projects — standard blocks only.
+/// FEATURE_PROJECTS is platform-only (must be explicitly enabled).
 fn all_features_enabled() -> serde_json::Value {
     serde_json::json!({
         "version": 1,
@@ -214,7 +275,6 @@ fn all_features_enabled() -> serde_json::Value {
         "admin": {},
         "files": {},
         "products": {},
-        "deployments": {},
         "legalpages": {},
         "userportal": {}
     })

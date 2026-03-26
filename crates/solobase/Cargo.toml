@@ -14,10 +14,6 @@ name = "solobase"
 path = "src/main.rs"
 required-features = ["server"]
 
-[[bin]]
-name = "solobase-gen-schema"
-path = "src/gen_schema.rs"
-
 [features]
 default = ["server"]
 server = [
@@ -43,6 +39,8 @@ server = [
     "dep:wafer-block-local-storage",
     "dep:tokio",
     "dep:tracing-subscriber",
+    "dep:dotenvy",
+    "dep:rusqlite",
 ]
 storage-s3 = ["solobase-core/storage-s3", "dep:wafer-block-s3"]
 postgres = ["solobase-core/postgres", "dep:wafer-block-postgres"]
@@ -94,7 +92,11 @@ tracing-subscriber = { workspace = true, optional = true }
 sha2 = { workspace = true }
 hmac = "0.12"
 getrandom = "0.2"
-schemars = { workspace = true }
 
 # Time
 chrono = { workspace = true }
+
+# Config loading (only needed for the server binary)
+dotenvy = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
+uuid = { workspace = true }

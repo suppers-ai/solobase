@@ -2,12 +2,11 @@
 //!
 //! Routes requests based on hostname:
 //!
-//! 1. `/_control/*` → handled directly (project CRUD, deploy, migrations)
-//! 2. Platform (cloud.solobase.dev):
-//!    - Static files from R2 `_site/`
-//!    - API routes dispatched to "cloud" user worker
+//! 1. `/_control/*`, `/_webhooks/*` → handled directly
+//! 2. Platform (cloud.solobase.dev) → all requests dispatched to "cloud" user worker
+//!    (the cloud worker serves its own frontend via `wafer-run/web`)
 //! 3. Project ({project}.solobase.dev):
-//!    - Static files from R2 `{projectId}/site/`
+//!    - Static files from R2 `{projectId}/site/` (served directly)
 //!    - API routes: usage tracking → dispatched to project's user worker
 //!
 //! This worker has NO WAFER/block dependencies — all block execution
@@ -20,6 +19,7 @@ mod project;
 mod provision;
 mod schema;
 mod usage;
+mod webhooks;
 
 use worker::*;
 
@@ -48,60 +48,55 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         return add_cors_headers(resp, &req).await;
     }
 
+    // 2b. Webhook routes (/_webhooks/*) — handled directly
+    if pathname.starts_with("/_webhooks/") {
+        let sub_path = pathname.strip_prefix("/_webhooks/").unwrap_or("");
+        let mut req_clone = req.clone()?;
+        let body = req_clone.bytes().await.unwrap_or_default();
+        let resp = webhooks::handle(&req, &env, sub_path, &body).await?;
+        return add_cors_headers(resp, &req).await;
+    }
+
     let is_platform = is_platform_host(&host);
     let is_dev = is_dev_env(&env);
 
-    // 3. API routes → dispatch to user worker
-    if pathname.starts_with("/api/") || pathname == "/api" || is_api_route(&pathname) {
-        if is_platform {
-            return handle_platform_api(&req, &env).await;
-        } else {
-            return handle_project_api(&req, &env, &host, is_dev).await;
-        }
-    }
-
-    // 4. Static file serving from R2
+    // 3. Platform (cloud.solobase.dev) — dispatch ALL requests to "cloud" user worker.
+    //    The cloud worker serves its own frontend via wafer-run/web from R2 {projectId}/site/.
     if is_platform {
-        let serve_path = if pathname == "/" || pathname.is_empty() {
-            "/blocks/dashboard/frontend/"
-        } else {
-            &pathname
-        };
-        if let Some(resp) = serve_static(&env, "_site/", serve_path).await {
-            return add_security_headers(resp);
-        }
-    } else {
-        let kv = env.kv("PROJECTS").map_err(|e| Error::RustError(format!("KV: {e}")))?;
-        match project::resolve_project(&host, &kv, is_dev).await {
-            Ok(proj) => {
-                if proj.status == "inactive" {
-                    return add_security_headers(Response::ok(
-                        "<html><body style=\"font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0\"><div style=\"text-align:center\"><h1>Project Inactive</h1><p>This project is inactive. The owner needs to upgrade their plan.</p></div></body></html>",
-                    )?.with_status(403));
-                }
-                let prefix = format!("{}/site/", proj.id);
-                if let Some(resp) = serve_static(&env, &prefix, &pathname).await {
-                    return add_security_headers(resp);
-                }
-            }
-            Err(_) => {}
-        }
+        return handle_platform_request(&req, &env).await;
     }
 
-    // Serve the 404 page from R2, or fall back to plain text
-    if let Some(resp) = serve_static(&env, "_site/", "/index.html").await {
-        let mut resp = resp.with_status(404);
-        resp.headers_mut().set("Cache-Control", "no-cache").ok();
-        return add_security_headers(resp);
+    // 4. Project ({project}.solobase.dev)
+    if is_api_route(&pathname) || pathname.starts_with("/api/") || pathname == "/api" {
+        // API routes → usage tracking + dispatch to project's user worker
+        return handle_project_api(&req, &env, &host, is_dev).await;
     }
+
+    // Static files → serve directly from R2 (optimization: avoids dispatching for assets)
+    let kv = env.kv("PROJECTS").map_err(|e| Error::RustError(format!("KV: {e}")))?;
+    match project::resolve_project(&host, &kv, is_dev).await {
+        Ok(proj) => {
+            if proj.status == "inactive" {
+                return add_security_headers(Response::ok(
+                    "<html><body style=\"font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0\"><div style=\"text-align:center\"><h1>Project Inactive</h1><p>This project is inactive. The owner needs to upgrade their plan.</p></div></body></html>",
+                )?.with_status(403));
+            }
+            let prefix = format!("{}/site/", proj.id);
+            if let Some(resp) = serve_static(&env, &prefix, &pathname).await {
+                return add_security_headers(resp);
+            }
+        }
+        Err(_) => {}
+    }
+
     add_security_headers(Response::ok("Not Found")?.with_status(404))
 }
 
 // ---------------------------------------------------------------------------
-// Platform API — dispatch to "cloud" user worker
+// Platform — dispatch all requests to "cloud" user worker
 // ---------------------------------------------------------------------------
 
-async fn handle_platform_api(req: &Request, env: &Env) -> Result<Response> {
+async fn handle_platform_request(req: &Request, env: &Env) -> Result<Response> {
     let dispatcher = env.dynamic_dispatcher("DISPATCHER")
         .map_err(|e| Error::RustError(format!("dispatcher: {e}")))?;
 

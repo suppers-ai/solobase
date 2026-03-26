@@ -16,7 +16,7 @@ export function FeatureShell({ title, children }: FeatureShellProps) {
 	useEffect(() => {
 		checkAuth().then(authenticated => {
 			if (!authenticated) {
-				safeRedirect('/blocks/dashboard/frontend/');
+				safeRedirect('/auth/login');
 			}
 		});
 	}, []);

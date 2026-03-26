@@ -31,7 +31,6 @@ export default defineConfig({
 		sourcemap: true,
 		rollupOptions: {
 			input: {
-				login: resolve(__dirname, '../blocks/auth/frontend/index.html'),
 				iam: resolve(__dirname, '../blocks/admin/frontend/iam/index.html'),
 				logs: resolve(__dirname, '../blocks/logs/frontend/index.html'),
 				wafer: resolve(__dirname, '../blocks/admin/frontend/index.html'),

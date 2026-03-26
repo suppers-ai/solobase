@@ -39,7 +39,7 @@ impl Block for UserPortalBlock {
                 "user_products": config::get_default(ctx, "FEATURE_USER_PRODUCTS", "false").await,
                 "legal_pages": config::get_default(ctx, "FEATURE_LEGAL_PAGES", "true").await,
                 "monitoring": config::get_default(ctx, "FEATURE_MONITORING", "true").await,
-                "deployments": config::get_default(ctx, "FEATURE_DEPLOYMENTS", "true").await
+                "projects": config::get_default(ctx, "FEATURE_PROJECTS", "true").await
             }
         });
         json_respond(msg, &config_val)

@@ -101,6 +101,7 @@ const MIGRATIONS: &[&str] = &[
         description TEXT DEFAULT '',
         value TEXT DEFAULT '',
         warning TEXT DEFAULT '',
+        sensitive INTEGER DEFAULT 0,
         updated_by TEXT DEFAULT '',
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
@@ -337,7 +338,7 @@ const MIGRATIONS: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_legalpages_type_status ON block_legalpages_legal_documents (doc_type, status)",
 
     // =========================================================================
-    // PROJECTS BLOCK (was deployments)
+    // PROJECTS BLOCK
     // =========================================================================
 
     "CREATE TABLE IF NOT EXISTS block_deployments (
@@ -392,11 +393,24 @@ const MIGRATIONS: &[&str] = &[
         ('var_primary_color', 'PRIMARY_COLOR', 'Primary Color', 'Brand color used in the UI', '#6366f1')",
 ];
 
+/// Migrations that may fail on existing databases (e.g. adding columns that already exist).
+/// Errors are logged but don't block startup.
+const OPTIONAL_MIGRATIONS: &[&str] = &[
+    // Add sensitive column to variables table (for existing databases)
+    "ALTER TABLE variables ADD COLUMN sensitive INTEGER DEFAULT 0",
+];
+
 /// Run all schema migrations on a D1 database.
 pub async fn run_migrations(db: &D1Database) -> Result<()> {
     for sql in MIGRATIONS {
         db.prepare(*sql).bind(&[])?.run().await?;
     }
+
+    // Run optional migrations, ignoring errors (e.g. column already exists)
+    for sql in OPTIONAL_MIGRATIONS {
+        let _ = db.prepare(*sql).bind(&[])?.run().await;
+    }
+
     console_log!("Schema migrations applied ({} statements)", MIGRATIONS.len());
     Ok(())
 }

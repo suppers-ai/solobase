@@ -30,7 +30,7 @@ function AuthGuard({ children }: { children: any }) {
 	}
 
 	if (!isAuthenticated.value) {
-		window.location.href = '/blocks/dashboard/frontend/index.html';
+		window.location.href = '/blocks/admin/frontend/';
 		return null;
 	}
 
@@ -46,7 +46,7 @@ function ProductsHeader() {
 	return html`
 		<header style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', background: 'white', borderBottom: '1px solid #e2e8f0' }}>
 			<div style=${{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-				<a href="/blocks/dashboard/frontend/index.html" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#64748b', textDecoration: 'none' }}>
+				<a href="/blocks/admin/frontend/" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#64748b', textDecoration: 'none' }}>
 					<${ArrowLeft} size=${16} /> Dashboard
 				</a>
 				<img src="/images/logo_long.png" alt="Solobase" style=${{ height: '32px', width: 'auto' }} />

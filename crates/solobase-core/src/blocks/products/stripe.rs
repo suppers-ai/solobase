@@ -167,8 +167,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                       stripe_sub_id.into(), plan.into(), now.into()],
                 ).await;
 
-                // Notify control plane to sync project activation
-                notify_control_plane(ctx, "sync-activation", &serde_json::json!({
+                fire_products_webhook(ctx, "products.checkout.completed", &serde_json::json!({
                     "user_id": user_id, "plan": plan
                 })).await;
             }
@@ -199,7 +198,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             // Look up user and notify control plane
             let user_id = get_user_for_stripe_sub(ctx, stripe_sub_id).await;
             if let Some(uid) = user_id {
-                notify_control_plane(ctx, "sync-activation", &serde_json::json!({
+                fire_products_webhook(ctx, "products.subscription.updated", &serde_json::json!({
                     "user_id": uid, "plan": plan.unwrap_or("free")
                 })).await;
             }
@@ -231,7 +230,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             ).await;
 
             if let Some(uid) = user_id {
-                notify_control_plane(ctx, "deactivate-all", &serde_json::json!({
+                fire_products_webhook(ctx, "products.subscription.deleted", &serde_json::json!({
                     "user_id": uid
                 })).await;
             }
@@ -277,32 +276,46 @@ async fn get_user_for_stripe_sub(ctx: &dyn Context, stripe_sub_id: &str) -> Opti
     rows.first()?.data.get("user_id").and_then(|v| v.as_str()).map(String::from)
 }
 
-/// Notify the control plane to sync project activation/deactivation.
-/// Best-effort — failures are logged but don't break the webhook.
-async fn notify_control_plane(ctx: &dyn Context, action: &str, body: &serde_json::Value) {
-    let url = config::get_default(ctx, "CONTROL_PLANE_URL", "").await;
-    let secret = config::get_default(ctx, "CONTROL_PLANE_SECRET", "").await;
-    if url.is_empty() || secret.is_empty() {
-        tracing::warn!("CONTROL_PLANE_URL or CONTROL_PLANE_SECRET not configured, skipping project sync");
+/// Fire a webhook for product/billing events.
+/// Best-effort — if PRODUCTS_WEBHOOK_URL is not configured, this is a no-op.
+/// The webhook is signed with HMAC-SHA256 using PRODUCTS_WEBHOOK_SECRET.
+async fn fire_products_webhook(ctx: &dyn Context, event: &str, data: &serde_json::Value) {
+    let url = config::get_default(ctx, "PRODUCTS_WEBHOOK_URL", "").await;
+    let secret = config::get_default(ctx, "PRODUCTS_WEBHOOK_SECRET", "").await;
+    if url.is_empty() {
         return;
     }
 
-    let endpoint = format!("{}/_control/{}", url.trim_end_matches('/'), action);
-    let mut headers = HashMap::new();
-    headers.insert("X-Admin-Secret".to_string(), secret);
-    headers.insert("Content-Type".to_string(), "application/json".to_string());
+    let body = serde_json::json!({
+        "event": event,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "data": data
+    });
+    let payload = serde_json::to_vec(&body).unwrap_or_default();
 
-    let payload = serde_json::to_vec(body).unwrap_or_default();
-    match network::do_request(ctx, "POST", &endpoint, &headers, Some(&payload)).await {
+    // Sign with HMAC-SHA256 (same pattern as Stripe webhook verification)
+    let signature = if !secret.is_empty() {
+        let sig = hmac_sha256(secret.as_bytes(), &payload);
+        format!("sha256={}", hex_encode(&sig))
+    } else {
+        String::new()
+    };
+
+    let mut headers = HashMap::new();
+    headers.insert("Content-Type".to_string(), "application/json".to_string());
+    if !signature.is_empty() {
+        headers.insert("X-Webhook-Signature".to_string(), signature);
+    }
+
+    match network::do_request(ctx, "POST", &url, &headers, Some(&payload)).await {
         Ok(resp) if resp.status_code < 400 => {
-            tracing::info!("Control plane {} succeeded", action);
+            tracing::info!(event = event, "products webhook delivered");
         }
         Ok(resp) => {
-            tracing::warn!("Control plane {} returned {}: {}", action, resp.status_code,
-                String::from_utf8_lossy(&resp.body));
+            tracing::warn!(event = event, status = resp.status_code, "products webhook failed");
         }
         Err(e) => {
-            tracing::warn!("Control plane {} failed: {e}", action);
+            tracing::warn!(event = event, error = %e, "products webhook delivery error");
         }
     }
 }

@@ -3,7 +3,7 @@ pub mod rate_limit;
 pub mod helpers;
 pub mod admin;
 pub mod auth;
-pub mod deployments;
+pub mod projects;
 pub mod email;
 pub mod files;
 pub mod legalpages;
@@ -19,7 +19,7 @@ use std::sync::Arc;
 use crate::routing::BlockId;
 use wafer_run::block::Block;
 
-/// Mapping from feature name (used in solobase.json) to BlockId.
+/// Mapping from feature name (used in FEATURE_* env vars) to BlockId.
 const FEATURE_BLOCKS: &[(&str, BlockId)] = &[
     ("profile",     BlockId::Profile),
     ("system",      BlockId::System),
@@ -29,7 +29,7 @@ const FEATURE_BLOCKS: &[(&str, BlockId)] = &[
     ("admin",       BlockId::Admin),
     ("files",       BlockId::Files),
     ("products",    BlockId::Products),
-    ("deployments", BlockId::Deployments),
+    ("projects", BlockId::Projects),
 ];
 
 /// Create a block instance for a given BlockId.
@@ -43,7 +43,7 @@ fn make_block(id: BlockId) -> Arc<dyn Block> {
         BlockId::Admin       => Arc::new(admin::AdminBlock),
         BlockId::Files       => Arc::new(files::FilesBlock::new()),
         BlockId::Products    => Arc::new(products::ProductsBlock::new()),
-        BlockId::Deployments => Arc::new(deployments::DeploymentsBlock::new()),
+        BlockId::Projects => Arc::new(projects::ProjectsBlock::new()),
     }
 }
 
@@ -89,6 +89,6 @@ fn block_id_to_name(id: BlockId) -> &'static str {
         BlockId::Admin       => "admin",
         BlockId::Files       => "files",
         BlockId::Products    => "products",
-        BlockId::Deployments => "deployments",
+        BlockId::Projects => "projects",
     }
 }

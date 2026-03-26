@@ -21,7 +21,7 @@ pub enum BlockId {
     Files,
     LegalPages,
     Products,
-    Deployments,
+    Projects,
     UserPortal,
     Profile,
 }
@@ -43,20 +43,20 @@ pub const ROUTES: &[Route] = &[
     Route { prefix: "/auth/",                   requires_admin: false, block_id: BlockId::Auth },
     Route { prefix: "/internal/oauth/",         requires_admin: false, block_id: BlockId::Auth },
     // Admin sub-routes (more specific before general)
-    Route { prefix: "/admin/settings/",         requires_admin: true,  block_id: BlockId::Admin },
-    Route { prefix: "/settings/",               requires_admin: true,  block_id: BlockId::Admin },
+    Route { prefix: "/admin/settings",          requires_admin: true,  block_id: BlockId::Admin },
+    Route { prefix: "/settings",                requires_admin: true,  block_id: BlockId::Admin },
     Route { prefix: "/admin/storage/",          requires_admin: true,  block_id: BlockId::Files },
     Route { prefix: "/admin/b/cloudstorage/",   requires_admin: true,  block_id: BlockId::Files },
     Route { prefix: "/admin/legalpages/",       requires_admin: true,  block_id: BlockId::LegalPages },
     Route { prefix: "/admin/b/products",        requires_admin: true,  block_id: BlockId::Products },
-    Route { prefix: "/admin/b/deployments",     requires_admin: true,  block_id: BlockId::Deployments },
+    Route { prefix: "/admin/b/projects",     requires_admin: true,  block_id: BlockId::Projects },
     Route { prefix: "/admin/",                  requires_admin: true,  block_id: BlockId::Admin },
     // Non-admin feature routes
     Route { prefix: "/storage/",                requires_admin: false, block_id: BlockId::Files },
     Route { prefix: "/b/cloudstorage/",         requires_admin: false, block_id: BlockId::Files },
     Route { prefix: "/b/products",              requires_admin: false, block_id: BlockId::Products },
     Route { prefix: "/b/legalpages",            requires_admin: false, block_id: BlockId::LegalPages },
-    Route { prefix: "/b/deployments",           requires_admin: false, block_id: BlockId::Deployments },
+    Route { prefix: "/b/projects",           requires_admin: false, block_id: BlockId::Projects },
     Route { prefix: "/b/userportal",            requires_admin: false, block_id: BlockId::UserPortal },
     Route { prefix: "/profile",                 requires_admin: false, block_id: BlockId::Profile },
 ];
@@ -69,7 +69,7 @@ fn is_block_enabled(block_id: BlockId, features: &dyn FeatureConfig) -> bool {
         BlockId::Admin       => features.admin_enabled(),
         BlockId::Files       => features.files_enabled(),
         BlockId::Products    => features.products_enabled(),
-        BlockId::Deployments => features.deployments_enabled(),
+        BlockId::Projects => features.projects_enabled(),
         BlockId::LegalPages  => features.legalpages_enabled(),
         BlockId::UserPortal  => features.userportal_enabled(),
     }
