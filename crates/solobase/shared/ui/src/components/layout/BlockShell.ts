@@ -1,6 +1,7 @@
 import { html } from '../../htm';
 import { useEffect, useState } from 'preact/hooks';
 import { checkAuth, isAuthenticated, authLoading } from '../../stores/auth';
+import { safeRedirect } from '../../utils/helpers';
 import { Sidebar } from './Sidebar';
 import { ToastContainer } from '../ui/Toast';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
@@ -18,7 +19,7 @@ export function BlockShell({ title, children }: BlockShellProps) {
 	useEffect(() => {
 		checkAuth().then(authenticated => {
 			if (!authenticated) {
-				window.location.href = '/admin/login';
+				safeRedirect('/blocks/dashboard/frontend/');
 			}
 		});
 	}, []);

@@ -1,6 +1,7 @@
 import { html } from '../../htm';
 import { useEffect } from 'preact/hooks';
 import { checkAuth, isAuthenticated, authLoading } from '../../stores/auth';
+import { safeRedirect } from '../../utils/helpers';
 import { ToastContainer } from '../ui/Toast';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 import type { ComponentChildren } from 'preact';
@@ -15,7 +16,7 @@ export function FeatureShell({ title, children }: FeatureShellProps) {
 	useEffect(() => {
 		checkAuth().then(authenticated => {
 			if (!authenticated) {
-				window.location.href = '/admin/login';
+				safeRedirect('/blocks/dashboard/frontend/');
 			}
 		});
 	}, []);

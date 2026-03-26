@@ -86,7 +86,7 @@ function GetStarted() {
           <p style={{ fontSize: '1rem', color: '#374151', marginBottom: '0.75rem' }}>
             Or have a super fast edge instance powered by
           </p>
-          <img src="/images/cloudflare.png" alt="Cloudflare" style={{ height: '32px', margin: '0 auto 1rem', display: 'block' }} />
+          <img src="/images/cloudflare_solobase.png" alt="Cloudflare" style={{ height: '32px', margin: '0 auto 1rem', display: 'block' }} />
           <p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '1rem' }}>
             Cheap, global, and lightning fast.
           </p>

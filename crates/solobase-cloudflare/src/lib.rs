@@ -186,7 +186,13 @@ async fn serve_static(env: &Env, prefix: &str, path: &str) -> Option<Response> {
             let resp = Response::from_bytes(bytes).ok()?;
             let mut resp = resp.with_status(200);
             resp.headers_mut().set("Content-Type", content_type).ok()?;
-            resp.headers_mut().set("Cache-Control", "public, max-age=3600").ok()?;
+            // HTML: no-cache so deploys take effect immediately.
+            // Hashed assets (JS/CSS/wasm): cache for 1 year (filename changes on rebuild).
+            if key.ends_with(".html") {
+                resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
+            } else {
+                resp.headers_mut().set("Cache-Control", "public, max-age=31536000, immutable").ok()?;
+            }
             return Some(resp);
         }
     }
@@ -200,6 +206,7 @@ async fn serve_static(env: &Env, prefix: &str, path: &str) -> Option<Response> {
                 let resp = Response::from_bytes(bytes).ok()?;
                 let mut resp = resp.with_status(200);
                 resp.headers_mut().set("Content-Type", "text/html; charset=utf-8").ok()?;
+                resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
                 return Some(resp);
             }
         }
@@ -214,6 +221,7 @@ async fn serve_static(env: &Env, prefix: &str, path: &str) -> Option<Response> {
                 let resp = Response::from_bytes(bytes).ok()?;
                 let mut resp = resp.with_status(200);
                 resp.headers_mut().set("Content-Type", "text/html; charset=utf-8").ok()?;
+                resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
                 return Some(resp);
             }
         }

@@ -22,3 +22,40 @@ export function isValidRedirectUrl(url: string): boolean {
 		return false;
 	}
 }
+
+/**
+ * Navigate to a URL only if not already there. Prevents redirect loops
+ * by tracking redirect count in sessionStorage — stops after 3 redirects
+ * within 5 seconds.
+ */
+export function safeRedirect(url: string): void {
+	const current = window.location.pathname + window.location.hash;
+	const target = url.startsWith('http') ? new URL(url).pathname : url;
+
+	// Already on the target page
+	if (current === target || window.location.href === url) {
+		return;
+	}
+
+	// Track redirects to detect loops
+	const key = 'sb_redirect_guard';
+	const now = Date.now();
+	const guard = JSON.parse(sessionStorage.getItem(key) || '{"count":0,"ts":0}');
+
+	// Reset counter if more than 5 seconds since last redirect
+	if (now - guard.ts > 5000) {
+		guard.count = 0;
+	}
+
+	guard.count++;
+	guard.ts = now;
+	sessionStorage.setItem(key, JSON.stringify(guard));
+
+	if (guard.count > 3) {
+		console.error('Redirect loop detected — stopped after 3 redirects');
+		sessionStorage.removeItem(key);
+		return;
+	}
+
+	window.location.href = url;
+}

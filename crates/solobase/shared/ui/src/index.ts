@@ -41,4 +41,4 @@ export { useClickOutside } from './hooks/useClickOutside';
 export { useKeydown } from './hooks/useKeydown';
 
 // Utilities
-export { formatPrice, isValidRedirectUrl } from './utils/helpers';
+export { formatPrice, isValidRedirectUrl, safeRedirect } from './utils/helpers';

@@ -51,6 +51,23 @@ struct ProjectAppConfig {
     pub userportal: Option<Value>,
 }
 
+impl ProjectAppConfig {
+    fn all_enabled() -> Self {
+        let on = Some(Value::Object(Default::default()));
+        Self {
+            version: 1,
+            app: None,
+            auth: on.clone(),
+            admin: on.clone(),
+            files: on.clone(),
+            products: on.clone(),
+            deployments: on.clone(),
+            legalpages: on.clone(),
+            userportal: on,
+        }
+    }
+}
+
 impl features::FeatureConfig for ProjectAppConfig {
     fn auth_enabled(&self) -> bool { features::is_feature_enabled(&self.auth) }
     fn admin_enabled(&self) -> bool { features::is_feature_enabled(&self.admin) }
@@ -151,7 +168,7 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     // Feature flags — read from variables or default to all enabled
     let project_config: ProjectAppConfig = env_vars.get("PROJECT_CONFIG")
         .and_then(|s| serde_json::from_str(s).ok())
-        .unwrap_or_default();
+        .unwrap_or_else(ProjectAppConfig::all_enabled);
 
     // Create WAFER runtime
     let mut wafer = wafer_run::runtime::Wafer::new();

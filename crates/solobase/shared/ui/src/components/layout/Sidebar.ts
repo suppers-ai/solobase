@@ -144,7 +144,7 @@ export function Sidebar() {
 						<div class="profile-menu-divider" />
 						<button
 							class="profile-menu-item profile-menu-item-danger"
-							onClick=${() => { logout(); window.location.href = '/admin/login'; }}
+							onClick=${() => { logout(); window.location.href = '/blocks/dashboard/frontend/'; }}
 							type="button"
 						>
 							<${LogOut} size=${16} />
