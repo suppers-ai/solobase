@@ -1,0 +1,10 @@
+{
+    "version": 0,
+    "app": "solobase-site",
+    "listen": "0.0.0.0:8090",
+    "database": { "type": "sqlite", "path": "data/solobase-site.db" },
+    "storage": { "type": "local", "root": "./dist" },
+    "jwt_secret": "test-secret-for-local-dev",
+    "web_root": "site",
+    "features": {}
+}

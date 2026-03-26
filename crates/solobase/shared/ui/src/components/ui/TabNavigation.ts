@@ -30,7 +30,7 @@ export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationPro
 						borderBottom: `2px solid ${activeTab === tab.id ? 'var(--primary-color, #fe6627)' : 'transparent'}`,
 						marginBottom: '-2px',
 						color: activeTab === tab.id ? 'var(--primary-color, #fe6627)' : 'var(--text-secondary, #64748b)',
-						fontWeight: activeTab === tab.id ? 600 : 400,
+						fontWeight: 400,
 						fontSize: '0.875rem',
 						cursor: 'pointer',
 						display: 'flex',

@@ -88,6 +88,12 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         }
     }
 
+    // Serve the 404 page from R2, or fall back to plain text
+    if let Some(resp) = serve_static(&env, "_site/", "/index.html").await {
+        let mut resp = resp.with_status(404);
+        resp.headers_mut().set("Cache-Control", "no-cache").ok();
+        return add_security_headers(resp);
+    }
     add_security_headers(Response::ok("Not Found")?.with_status(404))
 }
 
@@ -212,17 +218,22 @@ async fn serve_static(env: &Env, prefix: &str, path: &str) -> Option<Response> {
         }
     }
 
-    // SPA fallback — only for /blocks/ paths
+    // SPA fallback — serve the block's frontend/index.html for sub-routes.
+    // e.g., /blocks/admin/frontend/settings → serve /blocks/admin/frontend/index.html
     if path.starts_with("/blocks/") {
-        let spa_key = format!("{}index.html", prefix);
-        if let Ok(Some(obj)) = bucket.get(&spa_key).execute().await {
-            if let Some(body) = obj.body() {
-                let bytes = body.bytes().await.ok()?;
-                let resp = Response::from_bytes(bytes).ok()?;
-                let mut resp = resp.with_status(200);
-                resp.headers_mut().set("Content-Type", "text/html; charset=utf-8").ok()?;
-                resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
-                return Some(resp);
+        // Extract the block path: /blocks/{name}/frontend/... → /blocks/{name}/frontend/
+        let parts: Vec<&str> = path.trim_start_matches('/').splitn(4, '/').collect();
+        if parts.len() >= 3 {
+            let block_index = format!("{}{}/{}/index.html", prefix, parts[1], parts[2]);
+            if let Ok(Some(obj)) = bucket.get(&block_index).execute().await {
+                if let Some(body) = obj.body() {
+                    let bytes = body.bytes().await.ok()?;
+                    let resp = Response::from_bytes(bytes).ok()?;
+                    let mut resp = resp.with_status(200);
+                    resp.headers_mut().set("Content-Type", "text/html; charset=utf-8").ok()?;
+                    resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
+                    return Some(resp);
+                }
             }
         }
     }

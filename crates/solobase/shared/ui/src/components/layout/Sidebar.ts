@@ -73,7 +73,7 @@ export function Sidebar() {
 	return html`
 		<nav class=${`sidebar${collapsed ? ' collapsed' : ''}`}>
 			<div class="sidebar-header">
-				<a href="/admin" class="sidebar-logo">
+				<a href="/blocks/admin/frontend/" class="sidebar-logo">
 					${!collapsed
 						? html`<img src="/logo_long.png" alt="Solobase" class="sidebar-logo-long" />`
 						: html`<img src="/logo.png" alt="Solobase" class="sidebar-logo-icon" />`

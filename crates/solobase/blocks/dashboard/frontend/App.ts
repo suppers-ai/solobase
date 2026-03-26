@@ -215,7 +215,7 @@ function DashboardHeader() {
 			</div>
 			<div style=${{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
 				${isAdmin ? html`
-					<a href="/blocks/admin" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#fe6627', textDecoration: 'none', fontWeight: 600 }}>
+					<a href="/blocks/admin/frontend/" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#fe6627', textDecoration: 'none', fontWeight: 600 }}>
 						<${Shield} size=${16} /> Admin
 					</a>
 				` : null}
@@ -657,6 +657,9 @@ function SettingsTab() {
 
 	if (!loaded) return html`<${LoadingSpinner} message="Loading settings..." />`;
 
+	const labelStyle = { display: 'block', fontSize: '0.813rem', fontWeight: 500, color: '#1e293b', marginBottom: '0.375rem' };
+	const inputStyle = { width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.813rem', outline: 'none', boxSizing: 'border-box' };
+
 	return html`
 		<div>
 			<${PageHeader} title="Account Settings" description="Manage your profile and preferences" />
@@ -671,22 +674,31 @@ function SettingsTab() {
 				</div>
 			</div>
 
-			<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', maxWidth: '500px' }}>
+			<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', maxWidth: '500px', marginBottom: '1.5rem' }}>
 				<h3 style=${{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b', marginBottom: '1rem' }}>Profile</h3>
 				<form onSubmit=${handleSave}>
 					<div style=${{ marginBottom: '1rem' }}>
-						<label style=${{ display: 'block', fontSize: '0.813rem', fontWeight: 500, color: '#1e293b', marginBottom: '0.375rem' }}>Email</label>
+						<label style=${labelStyle}>Email</label>
 						<input type="email" value=${user?.email || ''} disabled
-							style=${{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.813rem', background: '#f8fafc', color: '#64748b', boxSizing: 'border-box' }} />
+							style=${{ ...inputStyle, background: '#f8fafc', color: '#64748b' }} />
 					</div>
 					<div style=${{ marginBottom: '1.5rem' }}>
-						<label style=${{ display: 'block', fontSize: '0.813rem', fontWeight: 500, color: '#1e293b', marginBottom: '0.375rem' }}>Display Name</label>
+						<label style=${labelStyle}>Display Name</label>
 						<input type="text" value=${name} onInput=${(e: any) => setName(e.target.value)}
 							placeholder="Your name"
-							style=${{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.813rem', outline: 'none', boxSizing: 'border-box' }} />
+							style=${inputStyle} />
 					</div>
 					<${Button} type="submit" loading=${saving}>${saving ? 'Saving...' : 'Save Changes'}<//>
 				</form>
+			</div>
+
+			<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', maxWidth: '500px' }}>
+				<h3 style=${{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b', marginBottom: '0.5rem' }}>Password</h3>
+				<p style=${{ fontSize: '0.813rem', color: '#64748b', marginBottom: '1rem', marginTop: 0 }}>Update your password to keep your account secure.</p>
+				<a href="/blocks/auth/frontend/?page=change-password"
+					style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', background: '#1e293b', color: 'white', borderRadius: '8px', fontSize: '0.813rem', fontWeight: 600, textDecoration: 'none' }}>
+					<${Shield} size=${14} /> Change Password
+				</a>
 			</div>
 		</div>
 	`;
