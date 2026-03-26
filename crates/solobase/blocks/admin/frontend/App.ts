@@ -52,8 +52,9 @@ function UsersTab() {
 	useEffect(() => {
 		api.getUsers(1, 100).then(res => {
 			if (!res.error) {
-				const data = (res.data as any)?.records || (res.data as any)?.data || [];
-				setUsers(Array.isArray(data) ? data : []);
+				const records = (res.data as any)?.records || (res.data as any)?.data || [];
+				const data = (Array.isArray(records) ? records : []).map((r: any) => ({ id: r.id, ...r.data }));
+				setUsers(data);
 			}
 			setLoading(false);
 		});

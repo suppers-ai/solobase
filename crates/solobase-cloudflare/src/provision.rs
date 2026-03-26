@@ -88,7 +88,19 @@ pub async fn create_project(
         console_log!("Migration warning for '{}': status {}", subdomain, migrate_resp.status_code());
     }
 
-    // 6. Store project config in KV
+    // 6. Health check — verify the worker is responsive
+    let health_req = Request::new("https://internal/health", Method::Get)?;
+    let health_resp = dispatcher.get(subdomain)
+        .map_err(|e| Error::RustError(format!("dispatch get: {e}")))?
+        .fetch_request(health_req).await?;
+
+    if health_resp.status_code() >= 400 {
+        console_log!("Health check warning for '{}': status {}", subdomain, health_resp.status_code());
+    } else {
+        console_log!("Health check passed for '{}'", subdomain);
+    }
+
+    // 7. Store project config in KV
     let config = ProjectConfig {
         id: project_id.clone(),
         subdomain: subdomain.to_string(),
