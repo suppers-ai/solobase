@@ -248,6 +248,18 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     // Start runtime
     wafer.start_without_bind().await.map_err(|e| Error::RustError(e))?;
 
+    // Try serving static files from R2 for non-API paths first.
+    // The native wafer-run/web block uses std::fs which doesn't work on CF Workers,
+    // so we handle static file serving directly from the project's R2 bucket.
+    let pathname = req.url()?.path().to_string();
+    if !is_api_path(&pathname) {
+        let r2 = env.bucket("STORAGE")
+            .map_err(|e| Error::RustError(format!("R2: {e}")))?;
+        if let Some(static_resp) = serve_from_r2(&r2, &pathname).await {
+            return Ok(static_resp);
+        }
+    }
+
     // Convert HTTP request to WAFER Message
     let mut msg = convert::worker_request_to_message(req).await?;
 
@@ -258,20 +270,7 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
 
     // Execute flow
     let result = wafer.run("site-main", &mut msg).await;
-
-    // If the flow returned a 404 for a non-API path, try serving a static file from R2.
-    // The native wafer-run/web block uses std::fs which doesn't work on CF Workers,
-    // so we handle static file serving directly from the project's R2 bucket.
-    let response = convert::wafer_result_to_worker_response(result)?;
-    if response.status_code() == 404 {
-        let path = req.url()?.path().to_string();
-        let r2 = env.bucket("STORAGE")
-            .map_err(|e| Error::RustError(format!("R2: {e}")))?;
-        if let Some(static_resp) = serve_from_r2(&r2, &path).await {
-            return Ok(static_resp);
-        }
-    }
-    Ok(response)
+    convert::wafer_result_to_worker_response(result)
 }
 
 /// Serve a static file from the project's R2 bucket (site/ folder).
@@ -314,6 +313,16 @@ async fn serve_from_r2(bucket: &worker::Bucket, path: &str) -> Option<worker::Re
     }
 
     None
+}
+
+fn is_api_path(path: &str) -> bool {
+    const PREFIXES: &[&str] = &[
+        "/health", "/nav", "/debug/",
+        "/auth/", "/admin/", "/storage/",
+        "/b/", "/ext/", "/profile/", "/settings/",
+        "/internal/", "/_internal/",
+    ];
+    PREFIXES.iter().any(|p| path == p.trim_end_matches('/') || path.starts_with(p))
 }
 
 fn guess_content_type(key: &str) -> &'static str {

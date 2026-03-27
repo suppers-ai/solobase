@@ -57,7 +57,12 @@ pub async fn create_project(
         .map_err(|e| Error::RustError(format!("read worker WASM from R2: {e}")))?;
 
     // 4. Build worker bindings
-    let dispatch_worker_name = format!("solobase-{}", environment);
+    // Service binding to dispatcher only for platform projects (used by the projects block)
+    let dispatch_worker_name = if platform {
+        Some(format!("solobase-{}", environment))
+    } else {
+        None
+    };
     let bindings = WorkerBindings {
         d1_database_id: db_id.clone(),
         r2_bucket_name: r2_bucket_name.clone(),
@@ -65,7 +70,7 @@ pub async fn create_project(
         vars: vec![
             ("FEATURE_PROJECTS".to_string(), platform.to_string()),
         ],
-        dispatch_worker_name: Some(dispatch_worker_name),
+        dispatch_worker_name,
     };
 
     // 5. Upload user worker to dispatch namespace
