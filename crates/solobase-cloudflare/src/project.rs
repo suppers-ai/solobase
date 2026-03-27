@@ -58,10 +58,9 @@ pub struct ProjectConfig {
     /// Worker binding name for this project's D1.
     #[serde(default)]
     pub db_binding: Option<String>,
-    /// The project's app config (feature flags). Stored as opaque JSON —
-    /// the dispatch worker doesn't interpret it, just passes it to user workers.
+    /// Whether this is a platform project (has FEATURE_PROJECTS enabled).
     #[serde(default)]
-    pub config: Value,
+    pub platform: bool,
     /// Custom WASM block names installed by this project.
     #[serde(default)]
     pub blocks: Vec<String>,
@@ -90,13 +89,13 @@ pub fn get_plan_limits(plan: &str) -> PlanLimits {
         "starter" => PlanLimits {
             max_projects: 2,
             max_requests_per_month: 500_000,
-            max_r2_storage_bytes: 1_073_741_824, // 1 GB
-            max_d1_storage_bytes: 524_288_000,   // 500 MB
+            max_r2_storage_bytes: 2_147_483_648,  // 2 GB
+            max_d1_storage_bytes: 524_288_000,    // 500 MB
         },
         "pro" => PlanLimits {
-            max_projects: usize::MAX,
+            max_projects: 10,
             max_requests_per_month: 3_000_000,
-            max_r2_storage_bytes: 10_737_418_240, // 10 GB
+            max_r2_storage_bytes: 21_474_836_480, // 20 GB
             max_d1_storage_bytes: 5_368_709_120,  // 5 GB
         },
         // "free" or unknown
@@ -136,7 +135,7 @@ pub async fn resolve_project(
             owner_user_id: None,
             db_id: None,
             db_binding: Some("DB".to_string()),
-            config: serde_json::json!({"version": 1, "auth": {}, "admin": {}, "files": {}, "products": {}, "projects": {},"legalpages": {}, "userportal": {}}),
+            platform: true,
             blocks: Vec::new(),
         });
     }

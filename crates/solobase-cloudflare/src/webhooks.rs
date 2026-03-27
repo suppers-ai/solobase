@@ -2,10 +2,11 @@
 //!
 //! `/_webhooks/products` receives billing events from the products block
 //! (checkout completed, subscription changes). Verified via HMAC-SHA256
-//! signature using the PRODUCTS_WEBHOOK_SECRET.
+//! signature using the PRODUCTS_WEBHOOK_SECRET from the cloud project's D1.
 
 use worker::*;
 
+use crate::cf_api::{self, CfCredentials};
 use crate::helpers::json_response;
 use crate::provision;
 
@@ -21,11 +22,8 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
 }
 
 async fn handle_products_webhook(req: &Request, env: &Env, body: &[u8]) -> Result<Response> {
-    // Verify HMAC-SHA256 signature
-    let secret = env.secret("PRODUCTS_WEBHOOK_SECRET")
-        .map(|s| s.to_string())
-        .or_else(|_| env.var("PRODUCTS_WEBHOOK_SECRET").map(|v| v.to_string()))
-        .unwrap_or_default();
+    // Read PRODUCTS_WEBHOOK_SECRET from the cloud project's D1 database
+    let secret = get_cloud_variable(env, "PRODUCTS_WEBHOOK_SECRET").await.unwrap_or_default();
 
     if !secret.is_empty() {
         let sig_header = req.headers()
@@ -68,7 +66,6 @@ async fn handle_products_webhook(req: &Request, env: &Env, body: &[u8]) -> Resul
                 );
             }
 
-            // Update plan on all projects owned by this user
             let updated = sync_user_projects(&kv, user_id, plan, "active").await?;
             console_log!("Webhook {}: updated {} projects for user {}", payload.event, updated, user_id);
 
@@ -85,7 +82,6 @@ async fn handle_products_webhook(req: &Request, env: &Env, body: &[u8]) -> Resul
                 );
             }
 
-            // Suspend all projects owned by this user
             let updated = sync_user_projects(&kv, user_id, "free", "suspended").await?;
             console_log!("Webhook {}: suspended {} projects for user {}", payload.event, updated, user_id);
 
@@ -97,6 +93,26 @@ async fn handle_products_webhook(req: &Request, env: &Env, body: &[u8]) -> Resul
             json_response(&serde_json::json!({"ok": true, "ignored": true}), 200)
         }
     }
+}
+
+/// Read a variable from the cloud project's D1 database via CF API.
+/// Looks up the cloud project's db_id from KV, then queries its D1.
+async fn get_cloud_variable(env: &Env, key: &str) -> Option<String> {
+    let kv = env.kv("PROJECTS").ok()?;
+    let config = provision::get_project(&kv, "cloud").await.ok()??;
+    let db_id = config.db_id.as_ref()?;
+
+    let creds = CfCredentials::from_env(env).ok()?;
+    let rows = cf_api::query_d1(
+        &creds, db_id,
+        "SELECT value FROM variables WHERE key = ?1",
+        &[key],
+    ).await.ok()?;
+
+    rows.first()
+        .and_then(|row| row.get("value"))
+        .and_then(|v| v.as_str())
+        .map(String::from)
 }
 
 /// Update plan/status on all projects owned by a user.

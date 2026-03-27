@@ -6,7 +6,8 @@ export default {
 	content: [
 		'../blocks/*/frontend/**/*.{html,ts,tsx}',
 		'../../shared/ui/src/**/*.{ts,tsx}',
-		'./static/**/*.html'
+		'./static/**/*.html',
+		'../../../packages/cloud-dashboard/**/*.{html,ts,tsx}',
 	],
 	theme: {
 		extend: {

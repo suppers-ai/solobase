@@ -4,6 +4,11 @@
 
 export const addons = [
   {
+    name: 'Extra Projects',
+    unit: 'project',
+    price: 1,
+  },
+  {
     name: 'API Requests',
     unit: '100K',
     price: 1,
@@ -43,6 +48,6 @@ export const faqs = [
   },
   {
     question: 'What is a project?',
-    answer: 'A project is a separate Solobase instance with its own database, storage, users, and subdomain. Each project is fully isolated.',
+    answer: 'A project is a separate Solobase instance with its own dedicated database, dedicated storage bucket, users, and subdomain. Every project is fully isolated — your data never shares infrastructure with other projects.',
   },
 ];

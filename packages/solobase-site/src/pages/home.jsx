@@ -84,9 +84,9 @@ function GetStarted() {
         {/* Cloud section */}
         <div class="mt-10 mb-8" style={{ background: '#f9fafb', borderRadius: '0.75rem', padding: '1.5rem 2rem', textAlign: 'center' }}>
           <p style={{ fontSize: '1rem', color: '#374151', marginBottom: '0.75rem' }}>
-            Or have a super fast edge instance powered by
+            Or have a super fast edge instance hosted by us
           </p>
-          <img src="/images/cloudflare_solobase.png" alt="Cloudflare" style={{ height: '32px', margin: '0 auto 1rem', display: 'block' }} />
+          <img src="/images/cloudflare_solobase.png" alt="Cloudflare" style={{ height: '100px', margin: '0 auto 1rem', display: 'block' }} />
           <p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '1rem' }}>
             Cheap, global, and lightning fast.
           </p>

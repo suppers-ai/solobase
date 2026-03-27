@@ -179,6 +179,7 @@ function ProjectsTab() {
 	const [newName, setNewName] = useState('');
 	const [creating, setCreating] = useState(false);
 	const [deleting, setDeleting] = useState<string | null>(null);
+	const [subdomainError, setSubdomainError] = useState<string | null>(null);
 
 	const fetchProjects = useCallback(async () => {
 		try {
@@ -194,9 +195,30 @@ function ProjectsTab() {
 
 	useEffect(() => { fetchProjects(); }, [fetchProjects]);
 
+	function validateSubdomain(value: string): string | null {
+		if (!value) return null;
+		if (value.length < 3) return 'Subdomain must be at least 3 characters';
+		if (value.length > 63) return 'Subdomain must be 63 characters or fewer';
+		if (!/^[a-z]/.test(value)) return 'Subdomain must start with a lowercase letter';
+		if (value.endsWith('-')) return 'Subdomain cannot end with a hyphen';
+		if (value.includes('--')) return 'Subdomain cannot contain consecutive hyphens';
+		if (!/^[a-z0-9-]+$/.test(value)) return 'Subdomain must only contain lowercase letters, numbers, and hyphens';
+		const reserved = ['admin','api','app','auth','billing','blog','cdn','cloud','console','dashboard','dev','docs','help','internal','login','mail','manage','platform','settings','staging','status','support','test','www'];
+		if (reserved.includes(value)) return `Subdomain '${value}' is reserved`;
+		return null;
+	}
+
+	function handleSubdomainInput(e: any) {
+		const raw: string = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+		setNewName(raw);
+		setSubdomainError(validateSubdomain(raw));
+	}
+
 	async function handleCreate(e: Event) {
 		e.preventDefault();
 		if (!newName.trim()) return;
+		const err = validateSubdomain(newName);
+		if (err) { setSubdomainError(err); return; }
 		setCreating(true);
 		try {
 			const result: any = await api.post('/b/projects', { name: newName.trim() });
@@ -207,10 +229,16 @@ function ProjectsTab() {
 				toasts.success('Project created.');
 			}
 			setNewName('');
+			setSubdomainError(null);
 			setShowCreateForm(false);
 			await fetchProjects();
 		} catch (err: any) {
-			toasts.error(err.message || 'Failed to create project');
+			const msg = err.message || 'Failed to create project';
+			if (msg.toLowerCase().includes('already taken')) {
+				setSubdomainError('This subdomain is already taken');
+			} else {
+				toasts.error(msg);
+			}
 		}
 		setCreating(false);
 	}
@@ -266,14 +294,23 @@ function ProjectsTab() {
 					<h3 style=${{ fontSize: '1rem', fontWeight: 600, color: '#1e293b', marginBottom: '1rem' }}>New Project</h3>
 					<form onSubmit=${handleCreate}>
 						<div>
-							<label style=${{ display: 'block', fontSize: '0.813rem', fontWeight: 500, color: '#1e293b', marginBottom: '0.375rem' }}>Name</label>
-							<input type="text" value=${newName} onInput=${(e: any) => setNewName(e.target.value)}
-								placeholder="my-backend" required
-								style=${{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.813rem', outline: 'none', boxSizing: 'border-box' }} />
+							<label style=${{ display: 'block', fontSize: '0.813rem', fontWeight: 500, color: '#1e293b', marginBottom: '0.375rem' }}>Subdomain</label>
+							<input type="text" value=${newName} onInput=${handleSubdomainInput}
+								placeholder="my-app" required
+								style=${{ width: '100%', padding: '0.5rem 0.75rem', border: `1px solid ${subdomainError ? '#ef4444' : '#e2e8f0'}`, borderRadius: '8px', fontSize: '0.813rem', outline: 'none', boxSizing: 'border-box' }} />
+							${newName ? html`
+								<div style=${{ fontSize: '0.813rem', color: '#64748b', marginTop: '0.375rem' }}>
+									Your project will be available at <span style=${{ color: '#fe6627', fontWeight: 600 }}>${newName}.solobase.dev</span>
+								</div>
+							` : null}
+							${subdomainError ? html`
+								<div style=${{ fontSize: '0.75rem', color: '#ef4444', marginTop: '0.25rem' }}>${subdomainError}</div>
+							` : null}
+							<div style=${{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.5rem' }}>This will be your project's permanent URL and cannot be changed.</div>
 						</div>
 						<div style=${{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-							<${Button} type="submit" loading=${creating}>Create<//>
-							<${Button} variant="secondary" onClick=${() => { setShowCreateForm(false); setNewName(''); }}>Cancel<//>
+							<${Button} type="submit" loading=${creating} disabled=${!!subdomainError || !newName}>Create<//>
+							<${Button} variant="secondary" onClick=${() => { setShowCreateForm(false); setNewName(''); setSubdomainError(null); }}>Cancel<//>
 						</div>
 					</form>
 				</div>

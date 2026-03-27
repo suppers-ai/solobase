@@ -12,7 +12,7 @@ use worker::*;
 use crate::cf_api::{self, CfCredentials, WorkerBindings};
 use crate::project::ProjectConfig;
 
-/// Provision a new project: create D1, upload user worker, run migrations.
+/// Provision a new project: create D1 + R2 bucket, upload user worker, run migrations.
 pub async fn create_project(
     env: &Env,
     kv: &kv::KvStore,
@@ -20,7 +20,7 @@ pub async fn create_project(
     name: &str,
     plan: &str,
     owner_user_id: Option<&str>,
-    app_config: Option<serde_json::Value>,
+    platform: bool,
 ) -> Result<ProjectConfig> {
     let key = format!("project:{}:config", subdomain);
     if kv.get(&key).json::<ProjectConfig>().await?.is_some() {
@@ -29,53 +29,50 @@ pub async fn create_project(
 
     let creds = CfCredentials::from_env(env)?;
     let project_id = uuid::Uuid::new_v4().to_string();
-    let db_name = format!("solobase-proj-{}", subdomain);
+    let environment = env.var("ENVIRONMENT")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|_| "development".into());
+    let db_name = format!("solobase-{}-{}", environment, subdomain);
 
     // 1. Create D1 database
     let db_id = cf_api::create_d1_database(&creds, &db_name).await?;
     console_log!("Created D1 '{}' (id: {})", db_name, db_id);
 
-    // 2. Read user worker artifacts from R2
-    let bucket = env.bucket("STORAGE")
+    // 2. Create per-project R2 bucket
+    let r2_bucket_name = db_name.clone(); // same naming: solobase-{env}-{subdomain}
+    if let Err(e) = cf_api::create_r2_bucket(&creds, &r2_bucket_name).await {
+        console_log!("R2 bucket create failed for '{}', rolling back D1", subdomain);
+        let _ = cf_api::delete_d1_database(&creds, &db_id).await;
+        return Err(e);
+    }
+    console_log!("Created R2 bucket '{}'", r2_bucket_name);
+
+    // 3. Read user worker artifacts from the shared platform R2 bucket
+    let platform_bucket = env.bucket("STORAGE")
         .map_err(|e| Error::RustError(format!("R2: {e}")))?;
 
-    let js_module = read_r2_bytes(&bucket, "_system/worker/index.js").await
+    let js_module = read_r2_bytes(&platform_bucket, "_system/worker/index.js").await
         .map_err(|e| Error::RustError(format!("read worker JS from R2: {e}")))?;
-    let wasm_bytes = read_r2_bytes(&bucket, "_system/worker/index_bg.wasm").await
+    let wasm_bytes = read_r2_bytes(&platform_bucket, "_system/worker/index_bg.wasm").await
         .map_err(|e| Error::RustError(format!("read worker WASM from R2: {e}")))?;
 
-    // 3. Build worker bindings — infrastructure + feature flags
-    let feature_config = app_config.unwrap_or_else(|| all_features_enabled());
-
-    let r2_bucket_name = env.var("R2_BUCKET_NAME")
-        .map(|v| v.to_string())
-        .unwrap_or_else(|_| "solobase-storage".into());
-
-    // Feature flags as worker bindings — protected from dashboard changes.
-    // Tenant instances get standard features; FEATURE_PROJECTS is platform-only.
-    let mut vars = vec![
-        ("PROJECT_ID".to_string(), project_id.clone()),
-    ];
-    for feature in &["auth", "admin", "files", "products", "legalpages", "userportal", "projects"] {
-        let key = format!("FEATURE_{}", feature.to_uppercase());
-        let enabled = feature_config.get(*feature)
-            .map(|v| !v.is_null() && v != &serde_json::Value::Bool(false))
-            .unwrap_or(false);
-        vars.push((key, enabled.to_string()));
-    }
-
+    // 4. Build worker bindings
+    let dispatch_worker_name = format!("solobase-{}", environment);
     let bindings = WorkerBindings {
         d1_database_id: db_id.clone(),
-        r2_bucket_name,
+        r2_bucket_name: r2_bucket_name.clone(),
         secrets: Vec::new(),
-        vars,
+        vars: vec![
+            ("FEATURE_PROJECTS".to_string(), platform.to_string()),
+        ],
+        dispatch_worker_name: Some(dispatch_worker_name),
     };
 
-    // 4. Upload user worker to dispatch namespace
+    // 5. Upload user worker to dispatch namespace
     if let Err(e) = cf_api::upload_user_worker(&creds, subdomain, &js_module, &wasm_bytes, &bindings).await {
-        // Rollback: delete the D1 database we just created
-        console_log!("Worker upload failed for '{}', rolling back D1 '{}'", subdomain, db_id);
+        console_log!("Worker upload failed for '{}', rolling back D1 and R2", subdomain, );
         let _ = cf_api::delete_d1_database(&creds, &db_id).await;
+        let _ = cf_api::delete_r2_bucket(&creds, &r2_bucket_name).await;
         return Err(e);
     }
     console_log!("Uploaded user worker '{}'", subdomain);
@@ -117,8 +114,8 @@ pub async fn create_project(
         status: "active".to_string(),
         owner_user_id: owner_user_id.map(String::from),
         db_id: Some(db_id),
-        db_binding: None, // User workers use their own DB binding, not the dispatch's
-        config: feature_config,
+        db_binding: None,
+        platform,
         blocks: Vec::new(),
     };
 
@@ -136,15 +133,18 @@ pub async fn create_project(
     Ok(config)
 }
 
-/// Delete a project: remove user worker, D1 database, R2 storage, and KV config.
+/// Delete a project: remove user worker, D1 database, R2 bucket, and KV config.
 pub async fn delete_project(
     env: &Env,
     kv: &kv::KvStore,
     subdomain: &str,
 ) -> Result<()> {
     let creds = CfCredentials::from_env(env)?;
+    let environment = env.var("ENVIRONMENT")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|_| "development".into());
 
-    // Look up project config to get db_id and project_id
+    // Look up project config to get db_id
     let key = format!("project:{}:config", subdomain);
     let config = kv.get(&key).json::<ProjectConfig>().await?;
 
@@ -162,11 +162,10 @@ pub async fn delete_project(
         }
     }
 
-    // Clean up R2 storage (best-effort — don't block deletion on failure)
-    if let Some(ref cfg) = config {
-        if let Err(e) = cleanup_r2_storage(env, &cfg.id).await {
-            console_log!("Warning: failed to clean up R2 for project '{}': {e}", subdomain);
-        }
+    // Delete per-project R2 bucket
+    let r2_bucket_name = format!("solobase-{}-{}", environment, subdomain);
+    if let Err(e) = cf_api::delete_r2_bucket(&creds, &r2_bucket_name).await {
+        console_log!("Warning: failed to delete R2 bucket '{}': {e}", r2_bucket_name);
     }
 
     // Remove from KV
@@ -174,50 +173,6 @@ pub async fn delete_project(
     remove_from_project_list(kv, subdomain).await?;
 
     console_log!("Project '{}' deleted", subdomain);
-    Ok(())
-}
-
-/// Delete all R2 objects with the project's prefix.
-async fn cleanup_r2_storage(env: &Env, project_id: &str) -> Result<()> {
-    let bucket = env.bucket("STORAGE")
-        .map_err(|e| Error::RustError(format!("R2: {e}")))?;
-
-    let prefix = format!("{}/", project_id);
-    let mut cursor: Option<String> = None;
-    let mut total_deleted = 0u32;
-
-    loop {
-        let mut list_opts = bucket.list().prefix(&prefix).limit(1000);
-        if let Some(ref c) = cursor {
-            list_opts = list_opts.cursor(c);
-        }
-
-        let result = list_opts.execute().await?;
-        let objects = result.objects();
-
-        if objects.is_empty() {
-            break;
-        }
-
-        let keys: Vec<String> = objects.iter().map(|o| o.key().to_string()).collect();
-        for key in &keys {
-            if let Err(e) = bucket.delete(key).await {
-                console_log!("Warning: failed to delete R2 object '{}': {e}", key);
-            }
-        }
-        total_deleted += keys.len() as u32;
-
-        // Check if there are more objects
-        if result.truncated() {
-            cursor = result.cursor();
-        } else {
-            break;
-        }
-    }
-
-    if total_deleted > 0 {
-        console_log!("Deleted {} R2 objects for project {}", total_deleted, project_id);
-    }
     Ok(())
 }
 
@@ -266,19 +221,6 @@ async fn read_r2_bytes(bucket: &Bucket, key: &str) -> Result<Vec<u8>> {
     body.bytes().await
 }
 
-/// Default features for tenant projects — standard blocks only.
-/// FEATURE_PROJECTS is platform-only (must be explicitly enabled).
-fn all_features_enabled() -> serde_json::Value {
-    serde_json::json!({
-        "version": 1,
-        "auth": {},
-        "admin": {},
-        "files": {},
-        "products": {},
-        "legalpages": {},
-        "userportal": {}
-    })
-}
 
 async fn add_to_project_list(kv: &kv::KvStore, subdomain: &str) -> Result<()> {
     let mut list = list_projects(kv).await?;

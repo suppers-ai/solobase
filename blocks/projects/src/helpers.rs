@@ -266,3 +266,7 @@ pub fn err_bad_request(msg: &Message, message: &str) -> BlockResult {
 pub fn err_forbidden(msg: &Message, message: &str) -> BlockResult {
     error_response(msg, ErrorCode::PermissionDenied, message)
 }
+
+pub fn err_conflict(msg: &Message, message: &str) -> BlockResult {
+    error_response(msg, ErrorCode::AlreadyExists, message)
+}

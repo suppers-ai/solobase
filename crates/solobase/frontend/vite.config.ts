@@ -36,15 +36,16 @@ export default defineConfig({
 				wafer: resolve(__dirname, '../blocks/admin/frontend/index.html'),
 				products: resolve(__dirname, '../blocks/products/frontend/index.html'),
 				'products-user': resolve(__dirname, '../blocks/products/frontend/user/index.html'),
-				deployments: resolve(__dirname, '../blocks/deployments/frontend/index.html'),
-				dashboard: resolve(__dirname, '../blocks/dashboard/frontend/index.html'),
+				projects: resolve(__dirname, '../blocks/projects/frontend/index.html'),
+				'cloud-dashboard': resolve(__dirname, '../blocks/cloud-dashboard/index.html'),
 			}
 		}
 	},
 	resolve: {
 		alias: {
 			'@app': resolve(__dirname, 'src'),
-		}
+		},
+		preserveSymlinks: true,
 	},
 	server: {
 		proxy: {

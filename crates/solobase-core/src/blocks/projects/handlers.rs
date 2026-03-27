@@ -8,30 +8,84 @@ use wafer_core::clients::database::{Filter, FilterOp, SortField};
 use super::PROJECTS_COLLECTION;
 use crate::blocks::helpers::RecordExt;
 
+/// Reserved subdomains that cannot be used as project names.
+const RESERVED_SUBDOMAINS: &[&str] = &[
+    "admin", "api", "app", "auth", "billing", "blog", "cdn", "cloud",
+    "console", "dashboard", "dev", "docs", "help", "internal", "login",
+    "mail", "manage", "platform", "settings", "staging", "status",
+    "support", "test", "www",
+];
+
+/// Validate a subdomain string.
+/// Rules: only lowercase letters, numbers, and hyphens. Must start with a letter.
+/// Min 3, max 63 chars. No consecutive hyphens. Cannot end with a hyphen.
+fn validate_subdomain(name: &str) -> Result<(), String> {
+    if name.len() < 3 {
+        return Err("Subdomain must be at least 3 characters".to_string());
+    }
+    if name.len() > 63 {
+        return Err("Subdomain must be 63 characters or fewer".to_string());
+    }
+    if !name.starts_with(|c: char| c.is_ascii_lowercase()) {
+        return Err("Subdomain must start with a lowercase letter".to_string());
+    }
+    if name.ends_with('-') {
+        return Err("Subdomain cannot end with a hyphen".to_string());
+    }
+    if name.contains("--") {
+        return Err("Subdomain cannot contain consecutive hyphens".to_string());
+    }
+    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+        return Err("Subdomain must only contain lowercase letters, numbers, and hyphens".to_string());
+    }
+    if RESERVED_SUBDOMAINS.contains(&name) {
+        return Err(format!("Subdomain '{}' is reserved", name));
+    }
+    Ok(())
+}
+
 /// Call the control plane API. Returns the parsed JSON response body on success.
+///
+/// When a `DISPATCHER` service binding is available (indicated by `HAS_DISPATCHER_BINDING`
+/// config), requests are routed via the `solobase/dispatcher` block (internal RPC) instead
+/// of making an external HTTP request. This avoids 522 errors from loopback requests.
 async fn control_plane_request(
     ctx: &dyn Context,
     method: &str,
     path: &str,
     body: Option<&[u8]>,
 ) -> Result<(u16, serde_json::Value), String> {
-    let base_url = match config::get(ctx, "CONTROL_PLANE_URL").await {
-        Ok(url) => url,
-        Err(_) => return Err("CONTROL_PLANE_URL not configured".to_string()),
-    };
     let secret = match config::get(ctx, "CONTROL_PLANE_SECRET").await {
         Ok(s) => s,
         Err(_) => return Err("CONTROL_PLANE_SECRET not configured".to_string()),
     };
 
-    let url = format!("{}{}", base_url.trim_end_matches('/'), path);
     let mut headers = HashMap::new();
     headers.insert("Content-Type".to_string(), "application/json".to_string());
-    headers.insert("X-Admin-Secret".to_string(), secret);
+    headers.insert("X-Control-Api-Key".to_string(), secret);
 
-    let resp = network::do_request(ctx, method, &url, &headers, body)
-        .await
-        .map_err(|e| format!("Control plane request failed: {e}"))?;
+    // Prefer the dispatcher service binding (internal RPC) over external HTTP.
+    let use_dispatcher = config::get(ctx, "HAS_DISPATCHER_BINDING").await
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    let resp = if use_dispatcher {
+        // Route via the solobase/dispatcher block — same message format as network.do.
+        // The URL is relative to the dispatcher worker, so we use a placeholder origin.
+        let url = format!("https://internal{}", path);
+        network::do_request_via(ctx, "solobase/dispatcher", method, &url, &headers, body)
+            .await
+            .map_err(|e| format!("Dispatcher request failed: {e}"))?
+    } else {
+        let base_url = match config::get(ctx, "CONTROL_PLANE_URL").await {
+            Ok(url) => url,
+            Err(_) => return Err("CONTROL_PLANE_URL not configured".to_string()),
+        };
+        let url = format!("{}{}", base_url.trim_end_matches('/'), path);
+        network::do_request(ctx, method, &url, &headers, body)
+            .await
+            .map_err(|e| format!("Control plane request failed: {e}"))?
+    };
 
     let json: serde_json::Value = serde_json::from_slice(&resp.body)
         .unwrap_or_else(|_| serde_json::json!({"error": String::from_utf8_lossy(&resp.body).to_string()}));
@@ -133,15 +187,40 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
-    let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_lowercase();
     if name.is_empty() {
-        return err_bad_request(msg, "Name is required");
-    }
-    if name.len() > 100 {
-        return err_bad_request(msg, "Name must be 100 characters or fewer");
+        return err_bad_request(msg, "Subdomain is required");
     }
 
-    let slug = name.to_lowercase().replace(|c: char| !c.is_alphanumeric(), "-");
+    // Validate subdomain format
+    if let Err(e) = validate_subdomain(&name) {
+        return err_bad_request(msg, &e);
+    }
+
+    let slug = name.clone();
+
+    // Check if subdomain is already taken (non-deleted projects)
+    let slug_filters = vec![
+        Filter {
+            field: "slug".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(slug.clone()),
+        },
+        Filter {
+            field: "status".to_string(),
+            operator: FilterOp::NotEqual,
+            value: serde_json::Value::String("deleted".to_string()),
+        },
+    ];
+    match db::count(ctx, PROJECTS_COLLECTION, &slug_filters).await {
+        Ok(count) if count > 0 => {
+            return err_conflict(msg, &format!("Subdomain '{}' is already taken", slug));
+        }
+        Err(e) => {
+            return err_internal(msg, &format!("Database error: {e}"));
+        }
+        _ => {}
+    }
 
     let now = chrono::Utc::now().to_rfc3339();
 
@@ -177,7 +256,7 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     });
     let provision_bytes = serde_json::to_vec(&provision_body).unwrap_or_default();
 
-    match control_plane_request(ctx, "POST", "/_control/tenants", Some(&provision_bytes)).await {
+    match control_plane_request(ctx, "POST", "/_control/projects", Some(&provision_bytes)).await {
         Ok((status_code, resp_json)) if status_code < 300 => {
             // Store the tenant ID from the control plane response
             let mut update_data = HashMap::new();
@@ -195,9 +274,18 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             }
         }
         Ok((status_code, resp_json)) => {
-            // Provisioning failed — update status to "failed" with error details
-            let error_msg = resp_json.get("error").and_then(|v| v.as_str())
+            let error_msg = resp_json.get("message").and_then(|v| v.as_str())
+                .or_else(|| resp_json.get("error").and_then(|v| v.as_str()))
                 .unwrap_or("Provisioning failed");
+
+            // For conflicts (subdomain taken on dispatcher), return 409 directly
+            if status_code == 409 {
+                // Clean up the DB record we just created
+                let _ = db::delete(ctx, PROJECTS_COLLECTION, &record_id).await;
+                return err_conflict(msg, error_msg);
+            }
+
+            // Other provisioning failures — update status to "failed"
             let mut update_data = HashMap::new();
             update_data.insert("status".to_string(), serde_json::Value::String("failed".to_string()));
             update_data.insert("provision_error".to_string(), serde_json::Value::String(
@@ -292,7 +380,7 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if !subdomain.is_empty() {
-        let path = format!("/_control/tenants/{}", subdomain);
+        let path = format!("/_control/projects/{}", subdomain);
         if let Err(e) = control_plane_request(ctx, "DELETE", &path, None).await {
             // Log but don't block deletion — admin can clean up orphaned tenants
             let mut err_data = HashMap::new();
@@ -385,7 +473,7 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 let provision_body = serde_json::json!({ "subdomain": slug, "plan": plan });
                 let provision_bytes = serde_json::to_vec(&provision_body).unwrap_or_default();
 
-                match control_plane_request(ctx, "POST", "/_control/tenants", Some(&provision_bytes)).await {
+                match control_plane_request(ctx, "POST", "/_control/projects", Some(&provision_bytes)).await {
                     Ok((sc, resp)) if sc < 300 => {
                         let mut update_data = HashMap::new();
                         update_data.insert("status".to_string(), serde_json::Value::String("active".to_string()));
@@ -412,7 +500,7 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             }
             "deprovision" => {
                 if !subdomain.is_empty() {
-                    let cp_path = format!("/_control/tenants/{}", subdomain);
+                    let cp_path = format!("/_control/projects/{}", subdomain);
                     match control_plane_request(ctx, "DELETE", &cp_path, None).await {
                         Ok((sc, _)) if sc < 300 || sc == 404 => {
                             update_status(ctx, id, "deleted").await;

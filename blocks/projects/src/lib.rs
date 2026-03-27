@@ -22,6 +22,40 @@ struct DeploymentsBlockWasm;
 
 const DEPLOYMENTS_COLLECTION: &str = "block_deployments";
 
+/// Reserved subdomains that cannot be used as project names.
+const RESERVED_SUBDOMAINS: &[&str] = &[
+    "admin", "api", "app", "auth", "billing", "blog", "cdn", "cloud",
+    "console", "dashboard", "dev", "docs", "help", "internal", "login",
+    "mail", "manage", "platform", "settings", "staging", "status",
+    "support", "test", "www",
+];
+
+/// Validate a subdomain string.
+fn validate_subdomain(name: &str) -> Result<(), String> {
+    if name.len() < 3 {
+        return Err("Subdomain must be at least 3 characters".to_string());
+    }
+    if name.len() > 63 {
+        return Err("Subdomain must be 63 characters or fewer".to_string());
+    }
+    if !name.starts_with(|c: char| c.is_ascii_lowercase()) {
+        return Err("Subdomain must start with a lowercase letter".to_string());
+    }
+    if name.ends_with('-') {
+        return Err("Subdomain cannot end with a hyphen".to_string());
+    }
+    if name.contains("--") {
+        return Err("Subdomain cannot contain consecutive hyphens".to_string());
+    }
+    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+        return Err("Subdomain must only contain lowercase letters, numbers, and hyphens".to_string());
+    }
+    if RESERVED_SUBDOMAINS.contains(&name) {
+        return Err(format!("Subdomain '{}' is reserved", name));
+    }
+    Ok(())
+}
+
 impl Guest for DeploymentsBlockWasm {
     fn info() -> BlockInfo {
         BlockInfo {
@@ -204,15 +238,40 @@ fn handle_create(msg: &Message) -> BlockResult {
         Err(r) => return r,
     };
 
-    let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_lowercase();
     if name.is_empty() {
-        return err_bad_request(msg, "Name is required");
-    }
-    if name.len() > 100 {
-        return err_bad_request(msg, "Name must be 100 characters or fewer");
+        return err_bad_request(msg, "Subdomain is required");
     }
 
-    let slug = name.to_lowercase().replace(|c: char| !c.is_alphanumeric(), "-");
+    // Validate subdomain format
+    if let Err(e) = validate_subdomain(&name) {
+        return err_bad_request(msg, &e);
+    }
+
+    let slug = name.clone();
+
+    // Check if subdomain is already taken (non-deleted projects)
+    let slug_filters = vec![
+        Filter {
+            field: "slug".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(slug.clone()),
+        },
+        Filter {
+            field: "status".to_string(),
+            operator: FilterOp::NotEqual,
+            value: serde_json::Value::String("deleted".to_string()),
+        },
+    ];
+    match db::count(DEPLOYMENTS_COLLECTION, &slug_filters) {
+        Ok(count) if count > 0 => {
+            return err_conflict(msg, &format!("Subdomain '{}' is already taken", slug));
+        }
+        Err(e) => {
+            return err_internal(msg, &format!("Database error: {}", e.message));
+        }
+        _ => {}
+    }
 
     let now = now_rfc3339();
 
@@ -260,7 +319,7 @@ fn handle_create(msg: &Message) -> BlockResult {
     });
     let provision_bytes = serde_json::to_vec(&provision_body).unwrap_or_default();
 
-    match control_plane_request("POST", "/_control/tenants", Some(&provision_bytes)) {
+    match control_plane_request("POST", "/_control/projects", Some(&provision_bytes)) {
         Ok((status_code, resp_json)) if status_code < 300 => {
             // Store the tenant ID from the control plane response
             let mut update_data = HashMap::new();
@@ -375,7 +434,7 @@ fn handle_delete(msg: &Message, path: &str) -> BlockResult {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if !subdomain.is_empty() {
-        let cp_path = format!("/_control/tenants/{}", subdomain);
+        let cp_path = format!("/_control/projects/{}", subdomain);
         if let Err(e) = control_plane_request("DELETE", &cp_path, None) {
             // Log but don't block deletion -- admin can clean up orphaned tenants
             let mut err_data = HashMap::new();
@@ -476,7 +535,7 @@ fn handle_admin_update(msg: &Message, path: &str) -> BlockResult {
                 let provision_body = serde_json::json!({ "subdomain": slug, "plan": plan });
                 let provision_bytes = serde_json::to_vec(&provision_body).unwrap_or_default();
 
-                match control_plane_request("POST", "/_control/tenants", Some(&provision_bytes)) {
+                match control_plane_request("POST", "/_control/projects", Some(&provision_bytes)) {
                     Ok((sc, resp)) if sc < 300 => {
                         let mut update_data = HashMap::new();
                         update_data.insert("status".to_string(), serde_json::Value::String("active".to_string()));
@@ -503,7 +562,7 @@ fn handle_admin_update(msg: &Message, path: &str) -> BlockResult {
             }
             "deprovision" => {
                 if !subdomain.is_empty() {
-                    let cp_path = format!("/_control/tenants/{}", subdomain);
+                    let cp_path = format!("/_control/projects/{}", subdomain);
                     match control_plane_request("DELETE", &cp_path, None) {
                         Ok((sc, _)) if sc < 300 || sc == 404 => {
                             update_status(id, "deleted");

@@ -36,7 +36,8 @@ function parseFeatures(product) {
     const meta = typeof product.metadata === 'string' ? JSON.parse(product.metadata) : (product.metadata || {});
     const features = [];
 
-    if (meta.max_projects) features.push({ text: meta.max_projects === 'unlimited' ? 'Unlimited projects' : `${meta.max_projects} projects`, included: true, bold: meta.max_projects === 'unlimited' });
+    if (meta.max_projects) features.push({ text: `${meta.max_projects} projects`, included: true });
+    features.push({ text: 'Dedicated database & storage per project', included: true, bold: true });
     if (meta.max_requests) features.push({ text: `${formatNumber(meta.max_requests)} API requests/month`, included: true });
     if (meta.d1_storage) features.push({ text: `${meta.d1_storage} database storage`, included: true });
     if (meta.r2_storage) features.push({ text: `${meta.r2_storage} file storage`, included: true });
@@ -67,18 +68,24 @@ function formatNumber(n) {
 const FALLBACK_PLANS = [
   { name: 'Starter', price: 5, description: 'For side projects and small apps', popular: false,
     features: [
-      { text: '2 projects', included: true }, { text: '500K API requests/month', included: true },
+      { text: '2 projects', included: true },
+      { text: 'Dedicated database & storage per project', included: true, bold: true },
+      { text: '500K API requests/month', included: true },
       { text: '500MB database storage', included: true }, { text: '2GB file storage', included: true },
       { text: 'Subdomain', included: true }, { text: 'SSL included', included: true },
       { text: 'Custom domain', included: false },
+      { text: 'Add-ons', included: false },
     ],
   },
   { name: 'Pro', price: 25, description: 'For growing apps and production workloads', popular: true,
     features: [
-      { text: 'Unlimited projects', included: true, bold: true }, { text: '3M API requests/month', included: true },
+      { text: '10 projects', included: true },
+      { text: 'Dedicated database & storage per project', included: true, bold: true },
+      { text: '3M API requests/month', included: true },
       { text: '5GB database storage', included: true }, { text: '20GB file storage', included: true },
       { text: 'Custom domain support', included: true }, { text: 'SSL included', included: true },
       { text: 'Priority email support', included: true },
+      { text: 'Add-ons available', included: true },
     ],
   },
 ];
@@ -97,7 +104,7 @@ function PlanCard({ plan }) {
     >
       {plan.popular && (
         <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary-500 text-white text-xs font-semibold px-3 py-1 rounded-full">
-          Most Popular
+          Coolest Option
         </div>
       )}
       <div class="flex items-center justify-between mb-2">
@@ -210,8 +217,9 @@ export default function PricingCards() {
 
       {/* Add-ons */}
       <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
-        <h2 class="text-2xl font-bold text-center text-gray-900 mb-8">Need More? Add-ons</h2>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <h2 class="text-2xl font-bold text-center text-gray-900 mb-2">Need More? Add-ons</h2>
+        <p class="text-center text-gray-500 mb-8">Available on the Pro plan</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
           {addons.map((addon) => (
             <AddonCard key={addon.name} addon={addon} />
           ))}

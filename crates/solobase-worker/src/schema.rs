@@ -352,7 +352,7 @@ const MIGRATIONS: &[&str] = &[
         plan_id TEXT DEFAULT '',
         purchase_id TEXT DEFAULT '',
         tenant_id TEXT DEFAULT '',
-        subdomain TEXT DEFAULT '' UNIQUE,
+        subdomain TEXT DEFAULT '',
         provision_error TEXT,
         deprovision_error TEXT,
         deleted_at TEXT,

@@ -5,6 +5,7 @@ use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::{crypto, config};
 use super::helpers::*;
+use super::pages::esc;
 use super::{AuthBlock, USERS_COLLECTION};
 use crate::blocks::errors::{ErrorCode, error_response};
 use crate::blocks::helpers::{RecordExt, json_map, hex_encode};
@@ -410,6 +411,12 @@ impl AuthBlock {
     }
 
     pub(super) async fn handle_verify_email(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+        let logo_url = db::get_by_field(ctx, "variables", "key", serde_json::Value::String("AUTH_LOGO_URL".into()))
+            .await
+            .map(|r| r.str_field("value").to_string())
+            .unwrap_or_default();
+        let logo_url = esc(if logo_url.is_empty() { "https://solobase.dev/images/logo_long.png" } else { &logo_url });
+
         // Token comes from query param or body
         let token = {
             let q = msg.get_meta("req.query.token").to_string();
@@ -432,11 +439,11 @@ impl AuthBlock {
         // Find user by verification token
         let user = match db::get_by_field(ctx, USERS_COLLECTION, "verification_token", serde_json::Value::String(token.clone())).await {
             Ok(u) => u,
-            Err(_) => return html_respond(msg, "Invalid Link", "This verification link is invalid or has expired. Please request a new one.", false),
+            Err(_) => return html_respond(msg, "Invalid Link", "This verification link is invalid or has expired. Please request a new one.", false, &logo_url),
         };
 
         if user.bool_field("email_verified") {
-            return html_respond(msg, "Email Already Verified", "Your email has already been verified. You can sign in now.", true);
+            return html_respond(msg, "Email Already Verified", "Your email has already been verified. You can sign in now.", true, &logo_url);
         }
 
         // Mark as verified, clear token
@@ -450,7 +457,7 @@ impl AuthBlock {
             return err_internal(msg, &format!("Failed to verify email: {e}"));
         }
 
-        html_respond(msg, "Email Verified", "Your email has been verified successfully. You can now sign in.", true)
+        html_respond(msg, "Email Verified", "Your email has been verified successfully. You can now sign in.", true, &logo_url)
     }
 
     pub(super) async fn handle_resend_verification(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -549,10 +556,16 @@ impl AuthBlock {
         json_respond(msg, &serde_json::json!({"message": safe_msg}))
     }
 
-    pub(super) async fn handle_reset_password_form(&self, _ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    pub(super) async fn handle_reset_password_form(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+        let logo_url = db::get_by_field(ctx, "variables", "key", serde_json::Value::String("AUTH_LOGO_URL".into()))
+            .await
+            .map(|r| r.str_field("value").to_string())
+            .unwrap_or_default();
+        let logo_url = esc(if logo_url.is_empty() { "https://solobase.dev/images/logo_long.png" } else { &logo_url });
+
         let token = msg.get_meta("req.query.token").to_string();
         if token.is_empty() {
-            return html_respond(msg, "Invalid Link", "This password reset link is invalid.", false);
+            return html_respond(msg, "Invalid Link", "This password reset link is invalid.", false, &logo_url);
         }
 
         let html = format!(
@@ -562,7 +575,7 @@ impl AuthBlock {
 <title>Reset Password</title><link rel="icon" type="image/x-icon" href="/favicon.ico"></head>
 <body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f0f9ff 0%,#e0f2fe 50%,#f0f9ff 100%);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <div style="width:100%;max-width:420px;padding:2rem;text-align:center">
-<img src="/images/logo_long.png" alt="Solobase" style="height:42px;display:block;margin:0 auto 1.5rem">
+<img src="{logo_url}" alt="Solobase" style="height:42px;display:block;margin:0 auto 1.5rem">
 <div style="background:white;border-radius:12px;padding:2rem;box-shadow:0 1px 3px rgba(0,0,0,.1)">
 <h2 style="font-size:1.25rem;font-weight:700;color:#1e293b;margin:0 0 .5rem">Reset Your Password</h2>
 <p style="font-size:.875rem;color:#64748b;margin:0 0 1.5rem">Enter your new password below.</p>
@@ -665,7 +678,7 @@ async function handleReset(e){{
 }
 
 /// Return an HTML page response (for verify endpoint, which is opened in browser).
-fn html_respond(msg: &mut Message, title: &str, message: &str, success: bool) -> Result_ {
+fn html_respond(msg: &mut Message, title: &str, message: &str, success: bool, logo_url: &str) -> Result_ {
     let icon = if success { "&#10003;" } else { "&#10007;" };
     let color = if success { "#10b981" } else { "#ef4444" };
     let html = format!(
@@ -675,7 +688,7 @@ fn html_respond(msg: &mut Message, title: &str, message: &str, success: bool) ->
 <title>{title}</title><link rel="icon" type="image/x-icon" href="/favicon.ico"></head>
 <body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f0f9ff 0%,#e0f2fe 50%,#f0f9ff 100%);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <div style="width:100%;max-width:420px;padding:2rem;text-align:center">
-<img src="/images/logo_long.png" alt="Solobase" style="height:42px;display:block;margin:0 auto 1.5rem">
+<img src="{logo_url}" alt="Solobase" style="height:42px;display:block;margin:0 auto 1.5rem">
 <div style="background:white;border-radius:12px;padding:2rem;box-shadow:0 1px 3px rgba(0,0,0,.1)">
 <div style="width:48px;height:48px;background:{color}15;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:1.5rem;color:{color}">{icon}</div>
 <h2 style="font-size:1.25rem;font-weight:700;color:#1e293b;margin:0 0 .5rem">{title}</h2>

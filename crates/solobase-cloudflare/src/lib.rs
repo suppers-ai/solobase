@@ -5,9 +5,8 @@
 //! 1. `/_control/*`, `/_webhooks/*` → handled directly
 //! 2. Platform (cloud.solobase.dev) → all requests dispatched to "cloud" user worker
 //!    (the cloud worker serves its own frontend via `wafer-run/web`)
-//! 3. Project ({project}.solobase.dev):
-//!    - Static files from R2 `{projectId}/site/` (served directly)
-//!    - API routes: usage tracking → dispatched to project's user worker
+//! 3. Project ({project}.solobase.dev) → all requests dispatched to project's user worker
+//!    (each project has its own D1 + R2 bucket, user worker serves its own frontend)
 //!
 //! This worker has NO WAFER/block dependencies — all block execution
 //! happens in user workers deployed to the dispatch namespace.
@@ -66,30 +65,10 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         return handle_platform_request(&req, &env).await;
     }
 
-    // 4. Project ({project}.solobase.dev)
-    if is_api_route(&pathname) || pathname.starts_with("/api/") || pathname == "/api" {
-        // API routes → usage tracking + dispatch to project's user worker
-        return handle_project_api(&req, &env, &host, is_dev).await;
-    }
-
-    // Static files → serve directly from R2 (optimization: avoids dispatching for assets)
-    let kv = env.kv("PROJECTS").map_err(|e| Error::RustError(format!("KV: {e}")))?;
-    match project::resolve_project(&host, &kv, is_dev).await {
-        Ok(proj) => {
-            if proj.status == "inactive" {
-                return add_security_headers(Response::ok(
-                    "<html><body style=\"font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0\"><div style=\"text-align:center\"><h1>Project Inactive</h1><p>This project is inactive. The owner needs to upgrade their plan.</p></div></body></html>",
-                )?.with_status(403));
-            }
-            let prefix = format!("{}/site/", proj.id);
-            if let Some(resp) = serve_static(&env, &prefix, &pathname).await {
-                return add_security_headers(resp);
-            }
-        }
-        Err(_) => {}
-    }
-
-    add_security_headers(Response::ok("Not Found")?.with_status(404))
+    // 4. Project ({project}.solobase.dev) — dispatch ALL requests to user worker.
+    //    Each project has its own R2 bucket, so the user worker's wafer-run/web
+    //    block serves static files directly from the project's bucket.
+    return handle_project_request(&req, &env, &host, is_dev).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,10 +88,10 @@ async fn handle_platform_request(req: &Request, env: &Env) -> Result<Response> {
 }
 
 // ---------------------------------------------------------------------------
-// Project API — usage tracking + dispatch to project's user worker
+// Project — usage tracking + dispatch all requests to project's user worker
 // ---------------------------------------------------------------------------
 
-async fn handle_project_api(
+async fn handle_project_request(
     req: &Request,
     env: &Env,
     host: &str,
@@ -166,106 +145,8 @@ async fn handle_project_api(
 }
 
 // ---------------------------------------------------------------------------
-// Static file serving from R2
-// ---------------------------------------------------------------------------
-
-async fn serve_static(env: &Env, prefix: &str, path: &str) -> Option<Response> {
-    let bucket = env.bucket("STORAGE").ok()?;
-
-    let clean_path = path.trim_start_matches('/');
-    let key = if clean_path.is_empty() || clean_path.ends_with('/') {
-        format!("{}{}index.html", prefix, clean_path)
-    } else {
-        format!("{}{}", prefix, clean_path)
-    };
-
-    // Try the exact key
-    if let Ok(Some(obj)) = bucket.get(&key).execute().await {
-        if let Some(body) = obj.body() {
-            let bytes = body.bytes().await.ok()?;
-            let content_type = guess_content_type(&key);
-            let resp = Response::from_bytes(bytes).ok()?;
-            let mut resp = resp.with_status(200);
-            resp.headers_mut().set("Content-Type", content_type).ok()?;
-            // HTML: no-cache so deploys take effect immediately.
-            // Hashed assets (JS/CSS/wasm): cache for 1 year (filename changes on rebuild).
-            if key.ends_with(".html") {
-                resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
-            } else {
-                resp.headers_mut().set("Cache-Control", "public, max-age=31536000, immutable").ok()?;
-            }
-            return Some(resp);
-        }
-    }
-
-    // Try as directory (append /index.html)
-    if !clean_path.contains('.') {
-        let index_key = format!("{}{}/index.html", prefix, clean_path);
-        if let Ok(Some(obj)) = bucket.get(&index_key).execute().await {
-            if let Some(body) = obj.body() {
-                let bytes = body.bytes().await.ok()?;
-                let resp = Response::from_bytes(bytes).ok()?;
-                let mut resp = resp.with_status(200);
-                resp.headers_mut().set("Content-Type", "text/html; charset=utf-8").ok()?;
-                resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
-                return Some(resp);
-            }
-        }
-    }
-
-    // SPA fallback — serve the block's frontend/index.html for sub-routes.
-    // e.g., /blocks/admin/frontend/settings → serve /blocks/admin/frontend/index.html
-    if path.starts_with("/blocks/") {
-        // Extract the block path: /blocks/{name}/frontend/... → /blocks/{name}/frontend/
-        let parts: Vec<&str> = path.trim_start_matches('/').splitn(4, '/').collect();
-        if parts.len() >= 3 {
-            let block_index = format!("{}{}/{}/index.html", prefix, parts[1], parts[2]);
-            if let Ok(Some(obj)) = bucket.get(&block_index).execute().await {
-                if let Some(body) = obj.body() {
-                    let bytes = body.bytes().await.ok()?;
-                    let resp = Response::from_bytes(bytes).ok()?;
-                    let mut resp = resp.with_status(200);
-                    resp.headers_mut().set("Content-Type", "text/html; charset=utf-8").ok()?;
-                    resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
-                    return Some(resp);
-                }
-            }
-        }
-    }
-
-    None
-}
-
-fn guess_content_type(key: &str) -> &'static str {
-    if key.ends_with(".html") { "text/html; charset=utf-8" }
-    else if key.ends_with(".js") { "application/javascript" }
-    else if key.ends_with(".css") { "text/css" }
-    else if key.ends_with(".json") { "application/json" }
-    else if key.ends_with(".png") { "image/png" }
-    else if key.ends_with(".jpg") || key.ends_with(".jpeg") { "image/jpeg" }
-    else if key.ends_with(".svg") { "image/svg+xml" }
-    else if key.ends_with(".ico") { "image/x-icon" }
-    else if key.ends_with(".woff2") { "font/woff2" }
-    else if key.ends_with(".woff") { "font/woff" }
-    else if key.ends_with(".wasm") { "application/wasm" }
-    else { "application/octet-stream" }
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn is_api_route(pathname: &str) -> bool {
-    const PREFIXES: &[&str] = &[
-        "/health", "/nav", "/debug/",
-        "/auth/", "/admin/", "/storage/",
-        "/b/", "/ext/", "/profile/", "/settings/",
-        "/internal/", "/_internal/",
-    ];
-    PREFIXES.iter().any(|p| {
-        pathname == p.trim_end_matches('/') || pathname.starts_with(p)
-    })
-}
 
 fn is_dev_env(env: &Env) -> bool {
     env.var("ENVIRONMENT")

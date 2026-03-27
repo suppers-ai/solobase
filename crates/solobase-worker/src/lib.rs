@@ -29,12 +29,10 @@ use solobase::blocks;
 use solobase_core::routing::BlockId;
 
 /// Keys read from worker env bindings, overriding any D1 variables table values.
-/// FEATURE_* flags are protected — set at provisioning by the dispatcher,
-/// preventing tenant projects from enabling platform features like projects.
-/// Platform credentials are infrastructure secrets, not dashboard-editable.
+/// Only platform-specific vars are protected — regular features (auth, admin,
+/// files, etc.) are user-configurable via the dashboard.
 const WORKER_BINDING_KEYS: &[&str] = &[
-    "FEATURE_AUTH", "FEATURE_ADMIN", "FEATURE_FILES", "FEATURE_PRODUCTS",
-    "FEATURE_PROJECTS", "FEATURE_LEGALPAGES", "FEATURE_USERPORTAL",
+    "FEATURE_PROJECTS",
     "CONTROL_PLANE_URL", "CONTROL_PLANE_SECRET",
 ];
 
@@ -61,34 +59,43 @@ async fn handle_migrate(env: &Env) -> Result<Response> {
 
     schema::run_migrations(&db).await?;
 
-    // Ensure JWT_SECRET exists in variables table — generate if missing
-    seed_jwt_secret(&db).await?;
+    // Ensure required secrets exist in variables table — generate if missing
+    seed_secrets(&db).await?;
 
     helpers::json_response(&serde_json::json!({"ok": true}), 200)
 }
 
-/// Generate and store a JWT_SECRET in the variables table if one doesn't exist.
-async fn seed_jwt_secret(db: &D1Database) -> Result<()> {
-    let existing = db
-        .prepare("SELECT value FROM variables WHERE key = 'JWT_SECRET'")
-        .bind(&[])?.first::<serde_json::Value>(None).await?;
+/// Generate and store required secrets in the variables table if they don't exist.
+async fn seed_secrets(db: &D1Database) -> Result<()> {
+    let secrets = [
+        ("JWT_SECRET", "JWT Secret", "Secret key used to sign authentication tokens",
+         "Changing this will invalidate all existing user sessions and tokens"),
+        ("PRODUCTS_WEBHOOK_SECRET", "Products Webhook Secret", "Secret key used to sign outgoing product/billing webhooks",
+         "Changing this will require updating the webhook receiver"),
+    ];
 
-    if existing.is_some() {
-        return Ok(());
+    for (key, name, description, warning) in &secrets {
+        let existing = db
+            .prepare("SELECT value FROM variables WHERE key = ?1")
+            .bind(&[(*key).into()])?.first::<serde_json::Value>(None).await?;
+
+        if existing.is_some() {
+            continue;
+        }
+
+        let secret = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        let id = format!("var_{}", uuid::Uuid::new_v4());
+
+        db.prepare(
+            "INSERT INTO variables (id, key, name, description, value, warning, sensitive, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, datetime('now'), datetime('now'))"
+        )
+        .bind(&[id.into(), (*key).into(), (*name).into(), (*description).into(), secret.into(), (*warning).into()])?
+        .run().await?;
+
+        console_log!("Generated {} for project", key);
     }
 
-    let secret = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
-    let id = format!("var_{}", uuid::Uuid::new_v4());
-
-    db.prepare(
-        "INSERT INTO variables (id, key, name, description, value, warning, sensitive, created_at, updated_at) \
-         VALUES (?1, 'JWT_SECRET', 'JWT Secret', 'Secret key used to sign authentication tokens', ?2, \
-         'Changing this will invalidate all existing user sessions and tokens', 1, datetime('now'), datetime('now'))"
-    )
-    .bind(&[id.into(), secret.into()])?
-    .run().await?;
-
-    console_log!("Generated JWT_SECRET for project");
     Ok(())
 }
 
@@ -97,9 +104,7 @@ async fn seed_jwt_secret(db: &D1Database) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
-    let project_id = get_env_str(env, "PROJECT_ID");
-
-    // Get bindings
+    // Get bindings — each project has its own D1 and R2 bucket (no prefixing needed)
     let db = env.d1("DB")
         .map_err(|e| Error::RustError(format!("D1: {e}")))?;
     let bucket = env.bucket("STORAGE")
@@ -123,15 +128,23 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
         }
     }
 
-    // Merge worker env bindings — these ALWAYS override D1 variables table values.
-    // FEATURE_* flags are protected (set at provisioning, not dashboard-editable).
-    // Platform credentials are infrastructure secrets.
+    // Merge protected worker env bindings — these override D1 variables table values.
+    // FEATURE_PROJECTS is platform-only (prevents tenants from enabling provisioning).
+    // CONTROL_PLANE_* are infrastructure secrets for the cloud worker.
     for key in WORKER_BINDING_KEYS {
         let val = get_env_str(env, key);
         if !val.is_empty() {
             env_vars.insert(key.to_string(), val);
         }
     }
+
+    // Register dispatcher service binding if available
+    let has_dispatcher = if let Ok(fetcher) = env.service("DISPATCHER") {
+        env_vars.insert("HAS_DISPATCHER_BINDING".to_string(), "true".to_string());
+        Some(fetcher)
+    } else {
+        None
+    };
 
     let jwt_secret = env_vars.get("JWT_SECRET").cloned().unwrap_or_default();
 
@@ -143,13 +156,18 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
 
     // Register CF service blocks
     let db_service = D1DatabaseService::new(db);
-    let storage_service = R2StorageService::new(bucket, project_id.clone());
+    let storage_service = R2StorageService::new(bucket);
     wafer.register_block("wafer-run/d1", Arc::new(service_blocks::D1Block::new(db_service)));
     wafer.register_block("wafer-run/r2", Arc::new(service_blocks::R2Block::new(storage_service)));
     wafer.register_block("wafer-run/config", Arc::new(service_blocks::ConfigBlock::new(env_vars)));
     wafer.register_block("wafer-run/crypto", Arc::new(service_blocks::CryptoBlock::new(jwt_secret.clone())));
     wafer.register_block("wafer-run/network", Arc::new(service_blocks::NetworkBlock));
     wafer.register_block("wafer-run/logger", Arc::new(service_blocks::LoggerBlock));
+
+    // Register dispatcher block for internal RPC via service binding
+    if let Some(fetcher) = has_dispatcher {
+        wafer.register_block("solobase/dispatcher", Arc::new(service_blocks::DispatcherBlock::new(fetcher)));
+    }
 
     // Aliases
     wafer.add_alias("wafer-run/database", "wafer-run/d1");
@@ -182,8 +200,8 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     }));
 
     // Register solobase feature blocks — only enabled features get instantiated.
-    // Feature flags come from worker env bindings (set at provisioning),
-    // so tenant projects cannot enable platform features like projects.
+    // Most features are user-configurable via the dashboard. FEATURE_PROJECTS
+    // is protected via worker env binding (only the cloud platform gets it).
     let auth_header = req.headers().get("authorization")?;
 
     let mut shared_blocks = HashMap::new();
@@ -241,8 +259,76 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     // Execute flow
     let result = wafer.run("site-main", &mut msg).await;
 
-    // Convert result to HTTP response
-    convert::wafer_result_to_worker_response(result)
+    // If the flow returned a 404 for a non-API path, try serving a static file from R2.
+    // The native wafer-run/web block uses std::fs which doesn't work on CF Workers,
+    // so we handle static file serving directly from the project's R2 bucket.
+    let response = convert::wafer_result_to_worker_response(result)?;
+    if response.status_code() == 404 {
+        let path = req.url()?.path().to_string();
+        let r2 = env.bucket("STORAGE")
+            .map_err(|e| Error::RustError(format!("R2: {e}")))?;
+        if let Some(static_resp) = serve_from_r2(&r2, &path).await {
+            return Ok(static_resp);
+        }
+    }
+    Ok(response)
+}
+
+/// Serve a static file from the project's R2 bucket (site/ folder).
+/// Returns None if the file doesn't exist.
+async fn serve_from_r2(bucket: &worker::Bucket, path: &str) -> Option<worker::Response> {
+    let clean = path.trim_start_matches('/');
+    let key = if clean.is_empty() || clean.ends_with('/') {
+        format!("site/{}index.html", clean)
+    } else {
+        format!("site/{}", clean)
+    };
+
+    // Try exact key
+    if let Ok(Some(obj)) = bucket.get(&key).execute().await {
+        if let Some(body) = obj.body() {
+            let bytes = body.bytes().await.ok()?;
+            let ct = guess_content_type(&key);
+            let mut resp = worker::Response::from_bytes(bytes).ok()?.with_status(200);
+            resp.headers_mut().set("Content-Type", ct).ok()?;
+            if key.ends_with(".html") {
+                resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
+            } else {
+                resp.headers_mut().set("Cache-Control", "public, max-age=31536000, immutable").ok()?;
+            }
+            return Some(resp);
+        }
+    }
+
+    // SPA fallback — serve index.html for paths without extensions
+    if !clean.contains('.') {
+        if let Ok(Some(obj)) = bucket.get("site/index.html").execute().await {
+            if let Some(body) = obj.body() {
+                let bytes = body.bytes().await.ok()?;
+                let mut resp = worker::Response::from_bytes(bytes).ok()?.with_status(200);
+                resp.headers_mut().set("Content-Type", "text/html; charset=utf-8").ok()?;
+                resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
+                return Some(resp);
+            }
+        }
+    }
+
+    None
+}
+
+fn guess_content_type(key: &str) -> &'static str {
+    if key.ends_with(".html") { "text/html; charset=utf-8" }
+    else if key.ends_with(".js") { "application/javascript" }
+    else if key.ends_with(".css") { "text/css" }
+    else if key.ends_with(".json") { "application/json" }
+    else if key.ends_with(".png") { "image/png" }
+    else if key.ends_with(".jpg") || key.ends_with(".jpeg") { "image/jpeg" }
+    else if key.ends_with(".svg") { "image/svg+xml" }
+    else if key.ends_with(".ico") { "image/x-icon" }
+    else if key.ends_with(".woff2") { "font/woff2" }
+    else if key.ends_with(".woff") { "font/woff" }
+    else if key.ends_with(".wasm") { "application/wasm" }
+    else { "application/octet-stream" }
 }
 
 // ---------------------------------------------------------------------------

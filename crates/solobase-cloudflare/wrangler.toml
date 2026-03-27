@@ -10,52 +10,40 @@ command = "cargo install worker-build && worker-build --release"
 # =============================================================================
 #
 # Deployed via: npx wrangler deploy
-# Secrets:      npx wrangler secret put JWT_SECRET
-#               npx wrangler secret put ADMIN_SECRET
-#               npx wrangler secret put MAILGUN_API_KEY
-#               npx wrangler secret put MAILGUN_DOMAIN
-#               npx wrangler secret put MAILGUN_FROM
-#               npx wrangler secret put MAILGUN_REPLY_TO
+# Secrets:      npx wrangler secret put CONTROL_API_KEY
+#               npx wrangler secret put CF_API_TOKEN
+#               npx wrangler secret put CF_ACCOUNT_ID
 
 [vars]
 ENVIRONMENT = "development"
 DISPATCHER_NAMESPACE = "solobase-workers-dev"
+R2_BUCKET_NAME = "solobase-development"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "solobase-db-dev"
-database_id = "b2da17b4-a047-4e61-b61b-6f5b25613b7c"
+database_name = "solobase-development"
+database_id = "e6d6d94f-4383-4b89-9317-065c143207d8"
 
 [[r2_buckets]]
 binding = "STORAGE"
-bucket_name = "solobase-storage-dev"
+bucket_name = "solobase-development"
 
 [[kv_namespaces]]
 binding = "PROJECTS"
-id = "e78c1706611f4c03b723fda81ae7c22e"
+id = "358c123b90b34c489f9fb147e4e6607b"
 
-# Workers for Platforms dispatch namespace
-# Create with: npx wrangler dispatch-namespace create solobase-workers-dev
 [[dispatch_namespaces]]
 binding = "DISPATCHER"
 namespace = "solobase-workers-dev"
-
-# Additional secrets/vars for WfP provisioning:
-#   npx wrangler secret put CF_API_TOKEN
-#   npx wrangler secret put CF_ACCOUNT_ID
-# DISPATCHER_NAMESPACE is read from vars below (matches the dispatch_namespaces binding)
 
 # =============================================================================
 # Production environment
 # =============================================================================
 #
 # Deployed via: npx wrangler deploy --env production
-# Secrets:      npx wrangler secret put JWT_SECRET --env production
-#               npx wrangler secret put ADMIN_SECRET --env production
-#               npx wrangler secret put MAILGUN_API_KEY --env production
-#               npx wrangler secret put MAILGUN_DOMAIN --env production
-#               npx wrangler secret put MAILGUN_FROM --env production
-#               npx wrangler secret put MAILGUN_REPLY_TO --env production
+# Secrets:      npx wrangler secret put CONTROL_API_KEY --env production
+#               npx wrangler secret put CF_API_TOKEN --env production
+#               npx wrangler secret put CF_ACCOUNT_ID --env production
 
 [env.production]
 name = "solobase-production"
@@ -63,19 +51,20 @@ name = "solobase-production"
 [env.production.vars]
 ENVIRONMENT = "production"
 DISPATCHER_NAMESPACE = "solobase-workers"
+R2_BUCKET_NAME = "solobase-production"
 
 [[env.production.d1_databases]]
 binding = "DB"
-database_name = "solobase-db"
-database_id = "4e2ec8f8-fc62-440a-8406-7bc522045c12"
+database_name = "solobase-production"
+database_id = "14c17526-8172-4f3b-aa14-3ac7a617a25e"
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"
-bucket_name = "solobase-storage"
+bucket_name = "solobase-production"
 
 [[env.production.kv_namespaces]]
 binding = "PROJECTS"
-id = "4b124a049ff04024b71c27d2ef02b181"
+id = "6d378fa6bac2448fa95679dc4a2a5baa"
 
 [[env.production.dispatch_namespaces]]
 binding = "DISPATCHER"

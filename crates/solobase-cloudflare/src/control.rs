@@ -76,25 +76,41 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
                 #[serde(default)]
                 owner_user_id: Option<String>,
                 #[serde(default)]
-                config: Option<serde_json::Value>,
+                platform: bool,
             }
             fn default_plan() -> String { "free".into() }
 
             let req: Req = serde_json::from_slice(body)
                 .map_err(|e| Error::RustError(format!("invalid body: {e}")))?;
 
-            if is_reserved_subdomain(&req.subdomain) {
+            // "cloud" is allowed (it's the platform project). Other reserved names are blocked.
+            if req.subdomain != "cloud" && is_reserved_subdomain(&req.subdomain) {
                 return json_response(
                     &serde_json::json!({"error": "invalid_argument", "message": "subdomain is reserved"}),
                     400,
                 );
             }
 
-            let project = provision::create_project(
+            match provision::create_project(
                 env, &kv, &req.subdomain, &req.name, &req.plan,
-                req.owner_user_id.as_deref(), req.config,
-            ).await?;
-            json_response(&project, 201)
+                req.owner_user_id.as_deref(), req.platform,
+            ).await {
+                Ok(project) => json_response(&project, 201),
+                Err(e) => {
+                    let msg = e.to_string();
+                    if msg.contains("already exists") {
+                        json_response(
+                            &serde_json::json!({"error": "conflict", "message": format!("Subdomain '{}' is already taken", req.subdomain)}),
+                            409,
+                        )
+                    } else {
+                        json_response(
+                            &serde_json::json!({"error": "internal", "message": msg}),
+                            500,
+                        )
+                    }
+                }
+            }
         }
 
         // Update a project
@@ -118,8 +134,8 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             if let Some(name) = updates.get("name").and_then(|v| v.as_str()) {
                 config.name = name.to_string();
             }
-            if let Some(app_config) = updates.get("config") {
-                config.config = app_config.clone();
+            if let Some(platform) = updates.get("platform").and_then(|v| v.as_bool()) {
+                config.platform = platform;
             }
 
             provision::update_project(&kv, subdomain, &config).await?;

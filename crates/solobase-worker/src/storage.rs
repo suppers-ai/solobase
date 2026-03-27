@@ -10,9 +10,9 @@ use wafer_core::interfaces::storage::service::{
 };
 
 /// Async storage service wrapping Cloudflare R2.
+/// Each project has its own R2 bucket — no tenant prefix needed.
 pub struct R2StorageService {
     bucket: Bucket,
-    tenant_id: String,
 }
 
 // Safety: wasm32-unknown-unknown is single-threaded.
@@ -20,16 +20,16 @@ unsafe impl Send for R2StorageService {}
 unsafe impl Sync for R2StorageService {}
 
 impl R2StorageService {
-    pub fn new(bucket: Bucket, tenant_id: String) -> Self {
-        Self { bucket, tenant_id }
+    pub fn new(bucket: Bucket) -> Self {
+        Self { bucket }
     }
 
     fn prefixed_key(&self, folder: &str, key: &str) -> String {
-        format!("{}/{}/{}", self.tenant_id, folder, key)
+        format!("{}/{}", folder, key)
     }
 
     fn folder_prefix(&self, folder: &str) -> String {
-        format!("{}/{}/", self.tenant_id, folder)
+        format!("{}/", folder)
     }
 }
 
