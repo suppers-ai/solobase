@@ -72,7 +72,8 @@ class ApiClient {
 				if (typeof err === 'object' && err !== null) {
 					return { error: err };
 				}
-				const errMsg = typeof err === 'string' ? err : (data.message || `HTTP ${response.status}`);
+				// Prefer message over error code (error is often "ErrorCode::Foo")
+				const errMsg = data.message || (typeof err === 'string' ? err : `HTTP ${response.status}`);
 				return { error: errMsg };
 			}
 

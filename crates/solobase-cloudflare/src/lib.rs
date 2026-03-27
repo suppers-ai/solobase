@@ -26,7 +26,7 @@ use project::is_platform_host;
 
 /// The main Cloudflare Worker fetch handler.
 #[event(fetch)]
-pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
+pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     console_log!("{} {}", req.method().to_string(), req.path());
 
     // 1. Handle CORS preflight
@@ -68,7 +68,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     // 4. Project ({project}.solobase.dev) — dispatch ALL requests to user worker.
     //    Each project has its own R2 bucket, so the user worker's wafer-run/web
     //    block serves static files directly from the project's bucket.
-    return handle_project_request(&req, &env, &host, is_dev).await;
+    return handle_project_request(&req, &env, &ctx, &host, is_dev).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +94,7 @@ async fn handle_platform_request(req: &Request, env: &Env) -> Result<Response> {
 async fn handle_project_request(
     req: &Request,
     env: &Env,
+    ctx: &Context,
     host: &str,
     is_dev: bool,
 ) -> Result<Response> {
@@ -115,13 +116,20 @@ async fn handle_project_request(
         return add_cors_headers(resp, req).await;
     }
 
-    // Usage tracking against platform DB
-    let usage_result = usage::check_and_increment_usage(&db, &project).await;
+    // Usage tracking: check limits (blocking read), increment counter (non-blocking write)
+    let usage_result = usage::check_usage(&db, &project).await;
 
     if let Some(ref err) = usage_result.error {
         let resp = helpers::error_json("resource_exhausted", err, 429)?;
         return add_cors_headers(resp, req).await;
     }
+
+    // Increment usage counter after response via waitUntil (non-blocking)
+    let project_id = project.id.clone();
+    let increment_db = env.d1("DB").map_err(|e| Error::RustError(format!("D1: {e}")))?;
+    ctx.wait_until(async move {
+        usage::increment_usage(&increment_db, &project_id).await;
+    });
 
     // Dispatch to project's user worker
     let dispatcher = env.dynamic_dispatcher("DISPATCHER")

@@ -48,7 +48,7 @@ export function FeatureShell({ title, children }: FeatureShellProps) {
 				borderBottom: '1px solid var(--border-color, #e2e8f0)'
 			}}>
 				<a
-					href="/admin/wafer#blocks"
+					href="/blocks/admin/frontend/#dashboard"
 					style=${{
 						display: 'inline-flex',
 						alignItems: 'center',
@@ -70,7 +70,7 @@ export function FeatureShell({ title, children }: FeatureShellProps) {
 					}}
 				>
 					<${ArrowLeft} size=${14} />
-					Blocks
+					Admin
 				</a>
 				<span style=${{ color: 'var(--border-color, #e2e8f0)' }}>/</span>
 				<span style=${{

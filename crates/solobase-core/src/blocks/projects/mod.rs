@@ -45,7 +45,7 @@ impl Block for ProjectsBlock {
                     .field_ref("user_id", "string", "auth_users.id")
                     .field("name", "string")
                     .field_default("slug", "string", "")
-                    .field_default("status", "string", "inactive")
+                    .field_default("status", "string", "pending")
                     .field_default("config", "json", "{}")
                     .field_default("plan_id", "string", "")
                     .field_default("purchase_id", "string", "")
@@ -53,6 +53,7 @@ impl Block for ProjectsBlock {
                     .field_default("subdomain", "string", "")
                     .field_optional("provision_error", "string")
                     .field_optional("deprovision_error", "string")
+                    .field_optional("grace_period_end", "datetime")
                     .field_optional("deleted_at", "datetime")
                     .index(&["user_id"])
                     .index(&["status"]),

@@ -45,10 +45,17 @@ const MIGRATIONS: &[&str] = &[
         owner_user_id TEXT DEFAULT '',
         db_id TEXT DEFAULT '',
         platform INTEGER DEFAULT 0,
+        grace_period_end TEXT,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
     )",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_subdomain ON projects (subdomain)",
+];
+
+/// Optional migrations that may fail on existing databases (e.g. adding columns that already exist).
+const OPTIONAL_MIGRATIONS: &[&str] = &[
+    // Add grace_period_end column to projects table (for existing databases)
+    "ALTER TABLE projects ADD COLUMN grace_period_end TEXT",
 ];
 
 /// Run platform schema migrations on the platform D1 database.
@@ -56,6 +63,12 @@ pub async fn run_migrations(db: &D1Database) -> Result<()> {
     for sql in MIGRATIONS {
         db.prepare(*sql).bind(&[])?.run().await?;
     }
+
+    // Run optional migrations, ignoring errors (e.g. column already exists)
+    for sql in OPTIONAL_MIGRATIONS {
+        let _ = db.prepare(*sql).bind(&[])?.run().await;
+    }
+
     console_log!("Platform migrations applied ({} statements)", MIGRATIONS.len());
     Ok(())
 }

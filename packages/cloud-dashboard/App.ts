@@ -4,7 +4,7 @@ import {
 	ToastContainer, toasts, Button, Modal, DataTable, FilterBar
 } from '@solobase/ui';
 import { useState, useEffect, useCallback } from 'preact/hooks';
-import { Key, Settings, LogOut, CreditCard, Server, Activity, Plus, Trash2, Rocket, Shield, ExternalLink, Package, BarChart3, Clock, XCircle } from 'lucide-preact';
+import { Key, Settings, LogOut, CreditCard, Server, Activity, Plus, Trash2, Rocket, Shield, ExternalLink, Package, BarChart3, Clock, XCircle, Database, HardDrive } from 'lucide-preact';
 
 // ─── Auth Guard ──────────────────────────────────────────────────────
 function AuthGuard({ children }: { children: any }) {
@@ -77,10 +77,11 @@ function UsageBar({ label, used, limit, unit }: { label: string, used: number, l
 }
 
 // ─── Plan limits (must match worker/types.ts PLANS) ─────────────────
-const PLAN_LIMITS: Record<string, { requests: number, r2: number, d1: number, projects: number }> = {
-	free: { requests: 0, r2: 0, d1: 0, projects: 0 },
-	starter: { requests: 500000, r2: 2 * 1024 * 1024 * 1024, d1: 500 * 1024 * 1024, projects: 2 },
-	pro: { requests: 3000000, r2: 20 * 1024 * 1024 * 1024, d1: 5 * 1024 * 1024 * 1024, projects: Infinity },
+const PLAN_LIMITS: Record<string, { requests: number, r2: number, d1: number, maxCreated: number, maxActive: number }> = {
+	free: { requests: 0, r2: 0, d1: 0, maxCreated: 2, maxActive: 0 },
+	starter: { requests: 500000, r2: 2 * 1024 * 1024 * 1024, d1: 500 * 1024 * 1024, maxCreated: 2, maxActive: 2 },
+	pro: { requests: 3000000, r2: 20 * 1024 * 1024 * 1024, d1: 5 * 1024 * 1024 * 1024, maxCreated: 10, maxActive: 10 },
+	platform: { requests: Infinity, r2: Infinity, d1: Infinity, maxCreated: Infinity, maxActive: Infinity },
 };
 
 // ─── Overview Tab ────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ function OverviewTab() {
 	const user = currentUser.value;
 	const [planName, setPlanName] = useState<string>('...');
 	const [projectCount, setProjectCount] = useState<string>('...');
-	const [apiKeyCount, setApiKeyCount] = useState<string>('...');
+
 	const [usage, setUsage] = useState<any>(null);
 
 	useEffect(() => {
@@ -112,26 +113,49 @@ function OverviewTab() {
 			setProjectCount(String(records.length));
 		}).catch(() => setProjectCount('0'));
 
-		// Fetch API keys count
-		api.get('/auth/api-keys').then((data: any) => {
-			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
-			setApiKeyCount(String(records.length));
-		}).catch(() => setApiKeyCount('0'));
 	}, []);
 
 	const displayName = user?.name || user?.email?.split('@')[0] || 'there';
 	const plan = planName.toLowerCase();
 	const limits = PLAN_LIMITS[plan] || PLAN_LIMITS['starter'];
 
+	const fmtCount = (n: number) => {
+		if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+		if (n >= 1000) return `${(n / 1000).toFixed(0)}K`;
+		return String(n);
+	};
+	const fmtBytes = (n: number) => {
+		if (n >= 1073741824) return `${(n / 1073741824).toFixed(1)} GB`;
+		if (n >= 1048576) return `${(n / 1048576).toFixed(0)} MB`;
+		return `${(n / 1024).toFixed(0)} KB`;
+	};
+	const requestsUsed = usage?.requests?.used || 0;
+	const requestsLimit = limits.requests + (usage?.requests?.addon || 0);
+	const requestsValue = usage ? `${fmtCount(requestsUsed)} / ${fmtCount(requestsLimit)}` : '...';
+
+	const d1Used = usage?.storage?.d1_bytes || 0;
+	const d1Limit = limits.d1 + (usage?.storage?.d1_addon_bytes || 0);
+	const d1Value = usage ? `${fmtBytes(d1Used)} / ${fmtBytes(d1Limit)}` : '...';
+
+	const r2Used = usage?.storage?.r2_bytes || 0;
+	const r2Limit = limits.r2 + (usage?.storage?.r2_addon_bytes || 0);
+	const r2Value = usage ? `${fmtBytes(r2Used)} / ${fmtBytes(r2Limit)}` : '...';
+
+	const now = new Date();
+	const resetDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+	const resetLabel = resetDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
 	return html`
 		<div>
 			<${PageHeader} title=${`Welcome back, ${displayName}`} description="Here's an overview of your account" />
-			<div style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+			<div style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem', marginBottom: '0.5rem' }}>
 				<${StatCard} title="Plan" value=${planName} icon=${CreditCard} />
 				<${StatCard} title="Projects" value=${projectCount} icon=${Server} />
-				<${StatCard} title="API Keys" value=${apiKeyCount} icon=${Key} />
-				<${StatCard} title="Month" value=${usage?.month || '...'} icon=${Activity} />
+				<${StatCard} title="Requests" value=${requestsValue} icon=${Activity} />
+				<${StatCard} title="Database" value=${d1Value} icon=${Database} />
+				<${StatCard} title="File Storage" value=${r2Value} icon=${HardDrive} />
 			</div>
+			<p style=${{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '2rem' }}>Usage resets on ${resetLabel}</p>
 
 			${usage ? html`
 				<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', marginBottom: '2rem' }}>
@@ -174,6 +198,8 @@ function ProjectsTab() {
 	const [newName, setNewName] = useState('');
 	const [creating, setCreating] = useState(false);
 	const [deleting, setDeleting] = useState<string | null>(null);
+	const [activating, setActivating] = useState<string | null>(null);
+	const [deactivating, setDeactivating] = useState<string | null>(null);
 	const [subdomainError, setSubdomainError] = useState<string | null>(null);
 
 	const fetchProjects = useCallback(async () => {
@@ -188,7 +214,17 @@ function ProjectsTab() {
 		setLoading(false);
 	}, []);
 
-	useEffect(() => { fetchProjects(); }, [fetchProjects]);
+	useEffect(() => {
+		fetchProjects();
+		// Also fetch subscription to get the plan
+		api.get('/b/products/subscription').then((data: any) => {
+			const sub = data?.subscription;
+			if (sub?.status === 'active' || sub?.plan) {
+				const p = sub.plan || 'free';
+				setPlan(p);
+			}
+		}).catch(() => {});
+	}, [fetchProjects]);
 
 	function validateSubdomain(value: string): string | null {
 		if (!value) return null;
@@ -229,10 +265,10 @@ function ProjectsTab() {
 			await fetchProjects();
 		} catch (err: any) {
 			const msg = err.message || 'Failed to create project';
-			if (msg.toLowerCase().includes('already taken')) {
+			if (msg.toLowerCase().includes('already taken') || msg.toLowerCase().includes('alreadyexists') || msg.toLowerCase().includes('already exists')) {
 				setSubdomainError('This subdomain is already taken');
 			} else {
-				toasts.error(msg);
+				setSubdomainError(msg);
 			}
 		}
 		setCreating(false);
@@ -250,6 +286,31 @@ function ProjectsTab() {
 		setDeleting(null);
 	}
 
+	async function handleActivate(id: string) {
+		setActivating(id);
+		try {
+			await api.put(`/b/projects/${id}`, { action: 'activate' });
+			toasts.success('Project activated!');
+			await fetchProjects();
+		} catch (err: any) {
+			const msg = err.message || 'Failed to activate project';
+			toasts.error(msg);
+		}
+		setActivating(null);
+	}
+
+	async function handleDeactivate(id: string) {
+		setDeactivating(id);
+		try {
+			await api.put(`/b/projects/${id}`, { action: 'deactivate' });
+			toasts.success('Project deactivated. Resources will be retained for 30 days.');
+			await fetchProjects();
+		} catch (err: any) {
+			toasts.error(err.message || 'Failed to deactivate project');
+		}
+		setDeactivating(null);
+	}
+
 	function getStatusVariant(status: string): 'success' | 'warning' | 'danger' | 'neutral' {
 		switch (status) {
 			case 'active': return 'success';
@@ -263,7 +324,18 @@ function ProjectsTab() {
 
 	if (loading) return html`<${LoadingSpinner} message="Loading projects..." />`;
 
+	const limits = PLAN_LIMITS[plan] || PLAN_LIMITS['free'];
+	const hasPendingProjects = projects.some((d: any) => (d.data?.status || d.status) === 'pending');
 	const hasInactiveProjects = projects.some((d: any) => (d.data?.status || d.status) === 'inactive');
+
+	function formatGracePeriod(gracePeriodEnd: string | undefined): string | null {
+		if (!gracePeriodEnd) return null;
+		const end = new Date(gracePeriodEnd);
+		const now = new Date();
+		const daysLeft = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+		if (daysLeft <= 0) return 'Grace period expired';
+		return `${daysLeft} day${daysLeft === 1 ? '' : 's'} until resources are deleted`;
+	}
 
 	return html`
 		<div>
@@ -271,11 +343,11 @@ function ProjectsTab() {
 				<${Button} icon=${Plus} onClick=${() => setShowCreateForm(true)}>Create Project<//>
 			<//>
 
-			${hasInactiveProjects ? html`
+			${(hasPendingProjects || hasInactiveProjects) && plan === 'free' ? html`
 				<div style=${{ background: '#fffbeb', border: '1px solid #fed7aa', borderRadius: '8px', padding: '0.875rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
 					<div>
-						<div style=${{ fontWeight: 600, fontSize: '0.813rem', color: '#92400e' }}>You have inactive projects</div>
-						<div style=${{ fontSize: '0.75rem', color: '#a16207', marginTop: '0.25rem' }}>Subscribe to a plan to activate your projects and make them live.</div>
+						<div style=${{ fontWeight: 600, fontSize: '0.813rem', color: '#92400e' }}>Upgrade to activate your projects</div>
+						<div style=${{ fontSize: '0.75rem', color: '#a16207', marginTop: '0.25rem' }}>Free plans cannot activate projects. Subscribe to a paid plan to go live.</div>
 					</div>
 					<a href="https://solobase.dev/pricing/" target="_blank" rel="noopener"
 						style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.375rem 0.75rem', background: '#f59e0b', color: 'white', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
@@ -304,8 +376,8 @@ function ProjectsTab() {
 							<div style=${{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.5rem' }}>This will be your project's permanent URL and cannot be changed.</div>
 						</div>
 						<div style=${{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-							<${Button} type="submit" loading=${creating} disabled=${!!subdomainError || !newName}>Create<//>
-							<${Button} variant="secondary" onClick=${() => { setShowCreateForm(false); setNewName(''); setSubdomainError(null); }}>Cancel<//>
+							<${Button} type="submit" loading=${creating} disabled=${!!subdomainError || !newName || creating}>${creating ? 'Creating...' : 'Create'}<//>
+							<${Button} variant="secondary" disabled=${creating} onClick=${() => { setShowCreateForm(false); setNewName(''); setSubdomainError(null); }}>Cancel<//>
 						</div>
 					</form>
 				</div>
@@ -313,7 +385,7 @@ function ProjectsTab() {
 
 			${projects.length === 0 && !showCreateForm ? html`
 				<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-					<${EmptyState} icon=${Server} title="No projects yet" description="Deploy your first Solobase backend instance to get started.">
+					<${EmptyState} icon=${Server} title="No projects yet" description="Create your first Solobase backend instance to get started.">
 						<${Button} icon=${Rocket} onClick=${() => setShowCreateForm(true)}>Create Project<//>
 					<//>
 				</div>
@@ -322,31 +394,62 @@ function ProjectsTab() {
 			${projects.length > 0 ? html`
 				<div style=${{ display: 'grid', gap: '0.5rem' }}>
 					${projects.map((d: any) => {
-						const status = d.data?.status || d.status || 'inactive';
-						const canActivate = d.can_activate === true;
+						const status = d.data?.status || d.status || 'pending';
+						const gracePeriodEnd = d.data?.grace_period_end;
+						const graceInfo = status === 'inactive' ? formatGracePeriod(gracePeriodEnd) : null;
+						const canActivate = plan !== 'free' && (status === 'pending' || status === 'inactive');
 						return html`
 						<div key=${d.id} style=${{
 							display: 'flex', justifyContent: 'space-between', alignItems: 'center',
 							background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px',
 							padding: '0.875rem 1rem',
-							opacity: status === 'inactive' ? 0.85 : 1
+							opacity: status === 'pending' || status === 'inactive' ? 0.85 : 1
 						}}>
 							<div style=${{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1 }}>
-								<${Server} size=${18} style=${{ color: status === 'inactive' ? '#94a3b8' : '#64748b', flexShrink: 0 }} />
+								<${Server} size=${18} style=${{ color: status === 'active' ? '#16a34a' : status === 'pending' ? '#ca8a04' : '#94a3b8', flexShrink: 0 }} />
 								<div style=${{ minWidth: 0 }}>
 									<div style=${{ fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>${d.data?.name || d.name || 'Unnamed'}</div>
 									<div style=${{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
 										${status === 'active' ? html`<span style=${{ color: '#fe6627' }}>${(d.data?.slug || d.data?.name || '').toLowerCase().replace(/\s+/g, '-')}.solobase.dev</span> · ` : ''}Created ${(d.data?.created_at || d.created_at) ? new Date(d.data?.created_at || d.created_at).toLocaleDateString() : ''}
 									</div>
+									${graceInfo ? html`
+										<div style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.688rem', color: '#dc2626', marginTop: '0.25rem' }}>
+											<${Clock} size=${10} /><span>${graceInfo}</span>
+										</div>
+									` : null}
 								</div>
 							</div>
-							<div style=${{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+							<div style=${{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
 								<${StatusBadge} status=${status} variant=${getStatusVariant(status)} />
-								${status === 'inactive' && !canActivate ? html`
+								${canActivate ? html`
+									<button onClick=${() => handleActivate(d.id)} disabled=${activating === d.id}
+										style=${{
+											background: '#16a34a', border: 'none', borderRadius: '6px',
+											padding: '0.25rem 0.625rem', fontSize: '0.75rem', color: 'white',
+											cursor: activating === d.id ? 'not-allowed' : 'pointer',
+											display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+											fontWeight: 500, opacity: activating === d.id ? 0.5 : 1
+										}}>
+										<${Rocket} size=${12} /> ${activating === d.id ? '...' : 'Activate'}
+									</button>
+								` : null}
+								${(status === 'pending' || status === 'inactive') && plan === 'free' ? html`
 									<a href="https://solobase.dev/pricing/" target="_blank" rel="noopener"
 										style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.25rem 0.5rem', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.75rem', color: '#fe6627', textDecoration: 'none', fontWeight: 500 }}>
 										Upgrade to activate
 									</a>
+								` : null}
+								${status === 'active' ? html`
+									<button onClick=${() => handleDeactivate(d.id)} disabled=${deactivating === d.id}
+										style=${{
+											background: 'none', border: '1px solid #fed7aa', borderRadius: '6px',
+											padding: '0.25rem 0.5rem', fontSize: '0.75rem', color: '#ca8a04',
+											cursor: deactivating === d.id ? 'not-allowed' : 'pointer',
+											display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+											opacity: deactivating === d.id ? 0.5 : 1
+										}}>
+										<${XCircle} size=${12} /> ${deactivating === d.id ? '...' : 'Deactivate'}
+									</button>
 								` : null}
 								<button onClick=${() => handleDelete(d.id)} disabled=${deleting === d.id}
 									style=${{
@@ -363,18 +466,7 @@ function ProjectsTab() {
 					`;})}
 				</div>
 
-				${hasInactiveProjects && plan === 'free' ? html`
-					<div style=${{ marginTop: '1rem', padding: '0.875rem 1rem', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-						<div style=${{ fontSize: '0.813rem', color: '#0369a1' }}>
-							Some projects are inactive. Subscribe to a plan to activate them.
-						</div>
-						<a href="https://solobase.dev/pricing/" target="_blank" rel="noopener"
-							style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.375rem 0.75rem', background: '#fe6627', color: 'white', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, textDecoration: 'none' }}>
-							<${CreditCard} size=${12} /> View Plans
-						</a>
-					</div>
 				` : null}
-			` : null}
 		</div>
 	`;
 }
@@ -566,6 +658,7 @@ function SettingsTab() {
 const ADMIN_STATUS_STYLES: Record<string, { bg: string; color: string }> = {
 	active: { bg: '#dcfce7', color: '#166534' },
 	pending: { bg: '#fefce8', color: '#854d0e' },
+	inactive: { bg: '#fee2e2', color: '#991b1b' },
 	stopped: { bg: '#fee2e2', color: '#991b1b' },
 	deleted: { bg: '#f1f5f9', color: '#475569' },
 };
@@ -637,6 +730,7 @@ function AdminProjectsSubTab() {
 					<option value="all">All Statuses</option>
 					<option value="active">Active</option>
 					<option value="pending">Pending</option>
+					<option value="inactive">Inactive</option>
 					<option value="stopped">Stopped</option>
 					<option value="deleted">Deleted</option>
 				</select>
@@ -648,15 +742,33 @@ function AdminProjectsSubTab() {
 				onRowClick=${(row: any) => setSelected(row)}
 			/>
 			${selected ? html`
-				<${Modal} show=${true} title="Project Details" maxWidth="600px" onClose=${() => setSelected(null)}>
-					<div style=${{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-						<div style=${{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '0.5rem', fontSize: '0.875rem' }}>
-							${Object.entries(selected).map(([key, val]: [string, any]) => html`
-								<div key=${key} style=${{ fontWeight: 600, color: '#64748b' }}>${key}</div>
-								<div style=${{ color: '#1e293b', wordBreak: 'break-all' }}>
-									${key === 'status' ? adminStatusBadge(String(val)) : typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val ?? '-')}
-								</div>
-							`)}
+				<${Modal} show=${true} title=${selected.name || 'Project Details'} maxWidth="560px" onClose=${() => setSelected(null)}>
+					<div style=${{ fontSize: '0.875rem' }}>
+						${selected.subdomain ? html`
+							<div style=${{ background: '#f8fafc', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem' }}>
+								<a href="https://${selected.subdomain}.solobase.dev" target="_blank" rel="noopener" style=${{ color: '#fe6627', fontWeight: 600, textDecoration: 'none' }}>${selected.subdomain}.solobase.dev</a>
+							</div>
+						` : null}
+						<div style=${{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+							<div><div style=${{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Status</div>${adminStatusBadge(selected.status || 'unknown')}</div>
+							<div><div style=${{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Plan</div><span style=${{ fontWeight: 500 }}>${selected.plan || 'free'}</span></div>
+							<div><div style=${{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Created</div>${selected.created_at ? new Date(selected.created_at).toLocaleDateString() : '-'}</div>
+							<div><div style=${{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Updated</div>${selected.updated_at ? new Date(selected.updated_at).toLocaleDateString() : '-'}</div>
+						</div>
+						${selected.grace_period_end ? html`
+							<div style=${{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem', fontSize: '0.813rem', color: '#dc2626' }}>
+								Grace period ends: ${new Date(selected.grace_period_end).toLocaleDateString()}
+							</div>
+						` : null}
+						${selected.provision_error ? html`
+							<div style=${{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem', fontSize: '0.813rem', color: '#dc2626' }}>
+								Provision error: ${selected.provision_error}
+							</div>
+						` : null}
+						<div style=${{ borderTop: '1px solid #e2e8f0', paddingTop: '0.75rem', display: 'grid', gridTemplateColumns: '120px 1fr', gap: '0.375rem', fontSize: '0.813rem', color: '#64748b' }}>
+							<div>Project ID</div><div style=${{ color: '#1e293b', wordBreak: 'break-all' }}>${selected.id || '-'}</div>
+							<div>User ID</div><div style=${{ color: '#1e293b', wordBreak: 'break-all' }}>${selected.user_id || '-'}</div>
+							${selected.tenant_id ? html`<div>Tenant ID</div><div style=${{ color: '#1e293b', wordBreak: 'break-all' }}>${selected.tenant_id}</div>` : null}
 						</div>
 					</div>
 				<//>
@@ -684,7 +796,8 @@ function AdminStatsSubTab() {
 				<${StatCard} title="Total Projects" value=${stats?.total ?? 0} icon=${Rocket} />
 				<${StatCard} title="Active" value=${stats?.active ?? 0} icon=${Activity} color="#16a34a" />
 				<${StatCard} title="Pending" value=${stats?.pending ?? 0} icon=${Clock} color="#ca8a04" />
-				<${StatCard} title="Stopped" value=${stats?.stopped ?? 0} icon=${XCircle} color="#dc2626" />
+				<${StatCard} title="Inactive" value=${stats?.inactive ?? 0} icon=${XCircle} color="#dc2626" />
+				<${StatCard} title="Stopped" value=${stats?.stopped ?? 0} icon=${XCircle} color="#991b1b" />
 				<${StatCard} title="Deleted" value=${stats?.deleted ?? 0} icon=${Trash2} color="#64748b" />
 			</div>
 		</div>
@@ -692,11 +805,11 @@ function AdminStatsSubTab() {
 }
 
 function AdminTab() {
-	const [subTab, setSubTab] = useState('projects');
+	const [subTab, setSubTab] = useState('stats');
 
 	const subTabs = [
-		{ id: 'projects', label: 'All Projects', icon: Rocket },
 		{ id: 'stats', label: 'Stats', icon: BarChart3 },
+		{ id: 'projects', label: 'All Projects', icon: Rocket },
 	];
 
 	return html`

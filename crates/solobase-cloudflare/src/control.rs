@@ -135,6 +135,21 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             }
 
             provision::update_project(&db, subdomain, &config).await?;
+
+            // Update grace_period_end if provided
+            if let Some(gpe) = updates.get("grace_period_end") {
+                let gpe_val = if gpe.is_null() {
+                    "".to_string()
+                } else {
+                    gpe.as_str().unwrap_or("").to_string()
+                };
+                let _ = db
+                    .prepare("UPDATE projects SET grace_period_end = ?1 WHERE subdomain = ?2")
+                    .bind(&[gpe_val.into(), subdomain.into()])?
+                    .run()
+                    .await;
+            }
+
             json_response(&config, 200)
         }
 
@@ -205,6 +220,49 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             }
 
             json_response(&serde_json::json!({"status": "ok", "results": results}), 200)
+        }
+
+        // Cleanup expired inactive projects (called by external cron)
+        ("POST", "cleanup-expired") => {
+            // Find all inactive projects whose grace period has expired
+            let now = chrono::Utc::now().to_rfc3339();
+            let rows = db
+                .prepare(
+                    "SELECT subdomain FROM projects WHERE status = 'inactive' AND grace_period_end IS NOT NULL AND grace_period_end < ?1",
+                )
+                .bind(&[now.clone().into()])?
+                .all()
+                .await?;
+
+            let expired: Vec<String> = rows
+                .results::<serde_json::Value>()?
+                .iter()
+                .filter_map(|row| row.get("subdomain").and_then(|v| v.as_str().map(String::from)))
+                .collect();
+
+            let mut cleaned = Vec::new();
+            for subdomain in &expired {
+                // Delete CF resources (D1, R2, worker)
+                match provision::delete_project(env, &db, subdomain).await {
+                    Ok(()) => cleaned.push(serde_json::json!({
+                        "subdomain": subdomain,
+                        "status": "deleted",
+                    })),
+                    Err(e) => cleaned.push(serde_json::json!({
+                        "subdomain": subdomain,
+                        "error": e.to_string(),
+                    })),
+                }
+            }
+
+            json_response(
+                &serde_json::json!({
+                    "status": "ok",
+                    "cleaned": cleaned.len(),
+                    "projects": cleaned,
+                }),
+                200,
+            )
         }
 
         // Platform health

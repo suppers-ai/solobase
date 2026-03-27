@@ -17,7 +17,9 @@ export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationPro
 	return html`
 		<div style=${{
 			display: 'flex',
-			gap: '0'
+			gap: '0',
+			borderBottom: '1px solid var(--border-color, #e2e8f0)',
+			marginBottom: '1.5rem'
 		}}>
 			${tabs.map(tab => html`
 				<button

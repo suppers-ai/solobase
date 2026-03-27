@@ -101,4 +101,28 @@ impl AuthBlock {
             Err(e) => err_internal(msg, &format!("Database error: {e}")),
         }
     }
+
+    pub(super) async fn handle_api_keys_delete(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+        let path = msg.path();
+        let id = path.strip_prefix("/auth/api-keys/").unwrap_or("");
+        if id.is_empty() {
+            return err_bad_request(msg, "Missing key ID");
+        }
+        let user_id = msg.user_id();
+
+        // Verify ownership
+        let key = match db::get(ctx, API_KEYS_COLLECTION, id).await {
+            Ok(k) => k,
+            Err(_) => return err_not_found(msg, "API key not found"),
+        };
+        let key_owner = key.str_field("user_id");
+        if key_owner != user_id && !msg.get_meta("auth.user_roles").split(',').any(|r| r.trim() == "admin") {
+            return err_forbidden(msg, "Cannot delete another user's API key");
+        }
+
+        match db::delete(ctx, API_KEYS_COLLECTION, id).await {
+            Ok(_) => json_respond(msg, &serde_json::json!({"deleted": true})),
+            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        }
+    }
 }

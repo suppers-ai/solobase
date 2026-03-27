@@ -44,8 +44,8 @@ impl Block for SystemBlock {
                 let nav = serde_json::json!([
                     {"id": "dashboard", "title": "Dashboard", "label": "Dashboard", "href": "/blocks/admin/frontend/#dashboard", "icon": "layout-dashboard"},
                     {"id": "users", "title": "Users", "label": "Users", "href": "/blocks/admin/frontend/#users", "icon": "users"},
-                    {"id": "iam", "title": "IAM", "label": "IAM", "href": "/blocks/admin/frontend/iam/", "icon": "shield"},
-                    {"id": "logs", "title": "Logs", "label": "Logs", "href": "/blocks/logs/frontend/", "icon": "file-text"},
+                    {"id": "database", "title": "Database", "label": "Database", "href": "/blocks/admin/frontend/#database", "icon": "database"},
+                    {"id": "storage", "title": "Storage", "label": "Storage", "href": "/blocks/admin/frontend/#storage", "icon": "hard-drive"},
                     {"id": "settings", "title": "Settings", "label": "Settings", "href": "/blocks/admin/frontend/#settings", "icon": "settings"},
                     {"id": "blocks", "title": "Blocks", "label": "Blocks", "href": "/blocks/admin/frontend/#blocks", "icon": "layers"},
                     {"id": "products", "title": "Products", "label": "Products", "href": "/blocks/products/frontend/", "icon": "shopping-bag"}

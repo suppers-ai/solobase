@@ -346,7 +346,7 @@ const MIGRATIONS: &[&str] = &[
         user_id TEXT NOT NULL,
         name TEXT NOT NULL,
         slug TEXT DEFAULT '',
-        status TEXT DEFAULT 'inactive',
+        status TEXT DEFAULT 'pending',
         config TEXT DEFAULT '{}',
         plan TEXT DEFAULT 'free',
         plan_id TEXT DEFAULT '',
@@ -355,6 +355,7 @@ const MIGRATIONS: &[&str] = &[
         subdomain TEXT DEFAULT '',
         provision_error TEXT,
         deprovision_error TEXT,
+        grace_period_end TEXT,
         deleted_at TEXT,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
@@ -398,6 +399,8 @@ const MIGRATIONS: &[&str] = &[
 const OPTIONAL_MIGRATIONS: &[&str] = &[
     // Add sensitive column to variables table (for existing databases)
     "ALTER TABLE variables ADD COLUMN sensitive INTEGER DEFAULT 0",
+    // Add grace_period_end column to block_deployments (for existing databases)
+    "ALTER TABLE block_deployments ADD COLUMN grace_period_end TEXT",
 ];
 
 /// Run all schema migrations on a D1 database.

@@ -2,6 +2,9 @@
 //!
 //! Tracks API request counts per project per month in D1.
 //! Checks plan limits before dispatching to blocks.
+//!
+//! The check (read) is blocking — needed before dispatching.
+//! The increment (write) is non-blocking — runs via waitUntil after response.
 
 use worker::*;
 
@@ -21,8 +24,9 @@ impl UsageCheckResult {
     }
 }
 
-/// Check if the project is within plan limits and increment the request counter.
-pub async fn check_and_increment_usage(
+/// Check if the project is within plan limits (blocking read).
+/// Does NOT increment the counter — call `increment_usage` separately.
+pub async fn check_usage(
     db: &D1Database,
     project: &ProjectConfig,
 ) -> UsageCheckResult {
@@ -43,7 +47,7 @@ pub async fn check_and_increment_usage(
         }
     }
 
-    // Read current usage BEFORE incrementing (prevents DoS inflation)
+    // Read current usage
     let (current_requests, addon_requests) = match db
         .prepare("SELECT requests, addon_requests FROM project_usage WHERE project_id = ?1 AND month = ?2")
         .bind(&[project.id.clone().into(), month.clone().into()])
@@ -60,7 +64,7 @@ pub async fn check_and_increment_usage(
 
     let max_requests = limits.max_requests_per_month + addon_requests;
 
-    // Check limit BEFORE incrementing
+    // Check limit
     if current_requests >= max_requests {
         return UsageCheckResult {
             error: Some(format!(
@@ -69,16 +73,6 @@ pub async fn check_and_increment_usage(
             )),
             warning: None,
         };
-    }
-
-    // Under limit — upsert and increment
-    let usage_id = format!("{}:{}", project.id, month);
-    if let Ok(stmt) = db.prepare(
-        "INSERT INTO project_usage (id, project_id, month, requests, r2_bytes, addon_requests, addon_r2_bytes, addon_d1_bytes) \
-         VALUES (?1, ?2, ?3, 1, 0, 0, 0, 0) \
-         ON CONFLICT (project_id, month) DO UPDATE SET requests = requests + 1"
-    ).bind(&[usage_id.into(), project.id.clone().into(), month.into()]) {
-        let _ = stmt.run().await;
     }
 
     // Warn at 80% usage
@@ -94,6 +88,19 @@ pub async fn check_and_increment_usage(
     }
 
     result
+}
+
+/// Increment the usage counter (non-blocking, called via waitUntil).
+pub async fn increment_usage(db: &D1Database, project_id: &str) {
+    let month = current_month();
+    let usage_id = format!("{}:{}", project_id, month);
+    if let Ok(stmt) = db.prepare(
+        "INSERT INTO project_usage (id, project_id, month, requests, r2_bytes, addon_requests, addon_r2_bytes, addon_d1_bytes) \
+         VALUES (?1, ?2, ?3, 1, 0, 0, 0, 0) \
+         ON CONFLICT (project_id, month) DO UPDATE SET requests = requests + 1"
+    ).bind(&[usage_id.into(), project_id.into(), month.into()]) {
+        let _ = stmt.run().await;
+    }
 }
 
 // ---------------------------------------------------------------------------

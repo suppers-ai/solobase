@@ -10,9 +10,9 @@ export function App() {
 	async function fetchLogs() {
 		setLoading(true);
 		try {
-			const data: any = await api.get('/admin/logs');
+			const data: any = await api.get('/admin/logs?pageSize=200');
 			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
-			setLogs(records);
+			setLogs(records.map((r: any) => ({ id: r.id, ...r.data })));
 		} catch {
 			setLogs([]);
 		}
@@ -23,40 +23,29 @@ export function App() {
 
 	const filtered = search
 		? logs.filter(l =>
-			l.message?.toLowerCase().includes(search.toLowerCase()) ||
-			l.level?.toLowerCase().includes(search.toLowerCase()) ||
-			l.source?.toLowerCase().includes(search.toLowerCase())
+			l.action?.toLowerCase().includes(search.toLowerCase()) ||
+			l.resource?.toLowerCase().includes(search.toLowerCase()) ||
+			l.user_id?.toLowerCase().includes(search.toLowerCase())
 		)
 		: logs;
 
 	const columns = [
-		{
-			key: 'level', label: 'Level', width: '80px', sortable: true,
-			render: (v: string) => html`
-				<span style=${{
-					fontSize: '0.75rem',
-					padding: '0.125rem 0.5rem',
-					borderRadius: '9999px',
-					fontWeight: 600,
-					background: v === 'error' ? '#fef2f2' : v === 'warn' ? '#fffbeb' : '#f0fdf4',
-					color: v === 'error' ? '#dc2626' : v === 'warn' ? '#d97706' : '#16a34a'
-				}}>${v || 'info'}</span>
-			`
-		},
-		{ key: 'message', label: 'Message', sortable: true },
-		{ key: 'source', label: 'Source', sortable: true },
-		{ key: 'timestamp', label: 'Time', sortable: true, render: (v: string) => v ? new Date(v).toLocaleString() : '-' },
+		{ key: 'action', label: 'Action', sortable: true },
+		{ key: 'resource', label: 'Resource', sortable: true },
+		{ key: 'user_id', label: 'User', sortable: true, render: (v: string) => v ? v.slice(0, 8) + '...' : '-' },
+		{ key: 'ip_address', label: 'IP', sortable: true },
+		{ key: 'created_at', label: 'Time', sortable: true, render: (v: string) => v ? new Date(v).toLocaleString() : '-' },
 	];
 
 	return html`
 		<${BlockShell} title="Logs">
-			<${PageHeader} title="System Logs" description="View application logs and events">
+			<${PageHeader} title="Audit Logs" description="User actions and system events">
 				<${Button} icon=${RefreshCw} onClick=${fetchLogs} variant="secondary" size="sm">Refresh<//>
 			<//>
-			<${SearchInput} value=${search} onChange=${setSearch} placeholder="Search logs..." />
+			<${SearchInput} value=${search} onChange=${setSearch} placeholder="Search by action, resource, or user..." />
 			${loading
 				? html`<${LoadingSpinner} message="Loading logs..." />`
-				: html`<${DataTable} columns=${columns} data=${filtered} emptyMessage="No logs found" />`
+				: html`<${DataTable} columns=${columns} data=${filtered} emptyMessage="No audit logs yet. Actions will appear here as users interact with the system." />`
 			}
 		<//>
 	`;

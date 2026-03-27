@@ -327,7 +327,8 @@ impl Block for AuthBlock {
             // API keys
             ("retrieve", "/auth/api-keys") => self.handle_api_keys_list(ctx, msg).await,
             ("create", "/auth/api-keys") => self.handle_api_keys_create(ctx, msg).await,
-            ("delete", _) if path.starts_with("/auth/api-keys/") => self.handle_api_keys_revoke(ctx, msg).await,
+            ("update", _) if path.starts_with("/auth/api-keys/") => self.handle_api_keys_revoke(ctx, msg).await,
+            ("delete", _) if path.starts_with("/auth/api-keys/") => self.handle_api_keys_delete(ctx, msg).await,
             // Email verification
             ("retrieve" | "create", "/auth/verify") => self.handle_verify_email(ctx, msg).await,
             ("create", "/auth/resend-verification") => self.handle_resend_verification(ctx, msg).await,

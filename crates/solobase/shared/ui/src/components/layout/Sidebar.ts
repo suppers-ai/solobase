@@ -77,8 +77,8 @@ export function Sidebar() {
 			<div class="sidebar-header">
 				<a href="/blocks/admin/frontend/" class="sidebar-logo">
 					${!collapsed
-						? html`<img src="/logo_long.png" alt="Solobase" class="sidebar-logo-long" />`
-						: html`<img src="/logo.png" alt="Solobase" class="sidebar-logo-icon" />`
+						? html`<img src="https://solobase.dev/images/logo_long.png" alt="Solobase" class="sidebar-logo-long" />`
+						: html`<img src="https://solobase.dev/images/logo.png" alt="Solobase" class="sidebar-logo-icon" />`
 					}
 				</a>
 			</div>
@@ -138,11 +138,6 @@ export function Sidebar() {
 								<div class="profile-menu-role">${roles.includes('admin') ? 'Admin' : 'User'}</div>
 							</div>
 						</div>
-						<div class="profile-menu-divider" />
-						<a href="/admin/wafer#settings" class="profile-menu-item">
-							<${Settings} size=${16} />
-							Settings
-						</a>
 						<div class="profile-menu-divider" />
 						<button
 							class="profile-menu-item profile-menu-item-danger"

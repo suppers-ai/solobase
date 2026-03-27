@@ -18,29 +18,34 @@ pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ("retrieve", "/admin/settings") | ("retrieve", "/settings") => handle_list(ctx, msg).await,
         ("retrieve", _) if path.starts_with("/admin/settings/") || path.starts_with("/settings/") => handle_get(ctx, msg).await,
         ("update", _) if path.starts_with("/admin/settings/") => handle_set(ctx, msg).await,
-        ("create", "/admin/settings") => handle_set_batch(ctx, msg).await,
+        ("create", "/admin/settings") => handle_create(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/settings/") => handle_delete(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
     }
 }
+
+/// System variable keys that cannot be deleted.
+const SYSTEM_KEYS: &[&str] = &[
+    "JWT_SECRET", "APP_NAME", "ALLOW_SIGNUP", "ENABLE_OAUTH",
+    "PRIMARY_COLOR", "POST_LOGIN_REDIRECT",
+];
 
 async fn handle_list_full(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let opts = ListOptions { limit: 1000, ..Default::default() };
     match db::list(ctx, COLLECTION, &opts).await {
         Ok(result) => {
             let vars: Vec<_> = result.records.iter().map(|record| {
+                let key = record.str_field("key").to_string();
                 let is_sensitive = record.i64_field("sensitive") == 1;
-                let value = if is_sensitive {
-                    MASKED_VALUE.to_string()
-                } else {
-                    record.str_field("value").to_string()
-                };
+                let is_system = SYSTEM_KEYS.contains(&key.as_str());
                 serde_json::json!({
-                    "key": record.str_field("key"),
+                    "key": key,
                     "name": record.str_field("name"),
                     "description": record.str_field("description"),
-                    "value": value,
+                    "value": record.str_field("value"),
                     "warning": record.str_field("warning"),
                     "sensitive": is_sensitive,
+                    "system": is_system,
                     "updated_at": record.str_field("updated_at"),
                 })
             }).collect();
@@ -119,53 +124,84 @@ async fn handle_set(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 }
 
-async fn handle_set_batch(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let body: HashMap<String, serde_json::Value> = match msg.decode() {
+async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    #[derive(serde::Deserialize)]
+    struct Req { key: String, value: Option<String>, name: Option<String>, description: Option<String>, sensitive: Option<bool> }
+    let body: Req = match msg.decode() {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
+    if body.key.is_empty() { return err_bad_request(msg, "key is required"); }
 
-    let now = helpers::now_rfc3339();
-    let user_id = msg.user_id().to_string();
+    let data = json_map(serde_json::json!({
+        "key": body.key,
+        "value": body.value.unwrap_or_default(),
+        "name": body.name.unwrap_or_else(|| body.key.clone()),
+        "description": body.description.unwrap_or_default(),
+        "sensitive": if body.sensitive.unwrap_or(false) { 1 } else { 0 },
+        "updated_by": msg.user_id(),
+        "created_at": helpers::now_rfc3339()
+    }));
+    match db::create(ctx, COLLECTION, data).await {
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
 
-    for (key, value) in &body {
-        let data = json_map(serde_json::json!({
-            "key": key,
-            "value": value,
-            "updated_at": now,
-            "updated_by": user_id
-        }));
-        let _ = db::upsert(ctx, COLLECTION, "key", serde_json::Value::String(key.clone()), data).await;
+async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let path = msg.path();
+    let key = path.strip_prefix("/admin/settings/").unwrap_or("");
+    if key.is_empty() { return err_bad_request(msg, "Missing setting key"); }
+
+    if SYSTEM_KEYS.contains(&key) {
+        return err_bad_request(msg, "Cannot delete system variable");
     }
 
-    json_respond(msg, &serde_json::json!({"updated": body.len()}))
+    match db::get_by_field(ctx, COLLECTION, "key", serde_json::Value::String(key.to_string())).await {
+        Ok(record) => {
+            match db::delete(ctx, COLLECTION, &record.id).await {
+                Ok(_) => json_respond(msg, &serde_json::json!({"deleted": key})),
+                Err(e) => err_internal(msg, &format!("Database error: {e}")),
+            }
+        }
+        Err(_) => err_not_found(msg, "Setting not found"),
+    }
 }
 
 pub async fn seed_defaults(ctx: &dyn Context) {
-    let count = db::count(ctx, COLLECTION, &[]).await.unwrap_or(0);
-    if count > 0 { return; }
-
-    // (key, name, description, value, warning, sensitive)
-    let defaults: Vec<(&str, &str, &str, &str, &str, i32)> = vec![
+    // (key, name, description, default_value, warning, sensitive)
+    let defaults: &[(&str, &str, &str, &str, &str, i32)] = &[
         ("APP_NAME", "App Name", "Display name shown in the UI and emails", "Solobase", "", 0),
         ("ALLOW_SIGNUP", "Allow Signup", "Allow new users to register", "true", "", 0),
         ("ENABLE_OAUTH", "Enable OAuth", "Enable third-party OAuth login", "false", "", 0),
         ("PRIMARY_COLOR", "Primary Color", "Brand color used in the UI", "#6366f1", "", 0),
         ("POST_LOGIN_REDIRECT", "Post-Login Redirect", "URL to redirect to after login", "/blocks/admin/frontend/", "", 0),
+        ("JWT_SECRET", "JWT Secret", "Secret key used to sign authentication tokens", "", "Changing this will invalidate all existing user sessions", 1),
     ];
 
-    for (key, name, description, value, warning, sensitive) in defaults {
-        let data = json_map(serde_json::json!({
-            "key": key,
-            "name": name,
-            "description": description,
-            "value": value,
-            "warning": warning,
-            "sensitive": sensitive,
-            "created_at": helpers::now_rfc3339()
-        }));
-        if let Err(e) = db::create(ctx, COLLECTION, data).await {
-            tracing::warn!("Failed to seed default variable '{key}': {e}");
+    for &(key, name, description, default_value, warning, sensitive) in defaults {
+        // Check if key exists already
+        let exists = db::get_by_field(ctx, COLLECTION, "key", serde_json::Value::String(key.to_string())).await.is_ok();
+        if exists {
+            // Update metadata (name, description, warning) but keep existing value
+            let data = json_map(serde_json::json!({
+                "name": name,
+                "description": description,
+                "warning": warning,
+                "sensitive": sensitive,
+            }));
+            let _ = db::upsert(ctx, COLLECTION, "key", serde_json::Value::String(key.to_string()), data).await;
+        } else if !default_value.is_empty() {
+            let data = json_map(serde_json::json!({
+                "key": key,
+                "name": name,
+                "description": description,
+                "value": default_value,
+                "warning": warning,
+                "sensitive": sensitive,
+                "created_at": helpers::now_rfc3339()
+            }));
+            let _ = db::create(ctx, COLLECTION, data).await;
         }
     }
 }
