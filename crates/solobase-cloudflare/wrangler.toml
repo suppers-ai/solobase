@@ -28,10 +28,6 @@ database_id = "e6d6d94f-4383-4b89-9317-065c143207d8"
 binding = "STORAGE"
 bucket_name = "solobase-development"
 
-[[kv_namespaces]]
-binding = "PROJECTS"
-id = "358c123b90b34c489f9fb147e4e6607b"
-
 [[dispatch_namespaces]]
 binding = "DISPATCHER"
 namespace = "solobase-workers-dev"
@@ -61,10 +57,6 @@ database_id = "14c17526-8172-4f3b-aa14-3ac7a617a25e"
 [[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "solobase-production"
-
-[[env.production.kv_namespaces]]
-binding = "PROJECTS"
-id = "6d378fa6bac2448fa95679dc4a2a5baa"
 
 [[env.production.dispatch_namespaces]]
 binding = "DISPATCHER"

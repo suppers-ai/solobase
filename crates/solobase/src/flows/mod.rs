@@ -17,6 +17,12 @@ pub fn register_site_main(w: &mut Wafer) {
         serde_json::json!({ "routes": site_main::default_routes() }),
     );
 
+    // Configure the web block to serve from the "site" storage bucket as an SPA
+    w.add_block_config(
+        "wafer-run/web",
+        serde_json::json!({ "web_root": "site", "web_spa": "true", "web_index": "index.html" }),
+    );
+
     w.add_flow_json(site_main::JSON)
         .unwrap_or_else(|e| panic!("invalid flow JSON: {e}\n---\n{}", site_main::JSON));
 }

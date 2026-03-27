@@ -3,10 +3,10 @@
 //! Projects are the multi-tenant units in Solobase Cloud. Each project
 //! maps to a subdomain ({project}.solobase.dev) and has its own D1 database.
 //!
-//! KV key: `project:{subdomain}:config` → ProjectConfig JSON
+//! Project data is stored in the platform D1 database (`projects` table).
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use worker::D1Database;
 
 /// Reserved subdomains that cannot be used as project names.
 pub const RESERVED_SUBDOMAINS: &[&str] = &[
@@ -33,7 +33,7 @@ pub fn is_platform_host(host: &str) -> bool {
         || host_no_port == "cloud.solobase-dev.dev"
 }
 
-/// Per-project configuration stored in KV.
+/// Per-project configuration stored in the platform D1 database.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectConfig {
     /// Unique project identifier.
@@ -55,9 +55,6 @@ pub struct ProjectConfig {
     /// D1 database UUID for this project.
     #[serde(default)]
     pub db_id: Option<String>,
-    /// Worker binding name for this project's D1.
-    #[serde(default)]
-    pub db_binding: Option<String>,
     /// Whether this is a platform project (has FEATURE_PROJECTS enabled).
     #[serde(default)]
     pub platform: bool,
@@ -69,6 +66,26 @@ pub struct ProjectConfig {
 fn default_plan() -> String { "free".to_string() }
 fn default_status() -> String { "active".to_string() }
 
+/// Build a ProjectConfig from a D1 row returned as serde_json::Value.
+pub fn project_from_row(row: &serde_json::Value) -> Option<ProjectConfig> {
+    Some(ProjectConfig {
+        id: row.get("id")?.as_str()?.to_string(),
+        subdomain: row.get("subdomain")?.as_str()?.to_string(),
+        name: row.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        plan: row.get("plan").and_then(|v| v.as_str()).unwrap_or("free").to_string(),
+        status: row.get("status").and_then(|v| v.as_str()).unwrap_or("active").to_string(),
+        owner_user_id: row.get("owner_user_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from),
+        db_id: row.get("db_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from),
+        platform: row.get("platform").and_then(|v| v.as_i64()).unwrap_or(0) != 0,
+        blocks: Vec::new(),
+    })
+}
 
 // ---------------------------------------------------------------------------
 // Plan limits
@@ -112,10 +129,10 @@ pub fn get_plan_limits(plan: &str) -> PlanLimits {
 // Project resolution
 // ---------------------------------------------------------------------------
 
-/// Resolve a project from hostname via KV lookup.
+/// Resolve a project from hostname via D1 lookup.
 pub async fn resolve_project(
     hostname: &str,
-    kv: &worker::kv::KvStore,
+    db: &D1Database,
     is_dev: bool,
 ) -> std::result::Result<ProjectConfig, String> {
     let host_no_port = hostname.split(':').next().unwrap_or(hostname);
@@ -134,7 +151,6 @@ pub async fn resolve_project(
             status: "active".to_string(),
             owner_user_id: None,
             db_id: None,
-            db_binding: Some("DB".to_string()),
             platform: true,
             blocks: Vec::new(),
         });
@@ -144,13 +160,15 @@ pub async fn resolve_project(
         return Err(format!("subdomain '{}' is reserved", subdomain));
     }
 
-    let key = format!("project:{}:config", subdomain);
-    let config = kv
-        .get(&key)
-        .json::<ProjectConfig>()
+    let row = db
+        .prepare("SELECT * FROM projects WHERE subdomain = ?1")
+        .bind(&[subdomain.into()])
+        .map_err(|e| format!("D1 bind error: {e}"))?
+        .first::<serde_json::Value>(None)
         .await
-        .map_err(|e| format!("KV get error: {e}"))?
+        .map_err(|e| format!("D1 query error: {e}"))?
         .ok_or_else(|| format!("project '{}' not found", subdomain))?;
 
-    Ok(config)
+    project_from_row(&row)
+        .ok_or_else(|| format!("failed to parse project '{}' from D1", subdomain))
 }

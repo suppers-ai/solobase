@@ -23,7 +23,7 @@ impl Block for SystemBlock {
         }
     }
 
-    async fn handle(&self, _ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let path = msg.path();
 
         match path {
@@ -42,18 +42,18 @@ impl Block for SystemBlock {
             }
             "/nav" => {
                 let nav = serde_json::json!([
-                    {"id": "dashboard", "title": "Dashboard", "label": "Dashboard", "href": "/admin", "path": "/admin", "icon": "LayoutDashboard"},
-                    {"id": "users", "title": "Users", "label": "Users", "href": "/admin/users", "path": "/admin/users", "icon": "Users"},
-                    {"id": "database", "title": "Database", "label": "Database", "href": "/admin/database", "path": "/admin/database", "icon": "Database"},
-                    {"id": "iam", "title": "IAM", "label": "IAM", "href": "/admin/iam", "path": "/admin/iam", "icon": "Shield"},
-                    {"id": "logs", "title": "Logs", "label": "Logs", "href": "/admin/logs", "path": "/admin/logs", "icon": "FileText"},
-                    {"id": "settings", "title": "Settings", "label": "Settings", "href": "/admin/settings", "path": "/admin/settings", "icon": "Settings"},
-                    {"id": "legalpages", "title": "Legal Pages", "label": "Legal Pages", "href": "/admin/legalpages", "path": "/admin/legalpages", "icon": "Scale"},
-                    {"id": "products", "title": "Products", "label": "Products", "href": "/admin/b/products", "path": "/admin/b/products", "icon": "ShoppingBag"},
-                    {"id": "files", "title": "Files", "label": "Files", "href": "/admin/storage", "path": "/admin/storage", "icon": "FolderOpen"},
-                    {"id": "custom-tables", "title": "Custom Tables", "label": "Custom Tables", "href": "/admin/custom-tables", "path": "/admin/custom-tables", "icon": "Table"}
+                    {"id": "dashboard", "title": "Dashboard", "label": "Dashboard", "href": "/blocks/admin/frontend/#dashboard", "icon": "layout-dashboard"},
+                    {"id": "users", "title": "Users", "label": "Users", "href": "/blocks/admin/frontend/#users", "icon": "users"},
+                    {"id": "iam", "title": "IAM", "label": "IAM", "href": "/blocks/admin/frontend/iam/", "icon": "shield"},
+                    {"id": "logs", "title": "Logs", "label": "Logs", "href": "/blocks/logs/frontend/", "icon": "file-text"},
+                    {"id": "settings", "title": "Settings", "label": "Settings", "href": "/blocks/admin/frontend/#settings", "icon": "settings"},
+                    {"id": "blocks", "title": "Blocks", "label": "Blocks", "href": "/blocks/admin/frontend/#blocks", "icon": "layers"},
+                    {"id": "products", "title": "Products", "label": "Products", "href": "/blocks/products/frontend/", "icon": "shopping-bag"}
                 ]);
                 json_respond(msg, &nav)
+            }
+            _ if path.starts_with("/debug/inspector") => {
+                ctx.call_block("wafer-run/inspector", msg).await
             }
             _ => err_not_found(msg, "not found"),
         }

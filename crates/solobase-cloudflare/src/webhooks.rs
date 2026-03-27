@@ -51,8 +51,8 @@ async fn handle_products_webhook(req: &Request, env: &Env, body: &[u8]) -> Resul
     let payload: WebhookPayload = serde_json::from_slice(body)
         .map_err(|e| Error::RustError(format!("invalid webhook body: {e}")))?;
 
-    let kv = env.kv("PROJECTS")
-        .map_err(|e| Error::RustError(format!("KV binding: {e}")))?;
+    let db = env.d1("DB")
+        .map_err(|e| Error::RustError(format!("D1 binding: {e}")))?;
 
     match payload.event.as_str() {
         "products.checkout.completed" | "products.subscription.updated" => {
@@ -66,7 +66,7 @@ async fn handle_products_webhook(req: &Request, env: &Env, body: &[u8]) -> Resul
                 );
             }
 
-            let updated = sync_user_projects(&kv, user_id, plan, "active").await?;
+            let updated = sync_user_projects(&db, user_id, plan, "active").await?;
             console_log!("Webhook {}: updated {} projects for user {}", payload.event, updated, user_id);
 
             json_response(&serde_json::json!({"ok": true, "updated": updated}), 200)
@@ -82,7 +82,7 @@ async fn handle_products_webhook(req: &Request, env: &Env, body: &[u8]) -> Resul
                 );
             }
 
-            let updated = sync_user_projects(&kv, user_id, "free", "suspended").await?;
+            let updated = sync_user_projects(&db, user_id, "free", "suspended").await?;
             console_log!("Webhook {}: suspended {} projects for user {}", payload.event, updated, user_id);
 
             json_response(&serde_json::json!({"ok": true, "suspended": updated}), 200)
@@ -96,10 +96,10 @@ async fn handle_products_webhook(req: &Request, env: &Env, body: &[u8]) -> Resul
 }
 
 /// Read a variable from the cloud project's D1 database via CF API.
-/// Looks up the cloud project's db_id from KV, then queries its D1.
+/// Looks up the cloud project's db_id from D1, then queries its project D1.
 async fn get_cloud_variable(env: &Env, key: &str) -> Option<String> {
-    let kv = env.kv("PROJECTS").ok()?;
-    let config = provision::get_project(&kv, "cloud").await.ok()??;
+    let db = env.d1("DB").ok()?;
+    let config = provision::get_project(&db, "cloud").await.ok()??;
     let db_id = config.db_id.as_ref()?;
 
     let creds = CfCredentials::from_env(env).ok()?;
@@ -117,24 +117,26 @@ async fn get_cloud_variable(env: &Env, key: &str) -> Option<String> {
 
 /// Update plan/status on all projects owned by a user.
 async fn sync_user_projects(
-    kv: &kv::KvStore,
+    db: &D1Database,
     user_id: &str,
     plan: &str,
     status: &str,
 ) -> Result<u32> {
-    let subdomains = provision::list_projects(kv).await?;
-    let mut updated = 0;
+    // Update all projects owned by this user in a single query
+    let result = db
+        .prepare(
+            "UPDATE projects SET plan = ?1, status = ?2, updated_at = datetime('now') \
+             WHERE owner_user_id = ?3"
+        )
+        .bind(&[plan.into(), status.into(), user_id.into()])?
+        .run()
+        .await?;
 
-    for subdomain in &subdomains {
-        if let Some(mut config) = provision::get_project(kv, subdomain).await? {
-            if config.owner_user_id.as_deref() == Some(user_id) {
-                config.plan = plan.to_string();
-                config.status = status.to_string();
-                provision::update_project(kv, subdomain, &config).await?;
-                updated += 1;
-            }
-        }
-    }
+    // D1 run() returns metadata; extract rows_written for the count
+    let meta = result.meta()?;
+    let updated = meta
+        .and_then(|m| m.rows_written)
+        .unwrap_or(0) as u32;
 
     Ok(updated)
 }

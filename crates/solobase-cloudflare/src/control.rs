@@ -35,10 +35,6 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
         );
     }
 
-    let kv = env
-        .kv("PROJECTS")
-        .map_err(|e| Error::RustError(format!("KV binding: {e}")))?;
-
     let db = env
         .d1("DB")
         .map_err(|e| Error::RustError(format!("D1 binding: {e}")))?;
@@ -48,14 +44,14 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
     match (method.as_str(), path) {
         // List all projects
         ("GET", "projects") => {
-            let projects = provision::list_projects(&kv).await?;
+            let projects = provision::list_projects(&db).await?;
             json_response(&serde_json::json!({"projects": projects}), 200)
         }
 
         // Get a specific project
         ("GET", _) if path.starts_with("projects/") => {
             let subdomain = path.strip_prefix("projects/").unwrap_or("");
-            match provision::get_project(&kv, subdomain).await? {
+            match provision::get_project(&db, subdomain).await? {
                 Some(config) => json_response(&config, 200),
                 None => json_response(
                     &serde_json::json!({"error": "not_found", "message": "project not found"}),
@@ -92,7 +88,7 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             }
 
             match provision::create_project(
-                env, &kv, &req.subdomain, &req.name, &req.plan,
+                env, &db, &req.subdomain, &req.name, &req.plan,
                 req.owner_user_id.as_deref(), req.platform,
             ).await {
                 Ok(project) => json_response(&project, 201),
@@ -116,7 +112,7 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
         // Update a project
         ("PUT" | "PATCH", _) if path.starts_with("projects/") => {
             let subdomain = path.strip_prefix("projects/").unwrap_or("");
-            let current = provision::get_project(&kv, subdomain)
+            let current = provision::get_project(&db, subdomain)
                 .await?
                 .ok_or_else(|| Error::RustError("project not found".into()))?;
 
@@ -138,14 +134,14 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
                 config.platform = platform;
             }
 
-            provision::update_project(&kv, subdomain, &config).await?;
+            provision::update_project(&db, subdomain, &config).await?;
             json_response(&config, 200)
         }
 
         // Delete a project (cleans up D1 + user worker)
         ("DELETE", _) if path.starts_with("projects/") => {
             let subdomain = path.strip_prefix("projects/").unwrap_or("");
-            provision::delete_project(env, &kv, subdomain).await?;
+            provision::delete_project(env, &db, subdomain).await?;
             json_response(&serde_json::json!({"deleted": true}), 200)
         }
 
@@ -177,7 +173,7 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
 
         // Trigger migrations on all user workers
         ("POST", "migrate-workers") => {
-            let projects = provision::list_projects(&kv).await?;
+            let projects = provision::list_projects(&db).await?;
             let dispatcher = env.dynamic_dispatcher("DISPATCHER")
                 .map_err(|e| Error::RustError(format!("dispatcher: {e}")))?;
 
@@ -213,7 +209,7 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
 
         // Platform health
         ("GET", "health") => {
-            let projects = provision::list_projects(&kv).await?;
+            let projects = provision::list_projects(&db).await?;
             json_response(
                 &serde_json::json!({
                     "status": "ok",

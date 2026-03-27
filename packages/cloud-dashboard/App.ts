@@ -1,10 +1,10 @@
 import {
 	html, api, checkAuth, isAuthenticated, authLoading, currentUser, userRoles, logout,
 	LoadingSpinner, PageHeader, StatCard, EmptyState, StatusBadge, TabNavigation,
-	ToastContainer, toasts, Button, Modal
+	ToastContainer, toasts, Button, Modal, DataTable, FilterBar
 } from '@solobase/ui';
 import { useState, useEffect, useCallback } from 'preact/hooks';
-import { Key, Settings, LogOut, CreditCard, Server, Activity, Plus, Trash2, Rocket, Shield, ExternalLink, Package } from 'lucide-preact';
+import { Key, Settings, LogOut, CreditCard, Server, Activity, Plus, Trash2, Rocket, Shield, ExternalLink, Package, BarChart3, Clock, XCircle } from 'lucide-preact';
 
 // ─── Auth Guard ──────────────────────────────────────────────────────
 function AuthGuard({ children }: { children: any }) {
@@ -39,11 +39,6 @@ function DashboardHeader() {
 				<img src="/images/logo_long.png" alt="Solobase" style=${{ height: '32px', width: 'auto' }} />
 			</div>
 			<div style=${{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-				${isAdmin ? html`
-					<a href="/blocks/admin/frontend/" style=${{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem', color: '#fe6627', textDecoration: 'none', fontWeight: 600 }}>
-						<${Shield} size=${16} /> Admin
-					</a>
-				` : null}
 				<span style=${{ fontSize: '0.813rem', color: '#64748b' }}>${user?.email || ''}</span>
 				<button onClick=${() => { logout(); window.location.href = '/auth/login'; }} style=${{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.813rem' }}>
 					<${LogOut} size=${16} /> Logout
@@ -566,13 +561,178 @@ function SettingsTab() {
 	`;
 }
 
+// ─── Admin Tab (admin-only) ──────────────────────────────────────────
+
+const ADMIN_STATUS_STYLES: Record<string, { bg: string; color: string }> = {
+	active: { bg: '#dcfce7', color: '#166534' },
+	pending: { bg: '#fefce8', color: '#854d0e' },
+	stopped: { bg: '#fee2e2', color: '#991b1b' },
+	deleted: { bg: '#f1f5f9', color: '#475569' },
+};
+
+function adminStatusBadge(status: string) {
+	const s = ADMIN_STATUS_STYLES[status] || ADMIN_STATUS_STYLES.deleted;
+	return html`
+		<span style=${{
+			fontSize: '0.75rem',
+			padding: '0.125rem 0.5rem',
+			borderRadius: '9999px',
+			background: s.bg,
+			color: s.color
+		}}>${status || 'unknown'}</span>
+	`;
+}
+
+function AdminProjectsSubTab() {
+	const [deployments, setDeployments] = useState<any[]>([]);
+	const [loading, setLoading] = useState(true);
+	const [search, setSearch] = useState('');
+	const [statusFilter, setStatusFilter] = useState('all');
+	const [selected, setSelected] = useState<any>(null);
+	const [page, setPage] = useState(1);
+	const pageSize = 50;
+
+	useEffect(() => {
+		setLoading(true);
+		const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+		if (statusFilter !== 'all') params.set('status', statusFilter);
+		api.get(`/admin/b/projects?${params}`).then((data: any) => {
+			const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
+			// Flatten: { id, data: { name, ... } } → { id, name, ... }
+			setDeployments(records.map((r: any) => ({ id: r.id, ...r.data })));
+			setLoading(false);
+		}).catch(() => setLoading(false));
+	}, [page, statusFilter]);
+
+	const filtered = search
+		? deployments.filter(d => d.name?.toLowerCase().includes(search.toLowerCase()))
+		: deployments;
+
+	const columns = [
+		{ key: 'name', label: 'Name', sortable: true },
+		{ key: 'subdomain', label: 'Subdomain', sortable: true, render: (v: string) => v ? `${v}.solobase.dev` : '-' },
+		{ key: 'status', label: 'Status', render: (v: string) => adminStatusBadge(v) },
+		{ key: 'plan', label: 'Plan', sortable: true },
+		{ key: 'created_at', label: 'Created', sortable: true, render: (v: string) => v ? new Date(v).toLocaleDateString() : '-' },
+	];
+
+	if (loading) return html`<${LoadingSpinner} message="Loading projects..." />`;
+
+	return html`
+		<div>
+			<${FilterBar} search=${search} onSearchChange=${setSearch} searchPlaceholder="Search by name...">
+				<select
+					value=${statusFilter}
+					onChange=${(e: Event) => { setStatusFilter((e.target as HTMLSelectElement).value); setPage(1); }}
+					style=${{
+						padding: '0.5rem 0.75rem',
+						borderRadius: '8px',
+						border: '1px solid #e2e8f0',
+						fontSize: '0.875rem',
+						background: 'white',
+						color: '#1e293b',
+						cursor: 'pointer'
+					}}
+				>
+					<option value="all">All Statuses</option>
+					<option value="active">Active</option>
+					<option value="pending">Pending</option>
+					<option value="stopped">Stopped</option>
+					<option value="deleted">Deleted</option>
+				</select>
+			<//>
+			<${DataTable}
+				columns=${columns}
+				data=${filtered}
+				emptyMessage="No projects found"
+				onRowClick=${(row: any) => setSelected(row)}
+			/>
+			${selected ? html`
+				<${Modal} show=${true} title="Project Details" maxWidth="600px" onClose=${() => setSelected(null)}>
+					<div style=${{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+						<div style=${{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '0.5rem', fontSize: '0.875rem' }}>
+							${Object.entries(selected).map(([key, val]: [string, any]) => html`
+								<div key=${key} style=${{ fontWeight: 600, color: '#64748b' }}>${key}</div>
+								<div style=${{ color: '#1e293b', wordBreak: 'break-all' }}>
+									${key === 'status' ? adminStatusBadge(String(val)) : typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val ?? '-')}
+								</div>
+							`)}
+						</div>
+					</div>
+				<//>
+			` : null}
+		</div>
+	`;
+}
+
+function AdminStatsSubTab() {
+	const [stats, setStats] = useState<any>(null);
+	const [loading, setLoading] = useState(true);
+
+	useEffect(() => {
+		api.get('/admin/b/projects/stats').then((data: any) => {
+			setStats(data);
+			setLoading(false);
+		}).catch(() => setLoading(false));
+	}, []);
+
+	if (loading) return html`<${LoadingSpinner} message="Loading stats..." />`;
+
+	return html`
+		<div>
+			<div style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+				<${StatCard} title="Total Projects" value=${stats?.total ?? 0} icon=${Rocket} />
+				<${StatCard} title="Active" value=${stats?.active ?? 0} icon=${Activity} color="#16a34a" />
+				<${StatCard} title="Pending" value=${stats?.pending ?? 0} icon=${Clock} color="#ca8a04" />
+				<${StatCard} title="Stopped" value=${stats?.stopped ?? 0} icon=${XCircle} color="#dc2626" />
+				<${StatCard} title="Deleted" value=${stats?.deleted ?? 0} icon=${Trash2} color="#64748b" />
+			</div>
+		</div>
+	`;
+}
+
+function AdminTab() {
+	const [subTab, setSubTab] = useState('projects');
+
+	const subTabs = [
+		{ id: 'projects', label: 'All Projects', icon: Rocket },
+		{ id: 'stats', label: 'Stats', icon: BarChart3 },
+	];
+
+	return html`
+		<div>
+			<div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+				<${PageHeader} title="Admin" description="Manage projects across all users" />
+				<a href="/blocks/admin/frontend/" style=${{
+					display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+					padding: '0.5rem 1rem', background: '#f1f5f9', color: '#475569',
+					borderRadius: '8px', fontSize: '0.813rem', fontWeight: 500,
+					textDecoration: 'none', border: '1px solid #e2e8f0', whiteSpace: 'nowrap'
+				}}>
+					<${Shield} size=${14} />
+					Open Admin Panel
+				</a>
+			</div>
+			<div style=${{ marginBottom: '1.5rem' }}>
+				<${TabNavigation} tabs=${subTabs} activeTab=${subTab} onTabChange=${setSubTab} />
+			</div>
+			${subTab === 'projects' ? html`<${AdminProjectsSubTab} />` : null}
+			${subTab === 'stats' ? html`<${AdminStatsSubTab} />` : null}
+		</div>
+	`;
+}
+
 // ─── Dashboard Nav ───────────────────────────────────────────────────
 function DashboardNav({ active, onNavigate }: { active: string, onNavigate: (page: string) => void }) {
+	const roles = userRoles.value;
+	const isAdmin = Array.isArray(roles) && roles.includes('admin');
+
 	const tabs = [
 		{ id: 'overview', label: 'Overview', icon: Activity },
 		{ id: 'projects', label: 'Projects', icon: Server },
 		{ id: 'api-keys', label: 'API Keys', icon: Key },
 		{ id: 'settings', label: 'Settings', icon: Settings },
+		...(isAdmin ? [{ id: 'admin', label: 'Admin', icon: Shield }] : []),
 	];
 
 	return html`
@@ -605,6 +765,7 @@ function Dashboard() {
 				${page === 'projects' ? html`<${ProjectsTab} />` : null}
 				${page === 'api-keys' ? html`<${ApiKeysTab} />` : null}
 				${page === 'settings' ? html`<${SettingsTab} />` : null}
+				${page === 'admin' ? html`<${AdminTab} />` : null}
 			</main>
 			<${ToastContainer} />
 		</div>

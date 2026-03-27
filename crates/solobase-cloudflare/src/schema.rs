@@ -35,6 +35,20 @@ const MIGRATIONS: &[&str] = &[
         UNIQUE(project_id, month)
     )",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_project_usage_pm ON project_usage (project_id, month)",
+
+    "CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        subdomain TEXT NOT NULL UNIQUE,
+        name TEXT DEFAULT '',
+        plan TEXT DEFAULT 'free',
+        status TEXT DEFAULT 'active',
+        owner_user_id TEXT DEFAULT '',
+        db_id TEXT DEFAULT '',
+        platform INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    )",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_subdomain ON projects (subdomain)",
 ];
 
 /// Run platform schema migrations on the platform D1 database.

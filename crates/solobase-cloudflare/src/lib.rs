@@ -97,9 +97,9 @@ async fn handle_project_request(
     host: &str,
     is_dev: bool,
 ) -> Result<Response> {
-    let kv = env.kv("PROJECTS").map_err(|e| Error::RustError(format!("KV: {e}")))?;
+    let db = env.d1("DB").map_err(|e| Error::RustError(format!("D1: {e}")))?;
 
-    let project = match project::resolve_project(host, &kv, is_dev).await {
+    let project = match project::resolve_project(host, &db, is_dev).await {
         Ok(p) => p,
         Err(e) => {
             let resp = helpers::error_json("not_found", &format!("project not found: {e}"), 404)?;
@@ -116,9 +116,7 @@ async fn handle_project_request(
     }
 
     // Usage tracking against platform DB
-    let platform_db = env.d1("DB")
-        .map_err(|e| Error::RustError(format!("D1: {e}")))?;
-    let usage_result = usage::check_and_increment_usage(&platform_db, &project).await;
+    let usage_result = usage::check_and_increment_usage(&db, &project).await;
 
     if let Some(ref err) = usage_result.error {
         let resp = helpers::error_json("resource_exhausted", err, 429)?;

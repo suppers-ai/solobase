@@ -1,29 +1,34 @@
 //! Project provisioning — create, update, and manage project configurations.
 //!
-//! Projects are stored in Cloudflare KV with key pattern:
-//! - `project:{subdomain}:config` → ProjectConfig JSON
-//! - `projects:list` → JSON array of all subdomain strings
+//! Projects are stored in the platform D1 database (`projects` table).
 //!
 //! Provisioning creates a D1 database and uploads a user worker via the
 //! Cloudflare API, then triggers schema migrations on the new worker.
 
+use wasm_bindgen::JsValue;
 use worker::*;
 
 use crate::cf_api::{self, CfCredentials, WorkerBindings};
-use crate::project::ProjectConfig;
+use crate::project::{project_from_row, ProjectConfig};
 
 /// Provision a new project: create D1 + R2 bucket, upload user worker, run migrations.
 pub async fn create_project(
     env: &Env,
-    kv: &kv::KvStore,
+    db: &D1Database,
     subdomain: &str,
     name: &str,
     plan: &str,
     owner_user_id: Option<&str>,
     platform: bool,
 ) -> Result<ProjectConfig> {
-    let key = format!("project:{}:config", subdomain);
-    if kv.get(&key).json::<ProjectConfig>().await?.is_some() {
+    // Check if project already exists
+    let existing = db
+        .prepare("SELECT id FROM projects WHERE subdomain = ?1")
+        .bind(&[subdomain.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+
+    if existing.is_some() {
         return Err(Error::RustError(format!("project '{}' already exists", subdomain)));
     }
 
@@ -110,7 +115,27 @@ pub async fn create_project(
         console_log!("Health check passed for '{}'", subdomain);
     }
 
-    // 7. Store project config in KV
+    // 7. Store project config in D1
+    let display_name = if name.is_empty() { subdomain } else { name };
+    let owner = owner_user_id.unwrap_or("");
+    let platform_int: u8 = if platform { 1 } else { 0 };
+
+    db.prepare(
+        "INSERT INTO projects (id, subdomain, name, plan, status, owner_user_id, db_id, platform) \
+         VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?7)"
+    )
+    .bind(&[
+        project_id.clone().into(),
+        subdomain.into(),
+        display_name.into(),
+        plan.into(),
+        owner.into(),
+        db_id.clone().into(),
+        JsValue::from(platform_int),
+    ])?
+    .run()
+    .await?;
+
     let config = ProjectConfig {
         id: project_id.clone(),
         subdomain: subdomain.to_string(),
@@ -119,29 +144,18 @@ pub async fn create_project(
         status: "active".to_string(),
         owner_user_id: owner_user_id.map(String::from),
         db_id: Some(db_id),
-        db_binding: None,
         platform,
         blocks: Vec::new(),
     };
-
-    let config_str = serde_json::to_string(&config)
-        .map_err(|e| Error::RustError(format!("serialize config: {e}")))?;
-
-    kv.put(&format!("project:{}:config", subdomain), config_str)
-        .map_err(|e| Error::RustError(format!("KV put: {e}")))?
-        .execute()
-        .await?;
-
-    add_to_project_list(kv, subdomain).await?;
 
     console_log!("Project '{}' fully provisioned (id: {})", subdomain, config.id);
     Ok(config)
 }
 
-/// Delete a project: remove user worker, D1 database, R2 bucket, and KV config.
+/// Delete a project: remove user worker, D1 database, R2 bucket, and D1 row.
 pub async fn delete_project(
     env: &Env,
-    kv: &kv::KvStore,
+    db: &D1Database,
     subdomain: &str,
 ) -> Result<()> {
     let creds = CfCredentials::from_env(env)?;
@@ -150,8 +164,7 @@ pub async fn delete_project(
         .unwrap_or_else(|_| "development".into());
 
     // Look up project config to get db_id
-    let key = format!("project:{}:config", subdomain);
-    let config = kv.get(&key).json::<ProjectConfig>().await?;
+    let config = get_project(db, subdomain).await?;
 
     // Delete user worker from namespace
     if let Err(e) = cf_api::delete_user_worker(&creds, subdomain).await {
@@ -173,44 +186,69 @@ pub async fn delete_project(
         console_log!("Warning: failed to delete R2 bucket '{}': {e}", r2_bucket_name);
     }
 
-    // Remove from KV
-    kv.delete(&key).await?;
-    remove_from_project_list(kv, subdomain).await?;
+    // Remove from D1
+    db.prepare("DELETE FROM projects WHERE subdomain = ?1")
+        .bind(&[subdomain.into()])?
+        .run()
+        .await?;
 
     console_log!("Project '{}' deleted", subdomain);
     Ok(())
 }
 
 /// List all project subdomains.
-pub async fn list_projects(kv: &kv::KvStore) -> Result<Vec<String>> {
-    let list = kv
-        .get("projects:list")
-        .json::<Vec<String>>()
-        .await?
-        .unwrap_or_default();
-    Ok(list)
+pub async fn list_projects(db: &D1Database) -> Result<Vec<String>> {
+    let results = db
+        .prepare("SELECT subdomain FROM projects")
+        .bind(&[])?
+        .all()
+        .await?;
+
+    let rows = results.results::<serde_json::Value>()?;
+    let subdomains = rows
+        .iter()
+        .filter_map(|row| row.get("subdomain").and_then(|v| v.as_str().map(String::from)))
+        .collect();
+    Ok(subdomains)
 }
 
 /// Get a project's config.
-pub async fn get_project(kv: &kv::KvStore, subdomain: &str) -> Result<Option<ProjectConfig>> {
-    let key = format!("project:{}:config", subdomain);
-    kv.get(&key).json::<ProjectConfig>().await.map_err(|e| e.into())
+pub async fn get_project(db: &D1Database, subdomain: &str) -> Result<Option<ProjectConfig>> {
+    let row = db
+        .prepare("SELECT * FROM projects WHERE subdomain = ?1")
+        .bind(&[subdomain.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+
+    Ok(row.as_ref().and_then(project_from_row))
 }
 
 /// Update a project's config.
 pub async fn update_project(
-    kv: &kv::KvStore,
+    db: &D1Database,
     subdomain: &str,
     config: &ProjectConfig,
 ) -> Result<()> {
-    let key = format!("project:{}:config", subdomain);
-    let config_json = serde_json::to_string(config)
-        .map_err(|e| Error::RustError(format!("serialize config: {e}")))?;
+    let owner = config.owner_user_id.as_deref().unwrap_or("");
+    let db_id = config.db_id.as_deref().unwrap_or("");
+    let platform_int: u8 = if config.platform { 1 } else { 0 };
 
-    kv.put(&key, config_json)
-        .map_err(|e| Error::RustError(format!("KV put: {e}")))?
-        .execute()
-        .await?;
+    db.prepare(
+        "UPDATE projects SET name = ?1, plan = ?2, status = ?3, owner_user_id = ?4, \
+         db_id = ?5, platform = ?6, updated_at = datetime('now') WHERE subdomain = ?7"
+    )
+    .bind(&[
+        config.name.as_str().into(),
+        config.plan.as_str().into(),
+        config.status.as_str().into(),
+        owner.into(),
+        db_id.into(),
+        JsValue::from(platform_int),
+        subdomain.into(),
+    ])?
+    .run()
+    .await?;
+
     Ok(())
 }
 
@@ -224,31 +262,4 @@ async fn read_r2_bytes(bucket: &Bucket, key: &str) -> Result<Vec<u8>> {
     let body = obj.body()
         .ok_or_else(|| Error::RustError(format!("R2 object '{}' has no body", key)))?;
     body.bytes().await
-}
-
-
-async fn add_to_project_list(kv: &kv::KvStore, subdomain: &str) -> Result<()> {
-    let mut list = list_projects(kv).await?;
-    if !list.contains(&subdomain.to_string()) {
-        list.push(subdomain.to_string());
-        let json = serde_json::to_string(&list)
-            .map_err(|e| Error::RustError(format!("serialize list: {e}")))?;
-        kv.put("projects:list", json)
-            .map_err(|e| Error::RustError(format!("KV put: {e}")))?
-            .execute()
-            .await?;
-    }
-    Ok(())
-}
-
-async fn remove_from_project_list(kv: &kv::KvStore, subdomain: &str) -> Result<()> {
-    let mut list = list_projects(kv).await?;
-    list.retain(|s| s != subdomain);
-    let json = serde_json::to_string(&list)
-        .map_err(|e| Error::RustError(format!("serialize list: {e}")))?;
-    kv.put("projects:list", json)
-        .map_err(|e| Error::RustError(format!("KV put: {e}")))?
-        .execute()
-        .await?;
-    Ok(())
 }

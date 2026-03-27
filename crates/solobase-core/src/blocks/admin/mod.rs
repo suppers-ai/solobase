@@ -90,7 +90,17 @@ impl Block for AdminBlock {
             return settings::handle(ctx, msg).await;
         }
         if path.starts_with("/admin/extensions") {
-            return wafer_run::helpers::json_respond(msg, &serde_json::json!([]));
+            let blocks: Vec<_> = ctx.registered_blocks().into_iter().map(|b| {
+                serde_json::json!({
+                    "name": b.name,
+                    "version": b.version,
+                    "interface": b.interface,
+                    "summary": b.summary,
+                    "runtime": format!("{:?}", b.runtime),
+                    "enabled": true,
+                })
+            }).collect();
+            return wafer_run::helpers::json_respond(msg, &blocks);
         }
         if path.starts_with("/admin/wafer") {
             return wafer_info::handle(ctx, msg);

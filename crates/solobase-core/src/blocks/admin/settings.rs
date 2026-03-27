@@ -14,11 +14,39 @@ pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
 
     match (action, path) {
+        ("retrieve", "/admin/settings/all") => handle_list_full(ctx, msg).await,
         ("retrieve", "/admin/settings") | ("retrieve", "/settings") => handle_list(ctx, msg).await,
         ("retrieve", _) if path.starts_with("/admin/settings/") || path.starts_with("/settings/") => handle_get(ctx, msg).await,
         ("update", _) if path.starts_with("/admin/settings/") => handle_set(ctx, msg).await,
         ("create", "/admin/settings") => handle_set_batch(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
+    }
+}
+
+async fn handle_list_full(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let opts = ListOptions { limit: 1000, ..Default::default() };
+    match db::list(ctx, COLLECTION, &opts).await {
+        Ok(result) => {
+            let vars: Vec<_> = result.records.iter().map(|record| {
+                let is_sensitive = record.i64_field("sensitive") == 1;
+                let value = if is_sensitive {
+                    MASKED_VALUE.to_string()
+                } else {
+                    record.str_field("value").to_string()
+                };
+                serde_json::json!({
+                    "key": record.str_field("key"),
+                    "name": record.str_field("name"),
+                    "description": record.str_field("description"),
+                    "value": value,
+                    "warning": record.str_field("warning"),
+                    "sensitive": is_sensitive,
+                    "updated_at": record.str_field("updated_at"),
+                })
+            }).collect();
+            json_respond(msg, &vars)
+        }
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 

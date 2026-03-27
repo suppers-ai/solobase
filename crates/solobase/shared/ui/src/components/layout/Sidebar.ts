@@ -6,7 +6,7 @@ import { API_BASE } from '../../api';
 import {
 	ChevronsLeft, ChevronsRight, LogOut, Settings,
 	LayoutDashboard, Users, Database, HardDrive, Shield,
-	FileText, Table, Package, GitBranch, ShoppingBag, ScrollText
+	FileText, Table, Package, GitBranch, ShoppingBag, ScrollText, Layers
 } from 'lucide-preact';
 
 const iconMap: Record<string, any> = {
@@ -22,6 +22,7 @@ const iconMap: Record<string, any> = {
 	'git-branch': GitBranch,
 	'shopping-bag': ShoppingBag,
 	'scroll-text': ScrollText,
+	'layers': Layers,
 };
 
 interface NavItem {
