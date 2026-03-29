@@ -411,6 +411,7 @@ impl Block for LegalPagesBlock {
             admin_ui: Some(AdminUIInfo {
                 label: "Legal Pages".to_string(),
                 description: "Legal pages management with versioning and publishing".to_string(),
+                url: "/b/legalpages/admin".to_string(),
             }),
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),

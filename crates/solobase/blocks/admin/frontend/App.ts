@@ -367,6 +367,13 @@ function BlocksTab() {
 							</div>
 						</div>
 						<div style=${{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+							${b.admin_ui?.url ? html`
+								<a href=${b.admin_ui.url} style=${{
+									fontSize: '0.688rem', padding: '0.25rem 0.625rem', borderRadius: '6px',
+									background: '#fe6627', color: 'white', textDecoration: 'none', fontWeight: 600,
+									display: 'inline-flex', alignItems: 'center', gap: '0.25rem'
+								}}>Manage</a>
+							` : null}
 							<span style=${{
 								fontSize: '0.688rem',
 								padding: '0.125rem 0.5rem',

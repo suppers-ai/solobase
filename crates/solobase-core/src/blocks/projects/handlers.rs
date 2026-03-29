@@ -273,27 +273,29 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let slug = name.clone();
 
-    // Check if subdomain is already taken (non-deleted projects)
-    let slug_filters = vec![
-        Filter {
-            field: "slug".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(slug.clone()),
-        },
-        Filter {
-            field: "status".to_string(),
-            operator: FilterOp::NotEqual,
-            value: serde_json::Value::String("deleted".to_string()),
-        },
-    ];
-    match db::count(ctx, PROJECTS_COLLECTION, &slug_filters).await {
-        Ok(count) if count > 0 => {
-            return err_conflict(msg, &format!("Subdomain '{}' is already taken", slug));
+    // Check if subdomain is already taken (only live projects — pending, active, inactive)
+    let mut taken = false;
+    for status in &["pending", "active", "inactive"] {
+        let slug_filters = vec![
+            Filter {
+                field: "slug".to_string(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(slug.clone()),
+            },
+            Filter {
+                field: "status".to_string(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(status.to_string()),
+            },
+        ];
+        if db::count(ctx, PROJECTS_COLLECTION, &slug_filters).await.unwrap_or(0) > 0 {
+            taken = true;
+            break;
         }
-        Err(e) => {
-            return err_internal(msg, &format!("Database error: {e}"));
-        }
-        _ => {}
+    }
+    let slug_filters: Vec<Filter> = vec![];
+    if taken {
+        return err_conflict(msg, &format!("Subdomain '{}' is already taken", slug));
     }
 
     // Check plan limit for project creation (count non-deleted projects)

@@ -17,9 +17,7 @@ export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationPro
 	return html`
 		<div style=${{
 			display: 'flex',
-			gap: '0',
-			borderBottom: '1px solid var(--border-color, #e2e8f0)',
-			marginBottom: '1.5rem'
+			gap: '0'
 		}}>
 			${tabs.map(tab => html`
 				<button
@@ -30,7 +28,6 @@ export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationPro
 						background: 'none',
 						border: 'none',
 						borderBottom: `2px solid ${activeTab === tab.id ? 'var(--primary-color, #fe6627)' : 'transparent'}`,
-						marginBottom: '-2px',
 						color: activeTab === tab.id ? 'var(--primary-color, #fe6627)' : 'var(--text-secondary, #64748b)',
 						fontWeight: 400,
 						fontSize: '0.875rem',

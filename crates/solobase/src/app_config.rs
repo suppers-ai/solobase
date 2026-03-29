@@ -62,10 +62,15 @@ impl InfraConfig {
         }
     }
 
-    /// Expand this config into infrastructure block configs + aliases for WAFER.
+    /// Expand this config into non-service block configs + aliases for WAFER.
+    ///
+    /// Service blocks (database, storage, config, crypto, network, logger) are
+    /// registered via `wafer_core::service_blocks::*::register_with()` in main.rs
+    /// with pre-initialized services. This method only returns configs for blocks
+    /// that are NOT service blocks (http-listener, web).
     pub fn to_blocks_json(&self) -> (Map<String, Value>, Vec<(String, String)>) {
         let mut blocks = Map::new();
-        let mut aliases: Vec<(String, String)> = Vec::new();
+        let aliases: Vec<(String, String)> = Vec::new();
 
         // HTTP listener
         blocks.insert("wafer-run/http-listener".into(), json!({
@@ -79,32 +84,6 @@ impl InfraConfig {
             "web_spa": "true",
             "web_index": "index.html"
         }));
-
-        // Database
-        let db_block_name = match self.db_type.as_str() {
-            "postgres" | "postgresql" => "wafer-run/postgres",
-            _ => "wafer-run/sqlite",
-        };
-        let mut db_config = json!({ "path": self.db_path });
-        if let Some(ref url) = self.db_url {
-            db_config["url"] = json!(url);
-        }
-        blocks.insert(db_block_name.into(), db_config);
-        aliases.push(("db".into(), db_block_name.into()));
-        aliases.push(("wafer-run/database".into(), db_block_name.into()));
-
-        // Storage
-        let storage_block_name = match self.storage_type.as_str() {
-            "s3" => "wafer-run/s3",
-            _ => "wafer-run/local-storage",
-        };
-        blocks.insert(storage_block_name.into(), json!({ "root": self.storage_root }));
-        aliases.push(("storage".into(), storage_block_name.into()));
-        aliases.push(("wafer-run/storage".into(), storage_block_name.into()));
-
-        // Remaining infrastructure blocks
-        blocks.insert("wafer-run/network".into(), json!({}));
-        blocks.insert("wafer-run/logger".into(), json!({}));
 
         (blocks, aliases)
     }

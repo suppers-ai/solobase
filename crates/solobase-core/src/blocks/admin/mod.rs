@@ -6,7 +6,7 @@ mod settings;
 mod wafer_info;
 mod custom_tables;
 
-use wafer_run::block::{Block, BlockInfo};
+use wafer_run::block::{Block, BlockInfo, AdminUIInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
@@ -34,7 +34,11 @@ impl Block for AdminBlock {
             summary: "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: None,
+            admin_ui: Some(AdminUIInfo {
+                label: "Admin".to_string(),
+                description: "Users, database, storage, settings, and blocks".to_string(),
+                url: "/blocks/admin/frontend/".to_string(),
+            }),
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
             collections: vec![
@@ -91,14 +95,21 @@ impl Block for AdminBlock {
         }
         if path.starts_with("/admin/extensions") {
             let blocks: Vec<_> = ctx.registered_blocks().into_iter().map(|b| {
-                serde_json::json!({
+                let mut entry = serde_json::json!({
                     "name": b.name,
                     "version": b.version,
                     "interface": b.interface,
                     "summary": b.summary,
                     "runtime": format!("{:?}", b.runtime),
                     "enabled": true,
-                })
+                });
+                if let Some(ui) = &b.admin_ui {
+                    entry["admin_ui"] = serde_json::json!({
+                        "label": ui.label,
+                        "url": ui.url,
+                    });
+                }
+                entry
             }).collect();
             return wafer_run::helpers::json_respond(msg, &blocks);
         }

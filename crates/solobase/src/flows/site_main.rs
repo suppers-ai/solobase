@@ -4,7 +4,7 @@
 /// shared solobase-core pipeline (JWT validation, feature gates, admin checks,
 /// block dispatch). Non-API requests fall through to wafer-run/web for SPA serving.
 ///
-/// Infrastructure blocks (security headers, CORS, rate limiting, monitoring)
+/// Infrastructure blocks (security headers, CORS, readonly guard)
 /// are applied inline before routing.
 pub const JSON: &str = r#"{
     "id": "site-main",
@@ -15,8 +15,6 @@ pub const JSON: &str = r#"{
         { "id": "security-headers", "block": "wafer-run/security-headers" },
         { "id": "cors", "block": "wafer-run/cors" },
         { "id": "readonly-guard", "block": "wafer-run/readonly-guard" },
-        { "id": "rate-limit", "block": "wafer-run/ip-rate-limit" },
-        { "id": "monitoring", "block": "wafer-run/monitoring" },
         { "id": "router", "block": "wafer-run/router" }
     ],
     "config": { "on_error": "stop" },

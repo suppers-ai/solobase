@@ -71,7 +71,7 @@ async fn main() {
     // 7. Create WAFER runtime
     let mut wafer = Wafer::new();
 
-    // 8. Register infrastructure block configs
+    // 8. Register non-service block configs (http-listener, web)
     let (block_configs, aliases) = infra.to_blocks_json();
     for (name, config) in block_configs {
         wafer.add_block_config(name, config);
@@ -80,41 +80,61 @@ async fn main() {
         wafer.add_alias(alias, target);
     }
 
-    // 9. Register crypto block with JWT secret from variables
-    wafer.add_block_config("wafer-run/crypto".to_string(), serde_json::json!({ "jwt_secret": jwt_secret.clone() }));
+    // 9. Register unified service blocks (database, storage, config, crypto, network, logger)
+    {
+        use wafer_core::interfaces::config::service::ConfigService;
 
-    // 10. Register infrastructure blocks
+        // Database — open SQLite (already opened above for variable seeding, but the
+        // service needs its own connection for the block runtime)
+        let db_service = Arc::new(
+            wafer_block_sqlite::service::SQLiteDatabaseService::open(&infra.db_path)
+                .expect("failed to open SQLite database for block runtime"),
+        );
+        wafer_core::service_blocks::database::register_with(&mut wafer, db_service);
+        wafer.add_alias("db", "wafer-run/database");
+
+        // Storage — local filesystem
+        let storage_service = Arc::new(
+            wafer_block_local_storage::service::LocalStorageService::new(&infra.storage_root)
+                .expect("failed to create local storage service"),
+        );
+        wafer_core::service_blocks::storage::register_with(&mut wafer, storage_service);
+        wafer.add_alias("storage", "wafer-run/storage");
+
+        // Config — env vars with variables table overrides
+        let config_service = wafer_block_config::service::EnvConfigService::new();
+        for (key, value) in &vars {
+            config_service.set(key, value);
+        }
+        wafer_core::service_blocks::config::register_with(&mut wafer, Arc::new(config_service));
+
+        // Crypto — Argon2 password hashing + JWT
+        let crypto_service = Arc::new(
+            wafer_block_crypto::service::Argon2JwtCryptoService::new(jwt_secret.clone()),
+        );
+        wafer_core::service_blocks::crypto::register_with(&mut wafer, crypto_service);
+
+        // Network — async HTTP client
+        let network_service = Arc::new(wafer_block_network::service::HttpNetworkService::new());
+        wafer_core::service_blocks::network::register_with(&mut wafer, network_service);
+
+        // Logger — tracing
+        let logger_service = Arc::new(wafer_block_logger::service::TracingLogger);
+        wafer_core::service_blocks::logger::register_with(&mut wafer, logger_service);
+    }
+
+    // 10. Register middleware and other infrastructure blocks
     wafer_block_auth_validator::register(&mut wafer);
     wafer_block_cors::register(&mut wafer);
     wafer_block_iam_guard::register(&mut wafer);
     wafer_block_inspector::register(&mut wafer);
-    wafer_block_monitoring::register(&mut wafer);
-    wafer_block_ip_rate_limit::register(&mut wafer);
     wafer_block_readonly_guard::register(&mut wafer);
     wafer_block_router::register(&mut wafer);
     wafer_block_security_headers::register(&mut wafer);
     wafer_block_web::register(&mut wafer);
-    wafer_block_logger::register(&mut wafer);
     #[cfg(feature = "server")]
     {
-        wafer_block_crypto::register(&mut wafer);
-        wafer_block_network::register(&mut wafer);
         wafer_block_http_listener::register(&mut wafer);
-    }
-    wafer_block_sqlite::register(&mut wafer);
-    wafer_block_local_storage::register(&mut wafer);
-
-    // 11. Register config block with variables as overrides
-    {
-        use wafer_block_config::service::ConfigService;
-        let service = wafer_block_config::service::EnvConfigService::new();
-        for (key, value) in &vars {
-            service.set(key, value);
-        }
-        wafer.register_block(
-            "wafer-run/config",
-            Arc::new(wafer_block_config::ConfigBlock::new(Some(Arc::new(service)))),
-        );
     }
     tracing::info!("infrastructure blocks registered");
 

@@ -24,8 +24,8 @@ server = [
     "dep:wafer-block-cors",
     "dep:wafer-block-iam-guard",
     "dep:wafer-block-inspector",
-    "dep:wafer-block-monitoring",
-    "dep:wafer-block-ip-rate-limit",
+
+
     "dep:wafer-block-readonly-guard",
     "dep:wafer-block-router",
     "dep:wafer-block-security-headers",
@@ -55,8 +55,6 @@ wafer-block-auth-validator = { path = "../../../wafer-run/crates/wafer-block-aut
 wafer-block-cors = { path = "../../../wafer-run/crates/wafer-block-cors", optional = true }
 wafer-block-iam-guard = { path = "../../../wafer-run/crates/wafer-block-iam-guard", optional = true }
 wafer-block-inspector = { path = "../../../wafer-run/crates/wafer-block-inspector", optional = true }
-wafer-block-monitoring = { path = "../../../wafer-run/crates/wafer-block-monitoring", optional = true }
-wafer-block-ip-rate-limit = { path = "../../../wafer-run/crates/wafer-block-ip-rate-limit", optional = true }
 wafer-block-readonly-guard = { path = "../../../wafer-run/crates/wafer-block-readonly-guard", optional = true }
 wafer-block-router = { path = "../../../wafer-run/crates/wafer-block-router", optional = true }
 wafer-block-security-headers = { path = "../../../wafer-run/crates/wafer-block-security-headers", optional = true }

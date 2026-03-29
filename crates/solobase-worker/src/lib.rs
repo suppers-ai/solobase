@@ -3,17 +3,22 @@
 //! Deployed to a Workers for Platforms dispatch namespace. Each instance
 //! has its own D1 database binding and runs the full solobase block pipeline.
 //!
-//! Receives requests forwarded from the dispatch worker. Does NOT handle
-//! CORS (dispatch adds those headers), usage tracking, or static files.
+//! Receives requests forwarded from the dispatch worker. Runs project-level
+//! middleware (CORS, security headers, readonly guard) configured per-project.
+//! The dispatch worker handles platform-level concerns (plan quotas, platform CORS).
 //!
 //! Config is loaded from the D1 `variables` table — the single source of
 //! truth for project configuration. Feature flags use `FEATURE_*` variables.
 
+mod config_service;
 mod convert;
+mod crypto_service;
 mod database;
+mod dispatcher;
 mod helpers;
+mod logger_service;
+mod network_service;
 mod schema;
-mod service_blocks;
 mod storage;
 
 use std::collections::HashMap;
@@ -154,39 +159,43 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     // Create WAFER runtime
     let mut wafer = wafer_run::runtime::Wafer::new();
 
-    // Register CF service blocks
-    let db_service = D1DatabaseService::new(db);
-    let storage_service = R2StorageService::new(bucket);
-    wafer.register_block("wafer-run/d1", Arc::new(service_blocks::D1Block::new(db_service)));
-    wafer.register_block("wafer-run/r2", Arc::new(service_blocks::R2Block::new(storage_service)));
-    wafer.register_block("wafer-run/config", Arc::new(service_blocks::ConfigBlock::new(env_vars)));
-    wafer.register_block("wafer-run/crypto", Arc::new(service_blocks::CryptoBlock::new(jwt_secret.clone())));
-    wafer.register_block("wafer-run/network", Arc::new(service_blocks::NetworkBlock));
-    wafer.register_block("wafer-run/logger", Arc::new(service_blocks::LoggerBlock));
+    // Register unified service blocks with CF-specific service implementations
+    wafer_core::service_blocks::database::register_with(
+        &mut wafer, Arc::new(D1DatabaseService::new(db)),
+    );
+    wafer.add_alias("db", "wafer-run/database");
+
+    wafer_core::service_blocks::storage::register_with(
+        &mut wafer, Arc::new(R2StorageService::new(bucket)),
+    );
+    wafer.add_alias("storage", "wafer-run/storage");
+
+    wafer_core::service_blocks::config::register_with(
+        &mut wafer, Arc::new(config_service::HashMapConfigService::new(env_vars)),
+    );
+    wafer_core::service_blocks::crypto::register_with(
+        &mut wafer, Arc::new(crypto_service::SolobaseCryptoService::new(jwt_secret.clone())),
+    );
+    wafer_core::service_blocks::network::register_with(
+        &mut wafer, Arc::new(network_service::WorkerFetchService),
+    );
+    wafer_core::service_blocks::logger::register_with(
+        &mut wafer, Arc::new(logger_service::ConsoleLoggerService),
+    );
 
     // Register dispatcher block for internal RPC via service binding
     if let Some(fetcher) = has_dispatcher {
-        wafer.register_block("solobase/dispatcher", Arc::new(service_blocks::DispatcherBlock::new(fetcher)));
+        wafer.register_block("solobase/dispatcher", Arc::new(dispatcher::DispatcherBlock::new(fetcher)));
     }
 
-    // Aliases
-    wafer.add_alias("wafer-run/database", "wafer-run/d1");
-    wafer.add_alias("db", "wafer-run/d1");
-    wafer.add_alias("wafer-run/storage", "wafer-run/r2");
-    wafer.add_alias("storage", "wafer-run/r2");
+    // Project-level middleware blocks — users can configure these per-project
+    // (e.g. custom CORS origins, readonly mode, security headers).
+    // The dispatch worker handles platform-level concerns (plan quotas, platform CORS);
+    // these blocks handle project-level configuration.
+    wafer_block_security_headers::register(&mut wafer);
+    wafer_block_cors::register(&mut wafer);
+    wafer_block_readonly_guard::register(&mut wafer);
 
-    // Pass-through flow blocks (handled at dispatch/platform level)
-    for name in &[
-        "wafer-run/security-headers",
-        "wafer-run/cors",
-        "wafer-run/readonly-guard",
-        "wafer-run/ip-rate-limit",
-        "wafer-run/monitoring",
-    ] {
-        wafer.register_block_func(*name, |_ctx, msg| {
-            wafer_run::Result_::continue_with(msg.clone())
-        });
-    }
 
     // The site-main flow references wafer-run/router — alias to suppers-ai/router
     wafer.add_alias("wafer-run/router", "suppers-ai/router");

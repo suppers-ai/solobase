@@ -59,7 +59,7 @@ class ApiClient {
 
 			if (!response.ok) {
 				// Auto-logout on 401 — token is invalid (expired, secret rotated, etc.)
-				if (response.status === 401 && !url.includes('/auth/login')) {
+				if (response.status === 401 && !endpoint.includes('/auth/login')) {
 					const { authState } = await import('./stores/auth');
 					if (authState.value.user) {
 						authState.value = { user: null, roles: [], loading: false, error: null };

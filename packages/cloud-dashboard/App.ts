@@ -4,7 +4,7 @@ import {
 	ToastContainer, toasts, Button, Modal, DataTable, FilterBar
 } from '@solobase/ui';
 import { useState, useEffect, useCallback } from 'preact/hooks';
-import { Key, Settings, LogOut, CreditCard, Server, Activity, Plus, Trash2, Rocket, Shield, ExternalLink, Package, BarChart3, Clock, XCircle, Database, HardDrive } from 'lucide-preact';
+import { Key, Settings, LogOut, CreditCard, Server, Plus, Trash2, Rocket, Shield, ExternalLink, Package, BarChart3, Clock, XCircle } from 'lucide-preact';
 
 // ─── Auth Guard ──────────────────────────────────────────────────────
 function AuthGuard({ children }: { children: any }) {
@@ -49,33 +49,6 @@ function DashboardHeader() {
 }
 
 // ─── Usage Bar ──────────────────────────────────────────────────────
-function UsageBar({ label, used, limit, unit }: { label: string, used: number, limit: number, unit: string }) {
-	const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
-	const color = pct > 90 ? '#ef4444' : pct > 70 ? '#f59e0b' : '#fe6627';
-	const fmt = (n: number) => {
-		if (unit === 'bytes') {
-			if (n >= 1073741824) return `${(n / 1073741824).toFixed(1)} GB`;
-			if (n >= 1048576) return `${(n / 1048576).toFixed(0)} MB`;
-			return `${(n / 1024).toFixed(0)} KB`;
-		}
-		if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-		if (n >= 1000) return `${(n / 1000).toFixed(0)}K`;
-		return String(n);
-	};
-
-	return html`
-		<div style=${{ marginBottom: '1rem' }}>
-			<div style=${{ display: 'flex', justifyContent: 'space-between', fontSize: '0.813rem', marginBottom: '0.375rem' }}>
-				<span style=${{ fontWeight: 500, color: '#1e293b' }}>${label}</span>
-				<span style=${{ color: '#64748b' }}>${fmt(used)} / ${fmt(limit)}</span>
-			</div>
-			<div style=${{ height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
-				<div style=${{ height: '100%', width: `${pct}%`, background: color, borderRadius: '4px', transition: 'width 0.3s' }}></div>
-			</div>
-		</div>
-	`;
-}
-
 // ─── Plan limits (must match worker/types.ts PLANS) ─────────────────
 const PLAN_LIMITS: Record<string, { requests: number, r2: number, d1: number, maxCreated: number, maxActive: number }> = {
 	free: { requests: 0, r2: 0, d1: 0, maxCreated: 2, maxActive: 0 },
@@ -89,8 +62,8 @@ function OverviewTab() {
 	const user = currentUser.value;
 	const [planName, setPlanName] = useState<string>('...');
 	const [projectCount, setProjectCount] = useState<string>('...');
+	const [apiKeyCount, setApiKeyCount] = useState<string>('0');
 
-	const [usage, setUsage] = useState<any>(null);
 
 	useEffect(() => {
 		// Fetch subscription/plan + usage in one call
@@ -102,9 +75,6 @@ function OverviewTab() {
 			} else {
 				setPlanName('Free');
 			}
-			if (data?.usage) {
-				setUsage(data.usage);
-			}
 		}).catch(() => setPlanName('Free'));
 
 		// Fetch projects count
@@ -113,73 +83,23 @@ function OverviewTab() {
 			setProjectCount(String(records.length));
 		}).catch(() => setProjectCount('0'));
 
+		api.get('/auth/api-keys').then((data: any) => {
+			const keys = Array.isArray(data) ? data : Array.isArray(data?.keys) ? data.keys : [];
+			setApiKeyCount(String(keys.length));
+		}).catch(() => setApiKeyCount('0'));
+
 	}, []);
 
 	const displayName = user?.name || user?.email?.split('@')[0] || 'there';
-	const plan = planName.toLowerCase();
-	const limits = PLAN_LIMITS[plan] || PLAN_LIMITS['starter'];
-
-	const fmtCount = (n: number) => {
-		if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-		if (n >= 1000) return `${(n / 1000).toFixed(0)}K`;
-		return String(n);
-	};
-	const fmtBytes = (n: number) => {
-		if (n >= 1073741824) return `${(n / 1073741824).toFixed(1)} GB`;
-		if (n >= 1048576) return `${(n / 1048576).toFixed(0)} MB`;
-		return `${(n / 1024).toFixed(0)} KB`;
-	};
-	const requestsUsed = usage?.requests?.used || 0;
-	const requestsLimit = limits.requests + (usage?.requests?.addon || 0);
-	const requestsValue = usage ? `${fmtCount(requestsUsed)} / ${fmtCount(requestsLimit)}` : '...';
-
-	const d1Used = usage?.storage?.d1_bytes || 0;
-	const d1Limit = limits.d1 + (usage?.storage?.d1_addon_bytes || 0);
-	const d1Value = usage ? `${fmtBytes(d1Used)} / ${fmtBytes(d1Limit)}` : '...';
-
-	const r2Used = usage?.storage?.r2_bytes || 0;
-	const r2Limit = limits.r2 + (usage?.storage?.r2_addon_bytes || 0);
-	const r2Value = usage ? `${fmtBytes(r2Used)} / ${fmtBytes(r2Limit)}` : '...';
-
-	const now = new Date();
-	const resetDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-	const resetLabel = resetDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
 	return html`
 		<div>
 			<${PageHeader} title=${`Welcome back, ${displayName}`} description="Here's an overview of your account" />
-			<div style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem', marginBottom: '0.5rem' }}>
+			<div style=${{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
 				<${StatCard} title="Plan" value=${planName} icon=${CreditCard} />
 				<${StatCard} title="Projects" value=${projectCount} icon=${Server} />
-				<${StatCard} title="Requests" value=${requestsValue} icon=${Activity} />
-				<${StatCard} title="Database" value=${d1Value} icon=${Database} />
-				<${StatCard} title="File Storage" value=${r2Value} icon=${HardDrive} />
+				<${StatCard} title="API Keys" value=${apiKeyCount} icon=${Key} />
 			</div>
-			<p style=${{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '2rem' }}>Usage resets on ${resetLabel}</p>
-
-			${usage ? html`
-				<div style=${{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', marginBottom: '2rem' }}>
-					<h3 style=${{ fontSize: '1rem', fontWeight: 600, color: '#1e293b', marginBottom: '1rem' }}>Usage This Month</h3>
-					<${UsageBar}
-						label="API Requests"
-						used=${usage.requests?.used || 0}
-						limit=${limits.requests + (usage.requests?.addon || 0)}
-						unit="count" />
-					<${UsageBar}
-						label="File Storage"
-						used=${usage.storage?.r2_bytes || 0}
-						limit=${limits.r2 + (usage.storage?.r2_addon_bytes || 0)}
-						unit="bytes" />
-					<${UsageBar}
-						label="Database Storage"
-						used=${usage.storage?.d1_bytes || 0}
-						limit=${limits.d1 + (usage.storage?.d1_addon_bytes || 0)}
-						unit="bytes" />
-					<div style=${{ textAlign: 'right', marginTop: '0.5rem' }}>
-						<a href="/blocks/products/frontend/user/" style=${{ fontSize: '0.75rem', color: '#fe6627', textDecoration: 'none' }}>Upgrade plan →</a>
-					</div>
-				</div>
-			` : null}
 
 			<div style=${{ display: 'flex', gap: '0.75rem' }}>
 				<a href="#projects" onClick=${(e: any) => { e.preventDefault(); window.location.hash = 'projects'; }} style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.25rem', background: '#fe6627', color: 'white', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, textDecoration: 'none' }}><${Rocket} size=${16} /> Create Project</a>
@@ -201,6 +121,7 @@ function ProjectsTab() {
 	const [activating, setActivating] = useState<string | null>(null);
 	const [deactivating, setDeactivating] = useState<string | null>(null);
 	const [subdomainError, setSubdomainError] = useState<string | null>(null);
+	const [showDeleted, setShowDeleted] = useState(false);
 
 	const fetchProjects = useCallback(async () => {
 		try {
@@ -392,8 +313,17 @@ function ProjectsTab() {
 			` : null}
 
 			${projects.length > 0 ? html`
+				${projects.some((d: any) => (d.data?.status || d.status) === 'deleted') ? html`
+					<div style=${{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+						<label style=${{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: '#64748b', cursor: 'pointer' }}>
+							<input type="checkbox" checked=${showDeleted} onChange=${(e: Event) => setShowDeleted((e.target as HTMLInputElement).checked)}
+								style=${{ accentColor: '#fe6627' }} />
+							Show deleted projects
+						</label>
+					</div>
+				` : null}
 				<div style=${{ display: 'grid', gap: '0.5rem' }}>
-					${projects.map((d: any) => {
+					${projects.filter((d: any) => showDeleted || (d.data?.status || d.status) !== 'deleted').map((d: any) => {
 						const status = d.data?.status || d.status || 'pending';
 						const gracePeriodEnd = d.data?.grace_period_end;
 						const graceInfo = status === 'inactive' ? formatGracePeriod(gracePeriodEnd) : null;
@@ -451,6 +381,7 @@ function ProjectsTab() {
 										<${XCircle} size=${12} /> ${deactivating === d.id ? '...' : 'Deactivate'}
 									</button>
 								` : null}
+								${status !== 'deleted' ? html`
 								<button onClick=${() => handleDelete(d.id)} disabled=${deleting === d.id}
 									style=${{
 										background: 'none', border: '1px solid #fecaca', borderRadius: '6px',
@@ -461,6 +392,7 @@ function ProjectsTab() {
 									}}>
 									<${Trash2} size=${12} /> ${deleting === d.id ? '...' : 'Delete'}
 								</button>
+							` : null}
 							</div>
 						</div>
 					`;})}
@@ -548,16 +480,20 @@ function ApiKeysTab() {
 				</div>
 			` : html`
 				<div style=${{ display: 'grid', gap: '0.5rem' }}>
-					${keys.map((k: any) => html`
+					${keys.map((k: any) => {
+						const name = k.data?.name || k.name || 'Unnamed';
+						const keyPrefix = k.data?.key_prefix || k.key_prefix || 'sb_***';
+						const createdAt = k.data?.created_at || k.created_at;
+						return html`
 						<div key=${k.id} style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.75rem 1rem' }}>
 							<div>
-								<div style=${{ fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>${k.name}</div>
-								<div style=${{ fontSize: '0.75rem', color: '#64748b' }}>${k.key_prefix || 'sb_***'} · Created ${k.created_at ? new Date(k.created_at).toLocaleDateString() : ''}</div>
+								<div style=${{ fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>${name}</div>
+								<div style=${{ fontSize: '0.75rem', color: '#64748b' }}>${keyPrefix} · Created ${createdAt ? new Date(createdAt).toLocaleDateString() : ''}</div>
 							</div>
 							<button onClick=${() => revokeKey(k.id)}
 								style=${{ background: 'none', border: '1px solid #fecaca', borderRadius: '6px', padding: '0.25rem 0.5rem', fontSize: '0.75rem', color: '#dc2626', cursor: 'pointer' }}>Revoke</button>
 						</div>
-					`)}
+					`; })}
 				</div>
 			`}
 		</div>

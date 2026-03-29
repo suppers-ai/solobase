@@ -3263,10 +3263,8 @@ dependencies = [
  "wafer-block-http-listener",
  "wafer-block-iam-guard",
  "wafer-block-inspector",
- "wafer-block-ip-rate-limit",
  "wafer-block-local-storage",
  "wafer-block-logger",
- "wafer-block-monitoring",
  "wafer-block-network",
  "wafer-block-postgres",
  "wafer-block-readonly-guard",
@@ -4093,6 +4091,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+ "wafer-core",
  "wafer-run",
 ]
 
@@ -4118,6 +4117,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "uuid",
+ "wafer-core",
  "wafer-run",
 ]
 
@@ -4156,15 +4156,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wafer-block-ip-rate-limit"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "parking_lot",
- "wafer-run",
-]
-
-[[package]]
 name = "wafer-block-local-storage"
 version = "0.1.0"
 dependencies = [
@@ -4183,6 +4174,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+ "wafer-core",
  "wafer-run",
 ]
 
@@ -4196,16 +4188,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wafer-block-monitoring"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "parking_lot",
- "serde_json",
- "wafer-run",
-]
-
-[[package]]
 name = "wafer-block-network"
 version = "0.1.0"
 dependencies = [
@@ -4214,8 +4196,8 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "tokio",
  "tracing",
+ "wafer-core",
  "wafer-run",
 ]
 
@@ -4306,6 +4288,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
+ "parking_lot",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

@@ -1,6 +1,6 @@
 mod handlers;
 
-use wafer_run::block::{Block, BlockInfo};
+use wafer_run::block::{Block, BlockInfo, AdminUIInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
@@ -37,7 +37,11 @@ impl Block for ProjectsBlock {
             summary: "Project management for users and admins".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: None,
+            admin_ui: Some(AdminUIInfo {
+                label: "Projects".to_string(),
+                description: "Manage projects and deployments".to_string(),
+                url: "/blocks/projects/frontend/".to_string(),
+            }),
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
             collections: vec![

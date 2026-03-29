@@ -8,7 +8,7 @@ pub(crate) mod models;
 #[cfg(test)]
 mod tests;
 
-use wafer_run::block::{Block, BlockInfo};
+use wafer_run::block::{Block, BlockInfo, AdminUIInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
@@ -52,7 +52,11 @@ impl Block for ProductsBlock {
             summary: "Products, pricing, purchases, and payment integration".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: None,
+            admin_ui: Some(AdminUIInfo {
+                label: "Products".to_string(),
+                description: "Manage products, pricing, and purchases".to_string(),
+                url: "/blocks/products/frontend/".to_string(),
+            }),
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
             collections: vec![
