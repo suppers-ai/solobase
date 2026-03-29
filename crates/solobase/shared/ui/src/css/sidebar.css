@@ -50,13 +50,13 @@
 }
 
 .sidebar-logo-long {
-	height: 28px;
+	height: 42px;
 	width: auto;
 }
 
 .sidebar-logo-icon {
-	height: 32px;
-	width: 32px;
+	height: 42px;
+	width: 42px;
 	object-fit: contain;
 }
 

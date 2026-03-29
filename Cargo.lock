@@ -4064,9 +4064,14 @@ checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 name = "wafer-block"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "serde",
  "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tracing",
  "wafer-block-macro",
+ "wafer-flow",
  "wit-bindgen 0.32.0",
 ]
 
@@ -4078,8 +4083,8 @@ dependencies = [
  "chrono",
  "serde_json",
  "tracing",
+ "wafer-block",
  "wafer-core",
- "wafer-run",
 ]
 
 [[package]]
@@ -4092,7 +4097,6 @@ dependencies = [
  "serde_json",
  "tracing",
  "wafer-core",
- "wafer-run",
 ]
 
 [[package]]
@@ -4101,7 +4105,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "tracing",
- "wafer-run",
+ "wafer-block",
 ]
 
 [[package]]
@@ -4118,7 +4122,6 @@ dependencies = [
  "tracing",
  "uuid",
  "wafer-core",
- "wafer-run",
 ]
 
 [[package]]
@@ -4142,8 +4145,8 @@ dependencies = [
  "async-trait",
  "serde_json",
  "tracing",
+ "wafer-block",
  "wafer-core",
- "wafer-run",
 ]
 
 [[package]]
@@ -4152,7 +4155,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "serde_json",
- "wafer-run",
+ "wafer-block",
 ]
 
 [[package]]
@@ -4163,7 +4166,6 @@ dependencies = [
  "chrono",
  "tracing",
  "wafer-core",
- "wafer-run",
 ]
 
 [[package]]
@@ -4175,7 +4177,6 @@ dependencies = [
  "serde_json",
  "tracing",
  "wafer-core",
- "wafer-run",
 ]
 
 [[package]]
@@ -4222,7 +4223,7 @@ name = "wafer-block-readonly-guard"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "wafer-run",
+ "wafer-block",
 ]
 
 [[package]]
@@ -4231,7 +4232,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "tracing",
- "wafer-run",
+ "wafer-block",
 ]
 
 [[package]]
@@ -4244,8 +4245,8 @@ dependencies = [
  "chrono",
  "tokio",
  "tracing",
+ "wafer-block",
  "wafer-core",
- "wafer-run",
 ]
 
 [[package]]
@@ -4253,7 +4254,7 @@ name = "wafer-block-security-headers"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "wafer-run",
+ "wafer-block",
 ]
 
 [[package]]
@@ -4268,7 +4269,6 @@ dependencies = [
  "tracing",
  "uuid",
  "wafer-core",
- "wafer-run",
 ]
 
 [[package]]
@@ -4277,8 +4277,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "tracing",
+ "wafer-block",
  "wafer-core",
- "wafer-run",
 ]
 
 [[package]]
