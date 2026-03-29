@@ -4,7 +4,7 @@ import {
 	ToastContainer, toasts, Button, Modal, DataTable, FilterBar
 } from '@solobase/ui';
 import { useState, useEffect, useCallback } from 'preact/hooks';
-import { Key, Settings, LogOut, CreditCard, Server, Plus, Trash2, Rocket, Shield, ExternalLink, Package, BarChart3, Clock, XCircle } from 'lucide-preact';
+import { Key, Settings, LogOut, CreditCard, Server, Plus, Trash2, Rocket, Shield, ExternalLink, Package, BarChart3, Clock, XCircle, Activity } from 'lucide-preact';
 
 // ─── Auth Guard ──────────────────────────────────────────────────────
 function AuthGuard({ children }: { children: any }) {
