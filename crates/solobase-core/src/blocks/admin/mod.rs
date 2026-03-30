@@ -81,8 +81,8 @@ impl Block for AdminBlock {
         vec![
             wafer_run::UiRoute::admin("/"),
             wafer_run::UiRoute::admin("/users"),
-            wafer_run::UiRoute::admin("/iam"),
-            wafer_run::UiRoute::admin("/settings"),
+            wafer_run::UiRoute::admin("/variables"),
+            wafer_run::UiRoute::admin("/blocks"),
             wafer_run::UiRoute::admin("/logs"),
         ]
     }
@@ -131,8 +131,8 @@ impl Block for AdminBlock {
             return match sub.as_str() {
                 "" | "/" => pages::dashboard(ctx, msg).await,
                 "/users" => pages::users_page(ctx, msg).await,
-                "/iam" => pages::iam_page(ctx, msg).await,
-                "/settings" => pages::settings_page(ctx, msg).await,
+                "/variables" => pages::variables_page(ctx, msg).await,
+                "/blocks" => pages::blocks_page(ctx, msg).await,
                 "/logs" => pages::logs_page(ctx, msg).await,
                 _ => err_not_found(msg, "not found"),
             };

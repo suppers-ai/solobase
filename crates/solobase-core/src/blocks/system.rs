@@ -47,11 +47,12 @@ impl Block for SystemBlock {
                 let nav = serde_json::json!([
                     {"id": "dashboard", "label": "Dashboard", "href": "/b/admin/", "icon": "layout-dashboard"},
                     {"id": "users", "label": "Users", "href": "/b/admin/users", "icon": "users"},
-                    {"id": "iam", "label": "IAM", "href": "/b/admin/iam", "icon": "shield"},
-                    {"id": "settings", "label": "Settings", "href": "/b/admin/settings", "icon": "settings"},
+                    {"id": "variables", "label": "Variables", "href": "/b/admin/variables", "icon": "settings"},
+                    {"id": "blocks", "label": "Blocks", "href": "/b/admin/blocks", "icon": "package"},
                     {"id": "logs", "label": "Logs", "href": "/b/admin/logs", "icon": "file-text"},
                     {"id": "products", "label": "Products", "href": "/b/products/", "icon": "package"},
-                    {"id": "projects", "label": "Projects", "href": "/b/projects/", "icon": "server"}
+                    {"id": "projects", "label": "Projects", "href": "/b/projects/", "icon": "server"},
+                    {"id": "inspector", "label": "Inspector", "href": "/debug/inspector/ui", "icon": "globe"}
                 ]);
                 json_respond(msg, &nav)
             }

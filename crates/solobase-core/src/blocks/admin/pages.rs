@@ -16,9 +16,10 @@ fn admin_nav() -> Vec<NavItem> {
     vec![
         NavItem { label: "Dashboard".into(), href: "/b/admin/".into(), icon: "layout-dashboard" },
         NavItem { label: "Users".into(), href: "/b/admin/users".into(), icon: "users" },
-        NavItem { label: "IAM".into(), href: "/b/admin/iam".into(), icon: "shield" },
-        NavItem { label: "Settings".into(), href: "/b/admin/settings".into(), icon: "settings" },
+        NavItem { label: "Variables".into(), href: "/b/admin/variables".into(), icon: "settings" },
+        NavItem { label: "Blocks".into(), href: "/b/admin/blocks".into(), icon: "package" },
         NavItem { label: "Logs".into(), href: "/b/admin/logs".into(), icon: "file-text" },
+        NavItem { label: "Inspector".into(), href: "/debug/inspector/ui".into(), icon: "globe" },
     ]
 }
 
@@ -75,6 +76,54 @@ pub async fn dashboard(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 pub async fn users_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
+    let tab = msg.query("tab");
+    let active_tab = match tab {
+        "roles" => "roles",
+        "api-keys" => "api-keys",
+        _ => "users",
+    };
+
+    let content = html! {
+        (components::page_header("Users & Access", Some("Manage accounts, roles, and API keys"), None))
+
+        // Tabs
+        div .tabs {
+            a .tab .(if active_tab == "users" { "active" } else { "" })
+                href="/b/admin/users"
+                hx-get="/b/admin/users"
+                hx-target="#content"
+                hx-push-url="true"
+            { (icons::users()) " Users" }
+            a .tab .(if active_tab == "roles" { "active" } else { "" })
+                href="/b/admin/users?tab=roles"
+                hx-get="/b/admin/users?tab=roles"
+                hx-target="#content"
+                hx-push-url="true"
+            { (icons::shield()) " Roles" }
+            a .tab .(if active_tab == "api-keys" { "active" } else { "" })
+                href="/b/admin/users?tab=api-keys"
+                hx-get="/b/admin/users?tab=api-keys"
+                hx-target="#content"
+                hx-push-url="true"
+            { (icons::key()) " API Keys" }
+        }
+
+        div #users-tab-content {
+            @if active_tab == "users" {
+                (users_tab(ctx, msg).await)
+            } @else if active_tab == "roles" {
+                (roles_tab(ctx).await)
+            } @else {
+                (api_keys_tab(ctx).await)
+            }
+        }
+    };
+
+    admin_page("Users", &config, "/b/admin/users", user.as_ref(), content, msg)
+}
+
+/// Users tab content (table + search + pagination).
+async fn users_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
     let (page, page_size, _) = msg.pagination_params(20);
     let search = msg.query("search").to_string();
 
@@ -92,30 +141,23 @@ pub async fn users_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let sort = vec![SortField { field: "created_at".into(), desc: true }];
     let result = db::paginated_list(ctx, "auth_users", page as i64, page_size as i64, filters, sort).await;
 
-    let content = html! {
-        (components::page_header("Users", Some("Manage user accounts"), None))
-
-        // Search bar
+    html! {
         div .filter-bar {
-            (components::search_input("search", "Search by email...", "/b/admin/users", "#users-content"))
+            (components::search_input("search", "Search by email...", "/b/admin/users", "#users-tab-content"))
         }
 
-        div #users-content {
-            @match &result {
-                Ok(list) => {
-                    (users_table(&list.records, ctx).await)
+        @match &result {
+            Ok(list) => {
+                (users_table(&list.records, ctx).await)
 
-                    @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                    (components::pagination(list.page as u32, total_pages, "/b/admin/users", "#users-content"))
-                }
-                Err(e) => {
-                    div .login-error { "Failed to load users: " (e.message) }
-                }
+                @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
+                (components::pagination(list.page as u32, total_pages, "/b/admin/users", "#users-tab-content"))
+            }
+            Err(e) => {
+                div .login-error { "Failed to load users: " (e.message) }
             }
         }
-    };
-
-    admin_page("Users", &config, "/b/admin/users", user.as_ref(), content, msg)
+    }
 }
 
 /// Render the users table body. Async because it enriches each user with roles.
@@ -220,7 +262,7 @@ async fn users_table(records: &[db::Record], ctx: &dyn Context) -> Markup {
 // Settings
 // ---------------------------------------------------------------------------
 
-pub async fn settings_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn variables_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -228,7 +270,7 @@ pub async fn settings_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let settings = db::list(ctx, "variables", &opts).await;
 
     let content = html! {
-        (components::page_header("Settings", Some("Environment variables and configuration"), None))
+        (components::page_header("Variables", Some("Environment variables and configuration"), None))
 
         div #settings-content {
             @match &settings {
@@ -278,48 +320,7 @@ pub async fn settings_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    admin_page("Settings", &config, "/b/admin/settings", user.as_ref(), content, msg)
-}
-
-// ---------------------------------------------------------------------------
-// IAM (Roles + API Keys)
-// ---------------------------------------------------------------------------
-
-pub async fn iam_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let tab = msg.query("tab");
-    let active_tab = if tab == "api-keys" { "api-keys" } else { "roles" };
-
-    let content = html! {
-        (components::page_header("Identity & Access Management", Some("Manage roles and API keys"), None))
-
-        // Tabs
-        div .tabs {
-            a .tab .(if active_tab == "roles" { "active" } else { "" })
-                href="/b/admin/iam?tab=roles"
-                hx-get="/b/admin/iam?tab=roles"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::shield()) " Roles" }
-            a .tab .(if active_tab == "api-keys" { "active" } else { "" })
-                href="/b/admin/iam?tab=api-keys"
-                hx-get="/b/admin/iam?tab=api-keys"
-                hx-target="#content"
-                hx-push-url="true"
-            { (icons::key()) " API Keys" }
-        }
-
-        div #iam-content {
-            @if active_tab == "roles" {
-                (roles_tab(ctx).await)
-            } @else {
-                (api_keys_tab(ctx).await)
-            }
-        }
-    };
-
-    admin_page("IAM", &config, "/b/admin/iam", user.as_ref(), content, msg)
+    admin_page("Variables", &config, "/b/admin/variables", user.as_ref(), content, msg)
 }
 
 async fn roles_tab(ctx: &dyn Context) -> Markup {
@@ -557,6 +558,54 @@ pub async fn logs_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     admin_page("Audit Logs", &config, "/b/admin/logs", user.as_ref(), content, msg)
+}
+
+// ---------------------------------------------------------------------------
+// Blocks
+// ---------------------------------------------------------------------------
+
+pub async fn blocks_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let config = SiteConfig::load(ctx).await;
+    let user = UserInfo::from_message(msg);
+
+    let blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
+
+    let content = html! {
+        (components::page_header("Blocks", Some("Registered WAFER blocks"), None))
+
+        div .table-container {
+            table .table {
+                thead {
+                    tr {
+                        th { "Name" }
+                        th { "Version" }
+                        th { "Summary" }
+                        th { "Runtime" }
+                        th { "UI" }
+                    }
+                }
+                tbody {
+                    @for block in &blocks {
+                        tr {
+                            td .font-medium { (block.name) }
+                            td .text-muted .text-sm { (block.version) }
+                            td .text-sm { (block.summary) }
+                            td {
+                                span .badge .badge-info { (format!("{:?}", block.runtime)) }
+                            }
+                            td {
+                                @if let Some(ref ui) = block.admin_ui {
+                                    a .btn .btn-sm .btn-primary href=(ui.url) { (ui.label) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    admin_page("Blocks", &config, "/b/admin/blocks", user.as_ref(), content, msg)
 }
 
 // ---------------------------------------------------------------------------
