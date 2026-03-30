@@ -1,4 +1,5 @@
 mod handlers;
+mod pages;
 
 use wafer_run::block::{Block, BlockInfo, AdminUIInfo};
 use wafer_run::context::Context;
@@ -40,7 +41,7 @@ impl Block for ProjectsBlock {
             admin_ui: Some(AdminUIInfo {
                 label: "Projects".to_string(),
                 description: "Manage projects and deployments".to_string(),
-                url: "/blocks/projects/frontend/".to_string(),
+                url: "/b/projects/".to_string(),
             }),
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
@@ -82,6 +83,11 @@ impl Block for ProjectsBlock {
             }
         }
 
+        // SSR page
+        if msg.action() == "retrieve" && (path == "/b/projects" || path == "/b/projects/") {
+            return pages::admin_deployments(ctx, msg).await;
+        }
+
         // Admin routes
         if path.starts_with("/admin/b/projects") {
             return handlers::handle_admin(ctx, msg).await;
@@ -93,6 +99,12 @@ impl Block for ProjectsBlock {
         }
 
         err_not_found(msg, "not found")
+    }
+
+    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
+        vec![
+            wafer_run::UiRoute::admin("/"),
+        ]
     }
 
     async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {

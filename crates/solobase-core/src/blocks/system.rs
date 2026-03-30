@@ -3,6 +3,8 @@ use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
 
+use crate::ui;
+
 pub struct SystemBlock;
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -13,7 +15,7 @@ impl Block for SystemBlock {
             name: "suppers-ai/system".to_string(),
             version: "1.0.0".to_string(),
             interface: "http.handler".to_string(),
-            summary: "System health, debug, and navigation endpoints".to_string(),
+            summary: "System health, debug, navigation, and embedded static assets".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: None,
@@ -42,15 +44,26 @@ impl Block for SystemBlock {
             }
             "/nav" => {
                 let nav = serde_json::json!([
-                    {"id": "dashboard", "title": "Dashboard", "label": "Dashboard", "href": "/blocks/admin/frontend/#dashboard", "icon": "layout-dashboard"},
-                    {"id": "users", "title": "Users", "label": "Users", "href": "/blocks/admin/frontend/#users", "icon": "users"},
-                    {"id": "database", "title": "Database", "label": "Database", "href": "/blocks/admin/frontend/#database", "icon": "database"},
-                    {"id": "storage", "title": "Storage", "label": "Storage", "href": "/blocks/admin/frontend/#storage", "icon": "hard-drive"},
-                    {"id": "settings", "title": "Settings", "label": "Settings", "href": "/blocks/admin/frontend/#settings", "icon": "settings"},
-                    {"id": "blocks", "title": "Blocks", "label": "Blocks", "href": "/blocks/admin/frontend/#blocks", "icon": "layers"},
-                    {"id": "products", "title": "Products", "label": "Products", "href": "/blocks/products/frontend/", "icon": "shopping-bag"}
+                    {"id": "dashboard", "label": "Dashboard", "href": "/b/admin/", "icon": "layout-dashboard"},
+                    {"id": "users", "label": "Users", "href": "/b/admin/users", "icon": "users"},
+                    {"id": "iam", "label": "IAM", "href": "/b/admin/iam", "icon": "shield"},
+                    {"id": "settings", "label": "Settings", "href": "/b/admin/settings", "icon": "settings"},
+                    {"id": "logs", "label": "Logs", "href": "/b/admin/logs", "icon": "file-text"},
+                    {"id": "products", "label": "Products", "href": "/b/products/", "icon": "package"},
+                    {"id": "projects", "label": "Projects", "href": "/b/projects/", "icon": "server"}
                 ]);
                 json_respond(msg, &nav)
+            }
+            // Embedded static assets (CSS, JS) with content-hash URLs for cache busting
+            _ if path.starts_with("/static/app-") && path.ends_with(".css") => {
+                ResponseBuilder::new(msg)
+                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
+                    .body(ui::assets::css().as_bytes().to_vec(), "text/css; charset=utf-8")
+            }
+            _ if path.starts_with("/static/htmx-") && path.ends_with(".min.js") => {
+                ResponseBuilder::new(msg)
+                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
+                    .body(ui::assets::htmx_js().as_bytes().to_vec(), "application/javascript; charset=utf-8")
             }
             _ if path.starts_with("/debug/inspector") => {
                 ctx.call_block("wafer-run/inspector", msg).await

@@ -1,4 +1,5 @@
 mod handlers;
+mod pages;
 mod pricing;
 mod purchase;
 mod stripe;
@@ -55,7 +56,7 @@ impl Block for ProductsBlock {
             admin_ui: Some(AdminUIInfo {
                 label: "Products".to_string(),
                 description: "Manage products, pricing, and purchases".to_string(),
-                url: "/blocks/products/frontend/".to_string(),
+                url: "/b/products/".to_string(),
             }),
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
@@ -139,8 +140,36 @@ impl Block for ProductsBlock {
         }
     }
 
+    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
+        vec![
+            wafer_run::UiRoute::admin("/"),
+            wafer_run::UiRoute::admin("/manage"),
+            wafer_run::UiRoute::admin("/groups"),
+            wafer_run::UiRoute::admin("/pricing"),
+            wafer_run::UiRoute::admin("/purchases"),
+            wafer_run::UiRoute::authenticated("/my-products"),
+            wafer_run::UiRoute::authenticated("/my-purchases"),
+        ]
+    }
+
     async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let path = msg.path().to_string();
+        let action = msg.action().to_string();
+
+        // SSR pages (GET requests to specific page paths)
+        if action == "retrieve" && path.starts_with("/b/products/") {
+            let sub = path.strip_prefix("/b/products").unwrap_or("/");
+            match sub {
+                "/" => return pages::overview(ctx, msg).await,
+                "/manage" => return pages::manage_products(ctx, msg).await,
+                "/groups" => return pages::groups(ctx, msg).await,
+                "/pricing" => return pages::pricing(ctx, msg).await,
+                "/purchases" => return pages::purchases(ctx, msg).await,
+                "/my-products" => return pages::my_products(ctx, msg).await,
+                "/my-purchases" => return pages::my_purchases(ctx, msg).await,
+                _ => {} // fall through to API handlers
+            }
+        }
 
         // Webhook (no auth, no user rate limit)
         if path == "/b/products/webhooks" || path.starts_with("/b/products/webhooks/") {
@@ -150,7 +179,6 @@ impl Block for ProductsBlock {
         // Per-user rate limiting for authenticated endpoints
         let user_id = msg.user_id().to_string();
         if !user_id.is_empty() {
-            let action = msg.action().to_string();
             let (default, category) = if action == "retrieve" {
                 (RateLimit::API_READ, "api_read")
             } else {

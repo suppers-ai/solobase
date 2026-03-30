@@ -1,8 +1,7 @@
 //! Build script for Solobase.
 //!
-//! All feature blocks are now native Rust — no WASM pre-compilation needed.
-//! This build script only triggers re-runs when the frontend assets change.
+//! All UI is now server-side rendered via maud — no frontend build step needed.
 
 fn main() {
-    println!("cargo:rerun-if-changed=frontend/build/");
+    // No-op. Kept for future build-time tasks if needed.
 }

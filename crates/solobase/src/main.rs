@@ -150,7 +150,10 @@ async fn main() {
     tracing::info!("feature blocks registered");
 
     // 14. Register flow definitions
-    flows::register_site_main(&mut wafer);
+    flows::register_site_main(&mut wafer).unwrap_or_else(|e| {
+        tracing::error!("failed to register site-main flow: {e}");
+        std::process::exit(1);
+    });
 
     // 15. Register observability hooks
     register_observability_hooks(&mut wafer);
@@ -324,7 +327,7 @@ fn ensure_jwt_secret(conn: &rusqlite::Connection) {
     ).expect("failed to ensure JWT_SECRET");
 
     if affected > 0 {
-        tracing::info!("generated JWT_SECRET (stored in variables table)");
+        tracing::warn!("no JWT_SECRET found — generated and stored in variables table");
     }
 }
 

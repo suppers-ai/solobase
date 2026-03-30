@@ -25,19 +25,24 @@ async fn handle_products_webhook(req: &Request, env: &Env, body: &[u8]) -> Resul
     // Read PRODUCTS_WEBHOOK_SECRET from the cloud project's D1 database
     let secret = get_cloud_variable(env, "PRODUCTS_WEBHOOK_SECRET").await.unwrap_or_default();
 
-    if !secret.is_empty() {
-        let sig_header = req.headers()
-            .get("x-webhook-signature")
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+    if secret.is_empty() {
+        return json_response(
+            &serde_json::json!({"error": "configuration_error", "message": "webhook secret not configured"}),
+            500,
+        );
+    }
 
-        if !verify_webhook_signature(body, &sig_header, &secret) {
-            return json_response(
-                &serde_json::json!({"error": "unauthorized", "message": "invalid webhook signature"}),
-                401,
-            );
-        }
+    let sig_header = req.headers()
+        .get("x-webhook-signature")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    if !verify_webhook_signature(body, &sig_header, &secret) {
+        return json_response(
+            &serde_json::json!({"error": "unauthorized", "message": "invalid webhook signature"}),
+            401,
+        );
     }
 
     // Parse webhook payload
@@ -153,7 +158,9 @@ fn verify_webhook_signature(payload: &[u8], sig_header: &str, secret: &str) -> b
     use sha2::Sha256;
 
     type HmacSha256 = Hmac<Sha256>;
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC key");
+    let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
+        return false;
+    };
     mac.update(payload);
     let computed: [u8; 32] = mac.finalize().into_bytes().into();
     let computed_hex: String = computed.iter().map(|b| format!("{:02x}", b)).collect();

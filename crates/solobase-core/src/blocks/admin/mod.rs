@@ -2,6 +2,7 @@ mod users;
 mod database;
 mod iam;
 mod logs;
+mod pages;
 mod settings;
 mod wafer_info;
 mod custom_tables;
@@ -37,7 +38,7 @@ impl Block for AdminBlock {
             admin_ui: Some(AdminUIInfo {
                 label: "Admin".to_string(),
                 description: "Users, database, storage, settings, and blocks".to_string(),
-                url: "/blocks/admin/frontend/".to_string(),
+                url: "/b/admin/".to_string(),
             }),
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
@@ -75,9 +76,68 @@ impl Block for AdminBlock {
         }
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let path = msg.path();
+    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
+        vec![
+            wafer_run::UiRoute::admin("/"),
+            wafer_run::UiRoute::admin("/users"),
+            wafer_run::UiRoute::admin("/iam"),
+            wafer_run::UiRoute::admin("/settings"),
+            wafer_run::UiRoute::admin("/logs"),
+        ]
+    }
 
+    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+        let path = msg.path().to_string();
+
+        // SSR pages + htmx mutations at /b/admin/...
+        if path.starts_with("/b/admin") {
+            let action = msg.action().to_string();
+            let sub = path.strip_prefix("/b/admin").unwrap_or("/");
+
+            // Extract IDs upfront as owned strings (avoids borrow conflicts with msg)
+            let sub = sub.to_string();
+
+            // htmx mutation handlers
+            if action == "create" && sub.ends_with("/disable") {
+                let user_id = sub.strip_prefix("/users/").and_then(|s| s.strip_suffix("/disable")).unwrap_or("").to_string();
+                if !user_id.is_empty() {
+                    return pages::handle_user_disable(ctx, msg, &user_id).await;
+                }
+            }
+            if action == "create" && sub.ends_with("/enable") {
+                let user_id = sub.strip_prefix("/users/").and_then(|s| s.strip_suffix("/enable")).unwrap_or("").to_string();
+                if !user_id.is_empty() {
+                    return pages::handle_user_enable(ctx, msg, &user_id).await;
+                }
+            }
+            if action == "delete" && sub.starts_with("/users/") {
+                let user_id = sub.strip_prefix("/users/").unwrap_or("").to_string();
+                if !user_id.is_empty() {
+                    return pages::handle_user_delete(ctx, msg, &user_id).await;
+                }
+            }
+            if action == "create" && sub == "/iam/roles" {
+                return pages::handle_create_role(ctx, msg).await;
+            }
+            if action == "delete" && sub.starts_with("/iam/roles/") {
+                let role_id = sub.strip_prefix("/iam/roles/").unwrap_or("").to_string();
+                if !role_id.is_empty() {
+                    return pages::handle_delete_role(ctx, msg, &role_id).await;
+                }
+            }
+
+            // SSR page handlers (GET)
+            return match sub.as_str() {
+                "" | "/" => pages::dashboard(ctx, msg).await,
+                "/users" => pages::users_page(ctx, msg).await,
+                "/iam" => pages::iam_page(ctx, msg).await,
+                "/settings" => pages::settings_page(ctx, msg).await,
+                "/logs" => pages::logs_page(ctx, msg).await,
+                _ => err_not_found(msg, "not found"),
+            };
+        }
+
+        // Existing API routes
         if path.starts_with("/admin/users") {
             return users::handle(ctx, msg).await;
         }

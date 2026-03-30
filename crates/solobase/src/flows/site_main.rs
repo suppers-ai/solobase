@@ -25,15 +25,18 @@ pub const JSON: &str = r#"{
 
 /// Default routes for the site-main flow.
 ///
-/// API paths go to `suppers-ai/router`; everything else to `wafer-run/web` (SPA).
+/// Block SSR pages + API go through `suppers-ai/router`.
+/// Static assets are embedded and served by the system block via `/static/`.
+/// User's own site content is served by `wafer-run/web` as fallback.
 pub fn default_routes() -> serde_json::Value {
     serde_json::json!([
+        { "path": "/static/**",     "block": "suppers-ai/router" },
+        { "path": "/b/**",          "block": "suppers-ai/router" },
         { "path": "/auth/**",       "block": "suppers-ai/router" },
         { "path": "/internal/**",   "block": "suppers-ai/router" },
         { "path": "/admin/**",      "block": "suppers-ai/router" },
         { "path": "/settings/**",   "block": "suppers-ai/router" },
         { "path": "/storage/**",    "block": "suppers-ai/router" },
-        { "path": "/b/**",          "block": "suppers-ai/router" },
         { "path": "/profile/**",    "block": "suppers-ai/router" },
         { "path": "/health",        "block": "suppers-ai/router" },
         { "path": "/nav",           "block": "suppers-ai/router" },

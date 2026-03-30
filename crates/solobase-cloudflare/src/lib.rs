@@ -215,6 +215,9 @@ async fn add_cors_headers(resp: Response, req: &Request) -> Result<Response> {
     }
     headers.set("X-Content-Type-Options", "nosniff")?;
     headers.set("X-Frame-Options", "DENY")?;
+    headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")?;
+    headers.set("Referrer-Policy", "strict-origin-when-cross-origin")?;
+    headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")?;
     Ok(resp)
 }
 
@@ -228,14 +231,4 @@ async fn make_mutable(mut resp: Response) -> Result<Response> {
         let _ = new_resp.headers_mut().set(&key, &value);
     }
     Ok(new_resp)
-}
-
-fn add_security_headers(mut resp: Response) -> Result<Response> {
-    let headers = resp.headers_mut();
-    headers.set("X-Content-Type-Options", "nosniff")?;
-    headers.set("X-Frame-Options", "DENY")?;
-    headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")?;
-    headers.set("Referrer-Policy", "strict-origin-when-cross-origin")?;
-    headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")?;
-    Ok(resp)
 }

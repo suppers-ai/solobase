@@ -252,7 +252,7 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
 
     // Register the site-main flow
     wafer.add_flow_json(solobase::flows::site_main::JSON)
-        .expect("invalid site-main flow JSON");
+        .map_err(|e| Error::RustError(format!("invalid site-main flow JSON: {e}")))?;
 
     // Start runtime
     wafer.start_without_bind().await.map_err(|e| Error::RustError(e))?;

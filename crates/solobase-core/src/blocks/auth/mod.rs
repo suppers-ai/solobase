@@ -264,9 +264,23 @@ impl Block for AuthBlock {
         }
     }
 
+    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
+        vec![
+            wafer_run::UiRoute::public("/login"),
+            wafer_run::UiRoute::public("/signup"),
+            wafer_run::UiRoute::authenticated("/change-password"),
+        ]
+    }
+
     async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let action = msg.action().to_string();
-        let path = msg.path().to_string();
+        // Normalize: /b/auth/... → /auth/...
+        let raw_path = msg.path().to_string();
+        let path = if let Some(stripped) = raw_path.strip_prefix("/b") {
+            stripped.to_string()
+        } else {
+            raw_path
+        };
 
         // Apply per-user/IP rate limiting based on endpoint category
         match (action.as_str(), path.as_str()) {

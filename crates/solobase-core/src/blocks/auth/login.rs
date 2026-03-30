@@ -5,7 +5,8 @@ use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::{crypto, config};
 use super::helpers::*;
-use super::pages::esc;
+use maud::{html, PreEscaped};
+use crate::ui;
 use super::{AuthBlock, USERS_COLLECTION};
 use crate::blocks::errors::{ErrorCode, error_response};
 use crate::blocks::helpers::{RecordExt, json_map, hex_encode};
@@ -415,7 +416,6 @@ impl AuthBlock {
             .await
             .map(|r| r.str_field("value").to_string())
             .unwrap_or_default();
-        let logo_url = esc(if logo_url.is_empty() { "https://solobase.dev/images/logo_long.png" } else { &logo_url });
 
         // Token comes from query param or body
         let token = {
@@ -561,67 +561,70 @@ impl AuthBlock {
             .await
             .map(|r| r.str_field("value").to_string())
             .unwrap_or_default();
-        let logo_url = esc(if logo_url.is_empty() { "https://solobase.dev/images/logo_long.png" } else { &logo_url });
 
         let token = msg.get_meta("req.query.token").to_string();
         if token.is_empty() {
             return html_respond(msg, "Invalid Link", "This password reset link is invalid.", false, &logo_url);
         }
 
-        let html = format!(
-            r#"<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Reset Password</title><link rel="icon" type="image/x-icon" href="/favicon.ico"></head>
-<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f0f9ff 0%,#e0f2fe 50%,#f0f9ff 100%);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-<div style="width:100%;max-width:420px;padding:2rem;text-align:center">
-<img src="{logo_url}" alt="Solobase" style="height:42px;display:block;margin:0 auto 1.5rem">
-<div style="background:white;border-radius:12px;padding:2rem;box-shadow:0 1px 3px rgba(0,0,0,.1)">
-<h2 style="font-size:1.25rem;font-weight:700;color:#1e293b;margin:0 0 .5rem">Reset Your Password</h2>
-<p style="font-size:.875rem;color:#64748b;margin:0 0 1.5rem">Enter your new password below.</p>
-<div id="error" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:.75rem;margin-bottom:1rem;font-size:.813rem;color:#dc2626"></div>
-<div id="success" style="display:none;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:.75rem;margin-bottom:1rem;font-size:.813rem;color:#059669"></div>
-<form id="form" onsubmit="return handleReset(event)">
-<input type="hidden" name="token" value="{token}">
-<div style="margin-bottom:1rem;text-align:left">
-<label style="display:block;font-size:.813rem;font-weight:500;color:#1e293b;margin-bottom:.375rem">New Password</label>
-<input type="password" id="password" required minlength="8" placeholder="Min 8 characters" style="width:100%;padding:.625rem .75rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.875rem;outline:none;box-sizing:border-box">
-</div>
-<div style="margin-bottom:1.5rem;text-align:left">
-<label style="display:block;font-size:.813rem;font-weight:500;color:#1e293b;margin-bottom:.375rem">Confirm Password</label>
-<input type="password" id="confirm" required minlength="8" placeholder="Repeat password" style="width:100%;padding:.625rem .75rem;border:1px solid #e2e8f0;border-radius:8px;font-size:.875rem;outline:none;box-sizing:border-box">
-</div>
-<button type="submit" id="btn" style="width:100%;padding:.75rem;background:linear-gradient(135deg,#189AB4,#0ea5e9);color:white;border:none;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer">Reset Password</button>
-</form>
-</div></div>
-<script>
+        let config = ui::SiteConfig {
+            app_name: "Solobase".into(),
+            logo_url: logo_url.clone(),
+            favicon_url: String::new(),
+        };
+
+        let markup = ui::layout::centered_page("Reset Password", &config, html! {
+            div .login-container {
+                div .login-logo {
+                    @if !logo_url.is_empty() {
+                        img .logo-image src=(logo_url) alt="Solobase";
+                    }
+                    p .login-subtitle { "Reset your password" }
+                }
+
+                div #error .login-error style="display:none" {}
+                div #success style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:.75rem;margin-bottom:1rem;font-size:.813rem;color:#059669;display:none" {}
+
+                form #form .login-form onsubmit="return handleReset(event)" {
+                    input type="hidden" name="token" value=(token);
+
+                    div .form-group {
+                        label .form-label for="password" { "New Password" }
+                        input .form-input type="password" #password required minlength="8" placeholder="Min 8 characters";
+                    }
+                    div .form-group {
+                        label .form-label for="confirm" { "Confirm Password" }
+                        input .form-input type="password" #confirm required minlength="8" placeholder="Repeat password";
+                    }
+
+                    button .login-button type="submit" #btn { "Reset Password" }
+                }
+            }
+
+            script { (PreEscaped(format!(r#"
+var $=function(id){{return document.getElementById(id)}};
 async function handleReset(e){{
   e.preventDefault();
-  var pw=document.getElementById('password').value;
-  var cf=document.getElementById('confirm').value;
-  var err=document.getElementById('error');
-  var suc=document.getElementById('success');
-  var btn=document.getElementById('btn');
+  var pw=$('password').value,cf=$('confirm').value;
+  var err=$('error'),suc=$('success'),btn=$('btn');
   err.style.display='none';suc.style.display='none';
-  if(pw!==cf){{err.textContent='Passwords do not match.';err.style.display='block';return false;}}
-  if(pw.length<8){{err.textContent='Password must be at least 8 characters.';err.style.display='block';return false;}}
+  if(pw!==cf){{err.textContent='Passwords do not match.';err.style.display='flex';return false;}}
+  if(pw.length<8){{err.textContent='Password must be at least 8 characters.';err.style.display='flex';return false;}}
   btn.disabled=true;btn.textContent='Resetting...';
   try{{
-    var r=await fetch('/auth/reset-password',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{token:'{token}',new_password:pw}})}});
+    var r=await fetch('/b/auth/reset-password',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{token:'{token}',new_password:pw}})}});
     var d=await r.json();
-    if(d.error){{err.textContent=d.error.message||d.error;err.style.display='block';}}
-    else{{suc.textContent='Password reset successfully. You can now sign in.';suc.style.display='block';document.getElementById('form').style.display='none';
-      setTimeout(function(){{window.location.href='/';}},2000);}}
-  }}catch(ex){{err.textContent='Something went wrong.';err.style.display='block';}}
+    if(d.error){{err.textContent=d.error.message||d.error;err.style.display='flex';}}
+    else{{suc.textContent='Password reset successfully. You can now sign in.';suc.style.display='block';$('form').style.display='none';
+      setTimeout(function(){{window.location.href='/b/auth/login';}},2000);}}
+  }}catch(ex){{err.textContent='Something went wrong.';err.style.display='flex';}}
   btn.disabled=false;btn.textContent='Reset Password';
   return false;
 }}
-</script>
-</body></html>"#
-        );
+"#))) }
+        });
 
-        ResponseBuilder::new(msg)
-            .body(html.into_bytes(), "text/html; charset=utf-8")
+        ui::html_response(msg, markup)
     }
 
     pub(super) async fn handle_reset_password(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -677,27 +680,34 @@ async function handleReset(e){{
     }
 }
 
-/// Return an HTML page response (for verify endpoint, which is opened in browser).
+/// Return an HTML page response (for verify/reset endpoints opened in browser).
 fn html_respond(msg: &mut Message, title: &str, message: &str, success: bool, logo_url: &str) -> Result_ {
-    let icon = if success { "&#10003;" } else { "&#10007;" };
     let color = if success { "#10b981" } else { "#ef4444" };
-    let html = format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{title}</title><link rel="icon" type="image/x-icon" href="/favicon.ico"></head>
-<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f0f9ff 0%,#e0f2fe 50%,#f0f9ff 100%);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-<div style="width:100%;max-width:420px;padding:2rem;text-align:center">
-<img src="{logo_url}" alt="Solobase" style="height:42px;display:block;margin:0 auto 1.5rem">
-<div style="background:white;border-radius:12px;padding:2rem;box-shadow:0 1px 3px rgba(0,0,0,.1)">
-<div style="width:48px;height:48px;background:{color}15;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:1.5rem;color:{color}">{icon}</div>
-<h2 style="font-size:1.25rem;font-weight:700;color:#1e293b;margin:0 0 .5rem">{title}</h2>
-<p style="font-size:.875rem;color:#64748b;line-height:1.6;margin:0 0 1.5rem">{message}</p>
-<a href="/" style="display:inline-block;padding:.625rem 1.25rem;background:linear-gradient(135deg,#189AB4,#0ea5e9);color:white;border-radius:8px;font-size:.875rem;font-weight:600;text-decoration:none">Go to Dashboard</a>
-</div></div></body></html>"#
-    );
-    ResponseBuilder::new(msg)
-        .body(html.into_bytes(), "text/html; charset=utf-8")
+    let config = ui::SiteConfig {
+        app_name: "Solobase".into(),
+        logo_url: logo_url.to_string(),
+        favicon_url: String::new(),
+    };
+    let markup = ui::layout::centered_page(title, &config, html! {
+        div .login-container {
+            div .login-logo {
+                @if !logo_url.is_empty() {
+                    img .logo-image src=(logo_url) alt="Solobase";
+                }
+            }
+            div style="text-align:center" {
+                div style={"width:48px;height:48px;background:" (color) "15;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:1.5rem;color:" (color)} {
+                    @if success { "✓" } @else { "✗" }
+                }
+                h2 style="font-size:1.25rem;font-weight:700;margin:0 0 .5rem" { (title) }
+                p .login-subtitle style="line-height:1.6;margin:0 0 1.5rem" { (message) }
+                a .login-button href="/b/auth/login" style="display:inline-block;width:auto;padding:.625rem 1.25rem;text-decoration:none" {
+                    "Go to Sign In"
+                }
+            }
+        }
+    });
+    ui::html_response(msg, markup)
 }
 
 /// Send verification email via the email block.

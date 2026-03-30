@@ -9,6 +9,7 @@ pub mod crypto;
 pub mod features;
 pub mod pipeline;
 pub mod routing;
+pub mod ui;
 
 pub use features::FeatureConfig;
 pub use pipeline::handle_request;

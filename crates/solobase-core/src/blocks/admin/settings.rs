@@ -175,7 +175,7 @@ pub async fn seed_defaults(ctx: &dyn Context) {
         ("ALLOW_SIGNUP", "Allow Signup", "Allow new users to register", "true", "", 0),
         ("ENABLE_OAUTH", "Enable OAuth", "Enable third-party OAuth login", "false", "", 0),
         ("PRIMARY_COLOR", "Primary Color", "Brand color used in the UI", "#6366f1", "", 0),
-        ("POST_LOGIN_REDIRECT", "Post-Login Redirect", "URL to redirect to after login", "/blocks/admin/frontend/", "", 0),
+        ("POST_LOGIN_REDIRECT", "Post-Login Redirect", "URL to redirect to after login", "/b/admin/", "", 0),
         ("JWT_SECRET", "JWT Secret", "Secret key used to sign authentication tokens", "", "Changing this will invalidate all existing user sessions", 1),
     ];
 

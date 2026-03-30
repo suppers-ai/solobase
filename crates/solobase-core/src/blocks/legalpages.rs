@@ -253,146 +253,24 @@ impl LegalPagesBlock {
     }
 }
 
-/// Comprehensive HTML sanitizer to prevent XSS in admin-authored content.
-/// Strips dangerous tags, event handlers, and javascript/data URIs.
+/// Sanitize admin-authored HTML content to prevent XSS.
+/// Uses the `ammonia` crate for battle-tested HTML sanitization.
 fn sanitize_html(input: &str) -> String {
-    let mut s = input.to_string();
-
-    // Strip dangerous tags and their contents
-    for tag in &["script", "iframe", "object", "embed", "style", "form",
-                 "input", "textarea", "select", "button", "meta", "link",
-                 "base", "svg", "math", "applet"] {
-        loop {
-            let lower = s.to_lowercase();
-            let open = format!("<{}", tag);
-            if let Some(start) = lower.find(&open) {
-                let close = format!("</{}>", tag);
-                let end = if let Some(rel_end) = lower[start..].find(&close) {
-                    start + rel_end + close.len()
-                } else if let Some(gt) = s[start..].find('>') {
-                    start + gt + 1
-                } else {
-                    s.len()
-                };
-                s = format!("{}{}", &s[..start], &s[end..]);
-            } else {
-                break;
-            }
-        }
-    }
-
-    // Strip event handler attributes (on*)
-    let event_re_pattern = |s: &str| -> String {
-        let mut result = String::new();
-        let lower = s.to_lowercase();
-        let bytes = s.as_bytes();
-        let mut i = 0;
-        while i < bytes.len() {
-            if bytes[i] == b'<' {
-                // Inside a tag - find the closing >
-                if let Some(end) = s[i..].find('>') {
-                    let tag_content = &s[i..i + end + 1];
-                    let tag_lower = &lower[i..i + end + 1];
-                    // Remove event handlers (on*="...") and javascript:/data: URIs
-                    let cleaned = remove_dangerous_attrs(tag_content, tag_lower);
-                    result.push_str(&cleaned);
-                    i += end + 1;
-                } else {
-                    result.push(bytes[i] as char);
-                    i += 1;
-                }
-            } else {
-                result.push(bytes[i] as char);
-                i += 1;
-            }
-        }
-        result
-    };
-
-    event_re_pattern(&s)
-}
-
-/// Remove dangerous attributes from an HTML tag string.
-fn remove_dangerous_attrs(tag: &str, _tag_lower: &str) -> String {
-    // Simple approach: rebuild the tag without dangerous attributes
-    let mut result = String::new();
-    let mut chars = tag.chars().peekable();
-
-    // Copy the tag name
-    while let Some(&c) = chars.peek() {
-        result.push(c);
-        chars.next();
-        if c == ' ' || c == '>' || c == '/' {
-            break;
-        }
-    }
-
-    if result.ends_with('>') {
-        return result;
-    }
-
-    // Process attributes
-    let rest: String = chars.collect();
-    let rest_lower = rest.to_lowercase();
-    let mut pos = 0;
-    let rest_bytes = rest.as_bytes();
-
-    while pos < rest_bytes.len() {
-        // Skip whitespace
-        while pos < rest_bytes.len() && rest_bytes[pos].is_ascii_whitespace() {
-            result.push(rest_bytes[pos] as char);
-            pos += 1;
-        }
-        if pos >= rest_bytes.len() { break; }
-        if rest_bytes[pos] == b'>' || (rest_bytes[pos] == b'/' && pos + 1 < rest_bytes.len() && rest_bytes[pos + 1] == b'>') {
-            result.push_str(&rest[pos..]);
-            break;
-        }
-
-        // Read attribute name
-        let attr_start = pos;
-        while pos < rest_bytes.len() && rest_bytes[pos] != b'=' && rest_bytes[pos] != b'>' && !rest_bytes[pos].is_ascii_whitespace() {
-            pos += 1;
-        }
-        let attr_name = &rest_lower[attr_start..pos];
-
-        // Check if dangerous
-        let is_dangerous = attr_name.starts_with("on")
-            || attr_name == "srcdoc"
-            || attr_name == "formaction";
-
-        // Read = and value if present
-        let mut attr_end = pos;
-        if pos < rest_bytes.len() && rest_bytes[pos] == b'=' {
-            pos += 1; // skip =
-            // Skip optional quotes
-            if pos < rest_bytes.len() && (rest_bytes[pos] == b'"' || rest_bytes[pos] == b'\'') {
-                let quote = rest_bytes[pos];
-                pos += 1;
-                while pos < rest_bytes.len() && rest_bytes[pos] != quote {
-                    pos += 1;
-                }
-                if pos < rest_bytes.len() { pos += 1; } // skip closing quote
-            } else {
-                while pos < rest_bytes.len() && !rest_bytes[pos].is_ascii_whitespace() && rest_bytes[pos] != b'>' {
-                    pos += 1;
-                }
-            }
-            attr_end = pos;
-
-            // Check value for javascript:/data: URIs
-            let attr_value = &rest_lower[attr_start..attr_end];
-            let has_dangerous_uri = attr_value.contains("javascript:") || attr_value.contains("data:text/html") || attr_value.contains("vbscript:");
-
-            if !is_dangerous && !has_dangerous_uri {
-                result.push_str(&rest[attr_start..attr_end]);
-            }
-        } else if !is_dangerous {
-            result.push_str(&rest[attr_start..attr_end]);
-        }
-    }
-
-    result
+    ammonia::Builder::default()
+        .add_tags(&["h1", "h2", "h3", "h4", "h5", "h6"])
+        .add_tags(&["p", "br", "hr", "blockquote", "pre", "code"])
+        .add_tags(&["ul", "ol", "li", "dl", "dt", "dd"])
+        .add_tags(&["table", "thead", "tbody", "tr", "th", "td"])
+        .add_tags(&["a", "strong", "em", "b", "i", "u", "s", "sub", "sup", "small"])
+        .add_tags(&["img", "figure", "figcaption"])
+        .add_tags(&["div", "span", "section", "article", "header", "footer", "nav", "aside"])
+        .add_tag_attributes("a", &["href", "title", "target", "rel"])
+        .add_tag_attributes("img", &["src", "alt", "title", "width", "height"])
+        .add_tag_attributes("td", &["colspan", "rowspan"])
+        .add_tag_attributes("th", &["colspan", "rowspan"])
+        .link_rel(Some("noopener noreferrer"))
+        .clean(input)
+        .to_string()
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]

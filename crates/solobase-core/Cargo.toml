@@ -40,6 +40,12 @@ chrono = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true, optional = true }
 
+# HTML sanitization
+ammonia = "4"
+
+# SSR templating
+maud = "0.26"
+
 # Logging
 tracing = "0.1"
 

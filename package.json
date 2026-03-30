@@ -4,10 +4,6 @@
   "private": true,
   "workspaces": [
     "packages/solobase-js",
-    "packages/solobase-site",
-    "crates/solobase/shared/types",
-    "crates/solobase/shared/utils",
-    "crates/solobase/shared/ui",
-    "crates/solobase/frontend"
+    "packages/solobase-site"
   ]
 }
