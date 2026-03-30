@@ -35,7 +35,7 @@ impl Block for FilesBlock {
         BlockInfo {
             name: "suppers-ai/files".to_string(),
             version: "1.0.0".to_string(),
-            interface: "http.handler".to_string(),
+            interface: "http-handler@v1".to_string(),
             summary: "File storage, sharing, quotas, and access logging".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
@@ -82,6 +82,7 @@ impl Block for FilesBlock {
                     .field_default("max_files_per_bucket", "int", "10000")
                     .field_default("reset_period_days", "int", "0"),
             ],
+            config_schema: None,
         }
     }
 

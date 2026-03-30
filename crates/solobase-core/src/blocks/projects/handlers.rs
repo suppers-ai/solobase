@@ -8,37 +8,35 @@ use wafer_core::clients::database::{Filter, FilterOp, Record, SortField};
 use super::PROJECTS_COLLECTION;
 use crate::blocks::helpers::RecordExt;
 
-// ---------------------------------------------------------------------------
-// Plan limits
-// ---------------------------------------------------------------------------
+use crate::plans;
 
-/// Returns `(max_created, max_active)` project counts for a given plan.
-fn get_plan_project_limits(plan: &str) -> (usize, usize) {
-    match plan {
-        "starter" => (2, 2),
-        "pro" => (10, 10),
-        "platform" => (usize::MAX, usize::MAX),
-        _ => (2, 0), // free
-    }
+/// User's plan and addon project slots.
+struct UserPlan {
+    plan: String,
+    addon_projects: usize,
 }
 
-/// Look up the user's current plan by querying the `subscriptions` table.
-/// Falls back to `"free"` when no active subscription exists.
-async fn get_user_plan(ctx: &dyn Context, user_id: &str) -> String {
+/// Look up the user's current plan and addon project count.
+/// Falls back to free with 0 addons when no active subscription exists.
+async fn get_user_plan(ctx: &dyn Context, user_id: &str) -> UserPlan {
     let rows = db::query_raw(
         ctx,
-        "SELECT plan FROM subscriptions WHERE user_id = ?1 AND status = 'active'",
+        "SELECT plan, COALESCE(addon_projects, 0) as addon_projects FROM subscriptions WHERE user_id = ?1 AND status = 'active'",
         &[serde_json::Value::String(user_id.to_string())],
     ).await;
 
     match rows {
         Ok(records) if !records.is_empty() => {
-            records[0].data.get("plan")
+            let plan = records[0].data.get("plan")
                 .and_then(|v| v.as_str())
                 .unwrap_or("free")
-                .to_string()
+                .to_string();
+            let addon_projects = records[0].data.get("addon_projects")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as usize;
+            UserPlan { plan, addon_projects }
         }
-        _ => "free".to_string(),
+        _ => UserPlan { plan: "free".to_string(), addon_projects: 0 },
     }
 }
 
@@ -299,11 +297,12 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     // Check plan limit for project creation (count non-deleted projects)
-    let plan = get_user_plan(ctx, &user_id).await;
-    let (max_created, _) = get_plan_project_limits(&plan);
+    let user_plan = get_user_plan(ctx, &user_id).await;
+    let limits = plans::get_limits(&user_plan.plan);
+    let max_created = limits.max_projects_created.saturating_add(user_plan.addon_projects);
     let current_count = count_live_projects(ctx, &user_id).await;
     if current_count as usize >= max_created {
-        return err_bad_request(msg, "Project limit reached. Upgrade your plan to create more projects.");
+        return err_bad_request(msg, "Project limit reached. Upgrade your plan or purchase extra project slots.");
     }
 
     let now = chrono::Utc::now().to_rfc3339();
@@ -404,8 +403,9 @@ async fn handle_activate(
     }
 
     // Check plan capacity for active projects
-    let plan = get_user_plan(ctx, user_id).await;
-    let (_, max_active) = get_plan_project_limits(&plan);
+    let user_plan = get_user_plan(ctx, user_id).await;
+    let limits = plans::get_limits(&user_plan.plan);
+    let max_active = limits.max_projects_active.saturating_add(user_plan.addon_projects);
 
     if max_active == 0 {
         return err_forbidden(msg, "Upgrade to a paid plan to activate projects");

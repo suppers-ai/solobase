@@ -34,7 +34,7 @@ impl Block for ProjectsBlock {
         BlockInfo {
             name: "suppers-ai/projects".to_string(),
             version: "1.0.0".to_string(),
-            interface: "http.handler".to_string(),
+            interface: "http-handler@v1".to_string(),
             summary: "Project management for users and admins".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
@@ -63,6 +63,7 @@ impl Block for ProjectsBlock {
                     .index(&["user_id"])
                     .index(&["status"]),
             ],
+            config_schema: None,
         }
     }
 

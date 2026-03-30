@@ -195,8 +195,15 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 ).await;
             }
 
-            // Look up user and notify control plane
+            // Sync addon totals from the subscription's items
             let user_id = get_user_for_stripe_sub(ctx, stripe_sub_id).await;
+            if let Some(ref uid) = user_id {
+                if let Some(items) = data_object.get("items") {
+                    super::addons::sync_addons_from_stripe(ctx, uid, items).await;
+                }
+            }
+
+            // Notify control plane
             if let Some(uid) = user_id {
                 fire_products_webhook(ctx, "products.subscription.updated", &serde_json::json!({
                     "user_id": uid, "plan": plan.unwrap_or("free")
@@ -223,9 +230,14 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
             let user_id = get_user_for_stripe_sub(ctx, stripe_sub_id).await;
 
+            // Cancel subscription and reset all addon columns to 0
             let _ = db::exec_raw(
                 ctx,
-                "UPDATE subscriptions SET status = 'cancelled', updated_at = ?1 WHERE stripe_subscription_id = ?2",
+                "UPDATE subscriptions SET status = 'cancelled', \
+                   addon_projects = 0, addon_requests = 0, \
+                   addon_r2_bytes = 0, addon_d1_bytes = 0, \
+                   updated_at = ?1 \
+                 WHERE stripe_subscription_id = ?2",
                 &[now.into(), stripe_sub_id.into()],
             ).await;
 
@@ -320,7 +332,7 @@ async fn fire_products_webhook(ctx: &dyn Context, event: &str, data: &serde_json
     }
 }
 
-fn urlencoding(s: &str) -> String {
+pub(super) fn urlencoding(s: &str) -> String {
     // Iterate over bytes (not chars) to correctly handle multi-byte UTF-8
     s.as_bytes().iter().map(|&b| match b {
         b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {

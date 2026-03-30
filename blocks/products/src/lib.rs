@@ -34,11 +34,12 @@ impl Guest for ProductsBlockWasm {
         BlockInfo {
             name: "suppers-ai/products".to_string(),
             version: "1.0.0".to_string(),
-            interface: "http.handler".to_string(),
+            interface: "http-handler@v1".to_string(),
             summary: "Products, pricing, purchases, and payment integration".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: Vec::new(),
             collections: Vec::new(),
+            config_schema: None,
         }
     }
 

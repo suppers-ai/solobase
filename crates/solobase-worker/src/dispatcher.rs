@@ -69,6 +69,7 @@ impl Block for DispatcherBlock {
             runtime: BlockRuntime::default(),
             requires: Vec::new(),
             collections: Vec::new(),
+            config_schema: None,
         }
     }
 

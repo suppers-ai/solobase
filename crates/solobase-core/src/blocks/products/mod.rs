@@ -1,3 +1,4 @@
+mod addons;
 mod handlers;
 mod pages;
 mod pricing;
@@ -49,7 +50,7 @@ impl Block for ProductsBlock {
         BlockInfo {
             name: "suppers-ai/products".to_string(),
             version: "1.0.0".to_string(),
-            interface: "http.handler".to_string(),
+            interface: "http-handler@v1".to_string(),
             summary: "Products, pricing, purchases, and payment integration".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
@@ -137,6 +138,7 @@ impl Block for ProductsBlock {
                     .field_default("scope", "string", "system")
                     .field_default("product_id", "string", ""),
             ],
+            config_schema: None,
         }
     }
 

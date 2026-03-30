@@ -282,7 +282,7 @@ impl Block for LegalPagesBlock {
         BlockInfo {
             name: "suppers-ai/legalpages".to_string(),
             version: "1.0.0".to_string(),
-            interface: "http.handler".to_string(),
+            interface: "http-handler@v1".to_string(),
             summary: "Legal pages management with versioning and publishing".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
@@ -304,6 +304,7 @@ impl Block for LegalPagesBlock {
                     .field_optional("published_at", "datetime")
                     .index(&["doc_type", "status"]),
             ],
+            config_schema: None,
         }
     }
 

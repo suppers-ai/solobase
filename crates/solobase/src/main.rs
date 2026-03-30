@@ -128,6 +128,9 @@ async fn main() {
     wafer_block_cors::register(&mut wafer);
     wafer_block_iam_guard::register(&mut wafer);
     wafer_block_inspector::register(&mut wafer);
+    wafer.add_block_config("wafer-run/inspector", serde_json::json!({
+        "allow_anonymous": true
+    }));
     wafer_block_readonly_guard::register(&mut wafer);
     wafer_block_router::register(&mut wafer);
     wafer_block_security_headers::register(&mut wafer);
@@ -206,6 +209,7 @@ fn collect_app_env_vars() -> Vec<(String, String)> {
         "APP_NAME", "JWT_SECRET", "ALLOW_SIGNUP", "ENABLE_OAUTH",
         "PRIMARY_COLOR", "POST_LOGIN_REDIRECT", "FRONTEND_URL",
         "AUTH_ALLOWED_EMAIL_DOMAINS", "ADMIN_EMAIL",
+        "LOGO_URL", "LOGO_ICON_URL", "AUTH_LOGO_URL", "FAVICON_URL",
         // Secrets
         "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_API_URL",
         "MAILGUN_API_KEY", "MAILGUN_DOMAIN", "MAILGUN_FROM",

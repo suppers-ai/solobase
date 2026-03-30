@@ -91,38 +91,12 @@ pub fn project_from_row(row: &serde_json::Value) -> Option<ProjectConfig> {
 // Plan limits
 // ---------------------------------------------------------------------------
 
-/// Plan limits for resource enforcement.
-#[allow(dead_code)]
-pub struct PlanLimits {
-    pub max_projects: usize,
-    pub max_requests_per_month: u64,
-    pub max_r2_storage_bytes: u64,
-    pub max_d1_storage_bytes: u64,
-}
+/// Re-export plan limits from the shared crate (single source of truth).
+pub use solobase_plans::PlanLimits;
 
 /// Get limits for a plan name.
 pub fn get_plan_limits(plan: &str) -> PlanLimits {
-    match plan {
-        "starter" => PlanLimits {
-            max_projects: 2,
-            max_requests_per_month: 500_000,
-            max_r2_storage_bytes: 2_147_483_648,  // 2 GB
-            max_d1_storage_bytes: 524_288_000,    // 500 MB
-        },
-        "pro" => PlanLimits {
-            max_projects: 10,
-            max_requests_per_month: 3_000_000,
-            max_r2_storage_bytes: 21_474_836_480, // 20 GB
-            max_d1_storage_bytes: 5_368_709_120,  // 5 GB
-        },
-        // "free" or unknown
-        _ => PlanLimits {
-            max_projects: 0,
-            max_requests_per_month: 0,
-            max_r2_storage_bytes: 0,
-            max_d1_storage_bytes: 0,
-        },
-    }
+    solobase_plans::get_limits(plan)
 }
 
 // ---------------------------------------------------------------------------

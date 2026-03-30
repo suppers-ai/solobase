@@ -14,7 +14,7 @@ impl Block for SystemBlock {
         BlockInfo {
             name: "suppers-ai/system".to_string(),
             version: "1.0.0".to_string(),
-            interface: "http.handler".to_string(),
+            interface: "http-handler@v1".to_string(),
             summary: "System health, debug, navigation, and embedded static assets".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
@@ -22,6 +22,7 @@ impl Block for SystemBlock {
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
             collections: Vec::new(),
+            config_schema: None,
         }
     }
 

@@ -88,6 +88,10 @@ pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ("create", "/b/products/checkout") => super::stripe::handle_checkout(ctx, msg).await,
         // Subscription status
         ("retrieve", "/b/products/subscription") => handle_subscription(ctx, msg).await,
+        // Add-on packs (recurring subscription items)
+        ("retrieve", "/b/products/addons") => super::addons::handle_list(ctx, msg).await,
+        ("create", "/b/products/addons/subscribe") => super::addons::handle_subscribe(ctx, msg).await,
+        ("create", "/b/products/addons/cancel") => super::addons::handle_cancel(ctx, msg).await,
         // User products/groups disabled
         (_, _) if path.starts_with("/b/products/products") || path.starts_with("/b/products/groups") =>
             err_forbidden(msg, "user products are not enabled"),
@@ -650,7 +654,13 @@ async fn handle_subscription(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Query subscriptions table (platform table, populated by Stripe webhooks)
     let rows = db::query_raw(
         ctx,
-        "SELECT id, plan, status, stripe_subscription_id, grace_period_end, created_at, updated_at FROM subscriptions WHERE user_id = ?1",
+        "SELECT id, plan, status, stripe_subscription_id, grace_period_end, \
+                COALESCE(addon_projects, 0) as addon_projects, \
+                COALESCE(addon_requests, 0) as addon_requests, \
+                COALESCE(addon_r2_bytes, 0) as addon_r2_bytes, \
+                COALESCE(addon_d1_bytes, 0) as addon_d1_bytes, \
+                created_at, updated_at \
+         FROM subscriptions WHERE user_id = ?1",
         &[serde_json::Value::String(user_id.clone())],
     ).await;
 
@@ -665,31 +675,43 @@ async fn handle_subscription(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     match sub {
         Some(s) => {
             let plan = s.get("plan").and_then(|v| v.as_str()).unwrap_or("free");
-            let (max_requests, max_r2_bytes) = plan_limits(plan);
+            let plan_cfg = crate::plans::get_limits(plan);
             let month = chrono::Utc::now().format("%Y-%m").to_string();
 
-            // Query project usage
+            // Sum usage across all user's projects for this month (account-level)
             let usage_rows = db::query_raw(
                 ctx,
-                "SELECT requests, addon_requests, r2_bytes, addon_r2_bytes FROM project_usage WHERE project_id = ?1 AND month = ?2",
+                "SELECT COALESCE(SUM(requests), 0) as total_requests, \
+                        COALESCE(SUM(r2_bytes), 0) as total_r2, \
+                        COALESCE(SUM(COALESCE(d1_bytes, 0)), 0) as total_d1 \
+                 FROM project_usage pu \
+                 JOIN block_deployments p ON p.id = pu.project_id \
+                 WHERE p.user_id = ?1 AND pu.month = ?2",
                 &[serde_json::Value::String(user_id), serde_json::Value::String(month.clone())],
             ).await;
 
             let usage = usage_rows.ok().and_then(|r| r.into_iter().next()).map(|r| r.data).unwrap_or_default();
-            let addon_req = usage.get("addon_requests").and_then(|v| v.as_u64()).unwrap_or(0);
-            let addon_r2 = usage.get("addon_r2_bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+
+            // Read account-level addons from subscription
+            let addon_req = s.get("addon_requests").and_then(|v| v.as_u64()).unwrap_or(0);
+            let addon_r2 = s.get("addon_r2_bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+            let addon_d1 = s.get("addon_d1_bytes").and_then(|v| v.as_u64()).unwrap_or(0);
 
             json_respond(msg, &serde_json::json!({
                 "subscription": s,
                 "usage": {
                     "month": month,
                     "requests": {
-                        "used": usage.get("requests").and_then(|v| v.as_u64()).unwrap_or(0),
-                        "limit": max_requests + addon_req,
+                        "used": usage.get("total_requests").and_then(|v| v.as_u64()).unwrap_or(0),
+                        "limit": plan_cfg.max_requests_per_month + addon_req,
                     },
                     "r2Storage": {
-                        "usedBytes": usage.get("r2_bytes").and_then(|v| v.as_u64()).unwrap_or(0),
-                        "limitBytes": max_r2_bytes + addon_r2,
+                        "usedBytes": usage.get("total_r2").and_then(|v| v.as_u64()).unwrap_or(0),
+                        "limitBytes": plan_cfg.max_r2_storage_bytes + addon_r2,
+                    },
+                    "d1Storage": {
+                        "usedBytes": usage.get("total_d1").and_then(|v| v.as_u64()).unwrap_or(0),
+                        "limitBytes": plan_cfg.max_d1_storage_bytes + addon_d1,
                     },
                 }
             }))
@@ -698,13 +720,6 @@ async fn handle_subscription(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 }
 
-fn plan_limits(plan: &str) -> (u64, u64) {
-    match plan {
-        "starter" => (500_000, 1_073_741_824),
-        "pro" => (3_000_000, 10_737_418_240),
-        _ => (10_000, 104_857_600),
-    }
-}
 
 // --- Stats ---
 

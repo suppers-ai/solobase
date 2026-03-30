@@ -269,6 +269,8 @@ impl AuthBlock {
         let cookie = build_auth_cookie("", 0, ctx).await;
         ResponseBuilder::new(msg)
             .set_cookie(&cookie)
+            .status(303)
+            .set_header("Location", "/b/auth/login")
             .json(&serde_json::json!({"message": "Logged out successfully"}))
     }
 
@@ -570,6 +572,7 @@ impl AuthBlock {
         let config = ui::SiteConfig {
             app_name: "Solobase".into(),
             logo_url: logo_url.clone(),
+            logo_icon_url: String::new(),
             favicon_url: String::new(),
         };
 
@@ -686,6 +689,7 @@ fn html_respond(msg: &mut Message, title: &str, message: &str, success: bool, lo
     let config = ui::SiteConfig {
         app_name: "Solobase".into(),
         logo_url: logo_url.to_string(),
+        logo_icon_url: String::new(),
         favicon_url: String::new(),
     };
     let markup = ui::layout::centered_page(title, &config, html! {

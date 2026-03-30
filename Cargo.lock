@@ -3513,11 +3513,16 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "solobase-plans",
  "tokio",
  "tracing",
  "wafer-core",
  "wafer-run",
 ]
+
+[[package]]
+name = "solobase-plans"
+version = "0.1.0"
 
 [[package]]
 name = "spdx"

@@ -14,6 +14,10 @@ const MIGRATIONS: &[&str] = &[
         stripe_subscription_id TEXT DEFAULT '',
         plan TEXT DEFAULT 'free',
         status TEXT DEFAULT 'active',
+        addon_projects INTEGER DEFAULT 0,
+        addon_requests INTEGER DEFAULT 0,
+        addon_r2_bytes INTEGER DEFAULT 0,
+        addon_d1_bytes INTEGER DEFAULT 0,
         grace_period_end TEXT,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
@@ -27,9 +31,7 @@ const MIGRATIONS: &[&str] = &[
         month TEXT NOT NULL,
         requests INTEGER DEFAULT 0,
         r2_bytes INTEGER DEFAULT 0,
-        addon_requests INTEGER DEFAULT 0,
-        addon_r2_bytes INTEGER DEFAULT 0,
-        addon_d1_bytes INTEGER DEFAULT 0,
+        d1_bytes INTEGER DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now')),
         UNIQUE(project_id, month)
@@ -52,23 +54,11 @@ const MIGRATIONS: &[&str] = &[
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_subdomain ON projects (subdomain)",
 ];
 
-/// Optional migrations that may fail on existing databases (e.g. adding columns that already exist).
-const OPTIONAL_MIGRATIONS: &[&str] = &[
-    // Add grace_period_end column to projects table (for existing databases)
-    "ALTER TABLE projects ADD COLUMN grace_period_end TEXT",
-];
-
 /// Run platform schema migrations on the platform D1 database.
 pub async fn run_migrations(db: &D1Database) -> Result<()> {
     for sql in MIGRATIONS {
         db.prepare(*sql).bind(&[])?.run().await?;
     }
-
-    // Run optional migrations, ignoring errors (e.g. column already exists)
-    for sql in OPTIONAL_MIGRATIONS {
-        let _ = db.prepare(*sql).bind(&[])?.run().await;
-    }
-
     console_log!("Platform migrations applied ({} statements)", MIGRATIONS.len());
     Ok(())
 }

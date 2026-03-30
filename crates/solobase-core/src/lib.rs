@@ -8,6 +8,7 @@ pub mod blocks;
 pub mod crypto;
 pub mod features;
 pub mod pipeline;
+pub mod plans;
 pub mod routing;
 pub mod ui;
 

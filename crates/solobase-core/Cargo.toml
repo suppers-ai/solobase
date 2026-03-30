@@ -22,6 +22,9 @@ wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = f
 # wafer-core for clients and interface traits
 wafer-core = { path = "../../../wafer-run/crates/wafer-core" }
 
+# Plan definitions (shared with CF worker)
+solobase-plans = { path = "../solobase-plans" }
+
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }

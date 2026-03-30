@@ -5,7 +5,7 @@ use maud::{html, Markup, PreEscaped};
 use super::{icons, NavItem, UserInfo};
 
 /// Render the sidebar with nav items and user section.
-pub fn sidebar(nav_items: &[NavItem], user: Option<&UserInfo>, current_path: &str, logo_url: &str) -> Markup {
+pub fn sidebar(nav_items: &[NavItem], user: Option<&UserInfo>, current_path: &str, logo_url: &str, logo_icon_url: &str) -> Markup {
     html! {
         nav .sidebar {
             // Logo header
@@ -13,7 +13,11 @@ pub fn sidebar(nav_items: &[NavItem], user: Option<&UserInfo>, current_path: &st
                 a .sidebar-logo href="/" {
                     @if !logo_url.is_empty() {
                         img .sidebar-logo-long src=(logo_url) alt="Home";
-                    } @else {
+                    }
+                    @if !logo_icon_url.is_empty() {
+                        img .sidebar-logo-icon src=(logo_icon_url) alt="Home";
+                    }
+                    @if logo_url.is_empty() && logo_icon_url.is_empty() {
                         span .font-semibold style="font-size: 1.25rem;" { "Home" }
                     }
                 }
@@ -25,7 +29,7 @@ pub fn sidebar(nav_items: &[NavItem], user: Option<&UserInfo>, current_path: &st
                     div .nav-item {
                         a
                             .nav-link
-                            .(if current_path.starts_with(&item.href) { "active" } else { "" })
+                            .(if item.href.ends_with('/') { if current_path == item.href { "active" } else { "" } } else if current_path.starts_with(&item.href) { "active" } else { "" })
                             href=(item.href)
                         {
                             span .nav-icon {

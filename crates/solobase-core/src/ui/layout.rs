@@ -59,7 +59,7 @@ pub fn block_shell(
             div .sidebar-container {
                 div .sidebar-overlay onclick="toggleMobileMenu()" {}
                 div .sidebar-wrapper {
-                    (sidebar::sidebar(nav_items, user, current_path, &config.logo_url))
+                    (sidebar::sidebar(nav_items, user, current_path, &config.logo_url, &config.logo_icon_url))
                 }
             }
 

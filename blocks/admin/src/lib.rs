@@ -26,11 +26,12 @@ impl Guest for AdminBlockWasm {
         BlockInfo {
             name: "suppers-ai/admin".to_string(),
             version: "1.0.0".to_string(),
-            interface: "http.handler".to_string(),
+            interface: "http-handler@v1".to_string(),
             summary: "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: Vec::new(),
             collections: Vec::new(),
+            config_schema: None,
         }
     }
 

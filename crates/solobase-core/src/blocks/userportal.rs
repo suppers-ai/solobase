@@ -17,7 +17,7 @@ impl Block for UserPortalBlock {
         BlockInfo {
             name: "suppers-ai/userportal".to_string(),
             version: "1.0.0".to_string(),
-            interface: "http.handler".to_string(),
+            interface: "http-handler@v1".to_string(),
             summary: "User portal — dashboard, projects, and API keys".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
@@ -25,6 +25,7 @@ impl Block for UserPortalBlock {
             runtime: wafer_run::types::BlockRuntime::Native,
             requires: Vec::new(),
             collections: Vec::new(),
+            config_schema: None,
         }
     }
 

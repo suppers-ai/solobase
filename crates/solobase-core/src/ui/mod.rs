@@ -15,6 +15,7 @@ pub mod sidebar;
 pub struct SiteConfig {
     pub app_name: String,
     pub logo_url: String,
+    pub logo_icon_url: String,
     pub favicon_url: String,
 }
 
@@ -25,6 +26,7 @@ impl SiteConfig {
         Self {
             app_name: config::get_default(ctx, "APP_NAME", "Solobase").await,
             logo_url: config::get_default(ctx, "LOGO_URL", "").await,
+            logo_icon_url: config::get_default(ctx, "LOGO_ICON_URL", "").await,
             favicon_url: config::get_default(ctx, "FAVICON_URL", "").await,
         }
     }

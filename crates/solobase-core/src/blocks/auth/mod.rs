@@ -225,7 +225,7 @@ impl Block for AuthBlock {
         BlockInfo {
             name: "suppers-ai/auth".to_string(),
             version: "1.0.0".to_string(),
-            interface: "http.handler".to_string(),
+            interface: "http-handler@v1".to_string(),
             summary: "Authentication: login, signup, JWT, refresh tokens, OAuth, API keys".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
@@ -261,6 +261,7 @@ impl Block for AuthBlock {
                     .field_optional("expires_at", "datetime")
                     .index(&["user_id"]),
             ],
+            config_schema: None,
         }
     }
 

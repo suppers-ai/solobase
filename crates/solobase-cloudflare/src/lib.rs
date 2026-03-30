@@ -17,6 +17,7 @@ mod helpers;
 mod project;
 mod provision;
 mod schema;
+mod storage_sync;
 mod usage;
 mod webhooks;
 
@@ -69,6 +70,27 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     //    Each project has its own R2 bucket, so the user worker's wafer-run/web
     //    block serves static files directly from the project's bucket.
     return handle_project_request(&req, &env, &ctx, &host, is_dev).await;
+}
+
+/// Scheduled (cron) handler — syncs R2 and D1 storage usage from the CF API.
+///
+/// Configure in wrangler.toml:
+/// ```toml
+/// [triggers]
+/// crons = ["0 * * * *"]  # every hour
+/// ```
+#[event(scheduled)]
+pub async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+    console_log!("scheduled: starting storage usage sync");
+
+    // Run schema migrations first (ensures d1_bytes column exists)
+    if let Ok(db) = env.d1("DB") {
+        let _ = schema::run_migrations(&db).await;
+    }
+
+    if let Err(e) = storage_sync::sync_all(&env).await {
+        console_log!("scheduled: storage sync failed: {e}");
+    }
 }
 
 // ---------------------------------------------------------------------------

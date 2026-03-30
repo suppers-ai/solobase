@@ -24,6 +24,9 @@ hmac = "0.12"
 uuid = { version = "1", features = ["v4", "js"] }
 getrandom = { version = "0.2", features = ["js"] }
 
+# Plan definitions (shared with solobase-core)
+solobase-plans = { path = "../solobase-plans" }
+
 # Cloudflare Worker
 worker = { version = "0.7.5", features = ["d1"] }
 wasm-bindgen = "0.2"

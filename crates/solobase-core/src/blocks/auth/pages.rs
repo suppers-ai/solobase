@@ -36,7 +36,11 @@ fn get<'a>(settings: &'a HashMap<String, String>, key: &str, default: &'a str) -
 fn site_config(settings: &HashMap<String, String>) -> SiteConfig {
     SiteConfig {
         app_name: get(settings, "APP_NAME", "Solobase").to_string(),
-        logo_url: get(settings, "AUTH_LOGO_URL", "").to_string(),
+        logo_url: {
+            let auth_logo = get(settings, "AUTH_LOGO_URL", "");
+            if auth_logo.is_empty() { get(settings, "LOGO_URL", "").to_string() } else { auth_logo.to_string() }
+        },
+        logo_icon_url: get(settings, "LOGO_ICON_URL", "").to_string(),
         favicon_url: get(settings, "FAVICON_URL", "").to_string(),
     }
 }

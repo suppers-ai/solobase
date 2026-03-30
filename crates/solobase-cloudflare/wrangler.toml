@@ -32,6 +32,10 @@ bucket_name = "solobase-development"
 binding = "DISPATCHER"
 namespace = "solobase-workers-dev"
 
+# Cron trigger: sync R2/D1 storage usage from CF API every hour
+[triggers]
+crons = ["0 * * * *"]
+
 # =============================================================================
 # Production environment
 # =============================================================================
@@ -61,3 +65,6 @@ bucket_name = "solobase-production"
 [[env.production.dispatch_namespaces]]
 binding = "DISPATCHER"
 namespace = "solobase-workers"
+
+[env.production.triggers]
+crons = ["0 * * * *"]
