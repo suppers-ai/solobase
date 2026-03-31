@@ -50,8 +50,8 @@ fn admin_nav() -> Vec<NavItem> {
         NavItem { label: "Dashboard".into(), href: "/b/admin/".into(), icon: "layout-dashboard" },
         NavItem { label: "Users".into(), href: "/b/admin/users".into(), icon: "users" },
         NavItem { label: "Variables".into(), href: "/b/admin/variables".into(), icon: "settings" },
-        NavItem { label: "Blocks".into(), href: "/b/admin/blocks".into(), icon: "package" },
         NavItem { label: "Logs".into(), href: "/b/admin/logs".into(), icon: "file-text" },
+        NavItem { label: "Blocks".into(), href: "/b/admin/blocks".into(), icon: "package" },
     ]
 }
 
@@ -70,31 +70,164 @@ pub async fn dashboard(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
-    // Gather stats
-    let users_opts = ListOptions {
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+    // Total users
+    let user_count = db::list(ctx, "auth_users", &ListOptions {
         filters: vec![Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null }],
         limit: 1, ..Default::default()
-    };
-    let user_count = db::list(ctx, "auth_users", &users_opts).await
-        .map(|r| r.total_count).unwrap_or(0);
+    }).await.map(|r| r.total_count).unwrap_or(0);
 
-    let roles_count = db::list(ctx, "iam_roles", &ListOptions { limit: 1, ..Default::default() }).await
-        .map(|r| r.total_count).unwrap_or(0);
+    // New users today
+    let new_users_today = db::query_raw(ctx,
+        "SELECT COUNT(*) as cnt FROM auth_users WHERE deleted_at IS NULL AND created_at >= ?1",
+        &[serde_json::json!(format!("{today}T00:00:00"))],
+    ).await.ok().and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))).unwrap_or(0);
 
-    let logs_count = db::list(ctx, "audit_logs", &ListOptions { limit: 1, ..Default::default() }).await
-        .map(|r| r.total_count).unwrap_or(0);
+    // Requests today
+    let requests_today = db::query_raw(ctx,
+        "SELECT COUNT(*) as cnt FROM request_logs WHERE created_at >= ?1",
+        &[serde_json::json!(format!("{today}T00:00:00"))],
+    ).await.ok().and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))).unwrap_or(0);
 
-    let vars_count = db::list(ctx, "variables", &ListOptions { limit: 1, ..Default::default() }).await
-        .map(|r| r.total_count).unwrap_or(0);
+    // Errors today
+    let errors_today = db::query_raw(ctx,
+        "SELECT COUNT(*) as cnt FROM request_logs WHERE status = 'ERROR' AND created_at >= ?1",
+        &[serde_json::json!(format!("{today}T00:00:00"))],
+    ).await.ok().and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))).unwrap_or(0);
+
+    // Avg response time today
+    let avg_ms = db::query_raw(ctx,
+        "SELECT AVG(duration_ms) as avg_ms FROM request_logs WHERE created_at >= ?1",
+        &[serde_json::json!(format!("{today}T00:00:00"))],
+    ).await.ok().and_then(|r| r.first().and_then(|r| r.data.get("avg_ms").and_then(|v| v.as_f64()))).unwrap_or(0.0);
+
+    // Recent users (last 5 logins)
+    let recent_users = db::query_raw(ctx,
+        "SELECT id, email, created_at FROM auth_users WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 5",
+        &[],
+    ).await.unwrap_or_default();
+
+    // Recent audit logs (last 5)
+    let recent_audit = db::query_raw(ctx,
+        "SELECT action, resource, user_id, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 5",
+        &[],
+    ).await.unwrap_or_default();
+
+    // Recent errors (last 5)
+    let recent_errors = db::query_raw(ctx,
+        "SELECT status_code, method, path, duration_ms, created_at FROM request_logs WHERE status = 'ERROR' OR status_code >= 400 ORDER BY created_at DESC LIMIT 5",
+        &[],
+    ).await.unwrap_or_default();
 
     let content = html! {
         (components::page_header("Dashboard", Some("System overview"), None))
 
+        // Top row — key metrics
         div .stats-grid {
-            (components::stat_card("Users", &user_count.to_string(), icons::users()))
-            (components::stat_card("Roles", &roles_count.to_string(), icons::shield()))
-            (components::stat_card("Settings", &vars_count.to_string(), icons::settings()))
-            (components::stat_card("Audit Logs", &logs_count.to_string(), icons::file_text()))
+            (components::stat_card("Total Users", &user_count.to_string(), icons::users()))
+            (components::stat_card("New Today", &new_users_today.to_string(), icons::plus()))
+            (components::stat_card("Requests Today", &requests_today.to_string(), icons::server()))
+            (components::stat_card("Errors Today", &errors_today.to_string(), icons::x()))
+            (components::stat_card("Avg Response", &format!("{:.0}ms", avg_ms), icons::refresh_cw()))
+        }
+
+        // Two columns: Recent Users + Recent Activity
+        div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-top:1.5rem" {
+            // Recent Users
+            div .card {
+                div .card-header {
+                    h3 .card-title { "Recent Users" }
+                    a .btn .btn-ghost .btn-sm href="/b/admin/users" { "View all" }
+                }
+                @if recent_users.is_empty() {
+                    p .text-muted .text-sm { "No users yet" }
+                } @else {
+                    div .table-container {
+                        table .table {
+                            tbody {
+                                @for record in &recent_users {
+                                    @let email = record.data.get("email").and_then(|v| v.as_str()).unwrap_or("");
+                                    @let created = record.data.get("created_at").and_then(|v| v.as_str()).unwrap_or("");
+                                    tr {
+                                        td .text-sm { (email) }
+                                        td .text-muted .text-sm .text-right { (created.get(..10).unwrap_or(created)) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Recent Activity (Audit Logs)
+            div .card {
+                div .card-header {
+                    h3 .card-title { "Recent Activity" }
+                    a .btn .btn-ghost .btn-sm href="/b/admin/logs?tab=audit" { "View all" }
+                }
+                @if recent_audit.is_empty() {
+                    p .text-muted .text-sm { "No activity yet" }
+                } @else {
+                    div .table-container {
+                        table .table {
+                            tbody {
+                                @for record in &recent_audit {
+                                    @let action = record.data.get("action").and_then(|v| v.as_str()).unwrap_or("");
+                                    @let resource = record.data.get("resource").and_then(|v| v.as_str()).unwrap_or("");
+                                    @let created = record.data.get("created_at").and_then(|v| v.as_str()).unwrap_or("");
+                                    tr {
+                                        td { span .badge .badge-info .text-xs { (action) } }
+                                        td .text-sm { (resource) }
+                                        td .text-muted .text-sm .text-right { (created.get(..19).unwrap_or(created)) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Recent Errors
+        @if !recent_errors.is_empty() {
+            div .card style="margin-top:1.5rem" {
+                div .card-header {
+                    h3 .card-title { "Recent Errors" }
+                    a .btn .btn-ghost .btn-sm href="/b/admin/logs" { "View all" }
+                }
+                div .table-container {
+                    table .table {
+                        thead {
+                            tr {
+                                th { "Status" }
+                                th { "Method" }
+                                th { "Path" }
+                                th { "Duration" }
+                                th { "Time" }
+                            }
+                        }
+                        tbody {
+                            @for record in &recent_errors {
+                                @let code = record.data.get("status_code").and_then(|v| v.as_i64()).unwrap_or(0);
+                                @let method = record.data.get("method").and_then(|v| v.as_str()).unwrap_or("");
+                                @let path = record.data.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                @let duration = record.data.get("duration_ms").and_then(|v| v.as_i64()).unwrap_or(0);
+                                @let created = record.data.get("created_at").and_then(|v| v.as_str()).unwrap_or("");
+                                tr {
+                                    td {
+                                        span .badge .(if code >= 500 { "badge-danger" } else { "badge-warning" }) { (code) }
+                                    }
+                                    td .text-sm .font-medium { (method.to_uppercase()) }
+                                    td .text-sm { (path) }
+                                    td .text-muted .text-sm { (duration) "ms" }
+                                    td .text-muted .text-sm { (created.get(..19).unwrap_or(created)) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     };
 
@@ -160,23 +293,36 @@ async fn users_tab(ctx: &dyn Context, msg: &mut Message, current_user_id: &str) 
     let (page, page_size, _) = msg.pagination_params(20);
     let search = msg.query("search").to_string();
 
-    let mut filters = vec![
-        Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null },
-    ];
-    if !search.is_empty() {
-        filters.push(Filter {
-            field: "email".into(),
-            operator: FilterOp::Like,
-            value: serde_json::Value::String(format!("%{search}%")),
-        });
-    }
-
-    let sort = vec![SortField { field: "created_at".into(), desc: true }];
-    let result = db::paginated_list(ctx, "auth_users", page as i64, page_size as i64, filters, sort).await;
+    let result = if !search.is_empty() {
+        // Search by email OR id (raw SQL for OR support)
+        let like = format!("%{search}%");
+        let offset = ((page - 1) * page_size) as i64;
+        let records = db::query_raw(
+            ctx,
+            "SELECT * FROM auth_users WHERE deleted_at IS NULL AND (email LIKE ?1 OR id LIKE ?1) ORDER BY created_at DESC LIMIT ?2 OFFSET ?3",
+            &[serde_json::json!(like), serde_json::json!(page_size), serde_json::json!(offset)],
+        ).await;
+        // Wrap in RecordList format
+        match records {
+            Ok(rows) => Ok(db::RecordList {
+                total_count: rows.len() as i64,
+                page: page as i64,
+                page_size: page_size as i64,
+                records: rows,
+            }),
+            Err(e) => Err(e),
+        }
+    } else {
+        let filters = vec![
+            Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null },
+        ];
+        let sort = vec![SortField { field: "created_at".into(), desc: true }];
+        db::paginated_list(ctx, "auth_users", page as i64, page_size as i64, filters, sort).await
+    };
 
     html! {
         div .filter-bar {
-            (components::search_input("search", "Search by email...", "/b/admin/users", "#users-tab-content"))
+            (components::search_input_with_value("search", "Search by email or user ID...", "/b/admin/users", "#content", &search))
         }
 
         @match &result {
@@ -659,7 +805,7 @@ async fn system_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
 
     html! {
         div .filter-bar {
-            (components::search_input("search", "Search by path...", "/b/admin/logs", "#logs-tab-content"))
+            (components::search_input_with_value("search", "Search by path...", "/b/admin/logs", "#content", &search))
         }
 
         @match &result {
@@ -712,7 +858,7 @@ async fn system_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
                 }
 
                 @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                (components::pagination(list.page as u32, total_pages, "/b/admin/logs", "#logs-tab-content"))
+                (components::pagination(list.page as u32, total_pages, "/b/admin/logs", "#content"))
             }
             Err(e) => {
                 div .login-error { "Failed to load request logs: " (e.message) }
@@ -739,7 +885,7 @@ async fn audit_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
 
     html! {
         div .filter-bar {
-            (components::search_input("search", "Search by resource...", "/b/admin/logs?tab=audit", "#logs-tab-content"))
+            (components::search_input_with_value("search", "Search by resource...", "/b/admin/logs?tab=audit", "#content", &search))
         }
 
         @match &result {
@@ -782,7 +928,7 @@ async fn audit_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
                 }
 
                 @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                (components::pagination(list.page as u32, total_pages, "/b/admin/logs?tab=audit", "#logs-tab-content"))
+                (components::pagination(list.page as u32, total_pages, "/b/admin/logs?tab=audit", "#content"))
             }
             Err(e) => {
                 div .login-error { "Failed to load audit logs: " (e.message) }

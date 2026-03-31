@@ -60,7 +60,7 @@ impl Block for DispatcherBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
             name: "solobase/dispatcher".to_string(),
-            version: "0.1.0".to_string(),
+            version: "0.0.1".to_string(),
             interface: "service@v1".to_string(),
             summary: "Forward requests to dispatch worker via service binding".to_string(),
             instance_mode: InstanceMode::Singleton,
