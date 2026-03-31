@@ -90,6 +90,31 @@ pub trait BlockFactory: wafer_run::MaybeSend + wafer_run::MaybeSync {
     fn create(&self, block_id: BlockId) -> Option<Arc<dyn Block>>;
 }
 
+/// Generate the routing table as JSON config (same format as wafer-run/router).
+/// Used to expose routes to the inspector.
+pub fn routes_config() -> serde_json::Value {
+    let routes: Vec<serde_json::Value> = ROUTES.iter().map(|r| {
+        let block_name = format!("suppers-ai/{}", block_id_short_name(r.block_id));
+        let path = format!("{}**", r.prefix);
+        serde_json::json!({ "path": path, "block": block_name })
+    }).collect();
+    serde_json::json!({ "routes": routes })
+}
+
+fn block_id_short_name(id: BlockId) -> &'static str {
+    match id {
+        BlockId::System     => "system",
+        BlockId::Auth       => "auth",
+        BlockId::Admin      => "admin",
+        BlockId::Files      => "files",
+        BlockId::LegalPages => "legalpages",
+        BlockId::Products   => "products",
+        BlockId::Projects   => "projects",
+        BlockId::UserPortal => "userportal",
+        BlockId::Profile    => "profile",
+    }
+}
+
 /// Route a message to the appropriate solobase block based on request path.
 ///
 /// Checks feature flags and admin role. Uses the provided `factory` to

@@ -14,6 +14,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod system_logs;
+
 use solobase::app_config::{InfraConfig, FeatureSnapshot};
 use solobase::blocks;
 use solobase::blocks::router::{NativeBlockFactory, SolobaseRouterBlock};
@@ -150,6 +152,7 @@ async fn main() {
     let factory = NativeBlockFactory::new(shared_blocks);
     let router = SolobaseRouterBlock::new(jwt_secret, feature_config, factory);
     wafer.register_block("suppers-ai/router", Arc::new(router));
+    wafer.add_block_config("suppers-ai/router", solobase_core::routing::routes_config());
     tracing::info!("feature blocks registered");
 
     // 14. Register flow definitions
@@ -158,8 +161,9 @@ async fn main() {
         std::process::exit(1);
     });
 
-    // 15. Register observability hooks
-    register_observability_hooks(&mut wafer);
+    // 15. Register observability hooks + system log writer
+    let system_log_tx = system_logs::spawn_writer(infra.db_path.clone());
+    register_observability_hooks(&mut wafer, system_log_tx);
 
     // 16. Start WAFER runtime
     let wafer = wafer
@@ -363,7 +367,7 @@ fn init_tracing(log_format: &str) {
 // Observability hooks
 // ---------------------------------------------------------------------------
 
-fn register_observability_hooks(wafer: &mut Wafer) {
+fn register_observability_hooks(wafer: &mut Wafer, log_tx: system_logs::SystemLogSender) {
     wafer.hooks.on_block_end(|obs_ctx, result, duration| {
         let status = match result.action {
             wafer_run::Action::Error => "ERROR",
@@ -380,14 +384,53 @@ fn register_observability_hooks(wafer: &mut Wafer) {
         );
     });
 
-    wafer.hooks.on_flow_end(|flow_id, result, duration| {
-        let status = match result.action {
-            wafer_run::Action::Error => "ERROR",
-            _ => "OK",
+    wafer.hooks.on_flow_end(move |flow_id, result, duration| {
+        // Extract request info from the result's message
+        let (method, path, client_ip, user_id) = if let Some(ref msg) = result.message {
+            (
+                msg.action().to_string(),
+                msg.path().to_string(),
+                msg.remote_addr().to_string(),
+                msg.user_id().to_string(),
+            )
+        } else {
+            (String::new(), String::new(), String::new(), String::new())
         };
+
+        let (status, status_code, error_message) = match result.action {
+            wafer_run::Action::Error => {
+                let err_msg = result.error.as_ref()
+                    .map(|e| e.message.clone())
+                    .unwrap_or_default();
+                ("ERROR".to_string(), 500u16, err_msg)
+            }
+            _ => {
+                let code = result.response.as_ref()
+                    .and_then(|r| r.meta.iter().find(|m| m.key == "resp.status"))
+                    .and_then(|m| m.value.parse::<u16>().ok())
+                    .unwrap_or(200);
+                ("OK".to_string(), code, String::new())
+            }
+        };
+
+        // Send to background writer (non-blocking)
+        let _ = log_tx.send(system_logs::SystemLogEntry {
+            flow_id: flow_id.to_string(),
+            method,
+            path: path.clone(),
+            status: status.clone(),
+            status_code,
+            duration_ms: duration.as_millis() as u64,
+            error_message,
+            client_ip,
+            user_id,
+        });
+
+        // Also log to tracing (existing behavior)
         tracing::info!(
             flow   = %flow_id,
-            status = status,
+            status = %status,
+            path   = %path,
             ms     = duration.as_millis() as u64,
             "flow completed"
         );

@@ -224,14 +224,14 @@ impl Block for AuthBlock {
 
         BlockInfo {
             name: "suppers-ai/auth".to_string(),
-            version: "1.0.0".to_string(),
+            version: "0.0.1".to_string(),
             interface: "http-handler@v1".to_string(),
             summary: "Authentication: login, signup, JWT, refresh tokens, OAuth, API keys".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: None,
             runtime: wafer_run::types::BlockRuntime::Native,
-            requires: Vec::new(),
+            requires: vec!["wafer-run/database".into(), "wafer-run/crypto".into(), "wafer-run/config".into(), "suppers-ai/email".into()],
             collections: vec![
                 CollectionSchema::new("auth_users")
                     .field_unique("email", "string")

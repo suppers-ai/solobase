@@ -281,7 +281,7 @@ impl Block for LegalPagesBlock {
 
         BlockInfo {
             name: "suppers-ai/legalpages".to_string(),
-            version: "1.0.0".to_string(),
+            version: "0.0.1".to_string(),
             interface: "http-handler@v1".to_string(),
             summary: "Legal pages management with versioning and publishing".to_string(),
             instance_mode: InstanceMode::Singleton,
@@ -292,7 +292,7 @@ impl Block for LegalPagesBlock {
                 url: "/b/legalpages/admin".to_string(),
             }),
             runtime: wafer_run::types::BlockRuntime::Native,
-            requires: Vec::new(),
+            requires: vec!["wafer-run/database".into()],
             collections: vec![
                 CollectionSchema::new("block_legalpages_legal_documents")
                     .field("doc_type", "string")

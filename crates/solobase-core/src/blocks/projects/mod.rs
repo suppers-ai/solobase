@@ -33,7 +33,7 @@ impl Block for ProjectsBlock {
 
         BlockInfo {
             name: "suppers-ai/projects".to_string(),
-            version: "1.0.0".to_string(),
+            version: "0.0.1".to_string(),
             interface: "http-handler@v1".to_string(),
             summary: "Project management for users and admins".to_string(),
             instance_mode: InstanceMode::Singleton,
@@ -44,7 +44,7 @@ impl Block for ProjectsBlock {
                 url: "/b/projects/".to_string(),
             }),
             runtime: wafer_run::types::BlockRuntime::Native,
-            requires: Vec::new(),
+            requires: vec!["wafer-run/database".into(), "wafer-run/config".into(), "wafer-run/network".into()],
             collections: vec![
                 CollectionSchema::new("block_deployments")
                     .field_ref("user_id", "string", "auth_users.id")

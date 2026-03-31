@@ -49,7 +49,7 @@ impl Block for ProductsBlock {
 
         BlockInfo {
             name: "suppers-ai/products".to_string(),
-            version: "1.0.0".to_string(),
+            version: "0.0.1".to_string(),
             interface: "http-handler@v1".to_string(),
             summary: "Products, pricing, purchases, and payment integration".to_string(),
             instance_mode: InstanceMode::Singleton,
@@ -60,7 +60,7 @@ impl Block for ProductsBlock {
                 url: "/b/products/".to_string(),
             }),
             runtime: wafer_run::types::BlockRuntime::Native,
-            requires: Vec::new(),
+            requires: vec!["wafer-run/database".into(), "wafer-run/config".into(), "wafer-run/network".into()],
             collections: vec![
                 CollectionSchema::new("block_products_products")
                     .field("name", "string")

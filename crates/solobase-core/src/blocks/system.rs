@@ -13,14 +13,14 @@ impl Block for SystemBlock {
     fn info(&self) -> BlockInfo {
         BlockInfo {
             name: "suppers-ai/system".to_string(),
-            version: "1.0.0".to_string(),
+            version: "0.0.1".to_string(),
             interface: "http-handler@v1".to_string(),
             summary: "System health, debug, navigation, and embedded static assets".to_string(),
             instance_mode: InstanceMode::Singleton,
             allowed_modes: vec![InstanceMode::Singleton],
             admin_ui: None,
             runtime: wafer_run::types::BlockRuntime::Native,
-            requires: Vec::new(),
+            requires: vec!["wafer-run/inspector".into()],
             collections: Vec::new(),
             config_schema: None,
         }
@@ -51,8 +51,7 @@ impl Block for SystemBlock {
                     {"id": "blocks", "label": "Blocks", "href": "/b/admin/blocks", "icon": "package"},
                     {"id": "logs", "label": "Logs", "href": "/b/admin/logs", "icon": "file-text"},
                     {"id": "products", "label": "Products", "href": "/b/products/", "icon": "package"},
-                    {"id": "projects", "label": "Projects", "href": "/b/projects/", "icon": "server"},
-                    {"id": "inspector", "label": "Inspector", "href": "/debug/inspector/ui", "icon": "globe"}
+                    {"id": "projects", "label": "Projects", "href": "/b/projects/", "icon": "server"}
                 ]);
                 json_respond(msg, &nav)
             }

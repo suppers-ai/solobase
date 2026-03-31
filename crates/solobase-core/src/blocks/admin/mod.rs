@@ -30,7 +30,7 @@ impl Block for AdminBlock {
 
         BlockInfo {
             name: "suppers-ai/admin".to_string(),
-            version: "1.0.0".to_string(),
+            version: "0.0.1".to_string(),
             interface: "http-handler@v1".to_string(),
             summary: "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables".to_string(),
             instance_mode: InstanceMode::Singleton,
@@ -41,7 +41,7 @@ impl Block for AdminBlock {
                 url: "/b/admin/".to_string(),
             }),
             runtime: wafer_run::types::BlockRuntime::Native,
-            requires: Vec::new(),
+            requires: vec!["wafer-run/database".into(), "wafer-run/config".into()],
             collections: vec![
                 CollectionSchema::new("iam_roles")
                     .field("name", "string")
@@ -71,6 +71,17 @@ impl Block for AdminBlock {
                     .field("action", "string")
                     .field_default("resource", "string", "")
                     .field_default("ip_address", "string", "")
+                    .index(&["created_at"]),
+                CollectionSchema::new("request_logs")
+                    .field_default("flow_id", "string", "")
+                    .field_default("method", "string", "")
+                    .field_default("path", "string", "")
+                    .field_default("status", "string", "")
+                    .field_default("status_code", "int", "0")
+                    .field_default("duration_ms", "int", "0")
+                    .field_default("error_message", "string", "")
+                    .field_default("client_ip", "string", "")
+                    .field_default("user_id", "string", "")
                     .index(&["created_at"]),
             ],
             config_schema: None,
@@ -124,6 +135,22 @@ impl Block for AdminBlock {
                 let role_id = sub.strip_prefix("/iam/roles/").unwrap_or("").to_string();
                 if !role_id.is_empty() {
                     return pages::handle_delete_role(ctx, msg, &role_id).await;
+                }
+            }
+            // Variable mutations
+            if action == "create" && sub == "/variables" {
+                return pages::handle_create_variable(ctx, msg).await;
+            }
+            if action == "retrieve" && sub.ends_with("/edit") && sub.starts_with("/variables/") {
+                let var_key = sub.strip_prefix("/variables/").and_then(|s| s.strip_suffix("/edit")).unwrap_or("").to_string();
+                if !var_key.is_empty() {
+                    return pages::handle_edit_variable_form(ctx, msg, &var_key).await;
+                }
+            }
+            if action == "update" && sub.starts_with("/variables/") {
+                let var_key = sub.strip_prefix("/variables/").unwrap_or("").to_string();
+                if !var_key.is_empty() {
+                    return pages::handle_update_variable(ctx, msg, &var_key).await;
                 }
             }
 
