@@ -1,10 +1,10 @@
+use crate::blocks::helpers::{self, RecordExt};
 use std::collections::HashMap;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use crate::blocks::helpers::{self, RecordExt};
+use wafer_run::context::Context;
+use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 const COLLECTION: &str = "auth_users";
 
@@ -25,13 +25,11 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let (page, page_size, _) = msg.pagination_params(20);
     let search = msg.query("search").to_string();
 
-    let mut filters = vec![
-        Filter {
-            field: "deleted_at".to_string(),
-            operator: FilterOp::IsNull,
-            value: serde_json::Value::Null,
-        },
-    ];
+    let mut filters = vec![Filter {
+        field: "deleted_at".to_string(),
+        operator: FilterOp::IsNull,
+        value: serde_json::Value::Null,
+    }];
 
     if !search.is_empty() {
         filters.push(Filter {
@@ -41,9 +39,21 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         });
     }
 
-    let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
+    let sort = vec![SortField {
+        field: "created_at".to_string(),
+        desc: true,
+    }];
 
-    match db::paginated_list(ctx, COLLECTION, page as i64, page_size as i64, filters, sort).await {
+    match db::paginated_list(
+        ctx,
+        COLLECTION,
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await
+    {
         Ok(mut result) => {
             // Strip password hashes and enrich with roles
             for record in &mut result.records {
@@ -57,13 +67,17 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     ..Default::default()
                 };
                 let roles: Vec<String> = match db::list(ctx, "iam_user_roles", &roles_opts).await {
-                    Ok(r) => r.records.iter()
+                    Ok(r) => r
+                        .records
+                        .iter()
                         .map(|rec| rec.str_field("role").to_string())
                         .filter(|s| !s.is_empty())
                         .collect(),
                     Err(_) => Vec::new(),
                 };
-                record.data.insert("roles".to_string(), serde_json::json!(roles));
+                record
+                    .data
+                    .insert("roles".to_string(), serde_json::json!(roles));
             }
             json_respond(msg, &result)
         }
@@ -99,7 +113,9 @@ async fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
                 ..Default::default()
             };
             let roles: Vec<String> = match db::list(ctx, "iam_user_roles", &roles_opts).await {
-                Ok(r) => r.records.iter()
+                Ok(r) => r
+                    .records
+                    .iter()
                     .map(|rec| rec.str_field("role").to_string())
                     .filter(|s| !s.is_empty())
                     .collect(),
@@ -119,15 +135,28 @@ async fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
 async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = msg.var("id");
-    let id = if id.is_empty() { path.strip_prefix("/admin/users/").unwrap_or("") } else { id };
+    let id = if id.is_empty() {
+        path.strip_prefix("/admin/users/").unwrap_or("")
+    } else {
+        id
+    };
     if id.is_empty() {
         return err_bad_request(msg, "Missing user ID");
     }
 
+    // Prevent admin from disabling themselves
+    let current_user_id = msg.user_id();
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
+    if id == current_user_id {
+        if let Some(disabled) = body.get("disabled") {
+            if disabled == &serde_json::Value::Bool(true) || disabled == &serde_json::json!(1) {
+                return err_bad_request(msg, "Cannot disable your own account");
+            }
+        }
+    }
 
     // Only allow safe fields
     let mut data = HashMap::new();
@@ -151,9 +180,18 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = msg.var("id");
-    let id = if id.is_empty() { path.strip_prefix("/admin/users/").unwrap_or("") } else { id };
+    let id = if id.is_empty() {
+        path.strip_prefix("/admin/users/").unwrap_or("")
+    } else {
+        id
+    };
     if id.is_empty() {
         return err_bad_request(msg, "Missing user ID");
+    }
+
+    // Prevent admin from deleting themselves
+    if id == msg.user_id() {
+        return err_bad_request(msg, "Cannot delete your own account");
     }
 
     // Soft delete

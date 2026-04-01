@@ -39,33 +39,129 @@ pub struct Route {
 /// same prefix. The block's `handle()` decides whether to return HTML or JSON.
 pub const ROUTES: &[Route] = &[
     // System & static assets
-    Route { prefix: "/health",                  requires_admin: false, block_id: BlockId::System },
-    Route { prefix: "/nav",                     requires_admin: false, block_id: BlockId::System },
-    Route { prefix: "/debug/",                  requires_admin: false, block_id: BlockId::System },
-    Route { prefix: "/static/",                 requires_admin: false, block_id: BlockId::System },
+    Route {
+        prefix: "/health",
+        requires_admin: false,
+        block_id: BlockId::System,
+    },
+    Route {
+        prefix: "/nav",
+        requires_admin: false,
+        block_id: BlockId::System,
+    },
+    Route {
+        prefix: "/debug/",
+        requires_admin: true,
+        block_id: BlockId::System,
+    },
+    Route {
+        prefix: "/static/",
+        requires_admin: false,
+        block_id: BlockId::System,
+    },
     // Auth (SSR pages + API under /b/auth/)
-    Route { prefix: "/b/auth/",                 requires_admin: false, block_id: BlockId::Auth },
-    Route { prefix: "/auth/",                   requires_admin: false, block_id: BlockId::Auth },
-    Route { prefix: "/internal/oauth/",         requires_admin: false, block_id: BlockId::Auth },
+    Route {
+        prefix: "/b/auth/",
+        requires_admin: false,
+        block_id: BlockId::Auth,
+    },
+    Route {
+        prefix: "/auth/",
+        requires_admin: false,
+        block_id: BlockId::Auth,
+    },
+    Route {
+        prefix: "/internal/oauth/",
+        requires_admin: false,
+        block_id: BlockId::Auth,
+    },
     // Admin (SSR pages + API under /b/admin/)
-    Route { prefix: "/b/admin/",                requires_admin: true,  block_id: BlockId::Admin },
-    Route { prefix: "/b/admin",                 requires_admin: true,  block_id: BlockId::Admin },
-    Route { prefix: "/admin/settings",          requires_admin: true,  block_id: BlockId::Admin },
-    Route { prefix: "/settings",                requires_admin: true,  block_id: BlockId::Admin },
-    Route { prefix: "/admin/storage/",          requires_admin: true,  block_id: BlockId::Files },
-    Route { prefix: "/admin/b/cloudstorage/",   requires_admin: true,  block_id: BlockId::Files },
-    Route { prefix: "/admin/legalpages/",       requires_admin: true,  block_id: BlockId::LegalPages },
-    Route { prefix: "/admin/b/products",        requires_admin: true,  block_id: BlockId::Products },
-    Route { prefix: "/admin/b/projects",        requires_admin: true,  block_id: BlockId::Projects },
-    Route { prefix: "/admin/",                  requires_admin: true,  block_id: BlockId::Admin },
+    Route {
+        prefix: "/b/admin/",
+        requires_admin: true,
+        block_id: BlockId::Admin,
+    },
+    Route {
+        prefix: "/b/admin",
+        requires_admin: true,
+        block_id: BlockId::Admin,
+    },
+    Route {
+        prefix: "/admin/settings",
+        requires_admin: true,
+        block_id: BlockId::Admin,
+    },
+    Route {
+        prefix: "/settings",
+        requires_admin: true,
+        block_id: BlockId::Admin,
+    },
+    Route {
+        prefix: "/admin/storage/",
+        requires_admin: true,
+        block_id: BlockId::Files,
+    },
+    Route {
+        prefix: "/admin/b/cloudstorage/",
+        requires_admin: true,
+        block_id: BlockId::Files,
+    },
+    Route {
+        prefix: "/admin/legalpages/",
+        requires_admin: true,
+        block_id: BlockId::LegalPages,
+    },
+    Route {
+        prefix: "/admin/b/products",
+        requires_admin: true,
+        block_id: BlockId::Products,
+    },
+    Route {
+        prefix: "/admin/b/projects",
+        requires_admin: true,
+        block_id: BlockId::Projects,
+    },
+    Route {
+        prefix: "/admin/",
+        requires_admin: true,
+        block_id: BlockId::Admin,
+    },
     // Feature blocks (SSR + API)
-    Route { prefix: "/storage/",                requires_admin: false, block_id: BlockId::Files },
-    Route { prefix: "/b/cloudstorage/",         requires_admin: false, block_id: BlockId::Files },
-    Route { prefix: "/b/products",              requires_admin: false, block_id: BlockId::Products },
-    Route { prefix: "/b/legalpages",            requires_admin: false, block_id: BlockId::LegalPages },
-    Route { prefix: "/b/projects",              requires_admin: false, block_id: BlockId::Projects },
-    Route { prefix: "/b/userportal",            requires_admin: false, block_id: BlockId::UserPortal },
-    Route { prefix: "/profile",                 requires_admin: false, block_id: BlockId::Profile },
+    Route {
+        prefix: "/storage/",
+        requires_admin: false,
+        block_id: BlockId::Files,
+    },
+    Route {
+        prefix: "/b/cloudstorage/",
+        requires_admin: false,
+        block_id: BlockId::Files,
+    },
+    Route {
+        prefix: "/b/products",
+        requires_admin: false,
+        block_id: BlockId::Products,
+    },
+    Route {
+        prefix: "/b/legalpages",
+        requires_admin: false,
+        block_id: BlockId::LegalPages,
+    },
+    Route {
+        prefix: "/b/projects",
+        requires_admin: false,
+        block_id: BlockId::Projects,
+    },
+    Route {
+        prefix: "/b/userportal",
+        requires_admin: false,
+        block_id: BlockId::UserPortal,
+    },
+    Route {
+        prefix: "/profile",
+        requires_admin: false,
+        block_id: BlockId::Profile,
+    },
 ];
 
 /// Check if a block's feature is enabled.
@@ -85,25 +181,28 @@ pub trait BlockFactory: wafer_run::MaybeSend + wafer_run::MaybeSync {
 /// Generate the routing table as JSON config (same format as wafer-run/router).
 /// Used to expose routes to the inspector.
 pub fn routes_config() -> serde_json::Value {
-    let routes: Vec<serde_json::Value> = ROUTES.iter().map(|r| {
-        let block_name = format!("suppers-ai/{}", block_id_short_name(r.block_id));
-        let path = format!("{}**", r.prefix);
-        serde_json::json!({ "path": path, "block": block_name })
-    }).collect();
+    let routes: Vec<serde_json::Value> = ROUTES
+        .iter()
+        .map(|r| {
+            let block_name = format!("suppers-ai/{}", block_id_short_name(r.block_id));
+            let path = format!("{}**", r.prefix);
+            serde_json::json!({ "path": path, "block": block_name })
+        })
+        .collect();
     serde_json::json!({ "routes": routes })
 }
 
 fn block_id_short_name(id: BlockId) -> &'static str {
     match id {
-        BlockId::System     => "system",
-        BlockId::Auth       => "auth",
-        BlockId::Admin      => "admin",
-        BlockId::Files      => "files",
+        BlockId::System => "system",
+        BlockId::Auth => "auth",
+        BlockId::Admin => "admin",
+        BlockId::Files => "files",
         BlockId::LegalPages => "legalpages",
-        BlockId::Products   => "products",
-        BlockId::Projects   => "projects",
+        BlockId::Products => "products",
+        BlockId::Projects => "projects",
         BlockId::UserPortal => "userportal",
-        BlockId::Profile    => "profile",
+        BlockId::Profile => "profile",
     }
 }
 
@@ -131,7 +230,12 @@ pub async fn route_to_block(
         }
 
         // Admin gate
-        if route.requires_admin && !msg.get_meta("auth.user_roles").split(',').any(|r| r.trim() == "admin") {
+        if route.requires_admin
+            && !msg
+                .get_meta("auth.user_roles")
+                .split(',')
+                .any(|r| r.trim() == "admin")
+        {
             return crate::ui::forbidden_response(msg);
         }
 
@@ -188,13 +292,13 @@ mod tests {
         ];
 
         for (path, expected_block) in cases {
-            let matched = ROUTES.iter().find(|r| path == r.prefix || path.starts_with(r.prefix));
-            assert!(
-                matched.is_some(),
-                "path {path} should match a route"
-            );
+            let matched = ROUTES
+                .iter()
+                .find(|r| path == r.prefix || path.starts_with(r.prefix));
+            assert!(matched.is_some(), "path {path} should match a route");
             assert_eq!(
-                matched.unwrap().block_id, expected_block,
+                matched.unwrap().block_id,
+                expected_block,
                 "path {path} should route to {expected_block:?}"
             );
         }
@@ -204,7 +308,9 @@ mod tests {
     fn unmatched_paths_have_no_route() {
         let unmatched = vec!["/unknown", "/foo/bar", "/"];
         for path in unmatched {
-            let matched = ROUTES.iter().find(|r| path == r.prefix || path.starts_with(r.prefix));
+            let matched = ROUTES
+                .iter()
+                .find(|r| path == r.prefix || path.starts_with(r.prefix));
             assert!(matched.is_none(), "path {path} should NOT match any route");
         }
     }
@@ -228,13 +334,25 @@ mod tests {
     #[test]
     fn non_admin_routes_dont_require_admin() {
         let non_admin_prefixes = vec![
-            "/health", "/nav", "/debug/", "/static/",
-            "/b/auth/", "/auth/", "/internal/oauth/",
-            "/storage/", "/b/products", "/b/legalpages", "/b/projects",
-            "/b/userportal", "/b/cloudstorage/", "/profile",
+            "/health",
+            "/nav",
+            "/static/",
+            "/b/auth/",
+            "/auth/",
+            "/internal/oauth/",
+            "/storage/",
+            "/b/products",
+            "/b/legalpages",
+            "/b/projects",
+            "/b/userportal",
+            "/b/cloudstorage/",
+            "/profile",
         ];
         for route in ROUTES {
-            if non_admin_prefixes.iter().any(|p| route.prefix == *p || route.prefix.starts_with(p)) {
+            if non_admin_prefixes
+                .iter()
+                .any(|p| route.prefix == *p || route.prefix.starts_with(p))
+            {
                 assert!(
                     !route.requires_admin,
                     "route {} should NOT require admin",
@@ -246,12 +364,16 @@ mod tests {
 
     struct AllEnabled;
     impl FeatureConfig for AllEnabled {
-        fn is_block_enabled(&self, _: &str) -> bool { true }
+        fn is_block_enabled(&self, _: &str) -> bool {
+            true
+        }
     }
 
     struct NoneEnabled;
     impl FeatureConfig for NoneEnabled {
-        fn is_block_enabled(&self, _: &str) -> bool { false }
+        fn is_block_enabled(&self, _: &str) -> bool {
+            false
+        }
     }
 
     #[test]
@@ -281,13 +403,15 @@ mod tests {
     #[test]
     fn more_specific_admin_routes_come_before_general() {
         // /admin/storage/ should match Files, not Admin (which is /admin/)
-        let route = ROUTES.iter()
+        let route = ROUTES
+            .iter()
             .find(|r| "/admin/storage/buckets".starts_with(r.prefix))
             .unwrap();
         assert_eq!(route.block_id, BlockId::Files);
 
         // /admin/legalpages/ should match LegalPages, not Admin
-        let route = ROUTES.iter()
+        let route = ROUTES
+            .iter()
             .find(|r| "/admin/legalpages/documents".starts_with(r.prefix))
             .unwrap();
         assert_eq!(route.block_id, BlockId::LegalPages);

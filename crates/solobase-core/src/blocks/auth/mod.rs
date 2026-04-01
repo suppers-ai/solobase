@@ -1,19 +1,19 @@
-mod login;
 mod api_keys;
+mod login;
 mod oauth;
 mod pages;
 
+use super::helpers::{hex_encode, json_map};
+use super::rate_limit::{check_rate_limit, RateLimit, UserRateLimiter};
 use std::collections::HashMap;
 use std::time::Duration;
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
-use wafer_core::clients::{crypto, config};
-use super::helpers::{hex_encode, json_map};
-use super::rate_limit::{UserRateLimiter, RateLimit, check_rate_limit};
+use wafer_core::clients::{config, crypto};
+use wafer_run::block::{Block, BlockInfo};
+use wafer_run::context::Context;
+use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 pub struct AuthBlock {
     limiter: UserRateLimiter,
@@ -27,7 +27,9 @@ impl Default for AuthBlock {
 
 impl AuthBlock {
     pub fn new() -> Self {
-        Self { limiter: UserRateLimiter::new() }
+        Self {
+            limiter: UserRateLimiter::new(),
+        }
     }
 }
 
@@ -47,11 +49,16 @@ mod helpers {
         ctx: &dyn Context,
         data: HashMap<String, serde_json::Value>,
     ) -> std::result::Result<(wafer_core::clients::database::Record, String), String> {
-        let user = db::create(ctx, USERS_COLLECTION, data).await
+        let user = db::create(ctx, USERS_COLLECTION, data)
+            .await
             .map_err(|e| format!("Failed to create user: {e}"))?;
 
         let admin_email = config::get_default(ctx, "ADMIN_EMAIL", "").await;
-        let user_email = user.data.get("email").and_then(|v| v.as_str()).unwrap_or("");
+        let user_email = user
+            .data
+            .get("email")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let role = if !admin_email.is_empty() && user_email.eq_ignore_ascii_case(&admin_email) {
             "admin"
         } else {
@@ -80,50 +87,90 @@ mod helpers {
             ..Default::default()
         };
         match db::list(ctx, USER_ROLES_COLLECTION, &opts).await {
-            Ok(r) => r.records.iter()
-                .filter_map(|rec| rec.data.get("role").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            Ok(r) => r
+                .records
+                .iter()
+                .filter_map(|rec| {
+                    rec.data
+                        .get("role")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
                 .collect(),
             Err(_) => Vec::new(),
         }
     }
 
+    /// Returns (access_token, refresh_token, family).
     pub(super) async fn generate_tokens(
         ctx: &dyn Context,
         user_id: &str,
         email: &str,
         roles: &[String],
-    ) -> Result<(String, String), Result_> {
+    ) -> Result<(String, String, String), Result_> {
         let family = match crypto::random_bytes(ctx, 16).await {
             Ok(bytes) => hex_encode(&bytes),
             Err(e) => return Err(Result_::error(e)),
         };
 
         let mut access_claims = HashMap::new();
-        access_claims.insert("user_id".to_string(), serde_json::Value::String(user_id.to_string()));
-        access_claims.insert("sub".to_string(), serde_json::Value::String(user_id.to_string()));
-        access_claims.insert("email".to_string(), serde_json::Value::String(email.to_string()));
+        access_claims.insert(
+            "user_id".to_string(),
+            serde_json::Value::String(user_id.to_string()),
+        );
+        access_claims.insert(
+            "sub".to_string(),
+            serde_json::Value::String(user_id.to_string()),
+        );
+        access_claims.insert(
+            "email".to_string(),
+            serde_json::Value::String(email.to_string()),
+        );
         access_claims.insert("roles".to_string(), serde_json::json!(roles));
-        access_claims.insert("type".to_string(), serde_json::Value::String("access".to_string()));
+        access_claims.insert(
+            "type".to_string(),
+            serde_json::Value::String("access".to_string()),
+        );
 
-        let access_token = crypto::sign(ctx, &access_claims, Duration::from_secs(86400)).await
+        let access_token = crypto::sign(ctx, &access_claims, Duration::from_secs(86400))
+            .await
             .map_err(Result_::error)?;
 
         let mut refresh_claims = HashMap::new();
-        refresh_claims.insert("user_id".to_string(), serde_json::Value::String(user_id.to_string()));
-        refresh_claims.insert("sub".to_string(), serde_json::Value::String(user_id.to_string()));
-        refresh_claims.insert("type".to_string(), serde_json::Value::String("refresh".to_string()));
-        refresh_claims.insert("family".to_string(), serde_json::Value::String(family));
+        refresh_claims.insert(
+            "user_id".to_string(),
+            serde_json::Value::String(user_id.to_string()),
+        );
+        refresh_claims.insert(
+            "sub".to_string(),
+            serde_json::Value::String(user_id.to_string()),
+        );
+        refresh_claims.insert(
+            "type".to_string(),
+            serde_json::Value::String("refresh".to_string()),
+        );
+        refresh_claims.insert(
+            "family".to_string(),
+            serde_json::Value::String(family.clone()),
+        );
 
-        let refresh_token = crypto::sign(ctx, &refresh_claims, Duration::from_secs(604800)).await
+        let refresh_token = crypto::sign(ctx, &refresh_claims, Duration::from_secs(604800))
+            .await
             .map_err(Result_::error)?;
 
-        Ok((access_token, refresh_token))
+        Ok((access_token, refresh_token, family))
     }
 
-    pub(super) async fn store_refresh_token(ctx: &dyn Context, user_id: &str, token: &str) {
+    pub(super) async fn store_refresh_token(
+        ctx: &dyn Context,
+        user_id: &str,
+        token: &str,
+        family: &str,
+    ) {
         let data = json_map(serde_json::json!({
             "user_id": user_id,
             "token": token,
+            "family": family,
             "created_at": crate::blocks::helpers::now_rfc3339()
         }));
         if let Err(e) = db::create(ctx, TOKENS_COLLECTION, data).await {
@@ -133,20 +180,25 @@ mod helpers {
 
     pub(super) async fn build_auth_cookie(token: &str, max_age: u64, ctx: &dyn Context) -> String {
         let env = config::get_default(ctx, "ENVIRONMENT", "development").await;
-        let secure = env == "production";
+        let secure = env.to_lowercase() != "development";
         format!(
             "auth_token={}; HttpOnly; Path=/; SameSite=Lax; Max-Age={}{}",
-            token, max_age, if secure { "; Secure" } else { "" }
+            token,
+            max_age,
+            if secure { "; Secure" } else { "" }
         )
     }
 
     pub(super) fn urlencode(s: &str) -> String {
-        s.as_bytes().iter().map(|&b| match b {
-            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                String::from(b as char)
-            }
-            _ => format!("%{:02X}", b),
-        }).collect()
+        s.as_bytes()
+            .iter()
+            .map(|&b| match b {
+                b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    String::from(b as char)
+                }
+                _ => format!("%{:02X}", b),
+            })
+            .collect()
     }
 }
 
@@ -203,8 +255,9 @@ pub async fn seed_admin_user(ctx: &dyn Context) {
             tracing::info!("Default admin user seeded:");
             tracing::info!("  Email:    {}", admin_email);
             if was_randomly_generated {
-                tracing::info!("  Password: {}", password_to_use);
-                tracing::info!("  CHANGE THIS PASSWORD IMMEDIATELY!");
+                // Log password to stderr only — never persist in log aggregation
+                eprintln!("  ADMIN PASSWORD (one-time display): {}", password_to_use);
+                tracing::info!("  Password: (displayed on stderr — CHANGE IMMEDIATELY)");
             } else {
                 tracing::info!("  Password: (set via ADMIN_PASSWORD env var)");
             }
@@ -305,23 +358,73 @@ impl Block for AuthBlock {
             // Unauthenticated sensitive endpoints: rate limit by IP
             ("create", "/auth/login") | ("create", "/auth/signup") => {
                 let ip = msg.remote_addr().to_string();
-                let identity = if ip.is_empty() { "unknown".to_string() } else { ip };
-                if let Some(r) = check_rate_limit(&self.limiter, ctx, msg, &identity, "auth", RateLimit::AUTH).await {
+                let identity = if ip.is_empty() {
+                    "unknown".to_string()
+                } else {
+                    ip
+                };
+                if let Some(r) =
+                    check_rate_limit(&self.limiter, ctx, msg, &identity, "auth", RateLimit::AUTH)
+                        .await
+                {
                     return r;
                 }
             }
             ("create", "/auth/refresh") => {
                 let ip = msg.remote_addr().to_string();
-                let identity = if ip.is_empty() { "unknown".to_string() } else { ip };
-                if let Some(r) = check_rate_limit(&self.limiter, ctx, msg, &identity, "refresh", RateLimit::REFRESH).await {
+                let identity = if ip.is_empty() {
+                    "unknown".to_string()
+                } else {
+                    ip
+                };
+                if let Some(r) = check_rate_limit(
+                    &self.limiter,
+                    ctx,
+                    msg,
+                    &identity,
+                    "refresh",
+                    RateLimit::REFRESH,
+                )
+                .await
+                {
+                    return r;
+                }
+            }
+            // Forgot/reset password + verification: rate limit by IP
+            ("create", "/auth/forgot-password")
+            | ("create", "/auth/reset-password")
+            | ("create", "/auth/resend-verification")
+            | ("retrieve" | "create", "/auth/verify") => {
+                let ip = msg.remote_addr().to_string();
+                let identity = if ip.is_empty() {
+                    "unknown".to_string()
+                } else {
+                    ip
+                };
+                if let Some(r) =
+                    check_rate_limit(&self.limiter, ctx, msg, &identity, "auth", RateLimit::AUTH)
+                        .await
+                {
                     return r;
                 }
             }
             // Authenticated write endpoints: rate limit by user_id
-            ("update", _) | ("create", "/auth/change-password") | ("create", "/auth/api-keys") | ("delete", _) => {
+            ("update", _)
+            | ("create", "/auth/change-password")
+            | ("create", "/auth/api-keys")
+            | ("delete", _) => {
                 let user_id = msg.user_id().to_string();
                 if !user_id.is_empty() {
-                    if let Some(r) = check_rate_limit(&self.limiter, ctx, msg, &user_id, "auth_write", RateLimit::API_WRITE).await {
+                    if let Some(r) = check_rate_limit(
+                        &self.limiter,
+                        ctx,
+                        msg,
+                        &user_id,
+                        "auth_write",
+                        RateLimit::API_WRITE,
+                    )
+                    .await
+                    {
                         return r;
                     }
                 }
@@ -330,7 +433,16 @@ impl Block for AuthBlock {
             ("retrieve", "/auth/me") | ("retrieve", "/auth/api-keys") => {
                 let user_id = msg.user_id().to_string();
                 if !user_id.is_empty() {
-                    if let Some(r) = check_rate_limit(&self.limiter, ctx, msg, &user_id, "auth_read", RateLimit::API_READ).await {
+                    if let Some(r) = check_rate_limit(
+                        &self.limiter,
+                        ctx,
+                        msg,
+                        &user_id,
+                        "auth_read",
+                        RateLimit::API_READ,
+                    )
+                    .await
+                    {
                         return r;
                     }
                 }
@@ -359,11 +471,17 @@ impl Block for AuthBlock {
             // API keys
             ("retrieve", "/auth/api-keys") => self.handle_api_keys_list(ctx, msg).await,
             ("create", "/auth/api-keys") => self.handle_api_keys_create(ctx, msg).await,
-            ("update", _) if path.starts_with("/auth/api-keys/") => self.handle_api_keys_revoke(ctx, msg).await,
-            ("delete", _) if path.starts_with("/auth/api-keys/") => self.handle_api_keys_delete(ctx, msg).await,
+            ("update", _) if path.starts_with("/auth/api-keys/") => {
+                self.handle_api_keys_revoke(ctx, msg).await
+            }
+            ("delete", _) if path.starts_with("/auth/api-keys/") => {
+                self.handle_api_keys_delete(ctx, msg).await
+            }
             // Email verification
             ("retrieve" | "create", "/auth/verify") => self.handle_verify_email(ctx, msg).await,
-            ("create", "/auth/resend-verification") => self.handle_resend_verification(ctx, msg).await,
+            ("create", "/auth/resend-verification") => {
+                self.handle_resend_verification(ctx, msg).await
+            }
             // Password reset
             ("create", "/auth/forgot-password") => self.handle_forgot_password(ctx, msg).await,
             ("retrieve", "/auth/reset-password") => self.handle_reset_password_form(ctx, msg).await,
@@ -378,7 +496,11 @@ impl Block for AuthBlock {
         }
     }
 
-    async fn lifecycle(&self, ctx: &dyn Context, event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(
+        &self,
+        ctx: &dyn Context,
+        event: LifecycleEvent,
+    ) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
             seed_admin_user(ctx).await;
         }

@@ -38,15 +38,30 @@ pub struct RateLimit {
 
 impl RateLimit {
     /// Login and signup: 30 requests per 60 seconds per IP.
-    pub const AUTH: Self = Self { max_requests: 30, window: Duration::from_secs(60) };
+    pub const AUTH: Self = Self {
+        max_requests: 30,
+        window: Duration::from_secs(60),
+    };
     /// Token refresh: 30 requests per 60 seconds per IP.
-    pub const REFRESH: Self = Self { max_requests: 30, window: Duration::from_secs(60) };
+    pub const REFRESH: Self = Self {
+        max_requests: 30,
+        window: Duration::from_secs(60),
+    };
     /// API reads: 300 requests per 60 seconds per user.
-    pub const API_READ: Self = Self { max_requests: 300, window: Duration::from_secs(60) };
+    pub const API_READ: Self = Self {
+        max_requests: 300,
+        window: Duration::from_secs(60),
+    };
     /// API writes (create/update/delete): 120 requests per 60 seconds per user.
-    pub const API_WRITE: Self = Self { max_requests: 120, window: Duration::from_secs(60) };
+    pub const API_WRITE: Self = Self {
+        max_requests: 120,
+        window: Duration::from_secs(60),
+    };
     /// File uploads: 60 requests per 60 seconds per user.
-    pub const UPLOAD: Self = Self { max_requests: 60, window: Duration::from_secs(60) };
+    pub const UPLOAD: Self = Self {
+        max_requests: 60,
+        window: Duration::from_secs(60),
+    };
 
     /// Read config override for this rate limit category.
     ///
@@ -68,7 +83,10 @@ impl RateLimit {
             if max == 0 {
                 return None;
             }
-            let secs = sec_str.trim().parse::<u64>().unwrap_or(self.window.as_secs());
+            let secs = sec_str
+                .trim()
+                .parse::<u64>()
+                .unwrap_or(self.window.as_secs());
             Some(Self {
                 max_requests: max,
                 window: Duration::from_secs(secs),
@@ -134,7 +152,8 @@ impl UserRateLimiter {
         bucket.count += 1;
 
         if bucket.count > limit.max_requests {
-            let remaining = limit.window
+            let remaining = limit
+                .window
                 .checked_sub(now.duration_since(bucket.window_start))
                 .unwrap_or(Duration::ZERO);
             Err(remaining.as_secs().max(1))
@@ -169,7 +188,10 @@ mod tests {
     #[test]
     fn test_rate_limit_allows_within_window() {
         let limiter = UserRateLimiter::new();
-        let limit = RateLimit { max_requests: 5, window: Duration::from_secs(60) };
+        let limit = RateLimit {
+            max_requests: 5,
+            window: Duration::from_secs(60),
+        };
 
         // First 5 requests should succeed
         for i in (0..5).rev() {
@@ -181,7 +203,10 @@ mod tests {
     #[test]
     fn test_rate_limit_blocks_excess() {
         let limiter = UserRateLimiter::new();
-        let limit = RateLimit { max_requests: 3, window: Duration::from_secs(60) };
+        let limit = RateLimit {
+            max_requests: 3,
+            window: Duration::from_secs(60),
+        };
 
         // Use up the limit
         assert!(limiter.check("user1:test", limit).is_ok());
@@ -198,7 +223,10 @@ mod tests {
     #[test]
     fn test_rate_limit_separate_keys() {
         let limiter = UserRateLimiter::new();
-        let limit = RateLimit { max_requests: 2, window: Duration::from_secs(60) };
+        let limit = RateLimit {
+            max_requests: 2,
+            window: Duration::from_secs(60),
+        };
 
         // Different keys have independent limits
         assert!(limiter.check("user1:auth", limit).is_ok());
@@ -212,13 +240,19 @@ mod tests {
     #[test]
     fn test_rate_limit_key_format() {
         assert_eq!(UserRateLimiter::key("user123", "auth"), "user123:auth");
-        assert_eq!(UserRateLimiter::key("192.168.1.1", "login"), "192.168.1.1:login");
+        assert_eq!(
+            UserRateLimiter::key("192.168.1.1", "login"),
+            "192.168.1.1:login"
+        );
     }
 
     #[test]
     fn test_rate_limit_window_reset() {
         let limiter = UserRateLimiter::new();
-        let limit = RateLimit { max_requests: 2, window: Duration::from_millis(1) };
+        let limit = RateLimit {
+            max_requests: 2,
+            window: Duration::from_millis(1),
+        };
 
         // Use up the limit
         assert!(limiter.check("user:test", limit).is_ok());
@@ -245,17 +279,27 @@ mod tests {
     #[test]
     fn test_default_impl() {
         let limiter = UserRateLimiter::default();
-        let limit = RateLimit { max_requests: 1, window: Duration::from_secs(60) };
+        let limit = RateLimit {
+            max_requests: 1,
+            window: Duration::from_secs(60),
+        };
         assert!(limiter.check("key", limit).is_ok());
     }
 }
 
 /// Return a 429 Too Many Requests response.
-pub fn rate_limited_response(msg: &mut wafer_run::types::Message, retry_after: u64) -> wafer_run::types::Result_ {
-    use super::errors::{ErrorCode, error_response};
+pub fn rate_limited_response(
+    msg: &mut wafer_run::types::Message,
+    retry_after: u64,
+) -> wafer_run::types::Result_ {
+    use super::errors::{error_response, ErrorCode};
     msg.set_meta("resp.header.Retry-After", retry_after.to_string());
     msg.set_meta("resp.header.X-RateLimit-Remaining", "0");
-    error_response(msg, ErrorCode::RateLimitExceeded, "Too many requests — try again later")
+    error_response(
+        msg,
+        ErrorCode::RateLimitExceeded,
+        "Too many requests — try again later",
+    )
 }
 
 /// Check a per-user/identity rate limit and apply headers or return a 429 response.

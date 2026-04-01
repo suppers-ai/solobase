@@ -1,29 +1,64 @@
 //! SSR pages for the products block (admin + user views).
 
-use maud::{html, Markup};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use crate::blocks::helpers::RecordExt;
 use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
+use maud::{html, Markup};
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+use wafer_run::context::Context;
+use wafer_run::types::*;
 
-use super::{PRODUCTS_COLLECTION, GROUPS_COLLECTION, PRICING_COLLECTION, PURCHASES_COLLECTION};
+use super::{GROUPS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION};
 
 /// Admin nav items.
 fn products_admin_nav() -> Vec<NavItem> {
     vec![
-        NavItem { label: "Overview".into(), href: "/b/products/".into(), icon: "bar-chart" },
-        NavItem { label: "Products".into(), href: "/b/products/manage".into(), icon: "package" },
-        NavItem { label: "Groups".into(), href: "/b/products/groups".into(), icon: "folder" },
-        NavItem { label: "Pricing".into(), href: "/b/products/pricing".into(), icon: "dollar-sign" },
-        NavItem { label: "Purchases".into(), href: "/b/products/purchases".into(), icon: "shopping-cart" },
+        NavItem {
+            label: "Overview".into(),
+            href: "/b/products/".into(),
+            icon: "bar-chart",
+        },
+        NavItem {
+            label: "Products".into(),
+            href: "/b/products/manage".into(),
+            icon: "package",
+        },
+        NavItem {
+            label: "Groups".into(),
+            href: "/b/products/groups".into(),
+            icon: "folder",
+        },
+        NavItem {
+            label: "Pricing".into(),
+            href: "/b/products/pricing".into(),
+            icon: "dollar-sign",
+        },
+        NavItem {
+            label: "Purchases".into(),
+            href: "/b/products/purchases".into(),
+            icon: "shopping-cart",
+        },
     ]
 }
 
-fn products_page(title: &str, config: &SiteConfig, path: &str, user: Option<&UserInfo>, content: Markup, msg: &mut Message) -> Result_ {
+fn products_page(
+    title: &str,
+    config: &SiteConfig,
+    path: &str,
+    user: Option<&UserInfo>,
+    content: Markup,
+    msg: &mut Message,
+) -> Result_ {
     let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(title, config, &products_admin_nav(), user, path, content, is_fragment);
+    let markup = ui::layout::block_shell(
+        title,
+        config,
+        &products_admin_nav(),
+        user,
+        path,
+        content,
+        is_fragment,
+    );
     ui::html_response(msg, markup)
 }
 
@@ -34,12 +69,27 @@ fn products_page(title: &str, config: &SiteConfig, path: &str, user: Option<&Use
 pub async fn overview(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
-    let one = ListOptions { limit: 1, ..Default::default() };
+    let one = ListOptions {
+        limit: 1,
+        ..Default::default()
+    };
 
-    let products_count = db::list(ctx, PRODUCTS_COLLECTION, &one).await.map(|r| r.total_count).unwrap_or(0);
-    let groups_count = db::list(ctx, GROUPS_COLLECTION, &one).await.map(|r| r.total_count).unwrap_or(0);
-    let purchases_count = db::list(ctx, PURCHASES_COLLECTION, &one).await.map(|r| r.total_count).unwrap_or(0);
-    let pricing_count = db::list(ctx, PRICING_COLLECTION, &one).await.map(|r| r.total_count).unwrap_or(0);
+    let products_count = db::list(ctx, PRODUCTS_COLLECTION, &one)
+        .await
+        .map(|r| r.total_count)
+        .unwrap_or(0);
+    let groups_count = db::list(ctx, GROUPS_COLLECTION, &one)
+        .await
+        .map(|r| r.total_count)
+        .unwrap_or(0);
+    let purchases_count = db::list(ctx, PURCHASES_COLLECTION, &one)
+        .await
+        .map(|r| r.total_count)
+        .unwrap_or(0);
+    let pricing_count = db::list(ctx, PRICING_COLLECTION, &one)
+        .await
+        .map(|r| r.total_count)
+        .unwrap_or(0);
 
     let content = html! {
         (components::page_header("Products Overview", Some("Product catalog statistics"), None))
@@ -51,7 +101,14 @@ pub async fn overview(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    products_page("Products", &config, "/b/products/", user.as_ref(), content, msg)
+    products_page(
+        "Products",
+        &config,
+        "/b/products/",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -64,18 +121,32 @@ pub async fn manage_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let (page, page_size, _) = msg.pagination_params(20);
     let search = msg.query("search").to_string();
 
-    let mut filters = vec![
-        Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null },
-    ];
+    let mut filters = vec![Filter {
+        field: "deleted_at".into(),
+        operator: FilterOp::IsNull,
+        value: serde_json::Value::Null,
+    }];
     if !search.is_empty() {
         filters.push(Filter {
-            field: "name".into(), operator: FilterOp::Like,
+            field: "name".into(),
+            operator: FilterOp::Like,
             value: serde_json::Value::String(format!("%{search}%")),
         });
     }
 
-    let sort = vec![SortField { field: "created_at".into(), desc: true }];
-    let result = db::paginated_list(ctx, PRODUCTS_COLLECTION, page as i64, page_size as i64, filters, sort).await;
+    let sort = vec![SortField {
+        field: "created_at".into(),
+        desc: true,
+    }];
+    let result = db::paginated_list(
+        ctx,
+        PRODUCTS_COLLECTION,
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await;
 
     let content = html! {
         (components::page_header("Products", Some("Manage your product catalog"), None))
@@ -128,7 +199,14 @@ pub async fn manage_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    products_page("Products", &config, "/b/products/manage", user.as_ref(), content, msg)
+    products_page(
+        "Products",
+        &config,
+        "/b/products/manage",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -139,8 +217,12 @@ pub async fn groups(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let opts = ListOptions {
-        sort: vec![SortField { field: "name".into(), desc: false }],
-        limit: 100, ..Default::default()
+        sort: vec![SortField {
+            field: "name".into(),
+            desc: false,
+        }],
+        limit: 100,
+        ..Default::default()
     };
     let result = db::list(ctx, GROUPS_COLLECTION, &opts).await;
 
@@ -174,7 +256,14 @@ pub async fn groups(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    products_page("Groups", &config, "/b/products/groups", user.as_ref(), content, msg)
+    products_page(
+        "Groups",
+        &config,
+        "/b/products/groups",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -185,8 +274,12 @@ pub async fn pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let opts = ListOptions {
-        sort: vec![SortField { field: "name".into(), desc: false }],
-        limit: 100, ..Default::default()
+        sort: vec![SortField {
+            field: "name".into(),
+            desc: false,
+        }],
+        limit: 100,
+        ..Default::default()
     };
     let result = db::list(ctx, PRICING_COLLECTION, &opts).await;
 
@@ -219,7 +312,14 @@ pub async fn pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    products_page("Pricing", &config, "/b/products/pricing", user.as_ref(), content, msg)
+    products_page(
+        "Pricing",
+        &config,
+        "/b/products/pricing",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -235,13 +335,25 @@ pub async fn purchases(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let mut filters = Vec::new();
     if !status_filter.is_empty() && status_filter != "all" {
         filters.push(Filter {
-            field: "status".into(), operator: FilterOp::Equal,
+            field: "status".into(),
+            operator: FilterOp::Equal,
             value: serde_json::Value::String(status_filter.clone()),
         });
     }
 
-    let sort = vec![SortField { field: "created_at".into(), desc: true }];
-    let result = db::paginated_list(ctx, PURCHASES_COLLECTION, page as i64, page_size as i64, filters, sort).await;
+    let sort = vec![SortField {
+        field: "created_at".into(),
+        desc: true,
+    }];
+    let result = db::paginated_list(
+        ctx,
+        PURCHASES_COLLECTION,
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await;
 
     let content = html! {
         (components::page_header("Purchases", Some("Track customer orders and payments"), None))
@@ -291,7 +403,14 @@ pub async fn purchases(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    products_page("Purchases", &config, "/b/products/purchases", user.as_ref(), content, msg)
+    products_page(
+        "Purchases",
+        &config,
+        "/b/products/purchases",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -305,15 +424,42 @@ pub async fn my_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let (page, page_size, _) = msg.pagination_params(20);
 
     let filters = vec![
-        Filter { field: "created_by".into(), operator: FilterOp::Equal, value: serde_json::Value::String(user_id) },
-        Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null },
+        Filter {
+            field: "created_by".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id),
+        },
+        Filter {
+            field: "deleted_at".into(),
+            operator: FilterOp::IsNull,
+            value: serde_json::Value::Null,
+        },
     ];
-    let sort = vec![SortField { field: "created_at".into(), desc: true }];
-    let result = db::paginated_list(ctx, PRODUCTS_COLLECTION, page as i64, page_size as i64, filters, sort).await;
+    let sort = vec![SortField {
+        field: "created_at".into(),
+        desc: true,
+    }];
+    let result = db::paginated_list(
+        ctx,
+        PRODUCTS_COLLECTION,
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await;
 
     let nav = vec![
-        NavItem { label: "My Products".into(), href: "/b/products/my-products".into(), icon: "package" },
-        NavItem { label: "My Purchases".into(), href: "/b/products/my-purchases".into(), icon: "shopping-cart" },
+        NavItem {
+            label: "My Products".into(),
+            href: "/b/products/my-products".into(),
+            icon: "package",
+        },
+        NavItem {
+            label: "My Purchases".into(),
+            href: "/b/products/my-purchases".into(),
+            icon: "shopping-cart",
+        },
     ];
 
     let content = html! {
@@ -349,7 +495,15 @@ pub async fn my_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell("My Products", &config, &nav, user.as_ref(), "/b/products/my-products", content, is_fragment);
+    let markup = ui::layout::block_shell(
+        "My Products",
+        &config,
+        &nav,
+        user.as_ref(),
+        "/b/products/my-products",
+        content,
+        is_fragment,
+    );
     ui::html_response(msg, markup)
 }
 
@@ -363,15 +517,36 @@ pub async fn my_purchases(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_id = msg.user_id().to_string();
     let (page, page_size, _) = msg.pagination_params(20);
 
-    let filters = vec![
-        Filter { field: "user_id".into(), operator: FilterOp::Equal, value: serde_json::Value::String(user_id) },
-    ];
-    let sort = vec![SortField { field: "created_at".into(), desc: true }];
-    let result = db::paginated_list(ctx, PURCHASES_COLLECTION, page as i64, page_size as i64, filters, sort).await;
+    let filters = vec![Filter {
+        field: "user_id".into(),
+        operator: FilterOp::Equal,
+        value: serde_json::Value::String(user_id),
+    }];
+    let sort = vec![SortField {
+        field: "created_at".into(),
+        desc: true,
+    }];
+    let result = db::paginated_list(
+        ctx,
+        PURCHASES_COLLECTION,
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await;
 
     let nav = vec![
-        NavItem { label: "My Products".into(), href: "/b/products/my-products".into(), icon: "package" },
-        NavItem { label: "My Purchases".into(), href: "/b/products/my-purchases".into(), icon: "shopping-cart" },
+        NavItem {
+            label: "My Products".into(),
+            href: "/b/products/my-products".into(),
+            icon: "package",
+        },
+        NavItem {
+            label: "My Purchases".into(),
+            href: "/b/products/my-purchases".into(),
+            icon: "shopping-cart",
+        },
     ];
 
     let content = html! {
@@ -409,6 +584,14 @@ pub async fn my_purchases(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell("My Purchases", &config, &nav, user.as_ref(), "/b/products/my-purchases", content, is_fragment);
+    let markup = ui::layout::block_shell(
+        "My Purchases",
+        &config,
+        &nav,
+        user.as_ref(),
+        "/b/products/my-purchases",
+        content,
+        is_fragment,
+    );
     ui::html_response(msg, markup)
 }

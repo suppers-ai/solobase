@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use super::mock_context::*;
 use crate::blocks::products::pricing::evaluate_formula;
+use std::collections::HashMap;
 
 // ============================================================
 // Basic arithmetic
@@ -96,7 +96,10 @@ fn formula_parentheses_override_precedence() {
 fn formula_nested_parentheses() {
     let vars = HashMap::new();
     // ((2 + 3) * (4 - 1)) = 5 * 3 = 15
-    assert_eq!(evaluate_formula("((2 + 3) * (4 - 1))", &vars).unwrap(), 15.0);
+    assert_eq!(
+        evaluate_formula("((2 + 3) * (4 - 1))", &vars).unwrap(),
+        15.0
+    );
 }
 
 #[test]
@@ -110,7 +113,10 @@ fn formula_deeply_nested() {
 fn formula_missing_closing_paren() {
     let vars = HashMap::new();
     let err = evaluate_formula("(2 + 3", &vars).unwrap_err();
-    assert!(err.contains("parenthesis"), "Expected parenthesis error, got: {err}");
+    assert!(
+        err.contains("parenthesis"),
+        "Expected parenthesis error, got: {err}"
+    );
 }
 
 // ============================================================
@@ -129,7 +135,10 @@ fn formula_variable_arithmetic() {
     let mut vars = HashMap::new();
     vars.insert("base_price".to_string(), 10.0);
     vars.insert("quantity".to_string(), 5.0);
-    assert_eq!(evaluate_formula("base_price * quantity", &vars).unwrap(), 50.0);
+    assert_eq!(
+        evaluate_formula("base_price * quantity", &vars).unwrap(),
+        50.0
+    );
 }
 
 #[test]
@@ -147,14 +156,20 @@ fn formula_complex_with_variables() {
 fn formula_unknown_variable() {
     let vars = HashMap::new();
     let err = evaluate_formula("unknown_var", &vars).unwrap_err();
-    assert!(err.contains("Unknown variable"), "Expected unknown variable error, got: {err}");
+    assert!(
+        err.contains("Unknown variable"),
+        "Expected unknown variable error, got: {err}"
+    );
 }
 
 #[test]
 fn formula_variable_with_underscores() {
     let mut vars = HashMap::new();
     vars.insert("my_long_variable_name".to_string(), 42.0);
-    assert_eq!(evaluate_formula("my_long_variable_name", &vars).unwrap(), 42.0);
+    assert_eq!(
+        evaluate_formula("my_long_variable_name", &vars).unwrap(),
+        42.0
+    );
 }
 
 #[test]
@@ -209,14 +224,20 @@ fn formula_tabs_and_newlines() {
 fn formula_empty_string() {
     let vars = HashMap::new();
     let err = evaluate_formula("", &vars).unwrap_err();
-    assert!(err.contains("Unexpected end"), "Expected end-of-expression error, got: {err}");
+    assert!(
+        err.contains("Unexpected end"),
+        "Expected end-of-expression error, got: {err}"
+    );
 }
 
 #[test]
 fn formula_invalid_character() {
     let vars = HashMap::new();
     let err = evaluate_formula("2 @ 3", &vars).unwrap_err();
-    assert!(err.contains("Unexpected character"), "Expected unexpected char error, got: {err}");
+    assert!(
+        err.contains("Unexpected character"),
+        "Expected unexpected char error, got: {err}"
+    );
 }
 
 #[test]
@@ -250,7 +271,10 @@ fn formula_tiered_pricing() {
     vars.insert("rate".to_string(), 0.05);
     vars.insert("base_fee".to_string(), 10.0);
     // base_fee + units * rate = 10 + 150 * 0.05 = 10 + 7.5 = 17.5
-    assert_eq!(evaluate_formula("base_fee + units * rate", &vars).unwrap(), 17.5);
+    assert_eq!(
+        evaluate_formula("base_fee + units * rate", &vars).unwrap(),
+        17.5
+    );
 }
 
 #[test]
@@ -259,7 +283,10 @@ fn formula_percentage_discount() {
     vars.insert("price".to_string(), 200.0);
     vars.insert("discount_pct".to_string(), 15.0);
     // price * (100 - discount_pct) / 100 = 200 * 85 / 100 = 170
-    assert_eq!(evaluate_formula("price * (100 - discount_pct) / 100", &vars).unwrap(), 170.0);
+    assert_eq!(
+        evaluate_formula("price * (100 - discount_pct) / 100", &vars).unwrap(),
+        170.0
+    );
 }
 
 // ============================================================
@@ -306,13 +333,19 @@ async fn calculate_price_with_formula() {
     // Create a pricing template
     let mut template_data = HashMap::new();
     template_data.insert("name".to_string(), serde_json::json!("per-unit"));
-    template_data.insert("price_formula".to_string(), serde_json::json!("base * rate"));
+    template_data.insert(
+        "price_formula".to_string(),
+        serde_json::json!("base * rate"),
+    );
     ctx.seed("block_products_pricing_templates", "tmpl_1", template_data);
 
     // Create a product referencing the template
     let mut product_data = HashMap::new();
     product_data.insert("name".to_string(), serde_json::json!("Service"));
-    product_data.insert("pricing_template_id".to_string(), serde_json::json!("tmpl_1"));
+    product_data.insert(
+        "pricing_template_id".to_string(),
+        serde_json::json!("tmpl_1"),
+    );
     product_data.insert("currency".to_string(), serde_json::json!("EUR"));
     ctx.seed("block_products_products", "prod_2", product_data);
 
@@ -359,19 +392,29 @@ async fn calculate_price_with_conditions() {
     let mut template_data = HashMap::new();
     template_data.insert("name".to_string(), serde_json::json!("volume-pricing"));
     template_data.insert("price_formula".to_string(), serde_json::json!("unit_cost"));
-    template_data.insert("conditions".to_string(), serde_json::json!([
-        {
-            "field": "quantity",
-            "operator": ">",
-            "value": 100,
-            "formula": "unit_cost * 0.8"
-        }
-    ]));
-    ctx.seed("block_products_pricing_templates", "tmpl_vol", template_data);
+    template_data.insert(
+        "conditions".to_string(),
+        serde_json::json!([
+            {
+                "field": "quantity",
+                "operator": ">",
+                "value": 100,
+                "formula": "unit_cost * 0.8"
+            }
+        ]),
+    );
+    ctx.seed(
+        "block_products_pricing_templates",
+        "tmpl_vol",
+        template_data,
+    );
 
     let mut product_data = HashMap::new();
     product_data.insert("name".to_string(), serde_json::json!("Bulk Item"));
-    product_data.insert("pricing_template_id".to_string(), serde_json::json!("tmpl_vol"));
+    product_data.insert(
+        "pricing_template_id".to_string(),
+        serde_json::json!("tmpl_vol"),
+    );
     ctx.seed("block_products_products", "prod_bulk", product_data);
 
     // Under threshold — should use base formula

@@ -1,11 +1,11 @@
 mod handlers;
 mod pages;
 
+use super::rate_limit::{check_rate_limit, RateLimit, UserRateLimiter};
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::types::*;
 use wafer_run::helpers::*;
-use super::rate_limit::{UserRateLimiter, RateLimit, check_rate_limit};
+use wafer_run::types::*;
 
 pub(crate) const PROJECTS_COLLECTION: &str = "block_deployments";
 
@@ -21,7 +21,9 @@ impl Default for ProjectsBlock {
 
 impl ProjectsBlock {
     pub fn new() -> Self {
-        Self { limiter: UserRateLimiter::new() }
+        Self {
+            limiter: UserRateLimiter::new(),
+        }
     }
 }
 
@@ -84,7 +86,9 @@ impl Block for ProjectsBlock {
             } else {
                 (RateLimit::API_WRITE, "api_write")
             };
-            if let Some(r) = check_rate_limit(&self.limiter, ctx, msg, &user_id, category, default).await {
+            if let Some(r) =
+                check_rate_limit(&self.limiter, ctx, msg, &user_id, category, default).await
+            {
                 return r;
             }
         }
@@ -108,12 +112,14 @@ impl Block for ProjectsBlock {
     }
 
     fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::admin("/"),
-        ]
+        vec![wafer_run::UiRoute::admin("/")]
     }
 
-    async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(
+        &self,
+        _ctx: &dyn Context,
+        _event: LifecycleEvent,
+    ) -> std::result::Result<(), WaferError> {
         Ok(())
     }
 }

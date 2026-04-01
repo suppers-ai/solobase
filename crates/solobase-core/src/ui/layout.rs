@@ -45,41 +45,49 @@ pub fn block_shell(
         return content;
     }
 
-    page(title, config, html! {
-        // Mobile header
-        div .mobile-header {
-            button .menu-toggle onclick="toggleMobileMenu()" {
-                (icons::menu())
+    page(
+        title,
+        config,
+        html! {
+            // Mobile header
+            div .mobile-header {
+                button .menu-toggle onclick="toggleMobileMenu()" {
+                    (icons::menu())
+                }
+                span .mobile-title { (title) }
             }
-            span .mobile-title { (title) }
-        }
 
-        div .app-layout {
-            // Sidebar
-            div .sidebar-container {
-                div .sidebar-overlay onclick="toggleMobileMenu()" {}
-                div .sidebar-wrapper {
-                    (sidebar::sidebar(nav_items, user, current_path, &config.logo_url, &config.logo_icon_url))
+            div .app-layout {
+                // Sidebar
+                div .sidebar-container {
+                    div .sidebar-overlay onclick="toggleMobileMenu()" {}
+                    div .sidebar-wrapper {
+                        (sidebar::sidebar(nav_items, user, current_path, &config.logo_url, &config.logo_icon_url))
+                    }
+                }
+
+                // Main content
+                div .main-content {
+                    div .content-wrapper #content {
+                        (content)
+                    }
                 }
             }
 
-            // Main content
-            div .main-content {
-                div .content-wrapper #content {
-                    (content)
-                }
-            }
-        }
-
-        script { (PreEscaped(assets::sidebar_js())) }
-    })
+            script { (PreEscaped(assets::sidebar_js())) }
+        },
+    )
 }
 
 /// A simple centered page layout (used for login, signup, etc.)
 pub fn centered_page(title: &str, config: &SiteConfig, content: Markup) -> Markup {
-    page(title, config, html! {
-        div .login-page {
-            (content)
-        }
-    })
+    page(
+        title,
+        config,
+        html! {
+            div .login-page {
+                (content)
+            }
+        },
+    )
 }

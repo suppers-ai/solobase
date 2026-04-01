@@ -40,7 +40,7 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     let host = req.headers().get("host")?.unwrap_or_default();
 
     // 2. Control plane routes (/_control/*) — handled directly
-    if pathname.starts_with("/_control/") {
+    if pathname == "/_control" || pathname.starts_with("/_control/") {
         let sub_path = pathname.strip_prefix("/_control/").unwrap_or("");
         let mut req_clone = req.clone()?;
         let body = req_clone.bytes().await.unwrap_or_default();
@@ -48,8 +48,14 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         return add_cors_headers(resp, &req).await;
     }
 
-    // 2b. Webhook routes (/_webhooks/*) — handled directly
-    if pathname.starts_with("/_webhooks/") {
+    // 2b. Block internal paths — never dispatch to user workers
+    if pathname == "/_internal" || pathname.starts_with("/_internal/") {
+        let resp = helpers::error_json("forbidden", "internal endpoints are not externally accessible", 403)?;
+        return add_cors_headers(resp, &req).await;
+    }
+
+    // 2c. Webhook routes (/_webhooks/*) — handled directly
+    if pathname == "/_webhooks" || pathname.starts_with("/_webhooks/") {
         let sub_path = pathname.strip_prefix("/_webhooks/").unwrap_or("");
         let mut req_clone = req.clone()?;
         let body = req_clone.bytes().await.unwrap_or_default();
@@ -57,8 +63,8 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         return add_cors_headers(resp, &req).await;
     }
 
-    let is_platform = is_platform_host(&host);
     let is_dev = is_dev_env(&env);
+    let is_platform = is_platform_host(&host, is_dev);
 
     // 3. Platform (cloud.solobase.dev) — dispatch ALL requests to "cloud" user worker.
     //    The cloud worker serves its own frontend via wafer-run/web from R2 {projectId}/site/.
@@ -69,6 +75,20 @@ pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     // 4. Project ({project}.solobase.dev) — dispatch ALL requests to user worker.
     //    Each project has its own R2 bucket, so the user worker's wafer-run/web
     //    block serves static files directly from the project's bucket.
+
+    // Validate that the host matches an expected domain pattern (prevent arbitrary domain routing)
+    let host_no_port = host.split(':').next().unwrap_or(&host);
+    if !is_dev {
+        let valid_host = host_no_port.ends_with(".solobase.dev")
+            || host_no_port.ends_with(".solobase-dev.dev")
+            || host_no_port == "solobase.dev"
+            || host_no_port == "solobase-dev.dev";
+        if !valid_host {
+            let resp = helpers::error_json("bad_request", "unrecognized host", 400)?;
+            return add_cors_headers(resp, &req).await;
+        }
+    }
+
     return handle_project_request(&req, &env, &ctx, &host, is_dev).await;
 }
 
@@ -125,7 +145,8 @@ async fn handle_project_request(
     let project = match project::resolve_project(host, &db, is_dev).await {
         Ok(p) => p,
         Err(e) => {
-            let resp = helpers::error_json("not_found", &format!("project not found: {e}"), 404)?;
+            console_log!("project resolution failed for host '{}': {}", host, e);
+            let resp = helpers::error_json("not_found", "project not found", 404)?;
             return add_cors_headers(resp, req).await;
         }
     };

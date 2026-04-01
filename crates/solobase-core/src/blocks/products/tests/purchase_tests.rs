@@ -1,8 +1,8 @@
+use super::mock_context::*;
+use crate::blocks::products::handlers;
+use crate::blocks::products::purchase;
 use std::collections::HashMap;
 use wafer_run::types::Action;
-use super::mock_context::*;
-use crate::blocks::products::purchase;
-use crate::blocks::products::handlers;
 
 // ============================================================
 // Purchase creation — happy path
@@ -17,11 +17,16 @@ async fn create_purchase_single_item() {
     product.insert("name".to_string(), serde_json::json!("Widget"));
     product.insert("base_price".to_string(), serde_json::json!(19.99));
     product.insert("currency".to_string(), serde_json::json!("USD"));
+    product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("block_products_products", "prod_1", product);
 
-    let mut msg = create_msg("/b/products/purchases", "user_1", serde_json::json!({
-        "items": [{"product_id": "prod_1", "quantity": 2}]
-    }));
+    let mut msg = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": [{"product_id": "prod_1", "quantity": 2}]
+        }),
+    );
 
     let result = purchase::handle_create(&ctx, &mut msg).await;
     assert_eq!(result.action, Action::Respond);
@@ -40,19 +45,25 @@ async fn create_purchase_multiple_items() {
     let mut p1 = HashMap::new();
     p1.insert("name".to_string(), serde_json::json!("Item A"));
     p1.insert("base_price".to_string(), serde_json::json!(10.0));
+    p1.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("block_products_products", "pa", p1);
 
     let mut p2 = HashMap::new();
     p2.insert("name".to_string(), serde_json::json!("Item B"));
     p2.insert("base_price".to_string(), serde_json::json!(25.50));
+    p2.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("block_products_products", "pb", p2);
 
-    let mut msg = create_msg("/b/products/purchases", "user_1", serde_json::json!({
-        "items": [
-            {"product_id": "pa", "quantity": 1},
-            {"product_id": "pb", "quantity": 3}
-        ]
-    }));
+    let mut msg = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": [
+                {"product_id": "pa", "quantity": 1},
+                {"product_id": "pb", "quantity": 3}
+            ]
+        }),
+    );
 
     let result = purchase::handle_create(&ctx, &mut msg).await;
     assert_eq!(result.action, Action::Respond);
@@ -69,22 +80,33 @@ async fn create_purchase_with_pricing_template() {
     // Pricing template with formula
     let mut tmpl = HashMap::new();
     tmpl.insert("name".to_string(), serde_json::json!("per-unit"));
-    tmpl.insert("price_formula".to_string(), serde_json::json!("base * rate"));
+    tmpl.insert(
+        "price_formula".to_string(),
+        serde_json::json!("base * rate"),
+    );
     ctx.seed("block_products_pricing_templates", "tmpl_1", tmpl);
 
     // Product referencing the template
     let mut product = HashMap::new();
     product.insert("name".to_string(), serde_json::json!("Service"));
-    product.insert("pricing_template_id".to_string(), serde_json::json!("tmpl_1"));
+    product.insert(
+        "pricing_template_id".to_string(),
+        serde_json::json!("tmpl_1"),
+    );
+    product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("block_products_products", "prod_svc", product);
 
-    let mut msg = create_msg("/b/products/purchases", "user_1", serde_json::json!({
-        "items": [{
-            "product_id": "prod_svc",
-            "quantity": 2,
-            "variables": {"base": 100.0, "rate": 0.15}
-        }]
-    }));
+    let mut msg = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": [{
+                "product_id": "prod_svc",
+                "quantity": 2,
+                "variables": {"base": 100.0, "rate": 0.15}
+            }]
+        }),
+    );
 
     let result = purchase::handle_create(&ctx, &mut msg).await;
     assert_eq!(result.action, Action::Respond);
@@ -100,11 +122,16 @@ async fn create_purchase_defaults_to_usd() {
     let mut product = HashMap::new();
     product.insert("name".to_string(), serde_json::json!("Widget"));
     product.insert("base_price".to_string(), serde_json::json!(5.0));
+    product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("block_products_products", "p1", product);
 
-    let mut msg = create_msg("/b/products/purchases", "user_1", serde_json::json!({
-        "items": [{"product_id": "p1", "quantity": 1}]
-    }));
+    let mut msg = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": [{"product_id": "p1", "quantity": 1}]
+        }),
+    );
 
     let result = purchase::handle_create(&ctx, &mut msg).await;
     assert_eq!(result.action, Action::Respond);
@@ -120,9 +147,13 @@ async fn create_purchase_defaults_to_usd() {
 async fn create_purchase_empty_items() {
     let ctx = MockContext::new();
 
-    let mut msg = create_msg("/b/products/purchases", "user_1", serde_json::json!({
-        "items": []
-    }));
+    let mut msg = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": []
+        }),
+    );
 
     let result = purchase::handle_create(&ctx, &mut msg).await;
     assert!(is_error(&result, "invalid_argument"));
@@ -137,9 +168,13 @@ async fn create_purchase_zero_quantity() {
     product.insert("base_price".to_string(), serde_json::json!(10.0));
     ctx.seed("block_products_products", "p1", product);
 
-    let mut msg = create_msg("/b/products/purchases", "user_1", serde_json::json!({
-        "items": [{"product_id": "p1", "quantity": 0}]
-    }));
+    let mut msg = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": [{"product_id": "p1", "quantity": 0}]
+        }),
+    );
 
     let result = purchase::handle_create(&ctx, &mut msg).await;
     assert!(is_error(&result, "invalid_argument"));
@@ -154,9 +189,13 @@ async fn create_purchase_negative_quantity() {
     product.insert("base_price".to_string(), serde_json::json!(10.0));
     ctx.seed("block_products_products", "p1", product);
 
-    let mut msg = create_msg("/b/products/purchases", "user_1", serde_json::json!({
-        "items": [{"product_id": "p1", "quantity": -1}]
-    }));
+    let mut msg = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": [{"product_id": "p1", "quantity": -1}]
+        }),
+    );
 
     let result = purchase::handle_create(&ctx, &mut msg).await;
     assert!(is_error(&result, "invalid_argument"));
@@ -166,9 +205,13 @@ async fn create_purchase_negative_quantity() {
 async fn create_purchase_product_not_found() {
     let ctx = MockContext::new();
 
-    let mut msg = create_msg("/b/products/purchases", "user_1", serde_json::json!({
-        "items": [{"product_id": "nonexistent", "quantity": 1}]
-    }));
+    let mut msg = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": [{"product_id": "nonexistent", "quantity": 1}]
+        }),
+    );
 
     let result = purchase::handle_create(&ctx, &mut msg).await;
     assert!(is_error(&result, "not_found"));
@@ -182,12 +225,20 @@ async fn create_purchase_fallback_when_template_missing() {
     let mut product = HashMap::new();
     product.insert("name".to_string(), serde_json::json!("Fallback"));
     product.insert("base_price".to_string(), serde_json::json!(42.0));
-    product.insert("pricing_template_id".to_string(), serde_json::json!("nonexistent_tmpl"));
+    product.insert(
+        "pricing_template_id".to_string(),
+        serde_json::json!("nonexistent_tmpl"),
+    );
+    product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("block_products_products", "p_fb", product);
 
-    let mut msg = create_msg("/b/products/purchases", "user_1", serde_json::json!({
-        "items": [{"product_id": "p_fb", "quantity": 1}]
-    }));
+    let mut msg = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": [{"product_id": "p_fb", "quantity": 1}]
+        }),
+    );
 
     let result = purchase::handle_create(&ctx, &mut msg).await;
     assert_eq!(result.action, Action::Respond);
@@ -197,22 +248,28 @@ async fn create_purchase_fallback_when_template_missing() {
 }
 
 #[tokio::test]
-async fn create_purchase_no_base_price_gives_zero() {
+async fn create_purchase_no_base_price_rejected() {
     let ctx = MockContext::new();
 
-    // Product with no base_price and no template
+    // Product with no base_price and no template — zero-price purchases are rejected
     let mut product = HashMap::new();
     product.insert("name".to_string(), serde_json::json!("Free"));
+    product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("block_products_products", "p_free", product);
 
-    let mut msg = create_msg("/b/products/purchases", "user_1", serde_json::json!({
-        "items": [{"product_id": "p_free", "quantity": 5}]
-    }));
+    let mut msg = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": [{"product_id": "p_free", "quantity": 5}]
+        }),
+    );
 
     let result = purchase::handle_create(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
-    assert_eq!(body["total_cents"].as_i64().unwrap(), 0);
+    assert!(
+        is_error(&result, "bad_request"),
+        "zero-price purchases should be rejected"
+    );
 }
 
 // ============================================================
@@ -422,11 +479,16 @@ async fn purchase_create_via_user_handler() {
     let mut product = HashMap::new();
     product.insert("name".to_string(), serde_json::json!("Routed Product"));
     product.insert("base_price".to_string(), serde_json::json!(10.0));
+    product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("block_products_products", "p_route", product);
 
-    let mut msg = create_msg("/b/products/purchases", "user_1", serde_json::json!({
-        "items": [{"product_id": "p_route", "quantity": 1}]
-    }));
+    let mut msg = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": [{"product_id": "p_route", "quantity": 1}]
+        }),
+    );
 
     let result = handlers::handle_user(&ctx, &mut msg).await;
     assert_eq!(result.action, Action::Respond);
@@ -462,11 +524,16 @@ async fn purchase_rounding_precision() {
     let mut product = HashMap::new();
     product.insert("name".to_string(), serde_json::json!("Precise"));
     product.insert("base_price".to_string(), serde_json::json!(19.99));
+    product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("block_products_products", "p_round", product);
 
-    let mut msg = create_msg("/b/products/purchases", "user_1", serde_json::json!({
-        "items": [{"product_id": "p_round", "quantity": 3}]
-    }));
+    let mut msg = create_msg(
+        "/b/products/purchases",
+        "user_1",
+        serde_json::json!({
+            "items": [{"product_id": "p_round", "quantity": 3}]
+        }),
+    );
 
     let result = purchase::handle_create(&ctx, &mut msg).await;
     let body = response_json(&result);
@@ -476,5 +543,8 @@ async fn purchase_rounding_precision() {
 // --- helpers ---
 
 fn body_status(result: &wafer_run::types::Result_) -> String {
-    response_json(result)["status"].as_str().unwrap_or("").to_string()
+    response_json(result)["status"]
+        .as_str()
+        .unwrap_or("")
+        .to_string()
 }

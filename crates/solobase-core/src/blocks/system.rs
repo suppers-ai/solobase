@@ -1,7 +1,7 @@
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::types::*;
 use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 use crate::ui;
 
@@ -60,12 +60,18 @@ impl Block for SystemBlock {
             _ if path.starts_with("/static/app-") && path.ends_with(".css") => {
                 ResponseBuilder::new(msg)
                     .set_header("Cache-Control", "public, max-age=31536000, immutable")
-                    .body(ui::assets::css().as_bytes().to_vec(), "text/css; charset=utf-8")
+                    .body(
+                        ui::assets::css().as_bytes().to_vec(),
+                        "text/css; charset=utf-8",
+                    )
             }
             _ if path.starts_with("/static/htmx-") && path.ends_with(".min.js") => {
                 ResponseBuilder::new(msg)
                     .set_header("Cache-Control", "public, max-age=31536000, immutable")
-                    .body(ui::assets::htmx_js().as_bytes().to_vec(), "application/javascript; charset=utf-8")
+                    .body(
+                        ui::assets::htmx_js().as_bytes().to_vec(),
+                        "application/javascript; charset=utf-8",
+                    )
             }
             _ if path.starts_with("/debug/inspector") => {
                 ctx.call_block("wafer-run/inspector", msg).await
@@ -74,7 +80,11 @@ impl Block for SystemBlock {
         }
     }
 
-    async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(
+        &self,
+        _ctx: &dyn Context,
+        _event: LifecycleEvent,
+    ) -> std::result::Result<(), WaferError> {
         Ok(())
     }
 }

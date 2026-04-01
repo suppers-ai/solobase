@@ -1,5 +1,5 @@
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use sha2::{Sha256, Digest};
 use wafer_core::clients::database::Record;
 
 /// Current UTC time as RFC 3339 string.
@@ -61,7 +61,10 @@ pub fn stamp_created(data: &mut std::collections::HashMap<String, serde_json::Va
 
 /// Insert updated_at timestamp into a data map.
 pub fn stamp_updated(data: &mut std::collections::HashMap<String, serde_json::Value>) {
-    data.insert("updated_at".to_string(), serde_json::Value::String(now_rfc3339()));
+    data.insert(
+        "updated_at".to_string(),
+        serde_json::Value::String(now_rfc3339()),
+    );
 }
 
 /// Encode bytes as lowercase hex string.
@@ -89,7 +92,10 @@ mod tests {
     fn test_now_rfc3339_format() {
         let ts = now_rfc3339();
         assert!(ts.contains('T'), "RFC 3339 must contain 'T' separator");
-        assert!(ts.contains('+') || ts.ends_with('Z'), "RFC 3339 must have timezone");
+        assert!(
+            ts.contains('+') || ts.ends_with('Z'),
+            "RFC 3339 must have timezone"
+        );
     }
 
     #[test]
@@ -115,7 +121,10 @@ mod tests {
         let mut data = HashMap::new();
         data.insert("name".to_string(), serde_json::json!("Alice"));
         data.insert("count".to_string(), serde_json::json!(42));
-        let record = Record { id: "1".to_string(), data };
+        let record = Record {
+            id: "1".to_string(),
+            data,
+        };
 
         assert_eq!(record.str_field("name"), "Alice");
         assert_eq!(record.str_field("missing"), "");
@@ -127,7 +136,10 @@ mod tests {
         let mut data = HashMap::new();
         data.insert("count".to_string(), serde_json::json!(42));
         data.insert("name".to_string(), serde_json::json!("Alice"));
-        let record = Record { id: "1".to_string(), data };
+        let record = Record {
+            id: "1".to_string(),
+            data,
+        };
 
         assert_eq!(record.i64_field("count"), 42);
         assert_eq!(record.i64_field("missing"), 0);
@@ -139,7 +151,10 @@ mod tests {
         let mut data = HashMap::new();
         data.insert("active".to_string(), serde_json::json!(true));
         data.insert("disabled".to_string(), serde_json::json!(false));
-        let record = Record { id: "1".to_string(), data };
+        let record = Record {
+            id: "1".to_string(),
+            data,
+        };
 
         assert!(record.bool_field("active"));
         assert!(!record.bool_field("disabled"));
@@ -152,7 +167,10 @@ mod tests {
         data.insert("str".to_string(), serde_json::json!("hello"));
         data.insert("num".to_string(), serde_json::json!(42));
         data.insert("bool".to_string(), serde_json::json!(true));
-        let record = Record { id: "1".to_string(), data };
+        let record = Record {
+            id: "1".to_string(),
+            data,
+        };
 
         assert_eq!(field_as_string(&record, "str"), "hello");
         assert_eq!(field_as_string(&record, "num"), "42");
@@ -203,6 +221,9 @@ mod tests {
     fn test_sha256_known_value() {
         // SHA-256 of empty string
         let hash = sha256_hex(b"");
-        assert_eq!(hash, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        assert_eq!(
+            hash,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 }

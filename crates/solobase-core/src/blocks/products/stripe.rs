@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::helpers::*;
-use wafer_core::clients::{config, database as db, network};
 use super::PURCHASES_COLLECTION;
 use crate::blocks::helpers::hex_encode;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use std::collections::HashMap;
+use wafer_core::clients::{config, database as db, network};
+use wafer_run::context::Context;
+use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let stripe_key = match config::get(ctx, "STRIPE_SECRET_KEY").await {
@@ -25,18 +25,59 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
-    // Get purchase
+    // Get purchase and verify ownership
     let purchase = match db::get(ctx, PURCHASES_COLLECTION, &body.purchase_id).await {
         Ok(p) => p,
         Err(_) => return err_not_found(msg, "Purchase not found"),
     };
+    let purchase_user = purchase
+        .data
+        .get("user_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if purchase_user != msg.user_id() {
+        return err_forbidden(msg, "Cannot checkout another user's purchase");
+    }
 
-    let total_cents = purchase.data.get("total_cents").and_then(|v| v.as_i64()).unwrap_or(0);
-    let currency = purchase.data.get("currency").and_then(|v| v.as_str()).unwrap_or("usd").to_lowercase();
+    let total_cents = purchase
+        .data
+        .get("total_cents")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    if total_cents <= 0 {
+        return err_bad_request(msg, "Purchase total must be positive");
+    }
+
+    // Atomic status transition: pending → checkout_started (prevents double-checkout race)
+    let rows = db::exec_raw(
+        ctx,
+        "UPDATE block_products_purchases SET status = 'checkout_started', updated_at = ?1 WHERE id = ?2 AND status = 'pending'",
+        &[serde_json::Value::String(chrono::Utc::now().to_rfc3339()), serde_json::Value::String(body.purchase_id.clone())],
+    ).await.unwrap_or(0);
+    if rows == 0 {
+        return err_bad_request(
+            msg,
+            "Purchase is not in pending state or is already being processed",
+        );
+    }
+
+    let currency = purchase
+        .data
+        .get("currency")
+        .and_then(|v| v.as_str())
+        .unwrap_or("usd")
+        .to_lowercase();
 
     let base_url = config::get_default(ctx, "FRONTEND_URL", "http://localhost:5173").await;
-    let success_url = body.success_url.unwrap_or_else(|| format!("{}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}", base_url));
-    let cancel_url = body.cancel_url.unwrap_or_else(|| format!("{}/checkout/cancel", base_url));
+    let success_url = body.success_url.unwrap_or_else(|| {
+        format!(
+            "{}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
+            base_url
+        )
+    });
+    let cancel_url = body
+        .cancel_url
+        .unwrap_or_else(|| format!("{}/checkout/cancel", base_url));
 
     // Create Stripe checkout session
     let stripe_body = format!(
@@ -50,8 +91,14 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     );
 
     let mut headers = HashMap::new();
-    headers.insert("Authorization".to_string(), format!("Bearer {}", stripe_key));
-    headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+    headers.insert(
+        "Authorization".to_string(),
+        format!("Bearer {}", stripe_key),
+    );
+    headers.insert(
+        "Content-Type".to_string(),
+        "application/x-www-form-urlencoded".to_string(),
+    );
 
     let stripe_api_url = config::get_default(ctx, "STRIPE_API_URL", "https://api.stripe.com").await;
     let checkout_url_endpoint = format!("{}/v1/checkout/sessions", stripe_api_url);
@@ -62,14 +109,25 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         &checkout_url_endpoint,
         &headers,
         Some(&stripe_body.into_bytes()),
-    ).await {
+    )
+    .await
+    {
         Ok(r) => r,
         Err(e) => return err_internal(msg, &format!("Stripe API error: {e}")),
     };
 
     if resp.status_code >= 400 {
+        // Revert status back to pending so user can retry
+        let _ = db::exec_raw(
+            ctx,
+            "UPDATE block_products_purchases SET status = 'pending', updated_at = ?1 WHERE id = ?2 AND status = 'checkout_started'",
+            &[serde_json::Value::String(chrono::Utc::now().to_rfc3339()), serde_json::Value::String(body.purchase_id.clone())],
+        ).await;
         let err_body = String::from_utf8_lossy(&resp.body);
-        return err_internal(msg, &format!("Stripe error ({}): {}", resp.status_code, err_body));
+        return err_internal(
+            msg,
+            &format!("Stripe error ({}): {}", resp.status_code, err_body),
+        );
     }
 
     let session: serde_json::Value = match serde_json::from_slice(&resp.body) {
@@ -82,24 +140,39 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     // Update purchase with Stripe session ID
     let mut upd = HashMap::new();
-    upd.insert("provider".to_string(), serde_json::Value::String("stripe".to_string()));
-    upd.insert("provider_session_id".to_string(), serde_json::Value::String(session_id.to_string()));
-    upd.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+    upd.insert(
+        "provider".to_string(),
+        serde_json::Value::String("stripe".to_string()),
+    );
+    upd.insert(
+        "provider_session_id".to_string(),
+        serde_json::Value::String(session_id.to_string()),
+    );
+    upd.insert(
+        "updated_at".to_string(),
+        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+    );
     if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &body.purchase_id, upd).await {
         tracing::warn!("Failed to update purchase with Stripe session ID: {e}");
     }
 
-    json_respond(msg, &serde_json::json!({
-        "session_id": session_id,
-        "checkout_url": checkout_url
-    }))
+    json_respond(
+        msg,
+        &serde_json::json!({
+            "session_id": session_id,
+            "checkout_url": checkout_url
+        }),
+    )
 }
 
 pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Verify Stripe webhook signature - REQUIRED
     let webhook_secret = config::get_default(ctx, "STRIPE_WEBHOOK_SECRET", "").await;
     if webhook_secret.is_empty() {
-        return err_internal(msg, "STRIPE_WEBHOOK_SECRET not configured — webhook processing disabled for security");
+        return err_internal(
+            msg,
+            "STRIPE_WEBHOOK_SECRET not configured — webhook processing disabled for security",
+        );
     }
     let sig_header = msg.header("stripe-signature");
     if sig_header.is_empty() {
@@ -117,37 +190,59 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
-    let data_object = event.get("data").and_then(|d| d.get("object")).cloned().unwrap_or_default();
+    let data_object = event
+        .get("data")
+        .and_then(|d| d.get("object"))
+        .cloned()
+        .unwrap_or_default();
 
     match event_type {
         "checkout.session.completed" => {
             // Handle product purchase completion
-            let purchase_id = data_object.pointer("/metadata/purchase_id")
+            let purchase_id = data_object
+                .pointer("/metadata/purchase_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
 
             if !purchase_id.is_empty() {
-                let payment_intent = data_object.get("payment_intent")
+                let payment_intent = data_object
+                    .get("payment_intent")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
 
-                let mut data = HashMap::new();
-                data.insert("status".to_string(), serde_json::Value::String("completed".to_string()));
-                data.insert("provider_payment_intent_id".to_string(), serde_json::Value::String(payment_intent));
-                data.insert("approved_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-                data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-                if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, purchase_id, data).await {
-                    tracing::error!("Failed to mark purchase as completed: {e}");
-                    return err_internal(msg, &format!("Failed to update purchase: {e}"));
+                // Atomic: only complete if still in checkout_started (or pending for backwards compat)
+                let now = chrono::Utc::now().to_rfc3339();
+                let rows = db::exec_raw(
+                    ctx,
+                    "UPDATE block_products_purchases SET status = 'completed', provider_payment_intent_id = ?1, approved_at = ?2, updated_at = ?2 WHERE id = ?3 AND status IN ('checkout_started', 'pending')",
+                    &[serde_json::Value::String(payment_intent), serde_json::Value::String(now), serde_json::Value::String(purchase_id.to_string())],
+                ).await.unwrap_or(0);
+                if rows == 0 {
+                    tracing::warn!(
+                        "Purchase {} not updated — already completed or refunded",
+                        purchase_id
+                    );
                 }
             }
 
             // Handle subscription creation (platform billing)
-            let user_id = data_object.pointer("/metadata/user_id").and_then(|v| v.as_str()).unwrap_or("");
-            let plan = data_object.pointer("/metadata/plan").and_then(|v| v.as_str()).unwrap_or("");
-            let stripe_customer_id = data_object.get("customer").and_then(|v| v.as_str()).unwrap_or("");
-            let stripe_sub_id = data_object.get("subscription").and_then(|v| v.as_str()).unwrap_or("");
+            let user_id = data_object
+                .pointer("/metadata/user_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let plan = data_object
+                .pointer("/metadata/plan")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let stripe_customer_id = data_object
+                .get("customer")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let stripe_sub_id = data_object
+                .get("subscription")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
 
             if !user_id.is_empty() && !plan.is_empty() {
                 let now = chrono::Utc::now().to_rfc3339();
@@ -167,16 +262,25 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                       stripe_sub_id.into(), plan.into(), now.into()],
                 ).await;
 
-                fire_products_webhook(ctx, "products.checkout.completed", &serde_json::json!({
-                    "user_id": user_id, "plan": plan
-                })).await;
+                fire_products_webhook(
+                    ctx,
+                    "products.checkout.completed",
+                    &serde_json::json!({
+                        "user_id": user_id, "plan": plan
+                    }),
+                )
+                .await;
             }
         }
 
         "customer.subscription.updated" => {
             let stripe_sub_id = data_object.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            let status = data_object.get("status").and_then(|v| v.as_str()).unwrap_or("");
-            let plan = data_object.pointer("/items/data/0/price/lookup_key")
+            let status = data_object
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let plan = data_object
+                .pointer("/items/data/0/price/lookup_key")
                 .or_else(|| data_object.pointer("/items/data/0/price/metadata/plan"))
                 .and_then(|v| v.as_str());
             let now = chrono::Utc::now().to_rfc3339();
@@ -205,14 +309,22 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
             // Notify control plane
             if let Some(uid) = user_id {
-                fire_products_webhook(ctx, "products.subscription.updated", &serde_json::json!({
-                    "user_id": uid, "plan": plan.unwrap_or("free")
-                })).await;
+                fire_products_webhook(
+                    ctx,
+                    "products.subscription.updated",
+                    &serde_json::json!({
+                        "user_id": uid, "plan": plan.unwrap_or("free")
+                    }),
+                )
+                .await;
             }
         }
 
         "invoice.payment_failed" => {
-            let stripe_sub_id = data_object.get("subscription").and_then(|v| v.as_str()).unwrap_or("");
+            let stripe_sub_id = data_object
+                .get("subscription")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if !stripe_sub_id.is_empty() {
                 let now = chrono::Utc::now().to_rfc3339();
                 let grace_end = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
@@ -239,31 +351,52 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                    updated_at = ?1 \
                  WHERE stripe_subscription_id = ?2",
                 &[now.into(), stripe_sub_id.into()],
-            ).await;
+            )
+            .await;
 
             if let Some(uid) = user_id {
-                fire_products_webhook(ctx, "products.subscription.deleted", &serde_json::json!({
-                    "user_id": uid
-                })).await;
+                fire_products_webhook(
+                    ctx,
+                    "products.subscription.deleted",
+                    &serde_json::json!({
+                        "user_id": uid
+                    }),
+                )
+                .await;
             }
         }
 
         "charge.refunded" => {
-            let payment_intent = data_object.get("payment_intent")
+            let payment_intent = data_object
+                .get("payment_intent")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
 
             if !payment_intent.is_empty() {
                 if let Ok(purchase) = db::get_by_field(
-                    ctx, PURCHASES_COLLECTION,
-                    "provider_payment_intent_id", serde_json::Value::String(payment_intent),
-                ).await {
+                    ctx,
+                    PURCHASES_COLLECTION,
+                    "provider_payment_intent_id",
+                    serde_json::Value::String(payment_intent),
+                )
+                .await
+                {
                     let mut data = HashMap::new();
-                    data.insert("status".to_string(), serde_json::Value::String("refunded".to_string()));
-                    data.insert("refunded_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-                    data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-                    if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &purchase.id, data).await {
+                    data.insert(
+                        "status".to_string(),
+                        serde_json::Value::String("refunded".to_string()),
+                    );
+                    data.insert(
+                        "refunded_at".to_string(),
+                        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+                    );
+                    data.insert(
+                        "updated_at".to_string(),
+                        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+                    );
+                    if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &purchase.id, data).await
+                    {
                         tracing::error!("Failed to mark purchase as refunded: {e}");
                         return err_internal(msg, &format!("Failed to update purchase: {e}"));
                     }
@@ -284,8 +417,14 @@ async fn get_user_for_stripe_sub(ctx: &dyn Context, stripe_sub_id: &str) -> Opti
         ctx,
         "SELECT user_id FROM subscriptions WHERE stripe_subscription_id = ?1",
         &[serde_json::Value::String(stripe_sub_id.to_string())],
-    ).await.ok()?;
-    rows.first()?.data.get("user_id").and_then(|v| v.as_str()).map(String::from)
+    )
+    .await
+    .ok()?;
+    rows.first()?
+        .data
+        .get("user_id")
+        .and_then(|v| v.as_str())
+        .map(String::from)
 }
 
 /// Fire a webhook for product/billing events.
@@ -324,7 +463,11 @@ async fn fire_products_webhook(ctx: &dyn Context, event: &str, data: &serde_json
             tracing::info!(event = event, "products webhook delivered");
         }
         Ok(resp) => {
-            tracing::warn!(event = event, status = resp.status_code, "products webhook failed");
+            tracing::warn!(
+                event = event,
+                status = resp.status_code,
+                "products webhook failed"
+            );
         }
         Err(e) => {
             tracing::warn!(event = event, error = %e, "products webhook delivery error");
@@ -334,12 +477,15 @@ async fn fire_products_webhook(ctx: &dyn Context, event: &str, data: &serde_json
 
 pub(super) fn urlencoding(s: &str) -> String {
     // Iterate over bytes (not chars) to correctly handle multi-byte UTF-8
-    s.as_bytes().iter().map(|&b| match b {
-        b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-            String::from(b as char)
-        }
-        _ => format!("%{:02X}", b),
-    }).collect()
+    s.as_bytes()
+        .iter()
+        .map(|&b| match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                String::from(b as char)
+            }
+            _ => format!("%{:02X}", b),
+        })
+        .collect()
 }
 
 /// Verify Stripe webhook signature using HMAC-SHA256.
@@ -480,7 +626,10 @@ mod tests {
             .unwrap()
             .as_secs();
 
-        let sig_header = format!("t={},v1=0000000000000000000000000000000000000000000000000000000000000000", timestamp);
+        let sig_header = format!(
+            "t={},v1=0000000000000000000000000000000000000000000000000000000000000000",
+            timestamp
+        );
 
         assert!(!verify_stripe_signature(b"payload", &sig_header, "secret"));
     }
@@ -512,6 +661,9 @@ mod tests {
         assert_eq!(urlencoding("hello"), "hello");
         assert_eq!(urlencoding("hello world"), "hello%20world");
         assert_eq!(urlencoding("a+b=c&d"), "a%2Bb%3Dc%26d");
-        assert_eq!(urlencoding("https://example.com"), "https%3A%2F%2Fexample.com");
+        assert_eq!(
+            urlencoding("https://example.com"),
+            "https%3A%2F%2Fexample.com"
+        );
     }
 }

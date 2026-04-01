@@ -16,12 +16,10 @@ pub fn hash_password(password: &str) -> Result<String, String> {
     use argon2::{password_hash::SaltString, Argon2, Params, PasswordHasher};
 
     // 4 MiB memory, 2 iterations, 1 lane — fast enough for Workers
-    let params =
-        Params::new(4096, 2, 1, None).map_err(|e| format!("argon2 params: {e}"))?;
+    let params = Params::new(4096, 2, 1, None).map_err(|e| format!("argon2 params: {e}"))?;
     let mut salt_bytes = [0u8; 16];
     getrandom::getrandom(&mut salt_bytes).map_err(|e| format!("rng error: {e}"))?;
-    let salt =
-        SaltString::encode_b64(&salt_bytes).map_err(|e| format!("salt encode: {e}"))?;
+    let salt = SaltString::encode_b64(&salt_bytes).map_err(|e| format!("salt encode: {e}"))?;
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
     argon2
         .hash_password(password.as_bytes(), &salt)
@@ -49,8 +47,7 @@ fn hmac_sha256(data: &[u8], key: &[u8]) -> Result<Vec<u8>, String> {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
-    let mut mac = HmacSha256::new_from_slice(key)
-        .map_err(|e| format!("HMAC key error: {e}"))?;
+    let mut mac = HmacSha256::new_from_slice(key).map_err(|e| format!("HMAC key error: {e}"))?;
     mac.update(data);
     Ok(mac.finalize().into_bytes().to_vec())
 }
@@ -86,28 +83,27 @@ pub fn jwt_sign(
     let payload_b64 = base64_url_encode(payload_json.as_bytes());
 
     let signing_input = format!("{}.{}", header_b64, payload_b64);
-    let sig = hmac_sha256(signing_input.as_bytes(), secret.as_bytes())
-        .unwrap_or_default();
+    let sig = match hmac_sha256(signing_input.as_bytes(), secret.as_bytes()) {
+        Ok(s) => s,
+        Err(_) => return String::new(), // Signing failure — return empty (unusable) token
+    };
     let sig_b64 = base64_url_encode(&sig);
 
     format!("{}.{}.{}", header_b64, payload_b64, sig_b64)
 }
 
 /// Verify a JWT signature and check expiry. Returns the claims on success.
-pub fn jwt_verify(
-    token: &str,
-    secret: &str,
-) -> Result<HashMap<String, serde_json::Value>, String> {
+pub fn jwt_verify(token: &str, secret: &str) -> Result<HashMap<String, serde_json::Value>, String> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
         return Err("invalid JWT format".into());
     }
 
-    // Verify signature
+    // Verify signature (constant-time comparison to prevent timing attacks)
     let signing_input = format!("{}.{}", parts[0], parts[1]);
     let expected_sig = hmac_sha256(signing_input.as_bytes(), secret.as_bytes())?;
     let actual_sig = base64_url_decode(parts[2])?;
-    if expected_sig != actual_sig {
+    if !constant_time_eq(&expected_sig, &actual_sig) {
         return Err("invalid JWT signature".into());
     }
 
@@ -116,12 +112,14 @@ pub fn jwt_verify(
     let claims: HashMap<String, serde_json::Value> =
         serde_json::from_slice(&payload).map_err(|e| format!("invalid JWT claims: {e}"))?;
 
-    // Check expiration
-    if let Some(exp) = claims.get("exp").and_then(|v| v.as_i64()) {
-        let now = chrono::Utc::now().timestamp();
-        if exp < now {
-            return Err("JWT expired".into());
-        }
+    // Require and check expiration — tokens without exp are rejected
+    let exp = claims
+        .get("exp")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| "JWT missing exp claim".to_string())?;
+    let now = chrono::Utc::now().timestamp();
+    if exp < now {
+        return Err("JWT expired".into());
     }
 
     Ok(claims)
@@ -132,6 +130,19 @@ pub fn random_bytes(n: usize) -> Result<Vec<u8>, String> {
     let mut buf = vec![0u8; n];
     getrandom::getrandom(&mut buf).map_err(|e| format!("rng error: {e}"))?;
     Ok(buf)
+}
+
+/// Constant-time comparison to prevent timing attacks.
+/// Returns true if both slices are equal in length and content.
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 // ---------------------------------------------------------------------------
@@ -145,11 +156,7 @@ pub fn random_bytes(n: usize) -> Result<Vec<u8>, String> {
 ///
 /// Silently does nothing if the token is invalid (the request continues
 /// as unauthenticated).
-pub fn extract_auth_meta(
-    auth_header: &str,
-    jwt_secret: &str,
-    msg: &mut wafer_run::types::Message,
-) {
+pub fn extract_auth_meta(auth_header: &str, jwt_secret: &str, msg: &mut wafer_run::types::Message) {
     use wafer_run::meta::*;
 
     let token = match auth_header.strip_prefix("Bearer ") {
@@ -161,6 +168,12 @@ pub fn extract_auth_meta(
         Ok(c) => c,
         Err(_) => return,
     };
+
+    // Only accept "access" tokens for authentication (reject refresh tokens)
+    let token_type = claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    if token_type == "refresh" {
+        return; // Refresh tokens must not be used as Bearer tokens
+    }
 
     if let Some(sub) = claims.get("sub").and_then(|v| v.as_str()) {
         msg.set_meta(META_AUTH_USER_ID, sub);
@@ -302,5 +315,32 @@ mod tests {
 
         let c = hmac_sha256(b"hello", b"different-key").unwrap();
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn jwt_verify_rejects_missing_exp() {
+        let secret = "secret";
+        let mut claims = HashMap::new();
+        claims.insert("sub".to_string(), serde_json::json!("user-123"));
+        // Manually build a token without exp
+        let header = r#"{"alg":"HS256","typ":"JWT"}"#;
+        let header_b64 = base64_url_encode(header.as_bytes());
+        let payload_json = serde_json::to_string(&claims).unwrap();
+        let payload_b64 = base64_url_encode(payload_json.as_bytes());
+        let signing_input = format!("{}.{}", header_b64, payload_b64);
+        let sig = hmac_sha256(signing_input.as_bytes(), secret.as_bytes()).unwrap();
+        let sig_b64 = base64_url_encode(&sig);
+        let token = format!("{}.{}.{}", header_b64, payload_b64, sig_b64);
+
+        let err = jwt_verify(&token, secret).unwrap_err();
+        assert_eq!(err, "JWT missing exp claim");
+    }
+
+    #[test]
+    fn constant_time_eq_works() {
+        assert!(constant_time_eq(b"hello", b"hello"));
+        assert!(!constant_time_eq(b"hello", b"world"));
+        assert!(!constant_time_eq(b"hello", b"hell"));
+        assert!(constant_time_eq(b"", b""));
     }
 }

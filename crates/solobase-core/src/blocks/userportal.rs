@@ -1,12 +1,12 @@
-use maud::html;
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::helpers::*;
-use wafer_core::clients::{config, database as db};
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use super::helpers::RecordExt;
 use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
+use maud::html;
+use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::{config, database as db};
+use wafer_run::block::{Block, BlockInfo};
+use wafer_run::context::Context;
+use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 pub struct UserPortalBlock;
 
@@ -66,7 +66,11 @@ impl Block for UserPortalBlock {
         self.handle_config(ctx, msg).await
     }
 
-    async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(
+        &self,
+        _ctx: &dyn Context,
+        _event: LifecycleEvent,
+    ) -> std::result::Result<(), WaferError> {
         Ok(())
     }
 }
@@ -74,13 +78,13 @@ impl Block for UserPortalBlock {
 impl UserPortalBlock {
     async fn handle_config(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         // Read block enabled state from block_settings table
-        let block_rows = db::query_raw(ctx,
-            "SELECT block_name, enabled FROM block_settings",
-            &[],
-        ).await.unwrap_or_default();
+        let block_rows = db::query_raw(ctx, "SELECT block_name, enabled FROM block_settings", &[])
+            .await
+            .unwrap_or_default();
 
         let is_enabled = |name: &str| -> bool {
-            block_rows.iter()
+            block_rows
+                .iter()
                 .find(|r| r.data.get("block_name").and_then(|v| v.as_str()) == Some(name))
                 .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
                 .map(|v| v != 0)
@@ -113,15 +117,42 @@ impl UserPortalBlock {
 
 fn portal_nav() -> Vec<NavItem> {
     vec![
-        NavItem { label: "Overview".into(), href: "/b/userportal/".into(), icon: "layout-dashboard" },
-        NavItem { label: "Projects".into(), href: "/b/userportal/projects".into(), icon: "server" },
-        NavItem { label: "API Keys".into(), href: "/b/userportal/api-keys".into(), icon: "key" },
+        NavItem {
+            label: "Overview".into(),
+            href: "/b/userportal/".into(),
+            icon: "layout-dashboard",
+        },
+        NavItem {
+            label: "Projects".into(),
+            href: "/b/userportal/projects".into(),
+            icon: "server",
+        },
+        NavItem {
+            label: "API Keys".into(),
+            href: "/b/userportal/api-keys".into(),
+            icon: "key",
+        },
     ]
 }
 
-fn portal_page(title: &str, config: &SiteConfig, path: &str, user: Option<&UserInfo>, content: maud::Markup, msg: &mut Message) -> Result_ {
+fn portal_page(
+    title: &str,
+    config: &SiteConfig,
+    path: &str,
+    user: Option<&UserInfo>,
+    content: maud::Markup,
+    msg: &mut Message,
+) -> Result_ {
     let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(title, config, &portal_nav(), user, path, content, is_fragment);
+    let markup = ui::layout::block_shell(
+        title,
+        config,
+        &portal_nav(),
+        user,
+        path,
+        content,
+        is_fragment,
+    );
     ui::html_response(msg, markup)
 }
 
@@ -134,21 +165,39 @@ async fn portal_dashboard(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Count user's projects
     let project_opts = ListOptions {
         filters: vec![
-            Filter { field: "user_id".into(), operator: FilterOp::Equal, value: serde_json::json!(user_id) },
-            Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null },
+            Filter {
+                field: "user_id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(user_id),
+            },
+            Filter {
+                field: "deleted_at".into(),
+                operator: FilterOp::IsNull,
+                value: serde_json::Value::Null,
+            },
         ],
-        limit: 1, ..Default::default()
+        limit: 1,
+        ..Default::default()
     };
-    let project_count = db::list(ctx, "block_deployments", &project_opts).await.map(|r| r.total_count).unwrap_or(0);
+    let project_count = db::list(ctx, "block_deployments", &project_opts)
+        .await
+        .map(|r| r.total_count)
+        .unwrap_or(0);
 
     // Count user's API keys
     let key_opts = ListOptions {
-        filters: vec![
-            Filter { field: "user_id".into(), operator: FilterOp::Equal, value: serde_json::json!(user_id) },
-        ],
-        limit: 1, ..Default::default()
+        filters: vec![Filter {
+            field: "user_id".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::json!(user_id),
+        }],
+        limit: 1,
+        ..Default::default()
     };
-    let key_count = db::list(ctx, "api_keys", &key_opts).await.map(|r| r.total_count).unwrap_or(0);
+    let key_count = db::list(ctx, "api_keys", &key_opts)
+        .await
+        .map(|r| r.total_count)
+        .unwrap_or(0);
 
     let content = html! {
         (components::page_header("Dashboard", Some(&format!("Welcome to {app_name}")), None))
@@ -164,7 +213,14 @@ async fn portal_dashboard(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    portal_page("Dashboard", &config, "/b/userportal/", user.as_ref(), content, msg)
+    portal_page(
+        "Dashboard",
+        &config,
+        "/b/userportal/",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }
 
 async fn portal_projects(ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -174,11 +230,30 @@ async fn portal_projects(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let (page, page_size, _) = msg.pagination_params(20);
 
     let filters = vec![
-        Filter { field: "user_id".into(), operator: FilterOp::Equal, value: serde_json::json!(user_id) },
-        Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null },
+        Filter {
+            field: "user_id".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::json!(user_id),
+        },
+        Filter {
+            field: "deleted_at".into(),
+            operator: FilterOp::IsNull,
+            value: serde_json::Value::Null,
+        },
     ];
-    let sort = vec![SortField { field: "created_at".into(), desc: true }];
-    let result = db::paginated_list(ctx, "block_deployments", page as i64, page_size as i64, filters, sort).await;
+    let sort = vec![SortField {
+        field: "created_at".into(),
+        desc: true,
+    }];
+    let result = db::paginated_list(
+        ctx,
+        "block_deployments",
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await;
 
     let content = html! {
         (components::page_header("My Projects", Some("Manage your deployments"), None))
@@ -215,7 +290,14 @@ async fn portal_projects(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    portal_page("My Projects", &config, "/b/userportal/projects", user.as_ref(), content, msg)
+    portal_page(
+        "My Projects",
+        &config,
+        "/b/userportal/projects",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }
 
 async fn portal_api_keys(ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -224,11 +306,17 @@ async fn portal_api_keys(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_id = msg.user_id().to_string();
 
     let opts = ListOptions {
-        filters: vec![
-            Filter { field: "user_id".into(), operator: FilterOp::Equal, value: serde_json::json!(user_id) },
-        ],
-        sort: vec![SortField { field: "created_at".into(), desc: true }],
-        limit: 100, ..Default::default()
+        filters: vec![Filter {
+            field: "user_id".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::json!(user_id),
+        }],
+        sort: vec![SortField {
+            field: "created_at".into(),
+            desc: true,
+        }],
+        limit: 100,
+        ..Default::default()
     };
     let result = db::list(ctx, "api_keys", &opts).await;
 
@@ -268,5 +356,12 @@ async fn portal_api_keys(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    portal_page("API Keys", &config, "/b/userportal/api-keys", user.as_ref(), content, msg)
+    portal_page(
+        "API Keys",
+        &config,
+        "/b/userportal/api-keys",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }

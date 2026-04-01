@@ -1,24 +1,41 @@
 //! SSR pages for the projects block.
 
-use maud::{html, Markup};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, SortField};
 use crate::blocks::helpers::RecordExt;
 use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
+use maud::{html, Markup};
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{Filter, FilterOp, SortField};
+use wafer_run::context::Context;
+use wafer_run::types::*;
 
 use super::PROJECTS_COLLECTION;
 
 fn projects_nav() -> Vec<NavItem> {
-    vec![
-        NavItem { label: "Deployments".into(), href: "/b/projects/".into(), icon: "server" },
-    ]
+    vec![NavItem {
+        label: "Deployments".into(),
+        href: "/b/projects/".into(),
+        icon: "server",
+    }]
 }
 
-fn projects_page(title: &str, config: &SiteConfig, path: &str, user: Option<&UserInfo>, content: Markup, msg: &mut Message) -> Result_ {
+fn projects_page(
+    title: &str,
+    config: &SiteConfig,
+    path: &str,
+    user: Option<&UserInfo>,
+    content: Markup,
+    msg: &mut Message,
+) -> Result_ {
     let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(title, config, &projects_nav(), user, path, content, is_fragment);
+    let markup = ui::layout::block_shell(
+        title,
+        config,
+        &projects_nav(),
+        user,
+        path,
+        content,
+        is_fragment,
+    );
     ui::html_response(msg, markup)
 }
 
@@ -35,27 +52,59 @@ pub async fn admin_deployments(ctx: &dyn Context, msg: &mut Message) -> Result_ 
     let mut filters = Vec::new();
     if !status_filter.is_empty() && status_filter != "all" {
         filters.push(Filter {
-            field: "status".into(), operator: FilterOp::Equal,
+            field: "status".into(),
+            operator: FilterOp::Equal,
             value: serde_json::Value::String(status_filter.clone()),
         });
     }
 
-    let sort = vec![SortField { field: "created_at".into(), desc: true }];
-    let result = db::paginated_list(ctx, PROJECTS_COLLECTION, page as i64, page_size as i64, filters, sort).await;
+    let sort = vec![SortField {
+        field: "created_at".into(),
+        desc: true,
+    }];
+    let result = db::paginated_list(
+        ctx,
+        PROJECTS_COLLECTION,
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await;
 
     // Stats counts
-    let one = db::ListOptions { limit: 1, ..Default::default() };
-    let total = db::list(ctx, PROJECTS_COLLECTION, &one).await.map(|r| r.total_count).unwrap_or(0);
+    let one = db::ListOptions {
+        limit: 1,
+        ..Default::default()
+    };
+    let total = db::list(ctx, PROJECTS_COLLECTION, &one)
+        .await
+        .map(|r| r.total_count)
+        .unwrap_or(0);
 
     let count_by_status = |status: &str| -> db::ListOptions {
         db::ListOptions {
-            filters: vec![Filter { field: "status".into(), operator: FilterOp::Equal, value: serde_json::json!(status) }],
-            limit: 1, ..Default::default()
+            filters: vec![Filter {
+                field: "status".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(status),
+            }],
+            limit: 1,
+            ..Default::default()
         }
     };
-    let active = db::list(ctx, PROJECTS_COLLECTION, &count_by_status("active")).await.map(|r| r.total_count).unwrap_or(0);
-    let pending = db::list(ctx, PROJECTS_COLLECTION, &count_by_status("pending")).await.map(|r| r.total_count).unwrap_or(0);
-    let stopped = db::list(ctx, PROJECTS_COLLECTION, &count_by_status("stopped")).await.map(|r| r.total_count).unwrap_or(0);
+    let active = db::list(ctx, PROJECTS_COLLECTION, &count_by_status("active"))
+        .await
+        .map(|r| r.total_count)
+        .unwrap_or(0);
+    let pending = db::list(ctx, PROJECTS_COLLECTION, &count_by_status("pending"))
+        .await
+        .map(|r| r.total_count)
+        .unwrap_or(0);
+    let stopped = db::list(ctx, PROJECTS_COLLECTION, &count_by_status("stopped"))
+        .await
+        .map(|r| r.total_count)
+        .unwrap_or(0);
 
     let content = html! {
         (components::page_header("Deployments", Some("Manage project deployments"), None))
@@ -113,5 +162,12 @@ pub async fn admin_deployments(ctx: &dyn Context, msg: &mut Message) -> Result_ 
         }
     };
 
-    projects_page("Deployments", &config, "/b/projects/", user.as_ref(), content, msg)
+    projects_page(
+        "Deployments",
+        &config,
+        "/b/projects/",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }

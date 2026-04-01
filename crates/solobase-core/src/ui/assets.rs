@@ -17,7 +17,7 @@ pub fn htmx_js() -> &'static str {
 
 /// Short content hash (first 8 chars of hex SHA-256) for cache busting.
 fn short_hash(content: &[u8]) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let hash = Sha256::digest(content);
     hash.iter().take(4).map(|b| format!("{b:02x}")).collect()
 }

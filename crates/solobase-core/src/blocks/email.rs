@@ -103,29 +103,39 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let (subject, html, text) = match req.template.as_str() {
         "verification" => {
             let token = req.token.as_deref().unwrap_or("");
-            let url = format!("https://cloud.solobase.dev/auth/verify?token={}", url_encode(token));
+            let url = format!(
+                "https://cloud.solobase.dev/auth/verify?token={}",
+                url_encode(token)
+            );
             (
                 "Verify your Solobase email".to_string(),
-                format!(r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
+                format!(
+                    r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#1e293b">Verify your email</h2>
 <p style="color:#64748b;line-height:1.6">Click the button below to verify your email address. This link expires in 24 hours.</p>
 <a href="{url}" style="display:inline-block;background:#0ea5e9;color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">Verify Email</a>
 <p style="color:#94a3b8;font-size:0.813rem">If you didn't create an account, you can ignore this email.</p>
-</div>"#),
+</div>"#
+                ),
                 format!("Verify your Solobase email: {url}"),
             )
         }
         "password_reset" => {
             let token = req.token.as_deref().unwrap_or("");
-            let url = format!("https://cloud.solobase.dev/auth/reset-password?token={}", url_encode(token));
+            let url = format!(
+                "https://cloud.solobase.dev/auth/reset-password?token={}",
+                url_encode(token)
+            );
             (
                 "Reset your Solobase password".to_string(),
-                format!(r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
+                format!(
+                    r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#1e293b">Reset your password</h2>
 <p style="color:#64748b;line-height:1.6">Click the button below to reset your password. This link expires in 1 hour.</p>
 <a href="{url}" style="display:inline-block;background:#0ea5e9;color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">Reset Password</a>
 <p style="color:#94a3b8;font-size:0.813rem">If you didn't request a password reset, you can ignore this email.</p>
-</div>"#),
+</div>"#
+                ),
                 format!("Reset your Solobase password: {url}"),
             )
         }
@@ -133,18 +143,27 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             let days = req.days_remaining.unwrap_or(7);
             (
                 "Solobase: Payment failed — action required".to_string(),
-                format!(r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
+                format!(
+                    r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#dc2626">Payment failed</h2>
 <p style="color:#64748b;line-height:1.6">We were unable to process your subscription payment. Your service will remain active for <strong>{days} more days</strong>. After that, your projects will be suspended.</p>
 <a href="https://cloud.solobase.dev/blocks/dashboard/#settings" style="display:inline-block;background:#dc2626;color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">Update Payment Method</a>
 <p style="color:#94a3b8;font-size:0.813rem">If you've already updated your payment method, you can ignore this email.</p>
-</div>"#),
-                format!("Your Solobase payment failed. Update your payment method within {} days.", days),
+</div>"#
+                ),
+                format!(
+                    "Your Solobase payment failed. Update your payment method within {} days.",
+                    days
+                ),
             )
         }
         "welcome" => {
             let name = req.name.as_deref().unwrap_or("");
-            let greeting = if name.is_empty() { "Welcome!".to_string() } else { format!("Welcome, {}!", name) };
+            let greeting = if name.is_empty() {
+                "Welcome!".to_string()
+            } else {
+                format!("Welcome, {}!", name)
+            };
             (
                 "Welcome to Solobase!".to_string(),
                 format!(r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
@@ -183,10 +202,12 @@ async fn send_email(
     let domain = wafer_core::clients::config::get_default(ctx, "MAILGUN_DOMAIN", "").await;
     let from = {
         let f = wafer_core::clients::config::get_default(ctx, "MAILGUN_FROM", "").await;
-        if f.is_empty() { format!("Solobase <noreply@{domain}>") } else { f }
+        if f.is_empty() {
+            format!("Solobase <noreply@{domain}>")
+        } else {
+            f
+        }
     };
-
-
 
     if api_key.is_empty() || domain.is_empty() {
         // Email not configured — log but don't fail
@@ -283,15 +304,21 @@ const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 
 impl<'a> Base64Encoder<'a> {
     fn new(out: &'a mut Vec<u8>) -> Self {
-        Self { out, buf: [0; 3], len: 0 }
+        Self {
+            out,
+            buf: [0; 3],
+            len: 0,
+        }
     }
 
     fn flush_block(&mut self) {
         let b = &self.buf;
         self.out.push(B64[(b[0] >> 2) as usize]);
-        self.out.push(B64[((b[0] & 0x03) << 4 | b[1] >> 4) as usize]);
+        self.out
+            .push(B64[((b[0] & 0x03) << 4 | b[1] >> 4) as usize]);
         if self.len > 1 {
-            self.out.push(B64[((b[1] & 0x0f) << 2 | b[2] >> 6) as usize]);
+            self.out
+                .push(B64[((b[1] & 0x0f) << 2 | b[2] >> 6) as usize]);
         } else {
             self.out.push(b'=');
         }
@@ -304,7 +331,9 @@ impl<'a> Base64Encoder<'a> {
 
     fn finish(&mut self) {
         if self.len > 0 {
-            for i in self.len..3 { self.buf[i] = 0; }
+            for i in self.len..3 {
+                self.buf[i] = 0;
+            }
             self.flush_block();
         }
     }

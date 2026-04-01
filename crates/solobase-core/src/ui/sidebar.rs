@@ -5,7 +5,13 @@ use maud::{html, Markup, PreEscaped};
 use super::{icons, NavItem, UserInfo};
 
 /// Render the sidebar with nav items and user section.
-pub fn sidebar(nav_items: &[NavItem], user: Option<&UserInfo>, current_path: &str, logo_url: &str, logo_icon_url: &str) -> Markup {
+pub fn sidebar(
+    nav_items: &[NavItem],
+    user: Option<&UserInfo>,
+    current_path: &str,
+    logo_url: &str,
+    logo_icon_url: &str,
+) -> Markup {
     html! {
         nav .sidebar {
             // Logo header

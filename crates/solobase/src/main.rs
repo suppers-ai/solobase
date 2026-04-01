@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use solobase::app_config::{InfraConfig, load_block_settings};
+use solobase::app_config::{load_block_settings, InfraConfig};
 use solobase::blocks;
 use solobase::blocks::router::{NativeBlockFactory, SolobaseRouterBlock};
 use solobase::flows;
@@ -109,9 +109,9 @@ async fn main() {
         wafer_core::service_blocks::config::register_with(&mut wafer, Arc::new(config_service));
 
         // Crypto — Argon2 password hashing + JWT
-        let crypto_service = Arc::new(
-            wafer_block_crypto::service::Argon2JwtCryptoService::new(jwt_secret.clone()),
-        );
+        let crypto_service = Arc::new(wafer_block_crypto::service::Argon2JwtCryptoService::new(
+            jwt_secret.clone(),
+        ));
         wafer_core::service_blocks::crypto::register_with(&mut wafer, crypto_service);
 
         // Network — async HTTP client
@@ -128,9 +128,12 @@ async fn main() {
     wafer_block_cors::register(&mut wafer);
     wafer_block_iam_guard::register(&mut wafer);
     wafer_block_inspector::register(&mut wafer);
-    wafer.add_block_config("wafer-run/inspector", serde_json::json!({
-        "allow_anonymous": true
-    }));
+    wafer.add_block_config(
+        "wafer-run/inspector",
+        serde_json::json!({
+            "allow_anonymous": false
+        }),
+    );
     wafer_block_readonly_guard::register(&mut wafer);
     wafer_block_router::register(&mut wafer);
     wafer_block_security_headers::register(&mut wafer);
@@ -186,7 +189,7 @@ fn load_dotenv() {
     // Check for explicit path override first
     if let Ok(path) = std::env::var("SOLOBASE_ENV_FILE") {
         match dotenvy::from_filename(&path) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 eprintln!("warning: failed to load env file '{path}': {e}");
             }
@@ -207,17 +210,32 @@ fn load_dotenv() {
 fn collect_app_env_vars() -> Vec<(String, String)> {
     /// Known app config keys that should be seeded into the variables table.
     const APP_CONFIG_KEYS: &[&str] = &[
-        "APP_NAME", "JWT_SECRET", "ALLOW_SIGNUP", "ENABLE_OAUTH",
-        "PRIMARY_COLOR", "POST_LOGIN_REDIRECT", "FRONTEND_URL",
-        "AUTH_ALLOWED_EMAIL_DOMAINS", "ADMIN_EMAIL",
-        "LOGO_URL", "LOGO_ICON_URL", "AUTH_LOGO_URL", "FAVICON_URL",
+        "APP_NAME",
+        "JWT_SECRET",
+        "ALLOW_SIGNUP",
+        "ENABLE_OAUTH",
+        "PRIMARY_COLOR",
+        "POST_LOGIN_REDIRECT",
+        "FRONTEND_URL",
+        "AUTH_ALLOWED_EMAIL_DOMAINS",
+        "ADMIN_EMAIL",
+        "LOGO_URL",
+        "LOGO_ICON_URL",
+        "AUTH_LOGO_URL",
+        "FAVICON_URL",
         // Secrets
-        "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_API_URL",
-        "MAILGUN_API_KEY", "MAILGUN_DOMAIN", "MAILGUN_FROM",
+        "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET",
+        "STRIPE_API_URL",
+        "MAILGUN_API_KEY",
+        "MAILGUN_DOMAIN",
+        "MAILGUN_FROM",
         // Webhooks
-        "PRODUCTS_WEBHOOK_URL", "PRODUCTS_WEBHOOK_SECRET",
+        "PRODUCTS_WEBHOOK_URL",
+        "PRODUCTS_WEBHOOK_SECRET",
         // Platform (cloud-only)
-        "CONTROL_PLANE_URL", "CONTROL_PLANE_SECRET",
+        "CONTROL_PLANE_URL",
+        "CONTROL_PLANE_SECRET",
         // Block disabled list (seeded into block_settings table, not variables)
         // Use BLOCK_DISABLED env var instead of FEATURE_* flags.
     ];
@@ -243,7 +261,10 @@ fn seed_and_load_variables(
     // Ensure parent directory exists
     if let Some(parent) = std::path::Path::new(db_path).parent() {
         std::fs::create_dir_all(parent).unwrap_or_else(|e| {
-            tracing::error!("failed to create database directory {}: {e}", parent.display());
+            tracing::error!(
+                "failed to create database directory {}: {e}",
+                parent.display()
+            );
             std::process::exit(1);
         });
     }
@@ -267,8 +288,9 @@ fn seed_and_load_variables(
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_variables_key ON variables (key);"
-    ).unwrap_or_else(|e| {
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_variables_key ON variables (key);",
+    )
+    .unwrap_or_else(|e| {
         tracing::error!("failed to create variables table: {e}");
         std::process::exit(1);
     });
@@ -282,7 +304,11 @@ fn seed_and_load_variables(
 
         for (key, value) in env_vars {
             let id = format!("var_{}", uuid::Uuid::new_v4());
-            let sensitive = if SENSITIVE_VARS.contains(&key.as_str()) { 1 } else { 0 };
+            let sensitive = if SENSITIVE_VARS.contains(&key.as_str()) {
+                1
+            } else {
+                0
+            };
             if let Err(e) = stmt.execute(rusqlite::params![id, key, value, sensitive]) {
                 tracing::warn!(key = %key, error = %e, "failed to seed variable");
             }
@@ -294,14 +320,14 @@ fn seed_and_load_variables(
 
     // Load all variables
     let mut vars = HashMap::new();
-    let mut stmt = conn.prepare("SELECT key, value FROM variables")
+    let mut stmt = conn
+        .prepare("SELECT key, value FROM variables")
         .expect("failed to prepare SELECT variables");
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-        ))
-    }).expect("failed to query variables");
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .expect("failed to query variables");
 
     for row in rows {
         if let Ok((key, value)) = row {
@@ -369,9 +395,9 @@ fn init_tracing(log_format: &str) {
 #[cfg(feature = "otel")]
 fn init_tracing_with_otel(log_format: &str, filter: EnvFilter) {
     use opentelemetry::trace::TracerProvider;
-    use tracing_subscriber::Layer;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::Layer;
 
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
@@ -381,11 +407,9 @@ fn init_tracing_with_otel(log_format: &str, filter: EnvFilter) {
     let service_name = std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "solobase".into());
     let provider = opentelemetry_sdk::trace::TracerProvider::builder()
         .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-        .with_resource(
-            opentelemetry_sdk::Resource::new(vec![
-                opentelemetry::KeyValue::new("service.name", service_name),
-            ])
-        )
+        .with_resource(opentelemetry_sdk::Resource::new(vec![
+            opentelemetry::KeyValue::new("service.name", service_name),
+        ]))
         .build();
 
     let tracer = provider.tracer("solobase");

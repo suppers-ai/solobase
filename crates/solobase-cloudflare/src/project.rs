@@ -21,15 +21,30 @@ pub fn is_reserved_subdomain(subdomain: &str) -> bool {
     RESERVED_SUBDOMAINS.contains(&subdomain.to_lowercase().as_str())
 }
 
+/// Validate subdomain format: lowercase alphanumeric + hyphens, 1-63 chars,
+/// must start/end with alphanumeric. Prevents path traversal in CF API URLs.
+pub fn is_valid_subdomain(subdomain: &str) -> bool {
+    if subdomain.is_empty() || subdomain.len() > 63 {
+        return false;
+    }
+    let bytes = subdomain.as_bytes();
+    if !bytes[0].is_ascii_alphanumeric() || !bytes[bytes.len() - 1].is_ascii_alphanumeric() {
+        return false;
+    }
+    bytes.iter().all(|&b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
 /// Check if the host is the platform host.
 ///
 /// Platform hosts serve the shared DB (auth, billing, dashboard).
 /// Project hosts ({project}.solobase.dev) serve per-project data.
-pub fn is_platform_host(host: &str) -> bool {
+/// localhost/127.0.0.1 only count as platform in dev mode.
+pub fn is_platform_host(host: &str, is_dev: bool) -> bool {
     let host_no_port = host.split(':').next().unwrap_or(host);
-    host_no_port == "localhost"
-        || host_no_port == "127.0.0.1"
-        || host_no_port == "cloud.solobase.dev"
+    if is_dev && (host_no_port == "localhost" || host_no_port == "127.0.0.1") {
+        return true;
+    }
+    host_no_port == "cloud.solobase.dev"
         || host_no_port == "cloud.solobase-dev.dev"
 }
 

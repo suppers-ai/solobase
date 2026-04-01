@@ -164,12 +164,7 @@ pub fn stat_card(label: &str, value: &str, icon: Markup) -> Markup {
 
 /// Render a search input with htmx-powered search.
 /// If `current_value` is non-empty, shows a "Results for X" banner with a clear button.
-pub fn search_input(
-    name: &str,
-    placeholder: &str,
-    hx_get: &str,
-    hx_target: &str,
-) -> Markup {
+pub fn search_input(name: &str, placeholder: &str, hx_get: &str, hx_target: &str) -> Markup {
     search_input_with_value(name, placeholder, hx_get, hx_target, "")
 }
 
@@ -213,12 +208,7 @@ pub fn search_input_with_value(
 // ---------------------------------------------------------------------------
 
 /// Render pagination controls.
-pub fn pagination(
-    current_page: u32,
-    total_pages: u32,
-    base_url: &str,
-    hx_target: &str,
-) -> Markup {
+pub fn pagination(current_page: u32, total_pages: u32, base_url: &str, hx_target: &str) -> Markup {
     if total_pages <= 1 {
         return html! {};
     }
@@ -377,7 +367,13 @@ pub fn page_header(title: &str, subtitle: Option<&str>, action: Option<Markup>) 
 // ---------------------------------------------------------------------------
 
 /// Render a confirm dialog for destructive actions.
-pub fn confirm_dialog(id: &str, title: &str, message: &str, confirm_label: &str, hx_action: &str) -> Markup {
+pub fn confirm_dialog(
+    id: &str,
+    title: &str,
+    message: &str,
+    confirm_label: &str,
+    hx_action: &str,
+) -> Markup {
     modal_with_footer(
         id,
         title,

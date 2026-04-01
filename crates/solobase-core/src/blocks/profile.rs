@@ -1,7 +1,7 @@
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::types::*;
 use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 pub struct ProfileBlock;
 
@@ -28,7 +28,11 @@ impl Block for ProfileBlock {
         json_respond(msg, &empty)
     }
 
-    async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(
+        &self,
+        _ctx: &dyn Context,
+        _event: LifecycleEvent,
+    ) -> std::result::Result<(), WaferError> {
         Ok(())
     }
 }

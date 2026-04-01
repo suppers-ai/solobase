@@ -1,20 +1,20 @@
 mod addons;
 mod handlers;
+pub(crate) mod models;
 mod pages;
 mod pricing;
 mod purchase;
 mod stripe;
 mod variables;
-pub(crate) mod models;
 
 #[cfg(test)]
 mod tests;
 
+use super::rate_limit::{check_rate_limit, RateLimit, UserRateLimiter};
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::types::*;
 use wafer_run::helpers::*;
-use super::rate_limit::{UserRateLimiter, RateLimit, check_rate_limit};
+use wafer_run::types::*;
 
 pub(crate) const PRODUCTS_COLLECTION: &str = "block_products_products";
 pub(crate) const GROUPS_COLLECTION: &str = "block_products_groups";
@@ -37,7 +37,9 @@ impl Default for ProductsBlock {
 
 impl ProductsBlock {
     pub fn new() -> Self {
-        Self { limiter: UserRateLimiter::new() }
+        Self {
+            limiter: UserRateLimiter::new(),
+        }
     }
 }
 
@@ -172,12 +174,26 @@ impl Block for ProductsBlock {
         // SSR pages (GET requests to specific page paths)
         if action == "retrieve" && path.starts_with("/b/products/") {
             let sub = path.strip_prefix("/b/products").unwrap_or("/");
+            let is_admin = msg
+                .get_meta("auth.user_roles")
+                .split(',')
+                .any(|r| r.trim() == "admin");
             match sub {
-                "/" => return pages::overview(ctx, msg).await,
-                "/manage" => return pages::manage_products(ctx, msg).await,
-                "/groups" => return pages::groups(ctx, msg).await,
-                "/pricing" => return pages::pricing(ctx, msg).await,
-                "/purchases" => return pages::purchases(ctx, msg).await,
+                // Admin-only pages
+                "/" | "/manage" | "/groups" | "/pricing" | "/purchases" if is_admin => {
+                    return match sub {
+                        "/" => pages::overview(ctx, msg).await,
+                        "/manage" => pages::manage_products(ctx, msg).await,
+                        "/groups" => pages::groups(ctx, msg).await,
+                        "/pricing" => pages::pricing(ctx, msg).await,
+                        "/purchases" => pages::purchases(ctx, msg).await,
+                        _ => unreachable!(),
+                    };
+                }
+                "/" | "/manage" | "/groups" | "/pricing" | "/purchases" => {
+                    return crate::ui::forbidden_response(msg);
+                }
+                // User-facing pages (require auth but not admin)
                 "/my-products" => return pages::my_products(ctx, msg).await,
                 "/my-purchases" => return pages::my_purchases(ctx, msg).await,
                 _ => {} // fall through to API handlers
@@ -197,7 +213,9 @@ impl Block for ProductsBlock {
             } else {
                 (RateLimit::API_WRITE, "api_write")
             };
-            if let Some(r) = check_rate_limit(&self.limiter, ctx, msg, &user_id, category, default).await {
+            if let Some(r) =
+                check_rate_limit(&self.limiter, ctx, msg, &user_id, category, default).await
+            {
                 return r;
             }
         }
@@ -215,21 +233,34 @@ impl Block for ProductsBlock {
         err_not_found(msg, "not found")
     }
 
-    async fn lifecycle(&self, ctx: &dyn Context, event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(
+        &self,
+        ctx: &dyn Context,
+        event: LifecycleEvent,
+    ) -> std::result::Result<(), WaferError> {
         if event.event_type == LifecycleType::Init {
             // Seed default templates if they don't exist — these are required by FK constraints
             // on the groups and products tables.
-            use wafer_core::clients::database as db;
             use db::ListOptions;
+            use wafer_core::clients::database as db;
 
-            let check_opts = ListOptions { limit: 1, ..Default::default() };
+            let check_opts = ListOptions {
+                limit: 1,
+                ..Default::default()
+            };
 
             // Default group template
             match db::list(ctx, GROUP_TEMPLATES_COLLECTION, &check_opts).await {
                 Ok(list) if list.records.is_empty() => {
                     let mut data = std::collections::HashMap::new();
-                    data.insert("name".to_string(), serde_json::Value::String("default".to_string()));
-                    data.insert("display_name".to_string(), serde_json::Value::String("Default".to_string()));
+                    data.insert(
+                        "name".to_string(),
+                        serde_json::Value::String("default".to_string()),
+                    );
+                    data.insert(
+                        "display_name".to_string(),
+                        serde_json::Value::String("Default".to_string()),
+                    );
                     match db::create(ctx, GROUP_TEMPLATES_COLLECTION, data).await {
                         Ok(_) => tracing::info!("seeded default group template"),
                         Err(e) => tracing::warn!("failed to seed group template: {e}"),
@@ -243,8 +274,14 @@ impl Block for ProductsBlock {
             match db::list(ctx, PRODUCT_TEMPLATES_COLLECTION, &check_opts).await {
                 Ok(list) if list.records.is_empty() => {
                     let mut data = std::collections::HashMap::new();
-                    data.insert("name".to_string(), serde_json::Value::String("default".to_string()));
-                    data.insert("display_name".to_string(), serde_json::Value::String("Default".to_string()));
+                    data.insert(
+                        "name".to_string(),
+                        serde_json::Value::String("default".to_string()),
+                    );
+                    data.insert(
+                        "display_name".to_string(),
+                        serde_json::Value::String("Default".to_string()),
+                    );
                     match db::create(ctx, PRODUCT_TEMPLATES_COLLECTION, data).await {
                         Ok(_) => tracing::info!("seeded default product template"),
                         Err(e) => tracing::warn!("failed to seed product template: {e}"),

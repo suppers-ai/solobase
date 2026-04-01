@@ -3,10 +3,10 @@
 //! Both Cloudflare and native adapters call `handle_request()` after
 //! converting their platform-specific HTTP types into a WAFER Message.
 
+use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 use wafer_run::meta::*;
 use wafer_run::types::*;
-use wafer_core::clients::database as db;
 
 use crate::features::FeatureConfig;
 use crate::routing::{self, BlockFactory};
@@ -54,13 +54,17 @@ pub async fn handle_request(
     let user_id = msg.user_id().to_string();
     let (status, status_code, error_message) = match result.action {
         Action::Error => {
-            let err_msg = result.error.as_ref()
+            let err_msg = result
+                .error
+                .as_ref()
                 .map(|e| e.message.clone())
                 .unwrap_or_default();
             ("ERROR", 500i64, err_msg)
         }
         _ => {
-            let code = result.response.as_ref()
+            let code = result
+                .response
+                .as_ref()
                 .and_then(|r| r.meta.iter().find(|m| m.key == "resp.status"))
                 .and_then(|m| m.value.parse::<i64>().ok())
                 .unwrap_or(200);
@@ -76,7 +80,10 @@ pub async fn handle_request(
         data.insert("status".to_string(), serde_json::json!(status));
         data.insert("status_code".to_string(), serde_json::json!(status_code));
         data.insert("duration_ms".to_string(), serde_json::json!(duration_ms));
-        data.insert("error_message".to_string(), serde_json::json!(error_message));
+        data.insert(
+            "error_message".to_string(),
+            serde_json::json!(error_message),
+        );
         data.insert("client_ip".to_string(), serde_json::json!(client_ip));
         data.insert("user_id".to_string(), serde_json::json!(user_id));
         crate::blocks::helpers::stamp_created(&mut data);

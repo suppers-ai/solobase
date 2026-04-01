@@ -9,7 +9,7 @@ use worker::*;
 
 use crate::cf_api::{self, CfCredentials};
 use crate::helpers::json_response;
-use crate::project::is_reserved_subdomain;
+use crate::project::{is_reserved_subdomain, is_valid_subdomain};
 use crate::provision;
 
 /// Handle a control plane request.
@@ -25,7 +25,6 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
     let expected = env
         .secret("CONTROL_API_KEY")
         .map(|s| s.to_string())
-        .or_else(|_| env.var("CONTROL_API_KEY").map(|v| v.to_string()))
         .unwrap_or_default();
 
     if expected.is_empty() || !constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
@@ -79,6 +78,14 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             let req: Req = serde_json::from_slice(body)
                 .map_err(|e| Error::RustError(format!("invalid body: {e}")))?;
 
+            // Validate subdomain format (prevents path traversal in CF API URLs)
+            if !is_valid_subdomain(&req.subdomain) {
+                return json_response(
+                    &serde_json::json!({"error": "invalid_argument", "message": "subdomain must be 1-63 lowercase alphanumeric characters or hyphens, starting and ending with alphanumeric"}),
+                    400,
+                );
+            }
+
             // "cloud" is allowed (it's the platform project). Other reserved names are blocked.
             if req.subdomain != "cloud" && is_reserved_subdomain(&req.subdomain) {
                 return json_response(
@@ -100,8 +107,9 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
                             409,
                         )
                     } else {
+                        console_log!("project creation failed: {}", msg);
                         json_response(
-                            &serde_json::json!({"error": "internal", "message": msg}),
+                            &serde_json::json!({"error": "internal", "message": "project creation failed"}),
                             500,
                         )
                     }

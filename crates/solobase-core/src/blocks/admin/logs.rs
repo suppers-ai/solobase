@@ -1,8 +1,8 @@
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, SortField};
+use wafer_run::context::Context;
+use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 const COLLECTION: &str = "audit_logs";
 const REQUEST_LOGS_COLLECTION: &str = "request_logs";
@@ -47,9 +47,21 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         });
     }
 
-    let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
+    let sort = vec![SortField {
+        field: "created_at".to_string(),
+        desc: true,
+    }];
 
-    match db::paginated_list(ctx, COLLECTION, page as i64, page_size as i64, filters, sort).await {
+    match db::paginated_list(
+        ctx,
+        COLLECTION,
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await
+    {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
@@ -76,9 +88,21 @@ async fn handle_system_logs(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         });
     }
 
-    let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
+    let sort = vec![SortField {
+        field: "created_at".to_string(),
+        desc: true,
+    }];
 
-    match db::paginated_list(ctx, REQUEST_LOGS_COLLECTION, page as i64, page_size as i64, filters, sort).await {
+    match db::paginated_list(
+        ctx,
+        REQUEST_LOGS_COLLECTION,
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await
+    {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }

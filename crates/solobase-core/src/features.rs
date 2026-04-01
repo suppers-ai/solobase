@@ -39,5 +39,7 @@ impl FeatureConfig for BlockSettings {
 pub struct AllEnabled;
 
 impl FeatureConfig for AllEnabled {
-    fn is_block_enabled(&self, _: &str) -> bool { true }
+    fn is_block_enabled(&self, _: &str) -> bool {
+        true
+    }
 }

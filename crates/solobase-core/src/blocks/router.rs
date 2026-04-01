@@ -64,12 +64,21 @@ impl SolobaseRouterBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for SolobaseRouterBlock {
     fn info(&self) -> BlockInfo {
-        BlockInfo::new("suppers-ai/router", "0.0.1", "http-handler@v1", "Solobase shared router — delegates to solobase-core pipeline")
-            .instance_mode(InstanceMode::Singleton)
-            .category(wafer_run::BlockCategory::Feature)
+        BlockInfo::new(
+            "suppers-ai/router",
+            "0.0.1",
+            "http-handler@v1",
+            "Solobase shared router — delegates to solobase-core pipeline",
+        )
+        .instance_mode(InstanceMode::Singleton)
+        .category(wafer_run::BlockCategory::Feature)
     }
 
-    async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> Result<(), WaferError> {
+    async fn lifecycle(
+        &self,
+        _ctx: &dyn Context,
+        _event: LifecycleEvent,
+    ) -> Result<(), WaferError> {
         Ok(()) // No-op — individual blocks handle their own lifecycle
     }
 

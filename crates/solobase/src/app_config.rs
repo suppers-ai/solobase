@@ -41,16 +41,22 @@ impl InfraConfig {
         let mut blocks = Map::new();
         let aliases: Vec<(String, String)> = Vec::new();
 
-        blocks.insert("wafer-run/http-listener".into(), json!({
-            "flow": "site-main",
-            "listen": self.listen
-        }));
+        blocks.insert(
+            "wafer-run/http-listener".into(),
+            json!({
+                "flow": "site-main",
+                "listen": self.listen
+            }),
+        );
 
-        blocks.insert("wafer-run/web".into(), json!({
-            "web_root": "site",
-            "web_spa": "true",
-            "web_index": "index.html"
-        }));
+        blocks.insert(
+            "wafer-run/web".into(),
+            json!({
+                "web_root": "site",
+                "web_spa": "true",
+                "web_index": "index.html"
+            }),
+        );
 
         (blocks, aliases)
     }
@@ -102,14 +108,14 @@ pub fn load_block_settings(db_path: &str) -> BlockSettings {
             enabled INTEGER DEFAULT 1,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
-        );"
+        );",
     );
 
     // Seed defaults for known blocks (INSERT OR IGNORE — existing DB values take priority)
     {
-        let mut stmt = conn.prepare(
-            "INSERT OR IGNORE INTO block_settings (block_name, enabled) VALUES (?1, ?2)"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare("INSERT OR IGNORE INTO block_settings (block_name, enabled) VALUES (?1, ?2)")
+            .unwrap();
         for &(name, default) in BLOCK_DEFAULTS {
             let _ = stmt.execute(rusqlite::params![name, default as i32]);
         }
@@ -133,10 +139,7 @@ pub fn load_block_settings(db_path: &str) -> BlockSettings {
     let mut map = HashMap::new();
     if let Ok(mut stmt) = conn.prepare("SELECT block_name, enabled FROM block_settings") {
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i32>(1)? != 0,
-            ))
+            Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)? != 0))
         });
         if let Ok(rows) = rows {
             for row in rows.flatten() {

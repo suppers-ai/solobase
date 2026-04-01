@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, Mutex};
+use wafer_core::clients::database::{Record, RecordList};
 use wafer_run::context::Context;
 use wafer_run::types::*;
-use wafer_core::clients::database::{Record, RecordList};
 
 /// In-memory database: collection name → Vec<Record>
 type Db = HashMap<String, Vec<Record>>;
@@ -33,7 +33,10 @@ impl MockContext {
     pub fn seed(&self, collection: &str, id: &str, data: HashMap<String, serde_json::Value>) {
         let mut db = self.db.lock().unwrap();
         let records = db.entry(collection.to_string()).or_default();
-        records.push(Record { id: id.to_string(), data });
+        records.push(Record {
+            id: id.to_string(),
+            data,
+        });
     }
 
     fn next_id(&self) -> String {
@@ -51,18 +54,27 @@ impl MockContext {
             "database.delete" => self.db_delete(data),
             "database.count" => self.db_count(data),
             "database.sum" => self.db_sum(data),
-            _ => Err(WaferError::new("not_implemented", format!("unhandled db op: {kind}"))),
+            "database.exec_raw" => self.db_exec_raw(data),
+            _ => Err(WaferError::new(
+                "not_implemented",
+                format!("unhandled db op: {kind}"),
+            )),
         }
     }
 
     fn handle_config_call(&self, _kind: &str, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         #[derive(serde::Deserialize)]
-        struct Req { key: String }
-        let req: Req = serde_json::from_slice(data)
-            .map_err(|e| WaferError::new("internal", e.to_string()))?;
+        struct Req {
+            key: String,
+        }
+        let req: Req =
+            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
         match self.config.get(&req.key) {
             Some(v) => Ok(serde_json::to_vec(&serde_json::json!({"value": v})).unwrap()),
-            None => Err(WaferError::new("not_found", format!("config key '{}' not found", req.key))),
+            None => Err(WaferError::new(
+                "not_found",
+                format!("config key '{}' not found", req.key),
+            )),
         }
     }
 
@@ -70,12 +82,19 @@ impl MockContext {
 
     fn db_get(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         #[derive(serde::Deserialize)]
-        struct Req { collection: String, id: String }
-        let req: Req = serde_json::from_slice(data)
-            .map_err(|e| WaferError::new("internal", e.to_string()))?;
+        struct Req {
+            collection: String,
+            id: String,
+        }
+        let req: Req =
+            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
         let db = self.db.lock().unwrap();
-        let records = db.get(&req.collection).ok_or_else(|| WaferError::new("not_found", "not found"))?;
-        let record = records.iter().find(|r| r.id == req.id)
+        let records = db
+            .get(&req.collection)
+            .ok_or_else(|| WaferError::new("not_found", "not found"))?;
+        let record = records
+            .iter()
+            .find(|r| r.id == req.id)
             .ok_or_else(|| WaferError::new("not_found", "not found"))?;
         Ok(serde_json::to_vec(record).unwrap())
     }
@@ -93,21 +112,26 @@ impl MockContext {
             #[serde(default)]
             offset: i64,
         }
-        fn default_limit() -> i64 { 1000 }
+        fn default_limit() -> i64 {
+            1000
+        }
         #[derive(serde::Deserialize)]
-        struct SortDef { field: String, #[serde(default)] desc: bool }
+        struct SortDef {
+            field: String,
+            #[serde(default)]
+            desc: bool,
+        }
 
-        let req: Req = serde_json::from_slice(data)
-            .map_err(|e| WaferError::new("internal", e.to_string()))?;
+        let req: Req =
+            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
 
         let db = self.db.lock().unwrap();
         let empty = Vec::new();
         let records = db.get(&req.collection).unwrap_or(&empty);
 
-        let mut filtered: Vec<&Record> = records.iter()
-            .filter(|r| {
-                req.filters.iter().all(|f| matches_filter(r, f))
-            })
+        let mut filtered: Vec<&Record> = records
+            .iter()
+            .filter(|r| req.filters.iter().all(|f| matches_filter(r, f)))
             .collect();
 
         // Sort
@@ -116,20 +140,29 @@ impl MockContext {
                 let va = a.data.get(&s.field);
                 let vb = b.data.get(&s.field);
                 let cmp = compare_json_values(va, vb);
-                if s.desc { cmp.reverse() } else { cmp }
+                if s.desc {
+                    cmp.reverse()
+                } else {
+                    cmp
+                }
             });
         }
 
         let total_count = filtered.len() as i64;
         let offset = req.offset.max(0) as usize;
         let limit = req.limit.max(0) as usize;
-        let page_records: Vec<Record> = filtered.into_iter()
+        let page_records: Vec<Record> = filtered
+            .into_iter()
             .skip(offset)
             .take(limit)
             .cloned()
             .collect();
 
-        let page = if req.limit > 0 { req.offset / req.limit + 1 } else { 1 };
+        let page = if req.limit > 0 {
+            req.offset / req.limit + 1
+        } else {
+            1
+        };
         let result = RecordList {
             records: page_records,
             total_count,
@@ -141,9 +174,12 @@ impl MockContext {
 
     fn db_create(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         #[derive(serde::Deserialize)]
-        struct Req { collection: String, data: HashMap<String, serde_json::Value> }
-        let req: Req = serde_json::from_slice(data)
-            .map_err(|e| WaferError::new("internal", e.to_string()))?;
+        struct Req {
+            collection: String,
+            data: HashMap<String, serde_json::Value>,
+        }
+        let req: Req =
+            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
 
         let id = self.next_id();
         let record = Record { id, data: req.data };
@@ -154,14 +190,21 @@ impl MockContext {
 
     fn db_update(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         #[derive(serde::Deserialize)]
-        struct Req { collection: String, id: String, data: HashMap<String, serde_json::Value> }
-        let req: Req = serde_json::from_slice(data)
-            .map_err(|e| WaferError::new("internal", e.to_string()))?;
+        struct Req {
+            collection: String,
+            id: String,
+            data: HashMap<String, serde_json::Value>,
+        }
+        let req: Req =
+            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
 
         let mut db = self.db.lock().unwrap();
-        let records = db.get_mut(&req.collection)
+        let records = db
+            .get_mut(&req.collection)
             .ok_or_else(|| WaferError::new("not_found", "not found"))?;
-        let record = records.iter_mut().find(|r| r.id == req.id)
+        let record = records
+            .iter_mut()
+            .find(|r| r.id == req.id)
             .ok_or_else(|| WaferError::new("not_found", "not found"))?;
         for (k, v) in req.data {
             record.data.insert(k, v);
@@ -171,14 +214,20 @@ impl MockContext {
 
     fn db_delete(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         #[derive(serde::Deserialize)]
-        struct Req { collection: String, id: String }
-        let req: Req = serde_json::from_slice(data)
-            .map_err(|e| WaferError::new("internal", e.to_string()))?;
+        struct Req {
+            collection: String,
+            id: String,
+        }
+        let req: Req =
+            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
 
         let mut db = self.db.lock().unwrap();
-        let records = db.get_mut(&req.collection)
+        let records = db
+            .get_mut(&req.collection)
             .ok_or_else(|| WaferError::new("not_found", "not found"))?;
-        let idx = records.iter().position(|r| r.id == req.id)
+        let idx = records
+            .iter()
+            .position(|r| r.id == req.id)
             .ok_or_else(|| WaferError::new("not_found", "not found"))?;
         records.remove(idx);
         Ok(b"{}".to_vec())
@@ -186,15 +235,20 @@ impl MockContext {
 
     fn db_count(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         #[derive(serde::Deserialize)]
-        struct Req { collection: String, #[serde(default)] filters: Vec<FilterDef> }
+        struct Req {
+            collection: String,
+            #[serde(default)]
+            filters: Vec<FilterDef>,
+        }
 
-        let req: Req = serde_json::from_slice(data)
-            .map_err(|e| WaferError::new("internal", e.to_string()))?;
+        let req: Req =
+            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
 
         let db = self.db.lock().unwrap();
         let empty = Vec::new();
         let records = db.get(&req.collection).unwrap_or(&empty);
-        let count = records.iter()
+        let count = records
+            .iter()
             .filter(|r| req.filters.iter().all(|f| matches_filter(r, f)))
             .count() as i64;
         Ok(serde_json::to_vec(&serde_json::json!({"count": count})).unwrap())
@@ -209,17 +263,161 @@ impl MockContext {
             filters: Vec<FilterDef>,
         }
 
-        let req: Req = serde_json::from_slice(data)
-            .map_err(|e| WaferError::new("internal", e.to_string()))?;
+        let req: Req =
+            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
 
         let db = self.db.lock().unwrap();
         let empty = Vec::new();
         let records = db.get(&req.collection).unwrap_or(&empty);
-        let sum: f64 = records.iter()
+        let sum: f64 = records
+            .iter()
             .filter(|r| req.filters.iter().all(|f| matches_filter(r, f)))
             .filter_map(|r| r.data.get(&req.field).and_then(|v| v.as_f64()))
             .sum();
         Ok(serde_json::to_vec(&serde_json::json!({"sum": sum})).unwrap())
+    }
+
+    /// Minimal exec_raw support for atomic UPDATE ... WHERE id = ? AND status = ? patterns.
+    fn db_exec_raw(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
+        #[derive(serde::Deserialize)]
+        struct Req {
+            query: String,
+            #[serde(default)]
+            args: Vec<serde_json::Value>,
+        }
+        let req: Req =
+            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
+
+        let query_upper = req.query.to_uppercase();
+
+        // Match: UPDATE <table> SET ... WHERE id = ?N AND status IN (...)
+        // or: UPDATE <table> SET ... WHERE id = ?N AND status = ?M
+        if !query_upper.starts_with("UPDATE ") {
+            return Ok(serde_json::to_vec(&serde_json::json!({"rows_affected": 0})).unwrap());
+        }
+
+        // Extract table name (word after UPDATE)
+        let table = req
+            .query
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or("")
+            .to_string();
+
+        // Find the id argument: look for "WHERE id = ?N" or "id = ?N"
+        // Also look for status condition
+        let mut target_id = String::new();
+        let mut required_status: Vec<String> = Vec::new();
+        let mut set_fields: HashMap<String, serde_json::Value> = HashMap::new();
+
+        // Parse SET clause fields: field = ?N or field = 'literal'
+        if let Some(set_start) = req.query.find(" SET ").or_else(|| req.query.find(" set ")) {
+            let after_set = &req.query[set_start + 5..];
+            let where_pos = after_set
+                .to_uppercase()
+                .find(" WHERE ")
+                .unwrap_or(after_set.len());
+            let set_clause = &after_set[..where_pos];
+            for assignment in set_clause.split(',') {
+                let parts: Vec<&str> = assignment.splitn(2, '=').collect();
+                if parts.len() == 2 {
+                    let field = parts[0].trim().to_string();
+                    let val_str = parts[1].trim();
+                    if let Some(param) = val_str.strip_prefix('?') {
+                        if let Ok(idx) = param.parse::<usize>() {
+                            if let Some(v) = req.args.get(idx - 1) {
+                                set_fields.insert(field, v.clone());
+                            }
+                        }
+                    } else if val_str.starts_with('\'') && val_str.ends_with('\'') {
+                        set_fields.insert(
+                            field,
+                            serde_json::Value::String(val_str[1..val_str.len() - 1].to_string()),
+                        );
+                    }
+                }
+            }
+        }
+
+        // Parse WHERE clause for id and status conditions
+        if let Some(where_start) = req.query.to_uppercase().find(" WHERE ") {
+            let where_clause = &req.query[where_start + 7..];
+            for condition in where_clause
+                .split(" AND ")
+                .chain(where_clause.split(" and "))
+            {
+                let cond = condition.trim();
+                if cond.to_uppercase().starts_with("ID =") || cond.to_uppercase().starts_with("ID=")
+                {
+                    let val = cond.splitn(2, '=').nth(1).unwrap_or("").trim();
+                    if let Some(param) = val.strip_prefix('?') {
+                        if let Ok(idx) = param.parse::<usize>() {
+                            if let Some(v) = req.args.get(idx - 1) {
+                                target_id = v.as_str().unwrap_or("").to_string();
+                            }
+                        }
+                    }
+                }
+                if cond.to_uppercase().contains("STATUS IN")
+                    || cond.to_uppercase().contains("STATUS =")
+                {
+                    // Extract status values from IN clause or = clause
+                    if let Some(in_start) = cond.find('(') {
+                        let in_end = cond.find(')').unwrap_or(cond.len());
+                        let statuses = &cond[in_start + 1..in_end];
+                        for s in statuses.split(',') {
+                            let s = s.trim().trim_matches('\'');
+                            if !s.is_empty() {
+                                required_status.push(s.to_string());
+                            }
+                        }
+                    } else if cond.to_uppercase().contains("STATUS =") {
+                        let val = cond.rsplit('=').next().unwrap_or("").trim();
+                        if let Some(param) = val.strip_prefix('?') {
+                            if let Ok(idx) = param.parse::<usize>() {
+                                if let Some(v) = req.args.get(idx - 1) {
+                                    required_status.push(v.as_str().unwrap_or("").to_string());
+                                }
+                            }
+                        } else {
+                            let s = val.trim_matches('\'');
+                            if !s.is_empty() {
+                                required_status.push(s.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut db = self.db.lock().unwrap();
+        let records = match db.get_mut(&table) {
+            Some(r) => r,
+            None => {
+                return Ok(serde_json::to_vec(&serde_json::json!({"rows_affected": 0})).unwrap())
+            }
+        };
+
+        let mut rows_affected = 0i64;
+        for record in records.iter_mut() {
+            let id_matches = target_id.is_empty() || record.id == target_id;
+            let status_matches = required_status.is_empty() || {
+                let current = record
+                    .data
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                required_status.iter().any(|s| s == current)
+            };
+            if id_matches && status_matches {
+                for (k, v) in &set_fields {
+                    record.data.insert(k.clone(), v.clone());
+                }
+                rows_affected += 1;
+            }
+        }
+
+        Ok(serde_json::to_vec(&serde_json::json!({"rows_affected": rows_affected})).unwrap())
     }
 }
 
@@ -251,9 +449,15 @@ fn matches_filter(record: &Record, filter: &FilterDef) -> bool {
             }
         }
         "gt" => compare_values(val, &filter.value) == std::cmp::Ordering::Greater,
-        "gte" => matches!(compare_values(val, &filter.value), std::cmp::Ordering::Greater | std::cmp::Ordering::Equal),
+        "gte" => matches!(
+            compare_values(val, &filter.value),
+            std::cmp::Ordering::Greater | std::cmp::Ordering::Equal
+        ),
         "lt" => compare_values(val, &filter.value) == std::cmp::Ordering::Less,
-        "lte" => matches!(compare_values(val, &filter.value), std::cmp::Ordering::Less | std::cmp::Ordering::Equal),
+        "lte" => matches!(
+            compare_values(val, &filter.value),
+            std::cmp::Ordering::Less | std::cmp::Ordering::Equal
+        ),
         _ => true,
     }
 }
@@ -265,7 +469,10 @@ fn compare_values(a: Option<&serde_json::Value>, b: &serde_json::Value) -> std::
     }
 }
 
-fn compare_json_values(a: Option<&serde_json::Value>, b: Option<&serde_json::Value>) -> std::cmp::Ordering {
+fn compare_json_values(
+    a: Option<&serde_json::Value>,
+    b: Option<&serde_json::Value>,
+) -> std::cmp::Ordering {
     match (a, b) {
         (Some(a), Some(b)) => {
             if let (Some(a), Some(b)) = (a.as_str(), b.as_str()) {
@@ -292,13 +499,19 @@ impl Context for MockContext {
         let result = match block_name {
             "wafer-run/database" => self.handle_db_call(&kind, &data),
             "wafer-run/config" => self.handle_config_call(&kind, &data),
-            _ => Err(WaferError::new("not_found", format!("block '{}' not found", block_name))),
+            _ => Err(WaferError::new(
+                "not_found",
+                format!("block '{}' not found", block_name),
+            )),
         };
 
         match result {
             Ok(response_data) => Result_ {
                 action: Action::Respond,
-                response: Some(Response { data: response_data, meta: Vec::new() }),
+                response: Some(Response {
+                    data: response_data,
+                    meta: Vec::new(),
+                }),
                 error: None,
                 message: None,
             },
@@ -311,7 +524,9 @@ impl Context for MockContext {
         }
     }
 
-    fn is_cancelled(&self) -> bool { false }
+    fn is_cancelled(&self) -> bool {
+        false
+    }
     fn config_get(&self, key: &str) -> Option<&str> {
         self.config.get(key).map(|s| s.as_str())
     }
@@ -367,7 +582,9 @@ pub fn admin_create_msg(path: &str, body: serde_json::Value) -> Message {
 
 /// Extract the JSON response body from a Result_.
 pub fn response_json(result: &Result_) -> serde_json::Value {
-    result.response.as_ref()
+    result
+        .response
+        .as_ref()
         .map(|r| serde_json::from_slice(&r.data).unwrap_or(serde_json::Value::Null))
         .unwrap_or(serde_json::Value::Null)
 }
@@ -375,6 +592,5 @@ pub fn response_json(result: &Result_) -> serde_json::Value {
 /// Check if a result is an error with a specific code.
 pub fn is_error(result: &Result_, code: &str) -> bool {
     let code: ErrorCode = code.into();
-    result.action == Action::Error
-        && result.error.as_ref().map_or(false, |e| e.code == code)
+    result.action == Action::Error && result.error.as_ref().map_or(false, |e| e.code == code)
 }

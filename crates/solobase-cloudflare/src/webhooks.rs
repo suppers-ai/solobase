@@ -50,11 +50,38 @@ async fn handle_products_webhook(req: &Request, env: &Env, body: &[u8]) -> Resul
     struct WebhookPayload {
         event: String,
         #[serde(default)]
+        timestamp: String,
+        #[serde(default)]
         data: serde_json::Value,
     }
 
     let payload: WebhookPayload = serde_json::from_slice(body)
         .map_err(|e| Error::RustError(format!("invalid webhook body: {e}")))?;
+
+    // Replay protection: require a valid timestamp within 5 minutes
+    if payload.timestamp.is_empty() {
+        return json_response(
+            &serde_json::json!({"error": "bad_request", "message": "webhook payload missing timestamp"}),
+            400,
+        );
+    }
+    match chrono::DateTime::parse_from_rfc3339(&payload.timestamp) {
+        Ok(ts) => {
+            let age = chrono::Utc::now() - ts.with_timezone(&chrono::Utc);
+            if age.num_seconds().abs() > 300 {
+                return json_response(
+                    &serde_json::json!({"error": "expired", "message": "webhook timestamp too old"}),
+                    400,
+                );
+            }
+        }
+        Err(_) => {
+            return json_response(
+                &serde_json::json!({"error": "bad_request", "message": "invalid webhook timestamp"}),
+                400,
+            );
+        }
+    }
 
     let db = env.d1("DB")
         .map_err(|e| Error::RustError(format!("D1 binding: {e}")))?;

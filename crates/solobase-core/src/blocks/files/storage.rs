@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use wafer_core::clients::storage as store;
+use wafer_run::context::Context;
+use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 const OBJECTS_META_COLLECTION: &str = "storage_objects";
 const BUCKETS_COLLECTION: &str = "storage_buckets";
@@ -29,7 +29,9 @@ pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ("delete", _) if path.starts_with("/storage/buckets/") && path.contains("/objects/") => {
             handle_delete_object(ctx, msg).await
         }
-        ("delete", _) if path.starts_with("/storage/buckets/") => handle_delete_bucket(ctx, msg).await,
+        ("delete", _) if path.starts_with("/storage/buckets/") => {
+            handle_delete_bucket(ctx, msg).await
+        }
         ("retrieve", "/storage/search") => handle_search(ctx, msg).await,
         ("retrieve", "/storage/recent") => handle_recent(ctx, msg).await,
         _ => err_not_found(msg, "not found"),
@@ -48,10 +50,15 @@ pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 fn extract_bucket_name(path: &str) -> &str {
-    let rest = path.strip_prefix("/storage/buckets/")
+    let rest = path
+        .strip_prefix("/storage/buckets/")
         .or_else(|| path.strip_prefix("/admin/storage/buckets/"))
         .unwrap_or("");
-    if let Some(idx) = rest.find('/') { &rest[..idx] } else { rest }
+    if let Some(idx) = rest.find('/') {
+        &rest[..idx]
+    } else {
+        rest
+    }
 }
 
 fn extract_object_key(path: &str) -> &str {
@@ -62,35 +69,94 @@ fn extract_object_key(path: &str) -> &str {
     }
 }
 
-/// Validate a storage key for path traversal attacks.
-/// Rejects keys containing `..`, absolute paths, or null bytes.
+/// Check if the current user owns the given bucket (or is admin).
+/// Returns true if access is denied.
+async fn is_bucket_access_denied(ctx: &dyn Context, msg: &Message, bucket: &str) -> bool {
+    let is_admin = msg
+        .get_meta("auth.user_roles")
+        .split(',')
+        .any(|r| r.trim() == "admin");
+    if is_admin {
+        return false;
+    }
+
+    let user_id = msg.user_id();
+    let opts = ListOptions {
+        filters: vec![
+            Filter {
+                field: "name".to_string(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(bucket.to_string()),
+            },
+            Filter {
+                field: "created_by".to_string(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(user_id.to_string()),
+            },
+        ],
+        limit: 1,
+        ..Default::default()
+    };
+    match db::list(ctx, BUCKETS_COLLECTION, &opts).await {
+        Ok(result) if !result.records.is_empty() => false,
+        _ => true, // denied
+    }
+}
+
 /// Validate a storage key for path traversal attacks.
 /// Rejects keys containing `..`, absolute paths, or null bytes.
 fn is_valid_storage_key(key: &str) -> bool {
-    !key.is_empty()
-        && !key.contains("..")
-        && !key.starts_with('/')
-        && !key.contains('\0')
+    !key.is_empty() && !key.contains("..") && !key.starts_with('/') && !key.contains('\0')
 }
 
 /// Validate a bucket name. Must be non-empty, no path traversal, no slashes.
 fn is_valid_bucket_name(name: &str) -> bool {
-    !name.is_empty()
-        && !name.contains("..")
-        && !name.contains('/')
-        && !name.contains('\0')
+    !name.is_empty() && !name.contains("..") && !name.contains('/') && !name.contains('\0')
 }
 
 async fn handle_list_buckets(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    match store::list_folders(ctx).await {
-        Ok(folders) => json_respond(msg, &serde_json::json!({"buckets": folders})),
-        Err(e) => err_internal(msg, &format!("Storage error: {e}")),
+    // Only show buckets owned by the current user (or all for admin)
+    let user_id = msg.user_id();
+    let is_admin = msg
+        .get_meta("auth.user_roles")
+        .split(',')
+        .any(|r| r.trim() == "admin");
+    if is_admin {
+        match store::list_folders(ctx).await {
+            Ok(folders) => json_respond(msg, &serde_json::json!({"buckets": folders})),
+            Err(e) => err_internal(msg, &format!("Storage error: {e}")),
+        }
+    } else {
+        let opts = ListOptions {
+            filters: vec![Filter {
+                field: "created_by".to_string(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(user_id.to_string()),
+            }],
+            limit: 1000,
+            ..Default::default()
+        };
+        match db::list(ctx, BUCKETS_COLLECTION, &opts).await {
+            Ok(result) => {
+                let names: Vec<&str> = result
+                    .records
+                    .iter()
+                    .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
+                    .collect();
+                json_respond(msg, &serde_json::json!({"buckets": names}))
+            }
+            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        }
     }
 }
 
 async fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
-    struct Req { name: String, #[serde(default)] public: bool }
+    struct Req {
+        name: String,
+        #[serde(default)]
+        public: bool,
+    }
     let body: Req = match msg.decode() {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
@@ -107,14 +173,26 @@ async fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Ok(()) => {
             // Track in DB
             let mut data = HashMap::new();
-            data.insert("name".to_string(), serde_json::Value::String(body.name.clone()));
+            data.insert(
+                "name".to_string(),
+                serde_json::Value::String(body.name.clone()),
+            );
             data.insert("public".to_string(), serde_json::Value::Bool(body.public));
-            data.insert("created_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
-            data.insert("created_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+            data.insert(
+                "created_by".to_string(),
+                serde_json::Value::String(msg.user_id().to_string()),
+            );
+            data.insert(
+                "created_at".to_string(),
+                serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+            );
             if let Err(e) = db::create(ctx, BUCKETS_COLLECTION, data).await {
                 tracing::warn!("Failed to track bucket creation in database: {e}");
             }
-            json_respond(msg, &serde_json::json!({"name": body.name, "created": true}))
+            json_respond(
+                msg,
+                &serde_json::json!({"name": body.name, "created": true}),
+            )
         }
         Err(e) => err_internal(msg, &format!("Failed to create bucket: {e}")),
     }
@@ -123,10 +201,37 @@ async fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 async fn handle_delete_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let bucket = extract_bucket_name(path);
-    if bucket.is_empty() { return err_bad_request(msg, "Missing bucket name"); }
+    if bucket.is_empty() {
+        return err_bad_request(msg, "Missing bucket name");
+    }
+    if !is_valid_bucket_name(bucket) {
+        return err_bad_request(msg, "Invalid bucket name");
+    }
+    if is_bucket_access_denied(ctx, msg, bucket).await {
+        return err_forbidden(msg, "Access denied to this bucket");
+    }
 
     match store::delete_folder(ctx, bucket).await {
-        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Ok(()) => {
+            // Clean up DB metadata for the bucket and its objects
+            db::delete_by_field(
+                ctx,
+                BUCKETS_COLLECTION,
+                "name",
+                serde_json::Value::String(bucket.to_string()),
+            )
+            .await
+            .ok();
+            db::delete_by_field(
+                ctx,
+                OBJECTS_META_COLLECTION,
+                "bucket",
+                serde_json::Value::String(bucket.to_string()),
+            )
+            .await
+            .ok();
+            json_respond(msg, &serde_json::json!({"deleted": true}))
+        }
         Err(e) => err_internal(msg, &format!("Failed to delete bucket: {e}")),
     }
 }
@@ -134,7 +239,15 @@ async fn handle_delete_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 async fn handle_list_objects(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let bucket = extract_bucket_name(path);
-    if bucket.is_empty() { return err_bad_request(msg, "Missing bucket name"); }
+    if bucket.is_empty() {
+        return err_bad_request(msg, "Missing bucket name");
+    }
+    if !is_valid_bucket_name(bucket) {
+        return err_bad_request(msg, "Invalid bucket name");
+    }
+    if is_bucket_access_denied(ctx, msg, bucket).await {
+        return err_forbidden(msg, "Access denied to this bucket");
+    }
 
     let prefix = msg.query("prefix").to_string();
     let (_, page_size, offset) = msg.pagination_params(50);
@@ -161,13 +274,28 @@ async fn handle_get_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if !is_valid_storage_key(key) {
         return err_bad_request(msg, "Invalid object key");
     }
+    if is_bucket_access_denied(ctx, msg, bucket).await {
+        return err_forbidden(msg, "Access denied to this bucket");
+    }
 
     // Track view in DB
     let mut data = HashMap::new();
-    data.insert("bucket".to_string(), serde_json::Value::String(bucket.to_string()));
-    data.insert("key".to_string(), serde_json::Value::String(key.to_string()));
-    data.insert("user_id".to_string(), serde_json::Value::String(msg.user_id().to_string()));
-    data.insert("viewed_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+    data.insert(
+        "bucket".to_string(),
+        serde_json::Value::String(bucket.to_string()),
+    );
+    data.insert(
+        "key".to_string(),
+        serde_json::Value::String(key.to_string()),
+    );
+    data.insert(
+        "user_id".to_string(),
+        serde_json::Value::String(msg.user_id().to_string()),
+    );
+    data.insert(
+        "viewed_at".to_string(),
+        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+    );
     if let Err(e) = db::create(ctx, "storage_views", data).await {
         tracing::warn!("Failed to track storage object view: {e}");
     }
@@ -182,7 +310,9 @@ async fn handle_get_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 async fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let bucket = extract_bucket_name(path);
-    if bucket.is_empty() { return err_bad_request(msg, "Missing bucket name"); }
+    if bucket.is_empty() {
+        return err_bad_request(msg, "Missing bucket name");
+    }
 
     let key = msg.query("key").to_string();
     if key.is_empty() {
@@ -191,10 +321,17 @@ async fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if !is_valid_storage_key(&key) {
         return err_bad_request(msg, "Invalid object key");
     }
+    if is_bucket_access_denied(ctx, msg, bucket).await {
+        return err_forbidden(msg, "Access denied to this bucket");
+    }
 
     let content_type = {
         let ct = msg.get_meta("req.content_type");
-        if ct.is_empty() { "application/octet-stream" } else { ct }
+        if ct.is_empty() {
+            "application/octet-stream"
+        } else {
+            ct
+        }
     };
 
     // Check quota
@@ -206,16 +343,31 @@ async fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Ok(()) => {
             // Track metadata
             let mut data = HashMap::new();
-            data.insert("bucket".to_string(), serde_json::Value::String(bucket.to_string()));
+            data.insert(
+                "bucket".to_string(),
+                serde_json::Value::String(bucket.to_string()),
+            );
             data.insert("key".to_string(), serde_json::Value::String(key.clone()));
             data.insert("size".to_string(), serde_json::json!(msg.body().len()));
-            data.insert("content_type".to_string(), serde_json::Value::String(content_type.to_string()));
-            data.insert("uploaded_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
-            data.insert("uploaded_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+            data.insert(
+                "content_type".to_string(),
+                serde_json::Value::String(content_type.to_string()),
+            );
+            data.insert(
+                "uploaded_by".to_string(),
+                serde_json::Value::String(msg.user_id().to_string()),
+            );
+            data.insert(
+                "uploaded_at".to_string(),
+                serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+            );
             if let Err(e) = db::create(ctx, OBJECTS_META_COLLECTION, data).await {
                 tracing::warn!("Failed to store object metadata: {e}");
             }
-            json_respond(msg, &serde_json::json!({"bucket": bucket, "key": key, "uploaded": true}))
+            json_respond(
+                msg,
+                &serde_json::json!({"bucket": bucket, "key": key, "uploaded": true}),
+            )
         }
         Err(e) => err_internal(msg, &format!("Upload failed: {e}")),
     }
@@ -231,14 +383,31 @@ async fn handle_delete_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if !is_valid_storage_key(key) {
         return err_bad_request(msg, "Invalid object key");
     }
+    if is_bucket_access_denied(ctx, msg, bucket).await {
+        return err_forbidden(msg, "Access denied to this bucket");
+    }
 
     match store::delete(ctx, bucket, key).await {
         Ok(()) => {
             // Clean up metadata
-            db::delete_by_filters(ctx, OBJECTS_META_COLLECTION, vec![
-                Filter { field: "bucket".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(bucket.to_string()) },
-                Filter { field: "key".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(key.to_string()) },
-            ]).await.ok();
+            db::delete_by_filters(
+                ctx,
+                OBJECTS_META_COLLECTION,
+                vec![
+                    Filter {
+                        field: "bucket".to_string(),
+                        operator: FilterOp::Equal,
+                        value: serde_json::Value::String(bucket.to_string()),
+                    },
+                    Filter {
+                        field: "key".to_string(),
+                        operator: FilterOp::Equal,
+                        value: serde_json::Value::String(key.to_string()),
+                    },
+                ],
+            )
+            .await
+            .ok();
             json_respond(msg, &serde_json::json!({"deleted": true}))
         }
         Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Object not found"),
@@ -248,16 +417,29 @@ async fn handle_delete_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_search(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let query = msg.query("q").to_string();
-    if query.is_empty() { return err_bad_request(msg, "Missing search query"); }
+    if query.is_empty() {
+        return err_bad_request(msg, "Missing search query");
+    }
 
     let (_, page_size, offset) = msg.pagination_params(20);
     let opts = ListOptions {
-        filters: vec![Filter {
-            field: "key".to_string(),
-            operator: FilterOp::Like,
-            value: serde_json::Value::String(format!("%{}%", query)),
+        filters: vec![
+            Filter {
+                field: "key".to_string(),
+                operator: FilterOp::Like,
+                value: serde_json::Value::String(format!("%{}%", query)),
+            },
+            // Only show the current user's files
+            Filter {
+                field: "uploaded_by".to_string(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(msg.user_id().to_string()),
+            },
+        ],
+        sort: vec![SortField {
+            field: "uploaded_at".to_string(),
+            desc: true,
         }],
-        sort: vec![SortField { field: "uploaded_at".to_string(), desc: true }],
         limit: page_size as i64,
         offset: offset as i64,
     };
@@ -277,7 +459,10 @@ async fn handle_recent(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             operator: FilterOp::Equal,
             value: serde_json::Value::String(user_id),
         }],
-        sort: vec![SortField { field: "viewed_at".to_string(), desc: true }],
+        sort: vec![SortField {
+            field: "viewed_at".to_string(),
+            desc: true,
+        }],
         limit: 20,
         ..Default::default()
     };
@@ -294,17 +479,35 @@ mod tests {
 
     #[test]
     fn test_extract_bucket_name() {
-        assert_eq!(extract_bucket_name("/storage/buckets/my-bucket"), "my-bucket");
-        assert_eq!(extract_bucket_name("/storage/buckets/my-bucket/objects"), "my-bucket");
-        assert_eq!(extract_bucket_name("/storage/buckets/my-bucket/objects/file.txt"), "my-bucket");
-        assert_eq!(extract_bucket_name("/admin/storage/buckets/admin-bucket"), "admin-bucket");
+        assert_eq!(
+            extract_bucket_name("/storage/buckets/my-bucket"),
+            "my-bucket"
+        );
+        assert_eq!(
+            extract_bucket_name("/storage/buckets/my-bucket/objects"),
+            "my-bucket"
+        );
+        assert_eq!(
+            extract_bucket_name("/storage/buckets/my-bucket/objects/file.txt"),
+            "my-bucket"
+        );
+        assert_eq!(
+            extract_bucket_name("/admin/storage/buckets/admin-bucket"),
+            "admin-bucket"
+        );
         assert_eq!(extract_bucket_name("/other/path"), "");
     }
 
     #[test]
     fn test_extract_object_key() {
-        assert_eq!(extract_object_key("/storage/buckets/b/objects/file.txt"), "file.txt");
-        assert_eq!(extract_object_key("/storage/buckets/b/objects/dir/file.txt"), "dir/file.txt");
+        assert_eq!(
+            extract_object_key("/storage/buckets/b/objects/file.txt"),
+            "file.txt"
+        );
+        assert_eq!(
+            extract_object_key("/storage/buckets/b/objects/dir/file.txt"),
+            "dir/file.txt"
+        );
         assert_eq!(extract_object_key("/storage/buckets/b"), "");
         assert_eq!(extract_object_key("/other/path"), "");
     }
@@ -343,13 +546,20 @@ mod tests {
 }
 
 async fn handle_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let total_objects = db::count(ctx, OBJECTS_META_COLLECTION, &[]).await.unwrap_or(0);
-    let total_size = db::sum(ctx, OBJECTS_META_COLLECTION, "size", &[]).await.unwrap_or(0.0);
+    let total_objects = db::count(ctx, OBJECTS_META_COLLECTION, &[])
+        .await
+        .unwrap_or(0);
+    let total_size = db::sum(ctx, OBJECTS_META_COLLECTION, "size", &[])
+        .await
+        .unwrap_or(0.0);
     let bucket_count = store::list_folders(ctx).await.map(|f| f.len()).unwrap_or(0);
 
-    json_respond(msg, &serde_json::json!({
-        "total_objects": total_objects,
-        "total_size_bytes": total_size as i64,
-        "bucket_count": bucket_count
-    }))
+    json_respond(
+        msg,
+        &serde_json::json!({
+            "total_objects": total_objects,
+            "total_size_bytes": total_size as i64,
+            "bucket_count": bucket_count
+        }),
+    )
 }

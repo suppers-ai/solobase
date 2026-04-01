@@ -73,26 +73,34 @@ impl ErrorCode {
 
     pub fn status_code(&self) -> u16 {
         match self {
-            Self::InvalidCredentials | Self::NotAuthenticated |
-            Self::InvalidToken | Self::TokenExpired => 401,
+            Self::InvalidCredentials
+            | Self::NotAuthenticated
+            | Self::InvalidToken
+            | Self::TokenExpired => 401,
 
-            Self::Forbidden | Self::AdminRequired | Self::AccountDisabled |
-            Self::EmailNotVerified => 403,
+            Self::Forbidden
+            | Self::AdminRequired
+            | Self::AccountDisabled
+            | Self::EmailNotVerified => 403,
 
             Self::NotFound => 404,
 
             Self::EmailAlreadyExists | Self::Conflict => 409,
 
-            Self::PasswordTooShort | Self::PasswordTooLong |
-            Self::InvalidEmail | Self::InvalidInput |
-            Self::InvalidPurchaseStatus => 400,
+            Self::PasswordTooShort
+            | Self::PasswordTooLong
+            | Self::InvalidEmail
+            | Self::InvalidInput
+            | Self::InvalidPurchaseStatus => 400,
 
             Self::QuotaExceeded | Self::FileTooLarge => 413,
             Self::RateLimitExceeded => 429,
 
-            Self::PaymentNotConfigured | Self::ConfigurationError |
-            Self::DatabaseError | Self::InternalError |
-            Self::RefundFailed => 500,
+            Self::PaymentNotConfigured
+            | Self::ConfigurationError
+            | Self::DatabaseError
+            | Self::InternalError
+            | Self::RefundFailed => 500,
         }
     }
 }
@@ -148,8 +156,14 @@ mod tests {
 
     #[test]
     fn test_error_code_as_str() {
-        assert_eq!(ErrorCode::InvalidCredentials.as_str(), "invalid_credentials");
-        assert_eq!(ErrorCode::EmailAlreadyExists.as_str(), "email_already_exists");
+        assert_eq!(
+            ErrorCode::InvalidCredentials.as_str(),
+            "invalid_credentials"
+        );
+        assert_eq!(
+            ErrorCode::EmailAlreadyExists.as_str(),
+            "email_already_exists"
+        );
         assert_eq!(ErrorCode::RateLimitExceeded.as_str(), "rate_limit_exceeded");
         assert_eq!(ErrorCode::QuotaExceeded.as_str(), "quota_exceeded");
     }

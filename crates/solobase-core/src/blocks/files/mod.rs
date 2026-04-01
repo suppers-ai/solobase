@@ -1,14 +1,14 @@
-mod storage;
 mod cloud;
+pub(crate) mod models;
 mod quota;
 mod share;
-pub(crate) mod models;
+mod storage;
 
+use super::rate_limit::{check_rate_limit, RateLimit, UserRateLimiter};
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::types::*;
 use wafer_run::helpers::*;
-use super::rate_limit::{UserRateLimiter, RateLimit, check_rate_limit};
+use wafer_run::types::*;
 
 pub struct FilesBlock {
     limiter: UserRateLimiter,
@@ -22,7 +22,9 @@ impl Default for FilesBlock {
 
 impl FilesBlock {
     pub fn new() -> Self {
-        Self { limiter: UserRateLimiter::new() }
+        Self {
+            limiter: UserRateLimiter::new(),
+        }
     }
 }
 
@@ -98,9 +100,14 @@ impl Block for FilesBlock {
             return share::handle_direct_access(ctx, msg).await;
         }
 
-        // Per-user rate limiting for authenticated endpoints
+        // Require authentication for all non-public endpoints
         let user_id = msg.user_id().to_string();
-        if !user_id.is_empty() {
+        if user_id.is_empty() {
+            return wafer_run::helpers::err_unauthorized(msg, "Authentication required");
+        }
+
+        // Per-user rate limiting
+        {
             let action = msg.action().to_string();
             let (default, category) = if action == "create" {
                 (RateLimit::UPLOAD, "upload")
@@ -109,7 +116,9 @@ impl Block for FilesBlock {
             } else {
                 (RateLimit::API_WRITE, "api_write")
             };
-            if let Some(r) = check_rate_limit(&self.limiter, ctx, msg, &user_id, category, default).await {
+            if let Some(r) =
+                check_rate_limit(&self.limiter, ctx, msg, &user_id, category, default).await
+            {
                 return r;
             }
         }
@@ -132,7 +141,11 @@ impl Block for FilesBlock {
         err_not_found(msg, "not found")
     }
 
-    async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(
+        &self,
+        _ctx: &dyn Context,
+        _event: LifecycleEvent,
+    ) -> std::result::Result<(), WaferError> {
         Ok(())
     }
 }

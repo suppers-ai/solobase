@@ -1,10 +1,10 @@
+use crate::blocks::helpers::{self, json_map, RecordExt};
 use std::collections::HashMap;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use crate::blocks::helpers::{self, json_map, RecordExt};
+use wafer_run::context::Context;
+use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 const ROLES_COLLECTION: &str = "iam_roles";
 const PERMISSIONS_COLLECTION: &str = "iam_permissions";
@@ -18,23 +18,34 @@ pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         // Roles
         ("retrieve", "/admin/iam/roles") => handle_list_roles(ctx, msg).await,
         ("create", "/admin/iam/roles") => handle_create_role(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/iam/roles/") => handle_update_role(ctx, msg).await,
-        ("delete", _) if path.starts_with("/admin/iam/roles/") => handle_delete_role(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/iam/roles/") => {
+            handle_update_role(ctx, msg).await
+        }
+        ("delete", _) if path.starts_with("/admin/iam/roles/") => {
+            handle_delete_role(ctx, msg).await
+        }
         // Permissions
         ("retrieve", "/admin/iam/permissions") => handle_list_permissions(ctx, msg).await,
         ("create", "/admin/iam/permissions") => handle_create_permission(ctx, msg).await,
-        ("delete", _) if path.starts_with("/admin/iam/permissions/") => handle_delete_permission(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/iam/permissions/") => {
+            handle_delete_permission(ctx, msg).await
+        }
         // User-role assignments
         ("retrieve", "/admin/iam/user-roles") => handle_list_user_roles(ctx, msg).await,
         ("create", "/admin/iam/user-roles") => handle_assign_role(ctx, msg).await,
-        ("delete", _) if path.starts_with("/admin/iam/user-roles/") => handle_remove_role(ctx, msg).await,
+        ("delete", _) if path.starts_with("/admin/iam/user-roles/") => {
+            handle_remove_role(ctx, msg).await
+        }
         _ => err_not_found(msg, "not found"),
     }
 }
 
 async fn handle_list_roles(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let opts = ListOptions {
-        sort: vec![SortField { field: "name".to_string(), desc: false }],
+        sort: vec![SortField {
+            field: "name".to_string(),
+            desc: false,
+        }],
         limit: 1000,
         ..Default::default()
     };
@@ -46,7 +57,11 @@ async fn handle_list_roles(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
-    struct Req { name: String, description: Option<String>, permissions: Option<Vec<String>> }
+    struct Req {
+        name: String,
+        description: Option<String>,
+        permissions: Option<Vec<String>>,
+    }
     let body: Req = match msg.decode() {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
@@ -67,7 +82,34 @@ async fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 async fn handle_update_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/iam/roles/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg, "Missing role ID"); }
+    if id.is_empty() {
+        return err_bad_request(msg, "Missing role ID");
+    }
+
+    // Protect system roles from name changes (renaming "admin" would break auth)
+    if let Ok(existing) = db::get(ctx, ROLES_COLLECTION, id).await {
+        if existing.bool_field("is_system") {
+            let body_peek: HashMap<String, serde_json::Value> = match msg.decode() {
+                Ok(b) => b,
+                Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            };
+            if body_peek.contains_key("name") {
+                return err_forbidden(msg, "Cannot rename system roles");
+            }
+            // Re-encode for below (msg.decode consumes body)
+            let mut data = HashMap::new();
+            for key in &["description", "permissions"] {
+                if let Some(val) = body_peek.get(*key) {
+                    data.insert(key.to_string(), val.clone());
+                }
+            }
+            helpers::stamp_updated(&mut data);
+            return match db::update(ctx, ROLES_COLLECTION, id, data).await {
+                Ok(record) => json_respond(msg, &record),
+                Err(e) => err_internal(msg, &format!("Database error: {e}")),
+            };
+        }
+    }
 
     let body: HashMap<String, serde_json::Value> = match msg.decode() {
         Ok(b) => b,
@@ -90,7 +132,9 @@ async fn handle_update_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 async fn handle_delete_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/iam/roles/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg, "Missing role ID"); }
+    if id.is_empty() {
+        return err_bad_request(msg, "Missing role ID");
+    }
 
     // Check if system role
     if let Ok(role) = db::get(ctx, ROLES_COLLECTION, id).await {
@@ -107,7 +151,10 @@ async fn handle_delete_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 async fn handle_list_permissions(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let opts = ListOptions { limit: 1000, ..Default::default() };
+    let opts = ListOptions {
+        limit: 1000,
+        ..Default::default()
+    };
     match db::list(ctx, PERMISSIONS_COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
@@ -116,7 +163,11 @@ async fn handle_list_permissions(ctx: &dyn Context, msg: &mut Message) -> Result
 
 async fn handle_create_permission(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
-    struct Req { name: String, resource: String, actions: Vec<String> }
+    struct Req {
+        name: String,
+        resource: String,
+        actions: Vec<String>,
+    }
     let body: Req = match msg.decode() {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
@@ -136,7 +187,9 @@ async fn handle_create_permission(ctx: &dyn Context, msg: &mut Message) -> Resul
 async fn handle_delete_permission(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/iam/permissions/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg, "Missing permission ID"); }
+    if id.is_empty() {
+        return err_bad_request(msg, "Missing permission ID");
+    }
     match db::delete(ctx, PERMISSIONS_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Permission not found"),
@@ -154,7 +207,11 @@ async fn handle_list_user_roles(ctx: &dyn Context, msg: &mut Message) -> Result_
             value: serde_json::Value::String(user_id),
         });
     }
-    let opts = ListOptions { filters, limit: 1000, ..Default::default() };
+    let opts = ListOptions {
+        filters,
+        limit: 1000,
+        ..Default::default()
+    };
     match db::list(ctx, USER_ROLES_COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
@@ -163,17 +220,33 @@ async fn handle_list_user_roles(ctx: &dyn Context, msg: &mut Message) -> Result_
 
 async fn handle_assign_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
-    struct Req { user_id: String, role: String }
+    struct Req {
+        user_id: String,
+        role: String,
+    }
     let body: Req = match msg.decode() {
         Ok(b) => b,
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
     // Check if already assigned
-    let existing = db::list_all(ctx, USER_ROLES_COLLECTION, vec![
-        Filter { field: "user_id".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(body.user_id.clone()) },
-        Filter { field: "role".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(body.role.clone()) },
-    ]).await;
+    let existing = db::list_all(
+        ctx,
+        USER_ROLES_COLLECTION,
+        vec![
+            Filter {
+                field: "user_id".to_string(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(body.user_id.clone()),
+            },
+            Filter {
+                field: "role".to_string(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(body.role.clone()),
+            },
+        ],
+    )
+    .await;
     if let Ok(records) = existing {
         if !records.is_empty() {
             return err_conflict(msg, "Role already assigned to user");
@@ -195,20 +268,29 @@ async fn handle_assign_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 async fn handle_remove_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let path = msg.path();
     let id = path.strip_prefix("/admin/iam/user-roles/").unwrap_or("");
-    if id.is_empty() { return err_bad_request(msg, "Missing user-role ID"); }
+    if id.is_empty() {
+        return err_bad_request(msg, "Missing user-role ID");
+    }
     match db::delete(ctx, USER_ROLES_COLLECTION, id).await {
         Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "User-role assignment not found"),
+        Err(e) if e.code == ErrorCode::NotFound => {
+            err_not_found(msg, "User-role assignment not found")
+        }
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
 }
 
 pub async fn seed_defaults(ctx: &dyn Context) {
     let count = db::count(ctx, ROLES_COLLECTION, &[]).await.unwrap_or(0);
-    if count > 0 { return; }
+    if count > 0 {
+        return;
+    }
 
     let now = helpers::now_rfc3339();
-    for (name, desc) in &[("admin", "Full access to all resources"), ("user", "Standard user access")] {
+    for (name, desc) in &[
+        ("admin", "Full access to all resources"),
+        ("user", "Standard user access"),
+    ] {
         let data = json_map(serde_json::json!({
             "name": name,
             "description": desc,

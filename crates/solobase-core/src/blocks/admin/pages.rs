@@ -3,13 +3,13 @@
 //! Each page queries the database directly (same patterns as the JSON handlers)
 //! and renders HTML via maud.
 
-use maud::{html, Markup};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use crate::blocks::helpers::RecordExt;
 use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
+use maud::{html, Markup};
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+use wafer_run::context::Context;
+use wafer_run::types::*;
 
 /// Parse URL-encoded form body (htmx default) into a HashMap.
 fn parse_form_body(data: &[u8]) -> std::collections::HashMap<String, String> {
@@ -32,7 +32,7 @@ fn urlencoding_decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(&s[i+1..i+3], 16) {
+            if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
                 result.push(byte);
                 i += 3;
                 continue;
@@ -47,18 +47,53 @@ fn urlencoding_decode(s: &str) -> String {
 /// Admin nav items for the sidebar.
 fn admin_nav() -> Vec<NavItem> {
     vec![
-        NavItem { label: "Dashboard".into(), href: "/b/admin/".into(), icon: "layout-dashboard" },
-        NavItem { label: "Users".into(), href: "/b/admin/users".into(), icon: "users" },
-        NavItem { label: "Variables".into(), href: "/b/admin/variables".into(), icon: "settings" },
-        NavItem { label: "Logs".into(), href: "/b/admin/logs".into(), icon: "file-text" },
-        NavItem { label: "Blocks".into(), href: "/b/admin/blocks".into(), icon: "package" },
+        NavItem {
+            label: "Dashboard".into(),
+            href: "/b/admin/".into(),
+            icon: "layout-dashboard",
+        },
+        NavItem {
+            label: "Users".into(),
+            href: "/b/admin/users".into(),
+            icon: "users",
+        },
+        NavItem {
+            label: "Variables".into(),
+            href: "/b/admin/variables".into(),
+            icon: "settings",
+        },
+        NavItem {
+            label: "Logs".into(),
+            href: "/b/admin/logs".into(),
+            icon: "file-text",
+        },
+        NavItem {
+            label: "Blocks".into(),
+            href: "/b/admin/blocks".into(),
+            icon: "package",
+        },
     ]
 }
 
 /// Wrap content in the admin shell (sidebar + layout), or return fragment for htmx.
-fn admin_page(title: &str, config: &SiteConfig, path: &str, user: Option<&UserInfo>, content: Markup, msg: &mut Message) -> Result_ {
+fn admin_page(
+    title: &str,
+    config: &SiteConfig,
+    path: &str,
+    user: Option<&UserInfo>,
+    content: Markup,
+    msg: &mut Message,
+) -> Result_ {
     let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(title, config, &admin_nav(), user, path, content, is_fragment);
+    let markup = ui::layout::block_shell(
+        title,
+        config,
+        &admin_nav(),
+        user,
+        path,
+        content,
+        is_fragment,
+    );
     ui::html_response(msg, markup)
 }
 
@@ -73,34 +108,78 @@ pub async fn dashboard(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
     // Total users
-    let user_count = db::list(ctx, "auth_users", &ListOptions {
-        filters: vec![Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null }],
-        limit: 1, ..Default::default()
-    }).await.map(|r| r.total_count).unwrap_or(0);
+    let user_count = db::list(
+        ctx,
+        "auth_users",
+        &ListOptions {
+            filters: vec![Filter {
+                field: "deleted_at".into(),
+                operator: FilterOp::IsNull,
+                value: serde_json::Value::Null,
+            }],
+            limit: 1,
+            ..Default::default()
+        },
+    )
+    .await
+    .map(|r| r.total_count)
+    .unwrap_or(0);
 
     // New users today
-    let new_users_today = db::query_raw(ctx,
+    let new_users_today = db::query_raw(
+        ctx,
         "SELECT COUNT(*) as cnt FROM auth_users WHERE deleted_at IS NULL AND created_at >= ?1",
         &[serde_json::json!(format!("{today}T00:00:00"))],
-    ).await.ok().and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))).unwrap_or(0);
+    )
+    .await
+    .ok()
+    .and_then(|r| {
+        r.first()
+            .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+    })
+    .unwrap_or(0);
 
     // Requests today
-    let requests_today = db::query_raw(ctx,
+    let requests_today = db::query_raw(
+        ctx,
         "SELECT COUNT(*) as cnt FROM request_logs WHERE created_at >= ?1",
         &[serde_json::json!(format!("{today}T00:00:00"))],
-    ).await.ok().and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))).unwrap_or(0);
+    )
+    .await
+    .ok()
+    .and_then(|r| {
+        r.first()
+            .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+    })
+    .unwrap_or(0);
 
     // Errors today
-    let errors_today = db::query_raw(ctx,
+    let errors_today = db::query_raw(
+        ctx,
         "SELECT COUNT(*) as cnt FROM request_logs WHERE status = 'ERROR' AND created_at >= ?1",
         &[serde_json::json!(format!("{today}T00:00:00"))],
-    ).await.ok().and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))).unwrap_or(0);
+    )
+    .await
+    .ok()
+    .and_then(|r| {
+        r.first()
+            .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+    })
+    .unwrap_or(0);
 
     // Avg response time today
-    let avg_ms = db::query_raw(ctx,
+    let avg_ms = db::query_raw(
+        ctx,
         "SELECT AVG(duration_ms) as avg_ms FROM request_logs WHERE created_at >= ?1",
         &[serde_json::json!(format!("{today}T00:00:00"))],
-    ).await.ok().and_then(|r| r.first().and_then(|r| r.data.get("avg_ms").and_then(|v| v.as_f64()))).unwrap_or(0.0);
+    )
+    .await
+    .ok()
+    .and_then(|r| {
+        r.first()
+            .and_then(|r| r.data.get("avg_ms").and_then(|v| v.as_f64()))
+    })
+    .unwrap_or(0.0);
 
     // Recent users (last 5 logins)
     let recent_users = db::query_raw(ctx,
@@ -231,7 +310,14 @@ pub async fn dashboard(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    admin_page("Dashboard", &config, "/b/admin/", user.as_ref(), content, msg)
+    admin_page(
+        "Dashboard",
+        &config,
+        "/b/admin/",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -285,7 +371,14 @@ pub async fn users_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    admin_page("Users", &config, "/b/admin/users", user.as_ref(), content, msg)
+    admin_page(
+        "Users",
+        &config,
+        "/b/admin/users",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }
 
 /// Users tab content (table + search + pagination).
@@ -313,11 +406,24 @@ async fn users_tab(ctx: &dyn Context, msg: &mut Message, current_user_id: &str) 
             Err(e) => Err(e),
         }
     } else {
-        let filters = vec![
-            Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null },
-        ];
-        let sort = vec![SortField { field: "created_at".into(), desc: true }];
-        db::paginated_list(ctx, "auth_users", page as i64, page_size as i64, filters, sort).await
+        let filters = vec![Filter {
+            field: "deleted_at".into(),
+            operator: FilterOp::IsNull,
+            value: serde_json::Value::Null,
+        }];
+        let sort = vec![SortField {
+            field: "created_at".into(),
+            desc: true,
+        }];
+        db::paginated_list(
+            ctx,
+            "auth_users",
+            page as i64,
+            page_size as i64,
+            filters,
+            sort,
+        )
+        .await
     };
 
     html! {
@@ -342,7 +448,8 @@ async fn users_tab(ctx: &dyn Context, msg: &mut Message, current_user_id: &str) 
 /// Render the users table body. Async because it enriches each user with roles.
 async fn users_table(records: &[db::Record], ctx: &dyn Context, current_user_id: &str) -> Markup {
     // Pre-fetch roles for all users
-    let mut user_roles: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut user_roles: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     for record in records {
         let roles_opts = ListOptions {
             filters: vec![Filter {
@@ -353,7 +460,9 @@ async fn users_table(records: &[db::Record], ctx: &dyn Context, current_user_id:
             ..Default::default()
         };
         let roles: Vec<String> = match db::list(ctx, "iam_user_roles", &roles_opts).await {
-            Ok(r) => r.records.iter()
+            Ok(r) => r
+                .records
+                .iter()
                 .map(|rec| rec.str_field("role").to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
@@ -450,7 +559,10 @@ pub async fn variables_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
-    let opts = ListOptions { limit: 200, ..Default::default() };
+    let opts = ListOptions {
+        limit: 200,
+        ..Default::default()
+    };
     let settings = db::list(ctx, "variables", &opts).await;
 
     let content = html! {
@@ -559,12 +671,22 @@ pub async fn variables_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    admin_page("Variables", &config, "/b/admin/variables", user.as_ref(), content, msg)
+    admin_page(
+        "Variables",
+        &config,
+        "/b/admin/variables",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }
 
 async fn roles_tab(ctx: &dyn Context) -> Markup {
     let opts = ListOptions {
-        sort: vec![SortField { field: "name".into(), desc: false }],
+        sort: vec![SortField {
+            field: "name".into(),
+            desc: false,
+        }],
         limit: 100,
         ..Default::default()
     };
@@ -647,7 +769,10 @@ async fn roles_tab(ctx: &dyn Context) -> Markup {
 
 async fn api_keys_tab(ctx: &dyn Context) -> Markup {
     let opts = ListOptions {
-        sort: vec![SortField { field: "created_at".into(), desc: true }],
+        sort: vec![SortField {
+            field: "created_at".into(),
+            desc: true,
+        }],
         limit: 100,
         ..Default::default()
     };
@@ -784,7 +909,14 @@ pub async fn logs_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    admin_page("Logs", &config, "/b/admin/logs", user.as_ref(), content, msg)
+    admin_page(
+        "Logs",
+        &config,
+        "/b/admin/logs",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }
 
 async fn system_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
@@ -800,8 +932,19 @@ async fn system_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
         });
     }
 
-    let sort = vec![SortField { field: "created_at".into(), desc: true }];
-    let result = db::paginated_list(ctx, "request_logs", page as i64, page_size as i64, filters, sort).await;
+    let sort = vec![SortField {
+        field: "created_at".into(),
+        desc: true,
+    }];
+    let result = db::paginated_list(
+        ctx,
+        "request_logs",
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await;
 
     html! {
         div .filter-bar {
@@ -880,8 +1023,19 @@ async fn audit_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
         });
     }
 
-    let sort = vec![SortField { field: "created_at".into(), desc: true }];
-    let result = db::paginated_list(ctx, "audit_logs", page as i64, page_size as i64, filters, sort).await;
+    let sort = vec![SortField {
+        field: "created_at".into(),
+        desc: true,
+    }];
+    let result = db::paginated_list(
+        ctx,
+        "audit_logs",
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await;
 
     html! {
         div .filter-bar {
@@ -955,16 +1109,24 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let registered_blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
 
     // Load block enabled/disabled state from block_settings table
-    let block_settings_rows = db::query_raw(ctx,
-        "SELECT block_name, enabled FROM block_settings",
-        &[],
-    ).await.unwrap_or_default();
+    let block_settings_rows =
+        db::query_raw(ctx, "SELECT block_name, enabled FROM block_settings", &[])
+            .await
+            .unwrap_or_default();
 
-    let block_enabled: std::collections::HashMap<String, bool> = block_settings_rows.iter().map(|r| {
-        let name = r.data.get("block_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let enabled = r.data.get("enabled").and_then(|v| v.as_i64()).unwrap_or(1) != 0;
-        (name, enabled)
-    }).collect();
+    let block_enabled: std::collections::HashMap<String, bool> = block_settings_rows
+        .iter()
+        .map(|r| {
+            let name = r
+                .data
+                .get("block_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let enabled = r.data.get("enabled").and_then(|v| v.as_i64()).unwrap_or(1) != 0;
+            (name, enabled)
+        })
+        .collect();
 
     // Build full block list: registered blocks + disabled blocks from block_settings
     // Disabled blocks get placeholder BlockInfo since they aren't in the runtime
@@ -972,11 +1134,18 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     for (name, enabled) in &block_enabled {
         if !*enabled && !all_blocks.iter().any(|b| &b.name == name) {
             // Create a minimal placeholder for this disabled block
-            all_blocks.push(wafer_run::BlockInfo::new(name, "0.0.1", "http.handler", "(disabled — restart to load)")
+            all_blocks.push(
+                wafer_run::BlockInfo::new(
+                    name,
+                    "0.0.1",
+                    "http.handler",
+                    "(disabled — restart to load)",
+                )
                 .instance_mode(wafer_run::types::InstanceMode::Singleton)
                 .category(wafer_run::BlockCategory::Feature)
                 .can_disable(true)
-                .default_enabled(false));
+                .default_enabled(false),
+            );
         }
     }
 
@@ -1075,34 +1244,60 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     };
 
-    admin_page("Blocks", &config, "/b/admin/blocks", user.as_ref(), content, msg)
+    admin_page(
+        "Blocks",
+        &config,
+        "/b/admin/blocks",
+        user.as_ref(),
+        content,
+        msg,
+    )
 }
 
 /// POST /b/admin/blocks/{name}/toggle — toggle a block's enabled state
-pub async fn handle_toggle_feature(ctx: &dyn Context, msg: &mut Message, block_name: &str) -> Result_ {
+pub async fn handle_toggle_feature(
+    ctx: &dyn Context,
+    msg: &mut Message,
+    block_name: &str,
+) -> Result_ {
     // Read current state from block_settings
-    let current_enabled = db::query_raw(ctx,
+    let current_enabled = db::query_raw(
+        ctx,
         "SELECT enabled FROM block_settings WHERE block_name = ?1",
         &[serde_json::json!(block_name)],
-    ).await.ok()
-        .and_then(|rows| rows.first().and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64())))
-        .map(|v| v != 0)
-        .unwrap_or(true);
+    )
+    .await
+    .ok()
+    .and_then(|rows| {
+        rows.first()
+            .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
+    })
+    .map(|v| v != 0)
+    .unwrap_or(true);
 
     let new_enabled = !current_enabled;
     let new_enabled_int = if new_enabled { 1 } else { 0 };
 
     // Upsert into block_settings
-    let _ = db::exec_raw(ctx,
+    let _ = db::exec_raw(
+        ctx,
         "INSERT INTO block_settings (block_name, enabled, created_at, updated_at) \
          VALUES (?1, ?2, datetime('now'), datetime('now')) \
          ON CONFLICT (block_name) DO UPDATE SET enabled = ?2, updated_at = datetime('now')",
-        &[serde_json::json!(block_name), serde_json::json!(new_enabled_int)],
-    ).await;
+        &[
+            serde_json::json!(block_name),
+            serde_json::json!(new_enabled_int),
+        ],
+    )
+    .await;
 
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
-    let action = if new_enabled { "block.enable" } else { "block.disable" };
+    let action = if new_enabled {
+        "block.enable"
+    } else {
+        "block.disable"
+    };
     super::logs::audit_log(ctx, &admin_id, action, &format!("blocks/{block_name}"), &ip).await;
 
     // Re-render the blocks page
@@ -1110,18 +1305,28 @@ pub async fn handle_toggle_feature(ctx: &dyn Context, msg: &mut Message, block_n
 }
 
 /// GET /b/admin/blocks/{name}/detail — block detail modal content
-pub async fn handle_block_detail(ctx: &dyn Context, msg: &mut Message, block_name: &str) -> Result_ {
+pub async fn handle_block_detail(
+    ctx: &dyn Context,
+    msg: &mut Message,
+    block_name: &str,
+) -> Result_ {
     let blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
     let block_opt = blocks.iter().find(|b| b.name == block_name);
 
     // Check block enabled state from block_settings
-    let is_enabled = db::query_raw(ctx,
+    let is_enabled = db::query_raw(
+        ctx,
         "SELECT enabled FROM block_settings WHERE block_name = ?1",
         &[serde_json::json!(block_name)],
-    ).await.ok()
-        .and_then(|rows| rows.first().and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64())))
-        .map(|v| v != 0)
-        .unwrap_or(true);
+    )
+    .await
+    .ok()
+    .and_then(|rows| {
+        rows.first()
+            .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
+    })
+    .map(|v| v != 0)
+    .unwrap_or(true);
 
     let encoded = block_name.replace('/', "--");
 
@@ -1306,13 +1511,19 @@ async fn user_row_fragment(ctx: &dyn Context, user_id: &str) -> Markup {
 
     let roles_opts = ListOptions {
         filters: vec![Filter {
-            field: "user_id".into(), operator: FilterOp::Equal,
+            field: "user_id".into(),
+            operator: FilterOp::Equal,
             value: serde_json::Value::String(user_id.to_string()),
         }],
         ..Default::default()
     };
     let roles: Vec<String> = match db::list(ctx, "iam_user_roles", &roles_opts).await {
-        Ok(r) => r.records.iter().map(|rec| rec.str_field("role").to_string()).filter(|s| !s.is_empty()).collect(),
+        Ok(r) => r
+            .records
+            .iter()
+            .map(|rec| rec.str_field("role").to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
         Err(_) => Vec::new(),
     };
 
@@ -1372,6 +1583,9 @@ async fn user_row_fragment(ctx: &dyn Context, user_id: &str) -> Markup {
 /// POST /b/admin/users/{id}/disable
 pub async fn handle_user_disable(ctx: &dyn Context, msg: &mut Message, user_id: &str) -> Result_ {
     let admin_id = msg.user_id().to_string();
+    if admin_id == user_id {
+        return wafer_run::helpers::err_bad_request(msg, "Cannot disable your own account");
+    }
     let ip = msg.remote_addr().to_string();
     let mut data = std::collections::HashMap::new();
     data.insert("disabled".to_string(), serde_json::json!(true));
@@ -1379,7 +1593,14 @@ pub async fn handle_user_disable(ctx: &dyn Context, msg: &mut Message, user_id: 
     if let Err(e) = db::update(ctx, "auth_users", user_id, data).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
-    super::logs::audit_log(ctx, &admin_id, "user.disable", &format!("users/{user_id}"), &ip).await;
+    super::logs::audit_log(
+        ctx,
+        &admin_id,
+        "user.disable",
+        &format!("users/{user_id}"),
+        &ip,
+    )
+    .await;
     let row = user_row_fragment(ctx, user_id).await;
     ui::html_response_with_toast(msg, row, "User disabled", "success")
 }
@@ -1394,7 +1615,14 @@ pub async fn handle_user_enable(ctx: &dyn Context, msg: &mut Message, user_id: &
     if let Err(e) = db::update(ctx, "auth_users", user_id, data).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
-    super::logs::audit_log(ctx, &admin_id, "user.enable", &format!("users/{user_id}"), &ip).await;
+    super::logs::audit_log(
+        ctx,
+        &admin_id,
+        "user.enable",
+        &format!("users/{user_id}"),
+        &ip,
+    )
+    .await;
     let row = user_row_fragment(ctx, user_id).await;
     ui::html_response_with_toast(msg, row, "User enabled", "success")
 }
@@ -1402,11 +1630,21 @@ pub async fn handle_user_enable(ctx: &dyn Context, msg: &mut Message, user_id: &
 /// DELETE /b/admin/users/{id}
 pub async fn handle_user_delete(ctx: &dyn Context, msg: &mut Message, user_id: &str) -> Result_ {
     let admin_id = msg.user_id().to_string();
+    if admin_id == user_id {
+        return wafer_run::helpers::err_bad_request(msg, "Cannot delete your own account");
+    }
     let ip = msg.remote_addr().to_string();
     if let Err(e) = db::soft_delete(ctx, "auth_users", user_id).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
-    super::logs::audit_log(ctx, &admin_id, "user.delete", &format!("users/{user_id}"), &ip).await;
+    super::logs::audit_log(
+        ctx,
+        &admin_id,
+        "user.delete",
+        &format!("users/{user_id}"),
+        &ip,
+    )
+    .await;
     ui::html_response_with_toast(msg, html! {}, "User deleted", "success")
 }
 
@@ -1416,7 +1654,11 @@ pub async fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_
     let ip = msg.remote_addr().to_string();
     let body = parse_form_body(&msg.data);
 
-    let name = body.get("name").map(|s| s.as_str()).unwrap_or("").to_string();
+    let name = body
+        .get("name")
+        .map(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
     if name.is_empty() {
         return wafer_run::helpers::err_bad_request(msg, "Role name is required");
     }
@@ -1438,7 +1680,10 @@ pub async fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_
     let trigger = r#"{"showToast":{"message":"Role created","type":"success"},"closeModal":{"id":"create-role"}}"#;
     wafer_run::helpers::ResponseBuilder::new(msg)
         .set_header("HX-Trigger", trigger)
-        .body(content.into_string().into_bytes(), "text/html; charset=utf-8")
+        .body(
+            content.into_string().into_bytes(),
+            "text/html; charset=utf-8",
+        )
 }
 
 /// DELETE /b/admin/iam/roles/{id}
@@ -1452,40 +1697,74 @@ pub async fn handle_create_variable(ctx: &dyn Context, msg: &mut Message) -> Res
     let ip = msg.remote_addr().to_string();
     let body = parse_form_body(&msg.data);
 
-    let key = body.get("key").map(|s| s.as_str()).unwrap_or("").to_string();
+    let key = body
+        .get("key")
+        .map(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
     if key.is_empty() {
         return wafer_run::helpers::err_bad_request(msg, "Key is required");
     }
 
     let mut data = std::collections::HashMap::new();
     data.insert("key".to_string(), serde_json::json!(key));
-    if let Some(v) = body.get("value") { data.insert("value".to_string(), serde_json::json!(v)); }
-    if let Some(v) = body.get("description") { data.insert("description".to_string(), serde_json::json!(v)); }
+    if let Some(v) = body.get("value") {
+        data.insert("value".to_string(), serde_json::json!(v));
+    }
+    if let Some(v) = body.get("description") {
+        data.insert("description".to_string(), serde_json::json!(v));
+    }
     let sensitive = body.get("sensitive").map(|s| s.as_str()).unwrap_or("0");
-    data.insert("sensitive".to_string(), serde_json::json!(if sensitive == "1" { 1 } else { 0 }));
+    data.insert(
+        "sensitive".to_string(),
+        serde_json::json!(if sensitive == "1" { 1 } else { 0 }),
+    );
     crate::blocks::helpers::stamp_created(&mut data);
 
     if let Err(e) = db::create(ctx, "variables", data).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
-    super::logs::audit_log(ctx, &admin_id, "variable.create", &format!("variables/{key}"), &ip).await;
+    super::logs::audit_log(
+        ctx,
+        &admin_id,
+        "variable.create",
+        &format!("variables/{key}"),
+        &ip,
+    )
+    .await;
 
     // Re-render the variables page (htmx will swap #content)
     variables_page(ctx, msg).await
 }
 
 /// GET /b/admin/variables/{key}/edit — return modal edit form content
-pub async fn handle_edit_variable_form(ctx: &dyn Context, msg: &mut Message, var_key: &str) -> Result_ {
-    let record = match db::get_by_field(ctx, "variables", "key", serde_json::Value::String(var_key.to_string())).await {
+pub async fn handle_edit_variable_form(
+    ctx: &dyn Context,
+    msg: &mut Message,
+    var_key: &str,
+) -> Result_ {
+    let record = match db::get_by_field(
+        ctx,
+        "variables",
+        "key",
+        serde_json::Value::String(var_key.to_string()),
+    )
+    .await
+    {
         Ok(r) => r,
         Err(_) => return wafer_run::helpers::err_not_found(msg, "Variable not found"),
     };
 
     let key = record.str_field("key").to_string();
-    let value = record.str_field("value").to_string();
+    // Never send actual sensitive values to the browser — use empty placeholder
+    let sensitive = record.i64_field("sensitive") != 0;
+    let value = if sensitive {
+        String::new()
+    } else {
+        record.str_field("value").to_string()
+    };
     let description = record.str_field("description").to_string();
     let warning = record.str_field("warning").to_string();
-    let sensitive = record.i64_field("sensitive") != 0;
 
     let markup = html! {
         div .modal-header {
@@ -1543,26 +1822,60 @@ pub async fn handle_edit_variable_form(ctx: &dyn Context, msg: &mut Message, var
 }
 
 /// PUT /b/admin/variables/{key} — update variable value
-pub async fn handle_update_variable(ctx: &dyn Context, msg: &mut Message, var_key: &str) -> Result_ {
+pub async fn handle_update_variable(
+    ctx: &dyn Context,
+    msg: &mut Message,
+    var_key: &str,
+) -> Result_ {
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
     let body = parse_form_body(&msg.data);
 
+    // Protect security-critical keys from being emptied
+    const PROTECTED_KEYS: &[&str] = &["JWT_SECRET"];
+    if PROTECTED_KEYS.contains(&var_key) {
+        let new_value = body.get("value").map(|s| s.as_str()).unwrap_or("");
+        if new_value.is_empty() {
+            return wafer_run::helpers::err_bad_request(
+                msg,
+                &format!("Cannot set {} to an empty value", var_key),
+            );
+        }
+    }
+
     // Find existing record by key
-    let record = match db::get_by_field(ctx, "variables", "key", serde_json::Value::String(var_key.to_string())).await {
+    let record = match db::get_by_field(
+        ctx,
+        "variables",
+        "key",
+        serde_json::Value::String(var_key.to_string()),
+    )
+    .await
+    {
         Ok(r) => r,
         Err(_) => return wafer_run::helpers::err_not_found(msg, "Variable not found"),
     };
 
     let mut data = std::collections::HashMap::new();
-    if let Some(v) = body.get("value") { data.insert("value".to_string(), serde_json::json!(v)); }
-    if let Some(v) = body.get("description") { data.insert("description".to_string(), serde_json::json!(v)); }
+    if let Some(v) = body.get("value") {
+        data.insert("value".to_string(), serde_json::json!(v));
+    }
+    if let Some(v) = body.get("description") {
+        data.insert("description".to_string(), serde_json::json!(v));
+    }
     crate::blocks::helpers::stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, "variables", &record.id, data).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
-    super::logs::audit_log(ctx, &admin_id, "variable.update", &format!("variables/{var_key}"), &ip).await;
+    super::logs::audit_log(
+        ctx,
+        &admin_id,
+        "variable.update",
+        &format!("variables/{var_key}"),
+        &ip,
+    )
+    .await;
 
     variables_page(ctx, msg).await
 }
@@ -1580,7 +1893,14 @@ pub async fn handle_delete_role(ctx: &dyn Context, msg: &mut Message, role_id: &
     if let Err(e) = db::delete(ctx, "iam_roles", role_id).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
-    super::logs::audit_log(ctx, &admin_id, "role.delete", &format!("roles/{role_id}"), &ip).await;
+    super::logs::audit_log(
+        ctx,
+        &admin_id,
+        "role.delete",
+        &format!("roles/{role_id}"),
+        &ip,
+    )
+    .await;
 
     let content = roles_tab(ctx).await;
     ui::html_response_with_toast(msg, content, "Role deleted", "success")

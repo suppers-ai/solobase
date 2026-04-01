@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::helpers::*;
-use wafer_core::clients::{config, network};
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, Record, SortField};
 use super::PROJECTS_COLLECTION;
 use crate::blocks::helpers::RecordExt;
+use std::collections::HashMap;
+use wafer_core::clients::database as db;
+use wafer_core::clients::database::{Filter, FilterOp, Record, SortField};
+use wafer_core::clients::{config, network};
+use wafer_run::context::Context;
+use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 use crate::plans;
 
@@ -27,16 +27,26 @@ async fn get_user_plan(ctx: &dyn Context, user_id: &str) -> UserPlan {
 
     match rows {
         Ok(records) if !records.is_empty() => {
-            let plan = records[0].data.get("plan")
+            let plan = records[0]
+                .data
+                .get("plan")
                 .and_then(|v| v.as_str())
                 .unwrap_or("free")
                 .to_string();
-            let addon_projects = records[0].data.get("addon_projects")
+            let addon_projects = records[0]
+                .data
+                .get("addon_projects")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0) as usize;
-            UserPlan { plan, addon_projects }
+            UserPlan {
+                plan,
+                addon_projects,
+            }
         }
-        _ => UserPlan { plan: "free".to_string(), addon_projects: 0 },
+        _ => UserPlan {
+            plan: "free".to_string(),
+            addon_projects: 0,
+        },
     }
 }
 
@@ -58,7 +68,9 @@ async fn count_live_projects(ctx: &dyn Context, user_id: &str) -> i64 {
                 value: serde_json::Value::String(status.to_string()),
             },
         ];
-        total += db::count(ctx, PROJECTS_COLLECTION, &filters).await.unwrap_or(0);
+        total += db::count(ctx, PROJECTS_COLLECTION, &filters)
+            .await
+            .unwrap_or(0);
     }
     total
 }
@@ -77,15 +89,37 @@ async fn count_active_projects(ctx: &dyn Context, user_id: &str) -> i64 {
             value: serde_json::Value::String("active".to_string()),
         },
     ];
-    db::count(ctx, PROJECTS_COLLECTION, &filters).await.unwrap_or(0)
+    db::count(ctx, PROJECTS_COLLECTION, &filters)
+        .await
+        .unwrap_or(0)
 }
 
 /// Reserved subdomains that cannot be used as project names.
 const RESERVED_SUBDOMAINS: &[&str] = &[
-    "admin", "api", "app", "auth", "billing", "blog", "cdn", "cloud",
-    "console", "dashboard", "dev", "docs", "help", "internal", "login",
-    "mail", "manage", "platform", "settings", "staging", "status",
-    "support", "test", "www",
+    "admin",
+    "api",
+    "app",
+    "auth",
+    "billing",
+    "blog",
+    "cdn",
+    "cloud",
+    "console",
+    "dashboard",
+    "dev",
+    "docs",
+    "help",
+    "internal",
+    "login",
+    "mail",
+    "manage",
+    "platform",
+    "settings",
+    "staging",
+    "status",
+    "support",
+    "test",
+    "www",
 ];
 
 /// Validate a subdomain string.
@@ -107,8 +141,13 @@ fn validate_subdomain(name: &str) -> Result<(), String> {
     if name.contains("--") {
         return Err("Subdomain cannot contain consecutive hyphens".to_string());
     }
-    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
-        return Err("Subdomain must only contain lowercase letters, numbers, and hyphens".to_string());
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(
+            "Subdomain must only contain lowercase letters, numbers, and hyphens".to_string(),
+        );
     }
     if RESERVED_SUBDOMAINS.contains(&name) {
         return Err(format!("Subdomain '{}' is reserved", name));
@@ -137,7 +176,8 @@ async fn control_plane_request(
     headers.insert("X-Control-Api-Key".to_string(), secret);
 
     // Prefer the dispatcher service binding (internal RPC) over external HTTP.
-    let use_dispatcher = config::get(ctx, "HAS_DISPATCHER_BINDING").await
+    let use_dispatcher = config::get(ctx, "HAS_DISPATCHER_BINDING")
+        .await
         .map(|v| v == "true")
         .unwrap_or(false);
 
@@ -159,8 +199,9 @@ async fn control_plane_request(
             .map_err(|e| format!("Control plane request failed: {e}"))?
     };
 
-    let json: serde_json::Value = serde_json::from_slice(&resp.body)
-        .unwrap_or_else(|_| serde_json::json!({"error": String::from_utf8_lossy(&resp.body).to_string()}));
+    let json: serde_json::Value = serde_json::from_slice(&resp.body).unwrap_or_else(
+        |_| serde_json::json!({"error": String::from_utf8_lossy(&resp.body).to_string()}),
+    );
 
     Ok((resp.status_code, json))
 }
@@ -168,8 +209,14 @@ async fn control_plane_request(
 /// Update deployment status in the database.
 async fn update_status(ctx: &dyn Context, id: &str, status: &str) {
     let mut data = HashMap::new();
-    data.insert("status".to_string(), serde_json::Value::String(status.to_string()));
-    data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+    data.insert(
+        "status".to_string(),
+        serde_json::Value::String(status.to_string()),
+    );
+    data.insert(
+        "updated_at".to_string(),
+        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+    );
     let _ = db::update(ctx, PROJECTS_COLLECTION, id, data).await;
 }
 
@@ -180,8 +227,12 @@ pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     match (action, path) {
         ("retrieve", "/admin/b/projects") => handle_admin_list(ctx, msg).await,
         ("retrieve", "/admin/b/projects/stats") => handle_admin_stats(ctx, msg).await,
-        ("retrieve", _) if path.starts_with("/admin/b/projects/") => handle_admin_get(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/b/projects/") => handle_admin_update(ctx, msg).await,
+        ("retrieve", _) if path.starts_with("/admin/b/projects/") => {
+            handle_admin_get(ctx, msg).await
+        }
+        ("update", _) if path.starts_with("/admin/b/projects/") => {
+            handle_admin_update(ctx, msg).await
+        }
         _ => err_not_found(msg, "not found"),
     }
 }
@@ -215,9 +266,21 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         operator: FilterOp::Equal,
         value: serde_json::Value::String(user_id),
     }];
-    let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
+    let sort = vec![SortField {
+        field: "created_at".to_string(),
+        desc: true,
+    }];
 
-    match db::paginated_list(ctx, PROJECTS_COLLECTION, page as i64, page_size as i64, filters, sort).await {
+    match db::paginated_list(
+        ctx,
+        PROJECTS_COLLECTION,
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await
+    {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
@@ -259,7 +322,12 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
     };
 
-    let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_lowercase();
+    let name = body
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
     if name.is_empty() {
         return err_bad_request(msg, "Subdomain is required");
     }
@@ -286,7 +354,11 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 value: serde_json::Value::String(status.to_string()),
             },
         ];
-        if db::count(ctx, PROJECTS_COLLECTION, &slug_filters).await.unwrap_or(0) > 0 {
+        if db::count(ctx, PROJECTS_COLLECTION, &slug_filters)
+            .await
+            .unwrap_or(0)
+            > 0
+        {
             taken = true;
             break;
         }
@@ -299,10 +371,15 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Check plan limit for project creation (count non-deleted projects)
     let user_plan = get_user_plan(ctx, &user_id).await;
     let limits = plans::get_limits(&user_plan.plan);
-    let max_created = limits.max_projects_created.saturating_add(user_plan.addon_projects);
+    let max_created = limits
+        .max_projects_created
+        .saturating_add(user_plan.addon_projects);
     let current_count = count_live_projects(ctx, &user_id).await;
     if current_count as usize >= max_created {
-        return err_bad_request(msg, "Project limit reached. Upgrade your plan or purchase extra project slots.");
+        return err_bad_request(
+            msg,
+            "Project limit reached. Upgrade your plan or purchase extra project slots.",
+        );
     }
 
     let now = chrono::Utc::now().to_rfc3339();
@@ -311,7 +388,10 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("user_id".to_string(), serde_json::Value::String(user_id));
     data.insert("name".to_string(), serde_json::Value::String(name));
     data.insert("slug".to_string(), serde_json::Value::String(slug.clone()));
-    data.insert("status".to_string(), serde_json::Value::String("pending".to_string()));
+    data.insert(
+        "status".to_string(),
+        serde_json::Value::String("pending".to_string()),
+    );
     if let Some(config) = body.get("config") {
         data.insert("config".to_string(), config.clone());
     }
@@ -321,7 +401,10 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if let Some(purchase_id) = body.get("purchase_id") {
         data.insert("purchase_id".to_string(), purchase_id.clone());
     }
-    data.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
+    data.insert(
+        "created_at".to_string(),
+        serde_json::Value::String(now.clone()),
+    );
     data.insert("updated_at".to_string(), serde_json::Value::String(now));
 
     let record = match db::create(ctx, PROJECTS_COLLECTION, data).await {
@@ -356,7 +439,9 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             }
             record
         }
-        Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Deployment not found"),
+        Err(e) if e.code == ErrorCode::NotFound => {
+            return err_not_found(msg, "Deployment not found")
+        }
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
 
@@ -366,7 +451,10 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     // Handle lifecycle actions
-    if let Some(action) = body.remove("action").and_then(|v| v.as_str().map(String::from)) {
+    if let Some(action) = body
+        .remove("action")
+        .and_then(|v| v.as_str().map(String::from))
+    {
         match action.as_str() {
             "activate" => return handle_activate(ctx, msg, &id, &user_id, &record).await,
             "deactivate" => return handle_deactivate(ctx, msg, &id, &record).await,
@@ -378,7 +466,10 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     body.remove("status");
     body.remove("user_id");
 
-    body.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+    body.insert(
+        "updated_at".to_string(),
+        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+    );
 
     match db::update(ctx, PROJECTS_COLLECTION, &id, body).await {
         Ok(record) => json_respond(msg, &record),
@@ -397,15 +488,18 @@ async fn handle_activate(
 ) -> Result_ {
     let status = record.str_field("status");
     if status != "pending" && status != "inactive" {
-        return err_bad_request(msg, &format!(
-            "Project cannot be activated from '{}' status", status
-        ));
+        return err_bad_request(
+            msg,
+            &format!("Project cannot be activated from '{}' status", status),
+        );
     }
 
     // Check plan capacity for active projects
     let user_plan = get_user_plan(ctx, user_id).await;
     let limits = plans::get_limits(&user_plan.plan);
-    let max_active = limits.max_projects_active.saturating_add(user_plan.addon_projects);
+    let max_active = limits
+        .max_projects_active
+        .saturating_add(user_plan.addon_projects);
 
     if max_active == 0 {
         return err_forbidden(msg, "Upgrade to a paid plan to activate projects");
@@ -421,7 +515,11 @@ async fn handle_activate(
 
     // Provision via control plane
     let slug = record.str_field("slug");
-    let plan_id = record.data.get("plan_id").and_then(|v: &serde_json::Value| v.as_str()).unwrap_or("free");
+    let plan_id = record
+        .data
+        .get("plan_id")
+        .and_then(|v: &serde_json::Value| v.as_str())
+        .unwrap_or("free");
     let provision_body = serde_json::json!({
         "subdomain": slug,
         "plan": plan_id,
@@ -431,16 +529,28 @@ async fn handle_activate(
     match control_plane_request(ctx, "POST", "/_control/projects", Some(&provision_bytes)).await {
         Ok((status_code, resp_json)) if status_code < 300 => {
             let mut update_data = HashMap::new();
-            update_data.insert("status".to_string(), serde_json::Value::String("active".to_string()));
+            update_data.insert(
+                "status".to_string(),
+                serde_json::Value::String("active".to_string()),
+            );
             if let Some(tenant_id) = resp_json.get("id").and_then(|v| v.as_str()) {
-                update_data.insert("tenant_id".to_string(), serde_json::Value::String(tenant_id.to_string()));
+                update_data.insert(
+                    "tenant_id".to_string(),
+                    serde_json::Value::String(tenant_id.to_string()),
+                );
             }
             if let Some(subdomain) = resp_json.get("subdomain").and_then(|v| v.as_str()) {
-                update_data.insert("subdomain".to_string(), serde_json::Value::String(subdomain.to_string()));
+                update_data.insert(
+                    "subdomain".to_string(),
+                    serde_json::Value::String(subdomain.to_string()),
+                );
             }
             update_data.insert("provision_error".to_string(), serde_json::Value::Null);
             update_data.insert("grace_period_end".to_string(), serde_json::Value::Null);
-            update_data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+            update_data.insert(
+                "updated_at".to_string(),
+                serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+            );
 
             match db::update(ctx, PROJECTS_COLLECTION, id, update_data).await {
                 Ok(updated) => json_respond(msg, &updated),
@@ -448,7 +558,9 @@ async fn handle_activate(
             }
         }
         Ok((status_code, resp_json)) => {
-            let error_msg = resp_json.get("message").and_then(|v| v.as_str())
+            let error_msg = resp_json
+                .get("message")
+                .and_then(|v| v.as_str())
                 .or_else(|| resp_json.get("error").and_then(|v| v.as_str()))
                 .unwrap_or("Provisioning failed");
 
@@ -458,18 +570,31 @@ async fn handle_activate(
 
             // Update status to "failed"
             let mut update_data = HashMap::new();
-            update_data.insert("status".to_string(), serde_json::Value::String("failed".to_string()));
-            update_data.insert("provision_error".to_string(), serde_json::Value::String(
-                format!("HTTP {}: {}", status_code, error_msg)
-            ));
-            update_data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+            update_data.insert(
+                "status".to_string(),
+                serde_json::Value::String("failed".to_string()),
+            );
+            update_data.insert(
+                "provision_error".to_string(),
+                serde_json::Value::String(format!("HTTP {}: {}", status_code, error_msg)),
+            );
+            update_data.insert(
+                "updated_at".to_string(),
+                serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+            );
             let _ = db::update(ctx, PROJECTS_COLLECTION, id, update_data).await;
             err_internal(msg, &format!("Provisioning failed: {error_msg}"))
         }
         Err(e) => {
             let mut update_data = HashMap::new();
-            update_data.insert("provision_error".to_string(), serde_json::Value::String(e.clone()));
-            update_data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+            update_data.insert(
+                "provision_error".to_string(),
+                serde_json::Value::String(e.clone()),
+            );
+            update_data.insert(
+                "updated_at".to_string(),
+                serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+            );
             let _ = db::update(ctx, PROJECTS_COLLECTION, id, update_data).await;
             err_internal(msg, &format!("Control plane error: {e}"))
         }
@@ -486,9 +611,13 @@ async fn handle_deactivate(
 ) -> Result_ {
     let status = record.str_field("status");
     if status != "active" {
-        return err_bad_request(msg, &format!(
-            "Only active projects can be deactivated (current status: '{}')", status
-        ));
+        return err_bad_request(
+            msg,
+            &format!(
+                "Only active projects can be deactivated (current status: '{}')",
+                status
+            ),
+        );
     }
 
     let now = chrono::Utc::now();
@@ -497,9 +626,18 @@ async fn handle_deactivate(
 
     // Update local DB record
     let mut update_data = HashMap::new();
-    update_data.insert("status".to_string(), serde_json::Value::String("inactive".to_string()));
-    update_data.insert("grace_period_end".to_string(), serde_json::Value::String(grace_end_str.clone()));
-    update_data.insert("updated_at".to_string(), serde_json::Value::String(now.to_rfc3339()));
+    update_data.insert(
+        "status".to_string(),
+        serde_json::Value::String("inactive".to_string()),
+    );
+    update_data.insert(
+        "grace_period_end".to_string(),
+        serde_json::Value::String(grace_end_str.clone()),
+    );
+    update_data.insert(
+        "updated_at".to_string(),
+        serde_json::Value::String(now.to_rfc3339()),
+    );
 
     let result = match db::update(ctx, PROJECTS_COLLECTION, id, update_data).await {
         Ok(updated) => updated,
@@ -542,12 +680,16 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             }
             record
         }
-        Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Deployment not found"),
+        Err(e) if e.code == ErrorCode::NotFound => {
+            return err_not_found(msg, "Deployment not found")
+        }
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
 
     // Deprovision tenant on the control plane
-    let subdomain = record.data.get("subdomain")
+    let subdomain = record
+        .data
+        .get("subdomain")
         .or_else(|| record.data.get("slug"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
@@ -556,8 +698,14 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         if let Err(e) = control_plane_request(ctx, "DELETE", &path, None).await {
             // Log but don't block deletion — admin can clean up orphaned tenants
             let mut err_data = HashMap::new();
-            err_data.insert("deprovision_error".to_string(), serde_json::Value::String(e));
-            err_data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+            err_data.insert(
+                "deprovision_error".to_string(),
+                serde_json::Value::String(e),
+            );
+            err_data.insert(
+                "updated_at".to_string(),
+                serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+            );
             let _ = db::update(ctx, PROJECTS_COLLECTION, id, err_data).await;
         }
     }
@@ -565,8 +713,14 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Soft delete: set status="deleted" and deleted_at
     let now = chrono::Utc::now().to_rfc3339();
     let mut data = HashMap::new();
-    data.insert("status".to_string(), serde_json::Value::String("deleted".to_string()));
-    data.insert("deleted_at".to_string(), serde_json::Value::String(now.clone()));
+    data.insert(
+        "status".to_string(),
+        serde_json::Value::String("deleted".to_string()),
+    );
+    data.insert(
+        "deleted_at".to_string(),
+        serde_json::Value::String(now.clone()),
+    );
     data.insert("updated_at".to_string(), serde_json::Value::String(now));
 
     match db::update(ctx, PROJECTS_COLLECTION, id, data).await {
@@ -583,16 +737,36 @@ async fn handle_admin_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let mut filters = Vec::new();
     let user_id = msg.query("user_id").to_string();
     if !user_id.is_empty() {
-        filters.push(Filter { field: "user_id".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(user_id) });
+        filters.push(Filter {
+            field: "user_id".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id),
+        });
     }
     let status = msg.query("status").to_string();
     if !status.is_empty() {
-        filters.push(Filter { field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(status) });
+        filters.push(Filter {
+            field: "status".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(status),
+        });
     }
 
-    let sort = vec![SortField { field: "created_at".to_string(), desc: true }];
+    let sort = vec![SortField {
+        field: "created_at".to_string(),
+        desc: true,
+    }];
 
-    match db::paginated_list(ctx, PROJECTS_COLLECTION, page as i64, page_size as i64, filters, sort).await {
+    match db::paginated_list(
+        ctx,
+        PROJECTS_COLLECTION,
+        page as i64,
+        page_size as i64,
+        filters,
+        sort,
+    )
+    .await
+    {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
@@ -625,14 +799,21 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     // Handle admin actions that interact with the control plane
-    if let Some(admin_action) = body.remove("action").and_then(|v| v.as_str().map(String::from)) {
+    if let Some(admin_action) = body
+        .remove("action")
+        .and_then(|v| v.as_str().map(String::from))
+    {
         let record = match db::get(ctx, PROJECTS_COLLECTION, id).await {
             Ok(r) => r,
-            Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Deployment not found"),
+            Err(e) if e.code == ErrorCode::NotFound => {
+                return err_not_found(msg, "Deployment not found")
+            }
             Err(e) => return err_internal(msg, &format!("Database error: {e}")),
         };
 
-        let subdomain = record.data.get("subdomain")
+        let subdomain = record
+            .data
+            .get("subdomain")
             .or_else(|| record.data.get("slug"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
@@ -641,31 +822,60 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             "provision" => {
                 // (Re-)provision a pending/failed deployment
                 let slug = record.str_field("slug");
-                let plan = record.data.get("plan_id").and_then(|v| v.as_str()).unwrap_or("hobby");
+                let plan = record
+                    .data
+                    .get("plan_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("hobby");
                 let provision_body = serde_json::json!({ "subdomain": slug, "plan": plan });
                 let provision_bytes = serde_json::to_vec(&provision_body).unwrap_or_default();
 
-                match control_plane_request(ctx, "POST", "/_control/projects", Some(&provision_bytes)).await {
+                match control_plane_request(
+                    ctx,
+                    "POST",
+                    "/_control/projects",
+                    Some(&provision_bytes),
+                )
+                .await
+                {
                     Ok((sc, resp)) if sc < 300 => {
                         let mut update_data = HashMap::new();
-                        update_data.insert("status".to_string(), serde_json::Value::String("active".to_string()));
+                        update_data.insert(
+                            "status".to_string(),
+                            serde_json::Value::String("active".to_string()),
+                        );
                         if let Some(tid) = resp.get("id").and_then(|v| v.as_str()) {
-                            update_data.insert("tenant_id".to_string(), serde_json::Value::String(tid.to_string()));
+                            update_data.insert(
+                                "tenant_id".to_string(),
+                                serde_json::Value::String(tid.to_string()),
+                            );
                         }
                         if let Some(sub) = resp.get("subdomain").and_then(|v| v.as_str()) {
-                            update_data.insert("subdomain".to_string(), serde_json::Value::String(sub.to_string()));
+                            update_data.insert(
+                                "subdomain".to_string(),
+                                serde_json::Value::String(sub.to_string()),
+                            );
                         }
                         update_data.insert("provision_error".to_string(), serde_json::Value::Null);
-                        update_data.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+                        update_data.insert(
+                            "updated_at".to_string(),
+                            serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+                        );
                         match db::update(ctx, PROJECTS_COLLECTION, id, update_data).await {
                             Ok(updated) => return json_respond(msg, &updated),
                             Err(e) => return err_internal(msg, &format!("Database error: {e}")),
                         }
                     }
                     Ok((sc, resp)) => {
-                        let error_msg = resp.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let error_msg = resp
+                            .get("error")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
                         update_status(ctx, id, "failed").await;
-                        return err_internal(msg, &format!("Provisioning failed ({}): {}", sc, error_msg));
+                        return err_internal(
+                            msg,
+                            &format!("Provisioning failed ({}): {}", sc, error_msg),
+                        );
                     }
                     Err(e) => return err_internal(msg, &e),
                 }
@@ -678,16 +888,28 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                             update_status(ctx, id, "deleted").await;
                         }
                         Ok((sc, resp)) => {
-                            let error_msg = resp.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
-                            return err_internal(msg, &format!("Deprovision failed ({}): {}", sc, error_msg));
+                            let error_msg = resp
+                                .get("error")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown");
+                            return err_internal(
+                                msg,
+                                &format!("Deprovision failed ({}): {}", sc, error_msg),
+                            );
                         }
                         Err(e) => return err_internal(msg, &e),
                     }
                 }
                 let now = chrono::Utc::now().to_rfc3339();
                 let mut del_data = HashMap::new();
-                del_data.insert("status".to_string(), serde_json::Value::String("deleted".to_string()));
-                del_data.insert("deleted_at".to_string(), serde_json::Value::String(now.clone()));
+                del_data.insert(
+                    "status".to_string(),
+                    serde_json::Value::String("deleted".to_string()),
+                );
+                del_data.insert(
+                    "deleted_at".to_string(),
+                    serde_json::Value::String(now.clone()),
+                );
                 del_data.insert("updated_at".to_string(), serde_json::Value::String(now));
                 match db::update(ctx, PROJECTS_COLLECTION, id, del_data).await {
                     Ok(updated) => return json_respond(msg, &updated),
@@ -698,7 +920,10 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     }
 
-    body.insert("updated_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+    body.insert(
+        "updated_at".to_string(),
+        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+    );
 
     match db::update(ctx, PROJECTS_COLLECTION, id, body).await {
         Ok(record) => json_respond(msg, &record),
@@ -709,32 +934,83 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 async fn handle_admin_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let total = db::count(ctx, PROJECTS_COLLECTION, &[]).await.unwrap_or(0);
-    let pending = db::count(ctx, PROJECTS_COLLECTION, &[Filter {
-        field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("pending".to_string()),
-    }]).await.unwrap_or(0);
-    let active = db::count(ctx, PROJECTS_COLLECTION, &[Filter {
-        field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("active".to_string()),
-    }]).await.unwrap_or(0);
-    let inactive = db::count(ctx, PROJECTS_COLLECTION, &[Filter {
-        field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("inactive".to_string()),
-    }]).await.unwrap_or(0);
-    let stopped = db::count(ctx, PROJECTS_COLLECTION, &[Filter {
-        field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("stopped".to_string()),
-    }]).await.unwrap_or(0);
-    let failed = db::count(ctx, PROJECTS_COLLECTION, &[Filter {
-        field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("failed".to_string()),
-    }]).await.unwrap_or(0);
-    let deleted = db::count(ctx, PROJECTS_COLLECTION, &[Filter {
-        field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("deleted".to_string()),
-    }]).await.unwrap_or(0);
+    let pending = db::count(
+        ctx,
+        PROJECTS_COLLECTION,
+        &[Filter {
+            field: "status".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String("pending".to_string()),
+        }],
+    )
+    .await
+    .unwrap_or(0);
+    let active = db::count(
+        ctx,
+        PROJECTS_COLLECTION,
+        &[Filter {
+            field: "status".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String("active".to_string()),
+        }],
+    )
+    .await
+    .unwrap_or(0);
+    let inactive = db::count(
+        ctx,
+        PROJECTS_COLLECTION,
+        &[Filter {
+            field: "status".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String("inactive".to_string()),
+        }],
+    )
+    .await
+    .unwrap_or(0);
+    let stopped = db::count(
+        ctx,
+        PROJECTS_COLLECTION,
+        &[Filter {
+            field: "status".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String("stopped".to_string()),
+        }],
+    )
+    .await
+    .unwrap_or(0);
+    let failed = db::count(
+        ctx,
+        PROJECTS_COLLECTION,
+        &[Filter {
+            field: "status".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String("failed".to_string()),
+        }],
+    )
+    .await
+    .unwrap_or(0);
+    let deleted = db::count(
+        ctx,
+        PROJECTS_COLLECTION,
+        &[Filter {
+            field: "status".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String("deleted".to_string()),
+        }],
+    )
+    .await
+    .unwrap_or(0);
 
-    json_respond(msg, &serde_json::json!({
-        "total": total,
-        "pending": pending,
-        "active": active,
-        "inactive": inactive,
-        "stopped": stopped,
-        "failed": failed,
-        "deleted": deleted
-    }))
+    json_respond(
+        msg,
+        &serde_json::json!({
+            "total": total,
+            "pending": pending,
+            "active": active,
+            "inactive": inactive,
+            "stopped": stopped,
+            "failed": failed,
+            "deleted": deleted
+        }),
+    )
 }

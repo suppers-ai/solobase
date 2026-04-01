@@ -1,11 +1,11 @@
+use super::helpers::{self, json_map};
 use std::collections::HashMap;
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::helpers::*;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use super::helpers::{self, json_map};
+use wafer_run::block::{Block, BlockInfo};
+use wafer_run::context::Context;
+use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 pub struct LegalPagesBlock;
 
@@ -20,7 +20,8 @@ fn extract_doc_id(msg: &Message) -> &str {
         return var;
     }
     let path = msg.path();
-    let suffix = path.strip_prefix("/admin/legalpages/documents/")
+    let suffix = path
+        .strip_prefix("/admin/legalpages/documents/")
         .or_else(|| path.strip_prefix("/b/legalpages/documents/"))
         .unwrap_or("");
     // Strip trailing /publish or /
@@ -28,7 +29,12 @@ fn extract_doc_id(msg: &Message) -> &str {
 }
 
 impl LegalPagesBlock {
-    async fn handle_get_public(&self, ctx: &dyn Context, msg: &mut Message, doc_type: &str) -> Result_ {
+    async fn handle_get_public(
+        &self,
+        ctx: &dyn Context,
+        msg: &mut Message,
+        doc_type: &str,
+    ) -> Result_ {
         // Find published document of given type
         let opts = ListOptions {
             filters: vec![
@@ -43,7 +49,10 @@ impl LegalPagesBlock {
                     value: serde_json::Value::String("published".to_string()),
                 },
             ],
-            sort: vec![SortField { field: "version".to_string(), desc: true }],
+            sort: vec![SortField {
+                field: "version".to_string(),
+                desc: true,
+            }],
             limit: 1,
             ..Default::default()
         };
@@ -63,10 +72,20 @@ impl LegalPagesBlock {
         }
 
         let record = &result.records[0];
-        let raw_content = record.data.get("content").and_then(|v| v.as_str()).unwrap_or("");
+        let raw_content = record
+            .data
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let content = sanitize_html(raw_content);
-        let title = record.data.get("title").and_then(|v| v.as_str()).unwrap_or(doc_type)
-            .replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+        let title = record
+            .data
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or(doc_type)
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
 
         let html = format!(
             r#"<!DOCTYPE html>
@@ -78,7 +97,11 @@ impl LegalPagesBlock {
     }
 
     fn handle_admin_ui(&self, msg: &mut Message) -> Result_ {
-        respond(msg, ADMIN_HTML.as_bytes().to_vec(), "text/html; charset=utf-8")
+        respond(
+            msg,
+            ADMIN_HTML.as_bytes().to_vec(),
+            "text/html; charset=utf-8",
+        )
     }
 
     async fn handle_admin_list(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -94,7 +117,10 @@ impl LegalPagesBlock {
         }
         let opts = ListOptions {
             filters,
-            sort: vec![SortField { field: "updated_at".to_string(), desc: true }],
+            sort: vec![SortField {
+                field: "updated_at".to_string(),
+                desc: true,
+            }],
             limit: page_size as i64,
             offset: offset as i64,
         };
@@ -174,21 +200,37 @@ impl LegalPagesBlock {
         // Get current document
         let doc = match db::get(ctx, COLLECTION, id).await {
             Ok(r) => r,
-            Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Document not found"),
+            Err(e) if e.code == ErrorCode::NotFound => {
+                return err_not_found(msg, "Document not found")
+            }
             Err(e) => return err_internal(msg, &format!("Database error: {e}")),
         };
 
-        let doc_type = doc.data.get("doc_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let doc_type = doc
+            .data
+            .get("doc_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
         // Unpublish other documents of same type
         let existing = db::list_all(
             ctx,
             COLLECTION,
             vec![
-                Filter { field: "doc_type".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String(doc_type) },
-                Filter { field: "status".to_string(), operator: FilterOp::Equal, value: serde_json::Value::String("published".to_string()) },
+                Filter {
+                    field: "doc_type".to_string(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::Value::String(doc_type),
+                },
+                Filter {
+                    field: "status".to_string(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::Value::String("published".to_string()),
+                },
             ],
-        ).await;
+        )
+        .await;
         if let Ok(records) = existing {
             for r in records {
                 let upd = json_map(serde_json::json!({"status": "archived"}));
@@ -261,9 +303,13 @@ fn sanitize_html(input: &str) -> String {
         .add_tags(&["p", "br", "hr", "blockquote", "pre", "code"])
         .add_tags(&["ul", "ol", "li", "dl", "dt", "dd"])
         .add_tags(&["table", "thead", "tbody", "tr", "th", "td"])
-        .add_tags(&["a", "strong", "em", "b", "i", "u", "s", "sub", "sup", "small"])
+        .add_tags(&[
+            "a", "strong", "em", "b", "i", "u", "s", "sub", "sup", "small",
+        ])
         .add_tags(&["img", "figure", "figcaption"])
-        .add_tags(&["div", "span", "section", "article", "header", "footer", "nav", "aside"])
+        .add_tags(&[
+            "div", "span", "section", "article", "header", "footer", "nav", "aside",
+        ])
         .add_tag_attributes("a", &["href", "title", "target", "rel"])
         .add_tag_attributes("img", &["src", "alt", "title", "width", "height"])
         .add_tag_attributes("td", &["colspan", "rowspan"])
@@ -315,18 +361,29 @@ impl Block for LegalPagesBlock {
         match (action, path) {
             // Public endpoints
             ("retrieve", "/b/legalpages/terms") => self.handle_get_public(ctx, msg, "terms").await,
-            ("retrieve", "/b/legalpages/privacy") => self.handle_get_public(ctx, msg, "privacy").await,
+            ("retrieve", "/b/legalpages/privacy") => {
+                self.handle_get_public(ctx, msg, "privacy").await
+            }
             // Admin UI
             ("retrieve", "/b/legalpages/admin") => self.handle_admin_ui(msg),
             // Admin API
             ("retrieve", "/admin/legalpages/documents") => self.handle_admin_list(ctx, msg).await,
-            ("retrieve", _) if path.starts_with("/admin/legalpages/documents/") => self.handle_admin_get(ctx, msg).await,
+            ("retrieve", _) if path.starts_with("/admin/legalpages/documents/") => {
+                self.handle_admin_get(ctx, msg).await
+            }
             ("create", "/admin/legalpages/documents") => self.handle_admin_create(ctx, msg).await,
-            ("update", _) if path.starts_with("/admin/legalpages/documents/") && path.ends_with("/publish") => {
+            ("update", _)
+                if path.starts_with("/admin/legalpages/documents/")
+                    && path.ends_with("/publish") =>
+            {
                 self.handle_admin_publish(ctx, msg).await
             }
-            ("update", _) if path.starts_with("/admin/legalpages/documents/") => self.handle_admin_update(ctx, msg).await,
-            ("delete", _) if path.starts_with("/admin/legalpages/documents/") => self.handle_admin_delete(ctx, msg).await,
+            ("update", _) if path.starts_with("/admin/legalpages/documents/") => {
+                self.handle_admin_update(ctx, msg).await
+            }
+            ("delete", _) if path.starts_with("/admin/legalpages/documents/") => {
+                self.handle_admin_delete(ctx, msg).await
+            }
             // ext API aliases (same as admin, but routed through admin-pipe)
             ("retrieve", "/b/legalpages/documents") => self.handle_admin_list(ctx, msg).await,
             ("create", "/b/legalpages/documents") => self.handle_admin_create(ctx, msg).await,
@@ -334,7 +391,11 @@ impl Block for LegalPagesBlock {
         }
     }
 
-    async fn lifecycle(&self, ctx: &dyn Context, event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(
+        &self,
+        ctx: &dyn Context,
+        event: LifecycleEvent,
+    ) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
             self.seed_defaults(ctx).await;
         }

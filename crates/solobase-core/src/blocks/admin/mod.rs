@@ -1,16 +1,16 @@
-mod users;
+mod custom_tables;
 mod database;
 mod iam;
 mod logs;
 mod pages;
 mod settings;
+mod users;
 mod wafer_info;
-mod custom_tables;
 
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::types::*;
 use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 /// Sanitize an identifier to prevent SQL injection. Only allows
 /// alphanumeric characters and underscores.
@@ -115,13 +115,21 @@ impl Block for AdminBlock {
 
             // htmx mutation handlers
             if action == "create" && sub.ends_with("/disable") {
-                let user_id = sub.strip_prefix("/users/").and_then(|s| s.strip_suffix("/disable")).unwrap_or("").to_string();
+                let user_id = sub
+                    .strip_prefix("/users/")
+                    .and_then(|s| s.strip_suffix("/disable"))
+                    .unwrap_or("")
+                    .to_string();
                 if !user_id.is_empty() {
                     return pages::handle_user_disable(ctx, msg, &user_id).await;
                 }
             }
             if action == "create" && sub.ends_with("/enable") {
-                let user_id = sub.strip_prefix("/users/").and_then(|s| s.strip_suffix("/enable")).unwrap_or("").to_string();
+                let user_id = sub
+                    .strip_prefix("/users/")
+                    .and_then(|s| s.strip_suffix("/enable"))
+                    .unwrap_or("")
+                    .to_string();
                 if !user_id.is_empty() {
                     return pages::handle_user_enable(ctx, msg, &user_id).await;
                 }
@@ -143,7 +151,11 @@ impl Block for AdminBlock {
             }
             // Block detail modal
             if action == "retrieve" && sub.starts_with("/blocks/") && sub.ends_with("/detail") {
-                let encoded = sub.strip_prefix("/blocks/").and_then(|s| s.strip_suffix("/detail")).unwrap_or("").to_string();
+                let encoded = sub
+                    .strip_prefix("/blocks/")
+                    .and_then(|s| s.strip_suffix("/detail"))
+                    .unwrap_or("")
+                    .to_string();
                 let block_name = encoded.replace("--", "/");
                 if !block_name.is_empty() {
                     return pages::handle_block_detail(ctx, msg, &block_name).await;
@@ -151,7 +163,11 @@ impl Block for AdminBlock {
             }
             // Block feature toggle
             if action == "create" && sub.starts_with("/blocks/") && sub.ends_with("/toggle") {
-                let encoded = sub.strip_prefix("/blocks/").and_then(|s| s.strip_suffix("/toggle")).unwrap_or("").to_string();
+                let encoded = sub
+                    .strip_prefix("/blocks/")
+                    .and_then(|s| s.strip_suffix("/toggle"))
+                    .unwrap_or("")
+                    .to_string();
                 let block_name = encoded.replace("--", "/");
                 if !block_name.is_empty() {
                     return pages::handle_toggle_feature(ctx, msg, &block_name).await;
@@ -162,7 +178,11 @@ impl Block for AdminBlock {
                 return pages::handle_create_variable(ctx, msg).await;
             }
             if action == "retrieve" && sub.ends_with("/edit") && sub.starts_with("/variables/") {
-                let var_key = sub.strip_prefix("/variables/").and_then(|s| s.strip_suffix("/edit")).unwrap_or("").to_string();
+                let var_key = sub
+                    .strip_prefix("/variables/")
+                    .and_then(|s| s.strip_suffix("/edit"))
+                    .unwrap_or("")
+                    .to_string();
                 if !var_key.is_empty() {
                     return pages::handle_edit_variable_form(ctx, msg, &var_key).await;
                 }
@@ -202,15 +222,19 @@ impl Block for AdminBlock {
             return settings::handle(ctx, msg).await;
         }
         if path.starts_with("/admin/extensions") {
-            let blocks: Vec<_> = ctx.registered_blocks().into_iter().map(|b| {
-                serde_json::json!({
-                    "name": b.name,
-                    "version": b.version,
-                    "interface": b.interface,
-                    "summary": b.summary,
-                    "enabled": true,
+            let blocks: Vec<_> = ctx
+                .registered_blocks()
+                .into_iter()
+                .map(|b| {
+                    serde_json::json!({
+                        "name": b.name,
+                        "version": b.version,
+                        "interface": b.interface,
+                        "summary": b.summary,
+                        "enabled": true,
+                    })
                 })
-            }).collect();
+                .collect();
             return wafer_run::helpers::json_respond(msg, &blocks);
         }
         if path.starts_with("/admin/wafer") {
@@ -223,7 +247,11 @@ impl Block for AdminBlock {
         err_not_found(msg, "not found")
     }
 
-    async fn lifecycle(&self, ctx: &dyn Context, event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(
+        &self,
+        ctx: &dyn Context,
+        event: LifecycleEvent,
+    ) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
             iam::seed_defaults(ctx).await;
             settings::seed_defaults(ctx).await;

@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::helpers::*;
-use wafer_core::clients::database as db;
 use super::{PRICING_COLLECTION, PRODUCTS_COLLECTION};
 use crate::blocks::helpers::RecordExt;
+use std::collections::HashMap;
+use wafer_core::clients::database as db;
+use wafer_run::context::Context;
+use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
@@ -15,7 +15,9 @@ pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         #[serde(default = "default_quantity")]
         quantity: i64,
     }
-    fn default_quantity() -> i64 { 1 }
+    fn default_quantity() -> i64 {
+        1
+    }
 
     let body: CalcReq = match msg.decode() {
         Ok(b) => b,
@@ -32,14 +34,21 @@ pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let template_id = product.str_field("pricing_template_id");
     if template_id.is_empty() {
         // Direct price from product
-        let base_price = product.data.get("base_price").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let base_price = product
+            .data
+            .get("base_price")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
         let total = base_price * body.quantity as f64;
-        return json_respond(msg, &serde_json::json!({
-            "unit_price": base_price,
-            "quantity": body.quantity,
-            "total": total,
-            "currency": product.data.get("currency").and_then(|v| v.as_str()).unwrap_or("USD")
-        }));
+        return json_respond(
+            msg,
+            &serde_json::json!({
+                "unit_price": base_price,
+                "quantity": body.quantity,
+                "total": total,
+                "currency": product.data.get("currency").and_then(|v| v.as_str()).unwrap_or("USD")
+            }),
+        );
     }
 
     let template = match db::get(ctx, PRICING_COLLECTION, template_id).await {
@@ -80,14 +89,17 @@ pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let total = final_price * body.quantity as f64;
 
-    json_respond(msg, &serde_json::json!({
-        "unit_price": final_price,
-        "quantity": body.quantity,
-        "total": total,
-        "currency": product.data.get("currency").and_then(|v| v.as_str()).unwrap_or("USD"),
-        "formula": formula,
-        "variables_used": body.variables
-    }))
+    json_respond(
+        msg,
+        &serde_json::json!({
+            "unit_price": final_price,
+            "quantity": body.quantity,
+            "total": total,
+            "currency": product.data.get("currency").and_then(|v| v.as_str()).unwrap_or("USD"),
+            "formula": formula,
+            "variables_used": body.variables
+        }),
+    )
 }
 
 /// Evaluate a simple pricing formula.
@@ -120,19 +132,39 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     while i < chars.len() {
         match chars[i] {
             ' ' | '\t' | '\n' => i += 1,
-            '+' => { tokens.push(Token::Plus); i += 1; }
-            '-' => { tokens.push(Token::Minus); i += 1; }
-            '*' => { tokens.push(Token::Star); i += 1; }
-            '/' => { tokens.push(Token::Slash); i += 1; }
-            '(' => { tokens.push(Token::LParen); i += 1; }
-            ')' => { tokens.push(Token::RParen); i += 1; }
+            '+' => {
+                tokens.push(Token::Plus);
+                i += 1;
+            }
+            '-' => {
+                tokens.push(Token::Minus);
+                i += 1;
+            }
+            '*' => {
+                tokens.push(Token::Star);
+                i += 1;
+            }
+            '/' => {
+                tokens.push(Token::Slash);
+                i += 1;
+            }
+            '(' => {
+                tokens.push(Token::LParen);
+                i += 1;
+            }
+            ')' => {
+                tokens.push(Token::RParen);
+                i += 1;
+            }
             c if c.is_ascii_digit() || c == '.' => {
                 let start = i;
                 while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
                     i += 1;
                 }
                 let num_str: String = chars[start..i].iter().collect();
-                let num = num_str.parse::<f64>().map_err(|e| format!("Invalid number: {e}"))?;
+                let num = num_str
+                    .parse::<f64>()
+                    .map_err(|e| format!("Invalid number: {e}"))?;
                 tokens.push(Token::Number(num));
             }
             c if c.is_ascii_alphabetic() || c == '_' => {
@@ -149,27 +181,46 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     Ok(tokens)
 }
 
-fn parse_expression(tokens: &[Token], pos: &mut usize, vars: &HashMap<String, f64>) -> Result<f64, String> {
+fn parse_expression(
+    tokens: &[Token],
+    pos: &mut usize,
+    vars: &HashMap<String, f64>,
+) -> Result<f64, String> {
     let mut left = parse_term(tokens, pos, vars)?;
     while *pos < tokens.len() {
         match &tokens[*pos] {
-            Token::Plus => { *pos += 1; left += parse_term(tokens, pos, vars)?; }
-            Token::Minus => { *pos += 1; left -= parse_term(tokens, pos, vars)?; }
+            Token::Plus => {
+                *pos += 1;
+                left += parse_term(tokens, pos, vars)?;
+            }
+            Token::Minus => {
+                *pos += 1;
+                left -= parse_term(tokens, pos, vars)?;
+            }
             _ => break,
         }
     }
     Ok(left)
 }
 
-fn parse_term(tokens: &[Token], pos: &mut usize, vars: &HashMap<String, f64>) -> Result<f64, String> {
+fn parse_term(
+    tokens: &[Token],
+    pos: &mut usize,
+    vars: &HashMap<String, f64>,
+) -> Result<f64, String> {
     let mut left = parse_factor(tokens, pos, vars)?;
     while *pos < tokens.len() {
         match &tokens[*pos] {
-            Token::Star => { *pos += 1; left *= parse_factor(tokens, pos, vars)?; }
+            Token::Star => {
+                *pos += 1;
+                left *= parse_factor(tokens, pos, vars)?;
+            }
             Token::Slash => {
                 *pos += 1;
                 let right = parse_factor(tokens, pos, vars)?;
-                if right == 0.0 { return Err("Division by zero".to_string()); }
+                if right == 0.0 {
+                    return Err("Division by zero".to_string());
+                }
                 left /= right;
             }
             _ => break,
@@ -178,15 +229,25 @@ fn parse_term(tokens: &[Token], pos: &mut usize, vars: &HashMap<String, f64>) ->
     Ok(left)
 }
 
-fn parse_factor(tokens: &[Token], pos: &mut usize, vars: &HashMap<String, f64>) -> Result<f64, String> {
+fn parse_factor(
+    tokens: &[Token],
+    pos: &mut usize,
+    vars: &HashMap<String, f64>,
+) -> Result<f64, String> {
     if *pos >= tokens.len() {
         return Err("Unexpected end of expression".to_string());
     }
     match &tokens[*pos] {
-        Token::Number(n) => { let v = *n; *pos += 1; Ok(v) }
+        Token::Number(n) => {
+            let v = *n;
+            *pos += 1;
+            Ok(v)
+        }
         Token::Ident(name) => {
             *pos += 1;
-            vars.get(name).copied().ok_or_else(|| format!("Unknown variable: {name}"))
+            vars.get(name)
+                .copied()
+                .ok_or_else(|| format!("Unknown variable: {name}"))
         }
         Token::LParen => {
             *pos += 1;
@@ -211,7 +272,10 @@ fn parse_factor(tokens: &[Token], pos: &mut usize, vars: &HashMap<String, f64>) 
     }
 }
 
-fn evaluate_condition(cond: &serde_json::Map<String, serde_json::Value>, variables: &HashMap<String, f64>) -> bool {
+fn evaluate_condition(
+    cond: &serde_json::Map<String, serde_json::Value>,
+    variables: &HashMap<String, f64>,
+) -> bool {
     let field = cond.get("field").and_then(|v| v.as_str()).unwrap_or("");
     let operator = cond.get("operator").and_then(|v| v.as_str()).unwrap_or("");
     let value = cond.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);

@@ -1,6 +1,6 @@
 use wafer_run::context::Context;
-use wafer_run::types::*;
 use wafer_run::helpers::*;
+use wafer_run::types::*;
 
 pub fn handle(_ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -61,11 +61,14 @@ fn handle_flows(msg: &mut Message) -> Result_ {
 }
 
 fn handle_info(msg: &mut Message) -> Result_ {
-    json_respond(msg, &serde_json::json!({
-        "runtime": "wafer",
-        "version": "1.0.0",
-        "platform": "solobase",
-        "block_mode": "native-rust",
-        "features": ["database", "storage", "crypto", "network", "config"]
-    }))
+    json_respond(
+        msg,
+        &serde_json::json!({
+            "runtime": "wafer",
+            "version": "1.0.0",
+            "platform": "solobase",
+            "block_mode": "native-rust",
+            "features": ["database", "storage", "crypto", "network", "config"]
+        }),
+    )
 }
