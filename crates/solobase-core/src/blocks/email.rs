@@ -175,7 +175,7 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 <li>Read the <a href="https://solobase.dev/docs/" style="color:#0ea5e9">documentation</a></li>
 </ol>
 </div>"#),
-                format!("Welcome to Solobase! Get started: https://cloud.solobase.dev/blocks/dashboard/"),
+                "Welcome to Solobase! Get started: https://cloud.solobase.dev/blocks/dashboard/".to_string(),
             )
         }
         other => {
@@ -259,7 +259,7 @@ async fn send_email(
                 // Check if status was 200
                 if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&resp.data) {
                     let status = v.get("status_code").and_then(|s| s.as_u64()).unwrap_or(0);
-                    return status >= 200 && status < 300;
+                    return (200..300).contains(&status);
                 }
             }
             false

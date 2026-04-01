@@ -111,7 +111,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     // Verify the file actually exists before creating a share
-    if let Err(_) = wafer_core::clients::storage::get(ctx, &body.bucket, &body.key).await {
+    if wafer_core::clients::storage::get(ctx, &body.bucket, &body.key).await.is_err() {
         return err_not_found(msg, "File not found in storage");
     }
 

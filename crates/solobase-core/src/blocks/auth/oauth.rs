@@ -336,7 +336,7 @@ impl AuthBlock {
                 let allowed_domains =
                     config::get_default(ctx, "AUTH_ALLOWED_EMAIL_DOMAINS", "").await;
                 if !allowed_domains.is_empty() {
-                    let email_domain = email.splitn(2, '@').nth(1).unwrap_or("");
+                    let email_domain = email.split_once('@').map(|x| x.1).unwrap_or("");
                     let allowed = allowed_domains.split(',').any(|d| d.trim() == email_domain);
                     if !allowed {
                         return err_forbidden(

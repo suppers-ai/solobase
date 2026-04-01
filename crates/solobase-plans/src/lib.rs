@@ -138,7 +138,7 @@ pub const ADDON_PACKS: &[AddonPack] = &[
         stripe_price_env: "STRIPE_PRICE_ADDON_D1_1GB",
         extra_requests: 0,
         extra_r2_bytes: 0,
-        extra_d1_bytes: 1 * GB,
+        extra_d1_bytes: GB,
         extra_projects: 0,
     },
     AddonPack {

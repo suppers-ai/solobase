@@ -132,7 +132,7 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Resul
                 "Content-Disposition",
                 &format!(
                     "inline; filename=\"{}\"",
-                    key.replace('"', "").replace('\n', "").replace('\r', "")
+                    key.replace(['"', '\n', '\r'], "")
                 ),
             )
             .set_header("Cache-Control", "private, max-age=3600")

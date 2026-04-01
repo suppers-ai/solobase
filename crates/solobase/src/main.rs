@@ -329,11 +329,9 @@ fn seed_and_load_variables(
         })
         .expect("failed to query variables");
 
-    for row in rows {
-        if let Ok((key, value)) = row {
-            if !key.is_empty() {
-                vars.insert(key, value);
-            }
+    for (key, value) in rows.flatten() {
+        if !key.is_empty() {
+            vars.insert(key, value);
         }
     }
 

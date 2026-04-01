@@ -65,13 +65,12 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 ),
             );
         }
-        if product
+        if !product
             .data
             .get("deleted_at")
             .and_then(|v| v.as_str())
             .unwrap_or("")
-            .len()
-            > 0
+            .is_empty()
         {
             return err_not_found(msg, &format!("Product {} not found", item.product_id));
         }

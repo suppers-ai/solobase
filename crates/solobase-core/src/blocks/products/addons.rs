@@ -350,11 +350,8 @@ async fn get_subscription(
         return None;
     }
 
-    match &rows[0].data {
-        data => {
-            let map: serde_json::Map<String, serde_json::Value> =
-                data.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-            Some(map)
-        }
-    }
+    let data = &rows[0].data;
+    let map: serde_json::Map<String, serde_json::Value> =
+        data.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    Some(map)
 }

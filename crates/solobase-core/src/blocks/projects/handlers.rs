@@ -363,7 +363,7 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             break;
         }
     }
-    let slug_filters: Vec<Filter> = vec![];
+    let _slug_filters: Vec<Filter> = vec![];
     if taken {
         return err_conflict(msg, &format!("Subdomain '{}' is already taken", slug));
     }

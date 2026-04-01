@@ -1686,7 +1686,7 @@ pub async fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_
         )
 }
 
-/// DELETE /b/admin/iam/roles/{id}
+// DELETE /b/admin/iam/roles/{id}
 // ---------------------------------------------------------------------------
 // Variable mutation handlers
 // ---------------------------------------------------------------------------

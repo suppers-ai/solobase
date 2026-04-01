@@ -39,7 +39,7 @@ pub fn sidebar(
                             href=(item.href)
                         {
                             span .nav-icon {
-                                (nav_icon(&item.icon))
+                                (nav_icon(item.icon))
                             }
                             span .nav-text { (item.label) }
                         }
