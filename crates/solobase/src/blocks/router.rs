@@ -67,19 +67,9 @@ impl SolobaseRouterBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for SolobaseRouterBlock {
     fn info(&self) -> BlockInfo {
-        BlockInfo {
-            name: "suppers-ai/router".to_string(),
-            version: "0.0.1".to_string(),
-            interface: "http-handler@v1".to_string(),
-            summary: "Solobase shared router — delegates to solobase-core pipeline".to_string(),
-            instance_mode: InstanceMode::Singleton,
-            allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: None,
-            runtime: BlockRuntime::Native,
-            requires: Vec::new(),
-            collections: Vec::new(),
-            config_schema: None,
-        }
+        BlockInfo::new("suppers-ai/router", "0.0.1", "http-handler@v1", "Solobase shared router — delegates to solobase-core pipeline")
+            .instance_mode(InstanceMode::Singleton)
+            .category(wafer_run::BlockCategory::Feature)
     }
 
     async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> Result<(), WaferError> {

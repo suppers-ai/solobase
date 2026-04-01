@@ -14,19 +14,28 @@ pub struct UserPortalBlock;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for UserPortalBlock {
     fn info(&self) -> BlockInfo {
-        BlockInfo {
-            name: "suppers-ai/userportal".to_string(),
-            version: "0.0.1".to_string(),
-            interface: "http-handler@v1".to_string(),
-            summary: "User portal — dashboard, projects, and API keys".to_string(),
-            instance_mode: InstanceMode::Singleton,
-            allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: None,
-            runtime: wafer_run::types::BlockRuntime::Native,
-            requires: vec!["wafer-run/database".into(), "wafer-run/config".into()],
-            collections: Vec::new(),
-            config_schema: None,
-        }
+        use wafer_run::AuthLevel;
+
+        BlockInfo::new("suppers-ai/userportal", "0.0.1", "http-handler@v1", "User portal — dashboard, projects, and API keys")
+            .instance_mode(InstanceMode::Singleton)
+            .requires(vec!["wafer-run/database".into(), "wafer-run/config".into()])
+            .category(wafer_run::BlockCategory::Feature)
+            .description("User-facing dashboard for managing projects and API keys. Shows plan overview, project management with subdomain provisioning, and API key generation. Also serves the portal configuration endpoint used by the frontend.")
+            .endpoints(vec![
+                BlockEndpoint::get("/b/userportal/", "Dashboard", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/userportal/projects", "Manage projects", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/userportal/api-keys", "Manage API keys", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/userportal/config", "Portal configuration", AuthLevel::Public),
+            ])
+            .config_keys(vec![
+                BlockConfigKey::new("APP_NAME", "Application display name", "Solobase"),
+                BlockConfigKey::new("LOGO_URL", "Logo image URL", ""),
+                BlockConfigKey::new("PRIMARY_COLOR", "Primary brand color", "#6366f1"),
+                BlockConfigKey::new("ALLOW_SIGNUP", "Allow new user registration", "true"),
+                BlockConfigKey::new("ENABLE_OAUTH", "Enable OAuth login", "false"),
+            ])
+            .can_disable(true)
+            .default_enabled(false)
     }
 
     fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
@@ -64,20 +73,34 @@ impl Block for UserPortalBlock {
 
 impl UserPortalBlock {
     async fn handle_config(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+        // Read block enabled state from block_settings table
+        let block_rows = db::query_raw(ctx,
+            "SELECT block_name, enabled FROM block_settings",
+            &[],
+        ).await.unwrap_or_default();
+
+        let is_enabled = |name: &str| -> bool {
+            block_rows.iter()
+                .find(|r| r.data.get("block_name").and_then(|v| v.as_str()) == Some(name))
+                .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
+                .map(|v| v != 0)
+                .unwrap_or(true)
+        };
+
         let config_val = serde_json::json!({
-            "logo_url": config::get_default(ctx, "LOGO_URL", "/logo.png").await,
+            "logo_url": config::get_default(ctx, "LOGO_URL", "").await,
             "app_name": config::get_default(ctx, "APP_NAME", "Solobase").await,
             "primary_color": config::get_default(ctx, "PRIMARY_COLOR", "#6366f1").await,
             "enable_oauth": config::get_default(ctx, "ENABLE_OAUTH", "false").await,
             "allow_signup": config::get_default(ctx, "ALLOW_SIGNUP", "true").await,
             "show_powered_by": true,
             "features": {
-                "files": config::get_default(ctx, "FEATURE_FILES", "true").await,
-                "products": config::get_default(ctx, "FEATURE_PRODUCTS", "true").await,
+                "files": is_enabled("suppers-ai/files"),
+                "products": is_enabled("suppers-ai/products"),
                 "user_products": config::get_default(ctx, "FEATURE_USER_PRODUCTS", "false").await,
-                "legal_pages": config::get_default(ctx, "FEATURE_LEGAL_PAGES", "true").await,
-                "monitoring": config::get_default(ctx, "FEATURE_MONITORING", "true").await,
-                "projects": config::get_default(ctx, "FEATURE_PROJECTS", "true").await
+                "legal_pages": is_enabled("suppers-ai/legalpages"),
+                "projects": is_enabled("suppers-ai/projects"),
+                "userportal": is_enabled("suppers-ai/userportal"),
             }
         });
         json_respond(msg, &config_val)

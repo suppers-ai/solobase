@@ -944,8 +944,41 @@ async fn audit_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
 pub async fn blocks_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
+    let tab = msg.query("tab");
+    let active_tab = match tab {
+        "services" => "services",
+        "middleware" => "middleware",
+        "infrastructure" => "infrastructure",
+        _ => "features",
+    };
 
-    let blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
+    let registered_blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
+
+    // Load block enabled/disabled state from block_settings table
+    let block_settings_rows = db::query_raw(ctx,
+        "SELECT block_name, enabled FROM block_settings",
+        &[],
+    ).await.unwrap_or_default();
+
+    let block_enabled: std::collections::HashMap<String, bool> = block_settings_rows.iter().map(|r| {
+        let name = r.data.get("block_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let enabled = r.data.get("enabled").and_then(|v| v.as_i64()).unwrap_or(1) != 0;
+        (name, enabled)
+    }).collect();
+
+    // Build full block list: registered blocks + disabled blocks from block_settings
+    // Disabled blocks get placeholder BlockInfo since they aren't in the runtime
+    let mut all_blocks = registered_blocks.clone();
+    for (name, enabled) in &block_enabled {
+        if !*enabled && !all_blocks.iter().any(|b| &b.name == name) {
+            // Create a minimal placeholder for this disabled block
+            all_blocks.push(wafer_run::BlockInfo::new(name, "0.0.1", "http.handler", "(disabled — restart to load)")
+                .instance_mode(wafer_run::types::InstanceMode::Singleton)
+                .category(wafer_run::BlockCategory::Feature)
+                .can_disable(true)
+                .default_enabled(false));
+        }
+    }
 
     let content = html! {
         (components::page_header("Blocks", Some("Registered WAFER blocks"),
@@ -956,39 +989,308 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             })
         ))
 
-        div .table-container {
-            table .table {
-                thead {
-                    tr {
-                        th { "Name" }
-                        th { "Version" }
-                        th { "Summary" }
-                        th { "Runtime" }
-                        th { "UI" }
+        div .tabs {
+            a .tab .(if active_tab == "features" { "active" } else { "" })
+                href="/b/admin/blocks"
+                hx-get="/b/admin/blocks"
+                hx-target="#content"
+                hx-push-url="true"
+            { (icons::package()) " Features" }
+            a .tab .(if active_tab == "services" { "active" } else { "" })
+                href="/b/admin/blocks?tab=services"
+                hx-get="/b/admin/blocks?tab=services"
+                hx-target="#content"
+                hx-push-url="true"
+            { (icons::server()) " Services" }
+            a .tab .(if active_tab == "middleware" { "active" } else { "" })
+                href="/b/admin/blocks?tab=middleware"
+                hx-get="/b/admin/blocks?tab=middleware"
+                hx-target="#content"
+                hx-push-url="true"
+            { (icons::shield()) " Middleware" }
+            a .tab .(if active_tab == "infrastructure" { "active" } else { "" })
+                href="/b/admin/blocks?tab=infrastructure"
+                hx-get="/b/admin/blocks?tab=infrastructure"
+                hx-target="#content"
+                hx-push-url="true"
+            { (icons::settings()) " Infrastructure" }
+        }
+
+        div #blocks-tab-content {
+            @let category = match active_tab {
+                "services" => wafer_run::BlockCategory::Service,
+                "middleware" => wafer_run::BlockCategory::Middleware,
+                "infrastructure" => wafer_run::BlockCategory::Infrastructure,
+                _ => wafer_run::BlockCategory::Feature,
+            };
+            @let filtered: Vec<_> = all_blocks.iter().filter(|b| b.category == category).collect();
+
+            @if filtered.is_empty() {
+                (components::empty_state("No blocks", "No blocks registered in this category"))
+            }
+
+            div .cards style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px;align-items:start" {
+                style { (maud::PreEscaped("
+                    .block-card-collapsed { min-height: 120px; }
+                    .block-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; }
+                ")) }
+                @for block in &filtered {
+                    @let is_enabled = block_enabled.get(&block.name).copied().unwrap_or(true);
+
+                    @let encoded_name = block.name.replace('/', "--");
+                    div .card
+                        style={"cursor:pointer;height:100px;display:flex;flex-direction:column;justify-content:space-between;position:relative;" (if !is_enabled { "opacity:0.5;" } else { "" })}
+                        hx-get={"/b/admin/blocks/" (encoded_name) "/detail"}
+                        hx-target="#block-detail-modal"
+                        hx-swap="innerHTML"
+                    {
+                        // Top-right: status icon + version + details link
+                        div style="position:absolute;top:12px;right:12px;display:flex;align-items:center;gap:6px" {
+                            @if is_enabled {
+                                span style="color:#10b981;font-size:14px" title="Enabled" { "✓" }
+                            } @else {
+                                span style="color:#94a3b8;font-size:14px" title="Disabled" { "✗" }
+                            }
+                            span style="font-size:11px;color:#94a3b8" { "v" (block.version) }
+                            span style="color:#94a3b8;font-size:11px;display:flex;align-items:center;gap:2px" {
+                                "Details" (icons::chevron_right())
+                            }
+                        }
+                        div {
+                            h3 style="font-size:14px;font-weight:600;color:#1e3a5f;margin:0 0 4px;padding-right:50px" { (block.name) }
+                            p .text-muted .block-summary style="font-size:13px;margin:0;line-height:1.4" { (block.summary) }
+                        }
                     }
                 }
-                tbody {
-                    @for block in &blocks {
-                        tr {
-                            td .font-medium { (block.name) }
-                            td .text-muted .text-sm { (block.version) }
-                            td .text-sm { (block.summary) }
-                            td {
-                                span .badge .badge-info { (format!("{:?}", block.runtime)) }
+            }
+        }
+
+        // Block detail modal (content loaded via htmx)
+        div .modal-overlay #block-detail-modal-overlay hidden
+            onclick="if(event.target===this)closeModal('block-detail-modal-overlay')"
+        {
+            div .modal style="max-width:700px;max-height:85vh;overflow-y:auto" {
+                div #block-detail-modal {}
+            }
+        }
+    };
+
+    admin_page("Blocks", &config, "/b/admin/blocks", user.as_ref(), content, msg)
+}
+
+/// POST /b/admin/blocks/{name}/toggle — toggle a block's enabled state
+pub async fn handle_toggle_feature(ctx: &dyn Context, msg: &mut Message, block_name: &str) -> Result_ {
+    // Read current state from block_settings
+    let current_enabled = db::query_raw(ctx,
+        "SELECT enabled FROM block_settings WHERE block_name = ?1",
+        &[serde_json::json!(block_name)],
+    ).await.ok()
+        .and_then(|rows| rows.first().and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64())))
+        .map(|v| v != 0)
+        .unwrap_or(true);
+
+    let new_enabled = !current_enabled;
+    let new_enabled_int = if new_enabled { 1 } else { 0 };
+
+    // Upsert into block_settings
+    let _ = db::exec_raw(ctx,
+        "INSERT INTO block_settings (block_name, enabled, created_at, updated_at) \
+         VALUES (?1, ?2, datetime('now'), datetime('now')) \
+         ON CONFLICT (block_name) DO UPDATE SET enabled = ?2, updated_at = datetime('now')",
+        &[serde_json::json!(block_name), serde_json::json!(new_enabled_int)],
+    ).await;
+
+    let admin_id = msg.user_id().to_string();
+    let ip = msg.remote_addr().to_string();
+    let action = if new_enabled { "block.enable" } else { "block.disable" };
+    super::logs::audit_log(ctx, &admin_id, action, &format!("blocks/{block_name}"), &ip).await;
+
+    // Re-render the blocks page
+    blocks_page(ctx, msg).await
+}
+
+/// GET /b/admin/blocks/{name}/detail — block detail modal content
+pub async fn handle_block_detail(ctx: &dyn Context, msg: &mut Message, block_name: &str) -> Result_ {
+    let blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
+    let block_opt = blocks.iter().find(|b| b.name == block_name);
+
+    // Check block enabled state from block_settings
+    let is_enabled = db::query_raw(ctx,
+        "SELECT enabled FROM block_settings WHERE block_name = ?1",
+        &[serde_json::json!(block_name)],
+    ).await.ok()
+        .and_then(|rows| rows.first().and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64())))
+        .map(|v| v != 0)
+        .unwrap_or(true);
+
+    let encoded = block_name.replace('/', "--");
+
+    // Disabled block not in runtime — show minimal modal with toggle
+    if block_opt.is_none() {
+        let markup = html! {
+            div .modal-header {
+                h3 .modal-title { (block_name) }
+                button .modal-close onclick="closeModal('block-detail-modal-overlay')" {
+                    (icons::x())
+                }
+            }
+            div .modal-body {
+                div .flex .items-center .justify-between .mb-4 {
+                    span .text-muted { "This block is currently disabled." }
+                    label .toggle {
+                        input type="checkbox"
+                            checked[is_enabled]
+                            hx-post={"/b/admin/blocks/" (encoded) "/toggle"}
+                            hx-target="#content";
+                        span .toggle-slider {}
+                    }
+                }
+                p style="font-size:0.875rem;color:#94a3b8;margin-top:1rem" {
+                    "Enable and restart the server to load this block and see its full details."
+                }
+            }
+            script { (maud::PreEscaped("document.getElementById('block-detail-modal-overlay').removeAttribute('hidden');")) }
+        };
+        return ui::html_response(msg, markup);
+    }
+
+    let block = block_opt.unwrap();
+
+    let markup = html! {
+        div .modal-header {
+            div {
+                div .flex .items-center .gap-2 {
+                    h3 .modal-title { (block.name) }
+                    span .badge .badge-info style="font-size:11px" { "v" (block.version) }
+                    span .badge style="font-size:11px;background:#f1f5f9;color:#475569" { (format!("{:?}", block.category)) }
+                }
+            }
+            button .modal-close onclick="closeModal('block-detail-modal-overlay')" {
+                (icons::x())
+            }
+        }
+        div .modal-body {
+            // Admin UI link + Block toggle (above description)
+            div .flex .items-center .justify-between .mb-4 {
+                div .flex .items-center .gap-2 {
+                }
+                @if block.can_disable {
+                    div .flex .items-center .gap-2 {
+                        span .text-sm .text-muted { "Enabled" }
+                        label .toggle {
+                            @let encoded = block.name.replace('/', "--");
+                            input type="checkbox"
+                                checked[is_enabled]
+                                hx-post={"/b/admin/blocks/" (encoded) "/toggle"}
+                                hx-target="#content";
+                            span .toggle-slider {}
+                        }
+                    }
+                } @else {
+                    span .text-sm .text-muted { "Always enabled (core block)" }
+                }
+            }
+
+            // Description
+            @if !block.description.is_empty() {
+                p style="font-size:0.875rem;color:#64748b;line-height:1.6;margin-bottom:1rem" { (block.description) }
+            }
+
+            // Endpoints
+            @if !block.endpoints.is_empty() {
+                h4 style="font-size:0.875rem;font-weight:600;margin:1rem 0 0.5rem" { "Endpoints" }
+                div .table-container {
+                    table .table {
+                        thead {
+                            tr {
+                                th style="width:70px" { "Method" }
+                                th { "Path" }
+                                th { "Description" }
+                                th style="width:80px" { "Auth" }
                             }
-                            td {
-                                @if let Some(ref ui) = block.admin_ui {
-                                    a .btn .btn-sm .btn-primary href=(ui.url) { (ui.label) }
+                        }
+                        tbody {
+                            @for ep in &block.endpoints {
+                                tr {
+                                    td {
+                                        span .badge style={"font-size:11px;" (match ep.method {
+                                            wafer_run::types::HttpMethod::Get => "background:#dbeafe;color:#1d4ed8",
+                                            wafer_run::types::HttpMethod::Post => "background:#dcfce7;color:#166534",
+                                            wafer_run::types::HttpMethod::Patch => "background:#fef3c7;color:#92400e",
+                                            wafer_run::types::HttpMethod::Delete => "background:#fce4ec;color:#c62828",
+                                        })} { (ep.method) }
+                                    }
+                                    td .text-sm { code style="font-size:12px" { (ep.path) } }
+                                    td .text-sm .text-muted { (ep.summary) }
+                                    td {
+                                        span .badge style={"font-size:10px;" (match ep.auth {
+                                            wafer_run::types::AuthLevel::Public => "background:#dcfce7;color:#166534",
+                                            wafer_run::types::AuthLevel::Admin => "background:#fce4ec;color:#c62828",
+                                            wafer_run::types::AuthLevel::Authenticated => "background:#fef3c7;color:#92400e",
+                                        })} { (ep.auth) }
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+
+            // Config Keys
+            @if !block.config_keys.is_empty() {
+                h4 style="font-size:0.875rem;font-weight:600;margin:1rem 0 0.5rem" { "Configuration" }
+                div .table-container {
+                    table .table {
+                        thead {
+                            tr {
+                                th { "Key" }
+                                th { "Description" }
+                                th { "Default" }
+                            }
+                        }
+                        tbody {
+                            @for ck in &block.config_keys {
+                                tr {
+                                    td { code style="font-size:12px" { (ck.key) } }
+                                    td .text-sm .text-muted { (ck.description) }
+                                    td .text-sm { code style="font-size:11px" { @if ck.default.is_empty() { "—" } @else { (ck.default) } } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Technical details
+            h4 style="font-size:0.875rem;font-weight:600;margin:1rem 0 0.5rem" { "Technical" }
+            div style="font-size:13px;color:#64748b" {
+                div .mb-2 {
+                    b { "Interface: " }
+                    span .badge style="font-size:11px;background:#f1f5f9;color:#475569" { (block.interface) }
+                }
+                @if !block.requires.is_empty() {
+                    div .mb-2 {
+                        b { "Requires: " }
+                        @for req in &block.requires {
+                            span .badge .badge-primary style="font-size:11px;margin-right:4px" { (req) }
+                        }
+                    }
+                }
+                @if !block.collections.is_empty() {
+                    div .mb-2 {
+                        b { "Database tables: " }
+                        @for col in &block.collections {
+                            span .badge style="font-size:11px;margin-right:4px;background:#f1f5f9;color:#475569" { (col.name) }
+                        }
+                    }
+                }
+            }
         }
+        // Auto-open
+        script { (maud::PreEscaped("document.getElementById('block-detail-modal-overlay').removeAttribute('hidden');")) }
     };
 
-    admin_page("Blocks", &config, "/b/admin/blocks", user.as_ref(), content, msg)
+    ui::html_response(msg, markup)
 }
 
 // ---------------------------------------------------------------------------

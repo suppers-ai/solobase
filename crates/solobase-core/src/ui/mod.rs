@@ -121,6 +121,48 @@ pub fn not_found_page() -> maud::Markup {
     }
 }
 
+/// Render a styled 403 page.
+pub fn forbidden_page() -> maud::Markup {
+    use maud::{html, DOCTYPE};
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width,initial-scale=1";
+                title { "Access Denied" }
+                link rel="stylesheet" href=(assets::css_url());
+            }
+            body {
+                div .login-page {
+                    div .login-container style="text-align:center" {
+                        div style="font-size:4rem;font-weight:700;color:var(--text-muted);margin-bottom:0.5rem" { "403" }
+                        h1 style="font-size:1.25rem;font-weight:600;margin:0 0 0.5rem" { "Access denied" }
+                        p .login-subtitle style="margin-bottom:1.5rem" {
+                            "You don't have permission to access this page. Please sign in with an admin account."
+                        }
+                        a .login-button href="/b/auth/login" style="display:inline-block;width:auto;padding:.625rem 1.25rem;text-decoration:none" {
+                            "Sign In"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Return styled 403 for browser requests, JSON for API requests.
+pub fn forbidden_response(msg: &mut wafer_run::types::Message) -> wafer_run::types::Result_ {
+    let accept = msg.get_meta("http.header.accept");
+    if accept.contains("text/html") && !accept.contains("application/json") {
+        wafer_run::helpers::ResponseBuilder::new(msg)
+            .status(403)
+            .body(forbidden_page().into_string().into_bytes(), "text/html; charset=utf-8")
+    } else {
+        wafer_run::helpers::err_forbidden(msg, "admin access required")
+    }
+}
+
 /// Return styled 404 for browser requests, JSON for API requests.
 pub fn not_found_response(msg: &mut wafer_run::types::Message) -> wafer_run::types::Result_ {
     let accept = msg.get_meta("http.header.accept");

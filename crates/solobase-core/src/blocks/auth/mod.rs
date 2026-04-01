@@ -221,18 +221,12 @@ pub async fn seed_admin_user(ctx: &dyn Context) {
 impl Block for AuthBlock {
     fn info(&self) -> BlockInfo {
         use wafer_run::types::CollectionSchema;
+        use wafer_run::AuthLevel;
 
-        BlockInfo {
-            name: "suppers-ai/auth".to_string(),
-            version: "0.0.1".to_string(),
-            interface: "http-handler@v1".to_string(),
-            summary: "Authentication: login, signup, JWT, refresh tokens, OAuth, API keys".to_string(),
-            instance_mode: InstanceMode::Singleton,
-            allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: None,
-            runtime: wafer_run::types::BlockRuntime::Native,
-            requires: vec!["wafer-run/database".into(), "wafer-run/crypto".into(), "wafer-run/config".into(), "suppers-ai/email".into()],
-            collections: vec![
+        BlockInfo::new("suppers-ai/auth", "0.0.1", "http-handler@v1", "Authentication: login, signup, JWT, refresh tokens, OAuth, API keys")
+            .instance_mode(InstanceMode::Singleton)
+            .requires(vec!["wafer-run/database".into(), "wafer-run/crypto".into(), "wafer-run/config".into(), "suppers-ai/email".into()])
+            .collections(vec![
                 CollectionSchema::new("auth_users")
                     .field_unique("email", "string")
                     .field_default("password_hash", "string", "")
@@ -260,9 +254,32 @@ impl Block for AuthBlock {
                     .field_optional("revoked_at", "datetime")
                     .field_optional("expires_at", "datetime")
                     .index(&["user_id"]),
-            ],
-            config_schema: None,
-        }
+            ])
+            .category(wafer_run::BlockCategory::Feature)
+            .description("Handles user authentication, registration, and session management. Supports email/password login, OAuth providers (Google, GitHub, Microsoft), email verification, password reset, and API key management.")
+            .endpoints(vec![
+                BlockEndpoint::get("/b/auth/login", "Login page", AuthLevel::Public),
+                BlockEndpoint::post("/b/auth/login", "Authenticate with email/password", AuthLevel::Public),
+                BlockEndpoint::get("/b/auth/signup", "Signup page", AuthLevel::Public),
+                BlockEndpoint::post("/b/auth/signup", "Create account", AuthLevel::Public),
+                BlockEndpoint::post("/b/auth/logout", "Sign out", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/auth/me", "Get current user", AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/auth/change-password", "Change password", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/auth/api-keys", "List API keys", AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/auth/api-keys", "Create API key", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/auth/oauth/login", "Start OAuth flow", AuthLevel::Public),
+            ])
+            .config_keys(vec![
+                BlockConfigKey::new("ALLOW_SIGNUP", "Allow new user registration", "true"),
+                BlockConfigKey::new("ENABLE_OAUTH", "Enable OAuth login providers", "false"),
+                BlockConfigKey::new("AUTH_REQUIRE_VERIFICATION", "Require email verification before login", "false"),
+                BlockConfigKey::new("AUTH_ALLOWED_EMAIL_DOMAINS", "Restrict signup to specific email domains (comma-separated)", ""),
+                BlockConfigKey::new("ADMIN_EMAIL", "Email address that gets the admin role on signup", ""),
+                BlockConfigKey::new("OAUTH_GOOGLE_CLIENT_ID", "Google OAuth client ID", ""),
+                BlockConfigKey::new("OAUTH_GOOGLE_CLIENT_SECRET", "Google OAuth client secret", ""),
+                BlockConfigKey::new("OAUTH_GITHUB_CLIENT_ID", "GitHub OAuth client ID", ""),
+                BlockConfigKey::new("OAUTH_GITHUB_CLIENT_SECRET", "GitHub OAuth client secret", ""),
+            ])
     }
 
     fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {

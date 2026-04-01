@@ -58,19 +58,9 @@ fn respond_json<T: Serialize>(msg: &Message, data: &T) -> Result_ {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for DispatcherBlock {
     fn info(&self) -> BlockInfo {
-        BlockInfo {
-            name: "solobase/dispatcher".to_string(),
-            version: "0.0.1".to_string(),
-            interface: "service@v1".to_string(),
-            summary: "Forward requests to dispatch worker via service binding".to_string(),
-            instance_mode: InstanceMode::Singleton,
-            allowed_modes: Vec::new(),
-            admin_ui: None,
-            runtime: BlockRuntime::default(),
-            requires: Vec::new(),
-            collections: Vec::new(),
-            config_schema: None,
-        }
+        BlockInfo::new("solobase/dispatcher", "0.0.1", "service@v1", "Forward requests to dispatch worker via service binding")
+            .instance_mode(InstanceMode::Singleton)
+            .category(wafer_run::BlockCategory::Feature)
     }
 
     async fn handle(&self, _ctx: &dyn Context, msg: &mut Message) -> Result_ {

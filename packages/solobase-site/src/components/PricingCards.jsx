@@ -46,7 +46,8 @@ function parseFeatures(product) {
     features.push({ text: 'SSL included', included: true });
 
     if (meta.custom_domain !== undefined) {
-      features.push({ text: 'Custom domain', included: meta.custom_domain === 'true' || meta.custom_domain === true });
+      const customDomainIncluded = meta.custom_domain === 'true' || meta.custom_domain === true;
+      features.push({ text: customDomainIncluded ? 'Custom domain (coming soon)' : 'Custom domain', included: customDomainIncluded });
     }
 
     if (meta.support) features.push({ text: meta.support, included: true });
@@ -83,7 +84,7 @@ const FALLBACK_PLANS = [
       { text: 'Dedicated database & storage per project', included: true, bold: true },
       { text: '3M API requests/month', included: true },
       { text: '5GB database storage', included: true }, { text: '20GB file storage', included: true },
-      { text: 'Custom domain support', included: true }, { text: 'SSL included', included: true },
+      { text: 'Custom domain (coming soon)', included: true }, { text: 'SSL included', included: true },
       { text: 'Priority email support', included: true },
       { text: 'Add-ons available', included: true },
     ],

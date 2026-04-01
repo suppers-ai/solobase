@@ -10,7 +10,7 @@ pub(crate) mod models;
 #[cfg(test)]
 mod tests;
 
-use wafer_run::block::{Block, BlockInfo, AdminUIInfo};
+use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
@@ -46,22 +46,12 @@ impl ProductsBlock {
 impl Block for ProductsBlock {
     fn info(&self) -> BlockInfo {
         use wafer_run::types::CollectionSchema;
+        use wafer_run::AuthLevel;
 
-        BlockInfo {
-            name: "suppers-ai/products".to_string(),
-            version: "0.0.1".to_string(),
-            interface: "http-handler@v1".to_string(),
-            summary: "Products, pricing, purchases, and payment integration".to_string(),
-            instance_mode: InstanceMode::Singleton,
-            allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: Some(AdminUIInfo {
-                label: "Products".to_string(),
-                description: "Manage products, pricing, and purchases".to_string(),
-                url: "/b/products/".to_string(),
-            }),
-            runtime: wafer_run::types::BlockRuntime::Native,
-            requires: vec!["wafer-run/database".into(), "wafer-run/config".into(), "wafer-run/network".into()],
-            collections: vec![
+        BlockInfo::new("suppers-ai/products", "0.0.1", "http-handler@v1", "Products, pricing, purchases, and payment integration")
+            .instance_mode(InstanceMode::Singleton)
+            .requires(vec!["wafer-run/database".into(), "wafer-run/config".into(), "wafer-run/network".into()])
+            .collections(vec![
                 CollectionSchema::new("block_products_products")
                     .field("name", "string")
                     .field_default("description", "text", "")
@@ -137,9 +127,30 @@ impl Block for ProductsBlock {
                     .field_optional("default_value", "string")
                     .field_default("scope", "string", "system")
                     .field_default("product_id", "string", ""),
-            ],
-            config_schema: None,
-        }
+            ])
+            .category(wafer_run::BlockCategory::Feature)
+            .description("Product catalog, pricing engine, and payment processing. Manages products, groups, pricing templates with formula evaluation, purchases, and Stripe integration for checkout and recurring subscriptions. Supports add-on packs for extending plan limits.")
+            .endpoints(vec![
+                BlockEndpoint::get("/b/products/", "Overview", AuthLevel::Admin),
+                BlockEndpoint::get("/b/products/manage", "Manage products", AuthLevel::Admin),
+                BlockEndpoint::get("/admin/b/products/products", "List products API", AuthLevel::Admin),
+                BlockEndpoint::post("/admin/b/products/products", "Create product", AuthLevel::Admin),
+                BlockEndpoint::get("/b/products/catalog", "Browse catalog", AuthLevel::Public),
+                BlockEndpoint::post("/b/products/checkout", "Stripe checkout", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/products/subscription", "Subscription status", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/products/addons", "List add-on packs", AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/products/addons/subscribe", "Subscribe to add-on", AuthLevel::Authenticated),
+            ])
+            .config_keys(vec![
+                BlockConfigKey::new("FEATURE_USER_PRODUCTS", "Allow users to create their own products", "false"),
+                BlockConfigKey::new("STRIPE_SECRET_KEY", "Stripe API secret key", ""),
+                BlockConfigKey::new("STRIPE_WEBHOOK_SECRET", "Stripe webhook signing secret", ""),
+                BlockConfigKey::new("STRIPE_API_URL", "Stripe API base URL", "https://api.stripe.com"),
+                BlockConfigKey::new("FRONTEND_URL", "Frontend URL for checkout redirects", "http://localhost:5173"),
+                BlockConfigKey::new("PRODUCTS_WEBHOOK_URL", "Webhook URL for billing events", ""),
+                BlockConfigKey::new("PRODUCTS_WEBHOOK_SECRET", "Webhook signing secret", ""),
+            ])
+            .can_disable(true)
     }
 
     fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {

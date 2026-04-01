@@ -7,7 +7,7 @@ mod settings;
 mod wafer_info;
 mod custom_tables;
 
-use wafer_run::block::{Block, BlockInfo, AdminUIInfo};
+use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
@@ -27,22 +27,12 @@ pub struct AdminBlock;
 impl Block for AdminBlock {
     fn info(&self) -> BlockInfo {
         use wafer_run::types::CollectionSchema;
+        use wafer_run::AuthLevel;
 
-        BlockInfo {
-            name: "suppers-ai/admin".to_string(),
-            version: "0.0.1".to_string(),
-            interface: "http-handler@v1".to_string(),
-            summary: "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables".to_string(),
-            instance_mode: InstanceMode::Singleton,
-            allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: Some(AdminUIInfo {
-                label: "Admin".to_string(),
-                description: "Users, database, storage, settings, and blocks".to_string(),
-                url: "/b/admin/".to_string(),
-            }),
-            runtime: wafer_run::types::BlockRuntime::Native,
-            requires: vec!["wafer-run/database".into(), "wafer-run/config".into()],
-            collections: vec![
+        BlockInfo::new("suppers-ai/admin", "0.0.1", "http-handler@v1", "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables")
+            .instance_mode(InstanceMode::Singleton)
+            .requires(vec!["wafer-run/database".into(), "wafer-run/config".into()])
+            .collections(vec![
                 CollectionSchema::new("iam_roles")
                     .field("name", "string")
                     .field_default("description", "string", "")
@@ -83,9 +73,23 @@ impl Block for AdminBlock {
                     .field_default("client_ip", "string", "")
                     .field_default("user_id", "string", "")
                     .index(&["created_at"]),
-            ],
-            config_schema: None,
-        }
+                CollectionSchema::new("block_settings")
+                    .field_unique("block_name", "string")
+                    .field_default("enabled", "int", "1"),
+            ])
+            .category(wafer_run::BlockCategory::Feature)
+            .description("Administration panel for managing users, roles, variables, blocks, and logs. Provides SSR dashboard with stats, user management with role assignment, IAM (roles and API keys), environment variables editor, block management with feature toggles, and system/audit log viewer.")
+            .endpoints(vec![
+                BlockEndpoint::get("/b/admin/", "Dashboard", AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/users", "User management", AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/variables", "Variables editor", AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/blocks", "Block management", AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/logs", "System and audit logs", AuthLevel::Admin),
+                BlockEndpoint::get("/admin/users", "List users API", AuthLevel::Admin),
+                BlockEndpoint::get("/admin/iam/roles", "List roles API", AuthLevel::Admin),
+                BlockEndpoint::get("/admin/settings", "List variables API", AuthLevel::Admin),
+                BlockEndpoint::get("/admin/logs", "Audit logs API", AuthLevel::Admin),
+            ])
     }
 
     fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
@@ -137,6 +141,22 @@ impl Block for AdminBlock {
                     return pages::handle_delete_role(ctx, msg, &role_id).await;
                 }
             }
+            // Block detail modal
+            if action == "retrieve" && sub.starts_with("/blocks/") && sub.ends_with("/detail") {
+                let encoded = sub.strip_prefix("/blocks/").and_then(|s| s.strip_suffix("/detail")).unwrap_or("").to_string();
+                let block_name = encoded.replace("--", "/");
+                if !block_name.is_empty() {
+                    return pages::handle_block_detail(ctx, msg, &block_name).await;
+                }
+            }
+            // Block feature toggle
+            if action == "create" && sub.starts_with("/blocks/") && sub.ends_with("/toggle") {
+                let encoded = sub.strip_prefix("/blocks/").and_then(|s| s.strip_suffix("/toggle")).unwrap_or("").to_string();
+                let block_name = encoded.replace("--", "/");
+                if !block_name.is_empty() {
+                    return pages::handle_toggle_feature(ctx, msg, &block_name).await;
+                }
+            }
             // Variable mutations
             if action == "create" && sub == "/variables" {
                 return pages::handle_create_variable(ctx, msg).await;
@@ -183,21 +203,13 @@ impl Block for AdminBlock {
         }
         if path.starts_with("/admin/extensions") {
             let blocks: Vec<_> = ctx.registered_blocks().into_iter().map(|b| {
-                let mut entry = serde_json::json!({
+                serde_json::json!({
                     "name": b.name,
                     "version": b.version,
                     "interface": b.interface,
                     "summary": b.summary,
-                    "runtime": format!("{:?}", b.runtime),
                     "enabled": true,
-                });
-                if let Some(ui) = &b.admin_ui {
-                    entry["admin_ui"] = serde_json::json!({
-                        "label": ui.label,
-                        "url": ui.url,
-                    });
-                }
-                entry
+                })
             }).collect();
             return wafer_run::helpers::json_respond(msg, &blocks);
         }

@@ -381,7 +381,38 @@ const MIGRATIONS: &[&str] = &[
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_userportal_user ON block_userportal_profiles (user_id)",
 
     // =========================================================================
-    // SEED DATA — default IAM roles, settings
+    // BLOCK SETTINGS — per-block enable/disable
+    // =========================================================================
+
+    "CREATE TABLE IF NOT EXISTS block_settings (
+        block_name TEXT PRIMARY KEY,
+        enabled INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    )",
+
+    // =========================================================================
+    // REQUEST LOGS — request telemetry
+    // =========================================================================
+
+    "CREATE TABLE IF NOT EXISTS request_logs (
+        id TEXT PRIMARY KEY,
+        flow_id TEXT DEFAULT '',
+        method TEXT DEFAULT '',
+        path TEXT DEFAULT '',
+        status TEXT DEFAULT '',
+        status_code INTEGER DEFAULT 0,
+        duration_ms INTEGER DEFAULT 0,
+        error_message TEXT DEFAULT '',
+        client_ip TEXT DEFAULT '',
+        user_id TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_request_logs_created ON request_logs (created_at)",
+
+    // =========================================================================
+    // SEED DATA — default IAM roles, settings, block states
     // =========================================================================
 
     "INSERT OR IGNORE INTO iam_roles (id, name, description, permissions, is_system) VALUES
@@ -392,6 +423,19 @@ const MIGRATIONS: &[&str] = &[
         ('var_app_name', 'APP_NAME', 'App Name', 'Display name shown in the UI and emails', 'Solobase'),
         ('var_allow_signup', 'ALLOW_SIGNUP', 'Allow Signup', 'Allow new users to register', 'true'),
         ('var_primary_color', 'PRIMARY_COLOR', 'Primary Color', 'Brand color used in the UI', '#6366f1')",
+
+    // Seed block defaults — projects, legalpages, userportal disabled by default
+    "INSERT OR IGNORE INTO block_settings (block_name, enabled) VALUES
+        ('suppers-ai/auth', 1),
+        ('suppers-ai/admin', 1),
+        ('suppers-ai/files', 1),
+        ('suppers-ai/products', 1),
+        ('suppers-ai/projects', 0),
+        ('suppers-ai/legalpages', 0),
+        ('suppers-ai/userportal', 0),
+        ('suppers-ai/email', 1),
+        ('suppers-ai/profile', 1),
+        ('suppers-ai/system', 1)",
 ];
 
 /// Migrations that may fail on existing databases (e.g. adding columns that already exist).

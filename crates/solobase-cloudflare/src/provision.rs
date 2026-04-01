@@ -72,9 +72,7 @@ pub async fn create_project(
         d1_database_id: db_id.clone(),
         r2_bucket_name: r2_bucket_name.clone(),
         secrets: Vec::new(),
-        vars: vec![
-            ("FEATURE_PROJECTS".to_string(), platform.to_string()),
-        ],
+        vars: Vec::new(),
         dispatch_worker_name,
     };
 
@@ -91,10 +89,21 @@ pub async fn create_project(
     let dispatcher = env.dynamic_dispatcher("DISPATCHER")
         .map_err(|e| Error::RustError(format!("dispatcher: {e}")))?;
 
-    let migrate_req = Request::new(
+    // Platform projects get extra blocks enabled (e.g., projects/deployments)
+    let migrate_body = if platform {
+        serde_json::json!({"enable_blocks": ["suppers-ai/projects"]}).to_string()
+    } else {
+        "{}".to_string()
+    };
+
+    let mut migrate_req = Request::new_with_init(
         "https://internal/_internal/migrate",
-        Method::Post,
+        RequestInit::new()
+            .with_method(Method::Post)
+            .with_body(Some(JsValue::from_str(&migrate_body))),
     )?;
+    migrate_req.headers_mut()?.set("Content-Type", "application/json")?;
+
     let migrate_resp = dispatcher.get(subdomain)
         .map_err(|e| Error::RustError(format!("dispatch get: {e}")))?
         .fetch_request(migrate_req).await?;

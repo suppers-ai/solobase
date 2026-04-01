@@ -11,19 +11,20 @@ pub struct SystemBlock;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for SystemBlock {
     fn info(&self) -> BlockInfo {
-        BlockInfo {
-            name: "suppers-ai/system".to_string(),
-            version: "0.0.1".to_string(),
-            interface: "http-handler@v1".to_string(),
-            summary: "System health, debug, navigation, and embedded static assets".to_string(),
-            instance_mode: InstanceMode::Singleton,
-            allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: None,
-            runtime: wafer_run::types::BlockRuntime::Native,
-            requires: vec!["wafer-run/inspector".into()],
-            collections: Vec::new(),
-            config_schema: None,
-        }
+        use wafer_run::AuthLevel;
+
+        BlockInfo::new("suppers-ai/system", "0.0.1", "http-handler@v1", "System health, debug, navigation, and embedded static assets")
+            .instance_mode(InstanceMode::Singleton)
+            .requires(vec!["wafer-run/inspector".into()])
+            .category(wafer_run::BlockCategory::Feature)
+            .description("Core system services including health checks, navigation, debug endpoints, and embedded static assets (CSS, JavaScript). Serves the admin sidebar navigation structure and provides access to the WAFER inspector for runtime debugging.")
+            .endpoints(vec![
+                BlockEndpoint::get("/health", "Health check", AuthLevel::Public),
+                BlockEndpoint::get("/nav", "Navigation structure", AuthLevel::Authenticated),
+                BlockEndpoint::get("/static/app-{hash}.css", "Embedded CSS", AuthLevel::Public),
+                BlockEndpoint::get("/static/htmx-{hash}.min.js", "Embedded JavaScript", AuthLevel::Public),
+                BlockEndpoint::get("/debug/inspector/*", "WAFER Inspector", AuthLevel::Admin),
+            ])
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {

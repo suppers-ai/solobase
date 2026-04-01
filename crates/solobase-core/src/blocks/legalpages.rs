@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wafer_run::block::{Block, BlockInfo, AdminUIInfo};
+use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
@@ -278,22 +278,12 @@ fn sanitize_html(input: &str) -> String {
 impl Block for LegalPagesBlock {
     fn info(&self) -> BlockInfo {
         use wafer_run::types::CollectionSchema;
+        use wafer_run::AuthLevel;
 
-        BlockInfo {
-            name: "suppers-ai/legalpages".to_string(),
-            version: "0.0.1".to_string(),
-            interface: "http-handler@v1".to_string(),
-            summary: "Legal pages management with versioning and publishing".to_string(),
-            instance_mode: InstanceMode::Singleton,
-            allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: Some(AdminUIInfo {
-                label: "Legal Pages".to_string(),
-                description: "Legal pages management with versioning and publishing".to_string(),
-                url: "/b/legalpages/admin".to_string(),
-            }),
-            runtime: wafer_run::types::BlockRuntime::Native,
-            requires: vec!["wafer-run/database".into()],
-            collections: vec![
+        BlockInfo::new("suppers-ai/legalpages", "0.0.1", "http-handler@v1", "Legal pages management with versioning and publishing")
+            .instance_mode(InstanceMode::Singleton)
+            .requires(vec!["wafer-run/database".into()])
+            .collections(vec![
                 CollectionSchema::new("block_legalpages_legal_documents")
                     .field("doc_type", "string")
                     .field("title", "string")
@@ -303,9 +293,19 @@ impl Block for LegalPagesBlock {
                     .field_default("created_by", "string", "")
                     .field_optional("published_at", "datetime")
                     .index(&["doc_type", "status"]),
-            ],
-            config_schema: None,
-        }
+            ])
+            .category(wafer_run::BlockCategory::Feature)
+            .description("Legal document management with versioning and publishing. Create and manage terms of service, privacy policies, and other legal documents. Supports draft/published workflow with version tracking.")
+            .endpoints(vec![
+                BlockEndpoint::get("/b/legalpages/terms", "Published terms of service", AuthLevel::Public),
+                BlockEndpoint::get("/b/legalpages/privacy", "Published privacy policy", AuthLevel::Public),
+                BlockEndpoint::get("/admin/legalpages/documents", "List documents", AuthLevel::Admin),
+                BlockEndpoint::post("/admin/legalpages/documents", "Create document", AuthLevel::Admin),
+                BlockEndpoint::patch("/admin/legalpages/documents/{id}", "Update document", AuthLevel::Admin),
+                BlockEndpoint::post("/admin/legalpages/documents/{id}/publish", "Publish document", AuthLevel::Admin),
+            ])
+            .can_disable(true)
+            .default_enabled(false)
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {

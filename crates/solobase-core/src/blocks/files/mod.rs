@@ -31,18 +31,12 @@ impl FilesBlock {
 impl Block for FilesBlock {
     fn info(&self) -> BlockInfo {
         use wafer_run::types::CollectionSchema;
+        use wafer_run::AuthLevel;
 
-        BlockInfo {
-            name: "suppers-ai/files".to_string(),
-            version: "0.0.1".to_string(),
-            interface: "http-handler@v1".to_string(),
-            summary: "File storage, sharing, quotas, and access logging".to_string(),
-            instance_mode: InstanceMode::Singleton,
-            allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: None,
-            runtime: wafer_run::types::BlockRuntime::Native,
-            requires: vec!["wafer-run/database".into(), "wafer-run/storage".into(), "wafer-run/config".into()],
-            collections: vec![
+        BlockInfo::new("suppers-ai/files", "0.0.1", "http-handler@v1", "File storage, sharing, quotas, and access logging")
+            .instance_mode(InstanceMode::Singleton)
+            .requires(vec!["wafer-run/database".into(), "wafer-run/storage".into(), "wafer-run/config".into()])
+            .collections(vec![
                 CollectionSchema::new("storage_buckets")
                     .field("name", "string")
                     .field_default("public", "bool", "false")
@@ -81,9 +75,19 @@ impl Block for FilesBlock {
                     .field_default("max_file_size_bytes", "int64", "104857600")
                     .field_default("max_files_per_bucket", "int", "10000")
                     .field_default("reset_period_days", "int", "0"),
-            ],
-            config_schema: None,
-        }
+            ])
+            .category(wafer_run::BlockCategory::Feature)
+            .description("File storage and management with bucket-based organization. Supports file upload, download, deletion, search, and sharing via public links with expiration and access counting. Includes per-user storage quotas.")
+            .endpoints(vec![
+                BlockEndpoint::get("/storage/buckets", "List buckets", AuthLevel::Authenticated),
+                BlockEndpoint::post("/storage/buckets", "Create bucket", AuthLevel::Authenticated),
+                BlockEndpoint::get("/storage/buckets/{name}/objects", "List objects", AuthLevel::Authenticated),
+                BlockEndpoint::post("/storage/buckets/{name}/objects", "Upload file", AuthLevel::Authenticated),
+                BlockEndpoint::get("/storage/buckets/{name}/objects/{key}", "Download file", AuthLevel::Authenticated),
+                BlockEndpoint::delete("/storage/buckets/{name}/objects/{key}", "Delete file", AuthLevel::Authenticated),
+                BlockEndpoint::get("/storage/direct/{token}", "Access shared file", AuthLevel::Public),
+            ])
+            .can_disable(true)
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {

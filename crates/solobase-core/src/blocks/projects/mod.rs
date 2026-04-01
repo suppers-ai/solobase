@@ -1,7 +1,7 @@
 mod handlers;
 mod pages;
 
-use wafer_run::block::{Block, BlockInfo, AdminUIInfo};
+use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
@@ -30,22 +30,12 @@ impl ProjectsBlock {
 impl Block for ProjectsBlock {
     fn info(&self) -> BlockInfo {
         use wafer_run::types::CollectionSchema;
+        use wafer_run::AuthLevel;
 
-        BlockInfo {
-            name: "suppers-ai/projects".to_string(),
-            version: "0.0.1".to_string(),
-            interface: "http-handler@v1".to_string(),
-            summary: "Project management for users and admins".to_string(),
-            instance_mode: InstanceMode::Singleton,
-            allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: Some(AdminUIInfo {
-                label: "Projects".to_string(),
-                description: "Manage projects and deployments".to_string(),
-                url: "/b/projects/".to_string(),
-            }),
-            runtime: wafer_run::types::BlockRuntime::Native,
-            requires: vec!["wafer-run/database".into(), "wafer-run/config".into(), "wafer-run/network".into()],
-            collections: vec![
+        BlockInfo::new("suppers-ai/projects", "0.0.1", "http-handler@v1", "Project management for users and admins")
+            .instance_mode(InstanceMode::Singleton)
+            .requires(vec!["wafer-run/database".into(), "wafer-run/config".into(), "wafer-run/network".into()])
+            .collections(vec![
                 CollectionSchema::new("block_deployments")
                     .field_ref("user_id", "string", "auth_users.id")
                     .field("name", "string")
@@ -62,9 +52,24 @@ impl Block for ProjectsBlock {
                     .field_optional("deleted_at", "datetime")
                     .index(&["user_id"])
                     .index(&["status"]),
-            ],
-            config_schema: None,
-        }
+            ])
+            .category(wafer_run::BlockCategory::Feature)
+            .description("Project and deployment management for multi-tenant hosting. Users can create projects with unique subdomains, activate/deactivate deployments, and manage lifecycle. Integrates with the control plane for provisioning on Cloudflare Workers for Platforms.")
+            .endpoints(vec![
+                BlockEndpoint::get("/b/projects/", "Deployments overview", AuthLevel::Admin),
+                BlockEndpoint::get("/admin/b/projects", "List all projects", AuthLevel::Admin),
+                BlockEndpoint::get("/admin/b/projects/stats", "Deployment statistics", AuthLevel::Admin),
+                BlockEndpoint::get("/b/projects", "List user's projects", AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/projects", "Create project", AuthLevel::Authenticated),
+                BlockEndpoint::patch("/b/projects/{id}", "Update/activate/deactivate project", AuthLevel::Authenticated),
+                BlockEndpoint::delete("/b/projects/{id}", "Delete project", AuthLevel::Authenticated),
+            ])
+            .config_keys(vec![
+                BlockConfigKey::new("CONTROL_PLANE_URL", "Control plane API URL for provisioning", ""),
+                BlockConfigKey::new("CONTROL_PLANE_SECRET", "Secret for control plane API authentication", ""),
+            ])
+            .can_disable(true)
+            .default_enabled(false)
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {

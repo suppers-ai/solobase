@@ -8,7 +8,7 @@
 //! The dispatch worker handles platform-level concerns (plan quotas, platform CORS).
 //!
 //! Config is loaded from the D1 `variables` table — the single source of
-//! truth for project configuration. Feature flags use `FEATURE_*` variables.
+//! truth for project configuration. Block enablement is in `block_settings` table.
 
 mod config_service;
 mod convert;
@@ -29,15 +29,13 @@ use worker::*;
 use database::D1DatabaseService;
 use storage::R2StorageService;
 
-use solobase::app_config::FeatureSnapshot;
+use solobase_core::features::BlockSettings;
 use solobase::blocks;
 use solobase_core::routing::BlockId;
 
 /// Keys read from worker env bindings, overriding any D1 variables table values.
-/// Only platform-specific vars are protected — regular features (auth, admin,
-/// files, etc.) are user-configurable via the dashboard.
+/// These are platform-level overrides that tenants cannot change.
 const WORKER_BINDING_KEYS: &[&str] = &[
-    "FEATURE_PROJECTS",
     "CONTROL_PLANE_URL", "CONTROL_PLANE_SECRET",
 ];
 
@@ -47,7 +45,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
     // Internal migration endpoint — called by dispatch worker during provisioning
     if pathname == "/_internal/migrate" && req.method() == Method::Post {
-        return handle_migrate(&env).await;
+        return handle_migrate(&req, &env).await;
     }
 
     // All other requests: run through the block pipeline
@@ -58,7 +56,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 // Schema migration handler
 // ---------------------------------------------------------------------------
 
-async fn handle_migrate(env: &Env) -> Result<Response> {
+async fn handle_migrate(req: &Request, env: &Env) -> Result<Response> {
     let db = env.d1("DB")
         .map_err(|e| Error::RustError(format!("D1: {e}")))?;
 
@@ -66,6 +64,21 @@ async fn handle_migrate(env: &Env) -> Result<Response> {
 
     // Ensure required secrets exist in variables table — generate if missing
     seed_secrets(&db).await?;
+
+    // Enable specific blocks if requested by the dispatch worker.
+    // e.g., {"enable_blocks": ["suppers-ai/projects"]} for the cloud project.
+    if let Ok(body) = req.clone()?.json::<serde_json::Value>().await {
+        if let Some(blocks) = body.get("enable_blocks").and_then(|v| v.as_array()) {
+            for block in blocks {
+                if let Some(name) = block.as_str() {
+                    let _ = db.prepare(
+                        "INSERT INTO block_settings (block_name, enabled) VALUES (?1, 1) \
+                         ON CONFLICT (block_name) DO UPDATE SET enabled = 1"
+                    ).bind(&[name.into()])?.run().await;
+                }
+            }
+        }
+    }
 
     helpers::json_response(&serde_json::json!({"ok": true}), 200)
 }
@@ -134,7 +147,6 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     }
 
     // Merge protected worker env bindings — these override D1 variables table values.
-    // FEATURE_PROJECTS is platform-only (prevents tenants from enabling provisioning).
     // CONTROL_PLANE_* are infrastructure secrets for the cloud worker.
     for key in WORKER_BINDING_KEYS {
         let val = get_env_str(env, key);
@@ -153,8 +165,23 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
 
     let jwt_secret = env_vars.get("JWT_SECRET").cloned().unwrap_or_default();
 
-    // Feature flags — read FEATURE_* variables, default to all enabled
-    let features = FeatureSnapshot::from_vars(&env_vars);
+    // Block settings — read from block_settings table in D1
+    let features = {
+        let mut map = std::collections::HashMap::new();
+        if let Ok(stmt) = db.prepare("SELECT block_name, enabled FROM block_settings").bind(&[]) {
+            if let Ok(result) = stmt.all().await {
+                for row in result.results::<serde_json::Value>().unwrap_or_default() {
+                    if let (Some(name), Some(enabled)) = (
+                        row.get("block_name").and_then(|v| v.as_str()),
+                        row.get("enabled").and_then(|v| v.as_i64()),
+                    ) {
+                        map.insert(name.to_string(), enabled != 0);
+                    }
+                }
+            }
+        }
+        BlockSettings::from_map(map)
+    };
 
     // Create WAFER runtime
     let mut wafer = wafer_run::runtime::Wafer::new();
@@ -208,9 +235,8 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
         "web_index": "index.html"
     }));
 
-    // Register solobase feature blocks — only enabled features get instantiated.
-    // Most features are user-configurable via the dashboard. FEATURE_PROJECTS
-    // is protected via worker env binding (only the cloud platform gets it).
+    // Register solobase feature blocks — only enabled blocks get instantiated.
+    // Block enablement is read from the block_settings table in D1.
     let auth_header = req.headers().get("authorization")?;
 
     let mut shared_blocks = HashMap::new();

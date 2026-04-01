@@ -70,16 +70,8 @@ pub const ROUTES: &[Route] = &[
 
 /// Check if a block's feature is enabled.
 fn is_block_enabled(block_id: BlockId, features: &dyn FeatureConfig) -> bool {
-    match block_id {
-        BlockId::System | BlockId::Profile => true, // always on
-        BlockId::Auth        => features.auth_enabled(),
-        BlockId::Admin       => features.admin_enabled(),
-        BlockId::Files       => features.files_enabled(),
-        BlockId::Products    => features.products_enabled(),
-        BlockId::Projects => features.projects_enabled(),
-        BlockId::LegalPages  => features.legalpages_enabled(),
-        BlockId::UserPortal  => features.userportal_enabled(),
-    }
+    let full_name = format!("suppers-ai/{}", block_id_short_name(block_id));
+    features.is_block_enabled(&full_name)
 }
 
 /// Block factory — the caller provides this to create block instances.
@@ -140,7 +132,7 @@ pub async fn route_to_block(
 
         // Admin gate
         if route.requires_admin && !msg.get_meta("auth.user_roles").split(',').any(|r| r.trim() == "admin") {
-            return wafer_run::helpers::err_forbidden(msg, "admin access required");
+            return crate::ui::forbidden_response(msg);
         }
 
         // Dispatch to block
@@ -254,31 +246,12 @@ mod tests {
 
     struct AllEnabled;
     impl FeatureConfig for AllEnabled {
-        fn auth_enabled(&self) -> bool { true }
-        fn admin_enabled(&self) -> bool { true }
-        fn files_enabled(&self) -> bool { true }
-        fn products_enabled(&self) -> bool { true }
-        fn projects_enabled(&self) -> bool { true }
-        fn legalpages_enabled(&self) -> bool { true }
-        fn userportal_enabled(&self) -> bool { true }
+        fn is_block_enabled(&self, _: &str) -> bool { true }
     }
 
     struct NoneEnabled;
     impl FeatureConfig for NoneEnabled {
-        fn auth_enabled(&self) -> bool { false }
-        fn admin_enabled(&self) -> bool { false }
-        fn files_enabled(&self) -> bool { false }
-        fn products_enabled(&self) -> bool { false }
-        fn projects_enabled(&self) -> bool { false }
-        fn legalpages_enabled(&self) -> bool { false }
-        fn userportal_enabled(&self) -> bool { false }
-    }
-
-    #[test]
-    fn feature_gating_always_on_blocks() {
-        let none = NoneEnabled;
-        assert!(is_block_enabled(BlockId::System, &none));
-        assert!(is_block_enabled(BlockId::Profile, &none));
+        fn is_block_enabled(&self, _: &str) -> bool { false }
     }
 
     #[test]

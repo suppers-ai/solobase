@@ -19,8 +19,8 @@ use std::sync::Arc;
 use crate::routing::BlockId;
 use wafer_run::block::Block;
 
-/// Mapping from feature name (used in FEATURE_* env vars) to BlockId.
-const FEATURE_BLOCKS: &[(&str, BlockId)] = &[
+/// Mapping from short block name to BlockId for registration.
+const SOLOBASE_BLOCKS: &[(&str, BlockId)] = &[
     ("profile",     BlockId::Profile),
     ("system",      BlockId::System),
     ("userportal",  BlockId::UserPortal),
@@ -56,7 +56,7 @@ fn make_block(id: BlockId) -> Arc<dyn Block> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn create_blocks(filter: impl Fn(&str) -> bool) -> HashMap<BlockId, Arc<dyn Block>> {
     let mut map = HashMap::new();
-    for &(name, id) in FEATURE_BLOCKS {
+    for &(name, id) in SOLOBASE_BLOCKS {
         if filter(name) {
             map.insert(id, make_block(id));
         }

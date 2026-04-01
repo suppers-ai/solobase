@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use solobase::app_config::{InfraConfig, FeatureSnapshot};
+use solobase::app_config::{InfraConfig, load_block_settings};
 use solobase::blocks;
 use solobase::blocks::router::{NativeBlockFactory, SolobaseRouterBlock};
 use solobase::flows;
@@ -66,7 +66,7 @@ async fn main() {
 
     // 6. Extract JWT secret and feature config from variables
     let jwt_secret = vars.get("JWT_SECRET").cloned().unwrap_or_default();
-    let features = FeatureSnapshot::from_vars(&vars);
+    let features = load_block_settings(&infra.db_path);
 
     // 7. Create WAFER runtime
     let mut wafer = Wafer::new();
@@ -218,10 +218,8 @@ fn collect_app_env_vars() -> Vec<(String, String)> {
         "PRODUCTS_WEBHOOK_URL", "PRODUCTS_WEBHOOK_SECRET",
         // Platform (cloud-only)
         "CONTROL_PLANE_URL", "CONTROL_PLANE_SECRET",
-        // Feature flags
-        "FEATURE_AUTH", "FEATURE_ADMIN", "FEATURE_FILES",
-        "FEATURE_PRODUCTS", "FEATURE_PROJECTS", "FEATURE_LEGALPAGES",
-        "FEATURE_USERPORTAL",
+        // Block disabled list (seeded into block_settings table, not variables)
+        // Use BLOCK_DISABLED env var instead of FEATURE_* flags.
     ];
 
     let mut vars = Vec::new();

@@ -20,19 +20,17 @@ pub struct EmailBlock;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for EmailBlock {
     fn info(&self) -> BlockInfo {
-        BlockInfo {
-            name: "suppers-ai/email".to_string(),
-            version: "0.0.1".to_string(),
-            interface: "service@v1".to_string(),
-            summary: "Email sending via Mailgun".to_string(),
-            instance_mode: InstanceMode::Singleton,
-            allowed_modes: vec![InstanceMode::Singleton],
-            admin_ui: None,
-            runtime: wafer_run::types::BlockRuntime::Native,
-            requires: vec!["wafer-run/network".into(), "wafer-run/config".into()],
-            collections: Vec::new(),
-            config_schema: None,
-        }
+        BlockInfo::new("suppers-ai/email", "0.0.1", "service@v1", "Email sending via Mailgun")
+            .instance_mode(InstanceMode::Singleton)
+            .requires(vec!["wafer-run/network".into(), "wafer-run/config".into()])
+            .category(wafer_run::BlockCategory::Feature)
+            .description("Email sending service via Mailgun HTTP API. Supports raw email sending and templated emails for verification, password reset, welcome messages, and payment notifications. Used internally by the auth block for email verification and password reset flows.")
+            .config_keys(vec![
+                BlockConfigKey::new("MAILGUN_API_KEY", "Mailgun API key", ""),
+                BlockConfigKey::new("MAILGUN_DOMAIN", "Mailgun sending domain", ""),
+                BlockConfigKey::new("MAILGUN_FROM", "From address for emails", ""),
+                BlockConfigKey::new("MAILGUN_REPLY_TO", "Reply-to address", ""),
+            ])
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {

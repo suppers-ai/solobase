@@ -194,10 +194,20 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
 
             let mut results = Vec::new();
             for subdomain in &projects {
-                let migrate_req = Request::new(
+                // Platform project (cloud) gets extra blocks enabled
+                let is_platform = subdomain == "cloud";
+                let body = if is_platform {
+                    serde_json::json!({"enable_blocks": ["suppers-ai/projects"]}).to_string()
+                } else {
+                    "{}".to_string()
+                };
+                let mut migrate_req = Request::new_with_init(
                     "https://internal/_internal/migrate",
-                    Method::Post,
+                    RequestInit::new()
+                        .with_method(Method::Post)
+                        .with_body(Some(wasm_bindgen::JsValue::from_str(&body))),
                 )?;
+                migrate_req.headers_mut()?.set("Content-Type", "application/json")?;
 
                 match dispatcher.get(subdomain) {
                     Ok(fetcher) => {
