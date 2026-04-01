@@ -41,5 +41,4 @@ Thumbs.db
 build/
 .bin/
 
-# Package lock (regenerated from package.json)
-package-lock.json
+# Package locks should be committed for reproducible builds
