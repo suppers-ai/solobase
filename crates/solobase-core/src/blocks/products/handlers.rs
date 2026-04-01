@@ -328,7 +328,7 @@ async fn handle_catalog(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let filters = vec![Filter {
         field: "status".to_string(),
         operator: FilterOp::Equal,
-        value: serde_json::Value::String("published".to_string()),
+        value: serde_json::Value::String("active".to_string()),
     }];
     let sort = vec![SortField { field: "name".to_string(), desc: false }];
     match db::paginated_list(ctx, PRODUCTS_COLLECTION, page as i64, page_size as i64, filters, sort).await {
@@ -345,7 +345,7 @@ async fn handle_get_product_public(ctx: &dyn Context, msg: &mut Message) -> Resu
     match db::get(ctx, PRODUCTS_COLLECTION, id).await {
         Ok(record) => {
             let status = record.str_field("status");
-            if status != "published" && status != "active" {
+            if status != "active" {
                 return err_not_found(msg, "Product not found");
             }
             json_respond(msg, &record)

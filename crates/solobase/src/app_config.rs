@@ -88,6 +88,7 @@ pub const BLOCK_DEFAULTS: &[BlockDefault] = &[
     ("suppers-ai/system", true),
 ];
 
+#[cfg(feature = "server")]
 pub fn load_block_settings(db_path: &str) -> BlockSettings {
     let conn = match rusqlite::Connection::open(db_path) {
         Ok(c) => c,

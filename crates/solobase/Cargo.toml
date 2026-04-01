@@ -42,6 +42,12 @@ server = [
     "dep:dotenvy",
     "dep:rusqlite",
 ]
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
 storage-s3 = ["solobase-core/storage-s3", "dep:wafer-block-s3"]
 postgres = ["solobase-core/postgres", "dep:wafer-block-postgres"]
 
@@ -85,6 +91,10 @@ tokio = { workspace = true, optional = true }
 # Observability
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 
 # Crypto
 sha2 = { workspace = true }

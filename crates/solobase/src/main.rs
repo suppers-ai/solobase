@@ -342,6 +342,14 @@ fn init_tracing(log_format: &str) {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,wafer=debug,solobase=debug"));
 
+    #[cfg(feature = "otel")]
+    {
+        if std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok() {
+            init_tracing_with_otel(log_format, filter);
+            return;
+        }
+    }
+
     if log_format == "json" {
         fmt()
             .json()
@@ -358,11 +366,55 @@ fn init_tracing(log_format: &str) {
     }
 }
 
+#[cfg(feature = "otel")]
+fn init_tracing_with_otel(log_format: &str, filter: EnvFilter) {
+    use opentelemetry::trace::TracerProvider;
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .build()
+        .expect("failed to create OTLP span exporter");
+
+    let service_name = std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "solobase".into());
+    let provider = opentelemetry_sdk::trace::TracerProvider::builder()
+        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+        .with_resource(
+            opentelemetry_sdk::Resource::new(vec![
+                opentelemetry::KeyValue::new("service.name", service_name),
+            ])
+        )
+        .build();
+
+    let tracer = provider.tracer("solobase");
+    let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+
+    let fmt_layer: Box<dyn Layer<_> + Send + Sync> = if log_format == "json" {
+        Box::new(fmt::layer().json().with_target(true).with_thread_ids(false))
+    } else {
+        Box::new(fmt::layer().with_target(true).with_thread_ids(false))
+    };
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt_layer)
+        .with(otel_layer)
+        .init();
+
+    tracing::info!("OpenTelemetry tracing enabled");
+}
+
 // ---------------------------------------------------------------------------
 // Observability hooks
 // ---------------------------------------------------------------------------
 
 fn register_observability_hooks(wafer: &mut Wafer) {
+    wafer.hooks.on_flow_start(|flow_id, _msg| {
+        tracing::info_span!("flow", flow = %flow_id).in_scope(|| {});
+    });
+
     wafer.hooks.on_block_end(|obs_ctx, result, duration| {
         let status = match result.action {
             wafer_run::Action::Error => "ERROR",
@@ -373,6 +425,7 @@ fn register_observability_hooks(wafer: &mut Wafer) {
         tracing::debug!(
             flow   = %obs_ctx.flow_id,
             block  = %obs_ctx.block_name,
+            trace  = %obs_ctx.trace_id,
             status = status,
             ms     = duration.as_millis() as u64,
             "block executed"

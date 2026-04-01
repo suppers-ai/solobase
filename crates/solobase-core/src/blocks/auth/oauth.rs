@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
+use sha2::{Sha256, Digest};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::helpers::*;
@@ -8,6 +9,18 @@ use wafer_core::clients::{crypto, config, network};
 use super::helpers::*;
 use super::{AuthBlock, USERS_COLLECTION};
 use crate::blocks::helpers::json_map;
+
+/// Generate a PKCE code verifier (43-128 chars, URL-safe).
+fn generate_pkce_verifier() -> Result<String, String> {
+    let bytes = crate::crypto::random_bytes(32)?;
+    Ok(crate::crypto::base64_url_encode(&bytes))
+}
+
+/// Compute S256 code challenge from a verifier.
+fn pkce_challenge(verifier: &str) -> String {
+    let hash = Sha256::digest(verifier.as_bytes());
+    crate::crypto::base64_url_encode(&hash)
+}
 
 impl AuthBlock {
     pub(super) async fn handle_oauth_providers(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -40,10 +53,18 @@ impl AuthBlock {
 
         let redirect_uri = config::get_default(ctx, "OAUTH_REDIRECT_URI", "http://localhost:8090/auth/oauth/callback").await;
 
-        // Generate CSRF state token (signed JWT containing the provider name)
+        // Generate PKCE code verifier and challenge
+        let code_verifier = match generate_pkce_verifier() {
+            Ok(v) => v,
+            Err(e) => return err_internal(msg, &format!("Failed to generate PKCE verifier: {e}")),
+        };
+        let code_challenge = pkce_challenge(&code_verifier);
+
+        // Generate CSRF state token (signed JWT containing the provider name + PKCE verifier)
         let mut state_claims = HashMap::new();
         state_claims.insert("provider".to_string(), serde_json::Value::String(provider.to_string()));
         state_claims.insert("type".to_string(), serde_json::Value::String("oauth_state".to_string()));
+        state_claims.insert("code_verifier".to_string(), serde_json::Value::String(code_verifier));
         let state = match crypto::sign(ctx, &state_claims, Duration::from_secs(600)).await {
             Ok(s) => s,
             Err(e) => return err_internal(msg, &format!("Failed to generate state: {e}")),
@@ -51,16 +72,16 @@ impl AuthBlock {
 
         let auth_url = match provider {
             "google" => format!(
-                "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}",
-                client_id, redirect_uri, urlencode(&state)
+                "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}&code_challenge={}&code_challenge_method=S256",
+                client_id, redirect_uri, urlencode(&state), urlencode(&code_challenge)
             ),
             "github" => format!(
                 "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope=user:email&state={}",
                 client_id, redirect_uri, urlencode(&state)
             ),
             "microsoft" => format!(
-                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}",
-                client_id, redirect_uri, urlencode(&state)
+                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}&code_challenge={}&code_challenge_method=S256",
+                client_id, redirect_uri, urlencode(&state), urlencode(&code_challenge)
             ),
             _ => return err_bad_request(msg, &format!("Unsupported provider: {}", provider)),
         };
@@ -91,6 +112,7 @@ impl AuthBlock {
         if provider.is_empty() {
             return err_bad_request(msg, "Missing provider in OAuth state");
         }
+        let code_verifier = state_claims.get("code_verifier").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
         let client_id = config::get_default(ctx, &format!("OAUTH_{}_CLIENT_ID", provider.to_uppercase()), "").await;
         let client_secret = config::get_default(ctx, &format!("OAUTH_{}_CLIENT_SECRET", provider.to_uppercase()), "").await;
@@ -100,12 +122,12 @@ impl AuthBlock {
             return err_internal(msg, "OAuth provider not fully configured");
         }
 
-        // Exchange code for token (URL-encode all values)
+        // Exchange code for token (URL-encode all values, include PKCE verifier)
         let (token_url, token_body_str) = match provider.as_str() {
             "google" => (
                 "https://oauth2.googleapis.com/token".to_string(),
-                format!("code={}&client_id={}&client_secret={}&redirect_uri={}&grant_type=authorization_code",
-                    urlencode(code), urlencode(&client_id), urlencode(&client_secret), urlencode(&redirect_uri)),
+                format!("code={}&client_id={}&client_secret={}&redirect_uri={}&grant_type=authorization_code&code_verifier={}",
+                    urlencode(code), urlencode(&client_id), urlencode(&client_secret), urlencode(&redirect_uri), urlencode(&code_verifier)),
             ),
             "github" => (
                 "https://github.com/login/oauth/access_token".to_string(),

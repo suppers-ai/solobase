@@ -55,7 +55,7 @@ fn hmac_sha256(data: &[u8], key: &[u8]) -> Result<Vec<u8>, String> {
     Ok(mac.finalize().into_bytes().to_vec())
 }
 
-fn base64_url_encode(input: &[u8]) -> String {
+pub fn base64_url_encode(input: &[u8]) -> String {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     URL_SAFE_NO_PAD.encode(input)
 }
