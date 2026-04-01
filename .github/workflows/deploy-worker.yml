@@ -8,6 +8,7 @@ on:
       - 'crates/solobase-worker/**'
       - 'crates/solobase-core/**'
       - 'crates/solobase/**'
+      - 'packages/cloud-dashboard/**'
       - '.github/workflows/deploy-worker.yml'
   workflow_dispatch:
 
@@ -41,6 +42,31 @@ jobs:
         run: |
           cargo install worker-build
           npm install -g wrangler
+
+      # 0. Build cloud dashboard and upload to R2
+      - name: Build cloud dashboard
+        working-directory: packages/cloud-dashboard
+        run: |
+          npm ci
+          npx vite build
+
+      - name: Upload cloud dashboard to R2
+        working-directory: packages/cloud-dashboard
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.ENVIRONMENT == 'production' && 'solobase-production-cloud' || 'solobase-development-cloud' }}
+        run: |
+          wrangler r2 object put "$R2_BUCKET/site/index.html" \
+            --file dist/index.html --content-type "text/html" --remote
+          for f in dist/assets/*.js; do
+            wrangler r2 object put "$R2_BUCKET/site/assets/$(basename $f)" \
+              --file "$f" --content-type "application/javascript" --remote
+          done
+          for f in dist/assets/*.css; do
+            wrangler r2 object put "$R2_BUCKET/site/assets/$(basename $f)" \
+              --file "$f" --content-type "text/css" --remote
+          done
 
       # 1. Build and deploy the dispatch worker
       - name: Deploy dispatch worker

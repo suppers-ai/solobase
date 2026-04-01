@@ -1,0 +1,20 @@
+{
+  "name": "@solobase/cloud-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lucide-preact": "^0.460.0",
+    "preact": "^10.25.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.9.0",
+    "prettier": "^3.8.1",
+    "vite": "^6.0.0"
+  }
+}
