@@ -7,6 +7,11 @@ pub fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
+/// Current time in milliseconds (wasm-safe — uses chrono which uses js_sys on wasm32).
+pub fn now_millis() -> u64 {
+    chrono::Utc::now().timestamp_millis() as u64
+}
+
 /// Convert a serde_json::json!({...}) value into a HashMap for the database client.
 pub fn json_map(val: serde_json::Value) -> HashMap<String, serde_json::Value> {
     match val {

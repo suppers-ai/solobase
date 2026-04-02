@@ -46,10 +46,22 @@ pub async fn worker_request_to_message(req: &Request) -> Result<Message> {
     let mut meta = Vec::new();
 
     // HTTP-specific meta
-    meta.push(MetaEntry { key: "http.method".into(), value: method.clone() });
-    meta.push(MetaEntry { key: "http.path".into(), value: raw_path });
-    meta.push(MetaEntry { key: "http.raw_query".into(), value: query.clone() });
-    meta.push(MetaEntry { key: "http.remote_addr".into(), value: remote_addr.clone() });
+    meta.push(MetaEntry {
+        key: "http.method".into(),
+        value: method.clone(),
+    });
+    meta.push(MetaEntry {
+        key: "http.path".into(),
+        value: raw_path,
+    });
+    meta.push(MetaEntry {
+        key: "http.raw_query".into(),
+        value: query.clone(),
+    });
+    meta.push(MetaEntry {
+        key: "http.remote_addr".into(),
+        value: remote_addr.clone(),
+    });
 
     let content_type = req
         .headers()
@@ -57,15 +69,16 @@ pub async fn worker_request_to_message(req: &Request) -> Result<Message> {
         .ok()
         .flatten()
         .unwrap_or_default();
-    meta.push(MetaEntry { key: "http.content_type".into(), value: content_type.clone() });
+    meta.push(MetaEntry {
+        key: "http.content_type".into(),
+        value: content_type.clone(),
+    });
 
-    let host = req
-        .headers()
-        .get("host")
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    meta.push(MetaEntry { key: "http.host".into(), value: host });
+    let host = req.headers().get("host").ok().flatten().unwrap_or_default();
+    meta.push(MetaEntry {
+        key: "http.host".into(),
+        value: host,
+    });
 
     // Normalized request meta (using the rewritten path)
     let action = match method.as_str() {
@@ -75,14 +88,29 @@ pub async fn worker_request_to_message(req: &Request) -> Result<Message> {
         "DELETE" => "delete",
         _ => "execute",
     };
-    meta.push(MetaEntry { key: META_REQ_ACTION.into(), value: action.into() });
-    meta.push(MetaEntry { key: META_REQ_RESOURCE.into(), value: path.clone() });
-    meta.push(MetaEntry { key: META_REQ_CLIENT_IP.into(), value: remote_addr });
-    meta.push(MetaEntry { key: META_REQ_CONTENT_TYPE.into(), value: content_type });
+    meta.push(MetaEntry {
+        key: META_REQ_ACTION.into(),
+        value: action.into(),
+    });
+    meta.push(MetaEntry {
+        key: META_REQ_RESOURCE.into(),
+        value: path.clone(),
+    });
+    meta.push(MetaEntry {
+        key: META_REQ_CLIENT_IP.into(),
+        value: remote_addr,
+    });
+    meta.push(MetaEntry {
+        key: META_REQ_CONTENT_TYPE.into(),
+        value: content_type,
+    });
 
     // Copy headers to meta
     for (name, value) in req.headers() {
-        meta.push(MetaEntry { key: format!("http.header.{}", name), value });
+        meta.push(MetaEntry {
+            key: format!("http.header.{}", name),
+            value,
+        });
     }
 
     // Parse query params
@@ -91,8 +119,14 @@ pub async fn worker_request_to_message(req: &Request) -> Result<Message> {
             let mut parts = pair.splitn(2, '=');
             if let (Some(key), Some(val)) = (parts.next(), parts.next()) {
                 let decoded = urlencoding_decode(val);
-                meta.push(MetaEntry { key: format!("http.query.{}", key), value: decoded.clone() });
-                meta.push(MetaEntry { key: format!("{}{}", META_REQ_QUERY_PREFIX, key), value: decoded });
+                meta.push(MetaEntry {
+                    key: format!("http.query.{}", key),
+                    value: decoded.clone(),
+                });
+                meta.push(MetaEntry {
+                    key: format!("{}{}", META_REQ_QUERY_PREFIX, key),
+                    value: decoded,
+                });
             }
         }
     }
@@ -177,7 +211,11 @@ pub fn wafer_result_to_worker_response(result: Result_) -> Result<Response> {
         }
 
         Action::Continue => {
-            let body = result.message.as_ref().map(|m| m.data.clone()).unwrap_or_default();
+            let body = result
+                .message
+                .as_ref()
+                .map(|m| m.data.clone())
+                .unwrap_or_default();
             let mut resp = Response::from_bytes(body)?;
             let headers = resp.headers_mut();
             headers.set("Content-Type", "application/json")?;
@@ -194,9 +232,7 @@ pub fn wafer_result_to_worker_response(result: Result_) -> Result<Response> {
 // ---------------------------------------------------------------------------
 
 fn meta_get(meta: &[MetaEntry], key: &str) -> Option<String> {
-    meta.iter()
-        .find(|e| e.key == key)
-        .map(|e| e.value.clone())
+    meta.iter().find(|e| e.key == key).map(|e| e.value.clone())
 }
 
 fn get_status(meta: &[MetaEntry], default: u16) -> u16 {
@@ -246,10 +282,7 @@ fn error_code_to_http_status(code: &ErrorCode) -> u16 {
 /// - `http.resp.set-cookie.*` → Set-Cookie header
 /// - `resp.header.*` → custom response header
 /// - `http.resp.header.*` → custom response header
-fn apply_meta_headers(
-    headers: &mut worker::Headers,
-    meta: &[MetaEntry],
-) -> Result<()> {
+fn apply_meta_headers(headers: &mut worker::Headers, meta: &[MetaEntry]) -> Result<()> {
     for entry in meta {
         // Cookie headers
         if entry.key.starts_with(META_RESP_COOKIE_PREFIX)
@@ -259,7 +292,9 @@ fn apply_meta_headers(
             headers.append("Set-Cookie", &entry.value)?;
         }
         // Custom response headers
-        else if let Some(name) = entry.key.strip_prefix(META_RESP_HEADER_PREFIX)
+        else if let Some(name) = entry
+            .key
+            .strip_prefix(META_RESP_HEADER_PREFIX)
             .or_else(|| entry.key.strip_prefix("http.resp.header."))
         {
             headers.set(name, &entry.value)?;

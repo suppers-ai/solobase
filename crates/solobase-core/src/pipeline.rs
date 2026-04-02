@@ -44,13 +44,13 @@ pub async fn handle_request(
     let method = msg.action().to_string();
     let path = msg.path().to_string();
     let client_ip = msg.remote_addr().to_string();
-    let start = std::time::Instant::now();
+    let start_ms = crate::blocks::helpers::now_millis();
 
     // 3. Route to block
     let result = routing::route_to_block(ctx, msg, features, factory).await;
 
     // 4. Log the request (best-effort, don't block the response)
-    let duration_ms = start.elapsed().as_millis() as i64;
+    let duration_ms = (crate::blocks::helpers::now_millis() - start_ms) as i64;
     let user_id = msg.user_id().to_string();
     let (status, status_code, error_message) = match result.action {
         Action::Error => {

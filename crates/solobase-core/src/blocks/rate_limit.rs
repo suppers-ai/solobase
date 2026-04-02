@@ -181,6 +181,44 @@ pub fn set_rate_limit_headers(msg: &mut wafer_run::types::Message, limit: u32, r
     msg.set_meta("resp.header.X-RateLimit-Remaining", remaining.to_string());
 }
 
+/// Return a 429 Too Many Requests response.
+pub fn rate_limited_response(
+    msg: &mut wafer_run::types::Message,
+    retry_after: u64,
+) -> wafer_run::types::Result_ {
+    use super::errors::{error_response, ErrorCode};
+    msg.set_meta("resp.header.Retry-After", retry_after.to_string());
+    msg.set_meta("resp.header.X-RateLimit-Remaining", "0");
+    error_response(
+        msg,
+        ErrorCode::RateLimitExceeded,
+        "Too many requests — try again later",
+    )
+}
+
+/// Check a per-user/identity rate limit and apply headers or return a 429 response.
+pub async fn check_rate_limit(
+    limiter: &UserRateLimiter,
+    ctx: &dyn wafer_run::context::Context,
+    msg: &mut wafer_run::types::Message,
+    identity: &str,
+    category: &str,
+    default: RateLimit,
+) -> Option<wafer_run::types::Result_> {
+    let limit = match default.resolve(ctx, category).await {
+        Some(l) => l,
+        None => return None,
+    };
+    let key = UserRateLimiter::key(identity, category);
+    match limiter.check(&key, limit) {
+        Ok(remaining) => {
+            set_rate_limit_headers(msg, limit.max_requests, remaining);
+            None
+        }
+        Err(retry_after) => Some(rate_limited_response(msg, retry_after)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,52 +322,5 @@ mod tests {
             window: Duration::from_secs(60),
         };
         assert!(limiter.check("key", limit).is_ok());
-    }
-}
-
-/// Return a 429 Too Many Requests response.
-pub fn rate_limited_response(
-    msg: &mut wafer_run::types::Message,
-    retry_after: u64,
-) -> wafer_run::types::Result_ {
-    use super::errors::{error_response, ErrorCode};
-    msg.set_meta("resp.header.Retry-After", retry_after.to_string());
-    msg.set_meta("resp.header.X-RateLimit-Remaining", "0");
-    error_response(
-        msg,
-        ErrorCode::RateLimitExceeded,
-        "Too many requests — try again later",
-    )
-}
-
-/// Check a per-user/identity rate limit and apply headers or return a 429 response.
-///
-/// - `limiter`: the block's `UserRateLimiter` instance
-/// - `ctx`: context for reading config overrides
-/// - `msg`: the request message (headers are set on it)
-/// - `identity`: the rate limit key identity (user_id or IP)
-/// - `category`: rate limit category name (e.g. "auth", "files", "api_read")
-/// - `default`: the default `RateLimit` to use if no override is configured
-///
-/// Returns `Some(Result_)` if the request should be rejected (429), or `None` if allowed.
-pub async fn check_rate_limit(
-    limiter: &UserRateLimiter,
-    ctx: &dyn wafer_run::context::Context,
-    msg: &mut wafer_run::types::Message,
-    identity: &str,
-    category: &str,
-    default: RateLimit,
-) -> Option<wafer_run::types::Result_> {
-    let limit = match default.resolve(ctx, category).await {
-        Some(l) => l,
-        None => return None, // disabled via config
-    };
-    let key = UserRateLimiter::key(identity, category);
-    match limiter.check(&key, limit) {
-        Ok(remaining) => {
-            set_rate_limit_headers(msg, limit.max_requests, remaining);
-            None
-        }
-        Err(retry_after) => Some(rate_limited_response(msg, retry_after)),
     }
 }

@@ -19,8 +19,7 @@ impl SolobaseCryptoService {
 
 impl CryptoService for SolobaseCryptoService {
     fn hash(&self, password: &str) -> Result<String, CryptoError> {
-        solobase_core::crypto::hash_password(password)
-            .map_err(CryptoError::HashError)
+        solobase_core::crypto::hash_password(password).map_err(CryptoError::HashError)
     }
 
     fn compare_hash(&self, password: &str, hash: &str) -> Result<(), CryptoError> {
@@ -36,19 +35,18 @@ impl CryptoService for SolobaseCryptoService {
         claims: HashMap<String, serde_json::Value>,
         expiry: Duration,
     ) -> Result<String, CryptoError> {
-        Ok(solobase_core::crypto::jwt_sign(&claims, expiry, &self.jwt_secret))
+        Ok(solobase_core::crypto::jwt_sign(
+            &claims,
+            expiry,
+            &self.jwt_secret,
+        ))
     }
 
-    fn verify(
-        &self,
-        token: &str,
-    ) -> Result<HashMap<String, serde_json::Value>, CryptoError> {
-        solobase_core::crypto::jwt_verify(token, &self.jwt_secret)
-            .map_err(CryptoError::VerifyError)
+    fn verify(&self, token: &str) -> Result<HashMap<String, serde_json::Value>, CryptoError> {
+        solobase_core::crypto::jwt_verify(token, &self.jwt_secret).map_err(CryptoError::VerifyError)
     }
 
     fn random_bytes(&self, n: usize) -> Result<Vec<u8>, CryptoError> {
-        solobase_core::crypto::random_bytes(n)
-            .map_err(CryptoError::Other)
+        solobase_core::crypto::random_bytes(n).map_err(CryptoError::Other)
     }
 }

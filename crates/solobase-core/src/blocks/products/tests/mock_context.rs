@@ -433,17 +433,17 @@ struct FilterDef {
 fn matches_filter(record: &Record, filter: &FilterDef) -> bool {
     let val = record.data.get(&filter.field);
     match filter.operator.as_str() {
-        "eq" => val.map_or(false, |v| v == &filter.value),
-        "neq" => val.map_or(true, |v| v != &filter.value),
+        "eq" => val == Some(&filter.value),
+        "neq" => val != Some(&filter.value),
         "like" => {
             let pattern = filter.value.as_str().unwrap_or("");
             let text = val.and_then(|v| v.as_str()).unwrap_or("");
-            if pattern.starts_with('%') && pattern.ends_with('%') {
-                text.contains(&pattern[1..pattern.len() - 1])
-            } else if pattern.starts_with('%') {
-                text.ends_with(&pattern[1..])
-            } else if pattern.ends_with('%') {
-                text.starts_with(&pattern[..pattern.len() - 1])
+            if let Some(inner) = pattern.strip_prefix('%').and_then(|p| p.strip_suffix('%')) {
+                text.contains(inner)
+            } else if let Some(suffix) = pattern.strip_prefix('%') {
+                text.ends_with(suffix)
+            } else if let Some(prefix) = pattern.strip_suffix('%') {
+                text.starts_with(prefix)
             } else {
                 text == pattern
             }
@@ -592,5 +592,5 @@ pub fn response_json(result: &Result_) -> serde_json::Value {
 /// Check if a result is an error with a specific code.
 pub fn is_error(result: &Result_, code: &str) -> bool {
     let code: ErrorCode = code.into();
-    result.action == Action::Error && result.error.as_ref().map_or(false, |e| e.code == code)
+    result.action == Action::Error && result.error.as_ref().is_some_and(|e| e.code == code)
 }

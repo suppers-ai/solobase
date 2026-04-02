@@ -29,15 +29,13 @@ use worker::*;
 use database::D1DatabaseService;
 use storage::R2StorageService;
 
-use solobase_core::features::BlockSettings;
 use solobase::blocks;
+use solobase_core::features::BlockSettings;
 use solobase_core::routing::BlockId;
 
 /// Keys read from worker env bindings, overriding any D1 variables table values.
 /// These are platform-level overrides that tenants cannot change.
-const WORKER_BINDING_KEYS: &[&str] = &[
-    "CONTROL_PLANE_URL", "CONTROL_PLANE_SECRET",
-];
+const WORKER_BINDING_KEYS: &[&str] = &["CONTROL_PLANE_URL", "CONTROL_PLANE_SECRET"];
 
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
@@ -57,7 +55,8 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 // ---------------------------------------------------------------------------
 
 async fn handle_migrate(req: &Request, env: &Env) -> Result<Response> {
-    let db = env.d1("DB")
+    let db = env
+        .d1("DB")
         .map_err(|e| Error::RustError(format!("D1: {e}")))?;
 
     schema::run_migrations(&db).await?;
@@ -71,10 +70,14 @@ async fn handle_migrate(req: &Request, env: &Env) -> Result<Response> {
         if let Some(blocks) = body.get("enable_blocks").and_then(|v| v.as_array()) {
             for block in blocks {
                 if let Some(name) = block.as_str() {
-                    let _ = db.prepare(
-                        "INSERT INTO block_settings (block_name, enabled) VALUES (?1, 1) \
-                         ON CONFLICT (block_name) DO UPDATE SET enabled = 1"
-                    ).bind(&[name.into()])?.run().await;
+                    let _ = db
+                        .prepare(
+                            "INSERT INTO block_settings (block_name, enabled) VALUES (?1, 1) \
+                         ON CONFLICT (block_name) DO UPDATE SET enabled = 1",
+                        )
+                        .bind(&[name.into()])?
+                        .run()
+                        .await;
                 }
             }
         }
@@ -86,16 +89,26 @@ async fn handle_migrate(req: &Request, env: &Env) -> Result<Response> {
 /// Generate and store required secrets in the variables table if they don't exist.
 async fn seed_secrets(db: &D1Database) -> Result<()> {
     let secrets = [
-        ("JWT_SECRET", "JWT Secret", "Secret key used to sign authentication tokens",
-         "Changing this will invalidate all existing user sessions and tokens"),
-        ("PRODUCTS_WEBHOOK_SECRET", "Products Webhook Secret", "Secret key used to sign outgoing product/billing webhooks",
-         "Changing this will require updating the webhook receiver"),
+        (
+            "JWT_SECRET",
+            "JWT Secret",
+            "Secret key used to sign authentication tokens",
+            "Changing this will invalidate all existing user sessions and tokens",
+        ),
+        (
+            "PRODUCTS_WEBHOOK_SECRET",
+            "Products Webhook Secret",
+            "Secret key used to sign outgoing product/billing webhooks",
+            "Changing this will require updating the webhook receiver",
+        ),
     ];
 
     for (key, name, description, warning) in &secrets {
         let existing = db
             .prepare("SELECT value FROM variables WHERE key = ?1")
-            .bind(&[(*key).into()])?.first::<serde_json::Value>(None).await?;
+            .bind(&[(*key).into()])?
+            .first::<serde_json::Value>(None)
+            .await?;
 
         if existing.is_some() {
             continue;
@@ -123,9 +136,11 @@ async fn seed_secrets(db: &D1Database) -> Result<()> {
 
 async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     // Get bindings — each project has its own D1 and R2 bucket (no prefixing needed)
-    let db = env.d1("DB")
+    let db = env
+        .d1("DB")
         .map_err(|e| Error::RustError(format!("D1: {e}")))?;
-    let bucket = env.bucket("STORAGE")
+    let bucket = env
+        .bucket("STORAGE")
         .map_err(|e| Error::RustError(format!("R2: {e}")))?;
 
     // Load all config from the D1 variables table — the single source of
@@ -168,7 +183,10 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     // Block settings — read from block_settings table in D1
     let features = {
         let mut map = std::collections::HashMap::new();
-        if let Ok(stmt) = db.prepare("SELECT block_name, enabled FROM block_settings").bind(&[]) {
+        if let Ok(stmt) = db
+            .prepare("SELECT block_name, enabled FROM block_settings")
+            .bind(&[])
+        {
             if let Ok(result) = stmt.all().await {
                 for row in result.results::<serde_json::Value>().unwrap_or_default() {
                     if let (Some(name), Some(enabled)) = (
@@ -188,31 +206,42 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
 
     // Register unified service blocks with CF-specific service implementations
     wafer_core::service_blocks::database::register_with(
-        &mut wafer, Arc::new(D1DatabaseService::new(db)),
+        &mut wafer,
+        Arc::new(D1DatabaseService::new(db)),
     );
     wafer.add_alias("db", "wafer-run/database");
 
     wafer_core::service_blocks::storage::register_with(
-        &mut wafer, Arc::new(R2StorageService::new(bucket)),
+        &mut wafer,
+        Arc::new(R2StorageService::new(bucket)),
     );
     wafer.add_alias("storage", "wafer-run/storage");
 
     wafer_core::service_blocks::config::register_with(
-        &mut wafer, Arc::new(config_service::HashMapConfigService::new(env_vars)),
+        &mut wafer,
+        Arc::new(config_service::HashMapConfigService::new(env_vars)),
     );
     wafer_core::service_blocks::crypto::register_with(
-        &mut wafer, Arc::new(crypto_service::SolobaseCryptoService::new(jwt_secret.clone())),
+        &mut wafer,
+        Arc::new(crypto_service::SolobaseCryptoService::new(
+            jwt_secret.clone(),
+        )),
     );
     wafer_core::service_blocks::network::register_with(
-        &mut wafer, Arc::new(network_service::WorkerFetchService),
+        &mut wafer,
+        Arc::new(network_service::WorkerFetchService),
     );
     wafer_core::service_blocks::logger::register_with(
-        &mut wafer, Arc::new(logger_service::ConsoleLoggerService),
+        &mut wafer,
+        Arc::new(logger_service::ConsoleLoggerService),
     );
 
     // Register dispatcher block for internal RPC via service binding
     if let Some(fetcher) = has_dispatcher {
-        wafer.register_block("solobase/dispatcher", Arc::new(dispatcher::DispatcherBlock::new(fetcher)));
+        wafer.register_block(
+            "solobase/dispatcher",
+            Arc::new(dispatcher::DispatcherBlock::new(fetcher)),
+        );
     }
 
     // Project-level middleware blocks — users can configure these per-project
@@ -223,17 +252,19 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     wafer_block_cors::register(&mut wafer);
     wafer_block_readonly_guard::register(&mut wafer);
 
-
     // The site-main flow references wafer-run/router — alias to suppers-ai/router
     wafer.add_alias("wafer-run/router", "suppers-ai/router");
 
     // Register wafer-run/web for SPA frontend
     wafer_block_web::register(&mut wafer);
-    wafer.add_block_config("wafer-run/web", serde_json::json!({
-        "web_root": "site",
-        "web_spa": "true",
-        "web_index": "index.html"
-    }));
+    wafer.add_block_config(
+        "wafer-run/web",
+        serde_json::json!({
+            "web_root": "site",
+            "web_spa": "true",
+            "web_index": "index.html"
+        }),
+    );
 
     // Register solobase feature blocks — only enabled blocks get instantiated.
     // Block enablement is read from the block_settings table in D1.
@@ -241,29 +272,56 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
 
     let mut shared_blocks = HashMap::new();
     // System and profile are always enabled
-    shared_blocks.insert(BlockId::System, Arc::new(blocks::system::SystemBlock) as Arc<dyn wafer_run::block::Block>);
-    shared_blocks.insert(BlockId::Profile, Arc::new(blocks::profile::ProfileBlock) as Arc<dyn wafer_run::block::Block>);
+    shared_blocks.insert(
+        BlockId::System,
+        Arc::new(blocks::system::SystemBlock) as Arc<dyn wafer_run::block::Block>,
+    );
+    shared_blocks.insert(
+        BlockId::Profile,
+        Arc::new(blocks::profile::ProfileBlock) as Arc<dyn wafer_run::block::Block>,
+    );
     // Feature-gated blocks
     if features.is_enabled("auth") {
-        shared_blocks.insert(BlockId::Auth, Arc::new(blocks::auth::AuthBlock::new()) as Arc<dyn wafer_run::block::Block>);
+        shared_blocks.insert(
+            BlockId::Auth,
+            Arc::new(blocks::auth::AuthBlock::new()) as Arc<dyn wafer_run::block::Block>,
+        );
     }
     if features.is_enabled("admin") {
-        shared_blocks.insert(BlockId::Admin, Arc::new(blocks::admin::AdminBlock) as Arc<dyn wafer_run::block::Block>);
+        shared_blocks.insert(
+            BlockId::Admin,
+            Arc::new(blocks::admin::AdminBlock) as Arc<dyn wafer_run::block::Block>,
+        );
     }
     if features.is_enabled("files") {
-        shared_blocks.insert(BlockId::Files, Arc::new(blocks::files::FilesBlock::new()) as Arc<dyn wafer_run::block::Block>);
+        shared_blocks.insert(
+            BlockId::Files,
+            Arc::new(blocks::files::FilesBlock::new()) as Arc<dyn wafer_run::block::Block>,
+        );
     }
     if features.is_enabled("products") {
-        shared_blocks.insert(BlockId::Products, Arc::new(blocks::products::ProductsBlock::new()) as Arc<dyn wafer_run::block::Block>);
+        shared_blocks.insert(
+            BlockId::Products,
+            Arc::new(blocks::products::ProductsBlock::new()) as Arc<dyn wafer_run::block::Block>,
+        );
     }
     if features.is_enabled("projects") {
-        shared_blocks.insert(BlockId::Projects, Arc::new(blocks::projects::ProjectsBlock::new()) as Arc<dyn wafer_run::block::Block>);
+        shared_blocks.insert(
+            BlockId::Projects,
+            Arc::new(blocks::projects::ProjectsBlock::new()) as Arc<dyn wafer_run::block::Block>,
+        );
     }
     if features.is_enabled("legalpages") {
-        shared_blocks.insert(BlockId::LegalPages, Arc::new(blocks::legalpages::LegalPagesBlock) as Arc<dyn wafer_run::block::Block>);
+        shared_blocks.insert(
+            BlockId::LegalPages,
+            Arc::new(blocks::legalpages::LegalPagesBlock) as Arc<dyn wafer_run::block::Block>,
+        );
     }
     if features.is_enabled("userportal") {
-        shared_blocks.insert(BlockId::UserPortal, Arc::new(blocks::userportal::UserPortalBlock) as Arc<dyn wafer_run::block::Block>);
+        shared_blocks.insert(
+            BlockId::UserPortal,
+            Arc::new(blocks::userportal::UserPortalBlock) as Arc<dyn wafer_run::block::Block>,
+        );
     }
 
     // Register email block
@@ -277,18 +335,23 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     wafer.register_block("suppers-ai/router", Arc::new(router));
 
     // Register the site-main flow
-    wafer.add_flow_json(solobase::flows::site_main::JSON)
+    wafer
+        .add_flow_json(solobase::flows::site_main::JSON)
         .map_err(|e| Error::RustError(format!("invalid site-main flow JSON: {e}")))?;
 
     // Start runtime
-    wafer.start_without_bind().await.map_err(|e| Error::RustError(e))?;
+    wafer
+        .start_without_bind()
+        .await
+        .map_err(|e| Error::RustError(e))?;
 
     // Try serving static files from R2 for non-API paths first.
     // The native wafer-run/web block uses std::fs which doesn't work on CF Workers,
     // so we handle static file serving directly from the project's R2 bucket.
     let pathname = req.url()?.path().to_string();
     if !is_api_path(&pathname) {
-        let r2 = env.bucket("STORAGE")
+        let r2 = env
+            .bucket("STORAGE")
             .map_err(|e| Error::RustError(format!("R2: {e}")))?;
         if let Some(static_resp) = serve_from_r2(&r2, &pathname).await {
             return Ok(static_resp);
@@ -328,7 +391,9 @@ async fn serve_from_r2(bucket: &worker::Bucket, path: &str) -> Option<worker::Re
             if key.ends_with(".html") {
                 resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
             } else {
-                resp.headers_mut().set("Cache-Control", "public, max-age=31536000, immutable").ok()?;
+                resp.headers_mut()
+                    .set("Cache-Control", "public, max-age=31536000, immutable")
+                    .ok()?;
             }
             return Some(resp);
         }
@@ -340,7 +405,9 @@ async fn serve_from_r2(bucket: &worker::Bucket, path: &str) -> Option<worker::Re
             if let Some(body) = obj.body() {
                 let bytes = body.bytes().await.ok()?;
                 let mut resp = worker::Response::from_bytes(bytes).ok()?.with_status(200);
-                resp.headers_mut().set("Content-Type", "text/html; charset=utf-8").ok()?;
+                resp.headers_mut()
+                    .set("Content-Type", "text/html; charset=utf-8")
+                    .ok()?;
                 resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
                 return Some(resp);
             }
@@ -352,27 +419,50 @@ async fn serve_from_r2(bucket: &worker::Bucket, path: &str) -> Option<worker::Re
 
 fn is_api_path(path: &str) -> bool {
     const PREFIXES: &[&str] = &[
-        "/health", "/nav", "/debug/",
-        "/auth/", "/admin/", "/storage/",
-        "/b/", "/ext/", "/profile/", "/settings/",
-        "/internal/", "/_internal/",
+        "/health",
+        "/nav",
+        "/debug/",
+        "/auth/",
+        "/admin/",
+        "/storage/",
+        "/b/",
+        "/ext/",
+        "/profile/",
+        "/settings/",
+        "/internal/",
+        "/_internal/",
     ];
-    PREFIXES.iter().any(|p| path == p.trim_end_matches('/') || path.starts_with(p))
+    PREFIXES
+        .iter()
+        .any(|p| path == p.trim_end_matches('/') || path.starts_with(p))
 }
 
 fn guess_content_type(key: &str) -> &'static str {
-    if key.ends_with(".html") { "text/html; charset=utf-8" }
-    else if key.ends_with(".js") { "application/javascript" }
-    else if key.ends_with(".css") { "text/css" }
-    else if key.ends_with(".json") { "application/json" }
-    else if key.ends_with(".png") { "image/png" }
-    else if key.ends_with(".jpg") || key.ends_with(".jpeg") { "image/jpeg" }
-    else if key.ends_with(".svg") { "image/svg+xml" }
-    else if key.ends_with(".ico") { "image/x-icon" }
-    else if key.ends_with(".woff2") { "font/woff2" }
-    else if key.ends_with(".woff") { "font/woff" }
-    else if key.ends_with(".wasm") { "application/wasm" }
-    else { "application/octet-stream" }
+    if key.ends_with(".html") {
+        "text/html; charset=utf-8"
+    } else if key.ends_with(".js") {
+        "application/javascript"
+    } else if key.ends_with(".css") {
+        "text/css"
+    } else if key.ends_with(".json") {
+        "application/json"
+    } else if key.ends_with(".png") {
+        "image/png"
+    } else if key.ends_with(".jpg") || key.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if key.ends_with(".svg") {
+        "image/svg+xml"
+    } else if key.ends_with(".ico") {
+        "image/x-icon"
+    } else if key.ends_with(".woff2") {
+        "font/woff2"
+    } else if key.ends_with(".woff") {
+        "font/woff"
+    } else if key.ends_with(".wasm") {
+        "application/wasm"
+    } else {
+        "application/octet-stream"
+    }
 }
 
 // ---------------------------------------------------------------------------

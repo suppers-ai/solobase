@@ -13,9 +13,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    environment: production
     steps:
       - uses: actions/checkout@v4
 
@@ -43,76 +42,120 @@ jobs:
           cargo install worker-build
           npm install -g wrangler
 
-      # 0. Build cloud dashboard and upload to R2
+      # Build cloud dashboard
       - name: Build cloud dashboard
         working-directory: packages/cloud-dashboard
         run: |
           npm ci
           npx vite build
 
+      # Build user worker
+      - name: Build user worker
+        working-directory: crates/solobase-worker
+        run: worker-build --release
+
+      # Upload artifacts for deploy jobs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worker-build
+          path: |
+            crates/solobase-worker/build/index.js
+            crates/solobase-worker/build/index_bg.wasm
+            packages/cloud-dashboard/dist/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [development, production]
+    environment: ${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout wafer-run
+        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/solobase-cloudflare
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install wrangler
+        run: npm install -g wrangler
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: worker-build
+
+      # 0. Upload cloud dashboard to R2
       - name: Upload cloud dashboard to R2
-        working-directory: packages/cloud-dashboard
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          R2_BUCKET: ${{ vars.ENVIRONMENT == 'production' && 'solobase-production-cloud' || 'solobase-development-cloud' }}
+          R2_BUCKET: solobase-${{ matrix.env }}-cloud
         run: |
           wrangler r2 object put "$R2_BUCKET/site/index.html" \
-            --file dist/index.html --content-type "text/html" --remote
-          for f in dist/assets/*.js; do
+            --file packages/cloud-dashboard/dist/index.html --content-type "text/html" --remote
+          for f in packages/cloud-dashboard/dist/assets/*.js; do
             wrangler r2 object put "$R2_BUCKET/site/assets/$(basename $f)" \
               --file "$f" --content-type "application/javascript" --remote
           done
-          for f in dist/assets/*.css; do
+          for f in packages/cloud-dashboard/dist/assets/*.css; do
             wrangler r2 object put "$R2_BUCKET/site/assets/$(basename $f)" \
               --file "$f" --content-type "text/css" --remote
           done
 
-      # 1. Build and deploy the dispatch worker
+      # 1. Deploy dispatch worker
       - name: Deploy dispatch worker
         working-directory: crates/solobase-cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: wrangler deploy --env production
+          WRANGLER_ENV: ${{ matrix.env == 'production' && 'production' || '' }}
+        run: wrangler deploy ${{ matrix.env == 'production' && '--env production' || '' }}
 
-      # 2. Build the user worker
-      - name: Build user worker
-        working-directory: crates/solobase-worker
-        run: worker-build --release
-
-      # 3. Upload user worker artifacts to R2
+      # 2. Upload user worker artifacts to R2
       - name: Upload user worker artifacts to R2
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET: ${{ matrix.env == 'production' && 'solobase-storage' || 'solobase-development' }}
         run: |
-          wrangler r2 object put "solobase-storage/_system/worker/index.js" \
+          wrangler r2 object put "$R2_BUCKET/_system/worker/index.js" \
             --file crates/solobase-worker/build/index.js \
             --content-type "application/javascript" --remote
-          wrangler r2 object put "solobase-storage/_system/worker/index_bg.wasm" \
+          wrangler r2 object put "$R2_BUCKET/_system/worker/index_bg.wasm" \
             --file crates/solobase-worker/build/index_bg.wasm \
             --content-type "application/wasm" --remote
 
-      # 4. Update all existing user workers with new code
+      # 3. Deploy code to all user workers
       - name: Deploy code to all user workers
         env:
           CONTROL_API_KEY: ${{ secrets.CONTROL_API_KEY }}
-          PLATFORM_URL: ${{ vars.PLATFORM_URL || 'https://cloud.solobase.dev' }}
+          PLATFORM_URL: ${{ vars.PLATFORM_URL }}
         run: |
           curl -sf -X POST "$PLATFORM_URL/_control/deploy" \
             -H "X-Control-Api-Key: $CONTROL_API_KEY" \
             -H "Content-Type: application/json" \
             --max-time 120 || echo "Warning: deploy endpoint returned non-zero"
 
-      # 5. Run migrations on all user workers
+      # 4. Run migrations on all user workers
       - name: Run migrations on all user workers
         env:
           CONTROL_API_KEY: ${{ secrets.CONTROL_API_KEY }}
-          PLATFORM_URL: ${{ vars.PLATFORM_URL || 'https://cloud.solobase.dev' }}
+          PLATFORM_URL: ${{ vars.PLATFORM_URL }}
         run: |
           curl -sf -X POST "$PLATFORM_URL/_control/migrate-workers" \
             -H "X-Control-Api-Key: $CONTROL_API_KEY" \
             -H "Content-Type: application/json" \
             --max-time 120 || echo "Warning: migrate-workers endpoint returned non-zero"
-

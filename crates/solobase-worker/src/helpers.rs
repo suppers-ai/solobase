@@ -14,5 +14,8 @@ pub fn json_response<T: serde::Serialize>(data: &T, status: u16) -> Result<Respo
 
 /// Build a JSON error response with `{ "error": code, "message": message }`.
 pub fn error_json(code: &str, message: &str, status: u16) -> Result<Response> {
-    json_response(&serde_json::json!({"error": code, "message": message}), status)
+    json_response(
+        &serde_json::json!({"error": code, "message": message}),
+        status,
+    )
 }

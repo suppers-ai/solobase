@@ -458,6 +458,9 @@ pub async fn run_migrations(db: &D1Database) -> Result<()> {
         let _ = db.prepare(*sql).bind(&[])?.run().await;
     }
 
-    console_log!("Schema migrations applied ({} statements)", MIGRATIONS.len());
+    console_log!(
+        "Schema migrations applied ({} statements)",
+        MIGRATIONS.len()
+    );
     Ok(())
 }

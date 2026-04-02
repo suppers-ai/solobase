@@ -166,7 +166,8 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             };
             (
                 "Welcome to Solobase!".to_string(),
-                format!(r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
+                format!(
+                    r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#1e293b">{greeting}</h2>
 <p style="color:#64748b;line-height:1.6">Your Solobase account is ready. Here's how to get started:</p>
 <ol style="color:#64748b;line-height:1.8">
@@ -174,8 +175,10 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 <li>Create your first project from the <a href="https://cloud.solobase.dev/blocks/dashboard/" style="color:#0ea5e9">dashboard</a></li>
 <li>Read the <a href="https://solobase.dev/docs/" style="color:#0ea5e9">documentation</a></li>
 </ol>
-</div>"#),
-                "Welcome to Solobase! Get started: https://cloud.solobase.dev/blocks/dashboard/".to_string(),
+</div>"#
+                ),
+                "Welcome to Solobase! Get started: https://cloud.solobase.dev/blocks/dashboard/"
+                    .to_string(),
             )
         }
         other => {

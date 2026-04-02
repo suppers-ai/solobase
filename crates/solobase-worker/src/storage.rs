@@ -103,7 +103,11 @@ impl StorageService for R2StorageService {
             format!("{}{}", self.folder_prefix(folder), opts.prefix)
         };
 
-        let limit = if opts.limit > 0 { opts.limit as u32 } else { 100 };
+        let limit = if opts.limit > 0 {
+            opts.limit as u32
+        } else {
+            100
+        };
 
         let listed = self
             .bucket

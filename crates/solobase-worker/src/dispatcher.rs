@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use wafer_block::helpers::MessageExt;
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
-use wafer_block::helpers::MessageExt;
 
 pub struct DispatcherBlock {
     fetcher: worker::Fetcher,
@@ -58,9 +58,14 @@ fn respond_json<T: Serialize>(msg: &Message, data: &T) -> Result_ {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for DispatcherBlock {
     fn info(&self) -> BlockInfo {
-        BlockInfo::new("solobase/dispatcher", "0.0.1", "service@v1", "Forward requests to dispatch worker via service binding")
-            .instance_mode(InstanceMode::Singleton)
-            .category(wafer_run::BlockCategory::Feature)
+        BlockInfo::new(
+            "solobase/dispatcher",
+            "0.0.1",
+            "service@v1",
+            "Forward requests to dispatch worker via service binding",
+        )
+        .instance_mode(InstanceMode::Singleton)
+        .category(wafer_run::BlockCategory::Feature)
     }
 
     async fn handle(&self, _ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -68,7 +73,9 @@ impl Block for DispatcherBlock {
             "network.do" => {
                 let req = match msg.decode::<NetworkDoReq>() {
                     Ok(v) => v,
-                    Err(e) => return err_result("invalid_argument", format!("invalid network.do: {e}")),
+                    Err(e) => {
+                        return err_result("invalid_argument", format!("invalid network.do: {e}"))
+                    }
                 };
                 let method = match req.method.to_uppercase().as_str() {
                     "GET" => worker::Method::Get,
@@ -96,7 +103,9 @@ impl Block for DispatcherBlock {
                 }
                 let mut resp = match self.fetcher.fetch_request(worker_req).await {
                     Ok(r) => r,
-                    Err(e) => return err_result("unavailable", format!("dispatcher fetch error: {e}")),
+                    Err(e) => {
+                        return err_result("unavailable", format!("dispatcher fetch error: {e}"))
+                    }
                 };
                 let status_code = resp.status_code();
                 let resp_body = resp.bytes().await.unwrap_or_default();
@@ -104,13 +113,24 @@ impl Block for DispatcherBlock {
                 for (k, v) in resp.headers() {
                     resp_headers.entry(k).or_default().push(v);
                 }
-                respond_json(msg, &NetworkDoResp { status_code, headers: resp_headers, body: resp_body })
+                respond_json(
+                    msg,
+                    &NetworkDoResp {
+                        status_code,
+                        headers: resp_headers,
+                        body: resp_body,
+                    },
+                )
             }
             other => err_result("unimplemented", format!("unknown dispatcher op: {other}")),
         }
     }
 
-    async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(
+        &self,
+        _ctx: &dyn Context,
+        _event: LifecycleEvent,
+    ) -> std::result::Result<(), WaferError> {
         Ok(())
     }
 }

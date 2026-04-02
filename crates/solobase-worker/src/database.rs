@@ -49,7 +49,11 @@ impl DatabaseService for D1DatabaseService {
         }
     }
 
-    async fn list(&self, collection: &str, opts: &ListOptions) -> Result<RecordList, DatabaseError> {
+    async fn list(
+        &self,
+        collection: &str,
+        opts: &ListOptions,
+    ) -> Result<RecordList, DatabaseError> {
         let table = sanitize_ident(collection);
 
         let mut where_clauses: Vec<String> = Vec::new();
@@ -193,10 +197,7 @@ impl DatabaseService for D1DatabaseService {
         let mut params: Vec<JsValue> = Vec::new();
 
         let mut data = data;
-        data.insert(
-            "updated_at".to_string(),
-            serde_json::Value::String(now),
-        );
+        data.insert("updated_at".to_string(), serde_json::Value::String(now));
 
         for (key, val) in &data {
             sets.push(format!("{} = ?", sanitize_ident(key)));
@@ -205,11 +206,7 @@ impl DatabaseService for D1DatabaseService {
 
         params.push(id.into());
 
-        let sql = format!(
-            "UPDATE {} SET {} WHERE id = ?",
-            table,
-            sets.join(", ")
-        );
+        let sql = format!("UPDATE {} SET {} WHERE id = ?", table, sets.join(", "));
 
         self.db
             .prepare(&sql)
