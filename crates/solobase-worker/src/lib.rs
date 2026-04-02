@@ -64,22 +64,33 @@ async fn handle_migrate(req: &Request, env: &Env) -> Result<Response> {
     // Ensure required secrets exist in variables table — generate if missing
     seed_secrets(&db).await?;
 
+    // Seed default config variables (INSERT OR IGNORE — existing values preserved)
+    seed_defaults(&db).await?;
+
+    // Parse migration request body for optional config
+    let body = req.clone()?.json::<serde_json::Value>().await.unwrap_or_default();
+
     // Enable specific blocks if requested by the dispatch worker.
     // e.g., {"enable_blocks": ["suppers-ai/projects"]} for the cloud project.
-    if let Ok(body) = req.clone()?.json::<serde_json::Value>().await {
-        if let Some(blocks) = body.get("enable_blocks").and_then(|v| v.as_array()) {
-            for block in blocks {
-                if let Some(name) = block.as_str() {
-                    let _ = db
-                        .prepare(
-                            "INSERT INTO block_settings (block_name, enabled) VALUES (?1, 1) \
+    if let Some(blocks) = body.get("enable_blocks").and_then(|v| v.as_array()) {
+        for block in blocks {
+            if let Some(name) = block.as_str() {
+                let _ = db
+                    .prepare(
+                        "INSERT INTO block_settings (block_name, enabled) VALUES (?1, 1) \
                          ON CONFLICT (block_name) DO UPDATE SET enabled = 1",
-                        )
-                        .bind(&[name.into()])?
-                        .run()
-                        .await;
-                }
+                    )
+                    .bind(&[name.into()])?
+                    .run()
+                    .await;
             }
+        }
+    }
+
+    // Ensure admin_email user has admin role (create user if none exist, or just assign role)
+    if let Some(admin_email) = body.get("admin_email").and_then(|v| v.as_str()) {
+        if !admin_email.is_empty() {
+            ensure_admin_role(&db, admin_email).await?;
         }
     }
 
@@ -125,6 +136,71 @@ async fn seed_secrets(db: &D1Database) -> Result<()> {
         .run().await?;
 
         console_log!("Generated {} for project", key);
+    }
+
+    Ok(())
+}
+
+/// Seed default UI/config variables if they don't exist yet.
+/// Uses INSERT OR IGNORE so existing dashboard-edited values are preserved.
+async fn seed_defaults(db: &D1Database) -> Result<()> {
+    // (key, name, description, default_value, warning, sensitive)
+    let defaults: &[(&str, &str, &str, &str, &str, i32)] = &[
+        ("APP_NAME", "App Name", "Display name shown in the UI and emails", "Solobase", "", 0),
+        ("ALLOW_SIGNUP", "Allow Signup", "Allow new users to register", "true", "", 0),
+        ("ENABLE_OAUTH", "Enable OAuth", "Enable third-party OAuth login", "false", "", 0),
+        ("PRIMARY_COLOR", "Primary Color", "Brand color used in the UI", "#6366f1", "", 0),
+        ("POST_LOGIN_REDIRECT", "Post-Login Redirect", "URL to redirect to after login", "/", "", 0),
+        ("LOGO_URL", "Logo URL", "Logo shown in the header and emails", "https://solobase.dev/images/logo_long.png", "", 0),
+        ("LOGO_ICON_URL", "Logo Icon URL", "Small icon logo", "https://solobase.dev/images/logo.png", "", 0),
+        ("AUTH_LOGO_URL", "Auth Logo URL", "Logo shown on login/signup pages (falls back to LOGO_URL)", "", "", 0),
+    ];
+
+    for &(key, name, description, value, warning, sensitive) in defaults {
+        let id = format!("var_{}", uuid::Uuid::new_v4());
+        let _ = db.prepare(
+            "INSERT OR IGNORE INTO variables (id, key, name, description, value, warning, sensitive, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'), datetime('now'))"
+        )
+        .bind(&[id.into(), key.into(), name.into(), description.into(), value.into(), warning.into(), sensitive.into()])?
+        .run().await;
+    }
+
+    Ok(())
+}
+
+/// Ensure the given email has the admin role. If the user exists, assign admin.
+/// Also sets ADMIN_EMAIL variable so future signups with this email get admin.
+async fn ensure_admin_role(db: &D1Database, admin_email: &str) -> Result<()> {
+    // Set ADMIN_EMAIL variable
+    let var_id = format!("var_{}", uuid::Uuid::new_v4());
+    let _ = db.prepare(
+        "INSERT OR IGNORE INTO variables (id, key, name, description, value, sensitive, created_at, updated_at) \
+         VALUES (?1, 'ADMIN_EMAIL', 'Admin Email', 'Email that gets admin role on signup', ?2, 0, datetime('now'), datetime('now'))"
+    ).bind(&[var_id.into(), admin_email.into()])?.run().await;
+
+    // Find user by email
+    let user = db
+        .prepare("SELECT id FROM auth_users WHERE email = ?1")
+        .bind(&[admin_email.into()])?
+        .first::<serde_json::Value>(None)
+        .await?;
+
+    if let Some(row) = user {
+        let user_id = row.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        if !user_id.is_empty() {
+            // Assign admin role (ignore if already assigned)
+            let role_id = uuid::Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+            let _ = db.prepare(
+                "INSERT OR IGNORE INTO iam_user_roles (id, user_id, role, assigned_at) \
+                 SELECT ?1, ?2, 'admin', ?3 \
+                 WHERE NOT EXISTS (SELECT 1 FROM iam_user_roles WHERE user_id = ?2 AND role = 'admin')"
+            ).bind(&[role_id.into(), user_id.into(), now.into()])?.run().await;
+            console_log!("Admin role assigned to {}", admin_email);
+        }
+    } else {
+        console_log!("User {} not found — admin role will be assigned on signup", admin_email);
     }
 
     Ok(())

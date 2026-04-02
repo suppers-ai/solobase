@@ -93,9 +93,12 @@ impl Block for ProjectsBlock {
             }
         }
 
-        // SSR page
+        // SSR page (only for browser requests, not JSON API calls)
         if msg.action() == "retrieve" && (path == "/b/projects" || path == "/b/projects/") {
-            return pages::admin_deployments(ctx, msg).await;
+            let accept = msg.header("Accept");
+            if !accept.contains("application/json") {
+                return pages::admin_deployments(ctx, msg).await;
+            }
         }
 
         // Admin routes

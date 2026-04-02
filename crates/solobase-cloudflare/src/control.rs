@@ -200,15 +200,24 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
             let dispatcher = env.dynamic_dispatcher("DISPATCHER")
                 .map_err(|e| Error::RustError(format!("dispatcher: {e}")))?;
 
+            // Parse optional admin_email from the control plane request body
+            let req_body: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+            let admin_email = req_body.get("admin_email").and_then(|v| v.as_str()).unwrap_or("");
+
             let mut results = Vec::new();
             for subdomain in &projects {
                 // Platform project (cloud) gets extra blocks enabled
                 let is_platform = subdomain == "cloud";
-                let body = if is_platform {
-                    serde_json::json!({"enable_blocks": ["suppers-ai/projects"]}).to_string()
+                let mut migrate_body = if is_platform {
+                    serde_json::json!({"enable_blocks": ["suppers-ai/projects"]})
                 } else {
-                    "{}".to_string()
+                    serde_json::json!({})
                 };
+                // Forward admin_email to user worker migration
+                if !admin_email.is_empty() {
+                    migrate_body["admin_email"] = serde_json::Value::String(admin_email.to_string());
+                }
+                let body = migrate_body.to_string();
                 let mut migrate_req = Request::new_with_init(
                     "https://internal/_internal/migrate",
                     RequestInit::new()
@@ -220,10 +229,22 @@ pub async fn handle(req: &Request, env: &Env, path: &str, body: &[u8]) -> Result
                 match dispatcher.get(subdomain) {
                     Ok(fetcher) => {
                         match fetcher.fetch_request(migrate_req).await {
-                            Ok(resp) => results.push(serde_json::json!({
-                                "project": subdomain,
-                                "status": resp.status_code(),
-                            })),
+                            Ok(mut resp) => {
+                                let status = resp.status_code();
+                                let mut entry = serde_json::json!({
+                                    "project": subdomain,
+                                    "status": status,
+                                });
+                                // Forward admin_password if present in response
+                                if let Ok(text) = resp.text().await {
+                                    if let Ok(body_json) = serde_json::from_str::<serde_json::Value>(&text) {
+                                        if let Some(pw) = body_json.get("admin_password") {
+                                            entry["admin_password"] = pw.clone();
+                                        }
+                                    }
+                                }
+                                results.push(entry);
+                            }
                             Err(e) => results.push(serde_json::json!({
                                 "project": subdomain,
                                 "error": e.to_string(),

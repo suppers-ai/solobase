@@ -1756,13 +1756,8 @@ pub async fn handle_edit_variable_form(
     };
 
     let key = record.str_field("key").to_string();
-    // Never send actual sensitive values to the browser — use empty placeholder
     let sensitive = record.i64_field("sensitive") != 0;
-    let value = if sensitive {
-        String::new()
-    } else {
-        record.str_field("value").to_string()
-    };
+    let value = record.str_field("value").to_string();
     let description = record.str_field("description").to_string();
     let warning = record.str_field("warning").to_string();
 
