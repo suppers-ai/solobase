@@ -144,10 +144,17 @@ jobs:
           CONTROL_API_KEY: ${{ secrets.CONTROL_API_KEY }}
           PLATFORM_URL: ${{ vars.PLATFORM_URL }}
         run: |
-          curl -sf -X POST "$PLATFORM_URL/_control/deploy" \
+          response=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$PLATFORM_URL/_control/deploy" \
             -H "X-Control-Api-Key: $CONTROL_API_KEY" \
             -H "Content-Type: application/json" \
-            --max-time 120 || echo "Warning: deploy endpoint returned non-zero"
+            --max-time 120) || true
+          http_status=$(echo "$response" | tail -1 | sed 's/HTTP_STATUS://')
+          body=$(echo "$response" | sed '$d')
+          echo "Status: $http_status"
+          echo "Response: $body"
+          if [ "$http_status" -ge 400 ] 2>/dev/null || [ -z "$http_status" ]; then
+            echo "::warning::deploy endpoint returned HTTP $http_status"
+          fi
 
       # 4. Run migrations on all user workers
       - name: Run migrations on all user workers
@@ -155,7 +162,14 @@ jobs:
           CONTROL_API_KEY: ${{ secrets.CONTROL_API_KEY }}
           PLATFORM_URL: ${{ vars.PLATFORM_URL }}
         run: |
-          curl -sf -X POST "$PLATFORM_URL/_control/migrate-workers" \
+          response=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$PLATFORM_URL/_control/migrate-workers" \
             -H "X-Control-Api-Key: $CONTROL_API_KEY" \
             -H "Content-Type: application/json" \
-            --max-time 120 || echo "Warning: migrate-workers endpoint returned non-zero"
+            --max-time 120) || true
+          http_status=$(echo "$response" | tail -1 | sed 's/HTTP_STATUS://')
+          body=$(echo "$response" | sed '$d')
+          echo "Status: $http_status"
+          echo "Response: $body"
+          if [ "$http_status" -ge 400 ] 2>/dev/null || [ -z "$http_status" ]; then
+            echo "::warning::migrate-workers endpoint returned HTTP $http_status"
+          fi
