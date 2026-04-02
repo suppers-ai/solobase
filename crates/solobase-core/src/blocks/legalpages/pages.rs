@@ -50,8 +50,7 @@ fn legalpages_page(
     msg: &mut Message,
 ) -> Result_ {
     let is_fragment = ui::is_htmx(msg);
-    let markup =
-        ui::layout::block_shell(title, config, &nav(), user, path, content, is_fragment);
+    let markup = ui::layout::block_shell(title, config, &nav(), user, path, content, is_fragment);
     ui::html_response(msg, markup)
 }
 

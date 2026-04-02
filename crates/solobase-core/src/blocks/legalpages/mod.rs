@@ -119,7 +119,13 @@ impl LegalPagesBlock {
             String::new()
         };
 
-        let markup = public_page(&config.app_name, title, &meta, &content, &config.favicon_url);
+        let markup = public_page(
+            &config.app_name,
+            title,
+            &meta,
+            &content,
+            &config.favicon_url,
+        );
         respond(
             msg,
             markup.into_string().into_bytes(),
@@ -459,16 +465,13 @@ impl Block for LegalPagesBlock {
             }
 
             // Admin UI pages (SSR)
-            ("retrieve", "/b/legalpages/admin")
-            | ("retrieve", "/b/legalpages/admin/privacy") => {
+            ("retrieve", "/b/legalpages/admin") | ("retrieve", "/b/legalpages/admin/privacy") => {
                 pages::editor_page(ctx, msg, "privacy").await
             }
             ("retrieve", "/b/legalpages/admin/terms") => {
                 pages::editor_page(ctx, msg, "terms").await
             }
-            ("retrieve", "/b/legalpages/admin/endpoints") => {
-                pages::endpoints_page(ctx, msg).await
-            }
+            ("retrieve", "/b/legalpages/admin/endpoints") => pages::endpoints_page(ctx, msg).await,
 
             // Admin UI mutations (from editor save/publish)
             ("create", "/b/legalpages/admin/save") => pages::handle_save(ctx, msg).await,
