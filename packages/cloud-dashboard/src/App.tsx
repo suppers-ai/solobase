@@ -607,7 +607,7 @@ function ApiKeysTab() {
 
   async function revoke(id: string) {
     try {
-      await api.delete(`/b/auth/api-keys/${id}`);
+      await api.delete(`/auth/api-keys/${id}`);
       toasts.success("API key revoked");
       await fetch_();
     } catch (e: any) {
@@ -789,7 +789,7 @@ function SettingsTab() {
           <span style={{ fontSize: "1.25rem", fontWeight: 700 }}>
             {planName}
           </span>
-          <a href="/blocks/products/frontend/user/" class="btn btn-primary">
+          <a href="/b/products/my-purchases" class="btn btn-primary">
             Manage Plan
           </a>
         </div>
