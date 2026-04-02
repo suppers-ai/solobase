@@ -1,4 +1,8 @@
-use super::helpers::{self, json_map};
+mod pages;
+
+use crate::blocks::helpers::{self, json_map};
+use crate::ui::SiteConfig;
+use maud::{html, Markup, PreEscaped, DOCTYPE};
 use std::collections::HashMap;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
@@ -9,7 +13,7 @@ use wafer_run::types::*;
 
 pub struct LegalPagesBlock;
 
-const COLLECTION: &str = "block_legalpages_legal_documents";
+pub(crate) const COLLECTION: &str = "block_legalpages_legal_documents";
 
 /// Extract document ID from path like `/admin/legalpages/documents/{id}` or
 /// `/admin/legalpages/documents/{id}/publish`.
@@ -35,7 +39,13 @@ impl LegalPagesBlock {
         msg: &mut Message,
         doc_type: &str,
     ) -> Result_ {
-        // Find published document of given type
+        let config = SiteConfig::load(ctx).await;
+        let type_label = if doc_type == "terms" {
+            "Terms of Service"
+        } else {
+            "Privacy Policy"
+        };
+
         let opts = ListOptions {
             filters: vec![
                 Filter {
@@ -63,43 +73,56 @@ impl LegalPagesBlock {
         };
 
         if result.records.is_empty() {
-            let html = format!(
-                "<html><body><h1>{}</h1><p>No {} document has been published yet.</p></body></html>",
-                if doc_type == "terms" { "Terms of Service" } else { "Privacy Policy" },
-                doc_type
+            let markup = public_page(
+                &config.app_name,
+                type_label,
+                "",
+                "<p>No document has been published yet.</p>",
+                &config.favicon_url,
             );
-            return respond(msg, html.into_bytes(), "text/html; charset=utf-8");
+            return respond(
+                msg,
+                markup.into_string().into_bytes(),
+                "text/html; charset=utf-8",
+            );
         }
 
         let record = &result.records[0];
+        let title = record
+            .data
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or(type_label);
         let raw_content = record
             .data
             .get("content")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let content = sanitize_html(raw_content);
-        let title = record
+        let published_at = record
             .data
-            .get("title")
+            .get("published_at")
             .and_then(|v| v.as_str())
-            .unwrap_or(doc_type)
-            .replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;");
+            .unwrap_or("");
+        let version = record
+            .data
+            .get("version")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1);
+        let meta = if !published_at.is_empty() {
+            format!(
+                "Last updated: {} \u{00b7} Version {}",
+                published_at.get(..10).unwrap_or(published_at),
+                version
+            )
+        } else {
+            String::new()
+        };
 
-        let html = format!(
-            r#"<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>{title}</title>
-<style>body{{font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333}}h1{{color:#111}}</style>
-</head><body><h1>{title}</h1><div>{content}</div></body></html>"#
-        );
-        respond(msg, html.into_bytes(), "text/html; charset=utf-8")
-    }
-
-    fn handle_admin_ui(&self, msg: &mut Message) -> Result_ {
+        let markup = public_page(&config.app_name, title, &meta, &content, &config.favicon_url);
         respond(
             msg,
-            ADMIN_HTML.as_bytes().to_vec(),
+            markup.into_string().into_bytes(),
             "text/html; charset=utf-8",
         )
     }
@@ -295,8 +318,73 @@ impl LegalPagesBlock {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Public page rendering
+// ---------------------------------------------------------------------------
+
+/// Render a professionally styled public legal page.
+fn public_page(
+    app_name: &str,
+    title: &str,
+    meta: &str,
+    content: &str,
+    favicon_url: &str,
+) -> Markup {
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width,initial-scale=1";
+                title { (title) " \u{2014} " (app_name) }
+                @if !favicon_url.is_empty() {
+                    link rel="icon" href=(favicon_url);
+                }
+                style { (PreEscaped(PUBLIC_PAGE_CSS)) }
+            }
+            body {
+                header .legal-header {
+                    a href="/" { (app_name) }
+                }
+                main .legal-container {
+                    h1 { (title) }
+                    @if !meta.is_empty() {
+                        div .legal-meta { (meta) }
+                    }
+                    div .legal-content { (PreEscaped(content)) }
+                }
+                footer .legal-footer {
+                    "\u{00a9} " (chrono::Utc::now().format("%Y")) " " (app_name) ". All rights reserved."
+                }
+            }
+        }
+    }
+}
+
+const PUBLIC_PAGE_CSS: &str = r#"
+:root{--text:#1a1a2e;--muted:#64748b;--bg:#fff;--border:#e2e8f0;--accent:#6366f1}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Georgia,'Times New Roman',serif;color:var(--text);background:var(--bg);line-height:1.8}
+.legal-header{border-bottom:1px solid var(--border);padding:1.25rem 2rem}
+.legal-header a{color:var(--text);text-decoration:none;font-weight:600;font-size:1.1rem;font-family:system-ui,sans-serif}
+.legal-container{max-width:720px;margin:0 auto;padding:3rem 2rem}
+.legal-container h1{font-size:2rem;margin-bottom:.5rem;line-height:1.3}
+.legal-meta{color:var(--muted);font-family:system-ui,sans-serif;font-size:.85rem;margin-bottom:2rem;padding-bottom:1rem;border-bottom:1px solid var(--border)}
+.legal-content h2{font-size:1.4rem;margin:2rem 0 .75rem}
+.legal-content h3{font-size:1.15rem;margin:1.5rem 0 .5rem}
+.legal-content p{margin-bottom:1rem}
+.legal-content ul,.legal-content ol{margin:.5rem 0 1rem 1.5rem}
+.legal-content li{margin-bottom:.25rem}
+.legal-content a{color:var(--accent)}
+.legal-content blockquote{border-left:3px solid var(--border);padding-left:1rem;margin:1rem 0;color:var(--muted)}
+.legal-content table{width:100%;border-collapse:collapse;margin:1rem 0}
+.legal-content th,.legal-content td{padding:.5rem;text-align:left;border-bottom:1px solid var(--border)}
+.legal-footer{border-top:1px solid var(--border);padding:1.5rem 2rem;text-align:center;color:var(--muted);font-family:system-ui,sans-serif;font-size:.8rem;margin-top:3rem}
+@media print{.legal-header,.legal-footer{display:none}.legal-container{max-width:100%;padding:1rem}}
+@media(max-width:600px){.legal-container{padding:1.5rem 1rem}}
+"#;
+
 /// Sanitize admin-authored HTML content to prevent XSS.
-/// Uses the `ammonia` crate for battle-tested HTML sanitization.
 fn sanitize_html(input: &str) -> String {
     ammonia::Builder::default()
         .add_tags(&["h1", "h2", "h3", "h4", "h5", "h6"])
@@ -318,6 +406,10 @@ fn sanitize_html(input: &str) -> String {
         .clean(input)
         .to_string()
 }
+
+// ---------------------------------------------------------------------------
+// Block trait implementation
+// ---------------------------------------------------------------------------
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -345,6 +437,7 @@ impl Block for LegalPagesBlock {
             .endpoints(vec![
                 BlockEndpoint::get("/b/legalpages/terms", "Published terms of service", AuthLevel::Public),
                 BlockEndpoint::get("/b/legalpages/privacy", "Published privacy policy", AuthLevel::Public),
+                BlockEndpoint::get("/b/legalpages/admin", "Admin editor", AuthLevel::Admin),
                 BlockEndpoint::get("/admin/legalpages/documents", "List documents", AuthLevel::Admin),
                 BlockEndpoint::post("/admin/legalpages/documents", "Create document", AuthLevel::Admin),
                 BlockEndpoint::patch("/admin/legalpages/documents/{id}", "Update document", AuthLevel::Admin),
@@ -364,8 +457,23 @@ impl Block for LegalPagesBlock {
             ("retrieve", "/b/legalpages/privacy") => {
                 self.handle_get_public(ctx, msg, "privacy").await
             }
-            // Admin UI
-            ("retrieve", "/b/legalpages/admin") => self.handle_admin_ui(msg),
+
+            // Admin UI pages (SSR)
+            ("retrieve", "/b/legalpages/admin")
+            | ("retrieve", "/b/legalpages/admin/privacy") => {
+                pages::editor_page(ctx, msg, "privacy").await
+            }
+            ("retrieve", "/b/legalpages/admin/terms") => {
+                pages::editor_page(ctx, msg, "terms").await
+            }
+            ("retrieve", "/b/legalpages/admin/endpoints") => {
+                pages::endpoints_page(ctx, msg).await
+            }
+
+            // Admin UI mutations (from editor save/publish)
+            ("create", "/b/legalpages/admin/save") => pages::handle_save(ctx, msg).await,
+            ("create", "/b/legalpages/admin/publish") => pages::handle_publish(ctx, msg).await,
+
             // Admin API
             ("retrieve", "/admin/legalpages/documents") => self.handle_admin_list(ctx, msg).await,
             ("retrieve", _) if path.starts_with("/admin/legalpages/documents/") => {
@@ -402,43 +510,3 @@ impl Block for LegalPagesBlock {
         Ok(())
     }
 }
-
-const ADMIN_HTML: &str = r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Legal Pages Admin</title>
-<style>
-body{font-family:system-ui,sans-serif;margin:0;padding:20px;background:#f5f5f5}
-.container{max-width:900px;margin:0 auto}
-h1{color:#333}
-.card{background:white;border-radius:8px;padding:20px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
-.btn{padding:8px 16px;border:none;border-radius:4px;cursor:pointer;font-size:14px;margin:4px}
-.btn-primary{background:#6366f1;color:white}
-.btn-success{background:#22c55e;color:white}
-.btn-danger{background:#ef4444;color:white}
-.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:12px}
-.badge-published{background:#dcfce7;color:#166534}
-.badge-draft{background:#fef3c7;color:#92400e}
-.badge-archived{background:#e5e7eb;color:#374151}
-table{width:100%;border-collapse:collapse}
-th,td{padding:10px;text-align:left;border-bottom:1px solid #eee}
-</style>
-</head>
-<body>
-<div class="container">
-<h1>Legal Pages</h1>
-<p>Manage your Terms of Service and Privacy Policy documents.</p>
-<div class="card">
-<p>Use the admin API endpoints to manage documents:</p>
-<ul>
-<li><code>GET /admin/legalpages/documents</code> - List all documents</li>
-<li><code>POST /admin/legalpages/documents</code> - Create a document</li>
-<li><code>PATCH /admin/legalpages/documents/:id</code> - Update a document</li>
-<li><code>PATCH /admin/legalpages/documents/:id/publish</code> - Publish a document</li>
-<li><code>DELETE /admin/legalpages/documents/:id</code> - Delete a document</li>
-</ul>
-</div>
-</div>
-</body>
-</html>"#;
