@@ -1,4 +1,4 @@
-import { BaseService } from './base.service';
+import { BaseService } from "./base.service";
 
 export interface Extension {
   name: string;
@@ -16,7 +16,7 @@ export interface Extension {
 
 export interface ExtensionHealth {
   extension: string;
-  status: 'healthy' | 'unhealthy' | 'unknown';
+  status: "healthy" | "unhealthy" | "unknown";
   message: string;
   last_checked: string;
 }
@@ -27,8 +27,8 @@ export class ExtensionsService extends BaseService {
    */
   async list(): Promise<Extension[]> {
     return this.request<Extension[]>({
-      method: 'GET',
-      url: '/extensions',
+      method: "GET",
+      url: "/b/admin/api/extensions",
     });
   }
 
@@ -37,8 +37,8 @@ export class ExtensionsService extends BaseService {
    */
   async get(name: string): Promise<Extension> {
     return this.request<Extension>({
-      method: 'GET',
-      url: `/extensions/${name}`,
+      method: "GET",
+      url: `/b/admin/api/extensions/${name}`,
     });
   }
 
@@ -47,8 +47,8 @@ export class ExtensionsService extends BaseService {
    */
   async enable(name: string, config?: Record<string, any>): Promise<void> {
     await this.request<void>({
-      method: 'POST',
-      url: `/extensions/${name}/enable`,
+      method: "POST",
+      url: `/b/admin/api/extensions/${name}/enable`,
       data: config,
     });
   }
@@ -58,8 +58,8 @@ export class ExtensionsService extends BaseService {
    */
   async disable(name: string): Promise<void> {
     await this.request<void>({
-      method: 'POST',
-      url: `/extensions/${name}/disable`,
+      method: "POST",
+      url: `/b/admin/api/extensions/${name}/disable`,
     });
   }
 
@@ -68,8 +68,8 @@ export class ExtensionsService extends BaseService {
    */
   async updateConfig(name: string, config: Record<string, any>): Promise<void> {
     await this.request<void>({
-      method: 'PATCH',
-      url: `/extensions/${name}/config`,
+      method: "PATCH",
+      url: `/b/admin/api/extensions/${name}/config`,
       data: config,
     });
   }
@@ -78,9 +78,11 @@ export class ExtensionsService extends BaseService {
    * Get extension health status
    */
   async health(name?: string): Promise<ExtensionHealth | ExtensionHealth[]> {
-    const url = name ? `/extensions/${name}/health` : '/extensions/health';
+    const url = name
+      ? `/b/admin/api/extensions/${name}/health`
+      : "/b/admin/api/extensions/health";
     return this.request<ExtensionHealth | ExtensionHealth[]>({
-      method: 'GET',
+      method: "GET",
       url,
     });
   }
@@ -92,15 +94,17 @@ export class ExtensionsService extends BaseService {
     extension: string,
     endpoint: string,
     options?: {
-      method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+      method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
       data?: any;
       params?: Record<string, any>;
-    }
+    },
   ): Promise<T> {
-    const queryString = options?.params ? this.buildQueryString(options.params) : '';
+    const queryString = options?.params
+      ? this.buildQueryString(options.params)
+      : "";
     return this.request<T>({
-      method: options?.method || 'GET',
-      url: `/b/${extension}/${endpoint}${queryString ? `?${queryString}` : ''}`,
+      method: options?.method || "GET",
+      url: `/b/${extension}/${endpoint}${queryString ? `?${queryString}` : ""}`,
       data: options?.data,
     });
   }
@@ -111,15 +115,18 @@ export class CloudStorageExtension extends ExtensionsService {
   /**
    * Share a file or folder
    */
-  async share(objectId: string, options: {
-    email?: string;
-    userId?: string;
-    permissions?: 'view' | 'edit' | 'admin';
-    expiresAt?: string;
-    isPublic?: boolean;
-  }): Promise<{ share_id: string; share_token?: string; url?: string }> {
-    return this.call('cloudstorage', 'shares', {
-      method: 'POST',
+  async share(
+    objectId: string,
+    options: {
+      email?: string;
+      userId?: string;
+      permissions?: "view" | "edit" | "admin";
+      expiresAt?: string;
+      isPublic?: boolean;
+    },
+  ): Promise<{ share_id: string; share_token?: string; url?: string }> {
+    return this.call("cloudstorage", "shares", {
+      method: "POST",
       data: {
         object_id: objectId,
         ...options,
@@ -130,25 +137,27 @@ export class CloudStorageExtension extends ExtensionsService {
   /**
    * List shares for current user
    */
-  async listShares(): Promise<Array<{
-    id: string;
-    object_id: string;
-    shared_with_email?: string;
-    shared_with_user_id?: string;
-    permission_level: string;
-    is_public: boolean;
-    expires_at?: string;
-    share_token?: string;
-  }>> {
-    return this.call('cloudstorage', 'shares');
+  async listShares(): Promise<
+    Array<{
+      id: string;
+      object_id: string;
+      shared_with_email?: string;
+      shared_with_user_id?: string;
+      permission_level: string;
+      is_public: boolean;
+      expires_at?: string;
+      share_token?: string;
+    }>
+  > {
+    return this.call("cloudstorage", "shares");
   }
 
   /**
    * Delete a share
    */
   async deleteShare(shareId: string): Promise<void> {
-    await this.call('cloudstorage', `shares/${shareId}`, {
-      method: 'DELETE',
+    await this.call("cloudstorage", `shares/${shareId}`, {
+      method: "DELETE",
     });
   }
 
@@ -162,22 +171,24 @@ export class CloudStorageExtension extends ExtensionsService {
     bandwidth_used: number;
     reset_bandwidth_at?: string;
   }> {
-    return this.call('cloudstorage', 'quota');
+    return this.call("cloudstorage", "quota");
   }
 
   /**
    * Get access logs
    */
-  async getAccessLogs(objectId?: string): Promise<Array<{
-    id: string;
-    object_id: string;
-    user_id?: string;
-    action: string;
-    ip_address?: string;
-    user_agent?: string;
-    created_at: string;
-  }>> {
-    return this.call('cloudstorage', 'access-logs', {
+  async getAccessLogs(objectId?: string): Promise<
+    Array<{
+      id: string;
+      object_id: string;
+      user_id?: string;
+      action: string;
+      ip_address?: string;
+      user_agent?: string;
+      created_at: string;
+    }>
+  > {
+    return this.call("cloudstorage", "access-logs", {
       params: objectId ? { object_id: objectId } : undefined,
     });
   }
@@ -192,7 +203,7 @@ export class CloudStorageExtension extends ExtensionsService {
     top_files: Array<{ object_id: string; count: number }>;
     daily_stats: Array<{ date: string; views: number; downloads: number }>;
   }> {
-    return this.call('cloudstorage', 'api/access-stats');
+    return this.call("cloudstorage", "api/access-stats");
   }
 }
 
@@ -202,7 +213,7 @@ export class ProductsExtension extends ExtensionsService {
    * List products
    */
   async listProducts(groupId?: string): Promise<any[]> {
-    return this.call('products', 'products', {
+    return this.call("products", "products", {
       params: groupId ? { group_id: groupId } : undefined,
     });
   }
@@ -217,8 +228,8 @@ export class ProductsExtension extends ExtensionsService {
     custom_fields?: Record<string, any>;
     pricing_formula?: string;
   }): Promise<any> {
-    return this.call('products', 'products', {
-      method: 'POST',
+    return this.call("products", "products", {
+      method: "POST",
       data,
     });
   }
@@ -226,12 +237,15 @@ export class ProductsExtension extends ExtensionsService {
   /**
    * Calculate price for a product
    */
-  async calculatePrice(productId: string, variables: Record<string, any>): Promise<{
+  async calculatePrice(
+    productId: string,
+    variables: Record<string, any>,
+  ): Promise<{
     price: number;
     breakdown: Array<{ component: string; value: number }>;
   }> {
-    return this.call('products', `products/${productId}/calculate`, {
-      method: 'POST',
+    return this.call("products", `products/${productId}/calculate`, {
+      method: "POST",
       data: { variables },
     });
   }
@@ -240,7 +254,7 @@ export class ProductsExtension extends ExtensionsService {
    * List groups
    */
   async listGroups(): Promise<any[]> {
-    return this.call('products', 'api/groups');
+    return this.call("products", "api/groups");
   }
 
   /**
@@ -251,8 +265,8 @@ export class ProductsExtension extends ExtensionsService {
     template_id: string;
     custom_fields?: Record<string, any>;
   }): Promise<any> {
-    return this.call('products', 'api/groups', {
-      method: 'POST',
+    return this.call("products", "api/groups", {
+      method: "POST",
       data,
     });
   }

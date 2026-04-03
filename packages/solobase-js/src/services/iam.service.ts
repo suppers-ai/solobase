@@ -1,5 +1,5 @@
-import { BaseService } from './base.service';
-import { IAMRole, IAMPolicy, IAMAuditLog, User } from '../types';
+import { BaseService } from "./base.service";
+import { IAMRole, IAMPolicy, IAMAuditLog, User } from "../types";
 
 export interface UserWithRoles extends User {
   roles: string[];
@@ -11,8 +11,8 @@ export class IAMService extends BaseService {
    */
   async getRoles(): Promise<IAMRole[]> {
     return this.request<IAMRole[]>({
-      method: 'GET',
-      url: '/iam/roles',
+      method: "GET",
+      url: "/b/admin/api/iam/roles",
     });
   }
 
@@ -21,8 +21,8 @@ export class IAMService extends BaseService {
    */
   async createRole(role: IAMRole): Promise<IAMRole> {
     return this.request<IAMRole>({
-      method: 'POST',
-      url: '/iam/roles',
+      method: "POST",
+      url: "/b/admin/api/iam/roles",
       data: role,
     });
   }
@@ -30,10 +30,13 @@ export class IAMService extends BaseService {
   /**
    * Update a role
    */
-  async updateRole(roleName: string, updates: Partial<IAMRole>): Promise<IAMRole> {
+  async updateRole(
+    roleName: string,
+    updates: Partial<IAMRole>,
+  ): Promise<IAMRole> {
     return this.request<IAMRole>({
-      method: 'PUT',
-      url: `/iam/roles/${roleName}`,
+      method: "PUT",
+      url: `/b/admin/api/iam/roles/${roleName}`,
       data: updates,
     });
   }
@@ -43,8 +46,8 @@ export class IAMService extends BaseService {
    */
   async deleteRole(roleName: string): Promise<void> {
     await this.request<void>({
-      method: 'DELETE',
-      url: `/iam/roles/${roleName}`,
+      method: "DELETE",
+      url: `/b/admin/api/iam/roles/${roleName}`,
     });
   }
 
@@ -53,8 +56,8 @@ export class IAMService extends BaseService {
    */
   async getPolicies(): Promise<IAMPolicy[]> {
     return this.request<IAMPolicy[]>({
-      method: 'GET',
-      url: '/iam/policies',
+      method: "GET",
+      url: "/b/admin/api/iam/policies",
     });
   }
 
@@ -63,8 +66,8 @@ export class IAMService extends BaseService {
    */
   async createPolicy(policy: IAMPolicy): Promise<void> {
     await this.request<void>({
-      method: 'POST',
-      url: '/iam/policies',
+      method: "POST",
+      url: "/b/admin/api/iam/policies",
       data: policy,
     });
   }
@@ -74,8 +77,8 @@ export class IAMService extends BaseService {
    */
   async deletePolicy(policyId: string): Promise<void> {
     await this.request<void>({
-      method: 'DELETE',
-      url: `/iam/policies/${policyId}`,
+      method: "DELETE",
+      url: `/b/admin/api/iam/policies/${policyId}`,
     });
   }
 
@@ -84,8 +87,8 @@ export class IAMService extends BaseService {
    */
   async getUsersWithRoles(): Promise<UserWithRoles[]> {
     return this.request<UserWithRoles[]>({
-      method: 'GET',
-      url: '/iam/users',
+      method: "GET",
+      url: "/b/admin/api/iam/users",
     });
   }
 
@@ -94,8 +97,8 @@ export class IAMService extends BaseService {
    */
   async assignRoleToUser(userId: string, roleName: string): Promise<void> {
     await this.request<void>({
-      method: 'POST',
-      url: `/iam/users/${userId}/roles`,
+      method: "POST",
+      url: `/b/admin/api/iam/users/${userId}/roles`,
       data: { role: roleName },
     });
   }
@@ -105,21 +108,25 @@ export class IAMService extends BaseService {
    */
   async removeRoleFromUser(userId: string, roleName: string): Promise<void> {
     await this.request<void>({
-      method: 'DELETE',
-      url: `/iam/users/${userId}/roles/${roleName}`,
+      method: "DELETE",
+      url: `/b/admin/api/iam/users/${userId}/roles/${roleName}`,
     });
   }
 
   /**
    * Test a permission
    */
-  async testPermission(userId: string, resource: string, action: string): Promise<{
+  async testPermission(
+    userId: string,
+    resource: string,
+    action: string,
+  ): Promise<{
     allowed: boolean;
     userRoles: string[];
   }> {
     return this.request<{ allowed: boolean; userRoles: string[] }>({
-      method: 'POST',
-      url: '/iam/test-permission',
+      method: "POST",
+      url: "/b/admin/api/iam/test-permission",
       data: {
         userId,
         resource,
@@ -137,15 +144,17 @@ export class IAMService extends BaseService {
     type?: string;
   }): Promise<IAMAuditLog[]> {
     const params = new URLSearchParams();
-    if (options?.limit) params.append('limit', options.limit.toString());
-    if (options?.filter) params.append('filter', options.filter);
-    if (options?.type) params.append('type', options.type);
-    
+    if (options?.limit) params.append("limit", options.limit.toString());
+    if (options?.filter) params.append("filter", options.filter);
+    if (options?.type) params.append("type", options.type);
+
     const queryString = params.toString();
-    const url = queryString ? `/iam/audit-logs?${queryString}` : '/iam/audit-logs';
-    
+    const url = queryString
+      ? `/b/admin/api/iam/audit-logs?${queryString}`
+      : "/b/admin/api/iam/audit-logs";
+
     return this.request<IAMAuditLog[]>({
-      method: 'GET',
+      method: "GET",
       url,
     });
   }
@@ -155,8 +164,8 @@ export class IAMService extends BaseService {
    */
   async getUserRoles(userId: string): Promise<string[]> {
     const response = await this.request<{ roles: string[] }>({
-      method: 'GET',
-      url: `/iam/users/${userId}/roles`,
+      method: "GET",
+      url: `/b/admin/api/iam/users/${userId}/roles`,
     });
     return response.roles;
   }
@@ -174,7 +183,7 @@ export class IAMService extends BaseService {
    */
   async userHasAnyRole(userId: string, roleNames: string[]): Promise<boolean> {
     const roles = await this.getUserRoles(userId);
-    return roleNames.some(role => roles.includes(role));
+    return roleNames.some((role) => roles.includes(role));
   }
 
   /**
@@ -182,6 +191,6 @@ export class IAMService extends BaseService {
    */
   async userHasAllRoles(userId: string, roleNames: string[]): Promise<boolean> {
     const roles = await this.getUserRoles(userId);
-    return roleNames.every(role => roles.includes(role));
+    return roleNames.every((role) => roles.includes(role));
   }
 }

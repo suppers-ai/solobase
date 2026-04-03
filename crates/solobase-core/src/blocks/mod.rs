@@ -44,6 +44,7 @@ fn make_block(id: BlockId) -> Arc<dyn Block> {
         BlockId::Files => Arc::new(files::FilesBlock::new()),
         BlockId::Products => Arc::new(products::ProductsBlock::new()),
         BlockId::Projects => Arc::new(projects::ProjectsBlock::new()),
+        BlockId::Inspector => unreachable!("inspector dispatched via ctx.call_block"),
     }
 }
 
@@ -87,5 +88,6 @@ fn block_id_to_name(id: BlockId) -> &'static str {
         BlockId::Files => "files",
         BlockId::Products => "products",
         BlockId::Projects => "projects",
+        BlockId::Inspector => "inspector",
     }
 }

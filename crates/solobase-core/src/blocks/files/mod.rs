@@ -2,7 +2,7 @@ mod cloud;
 pub(crate) mod models;
 mod quota;
 mod share;
-mod storage;
+pub(crate) mod storage;
 
 use super::rate_limit::{check_rate_limit, RateLimit, UserRateLimiter};
 use wafer_run::block::{Block, BlockInfo};
@@ -81,13 +81,13 @@ impl Block for FilesBlock {
             .category(wafer_run::BlockCategory::Feature)
             .description("File storage and management with bucket-based organization. Supports file upload, download, deletion, search, and sharing via public links with expiration and access counting. Includes per-user storage quotas.")
             .endpoints(vec![
-                BlockEndpoint::get("/storage/buckets", "List buckets", AuthLevel::Authenticated),
-                BlockEndpoint::post("/storage/buckets", "Create bucket", AuthLevel::Authenticated),
-                BlockEndpoint::get("/storage/buckets/{name}/objects", "List objects", AuthLevel::Authenticated),
-                BlockEndpoint::post("/storage/buckets/{name}/objects", "Upload file", AuthLevel::Authenticated),
-                BlockEndpoint::get("/storage/buckets/{name}/objects/{key}", "Download file", AuthLevel::Authenticated),
-                BlockEndpoint::delete("/storage/buckets/{name}/objects/{key}", "Delete file", AuthLevel::Authenticated),
-                BlockEndpoint::get("/storage/direct/{token}", "Access shared file", AuthLevel::Public),
+                BlockEndpoint::get("/b/storage/api/buckets", "List buckets", AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/storage/api/buckets", "Create bucket", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/storage/api/buckets/{name}/objects", "List objects", AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/storage/api/buckets/{name}/objects", "Upload file", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/storage/api/buckets/{name}/objects/{key}", "Download file", AuthLevel::Authenticated),
+                BlockEndpoint::delete("/b/storage/api/buckets/{name}/objects/{key}", "Delete file", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/storage/direct/{token}", "Access shared file", AuthLevel::Public),
             ])
             .can_disable(true)
     }
@@ -95,8 +95,18 @@ impl Block for FilesBlock {
     async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let path = msg.path().to_string();
 
+        // Normalize: /b/storage/... → /storage/..., /b/cloudstorage/... stays as-is
+        let normalized = if let Some(rest) = path.strip_prefix("/b/storage") {
+            format!("/storage{rest}")
+        } else {
+            path.clone()
+        };
+        if normalized != path {
+            msg.set_meta("req.resource", &normalized);
+        }
+
         // Direct share access (public, no auth, no user rate limit)
-        if path.starts_with("/storage/direct/") {
+        if normalized.starts_with("/storage/direct/") {
             return share::handle_direct_access(ctx, msg).await;
         }
 
@@ -123,18 +133,16 @@ impl Block for FilesBlock {
             }
         }
 
-        // Cloud storage routes
-        if path.starts_with("/b/cloudstorage") || path.starts_with("/admin/b/cloudstorage") {
+        // Cloud storage routes (/b/cloudstorage/...)
+        if normalized.starts_with("/b/cloudstorage") {
             return cloud::handle(ctx, msg).await;
         }
 
-        // Admin storage routes
-        if path.starts_with("/admin/storage") {
-            return storage::handle_admin(ctx, msg).await;
-        }
-
-        // User storage routes
-        if path.starts_with("/storage") {
+        // User storage API routes (/b/storage/api/... → /storage/api/...)
+        if normalized.starts_with("/storage/api/") || normalized == "/storage/api" {
+            // Normalize for sub-module: /storage/api/buckets → /storage/buckets
+            let api_path = normalized.replacen("/storage/api", "/storage", 1);
+            msg.set_meta("req.resource", &api_path);
             return storage::handle(ctx, msg).await;
         }
 
@@ -148,4 +156,16 @@ impl Block for FilesBlock {
     ) -> std::result::Result<(), WaferError> {
         Ok(())
     }
+}
+
+/// Admin storage delegation — called from the Admin block's API section.
+/// Expects msg path already normalized to `/admin/storage/...`.
+pub async fn handle_admin_storage(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    storage::handle_admin(ctx, msg).await
+}
+
+/// Admin cloud storage delegation — called from the Admin block's API section.
+/// Expects msg path already normalized to `/admin/b/cloudstorage/...`.
+pub async fn handle_admin_cloud(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    cloud::handle(ctx, msg).await
 }

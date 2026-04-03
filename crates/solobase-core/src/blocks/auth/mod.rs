@@ -311,16 +311,19 @@ impl Block for AuthBlock {
             .category(wafer_run::BlockCategory::Feature)
             .description("Handles user authentication, registration, and session management. Supports email/password login, OAuth providers (Google, GitHub, Microsoft), email verification, password reset, and API key management.")
             .endpoints(vec![
+                // SSR pages
                 BlockEndpoint::get("/b/auth/login", "Login page", AuthLevel::Public),
-                BlockEndpoint::post("/b/auth/login", "Authenticate with email/password", AuthLevel::Public),
                 BlockEndpoint::get("/b/auth/signup", "Signup page", AuthLevel::Public),
-                BlockEndpoint::post("/b/auth/signup", "Create account", AuthLevel::Public),
-                BlockEndpoint::post("/b/auth/logout", "Sign out", AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/auth/me", "Get current user", AuthLevel::Authenticated),
-                BlockEndpoint::post("/b/auth/change-password", "Change password", AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/auth/api-keys", "List API keys", AuthLevel::Authenticated),
-                BlockEndpoint::post("/b/auth/api-keys", "Create API key", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/auth/change-password", "Change password page", AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/auth/oauth/login", "Start OAuth flow", AuthLevel::Public),
+                // JSON API
+                BlockEndpoint::post("/b/auth/api/login", "Authenticate with email/password", AuthLevel::Public),
+                BlockEndpoint::post("/b/auth/api/signup", "Create account", AuthLevel::Public),
+                BlockEndpoint::post("/b/auth/api/logout", "Sign out", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/auth/api/me", "Get current user", AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/auth/api/change-password", "Change password", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/auth/api/api-keys", "List API keys", AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/auth/api/api-keys", "Create API key", AuthLevel::Authenticated),
             ])
             .config_keys(vec![
                 BlockConfigKey::new("ALLOW_SIGNUP", "Allow new user registration", "true"),
@@ -356,7 +359,7 @@ impl Block for AuthBlock {
         // Apply per-user/IP rate limiting based on endpoint category
         match (action.as_str(), path.as_str()) {
             // Unauthenticated sensitive endpoints: rate limit by IP
-            ("create", "/auth/login") | ("create", "/auth/signup") => {
+            ("create", "/auth/api/login") | ("create", "/auth/api/signup") => {
                 let ip = msg.remote_addr().to_string();
                 let identity = if ip.is_empty() {
                     "unknown".to_string()
@@ -370,7 +373,7 @@ impl Block for AuthBlock {
                     return r;
                 }
             }
-            ("create", "/auth/refresh") => {
+            ("create", "/auth/api/refresh") => {
                 let ip = msg.remote_addr().to_string();
                 let identity = if ip.is_empty() {
                     "unknown".to_string()
@@ -391,10 +394,10 @@ impl Block for AuthBlock {
                 }
             }
             // Forgot/reset password + verification: rate limit by IP
-            ("create", "/auth/forgot-password")
-            | ("create", "/auth/reset-password")
-            | ("create", "/auth/resend-verification")
-            | ("retrieve" | "create", "/auth/verify") => {
+            ("create", "/auth/api/forgot-password")
+            | ("create", "/auth/api/reset-password")
+            | ("create", "/auth/api/resend-verification")
+            | ("retrieve" | "create", "/auth/api/verify") => {
                 let ip = msg.remote_addr().to_string();
                 let identity = if ip.is_empty() {
                     "unknown".to_string()
@@ -410,8 +413,8 @@ impl Block for AuthBlock {
             }
             // Authenticated write endpoints: rate limit by user_id
             ("update", _)
-            | ("create", "/auth/change-password")
-            | ("create", "/auth/api-keys")
+            | ("create", "/auth/api/change-password")
+            | ("create", "/auth/api/api-keys")
             | ("delete", _) => {
                 let user_id = msg.user_id().to_string();
                 if !user_id.is_empty() {
@@ -430,7 +433,7 @@ impl Block for AuthBlock {
                 }
             }
             // Authenticated read endpoints: rate limit by user_id
-            ("retrieve", "/auth/me") | ("retrieve", "/auth/api-keys") => {
+            ("retrieve", "/auth/api/me") | ("retrieve", "/auth/api/api-keys") => {
                 let user_id = msg.user_id().to_string();
                 if !user_id.is_empty() {
                     if let Some(r) = check_rate_limit(
@@ -451,7 +454,7 @@ impl Block for AuthBlock {
         }
 
         match (action.as_str(), path.as_str()) {
-            // SSR auth pages
+            // ── SSR pages (HTML) ──────────────────────────────────────
             ("retrieve", "/auth/login") => pages::login_page(ctx, msg).await,
             ("retrieve", "/auth/signup") => pages::signup_page(ctx, msg).await,
             ("retrieve", "/auth/change-password") => {
@@ -460,38 +463,41 @@ impl Block for AuthBlock {
                 }
                 pages::change_password_page(ctx, msg).await
             }
-            // API endpoints
-            ("create", "/auth/login") => self.handle_login(ctx, msg).await,
-            ("create", "/auth/signup") => self.handle_signup(ctx, msg).await,
-            ("create", "/auth/refresh") => self.handle_refresh(ctx, msg).await,
-            ("create", "/auth/logout") => self.handle_logout(ctx, msg).await,
-            ("retrieve", "/auth/me") => self.handle_me_get(ctx, msg).await,
-            ("update", "/auth/me") => self.handle_me_update(ctx, msg).await,
-            ("create", "/auth/change-password") => self.handle_change_password(ctx, msg).await,
+            ("retrieve", "/auth/reset-password") => self.handle_reset_password_form(ctx, msg).await,
+            // OAuth browser redirects
+            ("retrieve", "/auth/oauth/login") => self.handle_oauth_login(ctx, msg).await,
+            ("retrieve", "/auth/oauth/callback") => self.handle_oauth_callback(ctx, msg).await,
+
+            // ── JSON API under /auth/api/ ─────────────────────────────
+            ("create", "/auth/api/login") => self.handle_login(ctx, msg).await,
+            ("create", "/auth/api/signup") => self.handle_signup(ctx, msg).await,
+            ("create", "/auth/api/refresh") => self.handle_refresh(ctx, msg).await,
+            ("create", "/auth/api/logout") => self.handle_logout(ctx, msg).await,
+            ("retrieve", "/auth/api/me") => self.handle_me_get(ctx, msg).await,
+            ("update", "/auth/api/me") => self.handle_me_update(ctx, msg).await,
+            ("create", "/auth/api/change-password") => self.handle_change_password(ctx, msg).await,
             // API keys
-            ("retrieve", "/auth/api-keys") => self.handle_api_keys_list(ctx, msg).await,
-            ("create", "/auth/api-keys") => self.handle_api_keys_create(ctx, msg).await,
-            ("update", _) if path.starts_with("/auth/api-keys/") => {
+            ("retrieve", "/auth/api/api-keys") => self.handle_api_keys_list(ctx, msg).await,
+            ("create", "/auth/api/api-keys") => self.handle_api_keys_create(ctx, msg).await,
+            ("update", _) if path.starts_with("/auth/api/api-keys/") => {
                 self.handle_api_keys_revoke(ctx, msg).await
             }
-            ("delete", _) if path.starts_with("/auth/api-keys/") => {
+            ("delete", _) if path.starts_with("/auth/api/api-keys/") => {
                 self.handle_api_keys_delete(ctx, msg).await
             }
             // Email verification
-            ("retrieve" | "create", "/auth/verify") => self.handle_verify_email(ctx, msg).await,
-            ("create", "/auth/resend-verification") => {
+            ("retrieve" | "create", "/auth/api/verify") => self.handle_verify_email(ctx, msg).await,
+            ("create", "/auth/api/resend-verification") => {
                 self.handle_resend_verification(ctx, msg).await
             }
             // Password reset
-            ("create", "/auth/forgot-password") => self.handle_forgot_password(ctx, msg).await,
-            ("retrieve", "/auth/reset-password") => self.handle_reset_password_form(ctx, msg).await,
-            ("create", "/auth/reset-password") => self.handle_reset_password(ctx, msg).await,
-            // OAuth
-            ("retrieve", "/auth/oauth/providers") => self.handle_oauth_providers(ctx, msg).await,
-            ("retrieve", "/auth/oauth/login") => self.handle_oauth_login(ctx, msg).await,
-            ("retrieve", "/auth/oauth/callback") => self.handle_oauth_callback(ctx, msg).await,
-            // Internal
-            ("create", "/internal/oauth/sync-user") => self.handle_sync_user(ctx, msg).await,
+            ("create", "/auth/api/forgot-password") => self.handle_forgot_password(ctx, msg).await,
+            ("create", "/auth/api/reset-password") => self.handle_reset_password(ctx, msg).await,
+            // OAuth API
+            ("retrieve", "/auth/api/oauth/providers") => {
+                self.handle_oauth_providers(ctx, msg).await
+            }
+            ("create", "/auth/api/oauth/sync-user") => self.handle_sync_user(ctx, msg).await,
             _ => err_not_found(msg, "not found"),
         }
     }

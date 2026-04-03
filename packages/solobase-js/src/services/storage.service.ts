@@ -1,12 +1,19 @@
-import { BaseService } from './base.service';
-import { StorageObject, Bucket, UploadOptions, QueryOptions, PaginatedResponse, StorageObjectMetadata } from '../types';
+import { BaseService } from "./base.service";
+import {
+  StorageObject,
+  Bucket,
+  UploadOptions,
+  QueryOptions,
+  PaginatedResponse,
+  StorageObjectMetadata,
+} from "../types";
 
 export interface ListOptions {
   parent_folder_id?: string;
   search?: string;
-  type?: 'file' | 'folder' | 'all';
-  sort?: 'name' | 'size' | 'date' | 'type';
-  order?: 'asc' | 'desc';
+  type?: "file" | "folder" | "all";
+  sort?: "name" | "size" | "date" | "type";
+  order?: "asc" | "desc";
   page?: number;
   limit?: number;
 }
@@ -38,12 +45,12 @@ export class StorageService extends BaseService {
    */
   async listObjects(
     bucketName: string,
-    options?: ListOptions
+    options?: ListOptions,
   ): Promise<StorageObject[]> {
-    const queryString = options ? this.buildQueryString(options) : '';
+    const queryString = options ? this.buildQueryString(options) : "";
     const response = await this.request<StorageObject[]>({
-      method: 'GET',
-      url: `/storage/buckets/${bucketName}/objects${queryString ? `?${queryString}` : ''}`,
+      method: "GET",
+      url: `/b/storage/api/buckets/${bucketName}/objects${queryString ? `?${queryString}` : ""}`,
     });
     return Array.isArray(response) ? response : [];
   }
@@ -55,11 +62,11 @@ export class StorageService extends BaseService {
    */
   async getObject(
     bucketName: string,
-    objectId: string
+    objectId: string,
   ): Promise<StorageObject> {
     return this.request<StorageObject>({
-      method: 'GET',
-      url: `/storage/buckets/${bucketName}/objects/${objectId}`,
+      method: "GET",
+      url: `/b/storage/api/buckets/${bucketName}/objects/${objectId}`,
     });
   }
 
@@ -72,33 +79,33 @@ export class StorageService extends BaseService {
   async uploadFile(
     bucketName: string,
     file: File | Buffer | Blob,
-    options?: UploadFileOptions
+    options?: UploadFileOptions,
   ): Promise<StorageObject> {
     const formData = new FormData();
 
     // Handle different file types
-    if (typeof globalThis.window !== 'undefined' && file instanceof File) {
-      formData.append('file', file);
+    if (typeof globalThis.window !== "undefined" && file instanceof File) {
+      formData.append("file", file);
     } else if (file instanceof Blob) {
-      formData.append('file', file, 'file');
-    } else if (typeof Buffer !== 'undefined' && Buffer.isBuffer(file)) {
-      formData.append('file', new Blob([new Uint8Array(file)]), 'file');
+      formData.append("file", file, "file");
+    } else if (typeof Buffer !== "undefined" && Buffer.isBuffer(file)) {
+      formData.append("file", new Blob([new Uint8Array(file)]), "file");
     } else {
-      throw new Error('Invalid file type');
+      throw new Error("Invalid file type");
     }
 
     if (options?.path) {
-      formData.append('path', options.path);
+      formData.append("path", options.path);
     }
     if (options?.parent_folder_id) {
-      formData.append('parent_folder_id', options.parent_folder_id);
+      formData.append("parent_folder_id", options.parent_folder_id);
     }
     if (options?.metadata) {
-      formData.append('metadata', JSON.stringify(options.metadata));
+      formData.append("metadata", JSON.stringify(options.metadata));
     }
 
     return this.requestFormData<StorageObject>(
-      `/storage/buckets/${bucketName}/upload`,
+      `/b/storage/api/buckets/${bucketName}/upload`,
       formData,
     );
   }
@@ -114,15 +121,15 @@ export class StorageService extends BaseService {
     bucketName: string,
     name: string,
     path?: string,
-    parentId?: string
+    parentId?: string,
   ): Promise<StorageObject> {
     const data: any = { name };
     if (path) data.path = path;
     if (parentId) data.parent_folder_id = parentId;
-    
+
     return this.request<StorageObject>({
-      method: 'POST',
-      url: `/storage/buckets/${bucketName}/folders`,
+      method: "POST",
+      url: `/b/storage/api/buckets/${bucketName}/folders`,
       data,
     });
   }
@@ -132,12 +139,9 @@ export class StorageService extends BaseService {
    * @param bucketName - The name of the bucket
    * @param objectId - The ID of the object to download
    */
-  async downloadFile(
-    bucketName: string,
-    objectId: string
-  ): Promise<Blob> {
+  async downloadFile(bucketName: string, objectId: string): Promise<Blob> {
     return this.requestBlob(
-      `/storage/buckets/${bucketName}/objects/${objectId}/download`,
+      `/b/storage/api/buckets/${bucketName}/objects/${objectId}/download`,
     );
   }
 
@@ -147,7 +151,7 @@ export class StorageService extends BaseService {
    * @param objectId - The ID of the object
    */
   getDownloadUrl(bucketName: string, objectId: string): string {
-    return `${this.config.url}/api/storage/buckets/${bucketName}/objects/${objectId}/download`;
+    return `${this.config.url}/b/storage/api/buckets/${bucketName}/objects/${objectId}/download`;
   }
 
   /**
@@ -159,11 +163,11 @@ export class StorageService extends BaseService {
   async renameObject(
     bucketName: string,
     objectId: string,
-    newName: string
+    newName: string,
   ): Promise<StorageObject> {
     return this.request<StorageObject>({
-      method: 'PATCH',
-      url: `/storage/buckets/${bucketName}/objects/${objectId}/rename`,
+      method: "PATCH",
+      url: `/b/storage/api/buckets/${bucketName}/objects/${objectId}/rename`,
       data: { name: newName },
     });
   }
@@ -177,11 +181,11 @@ export class StorageService extends BaseService {
   async updateMetadata(
     bucketName: string,
     objectId: string,
-    metadata: StorageObjectMetadata | Record<string, any>
+    metadata: StorageObjectMetadata | Record<string, any>,
   ): Promise<StorageObject> {
     return this.request<StorageObject>({
-      method: 'PATCH',
-      url: `/storage/buckets/${bucketName}/objects/${objectId}/metadata`,
+      method: "PATCH",
+      url: `/b/storage/api/buckets/${bucketName}/objects/${objectId}/metadata`,
       data: { metadata: JSON.stringify(metadata) },
     });
   }
@@ -195,11 +199,11 @@ export class StorageService extends BaseService {
   async moveObject(
     bucketName: string,
     objectId: string,
-    options: MoveOptions
+    options: MoveOptions,
   ): Promise<StorageObject> {
     return this.request<StorageObject>({
-      method: 'PATCH',
-      url: `/storage/buckets/${bucketName}/objects/${objectId}/move`,
+      method: "PATCH",
+      url: `/b/storage/api/buckets/${bucketName}/objects/${objectId}/move`,
       data: options,
     });
   }
@@ -213,11 +217,11 @@ export class StorageService extends BaseService {
   async shareObject(
     bucketName: string,
     objectId: string,
-    options?: ShareOptions
+    options?: ShareOptions,
   ): Promise<{ url: string; expires_at?: Date }> {
     return this.request({
-      method: 'POST',
-      url: `/storage/buckets/${bucketName}/objects/${objectId}/share`,
+      method: "POST",
+      url: `/b/storage/api/buckets/${bucketName}/objects/${objectId}/share`,
       data: options || {},
     });
   }
@@ -227,13 +231,10 @@ export class StorageService extends BaseService {
    * @param bucketName - The name of the bucket
    * @param objectId - The ID of the object
    */
-  async deleteObject(
-    bucketName: string,
-    objectId: string
-  ): Promise<void> {
+  async deleteObject(bucketName: string, objectId: string): Promise<void> {
     await this.request<void>({
-      method: 'DELETE',
-      url: `/storage/buckets/${bucketName}/objects/${objectId}`,
+      method: "DELETE",
+      url: `/b/storage/api/buckets/${bucketName}/objects/${objectId}`,
     });
   }
 
@@ -242,10 +243,7 @@ export class StorageService extends BaseService {
    * @param bucketName - The name of the bucket
    * @param objectIds - Array of object IDs
    */
-  async deleteObjects(
-    bucketName: string,
-    objectIds: string[]
-  ): Promise<void> {
+  async deleteObjects(bucketName: string, objectIds: string[]): Promise<void> {
     // Delete one by one for now
     for (const id of objectIds) {
       await this.deleteObject(bucketName, id);
@@ -262,8 +260,8 @@ export class StorageService extends BaseService {
   }> {
     try {
       return await this.request({
-        method: 'GET',
-        url: '/storage/quota',
+        method: "GET",
+        url: "/b/storage/api/quota",
       });
     } catch (error) {
       // Return default quota on error
@@ -283,8 +281,8 @@ export class StorageService extends BaseService {
   }> {
     try {
       return await this.request({
-        method: 'GET',
-        url: '/storage/stats',
+        method: "GET",
+        url: "/b/storage/api/stats",
       });
     } catch (error) {
       // Return default stats on error
@@ -305,16 +303,16 @@ export class StorageService extends BaseService {
    */
   async search(
     query: string,
-    options?: { type?: 'file' | 'folder' | 'all' }
+    options?: { type?: "file" | "folder" | "all" },
   ): Promise<StorageObject[]> {
     const params = new URLSearchParams({ q: query });
-    if (options?.type && options.type !== 'all') {
-      params.append('type', options.type);
+    if (options?.type && options.type !== "all") {
+      params.append("type", options.type);
     }
-    
+
     const response = await this.request<StorageObject[]>({
-      method: 'GET',
-      url: `/storage/search?${params.toString()}`,
+      method: "GET",
+      url: `/b/storage/api/search?${params.toString()}`,
     });
     return Array.isArray(response) ? response : [];
   }
@@ -325,8 +323,8 @@ export class StorageService extends BaseService {
    */
   async getRecentFiles(limit: number = 10): Promise<StorageObject[]> {
     const response = await this.request<StorageObject[]>({
-      method: 'GET',
-      url: `/storage/recent?limit=${limit}`,
+      method: "GET",
+      url: `/b/storage/api/recent?limit=${limit}`,
     });
     return Array.isArray(response) ? response : [];
   }
@@ -336,8 +334,8 @@ export class StorageService extends BaseService {
    */
   async getSharedFiles(): Promise<StorageObject[]> {
     const response = await this.request<StorageObject[]>({
-      method: 'GET',
-      url: '/storage/shared',
+      method: "GET",
+      url: "/b/storage/api/shared",
     });
     return Array.isArray(response) ? response : [];
   }
@@ -347,8 +345,8 @@ export class StorageService extends BaseService {
    */
   async getTrashedFiles(): Promise<StorageObject[]> {
     const response = await this.request<StorageObject[]>({
-      method: 'GET',
-      url: '/storage/trash',
+      method: "GET",
+      url: "/b/storage/api/trash",
     });
     return Array.isArray(response) ? response : [];
   }
@@ -359,8 +357,8 @@ export class StorageService extends BaseService {
    */
   async restoreFromTrash(itemId: string): Promise<void> {
     await this.request({
-      method: 'POST',
-      url: `/storage/trash/${itemId}/restore`,
+      method: "POST",
+      url: `/b/storage/api/trash/${itemId}/restore`,
       data: {},
     });
   }
@@ -370,8 +368,8 @@ export class StorageService extends BaseService {
    */
   async emptyTrash(): Promise<void> {
     await this.request({
-      method: 'DELETE',
-      url: '/storage/trash',
+      method: "DELETE",
+      url: "/b/storage/api/trash",
     });
   }
 
@@ -382,8 +380,8 @@ export class StorageService extends BaseService {
    */
   async createBucket(name: string, isPublic: boolean = false): Promise<Bucket> {
     return this.request<Bucket>({
-      method: 'POST',
-      url: '/storage/buckets',
+      method: "POST",
+      url: "/b/storage/api/buckets",
       data: {
         name,
         public: isPublic,
@@ -397,8 +395,8 @@ export class StorageService extends BaseService {
    */
   async deleteBucket(name: string): Promise<void> {
     await this.request<void>({
-      method: 'DELETE',
-      url: `/storage/buckets/${name}`,
+      method: "DELETE",
+      url: `/b/storage/api/buckets/${name}`,
     });
   }
 
@@ -407,9 +405,8 @@ export class StorageService extends BaseService {
    */
   async listBuckets(): Promise<Bucket[]> {
     return this.request<Bucket[]>({
-      method: 'GET',
-      url: '/storage/buckets',
+      method: "GET",
+      url: "/b/storage/api/buckets",
     });
   }
-
 }

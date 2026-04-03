@@ -920,7 +920,7 @@ async function handleReset(e){
   if(pw.length<8){err.textContent='Password must be at least 8 characters.';err.style.display='flex';return false;}
   btn.disabled=true;btn.textContent='Resetting...';
   try{
-    var r=await fetch('/b/auth/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:token,new_password:pw})});
+    var r=await fetch('/b/auth/api/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:token,new_password:pw})});
     var d=await r.json();
     if(d.error){err.textContent=d.error.message||d.error;err.style.display='flex';}
     else{suc.textContent='Password reset successfully. You can now sign in.';suc.style.display='block';$('form').style.display='none';

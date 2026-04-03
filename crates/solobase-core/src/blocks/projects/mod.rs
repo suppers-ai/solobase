@@ -101,13 +101,22 @@ impl Block for ProjectsBlock {
             }
         }
 
-        // Admin routes
-        if path.starts_with("/admin/b/projects") {
+        // Admin API at /b/projects/api/admin/... → normalize to /admin/b/projects/...
+        if let Some(rest) = path.strip_prefix("/b/projects/api/admin") {
+            let is_admin = msg
+                .get_meta("auth.user_roles")
+                .split(',')
+                .any(|r| r.trim() == "admin");
+            if !is_admin {
+                return crate::ui::forbidden_response(msg);
+            }
+            msg.set_meta("req.resource", format!("/admin/b/projects{rest}"));
             return handlers::handle_admin(ctx, msg).await;
         }
 
-        // User-facing routes
-        if path.starts_with("/b/projects") {
+        // User API at /b/projects/api/... → normalize to /b/projects/...
+        if let Some(rest) = path.strip_prefix("/b/projects/api") {
+            msg.set_meta("req.resource", format!("/b/projects{rest}"));
             return handlers::handle_user(ctx, msg).await;
         }
 

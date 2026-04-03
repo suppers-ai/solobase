@@ -162,7 +162,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             &serde_json::json!({
                 "id": record.id,
                 "token": token,
-                "direct_url": format!("/storage/direct/{}", token)
+                "direct_url": format!("/b/storage/direct/{}", token)
             }),
         ),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),

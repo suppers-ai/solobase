@@ -104,7 +104,7 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         "verification" => {
             let token = req.token.as_deref().unwrap_or("");
             let url = format!(
-                "https://cloud.solobase.dev/auth/verify?token={}",
+                "https://cloud.solobase.dev/b/auth/api/verify?token={}",
                 url_encode(token)
             );
             (
@@ -123,7 +123,7 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         "password_reset" => {
             let token = req.token.as_deref().unwrap_or("");
             let url = format!(
-                "https://cloud.solobase.dev/auth/reset-password?token={}",
+                "https://cloud.solobase.dev/b/auth/reset-password?token={}",
                 url_encode(token)
             );
             (

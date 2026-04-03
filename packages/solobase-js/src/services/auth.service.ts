@@ -1,5 +1,5 @@
-import { BaseService } from './base.service';
-import { User } from '../types';
+import { BaseService } from "./base.service";
+import { User } from "../types";
 
 export interface SignUpOptions {
   email: string;
@@ -32,15 +32,15 @@ export class AuthService extends BaseService {
   async signUp(options: SignUpOptions): Promise<User> {
     // Signup returns just the user, need to login after
     const user = await this.request<User>({
-      method: 'POST',
-      url: '/auth/signup',
+      method: "POST",
+      url: "/b/auth/api/signup",
       data: options,
     });
 
     // Now sign in (httpOnly cookie will be set by backend)
     const loginResponse = await this.request<{ user: User }>({
-      method: 'POST',
-      url: '/auth/login',
+      method: "POST",
+      url: "/b/auth/api/login",
       data: {
         email: options.email,
         password: options.password,
@@ -56,8 +56,8 @@ export class AuthService extends BaseService {
    */
   async signIn(options: SignInOptions): Promise<User> {
     const response = await this.request<{ user: User }>({
-      method: 'POST',
-      url: '/auth/login',
+      method: "POST",
+      url: "/b/auth/api/login",
       data: options,
     });
 
@@ -72,8 +72,8 @@ export class AuthService extends BaseService {
   async signOut(): Promise<void> {
     try {
       await this.request<void>({
-        method: 'POST',
-        url: '/auth/logout',
+        method: "POST",
+        url: "/b/auth/api/logout",
       });
     } finally {
       this.currentUser = null;
@@ -87,8 +87,8 @@ export class AuthService extends BaseService {
   async getUser(): Promise<User | null> {
     try {
       const user = await this.request<User>({
-        method: 'GET',
-        url: '/auth/me',
+        method: "GET",
+        url: "/b/auth/api/me",
       });
       this.currentUser = user;
       return user;
@@ -102,8 +102,8 @@ export class AuthService extends BaseService {
    */
   async updateUser(updates: Partial<User>): Promise<User> {
     const user = await this.request<User>({
-      method: 'PATCH',
-      url: '/auth/me',
+      method: "PATCH",
+      url: "/b/auth/api/me",
       data: updates,
     });
     this.currentUser = user;
@@ -115,8 +115,8 @@ export class AuthService extends BaseService {
    */
   async resetPassword(options: ResetPasswordOptions): Promise<void> {
     await this.request<void>({
-      method: 'POST',
-      url: '/auth/reset-password',
+      method: "POST",
+      url: "/b/auth/api/reset-password",
       data: options,
     });
   }
@@ -124,10 +124,13 @@ export class AuthService extends BaseService {
   /**
    * Confirm password reset with token
    */
-  async confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+  async confirmPasswordReset(
+    token: string,
+    newPassword: string,
+  ): Promise<void> {
     await this.request<void>({
-      method: 'POST',
-      url: '/auth/confirm-reset',
+      method: "POST",
+      url: "/b/auth/api/confirm-reset",
       data: {
         token,
         password: newPassword,
@@ -140,8 +143,8 @@ export class AuthService extends BaseService {
    */
   async updatePassword(options: UpdatePasswordOptions): Promise<void> {
     await this.request<void>({
-      method: 'POST',
-      url: '/auth/change-password',
+      method: "POST",
+      url: "/b/auth/api/change-password",
       data: options,
     });
   }
@@ -151,8 +154,8 @@ export class AuthService extends BaseService {
    */
   async refreshSession(): Promise<void> {
     await this.request<void>({
-      method: 'POST',
-      url: '/auth/refresh',
+      method: "POST",
+      url: "/b/auth/api/refresh",
     });
   }
 
@@ -161,8 +164,8 @@ export class AuthService extends BaseService {
    */
   async verifyEmail(token: string): Promise<void> {
     await this.request<void>({
-      method: 'POST',
-      url: '/auth/verify-email',
+      method: "POST",
+      url: "/b/auth/api/verify-email",
       data: { token },
     });
   }
@@ -172,8 +175,8 @@ export class AuthService extends BaseService {
    */
   async resendVerification(): Promise<void> {
     await this.request<void>({
-      method: 'POST',
-      url: '/auth/resend-verification',
+      method: "POST",
+      url: "/b/auth/api/resend-verification",
     });
   }
 
@@ -194,10 +197,12 @@ export class AuthService extends BaseService {
   /**
    * OAuth sign in (redirect)
    */
-  async signInWithOAuth(provider: 'google' | 'github' | 'facebook' | 'microsoft'): Promise<{ url: string }> {
+  async signInWithOAuth(
+    provider: "google" | "github" | "facebook" | "microsoft",
+  ): Promise<{ url: string }> {
     return this.request<{ url: string }>({
-      method: 'GET',
-      url: `/auth/oauth/${provider}`,
+      method: "GET",
+      url: `/b/auth/oauth/${provider}`,
     });
   }
 
@@ -205,7 +210,9 @@ export class AuthService extends BaseService {
    * Sign in with OAuth using popup window (for specific provider)
    * @internal Used internally by the Solobase login page
    */
-  async signInWithOAuthPopup(provider: 'google' | 'github' | 'facebook' | 'microsoft'): Promise<User> {
+  async signInWithOAuthPopup(
+    provider: "google" | "github" | "facebook" | "microsoft",
+  ): Promise<User> {
     return new Promise(async (resolve, reject) => {
       try {
         // Get OAuth URL from backend
@@ -221,11 +228,13 @@ export class AuthService extends BaseService {
         const popup = window.open(
           url,
           `${provider}_auth_popup`,
-          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=no,status=no`
+          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=no,status=no`,
         );
 
         if (!popup) {
-          throw new Error('Failed to open authentication popup. Please check your popup blocker settings.');
+          throw new Error(
+            "Failed to open authentication popup. Please check your popup blocker settings.",
+          );
         }
 
         // Setup message listener for OAuth callback
@@ -234,14 +243,17 @@ export class AuthService extends BaseService {
           const expectedOrigin = new URL(this.config.url).origin;
 
           // Allow both backend origin and same origin (for OAuth callback page)
-          if (event.origin !== expectedOrigin && event.origin !== window.location.origin) {
+          if (
+            event.origin !== expectedOrigin &&
+            event.origin !== window.location.origin
+          ) {
             return;
           }
 
           // Check for OAuth callback data
-          if (event.data?.type === 'oauth_callback') {
+          if (event.data?.type === "oauth_callback") {
             // Clean up
-            window.removeEventListener('message', handleMessage);
+            window.removeEventListener("message", handleMessage);
             if (popup && !popup.closed) {
               popup.close();
             }
@@ -254,42 +266,46 @@ export class AuthService extends BaseService {
             if (event.data.success) {
               // The auth cookie has been set by the backend
               // Fetch user info to verify authentication
-              this.getUser().then(user => {
-                if (user) {
-                  this.currentUser = user;
-                  resolve(user);
-                } else {
-                  reject(new Error('Failed to fetch user information'));
-                }
-              }).catch(reject);
+              this.getUser()
+                .then((user) => {
+                  if (user) {
+                    this.currentUser = user;
+                    resolve(user);
+                  } else {
+                    reject(new Error("Failed to fetch user information"));
+                  }
+                })
+                .catch(reject);
             } else {
-              reject(new Error('Authentication failed'));
+              reject(new Error("Authentication failed"));
             }
           }
         };
 
         // Listen for messages from the popup
-        window.addEventListener('message', handleMessage);
+        window.addEventListener("message", handleMessage);
 
         // Check if popup was closed manually
         const checkClosed = setInterval(() => {
           if (popup.closed) {
             clearInterval(checkClosed);
-            window.removeEventListener('message', handleMessage);
-            reject(new Error('Authentication popup was closed'));
+            window.removeEventListener("message", handleMessage);
+            reject(new Error("Authentication popup was closed"));
           }
         }, 500);
 
         // Timeout after 5 minutes
-        setTimeout(() => {
-          clearInterval(checkClosed);
-          window.removeEventListener('message', handleMessage);
-          if (popup && !popup.closed) {
-            popup.close();
-          }
-          reject(new Error('Authentication timeout'));
-        }, 5 * 60 * 1000);
-
+        setTimeout(
+          () => {
+            clearInterval(checkClosed);
+            window.removeEventListener("message", handleMessage);
+            if (popup && !popup.closed) {
+              popup.close();
+            }
+            reject(new Error("Authentication timeout"));
+          },
+          5 * 60 * 1000,
+        );
       } catch (error) {
         reject(error);
       }
@@ -312,15 +328,17 @@ export class AuthService extends BaseService {
         // Use authUrl if provided, otherwise fall back to url
         const baseAuthUrl = this.config.authUrl || this.config.url;
         // Open popup to the Solobase login page with popup=true parameter
-        const loginUrl = `${baseAuthUrl}/auth/login?popup=true`;
+        const loginUrl = `${baseAuthUrl}/b/auth/login?popup=true`;
         const popup = window.open(
           loginUrl,
-          'solobase_auth_popup',
-          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=no,status=no`
+          "solobase_auth_popup",
+          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=no,status=no`,
         );
 
         if (!popup) {
-          throw new Error('Failed to open authentication popup. Please check your popup blocker settings.');
+          throw new Error(
+            "Failed to open authentication popup. Please check your popup blocker settings.",
+          );
         }
 
         // Setup message listener for auth callback
@@ -329,39 +347,50 @@ export class AuthService extends BaseService {
           const expectedAuthOrigin = new URL(baseAuthUrl).origin;
           const expectedApiOrigin = new URL(this.config.url).origin;
 
-          if (event.origin !== expectedAuthOrigin && event.origin !== expectedApiOrigin) {
+          if (
+            event.origin !== expectedAuthOrigin &&
+            event.origin !== expectedApiOrigin
+          ) {
             return;
           }
 
           // Check for auth callback data
-          if (event.data?.type === 'auth-success' || event.data?.type === 'oauth-success') {
+          if (
+            event.data?.type === "auth-success" ||
+            event.data?.type === "oauth-success"
+          ) {
             // Clean up
-            window.removeEventListener('message', handleMessage);
+            window.removeEventListener("message", handleMessage);
             if (popup && !popup.closed) {
               popup.close();
             }
 
             // The auth cookie has been set by the backend
             // Fetch user info to verify authentication
-            this.getUser().then(user => {
-              if (user) {
-                this.currentUser = user;
-                resolve(user);
-              } else {
-                reject(new Error('Failed to fetch user information'));
-              }
-            }).catch(reject);
-          } else if (event.data?.type === 'auth-error' || event.data?.type === 'oauth-error') {
-            window.removeEventListener('message', handleMessage);
+            this.getUser()
+              .then((user) => {
+                if (user) {
+                  this.currentUser = user;
+                  resolve(user);
+                } else {
+                  reject(new Error("Failed to fetch user information"));
+                }
+              })
+              .catch(reject);
+          } else if (
+            event.data?.type === "auth-error" ||
+            event.data?.type === "oauth-error"
+          ) {
+            window.removeEventListener("message", handleMessage);
             if (popup && !popup.closed) {
               popup.close();
             }
-            reject(new Error(event.data.error || 'Authentication failed'));
+            reject(new Error(event.data.error || "Authentication failed"));
           }
         };
 
         // Listen for messages from the popup
-        window.addEventListener('message', handleMessage);
+        window.addEventListener("message", handleMessage);
 
         // Track if we've already resolved/rejected
         let settled = false;
@@ -370,41 +399,45 @@ export class AuthService extends BaseService {
         const checkClosed = setInterval(() => {
           if (popup.closed && !settled) {
             clearInterval(checkClosed);
-            window.removeEventListener('message', handleMessage);
+            window.removeEventListener("message", handleMessage);
 
             // Popup closed - try to fetch user in case auth succeeded
             // (cross-origin postMessage may not work, but cookies are set)
-            this.getUser().then(user => {
-              if (user && !settled) {
-                settled = true;
-                this.currentUser = user;
-                resolve(user);
-              } else if (!settled) {
-                settled = true;
-                reject(new Error('Authentication popup was closed'));
-              }
-            }).catch(() => {
-              if (!settled) {
-                settled = true;
-                reject(new Error('Authentication popup was closed'));
-              }
-            });
+            this.getUser()
+              .then((user) => {
+                if (user && !settled) {
+                  settled = true;
+                  this.currentUser = user;
+                  resolve(user);
+                } else if (!settled) {
+                  settled = true;
+                  reject(new Error("Authentication popup was closed"));
+                }
+              })
+              .catch(() => {
+                if (!settled) {
+                  settled = true;
+                  reject(new Error("Authentication popup was closed"));
+                }
+              });
           }
         }, 500);
 
         // Timeout after 5 minutes
-        setTimeout(() => {
-          if (!settled) {
-            settled = true;
-            clearInterval(checkClosed);
-            window.removeEventListener('message', handleMessage);
-            if (popup && !popup.closed) {
-              popup.close();
+        setTimeout(
+          () => {
+            if (!settled) {
+              settled = true;
+              clearInterval(checkClosed);
+              window.removeEventListener("message", handleMessage);
+              if (popup && !popup.closed) {
+                popup.close();
+              }
+              reject(new Error("Authentication timeout"));
             }
-            reject(new Error('Authentication timeout'));
-          }
-        }, 5 * 60 * 1000);
-
+          },
+          5 * 60 * 1000,
+        );
       } catch (error) {
         reject(error);
       }
@@ -414,13 +447,10 @@ export class AuthService extends BaseService {
   /**
    * Handle OAuth callback
    */
-  async handleOAuthCallback(
-    provider: string,
-    code: string
-  ): Promise<User> {
+  async handleOAuthCallback(provider: string, code: string): Promise<User> {
     const response = await this.request<{ user: User }>({
-      method: 'POST',
-      url: `/auth/oauth/${provider}/callback`,
+      method: "POST",
+      url: `/b/auth/oauth/${provider}/callback`,
       data: { code },
     });
 
@@ -433,8 +463,8 @@ export class AuthService extends BaseService {
    */
   async deleteAccount(): Promise<void> {
     await this.request<void>({
-      method: 'DELETE',
-      url: '/auth/account',
+      method: "DELETE",
+      url: "/b/auth/api/account",
     });
 
     this.currentUser = null;

@@ -220,13 +220,22 @@ impl Block for ProductsBlock {
             }
         }
 
-        // Admin routes
-        if path.starts_with("/admin/b/products") {
+        // Admin API at /b/products/api/admin/... → normalize to /admin/b/products/...
+        if let Some(rest) = path.strip_prefix("/b/products/api/admin") {
+            let is_admin = msg
+                .get_meta("auth.user_roles")
+                .split(',')
+                .any(|r| r.trim() == "admin");
+            if !is_admin {
+                return crate::ui::forbidden_response(msg);
+            }
+            msg.set_meta("req.resource", format!("/admin/b/products{rest}"));
             return handlers::handle_admin(ctx, msg).await;
         }
 
-        // User-facing routes
-        if path.starts_with("/b/products") {
+        // User API at /b/products/api/... → normalize to /b/products/...
+        if let Some(rest) = path.strip_prefix("/b/products/api") {
+            msg.set_meta("req.resource", format!("/b/products{rest}"));
             return handlers::handle_user(ctx, msg).await;
         }
 

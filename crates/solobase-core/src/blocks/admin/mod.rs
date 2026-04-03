@@ -85,10 +85,10 @@ impl Block for AdminBlock {
                 BlockEndpoint::get("/b/admin/variables", "Variables editor", AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/blocks", "Block management", AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/logs", "System and audit logs", AuthLevel::Admin),
-                BlockEndpoint::get("/admin/users", "List users API", AuthLevel::Admin),
-                BlockEndpoint::get("/admin/iam/roles", "List roles API", AuthLevel::Admin),
-                BlockEndpoint::get("/admin/settings", "List variables API", AuthLevel::Admin),
-                BlockEndpoint::get("/admin/logs", "Audit logs API", AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/api/users", "List users API", AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/api/iam/roles", "List roles API", AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/api/settings", "List variables API", AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/api/logs", "Audit logs API", AuthLevel::Admin),
             ])
     }
 
@@ -104,6 +104,67 @@ impl Block for AdminBlock {
 
     async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let path = msg.path().to_string();
+
+        // JSON API at /b/admin/api/... — normalize to /admin/... for sub-module compatibility
+        if let Some(api_rest) = path.strip_prefix("/b/admin/api") {
+            let normalized = format!("/admin{}", api_rest);
+            msg.set_meta("req.resource", &normalized);
+
+            if api_rest.starts_with("/users") {
+                return users::handle(ctx, msg).await;
+            }
+            if api_rest.starts_with("/database") {
+                return database::handle(ctx, msg).await;
+            }
+            if api_rest.starts_with("/iam") {
+                return iam::handle(ctx, msg).await;
+            }
+            if api_rest.starts_with("/logs") {
+                return logs::handle(ctx, msg).await;
+            }
+            if api_rest.starts_with("/settings") {
+                return settings::handle(ctx, msg).await;
+            }
+            if api_rest.starts_with("/extensions") {
+                let blocks: Vec<_> = ctx
+                    .registered_blocks()
+                    .into_iter()
+                    .map(|b| {
+                        serde_json::json!({
+                            "name": b.name,
+                            "version": b.version,
+                            "interface": b.interface,
+                            "summary": b.summary,
+                            "enabled": true,
+                        })
+                    })
+                    .collect();
+                return wafer_run::helpers::json_respond(msg, &blocks);
+            }
+            if api_rest.starts_with("/wafer") {
+                return wafer_info::handle(ctx, msg);
+            }
+            if api_rest.starts_with("/custom-tables") {
+                return custom_tables::handle(ctx, msg).await;
+            }
+            // Delegate admin storage to Files block
+            if api_rest.starts_with("/storage") {
+                msg.set_meta("req.resource", format!("/admin{}", api_rest));
+                return crate::blocks::files::handle_admin_storage(ctx, msg).await;
+            }
+            // Delegate admin cloud storage to Files block
+            if api_rest.starts_with("/cloudstorage") {
+                msg.set_meta(
+                    "req.resource",
+                    format!(
+                        "/admin/b/cloudstorage{}",
+                        api_rest.strip_prefix("/cloudstorage").unwrap_or("")
+                    ),
+                );
+                return crate::blocks::files::handle_admin_cloud(ctx, msg).await;
+            }
+            return err_not_found(msg, "not found");
+        }
 
         // SSR pages + htmx mutations at /b/admin/...
         if path.starts_with("/b/admin") {
@@ -203,45 +264,6 @@ impl Block for AdminBlock {
                 "/logs" => pages::logs_page(ctx, msg).await,
                 _ => err_not_found(msg, "not found"),
             };
-        }
-
-        // Existing API routes
-        if path.starts_with("/admin/users") {
-            return users::handle(ctx, msg).await;
-        }
-        if path.starts_with("/admin/database") {
-            return database::handle(ctx, msg).await;
-        }
-        if path.starts_with("/admin/iam") {
-            return iam::handle(ctx, msg).await;
-        }
-        if path.starts_with("/admin/logs") {
-            return logs::handle(ctx, msg).await;
-        }
-        if path.starts_with("/admin/settings") || path.starts_with("/settings") {
-            return settings::handle(ctx, msg).await;
-        }
-        if path.starts_with("/admin/extensions") {
-            let blocks: Vec<_> = ctx
-                .registered_blocks()
-                .into_iter()
-                .map(|b| {
-                    serde_json::json!({
-                        "name": b.name,
-                        "version": b.version,
-                        "interface": b.interface,
-                        "summary": b.summary,
-                        "enabled": true,
-                    })
-                })
-                .collect();
-            return wafer_run::helpers::json_respond(msg, &blocks);
-        }
-        if path.starts_with("/admin/wafer") {
-            return wafer_info::handle(ctx, msg);
-        }
-        if path.starts_with("/admin/custom-tables") {
-            return custom_tables::handle(ctx, msg).await;
         }
 
         err_not_found(msg, "not found")

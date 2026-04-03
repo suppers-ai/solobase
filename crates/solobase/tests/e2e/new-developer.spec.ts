@@ -47,7 +47,7 @@ test.describe("New Developer Click-Through Journey", () => {
   async function goToDashboard(page: Page, hash = "overview") {
     await patchApiFetch(page);
     if (!devToken) {
-      const res = await page.request.post("/auth/login", {
+      const res = await page.request.post("/b/auth/api/login", {
         data: { email: devEmail, password: devPassword },
       });
       devToken = (await res.json()).access_token;
@@ -195,7 +195,7 @@ test.describe("New Developer Click-Through Journey", () => {
     // with the Rust API response, so the redirect doesn't happen automatically.
     // Work around: get token via API and set auth cookie, then reload.
     await page.waitForTimeout(2000);
-    const loginRes = await page.request.post("/auth/login", {
+    const loginRes = await page.request.post("/b/auth/api/login", {
       data: { email: devEmail, password: devPassword },
     });
     expect(loginRes.ok()).toBeTruthy();
@@ -359,7 +359,7 @@ test.describe("New Developer Click-Through Journey", () => {
     const [revokeResponse] = await Promise.all([
       page.waitForResponse(
         (resp) =>
-          resp.url().includes("/auth/api-keys") &&
+          resp.url().includes("/b/auth/api/api-keys") &&
           resp.request().method() === "DELETE",
         { timeout: 10000 },
       ),
@@ -501,7 +501,7 @@ test.describe("New Developer Click-Through Journey", () => {
     // Due to the login() type mismatch bug, the SPA won't auto-redirect.
     // Verify the login API call works, then set up auth and reload.
     await page.waitForTimeout(2000);
-    const loginRes = await page.request.post("/auth/login", {
+    const loginRes = await page.request.post("/b/auth/api/login", {
       data: { email: devEmail, password: devPassword },
     });
     devToken = (await loginRes.json()).access_token;

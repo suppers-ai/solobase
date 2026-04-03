@@ -156,7 +156,7 @@ async function handleLogin(ev){
   var btn=$('btn');btn.disabled=true;btn.textContent='Signing in...';
   $('error').style.display='none';$('info').style.display='none';
   try{
-    var r=await fetch('/b/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('email').value,password:$('password').value})});
+    var r=await fetch('/b/auth/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('email').value,password:$('password').value})});
     var d=await r.json();
     if(!r.ok||d.error){showErr((d.error&&d.error.message)||d.error||d.message||'Invalid credentials');btn.disabled=false;btn.textContent='Sign In';return false}
     var redir=$('redirect').value||$('post_login').value||'/';
@@ -168,7 +168,7 @@ async function handleForgot(){
   var email=$('email').value.trim();
   if(!email){showErr('Enter your email address first.');return}
   $('error').style.display='none';$('info').style.display='none';
-  try{await fetch('/b/auth/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})})}catch(e){}
+  try{await fetch('/b/auth/api/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})})}catch(e){}
   showInfo('If that email is registered, a password reset link has been sent.');
 }
 "#)) }
@@ -261,7 +261,7 @@ async function handleSignup(ev){
   $('error').style.display='none';
   var email=$('email').value,pw=$('password').value;
   try{
-    var r=await fetch('/b/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:pw})});
+    var r=await fetch('/b/auth/api/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:pw})});
     var d=await r.json();
     if(!r.ok||d.error){showErr((d.error&&d.error.message)||d.error||d.message||'Signup failed');btn.disabled=false;btn.textContent='Create Account';return false}
     if(d.email_verified===false){
@@ -350,7 +350,7 @@ async function handleChange(ev){
   if(pw.length<8){showErr('Password must be at least 8 characters.');return false}
   btn.disabled=true;btn.textContent='Changing...';
   try{
-    var r=await fetch('/b/auth/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:$('current').value,new_password:pw})});
+    var r=await fetch('/b/auth/api/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:$('current').value,new_password:pw})});
     var d=await r.json();
     if(!r.ok||d.error){showErr((d.error&&d.error.message)||d.error||'Failed to change password');btn.disabled=false;btn.textContent='Change Password';return false}
     $('form').style.display='none';$('success').style.display='block';

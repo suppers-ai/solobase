@@ -1,5 +1,5 @@
-import { BaseService } from './base.service';
-import { Collection, QueryOptions, PaginatedResponse } from '../types';
+import { BaseService } from "./base.service";
+import { Collection, QueryOptions, PaginatedResponse } from "../types";
 
 export interface DatabaseRecord {
   id: string;
@@ -8,19 +8,19 @@ export interface DatabaseRecord {
 
 export interface CreateRecordOptions<T = DatabaseRecord> {
   collection: string;
-  data: Omit<T, 'id' | 'created_at' | 'updated_at'>;
+  data: Omit<T, "id" | "created_at" | "updated_at">;
 }
 
 export interface UpdateRecordOptions<T = DatabaseRecord> {
   collection: string;
   id: string;
-  data: Partial<Omit<T, 'id' | 'created_at' | 'updated_at'>>;
+  data: Partial<Omit<T, "id" | "created_at" | "updated_at">>;
 }
 
 export interface QueryBuilder<T = DatabaseRecord> {
   select(fields: string[]): QueryBuilder<T>;
   where(field: string, operator: string, value: any): QueryBuilder<T>;
-  orderBy(field: string, direction?: 'asc' | 'desc'): QueryBuilder<T>;
+  orderBy(field: string, direction?: "asc" | "desc"): QueryBuilder<T>;
   limit(limit: number): QueryBuilder<T>;
   offset(offset: number): QueryBuilder<T>;
   execute(): Promise<PaginatedResponse<T>>;
@@ -32,10 +32,13 @@ export class DatabaseService extends BaseService {
   /**
    * Create a new collection
    */
-  async createCollection(name: string, schema?: Record<string, any>): Promise<Collection> {
+  async createCollection(
+    name: string,
+    schema?: Record<string, any>,
+  ): Promise<Collection> {
     return this.request<Collection>({
-      method: 'POST',
-      url: '/collections',
+      method: "POST",
+      url: "/api/collections",
       data: { name, schema },
     });
   }
@@ -45,8 +48,8 @@ export class DatabaseService extends BaseService {
    */
   async deleteCollection(name: string): Promise<void> {
     await this.request<void>({
-      method: 'DELETE',
-      url: `/collections/${name}`,
+      method: "DELETE",
+      url: `/api/collections/${name}`,
     });
   }
 
@@ -55,8 +58,8 @@ export class DatabaseService extends BaseService {
    */
   async listCollections(): Promise<Collection[]> {
     return this.request<Collection[]>({
-      method: 'GET',
-      url: '/collections',
+      method: "GET",
+      url: "/api/collections",
     });
   }
 
@@ -65,18 +68,20 @@ export class DatabaseService extends BaseService {
    */
   async getCollection(name: string): Promise<Collection> {
     return this.request<Collection>({
-      method: 'GET',
-      url: `/collections/${name}`,
+      method: "GET",
+      url: `/api/collections/${name}`,
     });
   }
 
   /**
    * Create a new record in a collection
    */
-  async create<T = DatabaseRecord>(options: CreateRecordOptions<T>): Promise<T> {
+  async create<T = DatabaseRecord>(
+    options: CreateRecordOptions<T>,
+  ): Promise<T> {
     return this.request<T>({
-      method: 'POST',
-      url: `/collections/${options.collection}/records`,
+      method: "POST",
+      url: `/api/collections/${options.collection}/records`,
       data: options.data,
     });
   }
@@ -84,11 +89,14 @@ export class DatabaseService extends BaseService {
   /**
    * Get a record by ID
    */
-  async findById<T = DatabaseRecord>(collection: string, id: string): Promise<T | null> {
+  async findById<T = DatabaseRecord>(
+    collection: string,
+    id: string,
+  ): Promise<T | null> {
     try {
       return await this.request<T>({
-        method: 'GET',
-        url: `/collections/${collection}/records/${id}`,
+        method: "GET",
+        url: `/api/collections/${collection}/records/${id}`,
       });
     } catch (error) {
       return null;
@@ -98,10 +106,12 @@ export class DatabaseService extends BaseService {
   /**
    * Update a record
    */
-  async update<T = DatabaseRecord>(options: UpdateRecordOptions<T>): Promise<T> {
+  async update<T = DatabaseRecord>(
+    options: UpdateRecordOptions<T>,
+  ): Promise<T> {
     return this.request<T>({
-      method: 'PATCH',
-      url: `/collections/${options.collection}/records/${options.id}`,
+      method: "PATCH",
+      url: `/api/collections/${options.collection}/records/${options.id}`,
       data: options.data,
     });
   }
@@ -111,8 +121,8 @@ export class DatabaseService extends BaseService {
    */
   async delete(collection: string, id: string): Promise<void> {
     await this.request<void>({
-      method: 'DELETE',
-      url: `/collections/${collection}/records/${id}`,
+      method: "DELETE",
+      url: `/api/collections/${collection}/records/${id}`,
     });
   }
 
@@ -121,12 +131,12 @@ export class DatabaseService extends BaseService {
    */
   async query<T = DatabaseRecord>(
     collection: string,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<PaginatedResponse<T>> {
-    const queryString = options ? this.buildQueryString(options) : '';
+    const queryString = options ? this.buildQueryString(options) : "";
     return this.request<PaginatedResponse<T>>({
-      method: 'GET',
-      url: `/collections/${collection}/records${queryString ? `?${queryString}` : ''}`,
+      method: "GET",
+      url: `/api/collections/${collection}/records${queryString ? `?${queryString}` : ""}`,
     });
   }
 
@@ -152,8 +162,11 @@ export class DatabaseService extends BaseService {
         return builder;
       },
 
-      orderBy(field: string, direction: 'asc' | 'desc' = 'asc'): QueryBuilder<T> {
-        queryParams.order = `${direction === 'desc' ? '-' : ''}${field}`;
+      orderBy(
+        field: string,
+        direction: "asc" | "desc" = "asc",
+      ): QueryBuilder<T> {
+        queryParams.order = `${direction === "desc" ? "-" : ""}${field}`;
         return builder;
       },
 
@@ -170,7 +183,10 @@ export class DatabaseService extends BaseService {
       async execute(): Promise<PaginatedResponse<T>> {
         const params = { ...queryParams };
         if (selectedFields.length > 0) {
-          params.filter = { ...params.filter, select: selectedFields.join(',') };
+          params.filter = {
+            ...params.filter,
+            select: selectedFields.join(","),
+          };
         }
         return self.query<T>(collection, params);
       },
@@ -182,8 +198,8 @@ export class DatabaseService extends BaseService {
 
       async count(): Promise<number> {
         const response = await self.request<{ count: number }>({
-          method: 'GET',
-          url: `/collections/${collection}/count`,
+          method: "GET",
+          url: `/api/collections/${collection}/count`,
           params: queryParams.filter,
         });
         return response.count;
@@ -198,15 +214,15 @@ export class DatabaseService extends BaseService {
    */
   async transaction<T>(
     operations: Array<{
-      type: 'create' | 'update' | 'delete';
+      type: "create" | "update" | "delete";
       collection: string;
       data?: any;
       id?: string;
-    }>
+    }>,
   ): Promise<T[]> {
     return this.request<T[]>({
-      method: 'POST',
-      url: '/database/transaction',
+      method: "POST",
+      url: "/api/database/transaction",
       data: { operations },
     });
   }
@@ -216,8 +232,8 @@ export class DatabaseService extends BaseService {
    */
   async rawQuery<T = any>(sql: string, params?: any[]): Promise<T[]> {
     return this.request<T[]>({
-      method: 'POST',
-      url: '/database/query',
+      method: "POST",
+      url: "/api/database/query",
       data: { sql, params },
     });
   }
@@ -227,18 +243,21 @@ export class DatabaseService extends BaseService {
    */
   async backupCollection(collection: string): Promise<{ url: string }> {
     return this.request<{ url: string }>({
-      method: 'POST',
-      url: `/collections/${collection}/backup`,
+      method: "POST",
+      url: `/api/collections/${collection}/backup`,
     });
   }
 
   /**
    * Restore a collection from backup
    */
-  async restoreCollection(collection: string, backupUrl: string): Promise<void> {
+  async restoreCollection(
+    collection: string,
+    backupUrl: string,
+  ): Promise<void> {
     await this.request<void>({
-      method: 'POST',
-      url: `/collections/${collection}/restore`,
+      method: "POST",
+      url: `/api/collections/${collection}/restore`,
       data: { backup_url: backupUrl },
     });
   }
@@ -253,8 +272,8 @@ export class DatabaseService extends BaseService {
     last_modified: string;
   }> {
     return this.request({
-      method: 'GET',
-      url: `/collections/${collection}/stats`,
+      method: "GET",
+      url: `/api/collections/${collection}/stats`,
     });
   }
 
@@ -264,11 +283,11 @@ export class DatabaseService extends BaseService {
   async createIndex(
     collection: string,
     field: string,
-    options?: { unique?: boolean; sparse?: boolean }
+    options?: { unique?: boolean; sparse?: boolean },
   ): Promise<void> {
     await this.request<void>({
-      method: 'POST',
-      url: `/collections/${collection}/indexes`,
+      method: "POST",
+      url: `/api/collections/${collection}/indexes`,
       data: { field, ...options },
     });
   }
@@ -278,8 +297,8 @@ export class DatabaseService extends BaseService {
    */
   async dropIndex(collection: string, field: string): Promise<void> {
     await this.request<void>({
-      method: 'DELETE',
-      url: `/collections/${collection}/indexes/${field}`,
+      method: "DELETE",
+      url: `/api/collections/${collection}/indexes/${field}`,
     });
   }
 }

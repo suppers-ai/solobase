@@ -120,7 +120,7 @@ impl AuthBlock {
         msg: &mut Message,
     ) -> Result_ {
         let path = msg.path();
-        let id = path.strip_prefix("/auth/api-keys/").unwrap_or("");
+        let id = path.rsplit_once('/').map(|(_, id)| id).unwrap_or("");
         if id.is_empty() {
             return err_bad_request(msg, "Missing key ID");
         }
@@ -156,7 +156,7 @@ impl AuthBlock {
         msg: &mut Message,
     ) -> Result_ {
         let path = msg.path();
-        let id = path.strip_prefix("/auth/api-keys/").unwrap_or("");
+        let id = path.rsplit_once('/').map(|(_, id)| id).unwrap_or("");
         if id.is_empty() {
             return err_bad_request(msg, "Missing key ID");
         }

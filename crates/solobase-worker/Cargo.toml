@@ -25,6 +25,9 @@ wafer-core = { path = "../../../wafer-run/crates/wafer-core", default-features =
 # WAFER web block (static file serving from storage)
 wafer-block-web = { path = "../../../wafer-run/crates/wafer-block-web" }
 
+# WAFER router block (config-driven request dispatch)
+wafer-block-router = { path = "../../../wafer-run/crates/wafer-block-router" }
+
 # WAFER middleware blocks (project-level configuration)
 wafer-block-security-headers = { path = "../../../wafer-run/crates/wafer-block-security-headers" }
 wafer-block-cors = { path = "../../../wafer-run/crates/wafer-block-cors" }

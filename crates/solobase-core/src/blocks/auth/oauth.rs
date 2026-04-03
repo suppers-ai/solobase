@@ -69,7 +69,7 @@ impl AuthBlock {
         let redirect_uri = config::get_default(
             ctx,
             "OAUTH_REDIRECT_URI",
-            "http://localhost:8090/auth/oauth/callback",
+            "http://localhost:8090/b/auth/oauth/callback",
         )
         .await;
 
@@ -182,7 +182,7 @@ impl AuthBlock {
         let redirect_uri = config::get_default(
             ctx,
             "OAUTH_REDIRECT_URI",
-            "http://localhost:8090/auth/oauth/callback",
+            "http://localhost:8090/b/auth/oauth/callback",
         )
         .await;
 

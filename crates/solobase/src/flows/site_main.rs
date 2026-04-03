@@ -30,19 +30,8 @@ pub const JSON: &str = r#"{
 /// User's own site content is served by `wafer-run/web` as fallback.
 pub fn default_routes() -> serde_json::Value {
     serde_json::json!([
-        { "path": "/_inspector/**", "block": "wafer-run/inspector" },
-        { "path": "/_inspector",    "block": "wafer-run/inspector" },
-        { "path": "/static/**",     "block": "suppers-ai/router" },
         { "path": "/b/**",          "block": "suppers-ai/router" },
-        { "path": "/auth/**",       "block": "suppers-ai/router" },
-        { "path": "/internal/**",   "block": "suppers-ai/router" },
-        { "path": "/admin/**",      "block": "suppers-ai/router" },
-        { "path": "/settings/**",   "block": "suppers-ai/router" },
-        { "path": "/storage/**",    "block": "suppers-ai/router" },
-        { "path": "/profile/**",    "block": "suppers-ai/router" },
         { "path": "/health",        "block": "suppers-ai/router" },
-        { "path": "/nav",           "block": "suppers-ai/router" },
-        { "path": "/debug/**",      "block": "suppers-ai/router" },
         { "path": "/**",            "block": "wafer-run/web", "config": { "web_root": "site", "web_spa": "true", "web_index": "index.html" } }
     ])
 }

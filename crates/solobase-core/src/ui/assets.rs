@@ -25,13 +25,13 @@ fn short_hash(content: &[u8]) -> String {
 /// CSS URL with content hash, e.g. `/static/app-a1b2c3d4.css`
 pub fn css_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
-    URL.get_or_init(|| format!("/static/app-{}.css", short_hash(css().as_bytes())))
+    URL.get_or_init(|| format!("/b/static/app-{}.css", short_hash(css().as_bytes())))
 }
 
 /// htmx JS URL with content hash, e.g. `/static/htmx-a1b2c3d4.min.js`
 pub fn htmx_js_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
-    URL.get_or_init(|| format!("/static/htmx-{}.min.js", short_hash(htmx_js().as_bytes())))
+    URL.get_or_init(|| format!("/b/static/htmx-{}.min.js", short_hash(htmx_js().as_bytes())))
 }
 
 /// Small inline JS for toast notifications (triggered by htmx HX-Trigger).

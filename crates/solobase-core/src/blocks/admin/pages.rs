@@ -827,7 +827,7 @@ async fn api_keys_tab(ctx: &dyn Context) -> Markup {
                                     td {
                                         @if revoked.is_empty() {
                                             button .btn .btn-sm .btn-secondary
-                                                hx-post={"/b/auth/api-keys/" (record.id) "/revoke"}
+                                                hx-post={"/b/auth/api/api-keys/" (record.id) "/revoke"}
                                                 hx-target="#users-tab-content"
                                                 hx-confirm="Revoke this API key?"
                                             { "Revoke" }
@@ -846,7 +846,7 @@ async fn api_keys_tab(ctx: &dyn Context) -> Markup {
 
         // Create API key modal
         (components::modal("create-api-key", "Create API Key", html! {
-            form hx-post="/b/auth/api-keys" hx-target="#users-tab-content" {
+            form hx-post="/b/auth/api/api-keys" hx-target="#users-tab-content" {
                 div .form-group {
                     label .form-label for="key-name" { "Name" }
                     input .form-input type="text" #key-name name="name" placeholder="e.g. CI/CD key" required;

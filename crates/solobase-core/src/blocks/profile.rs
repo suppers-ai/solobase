@@ -17,7 +17,7 @@ impl Block for ProfileBlock {
             .category(wafer_run::BlockCategory::Feature)
             .description("User profile sections endpoint. Provides a placeholder API for user profile customization.")
             .endpoints(vec![
-                BlockEndpoint::get("/profile/sections", "Profile sections", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/profile/api/sections", "Profile sections", AuthLevel::Authenticated),
             ])
             .can_disable(true)
     }

@@ -205,7 +205,7 @@ function OverviewTab() {
       })
       .catch(() => setProjectCount("0"));
     api
-      .get("/b/auth/api-keys")
+      .get("/b/auth/api/api-keys")
       .then((d: any) => {
         const k = Array.isArray(d?.records)
           ? d.records
@@ -577,7 +577,7 @@ function ApiKeysTab() {
 
   const fetch_ = useCallback(async () => {
     try {
-      const d: any = await api.get("/b/auth/api-keys");
+      const d: any = await api.get("/b/auth/api/api-keys");
       setKeys(
         Array.isArray(d?.records) ? d.records : Array.isArray(d) ? d : [],
       );
@@ -595,7 +595,9 @@ function ApiKeysTab() {
     if (!name.trim()) return;
     setCreating(true);
     try {
-      const r: any = await api.post("/b/auth/api-keys", { name: name.trim() });
+      const r: any = await api.post("/b/auth/api/api-keys", {
+        name: name.trim(),
+      });
       setCreatedKey(r.key || r.data?.key);
       setName("");
       await fetch_();
@@ -607,7 +609,7 @@ function ApiKeysTab() {
 
   async function revoke(id: string) {
     try {
-      await api.delete(`/auth/api-keys/${id}`);
+      await api.delete(`/b/auth/api/api-keys/${id}`);
       toasts.success("API key revoked");
       await fetch_();
     } catch (e: any) {
@@ -736,7 +738,7 @@ function SettingsTab() {
 
   useEffect(() => {
     api
-      .get("/b/auth/me")
+      .get("/b/auth/api/me")
       .then((d: any) => {
         if (d?.user?.name) setName(d.user.name);
       })
@@ -754,7 +756,7 @@ function SettingsTab() {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.put("/b/auth/me", { name });
+      await api.put("/b/auth/api/me", { name });
       toasts.success("Profile updated");
       await checkAuth();
     } catch (e: any) {
@@ -905,7 +907,7 @@ function AdminStats() {
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     api
-      .get("/admin/b/projects/stats")
+      .get("/b/projects/api/admin/stats")
       .then(setStats)
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -953,7 +955,7 @@ function AdminProjects() {
 
   useEffect(() => {
     api
-      .get("/admin/b/projects?pageSize=100")
+      .get("/b/projects/api/admin?pageSize=100")
       .then((d: any) => {
         const records = Array.isArray(d?.records) ? d.records : [];
         setProjects(records.map((r: any) => ({ id: r.id, ...r.data })));

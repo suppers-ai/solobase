@@ -23,7 +23,7 @@ export function isAdmin(): boolean {
 
 export async function checkAuth(): Promise<boolean> {
   try {
-    const data: any = await api.get("/b/auth/me");
+    const data: any = await api.get("/b/auth/api/me");
     const user = data?.user || data;
     if (user?.id) {
       _user = user;
@@ -37,7 +37,7 @@ export async function checkAuth(): Promise<boolean> {
 }
 
 export function logout() {
-  api.post("/b/auth/logout").catch(() => {});
+  api.post("/b/auth/api/logout").catch(() => {});
   _user = null;
   _roles = [];
 }

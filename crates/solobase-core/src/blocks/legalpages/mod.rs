@@ -25,8 +25,7 @@ fn extract_doc_id(msg: &Message) -> &str {
     }
     let path = msg.path();
     let suffix = path
-        .strip_prefix("/admin/legalpages/documents/")
-        .or_else(|| path.strip_prefix("/b/legalpages/documents/"))
+        .strip_prefix("/b/legalpages/api/documents/")
         .unwrap_or("");
     // Strip trailing /publish or /
     suffix.split('/').next().unwrap_or("")
@@ -477,27 +476,24 @@ impl Block for LegalPagesBlock {
             ("create", "/b/legalpages/admin/save") => pages::handle_save(ctx, msg).await,
             ("create", "/b/legalpages/admin/publish") => pages::handle_publish(ctx, msg).await,
 
-            // Admin API
-            ("retrieve", "/admin/legalpages/documents") => self.handle_admin_list(ctx, msg).await,
-            ("retrieve", _) if path.starts_with("/admin/legalpages/documents/") => {
+            // JSON API at /b/legalpages/api/documents/...
+            ("retrieve", "/b/legalpages/api/documents") => self.handle_admin_list(ctx, msg).await,
+            ("retrieve", _) if path.starts_with("/b/legalpages/api/documents/") => {
                 self.handle_admin_get(ctx, msg).await
             }
-            ("create", "/admin/legalpages/documents") => self.handle_admin_create(ctx, msg).await,
+            ("create", "/b/legalpages/api/documents") => self.handle_admin_create(ctx, msg).await,
             ("update", _)
-                if path.starts_with("/admin/legalpages/documents/")
+                if path.starts_with("/b/legalpages/api/documents/")
                     && path.ends_with("/publish") =>
             {
                 self.handle_admin_publish(ctx, msg).await
             }
-            ("update", _) if path.starts_with("/admin/legalpages/documents/") => {
+            ("update", _) if path.starts_with("/b/legalpages/api/documents/") => {
                 self.handle_admin_update(ctx, msg).await
             }
-            ("delete", _) if path.starts_with("/admin/legalpages/documents/") => {
+            ("delete", _) if path.starts_with("/b/legalpages/api/documents/") => {
                 self.handle_admin_delete(ctx, msg).await
             }
-            // ext API aliases (same as admin, but routed through admin-pipe)
-            ("retrieve", "/b/legalpages/documents") => self.handle_admin_list(ctx, msg).await,
-            ("create", "/b/legalpages/documents") => self.handle_admin_create(ctx, msg).await,
             _ => err_not_found(msg, "not found"),
         }
     }

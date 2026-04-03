@@ -328,19 +328,13 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     wafer_block_cors::register(&mut wafer);
     wafer_block_readonly_guard::register(&mut wafer);
 
-    // The site-main flow references wafer-run/router — alias to suppers-ai/router
-    wafer.add_alias("wafer-run/router", "suppers-ai/router");
+    // Register wafer-run/router — dispatches to handler blocks based on the
+    // site-main flow's route config (API paths → suppers-ai/router, catch-all → wafer-run/web).
+    wafer_block_router::register(&mut wafer);
 
-    // Register wafer-run/web for SPA frontend
+    // Register wafer-run/web — serves static files from R2 via the storage service,
+    // with SPA fallback to index.html for unmatched paths.
     wafer_block_web::register(&mut wafer);
-    wafer.add_block_config(
-        "wafer-run/web",
-        serde_json::json!({
-            "web_root": "site",
-            "web_spa": "true",
-            "web_index": "index.html"
-        }),
-    );
 
     // Register solobase feature blocks — only enabled blocks get instantiated.
     // Block enablement is read from the block_settings table in D1.
@@ -410,29 +404,17 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     let router = SolobaseRouterBlock::new(jwt_secret, feature_config, factory);
     wafer.register_block("suppers-ai/router", Arc::new(router));
 
-    // Register the site-main flow
-    wafer
-        .add_flow_json(solobase::flows::site_main::JSON)
-        .map_err(|e| Error::RustError(format!("invalid site-main flow JSON: {e}")))?;
+    // Register the site-main flow — sets up route config that drives all routing:
+    //   /b/**, /auth/**, /admin/**, etc. → suppers-ai/router (block pipeline)
+    //   /**                               → wafer-run/web    (static files + SPA fallback)
+    solobase::flows::register_site_main(&mut wafer)
+        .map_err(|e| Error::RustError(e))?;
 
     // Start runtime
     wafer
         .start_without_bind()
         .await
         .map_err(|e| Error::RustError(e))?;
-
-    // Try serving static files from R2 for non-API paths first.
-    // The native wafer-run/web block uses std::fs which doesn't work on CF Workers,
-    // so we handle static file serving directly from the project's R2 bucket.
-    let pathname = req.url()?.path().to_string();
-    if !is_api_path(&pathname) {
-        let r2 = env
-            .bucket("STORAGE")
-            .map_err(|e| Error::RustError(format!("R2: {e}")))?;
-        if let Some(static_resp) = serve_from_r2(&r2, &pathname).await {
-            return Ok(static_resp);
-        }
-    }
 
     // Convert HTTP request to WAFER Message
     let mut msg = convert::worker_request_to_message(req).await?;
@@ -445,100 +427,6 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     // Execute flow
     let result = wafer.run("site-main", &mut msg).await;
     convert::wafer_result_to_worker_response(result)
-}
-
-/// Serve a static file from the project's R2 bucket (site/ folder).
-/// Returns None if the file doesn't exist.
-async fn serve_from_r2(bucket: &worker::Bucket, path: &str) -> Option<worker::Response> {
-    let clean = path.trim_start_matches('/');
-    let key = if clean.is_empty() || clean.ends_with('/') {
-        format!("site/{}index.html", clean)
-    } else {
-        format!("site/{}", clean)
-    };
-
-    // Try exact key
-    if let Ok(Some(obj)) = bucket.get(&key).execute().await {
-        if let Some(body) = obj.body() {
-            let bytes = body.bytes().await.ok()?;
-            let ct = guess_content_type(&key);
-            let mut resp = worker::Response::from_bytes(bytes).ok()?.with_status(200);
-            resp.headers_mut().set("Content-Type", ct).ok()?;
-            if key.ends_with(".html") {
-                resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
-            } else {
-                resp.headers_mut()
-                    .set("Cache-Control", "public, max-age=31536000, immutable")
-                    .ok()?;
-            }
-            return Some(resp);
-        }
-    }
-
-    // SPA fallback — serve index.html for paths without extensions
-    if !clean.contains('.') {
-        if let Ok(Some(obj)) = bucket.get("site/index.html").execute().await {
-            if let Some(body) = obj.body() {
-                let bytes = body.bytes().await.ok()?;
-                let mut resp = worker::Response::from_bytes(bytes).ok()?.with_status(200);
-                resp.headers_mut()
-                    .set("Content-Type", "text/html; charset=utf-8")
-                    .ok()?;
-                resp.headers_mut().set("Cache-Control", "no-cache").ok()?;
-                return Some(resp);
-            }
-        }
-    }
-
-    None
-}
-
-fn is_api_path(path: &str) -> bool {
-    const PREFIXES: &[&str] = &[
-        "/health",
-        "/nav",
-        "/debug/",
-        "/auth/",
-        "/admin/",
-        "/storage/",
-        "/b/",
-        "/ext/",
-        "/profile/",
-        "/settings/",
-        "/internal/",
-        "/_internal/",
-    ];
-    PREFIXES
-        .iter()
-        .any(|p| path == p.trim_end_matches('/') || path.starts_with(p))
-}
-
-fn guess_content_type(key: &str) -> &'static str {
-    if key.ends_with(".html") {
-        "text/html; charset=utf-8"
-    } else if key.ends_with(".js") {
-        "application/javascript"
-    } else if key.ends_with(".css") {
-        "text/css"
-    } else if key.ends_with(".json") {
-        "application/json"
-    } else if key.ends_with(".png") {
-        "image/png"
-    } else if key.ends_with(".jpg") || key.ends_with(".jpeg") {
-        "image/jpeg"
-    } else if key.ends_with(".svg") {
-        "image/svg+xml"
-    } else if key.ends_with(".ico") {
-        "image/x-icon"
-    } else if key.ends_with(".woff2") {
-        "font/woff2"
-    } else if key.ends_with(".woff") {
-        "font/woff"
-    } else if key.ends_with(".wasm") {
-        "application/wasm"
-    } else {
-        "application/octet-stream"
-    }
 }
 
 // ---------------------------------------------------------------------------

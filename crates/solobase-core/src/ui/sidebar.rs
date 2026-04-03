@@ -79,7 +79,7 @@ pub fn sidebar(
                             span { "Change Password" }
                         }
                         div .profile-menu-divider {}
-                        form action="/b/auth/logout" method="post" {
+                        form action="/b/auth/api/logout" method="post" {
                             button .profile-menu-item .profile-menu-item-danger type="submit" {
                                 (icons::log_out())
                                 span { "Sign Out" }

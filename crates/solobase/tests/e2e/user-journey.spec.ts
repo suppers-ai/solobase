@@ -14,7 +14,7 @@ let _adminToken: string | null = null;
 async function signupUser(request: any) {
   const email = `journey-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@test.com`;
   const password = "TestPass1234";
-  const res = await request.post("/auth/signup", {
+  const res = await request.post("/b/auth/api/signup", {
     data: { email, password, name: "Test Developer" },
   });
   expect(res.ok()).toBeTruthy();
@@ -39,7 +39,7 @@ async function getAdminToken(request: any): Promise<string> {
   // Try the seeded admin credentials first (set via env vars on server start)
   const seededEmail = process.env.ADMIN_EMAIL || "admin@e2e.test";
   const seededPassword = process.env.ADMIN_PASSWORD || "AdminE2EPass1234";
-  const loginRes = await request.post("/auth/login", {
+  const loginRes = await request.post("/b/auth/api/login", {
     data: { email: seededEmail, password: seededPassword },
   });
   if (loginRes.ok()) {
@@ -49,7 +49,7 @@ async function getAdminToken(request: any): Promise<string> {
   }
 
   // Fallback: sign up a new user (won't be admin unless it's the first user)
-  const signupRes = await request.post("/auth/signup", {
+  const signupRes = await request.post("/b/auth/api/signup", {
     data: {
       email: "admin-journey@test.com",
       password: "AdminPass1234",
@@ -75,7 +75,7 @@ test("setup: create admin user", async ({ request }) => {
   const token = await getAdminToken(request);
   expect(token).toBeTruthy();
   // Verify admin role
-  const meRes = await request.get("/auth/me", {
+  const meRes = await request.get("/b/auth/api/me", {
     headers: authHeaders(token),
   });
   expect(meRes.ok()).toBeTruthy();
@@ -101,7 +101,7 @@ test.describe("Developer Signup & Profile", () => {
 
   test("developer can view their profile after signup", async ({ request }) => {
     const user = await signupUser(request);
-    const res = await request.get("/auth/me", {
+    const res = await request.get("/b/auth/api/me", {
       headers: authHeaders(user.token),
     });
     expect(res.ok()).toBeTruthy();
@@ -112,13 +112,13 @@ test.describe("Developer Signup & Profile", () => {
 
   test("developer can update their display name", async ({ request }) => {
     const user = await signupUser(request);
-    const updateRes = await request.put("/auth/me", {
+    const updateRes = await request.put("/b/auth/api/me", {
       headers: authHeaders(user.token),
       data: { name: "Jane Developer" },
     });
     expect(updateRes.ok()).toBeTruthy();
 
-    const meRes = await request.get("/auth/me", {
+    const meRes = await request.get("/b/auth/api/me", {
       headers: authHeaders(user.token),
     });
     const body = await meRes.json();
@@ -127,14 +127,14 @@ test.describe("Developer Signup & Profile", () => {
 
   test("developer can change their password", async ({ request }) => {
     const user = await signupUser(request);
-    const changeRes = await request.post("/auth/change-password", {
+    const changeRes = await request.post("/b/auth/api/change-password", {
       headers: authHeaders(user.token),
       data: { current_password: user.password, new_password: "NewSecure5678" },
     });
     expect(changeRes.ok()).toBeTruthy();
 
     // Can login with new password
-    const loginRes = await request.post("/auth/login", {
+    const loginRes = await request.post("/b/auth/api/login", {
       data: { email: user.email, password: "NewSecure5678" },
     });
     expect(loginRes.ok()).toBeTruthy();
@@ -145,7 +145,7 @@ test.describe("Developer Signup & Profile", () => {
     const h = authHeaders(user.token);
 
     // Create key
-    const createRes = await request.post("/auth/api-keys", {
+    const createRes = await request.post("/b/auth/api/api-keys", {
       headers: h,
       data: { name: "CI/CD Key" },
     });
@@ -154,13 +154,13 @@ test.describe("Developer Signup & Profile", () => {
     expect(key.key).toMatch(/^sb_/);
 
     // List keys
-    const listRes = await request.get("/auth/api-keys", { headers: h });
+    const listRes = await request.get("/b/auth/api/api-keys", { headers: h });
     expect(listRes.ok()).toBeTruthy();
     const keys = await listRes.json();
     expect(keys.records?.length || keys.length).toBeGreaterThanOrEqual(1);
 
     // Revoke key
-    const revokeRes = await request.delete(`/auth/api-keys/${key.id}`, {
+    const revokeRes = await request.delete(`/b/auth/api/api-keys/${key.id}`, {
       headers: h,
     });
     expect(revokeRes.ok()).toBeTruthy();
@@ -176,7 +176,7 @@ test.describe("Plans & Pricing", () => {
     const h = authHeaders(adminToken);
 
     // Create a group (FK constraints not enforced, use dummy template ID)
-    const groupRes = await request.post("/admin/b/products/groups", {
+    const groupRes = await request.post("/b/products/api/admin/groups", {
       headers: h,
       data: {
         name: `Plans ${Date.now()}`,
@@ -197,7 +197,7 @@ test.describe("Plans & Pricing", () => {
     const groupId = group.id || group.data?.id;
 
     // Create product in that group
-    const createRes = await request.post("/admin/b/products/products", {
+    const createRes = await request.post("/b/products/api/admin/products", {
       headers: h,
       data: {
         name: "Hobby Plan",
@@ -222,7 +222,7 @@ test.describe("Plans & Pricing", () => {
     const adminToken = await getAdminToken(request);
     const h = authHeaders(adminToken);
 
-    const groupRes = await request.post("/admin/b/products/groups", {
+    const groupRes = await request.post("/b/products/api/admin/groups", {
       headers: h,
       data: {
         name: `Pro Group ${Date.now()}`,
@@ -238,7 +238,7 @@ test.describe("Plans & Pricing", () => {
     const group = await groupRes.json();
     const groupId = group.id || group.data?.id;
 
-    const createRes = await request.post("/admin/b/products/products", {
+    const createRes = await request.post("/b/products/api/admin/products", {
       headers: h,
       data: {
         name: "Pro Plan",
@@ -270,7 +270,7 @@ test.describe("Plans & Pricing", () => {
     const ha = authHeaders(adminToken);
 
     // Create group → product
-    const groupRes = await request.post("/admin/b/products/groups", {
+    const groupRes = await request.post("/b/products/api/admin/groups", {
       headers: ha,
       data: {
         name: `Purchase Group ${Date.now()}`,
@@ -286,7 +286,7 @@ test.describe("Plans & Pricing", () => {
     const group = await groupRes.json();
     const groupId = group.id || group.data?.id;
 
-    const productRes = await request.post("/admin/b/products/products", {
+    const productRes = await request.post("/b/products/api/admin/products", {
       headers: ha,
       data: {
         name: `Test Plan ${Date.now()}`,
@@ -495,7 +495,7 @@ test.describe("Admin Deployment Management", () => {
     const adminToken = await getAdminToken(request);
     const h = authHeaders(adminToken);
 
-    const res = await request.get("/admin/b/deployments", { headers: h });
+    const res = await request.get("/b/deployments/api/admin", { headers: h });
     if (res.status() === 403 || res.status() === 401) {
       test.skip();
       return;
@@ -510,7 +510,9 @@ test.describe("Admin Deployment Management", () => {
     const adminToken = await getAdminToken(request);
     const h = authHeaders(adminToken);
 
-    const res = await request.get("/admin/b/deployments/stats", { headers: h });
+    const res = await request.get("/b/deployments/api/admin/stats", {
+      headers: h,
+    });
     if (res.status() === 403 || res.status() === 401) {
       test.skip();
       return;
@@ -525,7 +527,9 @@ test.describe("Admin Deployment Management", () => {
     const adminToken = await getAdminToken(request);
     const h = authHeaders(adminToken);
 
-    const res = await request.get("/admin/b/products/stats", { headers: h });
+    const res = await request.get("/b/products/api/admin/stats", {
+      headers: h,
+    });
     if (res.status() === 403 || res.status() === 401) {
       test.skip();
       return;
@@ -549,7 +553,7 @@ test.describe("Full User Journey", () => {
     expect(user.token).toBeTruthy();
 
     // Step 2: View profile
-    const meRes = await request.get("/auth/me", { headers: h });
+    const meRes = await request.get("/b/auth/api/me", { headers: h });
     expect(meRes.ok()).toBeTruthy();
     const me = await meRes.json();
     expect(me.user.email).toBe(user.email);
@@ -586,7 +590,7 @@ test.describe("Full User Journey", () => {
     expect(detailRes.ok()).toBeTruthy();
 
     // Step 7: Create an API key for programmatic access
-    const keyRes = await request.post("/auth/api-keys", {
+    const keyRes = await request.post("/b/auth/api/api-keys", {
       headers: h,
       data: { name: "Production API Key" },
     });
@@ -613,7 +617,7 @@ test.describe("Full User Journey", () => {
     }
 
     // Step 10: Clean up API key
-    await request.delete(`/auth/api-keys/${apiKey.id}`, { headers: h });
+    await request.delete(`/b/auth/api/api-keys/${apiKey.id}`, { headers: h });
   });
 });
 
