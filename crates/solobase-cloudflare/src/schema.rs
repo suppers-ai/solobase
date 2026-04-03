@@ -52,6 +52,10 @@ const MIGRATIONS: &[&str] = &[
         updated_at TEXT DEFAULT (datetime('now'))
     )",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_subdomain ON projects (subdomain)",
+
+    // Ensure the platform "cloud" project always exists
+    "INSERT OR IGNORE INTO projects (id, subdomain, name, plan, status, platform) \
+     VALUES ('cloud', 'cloud', 'Solobase Cloud', 'platform', 'active', 1)",
 ];
 
 /// Run platform schema migrations on the platform D1 database.
