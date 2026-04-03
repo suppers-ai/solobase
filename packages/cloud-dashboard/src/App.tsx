@@ -117,7 +117,7 @@ function Header() {
       }}
     >
       <img
-        src="/images/logo_long.png"
+        src="https://solobase.dev/images/logo_long.png"
         alt="Solobase"
         style={{ height: 32, width: "auto" }}
       />
@@ -187,14 +187,14 @@ function OverviewTab() {
 
   useEffect(() => {
     api
-      .get("/b/products/subscription")
+      .get("/b/products/api/subscription")
       .then((d: any) => {
         const p = d?.subscription?.plan || "free";
         setPlanName(p === "pro" ? "Pro" : p === "starter" ? "Starter" : "Free");
       })
       .catch(() => setPlanName("Free"));
     api
-      .get("/b/projects")
+      .get("/b/projects/api")
       .then((d: any) => {
         const r = Array.isArray(d?.records)
           ? d.records
@@ -269,7 +269,7 @@ function ProjectsTab() {
 
   const fetch_ = useCallback(async () => {
     try {
-      const d: any = await api.get("/b/projects");
+      const d: any = await api.get("/b/projects/api");
       setProjects(
         Array.isArray(d?.records) ? d.records : Array.isArray(d) ? d : [],
       );
@@ -283,7 +283,7 @@ function ProjectsTab() {
   useEffect(() => {
     fetch_();
     api
-      .get("/b/products/subscription")
+      .get("/b/products/api/subscription")
       .then((d: any) => {
         const p = d?.subscription?.plan;
         if (p) setPlan(p);
@@ -311,7 +311,7 @@ function ProjectsTab() {
     }
     setCreating(true);
     try {
-      await api.post("/b/projects", { name: newName.trim() });
+      await api.post("/b/projects/api", { name: newName.trim() });
       toasts.success("Project created");
       setNewName("");
       setShowForm(false);
@@ -325,7 +325,7 @@ function ProjectsTab() {
 
   async function handleDelete(id: string) {
     try {
-      await api.delete(`/b/projects/${id}`);
+      await api.delete(`/b/projects/api/${id}`);
       toasts.success("Project deleted");
       await fetch_();
     } catch (e: any) {
@@ -335,7 +335,7 @@ function ProjectsTab() {
 
   async function handleActivate(id: string) {
     try {
-      await api.put(`/b/projects/${id}`, { action: "activate" });
+      await api.put(`/b/projects/api/${id}`, { action: "activate" });
       toasts.success("Project activated");
       await fetch_();
     } catch (e: any) {
@@ -345,7 +345,7 @@ function ProjectsTab() {
 
   async function handleDeactivate(id: string) {
     try {
-      await api.put(`/b/projects/${id}`, { action: "deactivate" });
+      await api.put(`/b/projects/api/${id}`, { action: "deactivate" });
       toasts.success("Project deactivated");
       await fetch_();
     } catch (e: any) {
@@ -744,7 +744,7 @@ function SettingsTab() {
       })
       .catch(() => {});
     api
-      .get("/b/products/subscription")
+      .get("/b/products/api/subscription")
       .then((d: any) => {
         const p = d?.subscription?.plan;
         setPlanName(p === "pro" ? "Pro" : p === "starter" ? "Starter" : "Free");
