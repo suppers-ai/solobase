@@ -51,7 +51,6 @@ fn handle_flows(msg: &mut Message) -> Result_ {
         {"id": "legalpages", "summary": "Legal pages routes"},
         {"id": "products", "summary": "Products extension routes"},
         {"id": "userportal", "summary": "User portal config"},
-        {"id": "profile", "summary": "Profile sections"},
         {"id": "web-site", "summary": "Static website serving"},
         {"id": "http-infra", "summary": "HTTP infrastructure pipeline"},
         {"id": "auth-pipe", "summary": "Authentication pipeline"},

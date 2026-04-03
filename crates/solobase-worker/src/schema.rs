@@ -434,7 +434,6 @@ const MIGRATIONS: &[&str] = &[
         ('suppers-ai/legalpages', 0),
         ('suppers-ai/userportal', 0),
         ('suppers-ai/email', 1),
-        ('suppers-ai/profile', 1),
         ('suppers-ai/system', 1)",
 ];
 

@@ -90,7 +90,6 @@ pub const BLOCK_DEFAULTS: &[BlockDefault] = &[
     ("suppers-ai/legalpages", false),
     ("suppers-ai/userportal", false),
     ("suppers-ai/email", true),
-    ("suppers-ai/profile", true),
     ("suppers-ai/system", true),
 ];
 

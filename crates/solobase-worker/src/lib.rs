@@ -341,14 +341,10 @@ async fn handle_request(req: &Request, env: &Env) -> Result<Response> {
     let auth_header = req.headers().get("authorization")?;
 
     let mut shared_blocks = HashMap::new();
-    // System and profile are always enabled
+    // System is always enabled
     shared_blocks.insert(
         BlockId::System,
         Arc::new(blocks::system::SystemBlock) as Arc<dyn wafer_run::block::Block>,
-    );
-    shared_blocks.insert(
-        BlockId::Profile,
-        Arc::new(blocks::profile::ProfileBlock) as Arc<dyn wafer_run::block::Block>,
     );
     // Feature-gated blocks
     if features.is_enabled("auth") {

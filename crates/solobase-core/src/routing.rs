@@ -24,7 +24,6 @@ pub enum BlockId {
     Products,
     Projects,
     UserPortal,
-    Profile,
 }
 
 /// A single route entry.
@@ -106,11 +105,6 @@ pub const ROUTES: &[Route] = &[
         requires_admin: false,
         block_id: BlockId::UserPortal,
     },
-    Route {
-        prefix: "/b/profile",
-        requires_admin: false,
-        block_id: BlockId::Profile,
-    },
 ];
 
 /// Check if a block's feature is enabled.
@@ -152,7 +146,6 @@ fn block_id_short_name(id: BlockId) -> &'static str {
         BlockId::Products => "products",
         BlockId::Projects => "projects",
         BlockId::UserPortal => "userportal",
-        BlockId::Profile => "profile",
     }
 }
 
@@ -234,7 +227,6 @@ mod tests {
             ("/b/legalpages", BlockId::LegalPages),
             ("/b/projects", BlockId::Projects),
             ("/b/userportal", BlockId::UserPortal),
-            ("/b/profile/sections", BlockId::Profile),
         ];
 
         for (path, expected_block) in cases {
@@ -298,7 +290,6 @@ mod tests {
             "/b/projects",
             "/b/userportal",
             "/b/cloudstorage/",
-            "/b/profile",
         ];
         for route in ROUTES {
             if non_admin_prefixes

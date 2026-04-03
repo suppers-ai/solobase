@@ -74,6 +74,10 @@ pub fn sidebar(
                             }
                         }
                         div .profile-menu-divider {}
+                        a .profile-menu-item href="/b/userportal/" {
+                            (icons::user())
+                            span { "My Account" }
+                        }
                         a .profile-menu-item href="/b/auth/change-password" {
                             (icons::settings())
                             span { "Change Password" }
@@ -119,6 +123,7 @@ pub fn nav_icon(name: &str) -> Markup {
         "shopping-cart" => icons::shopping_cart(),
         "server" | "projects" => icons::server(),
         "folder" | "files" => icons::folder(),
+        "user" | "account" => icons::user(),
         "globe" => icons::globe(),
         "bar-chart" | "stats" => icons::bar_chart(),
         "dollar-sign" => icons::dollar_sign(),

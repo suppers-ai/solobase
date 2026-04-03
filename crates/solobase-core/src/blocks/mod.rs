@@ -6,7 +6,6 @@ pub mod files;
 pub mod helpers;
 pub mod legalpages;
 pub mod products;
-pub mod profile;
 pub mod projects;
 pub mod rate_limit;
 pub mod router;
@@ -21,7 +20,6 @@ use wafer_run::block::Block;
 
 /// Mapping from short block name to BlockId for registration.
 const SOLOBASE_BLOCKS: &[(&str, BlockId)] = &[
-    ("profile", BlockId::Profile),
     ("system", BlockId::System),
     ("userportal", BlockId::UserPortal),
     ("legalpages", BlockId::LegalPages),
@@ -35,7 +33,6 @@ const SOLOBASE_BLOCKS: &[(&str, BlockId)] = &[
 /// Create a block instance for a given BlockId.
 fn make_block(id: BlockId) -> Arc<dyn Block> {
     match id {
-        BlockId::Profile => Arc::new(profile::ProfileBlock),
         BlockId::System => Arc::new(system::SystemBlock),
         BlockId::UserPortal => Arc::new(userportal::UserPortalBlock),
         BlockId::LegalPages => Arc::new(legalpages::LegalPagesBlock),
@@ -79,7 +76,6 @@ pub fn register_shared_blocks(w: &mut wafer_run::Wafer, blocks: &HashMap<BlockId
 
 fn block_id_to_name(id: BlockId) -> &'static str {
     match id {
-        BlockId::Profile => "profile",
         BlockId::System => "system",
         BlockId::UserPortal => "userportal",
         BlockId::LegalPages => "legalpages",

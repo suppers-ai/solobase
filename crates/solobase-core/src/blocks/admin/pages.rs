@@ -3,46 +3,13 @@
 //! Each page queries the database directly (same patterns as the JSON handlers)
 //! and renders HTML via maud.
 
-use crate::blocks::helpers::RecordExt;
+use crate::blocks::helpers::{parse_form_body, RecordExt};
 use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use wafer_run::context::Context;
 use wafer_run::types::*;
-
-/// Parse URL-encoded form body (htmx default) into a HashMap.
-fn parse_form_body(data: &[u8]) -> std::collections::HashMap<String, String> {
-    let body = String::from_utf8_lossy(data);
-    let mut map = std::collections::HashMap::new();
-    for pair in body.split('&') {
-        if let Some((k, v)) = pair.split_once('=') {
-            let key = urlencoding_decode(k);
-            let value = urlencoding_decode(v);
-            map.insert(key, value);
-        }
-    }
-    map
-}
-
-fn urlencoding_decode(s: &str) -> String {
-    let s = s.replace('+', " ");
-    let mut result = Vec::new();
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                result.push(byte);
-                i += 3;
-                continue;
-            }
-        }
-        result.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&result).into_owned()
-}
 
 /// Admin nav items for the sidebar.
 fn admin_nav() -> Vec<NavItem> {

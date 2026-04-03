@@ -89,6 +89,40 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// Decode a percent-encoded (URL-encoded) string.
+pub fn urlencoding_decode(s: &str) -> String {
+    let s = s.replace('+', " ");
+    let mut result = Vec::new();
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                result.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        result.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&result).into_owned()
+}
+
+/// Parse URL-encoded form body (htmx default) into a HashMap.
+pub fn parse_form_body(data: &[u8]) -> HashMap<String, String> {
+    let body = String::from_utf8_lossy(data);
+    let mut map = HashMap::new();
+    for pair in body.split('&') {
+        if let Some((k, v)) = pair.split_once('=') {
+            let key = urlencoding_decode(k);
+            let value = urlencoding_decode(v);
+            map.insert(key, value);
+        }
+    }
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
