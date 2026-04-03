@@ -129,7 +129,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          R2_BUCKET: ${{ matrix.env == 'production' && 'solobase-storage' || 'solobase-development' }}
+          R2_BUCKET: ${{ matrix.env == 'production' && 'solobase-production' || 'solobase-development' }}
         run: |
           wrangler r2 object put "$R2_BUCKET/_system/worker/index.js" \
             --file crates/solobase-worker/build/index.js \
