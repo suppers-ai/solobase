@@ -48,7 +48,7 @@ async function main() {
       domain: '127.0.0.1', path: '/',
       httpOnly: true, sameSite: 'Lax',
     }]);
-    await p.goto(`${BASE}/blocks/dashboard/frontend/#${hash}`);
+    await p.goto(`${BASE}/b/admin/#${hash}`);
     await p.waitForLoadState('networkidle');
     await p.waitForTimeout(1000);
     return p;
@@ -86,7 +86,7 @@ async function main() {
     domain: '127.0.0.1', path: '/',
     httpOnly: true, sameSite: 'Lax',
   }]);
-  await adminPage.goto(`${BASE}/blocks/admin/frontend/`);
+  await adminPage.goto(`${BASE}/b/admin/`);
   await adminPage.waitForLoadState('networkidle');
   await adminPage.waitForTimeout(1000);
   await shot(adminPage, '08-admin');

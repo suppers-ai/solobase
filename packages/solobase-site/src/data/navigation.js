@@ -1,63 +1,71 @@
 export const siteConfig = {
-  title: 'Solobase - Modern Admin Dashboard',
-  description: 'Open source backend in a single binary',
-  author: 'Suppers Software Limited',
-  logo: '/images/logo_long.png',
-  demoUrl: 'https://solobase.dev/',
-  githubUrl: 'https://github.com/suppers-ai/solobase',
-  discordUrl: 'https://discord.gg/jKqMcbrVzm',
+  title: "Solobase - Modern Admin Dashboard",
+  description: "Open source backend in a single binary",
+  author: "Suppers Software Limited",
+  logo: "/images/logo_long.png",
+  demoUrl: "https://solobase.dev/",
+  githubUrl: "https://github.com/suppers-ai/solobase",
+  discordUrl: "https://discord.gg/jKqMcbrVzm",
 };
 
 export const mainMenu = [
-  { name: 'Home', url: '/' },
-  { name: 'Pricing', url: '/pricing/' },
-  { name: 'Docs', url: '/docs/' },
-  { name: 'Demo', isDemo: true },
-  { name: 'Sign In', url: 'https://cloud.solobase.dev/blocks/dashboard/', external: true },
+  { name: "Home", url: "/" },
+  { name: "Pricing", url: "/pricing/" },
+  { name: "Docs", url: "/docs/" },
+  { name: "Demo", isDemo: true },
+  {
+    name: "Sign In",
+    url: "https://cloud.solobase.dev/b/auth/login",
+    external: true,
+  },
 ];
 
 export const socialLinks = [
-  { name: 'Discord', url: 'https://discord.gg/jKqMcbrVzm', icon: 'discord' },
-  { name: 'GitHub', url: 'https://github.com/suppers-ai/solobase', icon: 'github' },
+  { name: "Discord", url: "https://discord.gg/jKqMcbrVzm", icon: "discord" },
+  {
+    name: "GitHub",
+    url: "https://github.com/suppers-ai/solobase",
+    icon: "github",
+  },
 ];
 
 export const docsSidebar = [
   {
-    title: 'Getting Started',
+    title: "Getting Started",
     items: [
-      { name: 'Overview', path: '/docs/' },
-      { name: 'Installation', path: '/docs/installation/' },
-      { name: 'Configuration', path: '/docs/configuration/' },
-      { name: 'Quick Start', path: '/docs/quick-start/' },
+      { name: "Overview", path: "/docs/" },
+      { name: "Installation", path: "/docs/installation/" },
+      { name: "Configuration", path: "/docs/configuration/" },
+      { name: "Quick Start", path: "/docs/quick-start/" },
     ],
   },
   {
-    title: 'Core Features',
+    title: "Core Features",
     items: [
-      { name: 'Dashboard', path: '/docs/dashboard/' },
-      { name: 'Extensions', path: '/docs/extensions/' },
-      { name: 'WASM Blocks', path: '/docs/wasm/' },
+      { name: "Dashboard", path: "/docs/dashboard/" },
+      { name: "Extensions", path: "/docs/extensions/" },
+      { name: "WASM Blocks", path: "/docs/wasm/" },
     ],
   },
   {
-    title: 'API Reference',
+    title: "API Reference",
     items: [
-      { name: 'Authentication', path: '/docs/api/auth/' },
-      { name: 'Database API', path: '/docs/api/database/' },
+      { name: "Authentication", path: "/docs/api/auth/" },
+      { name: "Database API", path: "/docs/api/database/" },
     ],
   },
   {
-    title: 'Deployment',
+    title: "Deployment",
     items: [
-      { name: 'Docker', path: '/docs/deployment/docker/' },
-      { name: 'Solobase Cloud', path: '/docs/cloud/' },
+      { name: "Docker", path: "/docs/deployment/docker/" },
+      { name: "Solobase Cloud", path: "/docs/cloud/" },
     ],
   },
 ];
 
 export const footerResources = [
-  { name: 'Installation', url: '/docs/installation/' },
-  { name: 'Configuration', url: '/docs/configuration/' },
-  { name: 'API Reference', url: '/docs/api/auth/' },
-  { name: 'Deployment', url: '/docs/deployment/docker/' },
+  { name: "Installation", url: "/docs/installation/" },
+  { name: "Configuration", url: "/docs/configuration/" },
+  { name: "API Reference", url: "/docs/api/auth/" },
+  { name: "Deployment", url: "/docs/deployment/docker/" },
 ];

@@ -147,7 +147,7 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#dc2626">Payment failed</h2>
 <p style="color:#64748b;line-height:1.6">We were unable to process your subscription payment. Your service will remain active for <strong>{days} more days</strong>. After that, your projects will be suspended.</p>
-<a href="https://cloud.solobase.dev/blocks/dashboard/#settings" style="display:inline-block;background:#dc2626;color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">Update Payment Method</a>
+<a href="https://cloud.solobase.dev/b/admin/#settings" style="display:inline-block;background:#dc2626;color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">Update Payment Method</a>
 <p style="color:#94a3b8;font-size:0.813rem">If you've already updated your payment method, you can ignore this email.</p>
 </div>"#
                 ),
@@ -172,13 +172,12 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 <p style="color:#64748b;line-height:1.6">Your Solobase account is ready. Here's how to get started:</p>
 <ol style="color:#64748b;line-height:1.8">
 <li>Choose a plan on the <a href="https://solobase.dev/pricing/" style="color:#0ea5e9">pricing page</a></li>
-<li>Create your first project from the <a href="https://cloud.solobase.dev/blocks/dashboard/" style="color:#0ea5e9">dashboard</a></li>
+<li>Create your first project from the <a href="https://cloud.solobase.dev/b/admin/" style="color:#0ea5e9">dashboard</a></li>
 <li>Read the <a href="https://solobase.dev/docs/" style="color:#0ea5e9">documentation</a></li>
 </ol>
 </div>"#
                 ),
-                "Welcome to Solobase! Get started: https://cloud.solobase.dev/blocks/dashboard/"
-                    .to_string(),
+                "Welcome to Solobase! Get started: https://cloud.solobase.dev/b/admin/".to_string(),
             )
         }
         other => {
