@@ -1,0 +1,44 @@
+# Rust
+target/
+
+# Node
+node_modules/
+dist/
+
+# Data & test artifacts
+/data/
+/.data/
+crates/solobase/data/
+*.db
+*.db-shm
+*.db-wal
+test-results/
+playwright-report/
+
+# Env
+.env
+.env.*
+.dev.vars
+.wrangler-dev.toml
+
+# Wrangler
+.wrangler/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Build output
+build/
+.bin/
+
+# Package locks should be committed for reproducible builds

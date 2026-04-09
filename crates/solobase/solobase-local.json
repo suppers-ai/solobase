@@ -1,0 +1,18 @@
+{
+    "version": 0,
+    "app": "solobase-local-test",
+    "listen": "0.0.0.0:8090",
+    "database": { "type": "sqlite", "path": "data/solobase-local.db" },
+    "storage": { "type": "local", "root": "data/storage" },
+    "jwt_secret": "local-test-secret-not-for-production",
+    "web_root": "site",
+    "features": {
+        "auth": {},
+        "admin": {},
+        "files": {},
+        "products": {},
+        "deployments": {},
+        "legalpages": {},
+        "userportal": {}
+    }
+}

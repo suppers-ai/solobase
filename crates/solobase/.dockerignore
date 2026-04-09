@@ -1,0 +1,43 @@
+# Git files
+.git
+.gitignore
+
+# Build artifacts
+solobase
+solobase-temp
+test-build
+*.exe
+
+# Local data
+.data/
+*.db
+!demo/deployment/demo.db
+
+# Development files
+.env
+.env.local
+
+# Documentation
+*.md
+!README.md
+
+# IDE files
+.vscode/
+.idea/
+
+# Test files
+*_test.go
+testdata/
+
+# Logs
+*.log
+
+# Node modules (will be installed fresh)
+node_modules/
+ui/node_modules/
+common/ui-components/node_modules/
+
+# Build outputs (will be built fresh)
+ui/build/
+ui/.svelte-kit/
+dist/

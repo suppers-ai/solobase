@@ -1,0 +1,159 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AppConfig",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "JSON Schema reference (ignored at runtime, enables editor autocomplete).",
+      "default": null,
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uri"
+    },
+    "app": {
+      "description": "Instance name (informational).",
+      "default": null,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "database": {
+      "description": "Database configuration.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/DatabaseConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "features": {
+      "description": "Feature blocks. Present = enabled, absent = disabled.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Features"
+        }
+      ]
+    },
+    "jwt_secret": {
+      "description": "JWT signing secret. Supports `${ENV_VAR}` expansion.",
+      "default": null,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "listen": {
+      "description": "HTTP listen address (default: \"0.0.0.0:8090\").",
+      "default": null,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "storage": {
+      "description": "File storage configuration.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/StorageConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "version": {
+      "description": "Config format version. Used to select the correct runtime binary (e.g. on Cloudflare where multiple major versions may coexist).",
+      "default": 0,
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    },
+    "web_root": {
+      "description": "Storage folder name for the SPA frontend (default: \"site\"). Files served from {storage_root}/{web_root}/ via wafer-run/web.",
+      "default": null,
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "definitions": {
+    "DatabaseConfig": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Path to the SQLite database file (used when type is \"sqlite\").",
+          "default": "data/solobase.db",
+          "type": "string"
+        },
+        "type": {
+          "description": "Database type: \"sqlite\" or \"postgres\".",
+          "default": "sqlite",
+          "type": "string"
+        },
+        "url": {
+          "description": "Connection URL (used when type is \"postgres\").",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "Features": {
+      "description": "Feature block configuration. Each field controls a feature block. Present (even as `{}`) = enabled. Absent, `false`, or `null` = disabled.",
+      "type": "object",
+      "properties": {
+        "admin": {
+          "description": "Admin panel, IAM, settings, logs, custom tables.",
+          "default": null
+        },
+        "auth": {
+          "description": "Authentication & user accounts.",
+          "default": null
+        },
+        "deployments": {
+          "description": "Deployment management.",
+          "default": null
+        },
+        "files": {
+          "description": "File storage & cloud storage.",
+          "default": null
+        },
+        "legalpages": {
+          "description": "Legal pages (terms, privacy).",
+          "default": null
+        },
+        "products": {
+          "description": "Product catalog, pricing, purchases, Stripe.",
+          "default": null
+        },
+        "userportal": {
+          "description": "User portal (branding, feature toggles).",
+          "default": null
+        }
+      }
+    },
+    "StorageConfig": {
+      "type": "object",
+      "properties": {
+        "root": {
+          "description": "Root directory for local storage.",
+          "default": "data/storage",
+          "type": "string"
+        },
+        "type": {
+          "description": "Storage type: \"local\" or \"s3\".",
+          "default": "local",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

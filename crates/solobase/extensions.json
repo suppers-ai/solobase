@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "extensions": [
+    {
+      "name": "products",
+      "module": "github.com/suppers-ai/solobase/extensions/products",
+      "description": "E-commerce products, pricing, and purchases with payment provider integration",
+      "builtin": true
+    },
+    {
+      "name": "cloudstorage",
+      "module": "github.com/suppers-ai/solobase/extensions/cloudstorage",
+      "description": "Cloud storage with quotas, sharing, and access logging",
+      "builtin": true
+    },
+    {
+      "name": "legalpages",
+      "module": "github.com/suppers-ai/solobase/extensions/legalpages",
+      "description": "Terms of service and privacy policy management",
+      "builtin": true
+    },
+    {
+      "name": "userportal",
+      "module": "github.com/suppers-ai/solobase/extensions/userportal",
+      "description": "User authentication portal UI",
+      "builtin": true
+    }
+  ]
+}

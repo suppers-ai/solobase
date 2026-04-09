@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solobase Docs</title>
+    <link rel="icon" href="/favicon.ico">
+    <link rel="stylesheet" href="/fonts/itim.css">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --primary: #fe6627;
+            --primary-hover: #b72a07;
+            --primary-light: #fff4ed;
+            --bg: #fff;
+            --bg-alt: #f9fafb;
+            --text: #1f2937;
+            --text-secondary: #6b7280;
+            --border: #e5e7eb;
+            --code-bg: #1e1e1e;
+            --code-text: #d4d4d4;
+            --code-inline-bg: #f3f4f6;
+            --sidebar-w: 260px;
+            --header-h: 56px;
+        }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: 'Itim', cursive;
+            color: var(--text); background: var(--bg); line-height: 1.7;
+        }
+        code, pre, pre code { font-family: 'Consolas', 'Monaco', 'Courier New', monospace !important; }
+        a { color: var(--primary); text-decoration: none; }
+        a:hover { color: var(--primary-hover); text-decoration: underline; }
+
+        /* Header */
+        .header {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            background: #fff; border-bottom: 1px solid var(--border);
+            height: var(--header-h); display: flex; align-items: center;
+            padding: 0 1.5rem;
+        }
+        .header-inner {
+            max-width: 1400px; width: 100%; margin: 0 auto;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .brand { display: flex; align-items: center; gap: 0.5rem; text-decoration: none; }
+        .brand img { height: 32px; }
+        .brand span { font-weight: 700; font-size: 1.1rem; color: var(--text); }
+        .header-nav { display: flex; gap: 1.5rem; align-items: center; }
+        .header-nav a { color: var(--text-secondary); font-size: 0.95rem; transition: color .2s; }
+        .header-nav a:hover { color: var(--primary); text-decoration: none; }
+
+        /* Layout */
+        .layout { display: flex; margin-top: var(--header-h); }
+
+        /* Sidebar */
+        .sidebar {
+            position: fixed; top: var(--header-h); left: 0; bottom: 0;
+            width: var(--sidebar-w); overflow-y: auto; padding: 1.5rem 0;
+            border-right: 1px solid var(--border); background: var(--bg-alt);
+            font-size: 0.9rem; z-index: 50;
+        }
+        .sidebar::-webkit-scrollbar { width: 4px; }
+        .sidebar::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
+        .sidebar h4 {
+            padding: 0.5rem 1.25rem; font-size: 0.7rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-secondary);
+            margin-top: 0.75rem;
+        }
+        .sidebar h4:first-child { margin-top: 0; }
+        .sidebar a {
+            display: block; padding: 0.3rem 1.25rem 0.3rem 1.5rem;
+            color: var(--text-secondary); transition: all .15s; border-left: 3px solid transparent;
+            font-size: 0.88rem; line-height: 1.5;
+        }
+        .sidebar a:hover { color: var(--primary); background: var(--primary-light); text-decoration: none; }
+        .sidebar a.active { color: var(--primary); border-left-color: var(--primary); background: var(--primary-light); font-weight: 600; }
+
+        /* Content */
+        .content {
+            margin-left: var(--sidebar-w); flex: 1; min-width: 0;
+            padding: 2rem 3rem 4rem; max-width: 900px;
+        }
+        .content h1 {
+            font-size: 2rem; font-weight: 700; margin-bottom: 0.5rem;
+            padding-bottom: 0.75rem; border-bottom: 2px solid var(--border);
+        }
+        .content h2 {
+            font-size: 1.5rem; font-weight: 700; margin-top: 2.5rem; margin-bottom: 0.75rem;
+            padding-top: 1rem; border-top: 1px solid var(--border);
+            scroll-margin-top: calc(var(--header-h) + 1rem);
+        }
+        .content h2:first-of-type { border-top: none; margin-top: 1.5rem; }
+        .content h3 {
+            font-size: 1.15rem; font-weight: 600; margin-top: 1.75rem; margin-bottom: 0.5rem;
+            color: var(--text); scroll-margin-top: calc(var(--header-h) + 1rem);
+        }
+        .content p { margin-bottom: 1rem; }
+        .content ul, .content ol { margin-bottom: 1rem; padding-left: 1.5rem; }
+        .content li { margin-bottom: 0.35rem; }
+
+        /* Code */
+        code {
+            background: var(--code-inline-bg); padding: 0.15em 0.4em;
+            border-radius: 0.25rem; font-size: 0.85em;
+        }
+        pre {
+            background: var(--code-bg); color: var(--code-text);
+            border-radius: 0.5rem; padding: 1rem 1.25rem;
+            overflow-x: auto; margin-bottom: 1.25rem; font-size: 0.85rem;
+            line-height: 1.6; position: relative;
+        }
+        pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+        .code-label {
+            position: absolute; top: 0; right: 0; padding: 0.2rem 0.6rem;
+            font-size: 0.7rem; background: rgba(255,255,255,0.08); border-radius: 0 0.5rem 0 0.375rem;
+            color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .comment { color: #6a9955; }
+        .string { color: #ce9178; }
+        .keyword { color: #569cd6; }
+        .number { color: #b5cea8; }
+
+        /* Tables */
+        table { width: 100%; border-collapse: collapse; margin-bottom: 1.25rem; font-size: 0.9rem; }
+        th { text-align: left; padding: 0.6rem 0.75rem; background: var(--bg-alt); border: 1px solid var(--border); font-weight: 600; font-size: 0.85rem; }
+        td { padding: 0.5rem 0.75rem; border: 1px solid var(--border); vertical-align: top; }
+        td code { font-size: 0.8rem; white-space: nowrap; }
+
+        /* Endpoint blocks */
+        .endpoint {
+            background: var(--bg-alt); border: 1px solid var(--border); border-radius: 0.5rem;
+            padding: 0.6rem 1rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.75rem;
+        }
+        .method {
+            font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.5rem;
+            border-radius: 0.25rem; min-width: 52px; text-align: center;
+            font-family: 'Consolas', monospace; letter-spacing: 0.02em;
+        }
+        .method-get { background: #dcfce7; color: #166534; }
+        .method-post { background: #dbeafe; color: #1e40af; }
+        .method-put { background: #fef3c7; color: #92400e; }
+        .method-patch { background: #fef3c7; color: #92400e; }
+        .method-delete { background: #fee2e2; color: #991b1b; }
+        .endpoint-path { font-family: 'Consolas', monospace; font-size: 0.85rem; color: var(--text); }
+        .endpoint-desc { color: var(--text-secondary); font-size: 0.82rem; margin-left: auto; }
+
+        /* Callouts */
+        .callout {
+            border-left: 4px solid; border-radius: 0 0.5rem 0.5rem 0;
+            padding: 0.75rem 1rem; margin-bottom: 1.25rem; font-size: 0.9rem;
+        }
+        .callout-info { border-color: var(--primary); background: var(--primary-light); }
+        .callout-warn { border-color: #f59e0b; background: #fffbeb; }
+        .callout strong { display: block; margin-bottom: 0.25rem; }
+
+        /* Mobile */
+        .mobile-toggle { display: none; background: none; border: none; padding: 0.5rem; color: var(--text); cursor: pointer; }
+
+        @media (max-width: 900px) {
+            .sidebar { display: none; }
+            .sidebar.open { display: block; width: 100%; z-index: 200; }
+            .content { margin-left: 0; padding: 1.5rem; }
+            .mobile-toggle { display: block; }
+            .endpoint { flex-wrap: wrap; }
+            .endpoint-desc { margin-left: 0; width: 100%; margin-top: 0.25rem; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * { scroll-behavior: auto !important; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+    <div class="header-inner">
+        <a href="/" class="brand">
+            <img src="/images/logo_long.png" alt="Solobase">
+        </a>
+        <nav class="header-nav">
+            <a href="/">Home</a>
+            <a href="/pricing/">Pricing</a>
+            <a href="/docs/" style="color:var(--primary);font-weight:600">Docs</a>
+            <a href="https://cloud.solobase.dev/b/auth/login">Sign In</a>
+            <span style="width:1px;height:20px;background:#e5e7eb;display:inline-block"></span>
+            <a href="https://discord.gg/jKqMcbrVzm" target="_blank" rel="noopener" aria-label="Discord">
+                <svg style="width:20px;height:20px" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+            </a>
+            <a href="https://github.com/suppers-ai/solobase" target="_blank" rel="noopener" aria-label="GitHub">
+                <svg style="width:20px;height:20px" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            </a>
+        </nav>
+        <button class="mobile-toggle" id="mobileToggle" aria-label="Toggle navigation">
+            <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+    </div>
+</header>
+
+<!-- Layout -->
+<div class="layout">
+
+<!-- Sidebar -->
+<nav class="sidebar" id="sidebar">
+    <h4>Getting Started</h4>
+    <a href="#getting-started">Overview</a>
+    <a href="#installation">Installation</a>
+    <a href="#first-run">First Run</a>
+    <a href="#project-structure">Project Structure</a>
+
+    <h4>Authentication</h4>
+    <a href="#auth-signup">Signup</a>
+    <a href="#auth-login">Login</a>
+    <a href="#auth-tokens">JWT Tokens</a>
+    <a href="#auth-refresh">Token Refresh</a>
+    <a href="#auth-api-keys">API Keys</a>
+    <a href="#auth-oauth">OAuth (Google, GitHub)</a>
+
+    <h4>Database</h4>
+    <a href="#database-overview">Overview</a>
+    <a href="#database-collections">Collections</a>
+    <a href="#database-custom-tables">Custom Tables</a>
+
+    <h4>Storage</h4>
+    <a href="#storage-overview">Overview</a>
+    <a href="#storage-buckets">Buckets</a>
+    <a href="#storage-objects">Objects</a>
+    <a href="#storage-sharing">Sharing</a>
+    <a href="#storage-quotas">Quotas</a>
+
+    <h4>Products</h4>
+    <a href="#products-overview">Overview</a>
+    <a href="#products-catalog">Product Catalog</a>
+    <a href="#products-pricing">Pricing Templates</a>
+    <a href="#products-purchases">Purchases</a>
+    <a href="#products-stripe">Stripe Integration</a>
+
+    <h4>Admin Panel</h4>
+    <a href="#admin-users">Users</a>
+    <a href="#admin-iam">IAM (Roles & Permissions)</a>
+    <a href="#admin-database">Database Introspection</a>
+    <a href="#admin-logs">Logs</a>
+    <a href="#admin-settings">Settings</a>
+
+    <h4>Network & Storage Security</h4>
+    <a href="#netsec-overview">Overview</a>
+    <a href="#netsec-network-rules">Network Rules</a>
+    <a href="#netsec-network-logs">Network Logs</a>
+    <a href="#netsec-storage-isolation">Storage Isolation</a>
+    <a href="#netsec-storage-rules">Storage Rules</a>
+    <a href="#netsec-storage-logs">Storage Logs</a>
+
+    <h4>WAFER Runtime</h4>
+    <a href="#wafer-overview">Overview</a>
+    <a href="#wafer-blocks">Blocks</a>
+    <a href="#wafer-flows">Flows</a>
+
+    <h4>Configuration</h4>
+    <a href="#config-env">Environment Variables</a>
+    <a href="#config-blocks-json">blocks.json</a>
+    <a href="#config-aliases">Aliases</a>
+    <a href="#config-features">Feature Flags</a>
+
+    <h4>API Reference</h4>
+    <a href="#api-auth">Auth Endpoints</a>
+    <a href="#api-storage">Storage Endpoints</a>
+    <a href="#api-products">Product Endpoints</a>
+    <a href="#api-admin">Admin Endpoints</a>
+    <a href="#api-system">System Endpoints</a>
+</nav>
+
+<!-- Content -->
+<main class="content">
+
+<!-- ====================================================================== -->
+<h1 id="getting-started">Getting Started</h1>
+<p>Solobase is an open-source backend-as-a-service shipped as a single binary. It bundles authentication, database, file storage, an admin panel, and extensible product management -- all powered by the WAFER block runtime.</p>
+
+<h2 id="installation">Installation</h2>
+<p>Download the latest release for your platform:</p>
+<pre><code><span class="comment"># Linux (amd64)</span>
+curl -sSL https://github.com/suppers-ai/solobase/releases/latest/download/solobase-linux-amd64.tar.gz | tar xz
+
+<span class="comment"># macOS (Apple Silicon)</span>
+curl -sSL https://github.com/suppers-ai/solobase/releases/latest/download/solobase-darwin-arm64.tar.gz | tar xz
+
+<span class="comment"># macOS (Intel)</span>
+curl -sSL https://github.com/suppers-ai/solobase/releases/latest/download/solobase-darwin-amd64.tar.gz | tar xz</code></pre>
+
+<p>Or build from source (requires Rust 1.75+):</p>
+<pre><code>git clone https://github.com/suppers-ai/solobase.git
+cd solobase/crates/solobase
+cargo build --release</code></pre>
+
+<h2 id="first-run">First Run</h2>
+<pre><code><span class="comment"># Set a JWT secret (required)</span>
+export JWT_SECRET=<span class="string">"your-secret-key-at-least-32-chars"</span>
+
+<span class="comment"># Run Solobase</span>
+./solobase</code></pre>
+
+<p>On first startup Solobase will:</p>
+<ol>
+    <li>Create a SQLite database at <code>data/solobase.db</code></li>
+    <li>Initialize all tables and indexes</li>
+    <li>Seed a default admin user (email printed in logs)</li>
+    <li>Start serving on <code>http://localhost:8090</code></li>
+</ol>
+
+<div class="callout callout-info">
+    <strong>Default Admin User</strong>
+    The first user is automatically assigned the <code>admin</code> role. If <code>ADMIN_EMAIL</code> and <code>ADMIN_PASSWORD</code> are not set, the credentials default to <code>admin@example.com</code> and a randomly generated password printed in the startup logs.
+</div>
+
+<h2 id="project-structure">Project Structure</h2>
+<p>Solobase stores its data in the current working directory:</p>
+<pre><code>./
+  blocks.json          <span class="comment"># Block configuration (db, storage, crypto, etc.)</span>
+  data/
+    solobase.db        <span class="comment"># SQLite database</span>
+    storage/           <span class="comment"># Local file storage root</span>
+  site/                <span class="comment"># Frontend assets (served by wafer-run/web)</span></code></pre>
+
+<!-- ====================================================================== -->
+<h1 id="authentication" style="margin-top:3rem">Authentication</h1>
+<p>Solobase provides a full authentication system with email/password signup, JWT access tokens, refresh tokens, API keys, and OAuth social login.</p>
+
+<h2 id="auth-signup">Signup</h2>
+<p>Create a new account. The first user in a fresh database automatically gets the <code>admin</code> role; all subsequent users get <code>user</code>.</p>
+<pre><code>curl -X POST http://localhost:8090/auth/signup \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{
+    "email": "alice@example.com",
+    "password": "securepassword123",
+    "name": "Alice"
+  }'</span></code></pre>
+<p>Response:</p>
+<pre><code>{
+  <span class="string">"access_token"</span>: <span class="string">"eyJhbGci..."</span>,
+  <span class="string">"refresh_token"</span>: <span class="string">"eyJhbGci..."</span>,
+  <span class="string">"token_type"</span>: <span class="string">"Bearer"</span>,
+  <span class="string">"expires_in"</span>: <span class="number">86400</span>,
+  <span class="string">"user"</span>: {
+    <span class="string">"id"</span>: <span class="string">"uuid..."</span>,
+    <span class="string">"email"</span>: <span class="string">"alice@example.com"</span>,
+    <span class="string">"roles"</span>: [<span class="string">"admin"</span>],
+    <span class="string">"name"</span>: <span class="string">"Alice"</span>
+  }
+}</code></pre>
+
+<h2 id="auth-login">Login</h2>
+<pre><code>curl -X POST http://localhost:8090/auth/login \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"email": "alice@example.com", "password": "securepassword123"}'</span></code></pre>
+<p>Returns the same shape as signup. An <code>auth_token</code> HttpOnly cookie is also set.</p>
+
+<h2 id="auth-tokens">JWT Tokens</h2>
+<p>Access tokens are JWTs valid for 24 hours. Include them in requests:</p>
+<pre><code><span class="comment"># Via Authorization header</span>
+curl -H <span class="string">"Authorization: Bearer &lt;access_token&gt;"</span> http://localhost:8090/auth/me
+
+<span class="comment"># Or via the auth_token cookie (set automatically on login)</span></code></pre>
+<p>Token claims include: <code>user_id</code>, <code>sub</code>, <code>email</code>, <code>roles</code>, <code>type</code> (access/refresh), <code>exp</code>.</p>
+
+<h2 id="auth-refresh">Token Refresh</h2>
+<p>Refresh tokens are valid for 7 days. Use them to obtain new access tokens without re-authenticating:</p>
+<pre><code>curl -X POST http://localhost:8090/auth/refresh \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"refresh_token": "eyJhbGci..."}'</span></code></pre>
+<p>This returns a new access/refresh token pair and invalidates the old refresh token family.</p>
+
+<h3>Get Current User</h3>
+<pre><code>curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/auth/me</code></pre>
+
+<h3>Update Profile</h3>
+<pre><code>curl -X PUT http://localhost:8090/auth/me \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"name": "Alice Smith", "avatar_url": "https://..."}'</span></code></pre>
+
+<h3>Change Password</h3>
+<pre><code>curl -X POST http://localhost:8090/auth/change-password \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"current_password": "old", "new_password": "newpassword123"}'</span></code></pre>
+
+<h3>Logout</h3>
+<pre><code>curl -X POST http://localhost:8090/auth/logout \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span></code></pre>
+
+<h2 id="auth-api-keys">API Keys</h2>
+<p>API keys are long-lived credentials prefixed with <code>sb_</code>. They are useful for server-to-server communication.</p>
+<pre><code><span class="comment"># Create an API key</span>
+curl -X POST http://localhost:8090/auth/api-keys \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"name": "My CI Key", "expires_at": "2025-12-31T00:00:00Z"}'</span>
+
+<span class="comment"># Response includes the full key (shown only once)</span>
+<span class="comment"># {"id":"...","key":"sb_a1b2c3...","name":"My CI Key","message":"Save this key..."}</span>
+
+<span class="comment"># List keys</span>
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/auth/api-keys
+
+<span class="comment"># Revoke a key</span>
+curl -X DELETE http://localhost:8090/auth/api-keys/{id} \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span></code></pre>
+
+<h2 id="auth-oauth">OAuth (Google, GitHub, Microsoft)</h2>
+<p>Solobase supports OAuth login with Google, GitHub, and Microsoft. Set the provider credentials via environment variables:</p>
+<pre><code>export OAUTH_GOOGLE_CLIENT_ID=<span class="string">"your-google-client-id"</span>
+export OAUTH_GOOGLE_CLIENT_SECRET=<span class="string">"your-google-secret"</span>
+export OAUTH_GITHUB_CLIENT_ID=<span class="string">"your-github-client-id"</span>
+export OAUTH_GITHUB_CLIENT_SECRET=<span class="string">"your-github-secret"</span>
+export OAUTH_REDIRECT_URI=<span class="string">"http://localhost:8090/auth/oauth/callback"</span></code></pre>
+
+<pre><code><span class="comment"># List enabled providers</span>
+curl http://localhost:8090/auth/oauth/providers
+
+<span class="comment"># Initiate OAuth flow (returns auth_url to redirect user to)</span>
+curl <span class="string">"http://localhost:8090/auth/oauth/login?provider=google"</span>
+
+<span class="comment"># Callback is handled automatically at /auth/oauth/callback</span>
+<span class="comment"># User is redirected to FRONTEND_URL with a token parameter</span></code></pre>
+
+<!-- ====================================================================== -->
+<h1 id="database" style="margin-top:3rem">Database</h1>
+
+<h2 id="database-overview">Overview</h2>
+<p>Solobase uses SQLite by default. The database is stored at <code>data/solobase.db</code> (configurable in <code>blocks.json</code>). All collections are automatically created from the schema defined in <code>blocks.json</code>.</p>
+
+<p>The database block provides a document-style API on top of SQLite. Each "collection" is a table with an <code>id</code> primary key and a flexible JSON data column alongside typed indexed fields.</p>
+
+<h2 id="database-collections">Built-in Collections</h2>
+<p>Solobase automatically creates these collections:</p>
+<table>
+    <tr><th>Collection</th><th>Module</th><th>Purpose</th></tr>
+    <tr><td><code>auth_users</code></td><td>Auth</td><td>User accounts</td></tr>
+    <tr><td><code>auth_tokens</code></td><td>Auth</td><td>Refresh tokens</td></tr>
+    <tr><td><code>api_keys</code></td><td>Auth</td><td>API keys</td></tr>
+    <tr><td><code>iam_roles</code></td><td>Admin</td><td>Role definitions</td></tr>
+    <tr><td><code>iam_user_roles</code></td><td>Admin</td><td>User-role assignments</td></tr>
+    <tr><td><code>iam_permissions</code></td><td>Admin</td><td>Permission definitions</td></tr>
+    <tr><td><code>storage_buckets</code></td><td>Files</td><td>Storage bucket metadata</td></tr>
+    <tr><td><code>storage_objects</code></td><td>Files</td><td>File object metadata</td></tr>
+    <tr><td><code>settings</code></td><td>Admin</td><td>Key-value application settings</td></tr>
+    <tr><td><code>audit_logs</code></td><td>Admin</td><td>Audit trail</td></tr>
+    <tr><td><code>block_products_*</code></td><td>Products</td><td>Products, groups, pricing, purchases</td></tr>
+    <tr><td><code>cloud_shares</code></td><td>Files</td><td>Shared file links</td></tr>
+</table>
+
+<h2 id="database-custom-tables">Custom Tables</h2>
+<p>Admins can create custom tables via the API for application-specific data. Custom tables are prefixed with <code>custom_</code>.</p>
+
+<pre><code><span class="comment"># Create a custom table</span>
+curl -X POST http://localhost:8090/admin/custom-tables \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{
+    "name": "orders",
+    "columns": [
+      {"name": "customer_name", "type": "TEXT"},
+      {"name": "total", "type": "REAL"},
+      {"name": "status", "type": "TEXT"}
+    ]
+  }'</span>
+
+<span class="comment"># CRUD on records</span>
+curl -X POST http://localhost:8090/admin/custom-tables/orders/records \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"customer_name": "Bob", "total": 99.50, "status": "pending"}'</span>
+
+curl http://localhost:8090/admin/custom-tables/orders/records \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span>
+
+curl -X DELETE http://localhost:8090/admin/custom-tables/orders \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span></code></pre>
+
+<!-- ====================================================================== -->
+<h1 id="storage" style="margin-top:3rem">Storage</h1>
+
+<h2 id="storage-overview">Overview</h2>
+<p>Solobase provides a bucket-based file storage system. By default files are stored locally at <code>data/storage/</code> (configurable in <code>blocks.json</code>). The storage system supports buckets, objects, search, sharing, and per-user quotas.</p>
+
+<h2 id="storage-buckets">Buckets</h2>
+<pre><code><span class="comment"># List buckets</span>
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/storage/buckets
+
+<span class="comment"># Create a bucket</span>
+curl -X POST http://localhost:8090/storage/buckets \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"name": "avatars", "public": false}'</span>
+
+<span class="comment"># Delete a bucket</span>
+curl -X DELETE http://localhost:8090/storage/buckets/avatars \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span></code></pre>
+
+<h2 id="storage-objects">Objects</h2>
+<pre><code><span class="comment"># Upload a file</span>
+curl -X POST <span class="string">"http://localhost:8090/storage/buckets/avatars/objects?key=profile.jpg"</span> \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
+  -H <span class="string">"Content-Type: image/jpeg"</span> \
+  --data-binary @profile.jpg
+
+<span class="comment"># List objects in a bucket</span>
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
+  <span class="string">"http://localhost:8090/storage/buckets/avatars/objects?prefix=&amp;page_size=50"</span>
+
+<span class="comment"># Download an object</span>
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
+  http://localhost:8090/storage/buckets/avatars/objects/profile.jpg
+
+<span class="comment"># Delete an object</span>
+curl -X DELETE http://localhost:8090/storage/buckets/avatars/objects/profile.jpg \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span>
+
+<span class="comment"># Search objects by filename</span>
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
+  <span class="string">"http://localhost:8090/storage/search?q=profile"</span>
+
+<span class="comment"># Recently viewed objects</span>
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/storage/recent</code></pre>
+
+<h2 id="storage-sharing">Sharing</h2>
+<p>Create direct share links with optional expiry and access limits. Share links are publicly accessible without authentication.</p>
+<pre><code><span class="comment"># Create a share link</span>
+curl -X POST http://localhost:8090/b/cloudstorage/shares \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{
+    "bucket": "avatars",
+    "key": "profile.jpg",
+    "expires_in_hours": 72,
+    "max_access_count": 10
+  }'</span>
+
+<span class="comment"># Response: {"id":"...","token":"...","direct_url":"/storage/direct/&lt;token&gt;"}</span>
+
+<span class="comment"># Access shared file (no auth required)</span>
+curl http://localhost:8090/storage/direct/&lt;token&gt;
+
+<span class="comment"># List your shares</span>
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/b/cloudstorage/shares
+
+<span class="comment"># Delete a share</span>
+curl -X DELETE http://localhost:8090/b/cloudstorage/shares/{id} \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span></code></pre>
+
+<h2 id="storage-quotas">Quotas</h2>
+<p>Storage quotas control per-user storage limits. Default is 5 GB storage and 10 GB bandwidth.</p>
+<pre><code><span class="comment"># Check your quota and usage</span>
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/b/cloudstorage/quota
+
+<span class="comment"># Admin: manage quotas</span>
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> http://localhost:8090/admin/b/cloudstorage/quotas
+
+curl -X PUT http://localhost:8090/admin/b/cloudstorage/quotas/{user_id} \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"max_storage_bytes": 10737418240}'</span></code></pre>
+
+<!-- ====================================================================== -->
+<h1 id="products" style="margin-top:3rem">Products</h1>
+
+<h2 id="products-overview">Overview</h2>
+<p>The products extension supports dynamic product catalogs with formula-based pricing, product groups, purchase tracking, and Stripe checkout integration.</p>
+
+<h2 id="products-catalog">Product Catalog</h2>
+<pre><code><span class="comment"># Browse the public catalog (active products only)</span>
+curl http://localhost:8090/b/products/catalog?page=1&amp;page_size=20
+
+<span class="comment"># Get a specific product</span>
+curl http://localhost:8090/b/products/catalog/{product_id}
+
+<span class="comment"># Admin: create a product</span>
+curl -X POST http://localhost:8090/admin/b/products/products \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{
+    "name": "Cloud Hosting",
+    "description": "Managed cloud hosting plan",
+    "base_price": 29.99,
+    "status": "active",
+    "group_id": "1"
+  }'</span>
+
+<span class="comment"># Admin: manage groups</span>
+curl -X POST http://localhost:8090/admin/b/products/groups \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"name": "SaaS Plans"}'</span></code></pre>
+
+<h2 id="products-pricing">Pricing Templates</h2>
+<p>Pricing templates use formula expressions with variables. Define variables that users provide, then write a formula to calculate the price.</p>
+<pre><code><span class="comment"># Create a pricing template</span>
+curl -X POST http://localhost:8090/admin/b/products/pricing \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{
+    "name": "per_seat_annual",
+    "display_name": "Per Seat Annual",
+    "price_formula": "seats * price_per_seat * 12 * (1 - discount/100)",
+    "variables": {
+      "seats": {"type": "number", "default": 1},
+      "price_per_seat": {"type": "number", "default": 10},
+      "discount": {"type": "number", "default": 0}
+    }
+  }'</span>
+
+<span class="comment"># Calculate a price</span>
+curl -X POST http://localhost:8090/b/products/calculate-price \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"template_id": "1", "variables": {"seats": 5, "price_per_seat": 15, "discount": 10}}'</span>
+
+<span class="comment"># Manage variables (reusable across templates)</span>
+curl http://localhost:8090/admin/b/products/variables \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span></code></pre>
+
+<h2 id="products-purchases">Purchases</h2>
+<pre><code><span class="comment"># Create a purchase</span>
+curl -X POST http://localhost:8090/b/products/purchases \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{
+    "items": [
+      {"product_id": "1", "quantity": 2, "variables": {"seats": 5}}
+    ],
+    "currency": "USD"
+  }'</span>
+
+<span class="comment"># List your purchases</span>
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/b/products/purchases
+
+<span class="comment"># Get purchase details</span>
+curl -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> http://localhost:8090/b/products/purchases/{id}
+
+<span class="comment"># Admin: list all purchases (filterable by status, user_id)</span>
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  <span class="string">"http://localhost:8090/admin/b/products/purchases?status=completed"</span>
+
+<span class="comment"># Admin: refund a purchase</span>
+curl -X PUT http://localhost:8090/admin/b/products/purchases/{id}/refund \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"reason": "Customer request"}'</span></code></pre>
+
+<h2 id="products-stripe">Stripe Integration</h2>
+<p>Set up Stripe to accept payments. Configure these env vars:</p>
+<pre><code>export STRIPE_SECRET_KEY=<span class="string">"sk_live_..."</span>
+export STRIPE_WEBHOOK_SECRET=<span class="string">"whsec_..."</span></code></pre>
+<pre><code><span class="comment"># Create a Stripe checkout session</span>
+curl -X POST http://localhost:8090/b/products/checkout \
+  -H <span class="string">"Authorization: Bearer &lt;token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{
+    "items": [{"product_id": "1", "quantity": 1}],
+    "success_url": "http://localhost:5173/success",
+    "cancel_url": "http://localhost:5173/cancel"
+  }'</span>
+
+<span class="comment"># Webhook (configure in Stripe dashboard pointing to this URL)</span>
+<span class="comment"># POST /b/products/webhooks (no auth required, verified via signature)</span></code></pre>
+
+<!-- ====================================================================== -->
+<h1 id="admin-panel" style="margin-top:3rem">Admin Panel</h1>
+<p>The admin panel is accessible at <code>/admin/</code> in the web UI. All admin API endpoints require an authenticated user with the <code>admin</code> role.</p>
+
+<h2 id="admin-users">Users</h2>
+<pre><code><span class="comment"># List users (paginated, searchable)</span>
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  <span class="string">"http://localhost:8090/admin/users?search=alice&amp;page=1&amp;page_size=20"</span>
+
+<span class="comment"># Get a single user</span>
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> http://localhost:8090/admin/users/{id}
+
+<span class="comment"># Update a user (name, disabled, avatar_url)</span>
+curl -X PUT http://localhost:8090/admin/users/{id} \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"disabled": true}'</span>
+
+<span class="comment"># Delete a user (soft delete)</span>
+curl -X DELETE http://localhost:8090/admin/users/{id} \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span></code></pre>
+
+<h2 id="admin-iam">IAM (Roles & Permissions)</h2>
+<p>Solobase ships with two system roles: <code>admin</code> (full access) and <code>user</code> (standard access). You can create custom roles and assign them to users.</p>
+
+<pre><code><span class="comment"># List roles</span>
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> http://localhost:8090/admin/iam/roles
+
+<span class="comment"># Create a custom role</span>
+curl -X POST http://localhost:8090/admin/iam/roles \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"name": "editor", "description": "Content editors", "permissions": ["read", "write"]}'</span>
+
+<span class="comment"># Assign a role to a user</span>
+curl -X POST http://localhost:8090/admin/iam/user-roles \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"user_id": "uuid...", "role": "editor"}'</span>
+
+<span class="comment"># List user-role assignments</span>
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  <span class="string">"http://localhost:8090/admin/iam/user-roles?user_id=uuid..."</span>
+
+<span class="comment"># Remove a role assignment</span>
+curl -X DELETE http://localhost:8090/admin/iam/user-roles/{assignment_id} \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span>
+
+<span class="comment"># Manage permissions</span>
+curl -X POST http://localhost:8090/admin/iam/permissions \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"name": "manage_products", "resource": "products", "actions": ["create", "update", "delete"]}'</span></code></pre>
+
+<div class="callout callout-warn">
+    <strong>System Roles</strong>
+    The <code>admin</code> and <code>user</code> roles are system roles and cannot be deleted.
+</div>
+
+<h2 id="admin-database">Database Introspection</h2>
+<p>Inspect the database schema and run read-only queries from the admin panel.</p>
+<pre><code><span class="comment"># Get database info</span>
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> http://localhost:8090/admin/database/info
+
+<span class="comment"># List all tables with row counts</span>
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> http://localhost:8090/admin/database/tables
+
+<span class="comment"># Get column info for a table</span>
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  http://localhost:8090/admin/database/tables/auth_users/columns
+
+<span class="comment"># Run a read-only SQL query (SELECT, PRAGMA, EXPLAIN only)</span>
+curl -X POST http://localhost:8090/admin/database/query \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"query": "SELECT id, email FROM auth_users LIMIT 10"}'</span></code></pre>
+
+<h2 id="admin-logs">Logs</h2>
+<pre><code><span class="comment"># List audit logs (filterable)</span>
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  <span class="string">"http://localhost:8090/admin/logs?user_id=...&amp;action=login&amp;page=1&amp;page_size=50"</span></code></pre>
+
+<h2 id="admin-settings">Settings</h2>
+<p>Key-value settings that control application behavior. Seeded defaults: <code>APP_NAME</code>, <code>ALLOW_SIGNUP</code>, <code>ENABLE_OAUTH</code>, <code>PRIMARY_COLOR</code>.</p>
+<pre><code><span class="comment"># List all settings</span>
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> http://localhost:8090/admin/settings
+
+<span class="comment"># Get a single setting</span>
+curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> http://localhost:8090/admin/settings/APP_NAME
+
+<span class="comment"># Update a setting</span>
+curl -X PUT http://localhost:8090/admin/settings/APP_NAME \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"value": "My App"}'</span>
+
+<span class="comment"># Batch update settings</span>
+curl -X POST http://localhost:8090/admin/settings \
+  -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"APP_NAME": "My App", "ALLOW_SIGNUP": true}'</span></code></pre>
+
+<!-- ====================================================================== -->
+<h1 id="netsec" style="margin-top:3rem">Network & Storage Security</h1>
+
+<h2 id="netsec-overview">Overview</h2>
+<p>Solobase provides built-in controls for both outbound network access and per-block storage isolation. These features are managed from the admin panel under <strong>Network</strong> and <strong>Storage</strong>.</p>
+<p>The security model applies to <strong>blocks</strong> &mdash; each block (auth, files, products, etc.) is treated as a separate security principal. The runtime automatically tracks which block initiates each request via <code>caller_id</code>, so rules are enforced transparently without blocks needing to self-identify.</p>
+
+<h2 id="netsec-network-rules">Network Rules</h2>
+<p>Network rules control which URLs blocks can reach when making outbound HTTP requests. Manage them at <code>/b/admin/network?tab=rules</code>.</p>
+<p>There are two rule types:</p>
+<ul>
+    <li><strong>Block rules</strong> &mdash; deny matching URLs. Any match immediately denies the request.</li>
+    <li><strong>Allow rules</strong> &mdash; if any allow rules exist, a request must match at least one to proceed. Acts as an allowlist.</li>
+</ul>
+<p>With no rules configured, all outbound requests are allowed by default.</p>
+<p>Rules use glob-style pattern matching with <code>*</code> as wildcard:</p>
+<pre><code>https://api.stripe.com/*       <span class="comment"># Match URL prefix</span>
+*.internal.corp*               <span class="comment"># Match domain pattern</span>
+https://api.example.com/v1     <span class="comment"># Exact match (no wildcard)</span>
+*                              <span class="comment"># Match everything</span></code></pre>
+<p>Rules are evaluated by priority (higher first). Block rules take precedence over allow rules at the same priority level.</p>
+<p>In addition to configurable rules, Solobase includes built-in SSRF protection that blocks all requests to private/internal IP ranges (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, etc.) and non-HTTP schemes. This can be disabled for development with <code>ALLOW_PRIVATE_NETWORK=true</code>.</p>
+
+<h2 id="netsec-network-logs">Network Logs</h2>
+<p>All inbound and outbound requests are logged automatically.</p>
+<ul>
+    <li><strong>Inbound</strong> (<code>/b/admin/network</code>) &mdash; incoming HTTP requests with method, path, status, duration, and client IP. Aggregated view shows traffic patterns.</li>
+    <li><strong>Outbound</strong> (<code>/b/admin/network?tab=outbound</code>) &mdash; all outbound HTTP requests made by blocks, including which block initiated the request, the URL, status code, and whether it was blocked by rules.</li>
+</ul>
+
+<h2 id="netsec-storage-isolation">Storage Isolation</h2>
+<p>Each block gets its own isolated storage namespace, named after the block. Blocks cannot access other blocks' storage by default.</p>
+<pre><code><span class="comment"># When the web block reads from the "public" folder:</span>
+store::get(ctx, "public", "index.html")
+<span class="comment"># Actually reads from: wafer-run/web/public/index.html</span>
+
+<span class="comment"># When the files block creates an "uploads" folder:</span>
+store::create_folder(ctx, "uploads", false)
+<span class="comment"># Actually creates: suppers-ai/files/uploads/</span></code></pre>
+<p>This isolation is enforced transparently by the storage wrapper &mdash; blocks don't need to be aware of it. The runtime identifies the calling block automatically.</p>
+<p>Block names are validated for path safety: only lowercase alphanumeric characters, hyphens, and underscores are allowed per segment.</p>
+
+<h3>Cross-block Access</h3>
+<p>A block can request access to another block's storage by prefixing the folder with <code>@</code>:</p>
+<pre><code><span class="comment"># The files block reading from the web block's storage:</span>
+store::get(ctx, "@wafer-run/web/public", "index.html")
+<span class="comment"># Reads from: wafer-run/web/public/index.html</span></code></pre>
+<p>Cross-block access is <strong>denied by default</strong> and requires an explicit storage rule.</p>
+
+<h2 id="netsec-storage-rules">Storage Rules</h2>
+<p>Storage rules grant cross-block storage access. Manage them at <code>/b/admin/storage?tab=rules</code>.</p>
+<p>Each rule has:</p>
+<ul>
+    <li><strong>Type</strong> &mdash; <code>allow</code> (grant access) or <code>block</code> (deny access)</li>
+    <li><strong>Source block</strong> &mdash; which block the rule applies to (<code>*</code> for all blocks)</li>
+    <li><strong>Target path</strong> &mdash; the storage path pattern to control (glob-style, e.g. <code>wafer-run/web/*</code>)</li>
+    <li><strong>Access type</strong> &mdash; <code>read</code>, <code>write</code>, or <code>readwrite</code></li>
+    <li><strong>Priority</strong> &mdash; higher priority rules are evaluated first</li>
+</ul>
+<p>Example rules:</p>
+<pre><code><span class="comment"># Allow the files block to read web block's storage</span>
+allow  suppers-ai/files  &rarr;  wafer-run/web/*    (read)
+
+<span class="comment"># Allow admin to access everything</span>
+allow  suppers-ai/admin  &rarr;  *                   (readwrite)
+
+<span class="comment"># Block a specific path from all blocks</span>
+block  *                 &rarr;  suppers-ai/auth/secrets/*  (readwrite)</code></pre>
+
+<h2 id="netsec-storage-logs">Storage Logs</h2>
+<p>All storage access is logged with the source block, operation type, target path, and result. View logs at <code>/b/admin/storage</code>. Blocked requests are highlighted with the denial reason.</p>
+
+<!-- ====================================================================== -->
+<h1 id="wafer-runtime" style="margin-top:3rem">WAFER Runtime</h1>
+
+<h2 id="wafer-overview">Overview</h2>
+<p>Solobase is built on the WAFER (Web Application Flow Execution Runtime) engine. WAFER provides a composable block-and-flow architecture where each feature is a block that can be extended, replaced, or recombined.</p>
+
+<h2 id="wafer-blocks">Blocks</h2>
+<p>A block is a unit of functionality that implements the <code>Block</code> trait: <code>info()</code>, <code>handle()</code>, and <code>lifecycle()</code>. Solobase includes these blocks:</p>
+
+<h3>Infrastructure Blocks (wafer-core)</h3>
+<table>
+    <tr><th>Block</th><th>Purpose</th></tr>
+    <tr><td><code>wafer-run/http-listener</code></td><td>HTTP server (binds to a port)</td></tr>
+    <tr><td><code>wafer-run/database</code></td><td>SQLite database driver</td></tr>
+    <tr><td><code>wafer-run/storage</code></td><td>File storage driver (local or S3)</td></tr>
+    <tr><td><code>wafer-run/crypto</code></td><td>JWT signing, password hashing</td></tr>
+    <tr><td><code>wafer-run/auth</code></td><td>JWT verification middleware</td></tr>
+    <tr><td><code>wafer-run/iam</code></td><td>Role-based access control middleware</td></tr>
+    <tr><td><code>wafer-run/cors</code></td><td>CORS headers</td></tr>
+    <tr><td><code>wafer-run/ip-rate-limit</code></td><td>Rate limiting</td></tr>
+    <tr><td><code>wafer-run/security-headers</code></td><td>Security response headers</td></tr>
+    <tr><td><code>wafer-run/web</code></td><td>Static file serving (SPA support)</td></tr>
+    <tr><td><code>wafer-run/config</code></td><td>Configuration provider</td></tr>
+    <tr><td><code>wafer-run/logger</code></td><td>Request logging</td></tr>
+    <tr><td><code>wafer-run/network</code></td><td>Outbound HTTP client</td></tr>
+    <tr><td><code>wafer-run/monitoring</code></td><td>Metrics collection</td></tr>
+    <tr><td><code>wafer-run/router</code></td><td>Path-based flow routing</td></tr>
+    <tr><td><code>wafer-run/readonly-guard</code></td><td>Read-only mode enforcement</td></tr>
+</table>
+
+<h3>Feature Blocks (solobase)</h3>
+<table>
+    <tr><th>Block</th><th>Purpose</th></tr>
+    <tr><td><code>suppers-ai/auth</code></td><td>Signup, login, JWT, refresh, API keys, OAuth</td></tr>
+    <tr><td><code>suppers-ai/admin</code></td><td>User management, database, IAM, logs, settings, custom tables</td></tr>
+    <tr><td><code>suppers-ai/files</code></td><td>File storage, sharing, quotas, cloud storage</td></tr>
+    <tr><td><code>suppers-ai/products</code></td><td>Product catalog, pricing, purchases, Stripe</td></tr>
+    <tr><td><code>suppers-ai/system</code></td><td>Health checks, debug info, admin navigation</td></tr>
+    <tr><td><code>suppers-ai/profile</code></td><td>Profile sections endpoint</td></tr>
+    <tr><td><code>suppers-ai/userportal</code></td><td>Frontend configuration (branding, features)</td></tr>
+    <tr><td><code>suppers-ai/legalpages</code></td><td>Legal document management (TOS, privacy)</td></tr>
+</table>
+
+<h2 id="wafer-flows">Flows</h2>
+<p>Flows are JSON-defined pipelines that wire blocks together for request processing. A request enters a flow, passes through blocks in order (CORS, rate-limit, auth, router, feature handler, web), and produces a response.</p>
+
+<p>The main flow is <code>site-main</code> which routes requests to feature-specific flows based on the URL path. You can inspect registered flows and blocks at runtime:</p>
+<pre><code>curl -H <span class="string">"Authorization: Bearer &lt;admin_token&gt;"</span> http://localhost:8090/admin/wafer</code></pre>
+
+<!-- ====================================================================== -->
+<h1 id="configuration" style="margin-top:3rem">Configuration</h1>
+
+<h2 id="config-env">Environment Variables</h2>
+
+<h3>Core</h3>
+<table>
+    <tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>JWT_SECRET</code></td><td><em>required</em></td><td>Secret key for signing JWTs. Must be set for production.</td></tr>
+    <tr><td><code>BLOCKS_JSON</code></td><td><code>blocks.json</code></td><td>Path to the block configuration file.</td></tr>
+    <tr><td><code>ENVIRONMENT</code></td><td><code>production</code></td><td>Set to <code>development</code> to disable Secure flag on auth cookies.</td></tr>
+    <tr><td><code>FRONTEND_URL</code></td><td><code>http://localhost:5173</code></td><td>URL to redirect to after OAuth login. Used for the <code>?token=</code> redirect.</td></tr>
+    <tr><td><code>INTERNAL_SECRET</code></td><td><em>empty</em></td><td>Secret for internal endpoints (e.g., <code>/internal/oauth/sync-user</code>). If empty, internal endpoints are disabled.</td></tr>
+</table>
+
+<h3>Admin Seeding</h3>
+<table>
+    <tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>ADMIN_EMAIL</code></td><td><code>admin@example.com</code></td><td>Email for the auto-seeded admin user (only used on first run).</td></tr>
+    <tr><td><code>ADMIN_PASSWORD</code></td><td><em>random</em></td><td>Password for the seeded admin. If not set, a random password is generated and printed in logs.</td></tr>
+</table>
+
+<h3>OAuth</h3>
+<table>
+    <tr><th>Variable</th><th>Description</th></tr>
+    <tr><td><code>OAUTH_GOOGLE_CLIENT_ID</code></td><td>Google OAuth client ID</td></tr>
+    <tr><td><code>OAUTH_GOOGLE_CLIENT_SECRET</code></td><td>Google OAuth client secret</td></tr>
+    <tr><td><code>OAUTH_GITHUB_CLIENT_ID</code></td><td>GitHub OAuth client ID</td></tr>
+    <tr><td><code>OAUTH_GITHUB_CLIENT_SECRET</code></td><td>GitHub OAuth client secret</td></tr>
+    <tr><td><code>OAUTH_MICROSOFT_CLIENT_ID</code></td><td>Microsoft OAuth client ID</td></tr>
+    <tr><td><code>OAUTH_MICROSOFT_CLIENT_SECRET</code></td><td>Microsoft OAuth client secret</td></tr>
+    <tr><td><code>OAUTH_REDIRECT_URI</code></td><td>OAuth callback URL. Default: <code>http://localhost:8090/auth/oauth/callback</code></td></tr>
+</table>
+
+<h3>Payments</h3>
+<table>
+    <tr><th>Variable</th><th>Description</th></tr>
+    <tr><td><code>STRIPE_SECRET_KEY</code></td><td>Stripe API secret key for processing payments.</td></tr>
+    <tr><td><code>STRIPE_WEBHOOK_SECRET</code></td><td>Stripe webhook signing secret for verifying webhook events.</td></tr>
+</table>
+
+<h3>Feature Flags</h3>
+<p>All features are enabled by default. Set any flag to <code>false</code> to disable the corresponding block and flows.</p>
+<table>
+    <tr><th>Variable</th><th>Controls</th></tr>
+    <tr><td><code>FEATURE_AUTH</code></td><td>Authentication (signup, login, API keys, OAuth)</td></tr>
+    <tr><td><code>FEATURE_ADMIN</code></td><td>Admin panel (users, IAM, database, settings, logs)</td></tr>
+    <tr><td><code>FEATURE_FILES</code></td><td>File storage, sharing, cloud storage</td></tr>
+    <tr><td><code>FEATURE_PRODUCTS</code></td><td>Product catalog, pricing, purchases, Stripe</td></tr>
+    <tr><td><code>FEATURE_MONITORING</code></td><td>Monitoring dashboard</td></tr>
+    <tr><td><code>FEATURE_PROFILE</code></td><td>Profile sections</td></tr>
+    <tr><td><code>FEATURE_USERPORTAL</code></td><td>User portal configuration</td></tr>
+    <tr><td><code>FEATURE_SYSTEM</code></td><td>Health checks and navigation</td></tr>
+    <tr><td><code>FEATURE_LEGALPAGES</code></td><td>Legal document management</td></tr>
+</table>
+
+<h3>Logging</h3>
+<table>
+    <tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>RUST_LOG</code></td><td><code>info,wafer=debug,solobase=debug</code></td><td>Log level filter using <a href="https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html" target="_blank">tracing EnvFilter</a> syntax.</td></tr>
+    <tr><td><code>LOG_FORMAT</code></td><td><code>text</code></td><td>Log output format. Set to <code>json</code> for structured JSON logs.</td></tr>
+</table>
+
+<h2 id="config-blocks-json">blocks.json</h2>
+<p>The <code>blocks.json</code> file configures infrastructure blocks. Key entries:</p>
+<pre><code>{
+  <span class="comment">// HTTP listener</span>
+  <span class="string">"wafer-run/http-listener"</span>: {
+    <span class="string">"flow"</span>: <span class="string">"site-main"</span>,
+    <span class="string">"listen"</span>: <span class="string">"0.0.0.0:8090"</span>
+  },
+
+  <span class="comment">// Static file serving</span>
+  <span class="string">"wafer-run/web"</span>: {
+    <span class="string">"web_root"</span>: <span class="string">"site"</span>,
+    <span class="string">"web_spa"</span>: <span class="string">"true"</span>,
+    <span class="string">"web_index"</span>: <span class="string">"index.html"</span>
+  },
+
+  <span class="comment">// Database</span>
+  <span class="string">"wafer-run/database"</span>: {
+    <span class="string">"type"</span>: <span class="string">"sqlite"</span>,
+    <span class="string">"path"</span>: <span class="string">"data/solobase.db"</span>
+  },
+
+  <span class="comment">// Storage</span>
+  <span class="string">"wafer-run/storage"</span>: {
+    <span class="string">"type"</span>: <span class="string">"local"</span>,
+    <span class="string">"root"</span>: <span class="string">"data/storage"</span>
+  },
+
+  <span class="comment">// Crypto (JWT)</span>
+  <span class="string">"wafer-run/crypto"</span>: {
+    <span class="string">"jwt_secret"</span>: <span class="string">"${JWT_SECRET}"</span>
+  }
+}</code></pre>
+<p>Values support <code>${ENV_VAR}</code> substitution for secrets.</p>
+
+<h2 id="config-aliases">Aliases</h2>
+<p>Aliases let you swap block backends without changing feature block code. Define them in <code>blocks.json</code> under the <code>"aliases"</code> key:</p>
+<pre><code>{
+  <span class="comment">// Aliases — feature blocks call @db and @storage</span>
+  <span class="string">"aliases"</span>: {
+    <span class="string">"db"</span>: <span class="string">"wafer-run/database"</span>,
+    <span class="string">"storage"</span>: <span class="string">"wafer-run/storage"</span>
+  },
+
+  <span class="comment">// The actual backend block</span>
+  <span class="string">"wafer-run/database"</span>: {
+    <span class="string">"type"</span>: <span class="string">"sqlite"</span>,
+    <span class="string">"path"</span>: <span class="string">"data/solobase.db"</span>
+  }
+}</code></pre>
+<p>When using <code>app.json</code>, aliases are set up automatically based on your <code>database</code> and <code>storage</code> config. Aliases work for both blocks and flows — any <code>call_block()</code> or flow reference resolves through the alias map.</p>
+
+<h2 id="config-features">Feature Flags</h2>
+<p>Disable features you don't need. For example, to run a minimal auth-only instance:</p>
+<pre><code>FEATURE_PRODUCTS=false \
+FEATURE_FILES=false \
+FEATURE_MONITORING=false \
+FEATURE_LEGALPAGES=false \
+JWT_SECRET=my-secret \
+./solobase</code></pre>
+
+<!-- ====================================================================== -->
+<h1 id="api-reference" style="margin-top:3rem">API Reference</h1>
+
+<h2 id="api-auth">Auth Endpoints</h2>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/auth/signup</span><span class="endpoint-desc">Create account</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/auth/login</span><span class="endpoint-desc">Login with email/password</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/auth/refresh</span><span class="endpoint-desc">Refresh access token</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/auth/logout</span><span class="endpoint-desc">Logout (revoke tokens)</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/auth/me</span><span class="endpoint-desc">Get current user</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/auth/me</span><span class="endpoint-desc">Update profile (name, avatar_url)</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/auth/change-password</span><span class="endpoint-desc">Change password</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/auth/api-keys</span><span class="endpoint-desc">List API keys</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/auth/api-keys</span><span class="endpoint-desc">Create API key</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/auth/api-keys/:id</span><span class="endpoint-desc">Revoke API key</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/auth/oauth/providers</span><span class="endpoint-desc">List enabled OAuth providers</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/auth/oauth/login?provider=</span><span class="endpoint-desc">Get OAuth authorization URL</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/auth/oauth/callback</span><span class="endpoint-desc">OAuth callback (automatic)</span></div>
+
+<h2 id="api-storage">Storage Endpoints</h2>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/storage/buckets</span><span class="endpoint-desc">List buckets</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/storage/buckets</span><span class="endpoint-desc">Create bucket</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/storage/buckets/:name</span><span class="endpoint-desc">Delete bucket</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/storage/buckets/:name/objects</span><span class="endpoint-desc">List objects</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/storage/buckets/:name/objects?key=</span><span class="endpoint-desc">Upload object</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/storage/buckets/:name/objects/:key</span><span class="endpoint-desc">Download object</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/storage/buckets/:name/objects/:key</span><span class="endpoint-desc">Delete object</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/storage/search?q=</span><span class="endpoint-desc">Search objects</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/storage/recent</span><span class="endpoint-desc">Recently viewed objects</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/storage/direct/:token</span><span class="endpoint-desc">Access shared file (public)</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/cloudstorage/shares</span><span class="endpoint-desc">List your shares</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/b/cloudstorage/shares</span><span class="endpoint-desc">Create share link</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/b/cloudstorage/shares/:id</span><span class="endpoint-desc">Delete share</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/cloudstorage/quota</span><span class="endpoint-desc">Get your quota/usage</span></div>
+
+<h2 id="api-products">Product Endpoints</h2>
+<h3>Public / User</h3>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/products/catalog</span><span class="endpoint-desc">Browse active products</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/products/catalog/:id</span><span class="endpoint-desc">Get product details</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/b/products/calculate-price</span><span class="endpoint-desc">Calculate price from formula</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/b/products/purchases</span><span class="endpoint-desc">Create purchase</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/products/purchases</span><span class="endpoint-desc">List your purchases</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/products/purchases/:id</span><span class="endpoint-desc">Get purchase details</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/b/products/checkout</span><span class="endpoint-desc">Create Stripe checkout</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/b/products/webhooks</span><span class="endpoint-desc">Stripe webhook (public)</span></div>
+
+<h3>Admin</h3>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/products</span><span class="endpoint-desc">List all products</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/products/:id</span><span class="endpoint-desc">Get product</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/b/products/products</span><span class="endpoint-desc">Create product</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/b/products/products/:id</span><span class="endpoint-desc">Update product</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/b/products/products/:id</span><span class="endpoint-desc">Delete product</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/groups</span><span class="endpoint-desc">List groups</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/b/products/groups</span><span class="endpoint-desc">Create group</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/b/products/groups/:id</span><span class="endpoint-desc">Update group</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/b/products/groups/:id</span><span class="endpoint-desc">Delete group</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/types</span><span class="endpoint-desc">List product types</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/b/products/types</span><span class="endpoint-desc">Create type</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/b/products/types/:id</span><span class="endpoint-desc">Delete type</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/pricing</span><span class="endpoint-desc">List pricing templates</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/b/products/pricing</span><span class="endpoint-desc">Create pricing template</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/b/products/pricing/:id</span><span class="endpoint-desc">Update pricing template</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/b/products/pricing/:id</span><span class="endpoint-desc">Delete pricing template</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/variables</span><span class="endpoint-desc">List variables</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/b/products/variables</span><span class="endpoint-desc">Create variable</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/b/products/variables/:id</span><span class="endpoint-desc">Update variable</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/b/products/variables/:id</span><span class="endpoint-desc">Delete variable</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/purchases</span><span class="endpoint-desc">List all purchases</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/purchases/:id</span><span class="endpoint-desc">Get purchase</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/b/products/purchases/:id/refund</span><span class="endpoint-desc">Refund purchase</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/products/stats</span><span class="endpoint-desc">Product stats (counts, revenue)</span></div>
+
+<h2 id="api-admin">Admin Endpoints</h2>
+
+<h3>Users</h3>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/users</span><span class="endpoint-desc">List users</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/users/:id</span><span class="endpoint-desc">Get user</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/users/:id</span><span class="endpoint-desc">Update user</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/users/:id</span><span class="endpoint-desc">Soft-delete user</span></div>
+
+<h3>IAM</h3>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/iam/roles</span><span class="endpoint-desc">List roles</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/iam/roles</span><span class="endpoint-desc">Create role</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/iam/roles/:id</span><span class="endpoint-desc">Update role</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/iam/roles/:id</span><span class="endpoint-desc">Delete role</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/iam/permissions</span><span class="endpoint-desc">List permissions</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/iam/permissions</span><span class="endpoint-desc">Create permission</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/iam/permissions/:id</span><span class="endpoint-desc">Delete permission</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/iam/user-roles</span><span class="endpoint-desc">List user-role assignments</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/iam/user-roles</span><span class="endpoint-desc">Assign role to user</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/iam/user-roles/:id</span><span class="endpoint-desc">Remove role from user</span></div>
+
+<h3>Database</h3>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/database/info</span><span class="endpoint-desc">Database info</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/database/tables</span><span class="endpoint-desc">List tables with row counts</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/database/tables/:name/columns</span><span class="endpoint-desc">Table column info</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/database/query</span><span class="endpoint-desc">Run read-only SQL query</span></div>
+
+<h3>Custom Tables</h3>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/custom-tables</span><span class="endpoint-desc">List custom tables</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/custom-tables</span><span class="endpoint-desc">Create custom table</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/custom-tables/:name</span><span class="endpoint-desc">Drop custom table</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/custom-tables/:name/records</span><span class="endpoint-desc">List records</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/custom-tables/:name/records</span><span class="endpoint-desc">Create record</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/custom-tables/:name/records/:id</span><span class="endpoint-desc">Update record</span></div>
+<div class="endpoint"><span class="method method-delete">DELETE</span><span class="endpoint-path">/admin/custom-tables/:name/records/:id</span><span class="endpoint-desc">Delete record</span></div>
+
+<h3>Other Admin</h3>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/logs</span><span class="endpoint-desc">Audit logs</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/settings</span><span class="endpoint-desc">List settings</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/settings/:key</span><span class="endpoint-desc">Get setting</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/settings/:key</span><span class="endpoint-desc">Update setting</span></div>
+<div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/admin/settings</span><span class="endpoint-desc">Batch update settings</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/storage/buckets</span><span class="endpoint-desc">List buckets (admin view)</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/storage/stats</span><span class="endpoint-desc">Storage stats</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/cloudstorage/shares</span><span class="endpoint-desc">All shares</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/cloudstorage/access-logs</span><span class="endpoint-desc">Share access logs</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/b/cloudstorage/quotas</span><span class="endpoint-desc">All user quotas</span></div>
+<div class="endpoint"><span class="method method-put">PUT</span><span class="endpoint-path">/admin/b/cloudstorage/quotas/:user_id</span><span class="endpoint-desc">Update user quota</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/admin/wafer</span><span class="endpoint-desc">WAFER runtime info (blocks, flows)</span></div>
+
+<h2 id="api-system">System Endpoints</h2>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/health</span><span class="endpoint-desc">Health check (public)</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/debug/time</span><span class="endpoint-desc">Server time (UTC, Unix)</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/nav</span><span class="endpoint-desc">Admin navigation items</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/b/userportal/config</span><span class="endpoint-desc">Frontend branding/feature config</span></div>
+<div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/profile/sections</span><span class="endpoint-desc">Profile sections</span></div>
+
+<div style="margin-top:3rem;padding:2rem 0;border-top:1px solid var(--border);color:var(--text-secondary);font-size:0.85rem;text-align:center">
+    Solobase Documentation &mdash; <a href="https://github.com/suppers-ai/solobase" target="_blank">GitHub</a> &mdash; <a href="https://discord.gg/jKqMcbrVzm" target="_blank">Discord</a>
+</div>
+
+</main>
+</div>
+
+<script>
+// Mobile sidebar toggle
+document.getElementById('mobileToggle').addEventListener('click', function() {
+    document.getElementById('sidebar').classList.toggle('open');
+});
+
+// Active sidebar link tracking
+var links = document.querySelectorAll('.sidebar a');
+var headings = [];
+links.forEach(function(link) {
+    var id = link.getAttribute('href');
+    if (id && id.startsWith('#')) {
+        var el = document.getElementById(id.substring(1));
+        if (el) headings.push({ el: el, link: link });
+    }
+});
+
+function updateActive() {
+    var scrollTop = window.scrollY + 80;
+    var current = null;
+    for (var i = headings.length - 1; i >= 0; i--) {
+        if (headings[i].el.offsetTop <= scrollTop) {
+            current = headings[i].link;
+            break;
+        }
+    }
+    links.forEach(function(l) { l.classList.remove('active'); });
+    if (current) current.classList.add('active');
+}
+
+window.addEventListener('scroll', updateActive, { passive: true });
+updateActive();
+
+// Close mobile sidebar on link click
+links.forEach(function(link) {
+    link.addEventListener('click', function() {
+        document.getElementById('sidebar').classList.remove('open');
+    });
+});
+</script>
+</body>
+</html>

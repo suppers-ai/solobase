@@ -1,0 +1,14 @@
+{
+  "name": "solobase-examples",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "./run-tests.sh",
+    "test:dropship": "./run-tests.sh dropship",
+    "test:saas": "./run-tests.sh saas",
+    "test:blog": "./run-tests.sh blog"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

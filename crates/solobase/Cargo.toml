@@ -1,0 +1,110 @@
+[package]
+name = "solobase"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Solobase — self-hosted backend platform powered by the WAFER runtime"
+
+[lib]
+name = "solobase"
+path = "src/lib.rs"
+
+[[bin]]
+name = "solobase"
+path = "src/main.rs"
+required-features = ["server"]
+
+[features]
+default = ["server"]
+server = [
+    "wafer-run/full",
+    "solobase-core/sqlite",
+    "solobase-core/storage-local",
+    "dep:wafer-block-auth-validator",
+    "dep:wafer-block-cors",
+    "dep:wafer-block-iam-guard",
+    "dep:wafer-block-inspector",
+
+
+    "dep:wafer-block-readonly-guard",
+    "dep:wafer-block-router",
+    "dep:wafer-block-security-headers",
+    "dep:wafer-block-web",
+    "dep:wafer-block-config",
+    "dep:wafer-block-logger",
+    "dep:wafer-block-crypto",
+    "dep:wafer-block-network",
+    "dep:wafer-block-http-listener",
+    "dep:wafer-block-sqlite",
+    "dep:wafer-block-local-storage",
+    "dep:tokio",
+    "dep:tracing-subscriber",
+    "dep:dotenvy",
+    "dep:rusqlite",
+]
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
+storage-s3 = ["solobase-core/storage-s3", "dep:wafer-block-s3"]
+postgres = ["solobase-core/postgres", "dep:wafer-block-postgres"]
+
+[dependencies]
+# WAFER runtime (minimal — types + clients only)
+wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
+wafer-core = { path = "../../../wafer-run/crates/wafer-core" }
+
+# Block crates (optional — only needed for the server binary)
+wafer-block-auth-validator = { path = "../../../wafer-run/crates/wafer-block-auth-validator", optional = true }
+wafer-block-cors = { path = "../../../wafer-run/crates/wafer-block-cors", optional = true }
+wafer-block-iam-guard = { path = "../../../wafer-run/crates/wafer-block-iam-guard", optional = true }
+wafer-block-inspector = { path = "../../../wafer-run/crates/wafer-block-inspector", optional = true }
+wafer-block-readonly-guard = { path = "../../../wafer-run/crates/wafer-block-readonly-guard", optional = true }
+wafer-block-router = { path = "../../../wafer-run/crates/wafer-block-router", optional = true }
+wafer-block-security-headers = { path = "../../../wafer-run/crates/wafer-block-security-headers", optional = true }
+wafer-block-web = { path = "../../../wafer-run/crates/wafer-block-web", optional = true }
+wafer-block-config = { path = "../../../wafer-run/crates/wafer-block-config", optional = true }
+wafer-block-logger = { path = "../../../wafer-run/crates/wafer-block-logger", optional = true }
+wafer-block-crypto = { path = "../../../wafer-run/crates/wafer-block-crypto", optional = true }
+wafer-block-network = { path = "../../../wafer-run/crates/wafer-block-network", optional = true }
+wafer-block-http-listener = { path = "../../../wafer-run/crates/wafer-block-http-listener", optional = true }
+wafer-block-sqlite = { path = "../../../wafer-run/crates/wafer-block-sqlite", optional = true }
+wafer-block-local-storage = { path = "../../../wafer-run/crates/wafer-block-local-storage", optional = true }
+wafer-block-s3 = { path = "../../../wafer-run/crates/wafer-block-s3", optional = true }
+wafer-block-postgres = { path = "../../../wafer-run/crates/wafer-block-postgres", optional = true }
+
+# Solobase shared core (routing, crypto, features, pipeline, backend blocks)
+solobase-core = { path = "../solobase-core", default-features = false }
+
+# Async
+async-trait = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Async runtime (only needed for the server binary)
+tokio = { workspace = true, optional = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+
+# Crypto
+sha2 = { workspace = true }
+hmac = "0.12"
+getrandom = "0.2"
+
+# Time
+chrono = { workspace = true }
+
+# Config loading (only needed for the server binary)
+dotenvy = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
+uuid = { workspace = true }
