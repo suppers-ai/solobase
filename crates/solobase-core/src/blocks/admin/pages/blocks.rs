@@ -64,8 +64,15 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let content = html! {
         (components::page_header("Blocks", Some("Registered WAFER blocks"),
             Some(html! {
-                a .btn .btn-primary .btn-sm href="/debug/inspector/ui" target="_blank" {
-                    (icons::globe()) " Open Inspector"
+                div style="display:flex;gap:8px" {
+                    a .btn .btn-sm href="https://wafer.run/registry" target="_blank"
+                        style="display:inline-flex;align-items:center;gap:4px;background:#8b5cf6;color:#fff;border:none"
+                    {
+                        (icons::arrow_up_right()) " Explore WASM blocks"
+                    }
+                    a .btn .btn-primary .btn-sm href="/debug/inspector/ui" target="_blank" {
+                        (icons::globe()) " Open Inspector"
+                    }
                 }
             })
         ))
