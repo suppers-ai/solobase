@@ -14,7 +14,7 @@ use wafer_run::helpers::*;
 use wafer_run::types::*;
 
 async fn user_products_enabled(ctx: &dyn Context) -> bool {
-    config::get_default(ctx, "SOLOBASE_SHARED__FEATURE_USER_PRODUCTS", "false").await == "true"
+    config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS", "false").await == "true"
 }
 
 pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -95,7 +95,7 @@ pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_products = user_products_enabled(ctx).await;
 
     match (action, path) {
-        // User's own products (requires FEATURE_USER_PRODUCTS)
+        // User's own products (requires ALLOW_USER_PRODUCTS)
         ("retrieve", "/b/products/products") if user_products => {
             handle_user_list_products(ctx, msg).await
         }
@@ -111,7 +111,7 @@ pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ("delete", _) if user_products && path.starts_with("/b/products/products/") => {
             handle_user_delete_product(ctx, msg).await
         }
-        // User's own groups (requires FEATURE_USER_PRODUCTS)
+        // User's own groups (requires ALLOW_USER_PRODUCTS)
         ("retrieve", "/b/products/groups") if user_products => {
             handle_user_list_groups(ctx, msg).await
         }
@@ -139,7 +139,7 @@ pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         {
             handle_user_delete_group(ctx, msg).await
         }
-        // Products in a group (requires FEATURE_USER_PRODUCTS)
+        // Products in a group (requires ALLOW_USER_PRODUCTS)
         ("retrieve", _)
             if user_products
                 && path.starts_with("/b/products/groups/")

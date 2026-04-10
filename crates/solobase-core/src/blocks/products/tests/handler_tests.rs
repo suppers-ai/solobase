@@ -276,7 +276,7 @@ async fn admin_stats() {
 // ============================================================
 
 fn user_products_ctx() -> MockContext {
-    MockContext::new().with_config("SOLOBASE_SHARED__FEATURE_USER_PRODUCTS", "true")
+    MockContext::new().with_config("SOLOBASE_SHARED__ALLOW_USER_PRODUCTS", "true")
 }
 
 #[tokio::test]
@@ -663,7 +663,7 @@ async fn user_cannot_list_other_users_group_products() {
 
 #[tokio::test]
 async fn user_products_rejected_when_disabled() {
-    let ctx = MockContext::new(); // no FEATURE_USER_PRODUCTS config → defaults to false
+    let ctx = MockContext::new(); // no ALLOW_USER_PRODUCTS config → defaults to false
 
     let mut create = create_msg(
         "/b/products/products",

@@ -57,6 +57,12 @@ for example in "${EXAMPLES[@]}"; do
   # Clean up any previous data
   rm -rf "$EXAMPLE_DIR/data"
 
+  # Copy frontend files to the web block's storage path
+  if [ -d "$EXAMPLE_DIR/frontend/build" ]; then
+    mkdir -p "$EXAMPLE_DIR/data/storage/wafer-run/web/site"
+    cp -r "$EXAMPLE_DIR/frontend/build/"* "$EXAMPLE_DIR/data/storage/wafer-run/web/site/"
+  fi
+
   # Start solobase in the example directory
   cd "$EXAMPLE_DIR"
   SUPPERS_AI__AUTH__JWT_SECRET="$SUPPERS_AI__AUTH__JWT_SECRET" "$BINARY" &

@@ -77,7 +77,7 @@ pub fn shared_config_vars() -> Vec<ConfigVar> {
             .name("Favicon URL")
             .input_type(InputType::Url),
         ConfigVar::new(
-            "SOLOBASE_SHARED__FEATURE_USER_PRODUCTS",
+            "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS",
             "Allow users to create their own products",
             "false",
         )

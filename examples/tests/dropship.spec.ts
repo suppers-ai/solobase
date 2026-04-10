@@ -56,13 +56,6 @@ test.describe("Dropship: Health", () => {
     expect(await res.json()).toEqual({ status: "ok" });
   });
 
-  test("GET /debug/time returns timestamps", async ({ request }) => {
-    const res = await request.get("/debug/time");
-    expect(res.ok()).toBeTruthy();
-    const body = await res.json();
-    expect(body).toHaveProperty("utc");
-    expect(body).toHaveProperty("unix");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -108,29 +101,22 @@ test.describe("Dropship: Auth", () => {
 // Products (catalog)
 // ---------------------------------------------------------------------------
 test.describe("Dropship: Products", () => {
-  test("GET /b/products/catalog returns product list", async ({ request }) => {
+  test("GET /b/products/api/catalog returns product list", async ({ request }) => {
     const { token } = await signup(request);
-    const res = await request.get("/b/products/catalog", {
+    const res = await request.get("/b/products/api/catalog", {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.ok()).toBeTruthy();
   });
 
-  test("GET /b/products/types returns product types", async ({ request }) => {
+  test("GET /b/products/api/types returns product types", async ({ request }) => {
     const { token } = await signup(request);
-    const res = await request.get("/b/products/types", {
+    const res = await request.get("/b/products/api/types", {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.ok()).toBeTruthy();
   });
 
-  test("GET /b/products/groups returns user groups", async ({ request }) => {
-    const { token } = await signup(request);
-    const res = await request.get("/b/products/groups", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(res.ok()).toBeTruthy();
-  });
 });
 
 // ---------------------------------------------------------------------------

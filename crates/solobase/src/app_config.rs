@@ -67,14 +67,14 @@ fn env_or(key: &str, default: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Block settings — read from suppers_ai__admin__block_settings table + BLOCK_DISABLED env var
+// Block settings — read from suppers_ai__admin__block_settings table + SOLOBASE_BLOCK_* env vars
 // ---------------------------------------------------------------------------
 
 /// Load block settings from the SQLite database.
 ///
 /// Reads the `suppers_ai__admin__block_settings` table (if it exists) and returns a
 /// `BlockSettings` with the enabled/disabled state of each block.
-/// Also seeds from the `BLOCK_DISABLED` env var on first run.
+/// Also seeds from `SOLOBASE_BLOCK_ENABLED` / `SOLOBASE_BLOCK_DISABLED` env vars.
 /// Block default: (full_name, default_enabled).
 /// Used to seed the suppers_ai__admin__block_settings table on first run.
 pub type BlockDefault = (&'static str, bool);
@@ -119,8 +119,22 @@ pub fn load_block_settings(db_path: &str) -> BlockSettings {
         }
     }
 
-    // Seed from BLOCK_DISABLED env var (overrides defaults on first run)
-    if let Ok(disabled) = std::env::var("BLOCK_DISABLED") {
+    // Seed from SOLOBASE_BLOCK_ENABLED env var (force-enable specific blocks)
+    if let Ok(enabled) = std::env::var("SOLOBASE_BLOCK_ENABLED") {
+        for name in enabled.split(',') {
+            let name = name.trim();
+            if !name.is_empty() {
+                let _ = conn.execute(
+                    "INSERT INTO suppers_ai__admin__block_settings (block_name, enabled) VALUES (?1, 1) \
+                     ON CONFLICT (block_name) DO UPDATE SET enabled = 1",
+                    rusqlite::params![name],
+                );
+            }
+        }
+    }
+
+    // Seed from SOLOBASE_BLOCK_DISABLED env var (force-disable specific blocks)
+    if let Ok(disabled) = std::env::var("SOLOBASE_BLOCK_DISABLED") {
         for name in disabled.split(',') {
             let name = name.trim();
             if !name.is_empty() {

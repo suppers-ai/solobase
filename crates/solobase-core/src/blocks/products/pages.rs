@@ -609,7 +609,7 @@ pub async fn my_purchases(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
 const SETTINGS_KEYS: &[(&str, &str, &str, &str, bool)] = &[
     (
-        "SOLOBASE_SHARED__FEATURE_USER_PRODUCTS",
+        "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS",
         "Allow User Products",
         "Allow users to create their own products.",
         "false",

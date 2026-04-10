@@ -38,7 +38,7 @@ async fn main() {
     load_dotenv();
 
     // 2. Initialize tracing / logging
-    let log_format = std::env::var("LOG_FORMAT").unwrap_or_else(|_| "text".into());
+    let log_format = std::env::var("SOLOBASE_LOG_FORMAT").unwrap_or_else(|_| "text".into());
     init_tracing(&log_format);
     tracing::info!("solobase starting (Rust/WAFER runtime)");
 

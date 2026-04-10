@@ -126,19 +126,19 @@ test.describe("SaaS: Auth", () => {
 // Products (subscription plans)
 // ---------------------------------------------------------------------------
 test.describe("SaaS: Products", () => {
-  test("GET /b/products/catalog returns plan list", async ({ request }) => {
+  test("GET /b/products/api/catalog returns plan list", async ({ request }) => {
     const { token } = await signup(request);
-    const res = await request.get("/b/products/catalog", {
+    const res = await request.get("/b/products/api/catalog", {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.ok()).toBeTruthy();
   });
 
-  test("GET /b/products/purchases returns user purchases", async ({
+  test("GET /b/products/api/purchases returns user purchases", async ({
     request,
   }) => {
     const { token } = await signup(request);
-    const res = await request.get("/b/products/purchases", {
+    const res = await request.get("/b/products/api/purchases", {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.ok()).toBeTruthy();
@@ -146,12 +146,12 @@ test.describe("SaaS: Products", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Deployments
+// Projects (deployments)
 // ---------------------------------------------------------------------------
-test.describe("SaaS: Deployments", () => {
-  test("GET /b/deployments returns user deployments", async ({ request }) => {
+test.describe("SaaS: Projects", () => {
+  test("GET /b/projects/api returns user projects", async ({ request }) => {
     const { token } = await signup(request);
-    const res = await request.get("/b/deployments", {
+    const res = await request.get("/b/projects/api", {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.ok()).toBeTruthy();
@@ -164,7 +164,7 @@ test.describe("SaaS: Deployments", () => {
 test.describe("SaaS: Admin", () => {
   test("admin endpoints require auth", async ({ request }) => {
     const res = await request.get("/b/admin/api/users");
-    expect(res.status()).toBe(401);
+    expect(res.status()).toBe(403);
   });
 
   test("GET /b/admin/api/settings accessible with token", async ({
