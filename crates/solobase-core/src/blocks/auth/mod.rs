@@ -33,10 +33,12 @@ impl AuthBlock {
     }
 }
 
-const USERS_COLLECTION: &str = "suppers_ai__auth__users";
-const TOKENS_COLLECTION: &str = "suppers_ai__auth__tokens";
-const API_KEYS_COLLECTION: &str = "suppers_ai__auth__api_keys";
-const USER_ROLES_COLLECTION: &str = "suppers_ai__admin__user_roles";
+pub(crate) const USERS_COLLECTION: &str = "suppers_ai__auth__users";
+pub(crate) const RATE_LIMITS_COLLECTION: &str = "suppers_ai__auth__rate_limits";
+pub(crate) const TOKENS_COLLECTION: &str = "suppers_ai__auth__tokens";
+pub(crate) const API_KEYS_COLLECTION: &str = "suppers_ai__auth__api_keys";
+
+use crate::blocks::admin::USER_ROLES_COLLECTION;
 
 // --- Shared helpers used by login.rs, oauth.rs, api_keys.rs ---
 
@@ -281,7 +283,7 @@ impl Block for AuthBlock {
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into(), "wafer-run/crypto".into(), "wafer-run/config".into(), "suppers-ai/email".into()])
             .collections(vec![
-                CollectionSchema::new("suppers_ai__auth__users")
+                CollectionSchema::new(USERS_COLLECTION)
                     .field_unique("email", "string")
                     .field_default("password_hash", "string", "")
                     .field_default("name", "string", "")
@@ -295,12 +297,12 @@ impl Block for AuthBlock {
                     .field_optional("last_verification_sent", "datetime")
                     .field_optional("last_login_at", "datetime")
                     .field_optional("deleted_at", "datetime"),
-                CollectionSchema::new("suppers_ai__auth__tokens")
-                    .field_ref("user_id", "string", "suppers_ai__auth__users.id")
+                CollectionSchema::new(TOKENS_COLLECTION)
+                    .field_ref("user_id", "string", &format!("{}.id", USERS_COLLECTION))
                     .field("token", "string")
                     .index(&["user_id"]),
-                CollectionSchema::new("suppers_ai__auth__api_keys")
-                    .field_ref("user_id", "string", "suppers_ai__auth__users.id")
+                CollectionSchema::new(API_KEYS_COLLECTION)
+                    .field_ref("user_id", "string", &format!("{}.id", USERS_COLLECTION))
                     .field_default("name", "string", "")
                     .field("key_hash", "string")
                     .field_default("key_prefix", "string", "")
@@ -308,15 +310,15 @@ impl Block for AuthBlock {
                     .field_optional("revoked_at", "datetime")
                     .field_optional("expires_at", "datetime")
                     .index(&["user_id"]),
-                CollectionSchema::new("suppers_ai__auth__rate_limits")
+                CollectionSchema::new(RATE_LIMITS_COLLECTION)
                     .field_unique("key", "string")
                     .field_default("count", "int", "0")
                     .field_default("window_start", "int", "0"),
             ])
             .grants(vec![
                 wafer_run::ResourceGrant::read("suppers-ai/admin", "suppers_ai__auth__*"),
-                wafer_run::ResourceGrant::read_write("suppers-ai/userportal", "suppers_ai__auth__users"),
-                wafer_run::ResourceGrant::read("suppers-ai/products", "suppers_ai__auth__users"),
+                wafer_run::ResourceGrant::read_write("suppers-ai/userportal", USERS_COLLECTION),
+                wafer_run::ResourceGrant::read("suppers-ai/products", USERS_COLLECTION),
             ])
             .category(wafer_run::BlockCategory::Feature)
             .description("Handles user authentication, registration, and session management. Supports email/password login, OAuth providers (Google, GitHub, Microsoft), email verification, password reset, and API key management.")

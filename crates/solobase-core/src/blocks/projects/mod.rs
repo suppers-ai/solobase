@@ -8,6 +8,7 @@ use wafer_run::helpers::*;
 use wafer_run::types::*;
 
 pub(crate) const PROJECTS_COLLECTION: &str = "suppers_ai__projects__deployments";
+pub(crate) const PROJECT_USAGE: &str = "suppers_ai__projects__usage";
 
 pub struct ProjectsBlock {
     limiter: UserRateLimiter,
@@ -38,8 +39,8 @@ impl Block for ProjectsBlock {
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into(), "wafer-run/config".into(), "wafer-run/network".into()])
             .collections(vec![
-                CollectionSchema::new("suppers_ai__projects__deployments")
-                    .field_ref("user_id", "string", "suppers_ai__auth__users.id")
+                CollectionSchema::new(PROJECTS_COLLECTION)
+                    .field_ref("user_id", "string", &format!("{}.id", crate::blocks::auth::USERS_COLLECTION))
                     .field("name", "string")
                     .field_default("slug", "string", "")
                     .field_default("status", "string", "pending")
@@ -56,7 +57,7 @@ impl Block for ProjectsBlock {
                     .index(&["status"]),
             ])
             .grants(vec![
-                wafer_run::ResourceGrant::read("suppers-ai/products", "suppers_ai__projects__deployments"),
+                wafer_run::ResourceGrant::read("suppers-ai/products", PROJECTS_COLLECTION),
             ])
             .category(wafer_run::BlockCategory::Feature)
             .description("Project and deployment management for multi-tenant hosting. Users can create projects with unique subdomains, activate/deactivate deployments, and manage lifecycle. Integrates with the control plane for provisioning on Cloudflare Workers for Platforms.")

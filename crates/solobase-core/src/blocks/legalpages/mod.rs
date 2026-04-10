@@ -504,7 +504,7 @@ impl Block for LegalPagesBlock {
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into()])
             .collections(vec![
-                CollectionSchema::new("suppers_ai__legalpages__documents")
+                CollectionSchema::new(COLLECTION)
                     .field("doc_type", "string")
                     .field("title", "string")
                     .field_default("content", "text", "")

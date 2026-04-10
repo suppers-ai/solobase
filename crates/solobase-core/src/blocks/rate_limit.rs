@@ -180,16 +180,20 @@ impl UserRateLimiter {
         let window_secs = limit.window.as_secs() as i64;
         let window_start = now - window_secs;
 
-        // Atomic upsert: increment count if within window, reset if expired
-        let sql = "INSERT INTO suppers_ai__auth__rate_limits (id, key, count, window_start, created_at, updated_at) \
-                   VALUES (?1, ?2, 1, ?3, datetime('now'), datetime('now')) \
-                   ON CONFLICT(key) DO UPDATE SET \
-                   count = CASE WHEN window_start < ?4 THEN 1 ELSE count + 1 END, \
-                   window_start = CASE WHEN window_start < ?4 THEN ?3 ELSE window_start END, \
-                   updated_at = datetime('now')";
+        // Atomic upsert: increment count if within window, reset if expired.
+        // Uses CASE WHEN for conditional reset -- too complex for the upsert builder.
+        use crate::blocks::auth::RATE_LIMITS_COLLECTION as RATE_LIMITS;
+        let sql = format!(
+            "INSERT INTO {RATE_LIMITS} (id, key, count, window_start, created_at, updated_at) \
+             VALUES (?1, ?2, 1, ?3, datetime('now'), datetime('now')) \
+             ON CONFLICT(key) DO UPDATE SET \
+             count = CASE WHEN window_start < ?4 THEN 1 ELSE count + 1 END, \
+             window_start = CASE WHEN window_start < ?4 THEN ?3 ELSE window_start END, \
+             updated_at = datetime('now')"
+        );
 
         let id = super::helpers::sha256_hex(format!("rl:{key}:{now}").as_bytes());
-        let _ = db::exec_raw(ctx, sql, &[
+        let _ = db::exec_raw(ctx, &sql, &[
             serde_json::json!(id),
             serde_json::json!(key),
             serde_json::json!(now),
@@ -197,11 +201,24 @@ impl UserRateLimiter {
         ]).await;
 
         // Read back the current count
-        let rows = db::query_raw(
-            ctx,
-            "SELECT count FROM suppers_ai__auth__rate_limits WHERE key = ?1 AND window_start >= ?2",
-            &[serde_json::json!(key), serde_json::json!(window_start)],
-        ).await.unwrap_or_default();
+        use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
+        use wafer_core::interfaces::database::service::{Filter, FilterOp, ListOptions};
+
+        let (sql, vals) = query::build_select_columns(
+            RATE_LIMITS,
+            &["count"],
+            &ListOptions {
+                filters: vec![
+                    Filter { field: "key".into(), operator: FilterOp::Equal, value: serde_json::json!(key) },
+                    Filter { field: "window_start".into(), operator: FilterOp::GreaterEqual, value: serde_json::json!(window_start) },
+                ],
+                ..Default::default()
+            },
+            None,
+            Backend::Sqlite,
+        );
+        let args = sea_values_to_json(vals);
+        let rows = db::query_raw(ctx, &sql, &args).await.unwrap_or_default();
 
         let count = rows.first()
             .and_then(|r| r.data.get("count"))

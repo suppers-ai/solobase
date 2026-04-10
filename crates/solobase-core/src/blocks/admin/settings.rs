@@ -6,7 +6,7 @@ use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::{self, *};
 
-const COLLECTION: &str = "suppers_ai__admin__variables";
+use super::VARIABLES_COLLECTION as COLLECTION;
 const MASKED_VALUE: &str = "********";
 
 pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {

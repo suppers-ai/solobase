@@ -5,6 +5,13 @@ mod quota;
 mod share;
 pub(crate) mod storage;
 
+pub(crate) const BUCKETS_COLLECTION: &str = "suppers_ai__files__buckets";
+pub(crate) const OBJECTS_COLLECTION: &str = "suppers_ai__files__objects";
+pub(crate) const SHARES_COLLECTION: &str = "suppers_ai__files__cloud_shares";
+pub(crate) const ACCESS_LOGS_COLLECTION: &str = "suppers_ai__files__cloud_access_logs";
+pub(crate) const QUOTAS_COLLECTION: &str = "suppers_ai__files__cloud_quotas";
+pub(crate) const VIEWS_COLLECTION: &str = "suppers_ai__files__views";
+
 use super::rate_limit::{check_rate_limit, RateLimit, UserRateLimiter};
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
@@ -40,11 +47,11 @@ impl Block for FilesBlock {
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into(), "wafer-run/storage".into(), "wafer-run/config".into()])
             .collections(vec![
-                CollectionSchema::new("suppers_ai__files__buckets")
+                CollectionSchema::new(BUCKETS_COLLECTION)
                     .field("name", "string")
                     .field_default("public", "bool", "false")
                     .field_default("created_by", "string", ""),
-                CollectionSchema::new("suppers_ai__files__objects")
+                CollectionSchema::new(OBJECTS_COLLECTION)
                     .field("bucket", "string")
                     .field("key", "string")
                     .field_default("size", "int", "0")
@@ -53,12 +60,12 @@ impl Block for FilesBlock {
                     .field_default("uploaded_by", "string", "")
                     .field_optional("uploaded_at", "datetime")
                     .index(&["bucket"]),
-                CollectionSchema::new("suppers_ai__files__views")
+                CollectionSchema::new(VIEWS_COLLECTION)
                     .field("bucket", "string")
                     .field("key", "string")
                     .field_default("user_id", "string", "")
                     .field_optional("viewed_at", "datetime"),
-                CollectionSchema::new("suppers_ai__files__cloud_shares")
+                CollectionSchema::new(SHARES_COLLECTION)
                     .field("token", "string")
                     .field("bucket", "string")
                     .field("key", "string")
@@ -67,13 +74,13 @@ impl Block for FilesBlock {
                     .field_default("access_count", "int", "0")
                     .field_optional("max_access_count", "int")
                     .index(&["token"]),
-                CollectionSchema::new("suppers_ai__files__cloud_access_logs")
+                CollectionSchema::new(ACCESS_LOGS_COLLECTION)
                     .field("share_id", "string")
                     .field_optional("accessed_at", "datetime")
                     .field_default("ip_address", "string", "")
                     .field_default("user_agent", "string", "")
                     .index(&["share_id"]),
-                CollectionSchema::new("suppers_ai__files__cloud_quotas")
+                CollectionSchema::new(QUOTAS_COLLECTION)
                     .field_unique("user_id", "string")
                     .field_default("max_storage_bytes", "int64", "1073741824")
                     .field_default("max_file_size_bytes", "int64", "104857600")

@@ -6,9 +6,7 @@ use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
 
-const ROLES_COLLECTION: &str = "suppers_ai__admin__roles";
-const PERMISSIONS_COLLECTION: &str = "suppers_ai__admin__permissions";
-const USER_ROLES_COLLECTION: &str = "suppers_ai__admin__user_roles";
+use super::{PERMISSIONS_COLLECTION, ROLES_COLLECTION, USER_ROLES_COLLECTION};
 
 pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();

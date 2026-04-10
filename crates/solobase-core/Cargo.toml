@@ -21,6 +21,10 @@ storage-s3 = ["dep:tokio"]
 wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
 # wafer-core for clients and interface traits
 wafer-core = { path = "../../../wafer-run/crates/wafer-core" }
+# SQL utilities (query builders, value conversion)
+wafer-sql-utils = { path = "../../../wafer-run/crates/wafer-sql-utils" }
+# SQL query builder (used via wafer-sql-utils, re-exported for complex conditions)
+sea-query = "0.32"
 
 # Plan definitions (shared with CF worker)
 solobase-plans = { path = "../solobase-plans" }

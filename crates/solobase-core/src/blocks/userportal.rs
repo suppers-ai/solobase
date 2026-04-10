@@ -44,7 +44,7 @@ impl Block for UserPortalBlock {
         )
         .instance_mode(InstanceMode::Singleton)
         .requires(vec!["wafer-run/database".into(), "wafer-run/config".into()])
-        .collections(vec![CollectionSchema::new("suppers_ai__userportal__buttons")
+        .collections(vec![CollectionSchema::new(BUTTONS_COLLECTION)
             .field("label", "string")
             .field_default("icon", "string", "package")
             .field("path", "string")
@@ -129,7 +129,7 @@ impl Block for UserPortalBlock {
 
 impl UserPortalBlock {
     async fn handle_config(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let block_rows = db::list_all(ctx, "suppers_ai__admin__block_settings", vec![])
+        let block_rows = db::list_all(ctx, crate::blocks::admin::BLOCK_SETTINGS_COLLECTION, vec![])
             .await
             .unwrap_or_default();
 
@@ -276,7 +276,7 @@ async fn profile_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let user_id = msg.user_id().to_string();
 
     // Load user details
-    let user_record = db::get(ctx, "suppers_ai__auth__users", &user_id).await.ok();
+    let user_record = db::get(ctx, crate::blocks::auth::USERS_COLLECTION, &user_id).await.ok();
     let display_name = user_record
         .as_ref()
         .map(|r| r.str_field("name").to_string())
@@ -400,7 +400,7 @@ async fn handle_update_profile(ctx: &dyn Context, msg: &mut Message) -> Result_ 
     data.insert("name".to_string(), serde_json::json!(name));
     stamp_updated(&mut data);
 
-    if let Err(e) = db::update(ctx, "suppers_ai__auth__users", &user_id, data).await {
+    if let Err(e) = db::update(ctx, crate::blocks::auth::USERS_COLLECTION, &user_id, data).await {
         return err_internal(msg, &format!("Failed to update profile: {}", e.message));
     }
 

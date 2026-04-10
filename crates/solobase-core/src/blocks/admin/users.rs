@@ -6,7 +6,8 @@ use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
 
-const COLLECTION: &str = "suppers_ai__auth__users";
+use super::USER_ROLES_COLLECTION;
+use crate::blocks::auth::USERS_COLLECTION as COLLECTION;
 
 pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -66,7 +67,7 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     }],
                     ..Default::default()
                 };
-                let roles: Vec<String> = match db::list(ctx, "suppers_ai__admin__user_roles", &roles_opts).await {
+                let roles: Vec<String> = match db::list(ctx, USER_ROLES_COLLECTION, &roles_opts).await {
                     Ok(r) => r
                         .records
                         .iter()
@@ -112,7 +113,7 @@ async fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
                 }],
                 ..Default::default()
             };
-            let roles: Vec<String> = match db::list(ctx, "suppers_ai__admin__user_roles", &roles_opts).await {
+            let roles: Vec<String> = match db::list(ctx, USER_ROLES_COLLECTION, &roles_opts).await {
                 Ok(r) => r
                     .records
                     .iter()

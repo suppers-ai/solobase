@@ -1,8 +1,9 @@
 use super::{
     GROUPS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION,
-    TYPES_COLLECTION,
+    SUBSCRIPTIONS, TYPES_COLLECTION,
 };
 use crate::blocks::helpers::{field_as_string, RecordExt};
+use crate::blocks::projects::{PROJECTS_COLLECTION as DEPLOYMENTS, PROJECT_USAGE};
 use std::collections::HashMap;
 use wafer_core::clients::config;
 use wafer_core::clients::database as db;
@@ -915,13 +916,13 @@ async fn handle_subscription(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Query subscriptions table (platform table, populated by Stripe webhooks)
     let rows = db::query_raw(
         ctx,
-        "SELECT id, plan, status, stripe_subscription_id, grace_period_end, \
+        &format!("SELECT id, plan, status, stripe_subscription_id, grace_period_end, \
                 COALESCE(addon_projects, 0) as addon_projects, \
                 COALESCE(addon_requests, 0) as addon_requests, \
                 COALESCE(addon_r2_bytes, 0) as addon_r2_bytes, \
                 COALESCE(addon_d1_bytes, 0) as addon_d1_bytes, \
                 created_at, updated_at \
-         FROM subscriptions WHERE user_id = ?1",
+         FROM {SUBSCRIPTIONS} WHERE user_id = ?1"),
         &[serde_json::Value::String(user_id.clone())],
     )
     .await;
@@ -943,12 +944,12 @@ async fn handle_subscription(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             // Sum usage across all user's projects for this month (account-level)
             let usage_rows = db::query_raw(
                 ctx,
-                "SELECT COALESCE(SUM(requests), 0) as total_requests, \
+                &format!("SELECT COALESCE(SUM(requests), 0) as total_requests, \
                         COALESCE(SUM(r2_bytes), 0) as total_r2, \
                         COALESCE(SUM(COALESCE(d1_bytes, 0)), 0) as total_d1 \
-                 FROM project_usage pu \
-                 JOIN suppers_ai__projects__deployments p ON p.id = pu.project_id \
-                 WHERE p.user_id = ?1 AND pu.month = ?2",
+                 FROM {PROJECT_USAGE} pu \
+                 JOIN {DEPLOYMENTS} p ON p.id = pu.project_id \
+                 WHERE p.user_id = ?1 AND pu.month = ?2"),
                 &[
                     serde_json::Value::String(user_id),
                     serde_json::Value::String(month.clone()),

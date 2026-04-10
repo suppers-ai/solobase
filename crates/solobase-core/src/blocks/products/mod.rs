@@ -24,6 +24,8 @@ pub(crate) const PURCHASES_COLLECTION: &str = "suppers_ai__products__purchases";
 pub(crate) const LINE_ITEMS_COLLECTION: &str = "suppers_ai__products__line_items";
 pub(crate) const GROUP_TEMPLATES_COLLECTION: &str = "suppers_ai__products__group_templates";
 pub(crate) const PRODUCT_TEMPLATES_COLLECTION: &str = "suppers_ai__products__product_templates";
+pub(crate) const SUBSCRIPTIONS: &str = "suppers_ai__products__subscriptions";
+pub(crate) const VARIABLES_COLLECTION: &str = "suppers_ai__products__variables";
 
 pub struct ProductsBlock {
     limiter: UserRateLimiter,
@@ -54,7 +56,7 @@ impl Block for ProductsBlock {
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into(), "wafer-run/config".into(), "wafer-run/network".into()])
             .collections(vec![
-                CollectionSchema::new("suppers_ai__products__products")
+                CollectionSchema::new(PRODUCTS_COLLECTION)
                     .field("name", "string")
                     .field_default("description", "text", "")
                     .field_default("slug", "string", "")
@@ -77,7 +79,7 @@ impl Block for ProductsBlock {
                     .index(&["status"])
                     .index(&["group_id"])
                     .index(&["created_by"]),
-                CollectionSchema::new("suppers_ai__products__groups")
+                CollectionSchema::new(GROUPS_COLLECTION)
                     .field("name", "string")
                     .field_default("description", "string", "")
                     .field_default("template_id", "string", "")
@@ -85,16 +87,16 @@ impl Block for ProductsBlock {
                     .field_default("user_id", "string", "")
                     .field_default("status", "string", "active")
                     .field_default("created_by", "string", ""),
-                CollectionSchema::new("suppers_ai__products__types")
+                CollectionSchema::new(TYPES_COLLECTION)
                     .field("name", "string")
                     .field_default("description", "string", "")
                     .field_default("is_system", "bool", "false"),
-                CollectionSchema::new("suppers_ai__products__pricing_templates")
+                CollectionSchema::new(PRICING_COLLECTION)
                     .field("name", "string")
                     .field_default("price_formula", "string", "")
                     .field_default("template_data", "json", "{}"),
-                CollectionSchema::new("suppers_ai__products__purchases")
-                    .field_ref("user_id", "string", "suppers_ai__auth__users.id")
+                CollectionSchema::new(PURCHASES_COLLECTION)
+                    .field_ref("user_id", "string", &format!("{}.id", crate::blocks::auth::USERS_COLLECTION))
                     .field_default("status", "string", "pending")
                     .field_default("total_cents", "int", "0")
                     .field_default("amount_cents", "int", "0")
@@ -108,7 +110,7 @@ impl Block for ProductsBlock {
                     .field_optional("payment_at", "datetime")
                     .index(&["user_id"])
                     .index(&["status"]),
-                CollectionSchema::new("suppers_ai__products__line_items")
+                CollectionSchema::new(LINE_ITEMS_COLLECTION)
                     .field("purchase_id", "string")
                     .field("product_id", "string")
                     .field_default("product_name", "string", "")
@@ -117,13 +119,13 @@ impl Block for ProductsBlock {
                     .field_default("total_price", "float", "0")
                     .field_default("variables", "json", "{}")
                     .index(&["purchase_id"]),
-                CollectionSchema::new("suppers_ai__products__group_templates")
+                CollectionSchema::new(GROUP_TEMPLATES_COLLECTION)
                     .field("name", "string")
                     .field_default("display_name", "string", ""),
-                CollectionSchema::new("suppers_ai__products__product_templates")
+                CollectionSchema::new(PRODUCT_TEMPLATES_COLLECTION)
                     .field("name", "string")
                     .field_default("display_name", "string", ""),
-                CollectionSchema::new("suppers_ai__products__variables")
+                CollectionSchema::new(VARIABLES_COLLECTION)
                     .field("name", "string")
                     .field_default("var_type", "string", "number")
                     .field_optional("default_value", "string")

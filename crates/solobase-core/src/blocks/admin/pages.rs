@@ -11,6 +11,18 @@ use wafer_core::clients::{config, database as db};
 use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_sql_utils::value::sea_values_to_json;
+use wafer_sql_utils::{aggregate, query, upsert, Backend};
+
+use super::{
+    AUDIT_LOGS_COLLECTION as AUDIT_LOGS, BLOCK_SETTINGS_COLLECTION as BLOCK_SETTINGS,
+    NETWORK_REQUEST_LOGS_COLLECTION as NETWORK_REQUEST_LOGS,
+    NETWORK_RULES_COLLECTION as NETWORK_RULES, REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
+    ROLES_COLLECTION, STORAGE_ACCESS_LOGS_COLLECTION as STORAGE_ACCESS_LOGS,
+    STORAGE_RULES_COLLECTION as STORAGE_RULES, USER_ROLES_COLLECTION,
+    VARIABLES_COLLECTION as VARIABLES, WRAP_GRANTS_COLLECTION as WRAP_GRANTS,
+};
+use crate::blocks::auth::{API_KEYS_COLLECTION as API_KEYS, USERS_COLLECTION as USERS};
 
 /// Admin nav items for the sidebar.
 fn admin_nav() -> Vec<NavItem> {
@@ -98,7 +110,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     // Total users
     let user_count = db::list(
         ctx,
-        "suppers_ai__auth__users",
+        USERS,
         &ListOptions {
             filters: vec![Filter {
                 field: "deleted_at".into(),
@@ -114,78 +126,106 @@ pub async fn dashboard(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     .unwrap_or(0);
 
     // New users today
-    let new_users_today = db::query_raw(
-        ctx,
-        "SELECT COUNT(*) as cnt FROM suppers_ai__auth__users WHERE deleted_at IS NULL AND created_at >= ?1",
-        &[serde_json::json!(format!("{today}T00:00:00"))],
-    )
-    .await
-    .ok()
-    .and_then(|r| {
-        r.first()
-            .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-    })
-    .unwrap_or(0);
+    let today_start = format!("{today}T00:00:00");
+    let (sql, vals) = aggregate::build_count(
+        USERS,
+        &[
+            Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null },
+            Filter { field: "created_at".into(), operator: FilterOp::GreaterEqual, value: serde_json::json!(&today_start) },
+        ],
+        Backend::Sqlite,
+    );
+    let new_users_today = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .ok()
+        .and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64())))
+        .unwrap_or(0);
 
     // Requests today
-    let requests_today = db::query_raw(
-        ctx,
-        "SELECT COUNT(*) as cnt FROM suppers_ai__admin__request_logs WHERE created_at >= ?1",
-        &[serde_json::json!(format!("{today}T00:00:00"))],
-    )
-    .await
-    .ok()
-    .and_then(|r| {
-        r.first()
-            .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-    })
-    .unwrap_or(0);
+    let (sql, vals) = aggregate::build_count(
+        REQUEST_LOGS,
+        &[Filter { field: "created_at".into(), operator: FilterOp::GreaterEqual, value: serde_json::json!(&today_start) }],
+        Backend::Sqlite,
+    );
+    let requests_today = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .ok()
+        .and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64())))
+        .unwrap_or(0);
 
     // Errors today
-    let errors_today = db::query_raw(
-        ctx,
-        "SELECT COUNT(*) as cnt FROM suppers_ai__admin__request_logs WHERE status = 'ERROR' AND created_at >= ?1",
-        &[serde_json::json!(format!("{today}T00:00:00"))],
-    )
-    .await
-    .ok()
-    .and_then(|r| {
-        r.first()
-            .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-    })
-    .unwrap_or(0);
+    let (sql, vals) = aggregate::build_count(
+        REQUEST_LOGS,
+        &[
+            Filter { field: "status".into(), operator: FilterOp::Equal, value: serde_json::json!("ERROR") },
+            Filter { field: "created_at".into(), operator: FilterOp::GreaterEqual, value: serde_json::json!(&today_start) },
+        ],
+        Backend::Sqlite,
+    );
+    let errors_today = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .ok()
+        .and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64())))
+        .unwrap_or(0);
 
     // Avg response time today
-    let avg_ms = db::query_raw(
-        ctx,
-        "SELECT AVG(duration_ms) as avg_ms FROM suppers_ai__admin__request_logs WHERE created_at >= ?1",
-        &[serde_json::json!(format!("{today}T00:00:00"))],
-    )
-    .await
-    .ok()
-    .and_then(|r| {
-        r.first()
-            .and_then(|r| r.data.get("avg_ms").and_then(|v| v.as_f64()))
-    })
-    .unwrap_or(0.0);
+    let (sql, vals) = aggregate::build_avg(
+        REQUEST_LOGS,
+        "duration_ms",
+        &[Filter { field: "created_at".into(), operator: FilterOp::GreaterEqual, value: serde_json::json!(&today_start) }],
+        Backend::Sqlite,
+    );
+    let avg_ms = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .ok()
+        .and_then(|r| r.first().and_then(|r| r.data.get("avg_val").and_then(|v| v.as_f64())))
+        .unwrap_or(0.0);
 
     // Recent users (last 5 logins)
-    let recent_users = db::query_raw(ctx,
-        "SELECT id, email, created_at FROM suppers_ai__auth__users WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 5",
-        &[],
-    ).await.unwrap_or_default();
+    let (sql, vals) = query::build_select_columns(
+        USERS,
+        &["id", "email", "created_at"],
+        &ListOptions {
+            filters: vec![Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null }],
+            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            limit: 5,
+            ..Default::default()
+        },
+        None,
+        Backend::Sqlite,
+    );
+    let recent_users = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await.unwrap_or_default();
 
     // Recent audit logs (last 5)
-    let recent_audit = db::query_raw(ctx,
-        "SELECT action, resource, user_id, created_at FROM suppers_ai__admin__audit_logs ORDER BY created_at DESC LIMIT 5",
-        &[],
-    ).await.unwrap_or_default();
+    let (sql, vals) = query::build_select_columns(
+        AUDIT_LOGS,
+        &["action", "resource", "user_id", "created_at"],
+        &ListOptions {
+            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            limit: 5,
+            ..Default::default()
+        },
+        None,
+        Backend::Sqlite,
+    );
+    let recent_audit = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await.unwrap_or_default();
 
     // Recent errors (last 5)
-    let recent_errors = db::query_raw(ctx,
-        "SELECT status_code, method, path, duration_ms, created_at FROM suppers_ai__admin__request_logs WHERE status = 'ERROR' OR status_code >= 400 ORDER BY created_at DESC LIMIT 5",
-        &[],
-    ).await.unwrap_or_default();
+    let or_cond = sea_query::Cond::any()
+        .add(sea_query::Expr::col(wafer_sql_utils::ident::DynCol("status".into())).eq("ERROR"))
+        .add(sea_query::Expr::col(wafer_sql_utils::ident::DynCol("status_code".into())).gte(400));
+    let (sql, vals) = query::build_select_columns(
+        REQUEST_LOGS,
+        &["status_code", "method", "path", "duration_ms", "created_at"],
+        &ListOptions {
+            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            limit: 5,
+            ..Default::default()
+        },
+        Some(or_cond),
+        Backend::Sqlite,
+    );
+    let recent_errors = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await.unwrap_or_default();
 
     let content = html! {
         (components::page_header("Dashboard", Some("System overview"), None))
@@ -375,12 +415,15 @@ async fn users_tab(ctx: &dyn Context, msg: &mut Message, current_user_id: &str) 
     let search = msg.query("search").to_string();
 
     let result = if !search.is_empty() {
-        // Search by email OR id (raw SQL for OR support)
+        // Search by email OR id -- uses OR condition + SELECT * which needs raw SQL
         let like = format!("%{search}%");
         let offset = ((page - 1) * page_size) as i64;
         let records = db::query_raw(
             ctx,
-            "SELECT * FROM suppers_ai__auth__users WHERE deleted_at IS NULL AND (email LIKE ?1 OR id LIKE ?1) ORDER BY created_at DESC LIMIT ?2 OFFSET ?3",
+            &format!(
+                "SELECT * FROM {USERS} WHERE \"deleted_at\" IS NULL AND (\"email\" LIKE ?1 OR \"id\" LIKE ?1) \
+                 ORDER BY \"created_at\" DESC LIMIT ?2 OFFSET ?3"
+            ),
             &[serde_json::json!(like), serde_json::json!(page_size), serde_json::json!(offset)],
         ).await;
         // Wrap in RecordList format
@@ -405,7 +448,7 @@ async fn users_tab(ctx: &dyn Context, msg: &mut Message, current_user_id: &str) 
         }];
         db::paginated_list(
             ctx,
-            "suppers_ai__auth__users",
+            USERS,
             page as i64,
             page_size as i64,
             filters,
@@ -447,7 +490,7 @@ async fn users_table(records: &[db::Record], ctx: &dyn Context, current_user_id:
             }],
             ..Default::default()
         };
-        let roles: Vec<String> = match db::list(ctx, "suppers_ai__admin__user_roles", &roles_opts).await {
+        let roles: Vec<String> = match db::list(ctx, USER_ROLES_COLLECTION, &roles_opts).await {
             Ok(r) => r
                 .records
                 .iter()
@@ -635,7 +678,7 @@ async fn config_all_tab(ctx: &dyn Context) -> Markup {
         limit: 200,
         ..Default::default()
     };
-    let settings = db::list(ctx, "suppers_ai__admin__variables", &opts).await;
+    let settings = db::list(ctx, VARIABLES, &opts).await;
 
     html! {
         @match &settings {
@@ -703,7 +746,7 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
     let shared_vars = crate::config_vars::shared_config_vars();
 
     // Load all variables from DB
-    let all_vars = db::list_all(ctx, "suppers_ai__admin__variables", vec![])
+    let all_vars = db::list_all(ctx, VARIABLES, vec![])
         .await
         .unwrap_or_default();
 
@@ -975,7 +1018,7 @@ async fn roles_tab(ctx: &dyn Context) -> Markup {
         limit: 100,
         ..Default::default()
     };
-    let result = db::list(ctx, "suppers_ai__admin__roles", &opts).await;
+    let result = db::list(ctx, ROLES_COLLECTION, &opts).await;
 
     html! {
         div .flex .items-center .justify-between .mb-4 {
@@ -1061,7 +1104,7 @@ async fn api_keys_tab(ctx: &dyn Context) -> Markup {
         limit: 100,
         ..Default::default()
     };
-    let result = db::list(ctx, "suppers_ai__auth__api_keys", &opts).await;
+    let result = db::list(ctx, API_KEYS, &opts).await;
 
     html! {
         div .flex .items-center .justify-between .mb-4 {
@@ -1230,6 +1273,7 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
         )
     };
 
+    // Uses SUM(CASE WHEN...) which is too complex for the grouped query builder.
     let summary = db::query_raw(
         ctx,
         &format!(
@@ -1237,7 +1281,7 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
              CAST(AVG(duration_ms) AS INTEGER) as avg_ms, \
              SUM(CASE WHEN CAST(status_code AS INTEGER) >= 400 THEN 1 ELSE 0 END) as errors, \
              MAX(created_at) as last_seen \
-             FROM suppers_ai__admin__request_logs{where_clause} \
+             FROM {REQUEST_LOGS}{where_clause} \
              GROUP BY method, path ORDER BY cnt DESC LIMIT 50"
         ),
         &args,
@@ -1332,20 +1376,25 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &mut Message) -> Res
     let offset: i64 = msg.query("offset").parse().unwrap_or(0);
     let limit: i64 = 20;
 
-    let rows = db::query_raw(
-        ctx,
-        "SELECT status_code, duration_ms, client_ip, user_id, created_at \
-         FROM suppers_ai__admin__request_logs WHERE method = ?1 AND path = ?2 \
-         ORDER BY created_at DESC LIMIT ?3 OFFSET ?4",
-        &[
-            serde_json::json!(method),
-            serde_json::json!(path),
-            serde_json::json!(limit + 1), // fetch one extra to detect "has more"
-            serde_json::json!(offset),
-        ],
-    )
-    .await
-    .unwrap_or_default();
+    let (sql, vals) = query::build_select_columns(
+        REQUEST_LOGS,
+        &["status_code", "duration_ms", "client_ip", "user_id", "created_at"],
+        &ListOptions {
+            filters: vec![
+                Filter { field: "method".into(), operator: FilterOp::Equal, value: serde_json::json!(&method) },
+                Filter { field: "path".into(), operator: FilterOp::Equal, value: serde_json::json!(&path) },
+            ],
+            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            limit: limit + 1, // fetch one extra to detect "has more"
+            offset,
+            ..Default::default()
+        },
+        None,
+        Backend::Sqlite,
+    );
+    let rows = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .unwrap_or_default();
 
     let has_more = rows.len() as i64 > limit;
     let display_rows = if has_more {
@@ -1416,6 +1465,7 @@ async fn network_outbound_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
         )
     };
 
+    // Uses SUM(CASE WHEN...) which is too complex for the grouped query builder.
     let summary = db::query_raw(
         ctx,
         &format!(
@@ -1423,7 +1473,7 @@ async fn network_outbound_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
              CAST(AVG(duration_ms) AS INTEGER) as avg_ms, \
              SUM(CASE WHEN error_message != '' THEN 1 ELSE 0 END) as errors, \
              MAX(created_at) as last_seen \
-             FROM suppers_ai__admin__network_request_logs{where_clause} \
+             FROM {NETWORK_REQUEST_LOGS}{where_clause} \
              GROUP BY method, url ORDER BY cnt DESC LIMIT 50"
         ),
         &args,
@@ -1517,20 +1567,25 @@ pub async fn network_outbound_detail(ctx: &dyn Context, msg: &mut Message) -> Re
     let offset: i64 = msg.query("offset").parse().unwrap_or(0);
     let limit: i64 = 20;
 
-    let rows = db::query_raw(
-        ctx,
-        "SELECT status_code, duration_ms, source_block, error_message, created_at \
-         FROM suppers_ai__admin__network_request_logs WHERE method = ?1 AND url = ?2 \
-         ORDER BY created_at DESC LIMIT ?3 OFFSET ?4",
-        &[
-            serde_json::json!(method),
-            serde_json::json!(url),
-            serde_json::json!(limit + 1),
-            serde_json::json!(offset),
-        ],
-    )
-    .await
-    .unwrap_or_default();
+    let (sql, vals) = query::build_select_columns(
+        NETWORK_REQUEST_LOGS,
+        &["status_code", "duration_ms", "source_block", "error_message", "created_at"],
+        &ListOptions {
+            filters: vec![
+                Filter { field: "method".into(), operator: FilterOp::Equal, value: serde_json::json!(&method) },
+                Filter { field: "url".into(), operator: FilterOp::Equal, value: serde_json::json!(&url) },
+            ],
+            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            limit: limit + 1,
+            offset,
+            ..Default::default()
+        },
+        None,
+        Backend::Sqlite,
+    );
+    let rows = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .unwrap_or_default();
 
     let has_more = rows.len() as i64 > limit;
     let display_rows = if has_more {
@@ -1604,7 +1659,7 @@ async fn network_rules_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
     let blocks = ctx.registered_blocks();
     let block_names: Vec<&str> = blocks.iter().map(|b| b.name.as_str()).collect();
 
-    let rules = db::list_all(ctx, "suppers_ai__admin__network_rules", vec![])
+    let rules = db::list_all(ctx, NETWORK_RULES, vec![])
         .await
         .unwrap_or_default();
 
@@ -1786,13 +1841,20 @@ pub async fn storage_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 async fn storage_logs_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
-    let logs = db::query_raw(
-        ctx,
-        "SELECT source_block, operation, path, status, created_at FROM suppers_ai__admin__storage_access_logs ORDER BY created_at DESC LIMIT 100",
-        &[],
-    )
-    .await
-    .unwrap_or_default();
+    let (sql, vals) = query::build_select_columns(
+        STORAGE_ACCESS_LOGS,
+        &["source_block", "operation", "path", "status", "created_at"],
+        &ListOptions {
+            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            limit: 100,
+            ..Default::default()
+        },
+        None,
+        Backend::Sqlite,
+    );
+    let logs = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .unwrap_or_default();
 
     html! {
         p .text-muted style="margin-bottom:16px" {
@@ -1856,7 +1918,7 @@ async fn storage_rules_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
     let blocks = ctx.registered_blocks();
     let block_names: Vec<&str> = blocks.iter().map(|b| b.name.as_str()).collect();
 
-    let rules = db::list_all(ctx, "suppers_ai__admin__storage_rules", vec![])
+    let rules = db::list_all(ctx, STORAGE_RULES, vec![])
         .await
         .unwrap_or_default();
 
@@ -2103,7 +2165,7 @@ async fn system_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
     }];
     let result = db::paginated_list(
         ctx,
-        "suppers_ai__admin__request_logs",
+        REQUEST_LOGS,
         page as i64,
         page_size as i64,
         filters,
@@ -2194,7 +2256,7 @@ async fn audit_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
     }];
     let result = db::paginated_list(
         ctx,
-        "suppers_ai__admin__audit_logs",
+        AUDIT_LOGS,
         page as i64,
         page_size as i64,
         filters,
@@ -2274,7 +2336,7 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     // Load block enabled/disabled state from block_settings table
     let block_settings_rows =
-        db::list_all(ctx, "suppers_ai__admin__block_settings", vec![])
+        db::list_all(ctx, BLOCK_SETTINGS, vec![])
             .await
             .unwrap_or_default();
 
@@ -2449,35 +2511,44 @@ pub async fn handle_toggle_feature(
     block_name: &str,
 ) -> Result_ {
     // Read current state from block_settings
-    let current_enabled = db::query_raw(
-        ctx,
-        "SELECT enabled FROM suppers_ai__admin__block_settings WHERE block_name = ?1",
-        &[serde_json::json!(block_name)],
-    )
-    .await
-    .ok()
-    .and_then(|rows| {
-        rows.first()
-            .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
-    })
-    .map(|v| v != 0)
-    .unwrap_or(true);
+    let (sql, vals) = query::build_select_columns(
+        BLOCK_SETTINGS,
+        &["enabled"],
+        &ListOptions {
+            filters: vec![Filter { field: "block_name".into(), operator: FilterOp::Equal, value: serde_json::json!(block_name) }],
+            ..Default::default()
+        },
+        None,
+        Backend::Sqlite,
+    );
+    let current_enabled = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .ok()
+        .and_then(|rows| {
+            rows.first()
+                .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
+        })
+        .map(|v| v != 0)
+        .unwrap_or(true);
 
     let new_enabled = !current_enabled;
     let new_enabled_int = if new_enabled { 1 } else { 0 };
 
     // Upsert into block_settings
-    let _ = db::exec_raw(
-        ctx,
-        "INSERT INTO suppers_ai__admin__block_settings (block_name, enabled, created_at, updated_at) \
-         VALUES (?1, ?2, datetime('now'), datetime('now')) \
-         ON CONFLICT (block_name) DO UPDATE SET enabled = ?2, updated_at = datetime('now')",
+    let now = chrono::Utc::now().to_rfc3339();
+    let (sql, vals) = upsert::build_upsert(
+        BLOCK_SETTINGS,
         &[
-            serde_json::json!(block_name),
-            serde_json::json!(new_enabled_int),
+            ("block_name".to_string(), serde_json::json!(block_name)),
+            ("enabled".to_string(), serde_json::json!(new_enabled_int)),
+            ("created_at".to_string(), serde_json::json!(&now)),
+            ("updated_at".to_string(), serde_json::json!(&now)),
         ],
-    )
-    .await;
+        &["block_name"],
+        &["enabled", "updated_at"],
+        Backend::Sqlite,
+    );
+    let _ = db::exec_raw(ctx, &sql, &sea_values_to_json(vals)).await;
 
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
@@ -2502,19 +2573,25 @@ pub async fn handle_block_detail(
     let block_opt = blocks.iter().find(|b| b.name == block_name);
 
     // Check block enabled state from block_settings
-    let is_enabled = db::query_raw(
-        ctx,
-        "SELECT enabled FROM suppers_ai__admin__block_settings WHERE block_name = ?1",
-        &[serde_json::json!(block_name)],
-    )
-    .await
-    .ok()
-    .and_then(|rows| {
-        rows.first()
-            .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
-    })
-    .map(|v| v != 0)
-    .unwrap_or(true);
+    let (sql, vals) = query::build_select_columns(
+        BLOCK_SETTINGS,
+        &["enabled"],
+        &ListOptions {
+            filters: vec![Filter { field: "block_name".into(), operator: FilterOp::Equal, value: serde_json::json!(block_name) }],
+            ..Default::default()
+        },
+        None,
+        Backend::Sqlite,
+    );
+    let is_enabled = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .ok()
+        .and_then(|rows| {
+            rows.first()
+                .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
+        })
+        .map(|v| v != 0)
+        .unwrap_or(true);
 
     let encoded = block_name.replace('/', "--");
 
@@ -2707,7 +2784,7 @@ pub async fn handle_block_detail(
 
 /// Render a single user table row (used by enable/disable mutations).
 async fn user_row_fragment(ctx: &dyn Context, user_id: &str) -> Markup {
-    let record = match db::get(ctx, "suppers_ai__auth__users", user_id).await {
+    let record = match db::get(ctx, USERS, user_id).await {
         Ok(r) => r,
         Err(_) => return html! {},
     };
@@ -2720,7 +2797,7 @@ async fn user_row_fragment(ctx: &dyn Context, user_id: &str) -> Markup {
         }],
         ..Default::default()
     };
-    let roles: Vec<String> = match db::list(ctx, "suppers_ai__admin__user_roles", &roles_opts).await {
+    let roles: Vec<String> = match db::list(ctx, USER_ROLES_COLLECTION, &roles_opts).await {
         Ok(r) => r
             .records
             .iter()
@@ -2793,7 +2870,7 @@ pub async fn handle_user_disable(ctx: &dyn Context, msg: &mut Message, user_id: 
     let mut data = std::collections::HashMap::new();
     data.insert("disabled".to_string(), serde_json::json!(true));
     crate::blocks::helpers::stamp_updated(&mut data);
-    if let Err(e) = db::update(ctx, "suppers_ai__auth__users", user_id, data).await {
+    if let Err(e) = db::update(ctx, USERS, user_id, data).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
     super::logs::audit_log(
@@ -2815,7 +2892,7 @@ pub async fn handle_user_enable(ctx: &dyn Context, msg: &mut Message, user_id: &
     let mut data = std::collections::HashMap::new();
     data.insert("disabled".to_string(), serde_json::json!(false));
     crate::blocks::helpers::stamp_updated(&mut data);
-    if let Err(e) = db::update(ctx, "suppers_ai__auth__users", user_id, data).await {
+    if let Err(e) = db::update(ctx, USERS, user_id, data).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
     super::logs::audit_log(
@@ -2837,7 +2914,7 @@ pub async fn handle_user_delete(ctx: &dyn Context, msg: &mut Message, user_id: &
         return wafer_run::helpers::err_bad_request(msg, "Cannot delete your own account");
     }
     let ip = msg.remote_addr().to_string();
-    if let Err(e) = db::soft_delete(ctx, "suppers_ai__auth__users", user_id).await {
+    if let Err(e) = db::soft_delete(ctx, USERS, user_id).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
     super::logs::audit_log(
@@ -2873,7 +2950,7 @@ pub async fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_
     }
     crate::blocks::helpers::stamp_created(&mut data);
 
-    if let Err(e) = db::create(ctx, "suppers_ai__admin__roles", data).await {
+    if let Err(e) = db::create(ctx, ROLES_COLLECTION, data).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
     super::logs::audit_log(ctx, &admin_id, "role.create", &format!("roles/{name}"), &ip).await;
@@ -2924,7 +3001,7 @@ pub async fn handle_create_variable(ctx: &dyn Context, msg: &mut Message) -> Res
     );
     crate::blocks::helpers::stamp_created(&mut data);
 
-    if let Err(e) = db::create(ctx, "suppers_ai__admin__variables", data).await {
+    if let Err(e) = db::create(ctx, VARIABLES, data).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
     super::logs::audit_log(
@@ -2948,7 +3025,7 @@ pub async fn handle_edit_variable_form(
 ) -> Result_ {
     let record = match db::get_by_field(
         ctx,
-        "suppers_ai__admin__variables",
+        VARIABLES,
         "key",
         serde_json::Value::String(var_key.to_string()),
     )
@@ -3043,7 +3120,7 @@ pub async fn handle_update_variable(
     // Find existing record by key
     let record = match db::get_by_field(
         ctx,
-        "suppers_ai__admin__variables",
+        VARIABLES,
         "key",
         serde_json::Value::String(var_key.to_string()),
     )
@@ -3062,7 +3139,7 @@ pub async fn handle_update_variable(
     }
     crate::blocks::helpers::stamp_updated(&mut data);
 
-    if let Err(e) = db::update(ctx, "suppers_ai__admin__variables", &record.id, data).await {
+    if let Err(e) = db::update(ctx, VARIABLES, &record.id, data).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
     super::logs::audit_log(
@@ -3081,13 +3158,13 @@ pub async fn handle_delete_role(ctx: &dyn Context, msg: &mut Message, role_id: &
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
     // Check if system role
-    if let Ok(record) = db::get(ctx, "suppers_ai__admin__roles", role_id).await {
+    if let Ok(record) = db::get(ctx, ROLES_COLLECTION, role_id).await {
         if record.bool_field("is_system") {
             return wafer_run::helpers::err_forbidden(msg, "Cannot delete system role");
         }
     }
 
-    if let Err(e) = db::delete(ctx, "suppers_ai__admin__roles", role_id).await {
+    if let Err(e) = db::delete(ctx, ROLES_COLLECTION, role_id).await {
         return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
     }
     super::logs::audit_log(
@@ -3348,7 +3425,7 @@ fn grants_code_tab(ctx: &dyn Context) -> Markup {
 }
 
 async fn grants_custom_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
-    let grants = db::list_all(ctx, "suppers_ai__admin__wrap_grants", vec![])
+    let grants = db::list_all(ctx, WRAP_GRANTS, vec![])
         .await
         .unwrap_or_default();
 
@@ -3633,7 +3710,7 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
     }
 
     // 2. Custom DB grants
-    let custom_grants = db::list_all(ctx, "suppers_ai__admin__wrap_grants", vec![])
+    let custom_grants = db::list_all(ctx, WRAP_GRANTS, vec![])
         .await
         .unwrap_or_default();
     for grant in &custom_grants {
@@ -3686,7 +3763,7 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
     }
 
     // 3. Storage rules
-    let storage_rules = db::list_all(ctx, "suppers_ai__admin__storage_rules", vec![])
+    let storage_rules = db::list_all(ctx, STORAGE_RULES, vec![])
         .await
         .unwrap_or_default();
     for rule in &storage_rules {
@@ -3735,7 +3812,7 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
     }
 
     // 4. Network rules
-    let network_rules = db::list_all(ctx, "suppers_ai__admin__network_rules", vec![])
+    let network_rules = db::list_all(ctx, NETWORK_RULES, vec![])
         .await
         .unwrap_or_default();
     for rule in &network_rules {

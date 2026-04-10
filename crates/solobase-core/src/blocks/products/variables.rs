@@ -5,7 +5,7 @@ use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
 
-const COLLECTION: &str = "suppers_ai__products__variables";
+use super::VARIABLES_COLLECTION as COLLECTION;
 
 pub async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let mut filters = Vec::new();

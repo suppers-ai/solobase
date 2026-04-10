@@ -21,7 +21,7 @@ async fn load_variables(ctx: &dyn Context) -> HashMap<String, String> {
         ..Default::default()
     };
     let mut settings = HashMap::new();
-    if let Ok(result) = db::list(ctx, "suppers_ai__admin__variables", &opts).await {
+    if let Ok(result) = db::list(ctx, crate::blocks::admin::VARIABLES_COLLECTION, &opts).await {
         for record in &result.records {
             let key = record.str_field("key").to_string();
             let value = record.str_field("value").to_string();

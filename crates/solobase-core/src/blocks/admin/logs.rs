@@ -4,8 +4,7 @@ use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
 
-const COLLECTION: &str = "suppers_ai__admin__audit_logs";
-const REQUEST_LOGS_COLLECTION: &str = "suppers_ai__admin__request_logs";
+use super::{AUDIT_LOGS_COLLECTION as COLLECTION, REQUEST_LOGS_COLLECTION};
 
 pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();

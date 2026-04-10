@@ -2,7 +2,7 @@
 //!
 //! Wraps the wafer-core `StorageBlock` to add:
 //! - Per-block path isolation (each block gets its own storage namespace)
-//! - Storage rule enforcement (cross-block access requires explicit rules)
+//! - Cross-block access control via WRAP grants (default deny)
 //! - Storage access logging
 //!
 //! ## Isolation model
@@ -17,8 +17,8 @@
 //! folder with `@`:
 //! - `store::get(ctx, "@wafer-run/web/public", "key")` → cross-block read of `wafer-run/web/public/key`
 //!
-//! Cross-block access is **denied by default** and requires an explicit storage
-//! rule granting access.
+//! Cross-block access is **denied by default** and requires a WRAP grant with
+//! `resource_type = Storage` matching the target path.
 
 use std::sync::Arc;
 
@@ -27,21 +27,39 @@ use wafer_run::block::Block;
 use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::BlockInfo;
+use wafer_run::ResourceGrant;
+use wafer_run::ResourceType;
 
 use wafer_core::clients::database as db;
 
+use super::admin::STORAGE_ACCESS_LOGS_COLLECTION;
 use super::helpers::{json_map, now_millis};
 
-/// A storage block that enforces per-block path isolation and storage rules.
+/// A storage block that enforces per-block path isolation and WRAP-based
+/// cross-block access control.
 pub struct SolobaseStorageBlock {
     inner: wafer_core::service_blocks::storage::StorageBlock,
+    /// WRAP grants for cross-block storage access checks.
+    /// Updated after runtime startup via `update_wrap_grants()`.
+    wrap_grants: std::sync::RwLock<Vec<ResourceGrant>>,
+    /// The admin block ID (has full storage access).
+    wrap_admin_block: Arc<String>,
 }
 
 impl SolobaseStorageBlock {
-    pub fn new(service: Arc<dyn StorageService>) -> Self {
+    pub fn new(service: Arc<dyn StorageService>, admin_block: Arc<String>) -> Self {
         Self {
             inner: wafer_core::service_blocks::storage::StorageBlock::new(service),
+            wrap_grants: std::sync::RwLock::new(Vec::new()),
+            wrap_admin_block: admin_block,
         }
+    }
+
+    /// Update the WRAP grants used for cross-block access checks.
+    /// Called after runtime startup once grants are collected.
+    pub fn update_wrap_grants(&self, grants: &[ResourceGrant]) {
+        let mut g = self.wrap_grants.write().unwrap();
+        *g = grants.to_vec();
     }
 }
 
@@ -92,134 +110,6 @@ fn resolve_folder(caller: &str, folder: &str) -> ResolvedPath {
             cross_block: false,
         }
     }
-}
-
-/// Check storage rules. Returns `None` if allowed, or `Some(reason)` if blocked.
-///
-/// Evaluation: block rules are checked first (any match = deny).
-/// Then allow rules: if any exist, the source+target must match at least one.
-/// No rules = deny cross-block access by default.
-async fn check_storage_rules(
-    ctx: &dyn Context,
-    source_block: &str,
-    target_path: &str,
-    access: &str,
-) -> Option<String> {
-    let rules = match db::list(
-        ctx,
-        "suppers_ai__admin__storage_rules",
-        &db::ListOptions {
-            sort: vec![db::SortField {
-                field: "priority".into(),
-                desc: true,
-            }],
-            limit: 10_000,
-            ..Default::default()
-        },
-    )
-    .await
-    {
-        Ok(result) => result.records,
-        Err(e) => {
-            tracing::debug!("storage rules query failed (table may not exist yet): {e}");
-            // No rules table = deny cross-block by default
-            return Some("cross-block storage access denied (no rules configured)".into());
-        }
-    };
-
-    if rules.is_empty() {
-        return Some("cross-block storage access denied (no rules configured)".into());
-    }
-
-    let mut has_allow_rules = false;
-    let mut explicitly_allowed = false;
-
-    for rule in &rules {
-        let rule_type = rule
-            .data
-            .get("rule_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let rule_source = rule
-            .data
-            .get("source_block")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let rule_target = rule
-            .data
-            .get("target_path")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let rule_access = rule
-            .data
-            .get("access")
-            .and_then(|v| v.as_str())
-            .unwrap_or("readwrite");
-
-        // Check if rule applies to this source block
-        if !rule_source.is_empty()
-            && rule_source != "*"
-            && !pattern_matches(rule_source, source_block)
-        {
-            continue;
-        }
-
-        // Check if rule access type matches
-        if rule_access != "readwrite" && rule_access != access {
-            continue;
-        }
-
-        let target_matches = pattern_matches(rule_target, target_path);
-
-        if rule_type == "block" && target_matches {
-            return Some(format!("blocked by storage rule: {rule_target}"));
-        }
-        if rule_type == "allow" {
-            has_allow_rules = true;
-            if target_matches {
-                explicitly_allowed = true;
-            }
-        }
-    }
-
-    if has_allow_rules && explicitly_allowed {
-        return None; // allowed
-    }
-
-    Some("cross-block storage access denied".into())
-}
-
-/// Simple glob-style pattern matching (same as network rules).
-fn pattern_matches(pattern: &str, value: &str) -> bool {
-    if pattern == "*" {
-        return true;
-    }
-
-    let parts: Vec<&str> = pattern.split('*').collect();
-    if parts.len() == 1 {
-        return value == pattern;
-    }
-
-    let mut pos = 0;
-    for (i, part) in parts.iter().enumerate() {
-        if part.is_empty() {
-            continue;
-        }
-        if let Some(found) = value[pos..].find(part) {
-            if i == 0 && found != 0 {
-                return false;
-            }
-            pos += found + part.len();
-        } else {
-            return false;
-        }
-    }
-
-    if !pattern.ends_with('*') {
-        return pos == value.len();
-    }
-
-    true
 }
 
 /// Determine access type from the storage operation kind.
@@ -316,21 +206,27 @@ impl Block for SolobaseStorageBlock {
             ));
         }
 
-        // Cross-block access requires explicit rules
+        // Cross-block access requires a WRAP grant with resource_type = Storage
         if resolved.cross_block {
-            if let Some(reason) = check_storage_rules(ctx, &caller, &resolved.path, access).await {
+            let is_write = access == "write";
+            let grants = self.wrap_grants.read().unwrap().clone();
+            if let Err(e) = wafer_run::wrap::check_access(
+                Some(&caller),
+                &resolved.path,
+                is_write,
+                Some(&ResourceType::Storage),
+                &grants,
+                &self.wrap_admin_block,
+            ) {
                 let _ = log_storage_access(
                     ctx,
                     &caller,
                     &msg.kind,
                     &resolved.path,
-                    &format!("BLOCKED: {reason}"),
+                    &format!("BLOCKED: {}", e.message),
                 )
                 .await;
-                return Result_::error(WaferError::new(
-                    ErrorCode::PERMISSION_DENIED,
-                    format!("storage access blocked: {reason}"),
-                ));
+                return Result_::error(e);
             }
         }
 
@@ -372,7 +268,7 @@ async fn log_storage_access(
 ) -> Result<(), WaferError> {
     db::create(
         ctx,
-        "suppers_ai__admin__storage_access_logs",
+        STORAGE_ACCESS_LOGS_COLLECTION,
         json_map(serde_json::json!({
             "source_block": source_block,
             "operation": operation,
@@ -385,8 +281,11 @@ async fn log_storage_access(
 }
 
 /// Create a new SolobaseStorageBlock (caller must register it with the runtime).
-pub fn create(service: Arc<dyn StorageService>) -> Arc<SolobaseStorageBlock> {
-    Arc::new(SolobaseStorageBlock::new(service))
+///
+/// After the runtime starts, call `update_wrap_grants()` to inject the
+/// collected grants for cross-block access checks.
+pub fn create(service: Arc<dyn StorageService>, admin_block: Arc<String>) -> Arc<SolobaseStorageBlock> {
+    Arc::new(SolobaseStorageBlock::new(service, admin_block))
 }
 
 #[cfg(test)]
@@ -445,25 +344,6 @@ mod tests {
         let r = resolve_folder("suppers-ai/admin", "@suppers-ai/files/uploads");
         assert_eq!(r.path, "suppers-ai/files/uploads");
         assert!(r.cross_block);
-    }
-
-    #[test]
-    fn test_pattern_matches() {
-        assert!(pattern_matches("*", "anything"));
-        assert!(pattern_matches("wafer-run/web/*", "wafer-run/web/public"));
-        assert!(!pattern_matches("wafer-run/web/*", "suppers-ai/auth/data"));
-        assert!(pattern_matches(
-            "suppers-ai/solobase/*",
-            "suppers-ai/solobase/files/uploads"
-        ));
-        assert!(pattern_matches(
-            "wafer-run/web/public",
-            "wafer-run/web/public"
-        ));
-        assert!(!pattern_matches(
-            "wafer-run/web/public",
-            "wafer-run/web/private"
-        ));
     }
 
     #[test]
@@ -650,6 +530,8 @@ mod tests {
     // Mock context that handles db + storage calls
     // -----------------------------------------------------------------------
 
+    const ADMIN_BLOCK: &str = "suppers-ai/admin";
+
     struct TestContext {
         caller: Option<String>,
         storage_block: SolobaseStorageBlock,
@@ -661,35 +543,17 @@ mod tests {
         fn new(caller: Option<&str>, storage: Arc<MemoryStorageService>) -> Self {
             Self {
                 caller: caller.map(|s| s.to_string()),
-                storage_block: SolobaseStorageBlock::new(storage),
+                storage_block: SolobaseStorageBlock::new(
+                    storage,
+                    Arc::new(ADMIN_BLOCK.to_string()),
+                ),
                 db: Mutex::new(HashMap::new()),
                 next_id: AtomicU64::new(1),
             }
         }
 
-        fn seed_rule(
-            &self,
-            rule_type: &str,
-            source_block: &str,
-            target_path: &str,
-            access: &str,
-            priority: i64,
-        ) {
-            let id = self
-                .next_id
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-                .to_string();
-            let mut data = HashMap::new();
-            data.insert("rule_type".into(), serde_json::json!(rule_type));
-            data.insert("source_block".into(), serde_json::json!(source_block));
-            data.insert("target_path".into(), serde_json::json!(target_path));
-            data.insert("access".into(), serde_json::json!(access));
-            data.insert("priority".into(), serde_json::json!(priority));
-            let record = Record { id, data };
-            let mut db = self.db.lock().unwrap();
-            db.entry("suppers_ai__admin__storage_rules".to_string())
-                .or_default()
-                .push(record);
+        fn set_grants(&self, grants: Vec<ResourceGrant>) {
+            self.storage_block.update_wrap_grants(&grants);
         }
 
         fn handle_db_call(&self, kind: &str, data: &[u8]) -> Result<Vec<u8>, WaferError> {
@@ -710,19 +574,6 @@ mod tests {
                     let mut db = self.db.lock().unwrap();
                     db.entry(req.collection).or_default().push(record.clone());
                     Ok(serde_json::to_vec(&record).unwrap())
-                }
-                "database.list" => {
-                    #[derive(serde::Deserialize)]
-                    struct Req {
-                        collection: String,
-                    }
-                    let req: Req = serde_json::from_slice(data)
-                        .map_err(|e| WaferError::new("internal", e.to_string()))?;
-                    let db = self.db.lock().unwrap();
-                    let records = db.get(&req.collection).cloned().unwrap_or_default();
-                    let total_count = records.len() as i64;
-                    let result = db::RecordList { records, total_count, page: 1, page_size: 10_000 };
-                    Ok(serde_json::to_vec(&result).unwrap())
                 }
                 _ => Err(WaferError::new(
                     "not_implemented",
@@ -928,92 +779,63 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cross_block_allowed_by_rule() {
+    async fn test_cross_block_allowed_by_grant() {
         let storage = Arc::new(MemoryStorageService::new());
 
-        // Block A writes a file
         let ctx_a = TestContext::new(Some("wafer-run/web"), storage.clone());
-        do_put(
-            &ctx_a.storage_block,
-            &ctx_a,
-            "public",
-            "index.html",
-            b"<html>hello</html>",
-        )
-        .await;
+        do_put(&ctx_a.storage_block, &ctx_a, "public", "index.html", b"<html>hello</html>").await;
 
-        // Set up a rule allowing suppers-ai/files to read wafer-run/web/*
         let ctx_b = TestContext::new(Some("suppers-ai/files"), storage.clone());
-        ctx_b.seed_rule("allow", "suppers-ai/files", "wafer-run/web/*", "read", 0);
+        ctx_b.set_grants(vec![
+            ResourceGrant::read("suppers-ai/files", "wafer-run/web/*")
+                .typed(ResourceType::Storage),
+        ]);
 
-        // Block B reads via @ prefix — should succeed now
-        let result = do_get(
-            &ctx_b.storage_block,
-            &ctx_b,
-            "@wafer-run/web/public",
-            "index.html",
-        )
-        .await;
+        let result = do_get(&ctx_b.storage_block, &ctx_b, "@wafer-run/web/public", "index.html").await;
         assert!(
             matches!(result.action, Action::Respond),
-            "cross-block read should be allowed by rule, got: {:?}",
+            "cross-block read should be allowed by grant, got: {:?}",
             result.error
         );
     }
 
     #[tokio::test]
-    async fn test_cross_block_rule_wrong_access_type() {
+    async fn test_cross_block_grant_wrong_access_type() {
         let storage = Arc::new(MemoryStorageService::new());
 
         let ctx_a = TestContext::new(Some("wafer-run/web"), storage.clone());
         do_put(&ctx_a.storage_block, &ctx_a, "public", "test.txt", b"data").await;
 
-        // Rule allows only read, but we try write
         let ctx_b = TestContext::new(Some("suppers-ai/files"), storage.clone());
-        ctx_b.seed_rule("allow", "suppers-ai/files", "wafer-run/web/*", "read", 0);
+        ctx_b.set_grants(vec![
+            ResourceGrant::read("suppers-ai/files", "wafer-run/web/*")
+                .typed(ResourceType::Storage),
+        ]);
 
-        let result = do_put(
-            &ctx_b.storage_block,
-            &ctx_b,
-            "@wafer-run/web/public",
-            "evil.txt",
-            b"hacked",
-        )
-        .await;
+        let result = do_put(&ctx_b.storage_block, &ctx_b, "@wafer-run/web/public", "evil.txt", b"hacked").await;
         assert!(
             matches!(result.action, Action::Error),
-            "write should be denied when rule only allows read"
+            "write should be denied when grant is read-only"
         );
     }
 
     #[tokio::test]
-    async fn test_cross_block_block_rule() {
+    async fn test_cross_block_no_grant_for_different_path() {
         let storage = Arc::new(MemoryStorageService::new());
 
-        let ctx_a = TestContext::new(Some("wafer-run/web"), storage.clone());
-        do_put(&ctx_a.storage_block, &ctx_a, "public", "test.txt", b"data").await;
+        let ctx_a = TestContext::new(Some("suppers-ai/files"), storage.clone());
+        do_put(&ctx_a.storage_block, &ctx_a, "uploads", "test.txt", b"data").await;
 
-        // Allow rule + block rule: block rule should take precedence
-        let ctx_b = TestContext::new(Some("suppers-ai/files"), storage.clone());
-        ctx_b.seed_rule("allow", "*", "wafer-run/web/*", "readwrite", 0);
-        ctx_b.seed_rule(
-            "block",
-            "suppers-ai/files",
-            "wafer-run/web/*",
-            "readwrite",
-            10,
-        );
+        let ctx_b = TestContext::new(Some("suppers-ai/auth"), storage.clone());
+        ctx_b.set_grants(vec![
+            ResourceGrant::read("suppers-ai/auth", "wafer-run/web/*")
+                .typed(ResourceType::Storage),
+        ]);
 
-        let result = do_get(
-            &ctx_b.storage_block,
-            &ctx_b,
-            "@wafer-run/web/public",
-            "test.txt",
-        )
-        .await;
+        let result = do_get(&ctx_b.storage_block, &ctx_b, "@suppers-ai/files/uploads", "test.txt").await;
         assert!(
             matches!(result.action, Action::Error),
-            "block rule should deny even with allow rule present"
+            "grant for different path should not allow access"
         );
     }
 
@@ -1039,18 +861,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_own_namespace_unaffected_by_rules() {
+    async fn test_own_namespace_unaffected_by_grants() {
         let storage = Arc::new(MemoryStorageService::new());
-
-        // Seed an allow rule for a different block — should NOT affect own namespace
         let ctx = TestContext::new(Some("wafer-run/web"), storage.clone());
-        ctx.seed_rule("allow", "suppers-ai/files", "wafer-run/web/*", "read", 0);
 
-        // Own namespace put should still work fine
         let result = do_put(&ctx.storage_block, &ctx, "public", "test.txt", b"hello").await;
         assert!(
             matches!(result.action, Action::Respond),
-            "own namespace access should not be affected by cross-block rules, got: {:?}",
+            "own namespace access should work without any grants, got: {:?}",
+            result.error
+        );
+    }
+
+    #[tokio::test]
+    async fn test_admin_has_full_cross_block_access() {
+        let storage = Arc::new(MemoryStorageService::new());
+
+        let ctx_a = TestContext::new(Some("wafer-run/web"), storage.clone());
+        do_put(&ctx_a.storage_block, &ctx_a, "public", "test.txt", b"data").await;
+
+        let ctx_admin = TestContext::new(Some(ADMIN_BLOCK), storage.clone());
+        let result = do_get(&ctx_admin.storage_block, &ctx_admin, "@wafer-run/web/public", "test.txt").await;
+        assert!(
+            matches!(result.action, Action::Respond),
+            "admin should have full cross-block access, got: {:?}",
             result.error
         );
     }

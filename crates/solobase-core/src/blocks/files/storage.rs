@@ -6,8 +6,7 @@ use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
 
-const OBJECTS_META_COLLECTION: &str = "suppers_ai__files__objects";
-const BUCKETS_COLLECTION: &str = "suppers_ai__files__buckets";
+use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION as OBJECTS_META_COLLECTION};
 
 pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -296,7 +295,7 @@ async fn handle_get_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         "viewed_at".to_string(),
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
-    if let Err(e) = db::create(ctx, "suppers_ai__files__views", data).await {
+    if let Err(e) = db::create(ctx, super::VIEWS_COLLECTION, data).await {
         tracing::warn!("Failed to track storage object view: {e}");
     }
 
@@ -504,7 +503,7 @@ async fn handle_recent(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ..Default::default()
     };
 
-    match db::list(ctx, "suppers_ai__files__views", &opts).await {
+    match db::list(ctx, super::VIEWS_COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }

@@ -1,4 +1,5 @@
 use super::models::QuotaConfig;
+use super::{OBJECTS_COLLECTION, QUOTAS_COLLECTION};
 use crate::blocks::helpers::RecordExt;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp};
@@ -10,7 +11,7 @@ pub async fn get_user_quota(ctx: &dyn Context, user_id: &str) -> QuotaConfig {
     // Check for user-specific override
     match db::get_by_field(
         ctx,
-        "suppers_ai__files__cloud_quotas",
+        QUOTAS_COLLECTION,
         "user_id",
         serde_json::Value::String(user_id.to_string()),
     )
@@ -45,10 +46,10 @@ pub async fn get_user_usage(ctx: &dyn Context, user_id: &str) -> serde_json::Val
         value: serde_json::Value::String(user_id.to_string()),
     }];
 
-    let total_bytes = db::sum(ctx, "suppers_ai__files__objects", "size", &filters)
+    let total_bytes = db::sum(ctx, OBJECTS_COLLECTION, "size", &filters)
         .await
         .unwrap_or(0.0) as i64;
-    let file_count = db::count(ctx, "suppers_ai__files__objects", &filters)
+    let file_count = db::count(ctx, OBJECTS_COLLECTION, &filters)
         .await
         .unwrap_or(0);
 

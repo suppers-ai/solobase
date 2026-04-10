@@ -4,12 +4,16 @@
 //! They persist until explicitly cancelled. The `subscriptions.addon_*` columns
 //! reflect the currently active add-on totals.
 
+use super::SUBSCRIPTIONS;
 use crate::plans;
 use std::collections::HashMap;
 use wafer_core::clients::{config, database as db, network};
+use wafer_core::interfaces::database::service::{Filter, FilterOp, ListOptions};
 use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_sql_utils::value::sea_values_to_json;
+use wafer_sql_utils::Backend;
 
 /// GET /b/products/addons — list available add-on packs with prices.
 pub async fn handle_list(_ctx: &dyn Context, msg: &mut Message) -> Result_ {
@@ -247,7 +251,7 @@ async fn apply_addon_change(ctx: &dyn Context, user_id: &str, addon: &plans::Add
     let open = if add { "" } else { "MAX(" };
 
     let sql = format!(
-        "UPDATE subscriptions SET \
+        "UPDATE {SUBSCRIPTIONS} SET \
            addon_projects = {open}COALESCE(addon_projects, 0) {op} ?1{clamp}, \
            addon_requests = {open}COALESCE(addon_requests, 0) {op} ?2{clamp}, \
            addon_r2_bytes = {open}COALESCE(addon_r2_bytes, 0) {op} ?3{clamp}, \
@@ -316,23 +320,23 @@ pub async fn sync_addons_from_stripe(ctx: &dyn Context, user_id: &str, items: &s
     }
 
     let now = chrono::Utc::now().to_rfc3339();
-    let result = db::exec_raw(
-        ctx,
-        "UPDATE subscriptions SET \
-           addon_projects = ?1, addon_requests = ?2, \
-           addon_r2_bytes = ?3, addon_d1_bytes = ?4, \
-           updated_at = ?5 \
-         WHERE user_id = ?6 AND status = 'active'",
+    let (sql, vals) = wafer_sql_utils::query::build_update_where(
+        SUBSCRIPTIONS,
         &[
-            serde_json::json!(total_projects),
-            serde_json::json!(total_requests),
-            serde_json::json!(total_r2),
-            serde_json::json!(total_d1),
-            serde_json::Value::String(now),
-            serde_json::Value::String(user_id.to_string()),
+            ("addon_projects".to_string(), serde_json::json!(total_projects)),
+            ("addon_requests".to_string(), serde_json::json!(total_requests)),
+            ("addon_r2_bytes".to_string(), serde_json::json!(total_r2)),
+            ("addon_d1_bytes".to_string(), serde_json::json!(total_d1)),
+            ("updated_at".to_string(), serde_json::json!(&now)),
         ],
-    )
-    .await;
+        &[
+            Filter { field: "user_id".into(), operator: FilterOp::Equal, value: serde_json::json!(user_id) },
+            Filter { field: "status".into(), operator: FilterOp::Equal, value: serde_json::json!("active") },
+        ],
+        Backend::Sqlite,
+    );
+    let args = sea_values_to_json(vals);
+    let result = db::exec_raw(ctx, &sql, &args).await;
 
     match result {
         Ok(_) => tracing::info!(
@@ -350,11 +354,23 @@ async fn get_subscription(
     ctx: &dyn Context,
     user_id: &str,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
-    let rows = db::query_raw(
-        ctx,
-        "SELECT stripe_subscription_id, plan, status FROM subscriptions WHERE user_id = ?1 AND status = 'active'",
-        &[serde_json::Value::String(user_id.to_string())],
-    ).await.ok()?;
+    let opts = ListOptions {
+        filters: vec![
+            Filter { field: "user_id".into(), operator: FilterOp::Equal, value: serde_json::json!(user_id) },
+            Filter { field: "status".into(), operator: FilterOp::Equal, value: serde_json::json!("active") },
+        ],
+        limit: 1,
+        ..Default::default()
+    };
+    let (sql, vals) = wafer_sql_utils::query::build_select_columns(
+        SUBSCRIPTIONS,
+        &["stripe_subscription_id", "plan", "status"],
+        &opts,
+        None,
+        Backend::Sqlite,
+    );
+    let args = sea_values_to_json(vals);
+    let rows = db::query_raw(ctx, &sql, &args).await.ok()?;
 
     if rows.is_empty() {
         return None;

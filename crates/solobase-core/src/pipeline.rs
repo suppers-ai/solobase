@@ -89,7 +89,7 @@ pub async fn handle_request(
         crate::blocks::helpers::stamp_created(&mut data);
 
         // Best-effort: don't fail the request if logging fails
-        let _ = db::create(ctx, "suppers_ai__admin__request_logs", data).await;
+        let _ = db::create(ctx, crate::blocks::admin::REQUEST_LOGS_COLLECTION, data).await;
     }
 
     result

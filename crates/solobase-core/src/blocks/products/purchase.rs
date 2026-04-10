@@ -6,6 +6,8 @@ use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_sql_utils::value::sea_values_to_json;
+use wafer_sql_utils::Backend;
 
 pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     #[derive(serde::Deserialize)]
@@ -366,16 +368,23 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let refunded_by = msg.user_id().to_string();
     let reason_val = body.reason.unwrap_or_default();
 
-    let rows = db::exec_raw(
-        ctx,
-        "UPDATE suppers_ai__products__purchases SET status = 'refunded', refunded_at = ?1, refunded_by = ?2, refund_reason = ?3, updated_at = ?1 WHERE id = ?4 AND status = 'completed'",
+    let (sql, vals) = wafer_sql_utils::query::build_update_where(
+        PURCHASES_COLLECTION,
         &[
-            serde_json::Value::String(now),
-            serde_json::Value::String(refunded_by),
-            serde_json::Value::String(reason_val),
-            serde_json::Value::String(id.to_string()),
+            ("status".to_string(), serde_json::json!("refunded")),
+            ("refunded_at".to_string(), serde_json::json!(&now)),
+            ("refunded_by".to_string(), serde_json::json!(&refunded_by)),
+            ("refund_reason".to_string(), serde_json::json!(&reason_val)),
+            ("updated_at".to_string(), serde_json::json!(&now)),
         ],
-    ).await.unwrap_or(0);
+        &[
+            Filter { field: "id".into(), operator: FilterOp::Equal, value: serde_json::json!(id) },
+            Filter { field: "status".into(), operator: FilterOp::Equal, value: serde_json::json!("completed") },
+        ],
+        Backend::Sqlite,
+    );
+    let args = sea_values_to_json(vals);
+    let rows = db::exec_raw(ctx, &sql, &args).await.unwrap_or(0);
 
     if rows == 0 {
         return err_bad_request(

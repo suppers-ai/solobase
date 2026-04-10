@@ -639,7 +639,7 @@ impl AuthBlock {
     ) -> Result_ {
         let logo_url = db::get_by_field(
             ctx,
-            "suppers_ai__admin__variables",
+            crate::blocks::admin::VARIABLES_COLLECTION,
             "key",
             serde_json::Value::String("SOLOBASE_SHARED__AUTH_LOGO_URL".into()),
         )
@@ -853,7 +853,7 @@ impl AuthBlock {
     ) -> Result_ {
         let logo_url = db::get_by_field(
             ctx,
-            "suppers_ai__admin__variables",
+            crate::blocks::admin::VARIABLES_COLLECTION,
             "key",
             serde_json::Value::String("SOLOBASE_SHARED__AUTH_LOGO_URL".into()),
         )

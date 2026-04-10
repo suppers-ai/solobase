@@ -8,10 +8,7 @@ use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use wafer_run::context::Context;
 use wafer_run::types::*;
 
-const BUCKETS_COLLECTION: &str = "suppers_ai__files__buckets";
-const OBJECTS_COLLECTION: &str = "suppers_ai__files__objects";
-const SHARES_COLLECTION: &str = "suppers_ai__files__cloud_shares";
-const QUOTAS_COLLECTION: &str = "suppers_ai__files__cloud_quotas";
+use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION};
 
 fn files_admin_nav() -> Vec<NavItem> {
     vec![

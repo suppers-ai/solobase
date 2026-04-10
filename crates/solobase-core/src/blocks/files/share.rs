@@ -7,8 +7,7 @@ use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
 
-const SHARES_COLLECTION: &str = "suppers_ai__files__cloud_shares";
-const ACCESS_LOGS_COLLECTION: &str = "suppers_ai__files__cloud_access_logs";
+use super::{ACCESS_LOGS_COLLECTION, SHARES_COLLECTION};
 
 pub async fn generate_share_token(
     ctx: &dyn Context,

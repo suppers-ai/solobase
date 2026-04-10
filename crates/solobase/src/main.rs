@@ -80,6 +80,7 @@ async fn main() {
     }
 
     // 9. Register unified service blocks (database, storage, config, crypto, network, logger)
+    let storage_block_ref;
     {
         use wafer_core::interfaces::config::service::ConfigService;
 
@@ -93,12 +94,14 @@ async fn main() {
             .expect("register database");
         wafer.add_alias("db", "wafer-run/database");
 
-        // Storage — local filesystem (solobase wrapper adds path isolation + rules)
+        // Storage — local filesystem (solobase wrapper adds path isolation + WRAP access control)
         let storage_service = Arc::new(
             wafer_block_local_storage::service::LocalStorageService::new(&infra.storage_root)
                 .expect("failed to create local storage service"),
         );
-        let storage_block = solobase::blocks::storage::create(storage_service);
+        let admin_block_id = Arc::new("suppers-ai/admin".to_string());
+        let storage_block = solobase::blocks::storage::create(storage_service, admin_block_id);
+        storage_block_ref = storage_block.clone();
         wafer
             .register_block("wafer-run/storage", storage_block)
             .expect("register storage");
@@ -194,6 +197,8 @@ async fn main() {
         .start()
         .await
         .expect("failed to resolve and start WAFER runtime");
+    // Inject collected WRAP grants into the storage block for cross-block access checks
+    storage_block_ref.update_wrap_grants(wafer.wrap_grants());
     tracing::info!("WAFER runtime started — all blocks resolved");
 
     // 17. Wait for shutdown signal

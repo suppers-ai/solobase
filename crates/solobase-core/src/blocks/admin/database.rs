@@ -1,8 +1,8 @@
-use super::sanitize_ident;
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_sql_utils::{introspect, Backend};
 
 pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -22,8 +22,8 @@ pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 async fn handle_info(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    // Get database info via raw query
-    let tables = match db::query_raw(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name", &[]).await {
+    let sql = introspect::build_list_tables(Backend::Sqlite);
+    let tables = match db::query_raw(ctx, &sql, &[]).await {
         Ok(t) => t,
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
@@ -44,7 +44,8 @@ async fn handle_info(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 async fn handle_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let tables = match db::query_raw(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name", &[]).await {
+    let sql = introspect::build_list_tables(Backend::Sqlite);
+    let tables = match db::query_raw(ctx, &sql, &[]).await {
         Ok(t) => t,
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
@@ -56,19 +57,15 @@ async fn handle_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             .get("name")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let safe_name = sanitize_ident(name);
-        let count = db::query_raw(
-            ctx,
-            &format!("SELECT COUNT(*) as cnt FROM \"{}\"", safe_name),
-            &[],
-        )
-        .await
-        .ok()
-        .and_then(|r| {
-            r.first()
-                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-        })
-        .unwrap_or(0);
+        let count_sql = introspect::build_table_row_count(name, Backend::Sqlite);
+        let count = db::query_raw(ctx, &count_sql, &[])
+            .await
+            .ok()
+            .and_then(|r| {
+                r.first()
+                    .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+            })
+            .unwrap_or(0);
 
         table_info.push(serde_json::json!({
             "name": name,
@@ -91,12 +88,11 @@ async fn handle_columns(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         return err_bad_request(msg, "Missing table name");
     }
 
-    let safe_table = sanitize_ident(table_name);
-    let columns =
-        match db::query_raw(ctx, &format!("PRAGMA table_info(\"{}\")", safe_table), &[]).await {
-            Ok(c) => c,
-            Err(e) => return err_internal(msg, &format!("Database error: {e}")),
-        };
+    let (info_sql, info_args) = introspect::build_table_info(table_name, Backend::Sqlite);
+    let columns = match db::query_raw(ctx, &info_sql, &info_args).await {
+        Ok(c) => c,
+        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+    };
 
     let col_info: Vec<serde_json::Value> = columns
         .iter()
@@ -215,6 +211,7 @@ async fn handle_query(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     }
 
+    // User-provided query (admin SQL explorer) -- stays as raw SQL
     match first_word {
         "SELECT" | "PRAGMA" | "EXPLAIN" | "WITH" => {
             match db::query_raw(ctx, &body.query, &body.args).await {

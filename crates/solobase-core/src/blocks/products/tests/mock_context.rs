@@ -278,6 +278,8 @@ impl MockContext {
     }
 
     /// Minimal exec_raw support for atomic UPDATE ... WHERE id = ? AND status = ? patterns.
+    /// Supports both numbered (?1, ?2) and positional (?) parameter styles, and
+    /// handles quoted identifiers ("field") from sea_query builders.
     fn db_exec_raw(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
         #[derive(serde::Deserialize)]
         struct Req {
@@ -288,7 +290,9 @@ impl MockContext {
         let req: Req =
             serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
 
-        let query_upper = req.query.to_uppercase();
+        // Normalize: convert positional ? to numbered ?N and strip double-quotes from identifiers
+        let normalized = normalize_sql(&req.query);
+        let query_upper = normalized.to_uppercase();
 
         // Match: UPDATE <table> SET ... WHERE id = ?N AND status IN (...)
         // or: UPDATE <table> SET ... WHERE id = ?N AND status = ?M
@@ -297,8 +301,7 @@ impl MockContext {
         }
 
         // Extract table name (word after UPDATE)
-        let table = req
-            .query
+        let table = normalized
             .split_whitespace()
             .nth(1)
             .unwrap_or("")
@@ -311,8 +314,8 @@ impl MockContext {
         let mut set_fields: HashMap<String, serde_json::Value> = HashMap::new();
 
         // Parse SET clause fields: field = ?N or field = 'literal'
-        if let Some(set_start) = req.query.find(" SET ").or_else(|| req.query.find(" set ")) {
-            let after_set = &req.query[set_start + 5..];
+        if let Some(set_start) = normalized.find(" SET ").or_else(|| normalized.find(" set ")) {
+            let after_set = &normalized[set_start + 5..];
             let where_pos = after_set
                 .to_uppercase()
                 .find(" WHERE ")
@@ -340,8 +343,8 @@ impl MockContext {
         }
 
         // Parse WHERE clause for id and status conditions
-        if let Some(where_start) = req.query.to_uppercase().find(" WHERE ") {
-            let where_clause = &req.query[where_start + 7..];
+        if let Some(where_start) = normalized.to_uppercase().find(" WHERE ") {
+            let where_clause = &normalized[where_start + 7..];
             for condition in where_clause
                 .split(" AND ")
                 .chain(where_clause.split(" and "))
@@ -367,7 +370,16 @@ impl MockContext {
                         let statuses = &cond[in_start + 1..in_end];
                         for s in statuses.split(',') {
                             let s = s.trim().trim_matches('\'');
-                            if !s.is_empty() {
+                            // Handle positional params inside IN clause
+                            if let Some(param) = s.strip_prefix('?') {
+                                if let Ok(idx) = param.parse::<usize>() {
+                                    if let Some(v) = req.args.get(idx - 1) {
+                                        if let Some(sv) = v.as_str() {
+                                            required_status.push(sv.to_string());
+                                        }
+                                    }
+                                }
+                            } else if !s.is_empty() {
                                 required_status.push(s.to_string());
                             }
                         }
@@ -419,6 +431,50 @@ impl MockContext {
 
         Ok(serde_json::to_vec(&serde_json::json!({"rows_affected": rows_affected})).unwrap())
     }
+}
+
+/// Normalize SQL for the mock parser:
+/// 1. Convert positional `?` params to numbered `?1`, `?2`, etc.
+/// 2. Strip double-quotes from identifiers (sea_query quotes them).
+fn normalize_sql(sql: &str) -> String {
+    // First strip double-quoted identifiers: "field" -> field
+    let mut result = String::with_capacity(sql.len());
+    let mut in_single_quote = false;
+    for ch in sql.chars() {
+        if ch == '\'' {
+            in_single_quote = !in_single_quote;
+            result.push(ch);
+        } else if ch == '"' && !in_single_quote {
+            // Skip double-quotes (identifier quoting)
+        } else {
+            result.push(ch);
+        }
+    }
+
+    // Then convert positional ? to numbered ?N
+    // Only convert bare ? (not already followed by a digit)
+    let mut numbered = String::with_capacity(result.len());
+    let mut param_idx = 0usize;
+    let chars: Vec<char> = result.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '?' {
+            // Check if already numbered (?1, ?2, etc.)
+            if i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
+                // Already numbered — pass through as-is
+                numbered.push(chars[i]);
+            } else {
+                param_idx += 1;
+                numbered.push('?');
+                numbered.push_str(&param_idx.to_string());
+            }
+        } else {
+            numbered.push(chars[i]);
+        }
+        i += 1;
+    }
+
+    numbered
 }
 
 // --- Filter matching ---

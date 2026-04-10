@@ -7,18 +7,25 @@ mod settings;
 mod users;
 mod wafer_info;
 
+pub(crate) const ROLES_COLLECTION: &str = "suppers_ai__admin__roles";
+pub(crate) const PERMISSIONS_COLLECTION: &str = "suppers_ai__admin__permissions";
+pub(crate) const USER_ROLES_COLLECTION: &str = "suppers_ai__admin__user_roles";
+pub(crate) const AUDIT_LOGS_COLLECTION: &str = "suppers_ai__admin__audit_logs";
+pub(crate) const REQUEST_LOGS_COLLECTION: &str = "suppers_ai__admin__request_logs";
+pub(crate) const NETWORK_REQUEST_LOGS_COLLECTION: &str = "suppers_ai__admin__network_request_logs";
+pub(crate) const STORAGE_ACCESS_LOGS_COLLECTION: &str = "suppers_ai__admin__storage_access_logs";
+pub(crate) const STORAGE_RULES_COLLECTION: &str = "suppers_ai__admin__storage_rules";
+pub(crate) const BLOCK_SETTINGS_COLLECTION: &str = "suppers_ai__admin__block_settings";
+pub(crate) const VARIABLES_COLLECTION: &str = "suppers_ai__admin__variables";
+pub(crate) const NETWORK_RULES_COLLECTION: &str = "suppers_ai__admin__network_rules";
+pub(crate) const WRAP_GRANTS_COLLECTION: &str = "suppers_ai__admin__wrap_grants";
+
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
 
-/// Sanitize an identifier to prevent SQL injection. Only allows
-/// alphanumeric characters and underscores.
-pub(crate) fn sanitize_ident(name: &str) -> String {
-    name.chars()
-        .filter(|c| c.is_alphanumeric() || *c == '_')
-        .collect()
-}
+pub(crate) use wafer_sql_utils::ident::sanitize_ident;
 
 pub struct AdminBlock;
 
@@ -33,22 +40,22 @@ impl Block for AdminBlock {
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into(), "wafer-run/config".into()])
             .collections(vec![
-                CollectionSchema::new("suppers_ai__admin__roles")
+                CollectionSchema::new(ROLES_COLLECTION)
                     .field("name", "string")
                     .field_default("description", "string", "")
                     .field_default("permissions", "json", "[]")
                     .field_default("is_system", "bool", "false"),
-                CollectionSchema::new("suppers_ai__admin__permissions")
+                CollectionSchema::new(PERMISSIONS_COLLECTION)
                     .field("name", "string")
                     .field_default("resource", "string", "")
                     .field_default("actions", "json", "[]"),
-                CollectionSchema::new("suppers_ai__admin__user_roles")
-                    .field_ref("user_id", "string", "suppers_ai__auth__users.id")
+                CollectionSchema::new(USER_ROLES_COLLECTION)
+                    .field_ref("user_id", "string", &format!("{}.id", crate::blocks::auth::USERS_COLLECTION))
                     .field("role", "string")
                     .field_optional("assigned_at", "datetime")
                     .field_default("assigned_by", "string", "")
                     .index(&["user_id"]),
-                CollectionSchema::new("suppers_ai__admin__variables")
+                CollectionSchema::new(VARIABLES_COLLECTION)
                     .field_unique("key", "string")
                     .field_default("name", "string", "")
                     .field_default("description", "string", "")
@@ -56,13 +63,13 @@ impl Block for AdminBlock {
                     .field_default("warning", "string", "")
                     .field_default("sensitive", "int", "0")
                     .field_default("updated_by", "string", ""),
-                CollectionSchema::new("suppers_ai__admin__audit_logs")
+                CollectionSchema::new(AUDIT_LOGS_COLLECTION)
                     .field_default("user_id", "string", "")
                     .field("action", "string")
                     .field_default("resource", "string", "")
                     .field_default("ip_address", "string", "")
                     .index(&["created_at"]),
-                CollectionSchema::new("suppers_ai__admin__request_logs")
+                CollectionSchema::new(REQUEST_LOGS_COLLECTION)
                     .field_default("flow_id", "string", "")
                     .field_default("method", "string", "")
                     .field_default("path", "string", "")
@@ -73,7 +80,7 @@ impl Block for AdminBlock {
                     .field_default("client_ip", "string", "")
                     .field_default("user_id", "string", "")
                     .index(&["created_at"]),
-                CollectionSchema::new("suppers_ai__admin__network_request_logs")
+                CollectionSchema::new(NETWORK_REQUEST_LOGS_COLLECTION)
                     .field_default("source_block", "string", "")
                     .field_default("method", "string", "")
                     .field_default("url", "string", "")
@@ -81,30 +88,16 @@ impl Block for AdminBlock {
                     .field_default("duration_ms", "int", "0")
                     .field_default("error_message", "string", "")
                     .index(&["created_at"]),
-                CollectionSchema::new("suppers_ai__admin__network_rules")
-                    .field_default("scope", "string", "global")
-                    .field_default("block_name", "string", "")
-                    .field("rule_type", "string")
-                    .field("pattern", "string")
-                    .field_default("priority", "int", "0")
-                    .index(&["scope"]),
-                CollectionSchema::new("suppers_ai__admin__storage_rules")
-                    .field_default("rule_type", "string", "allow")
-                    .field_default("source_block", "string", "*")
-                    .field("target_path", "string")
-                    .field_default("access", "string", "readwrite")
-                    .field_default("priority", "int", "0")
-                    .index(&["source_block"]),
-                CollectionSchema::new("suppers_ai__admin__storage_access_logs")
+                CollectionSchema::new(STORAGE_ACCESS_LOGS_COLLECTION)
                     .field_default("source_block", "string", "")
                     .field_default("operation", "string", "")
                     .field_default("path", "string", "")
                     .field_default("status", "string", "")
                     .index(&["created_at"]),
-                CollectionSchema::new("suppers_ai__admin__block_settings")
+                CollectionSchema::new(BLOCK_SETTINGS_COLLECTION)
                     .field_unique("block_name", "string")
                     .field_default("enabled", "int", "1"),
-                CollectionSchema::new("suppers_ai__admin__wrap_grants")
+                CollectionSchema::new(WRAP_GRANTS_COLLECTION)
                     .field("grantee", "string")
                     .field("resource", "string")
                     .field_default("write", "int", "0")
@@ -112,15 +105,17 @@ impl Block for AdminBlock {
                     .field_default("description", "string", ""),
             ])
             .grants(vec![
-                wafer_run::ResourceGrant::read_write("suppers-ai/auth", "suppers_ai__admin__user_roles"),
-                wafer_run::ResourceGrant::read("suppers-ai/auth", "suppers_ai__admin__variables"),
-                wafer_run::ResourceGrant::read("*", "suppers_ai__admin__network_rules"),
-                wafer_run::ResourceGrant::read("*", "suppers_ai__admin__storage_rules"),
-                wafer_run::ResourceGrant::read("suppers-ai/userportal", "suppers_ai__admin__block_settings"),
+                wafer_run::ResourceGrant::read_write("suppers-ai/auth", USER_ROLES_COLLECTION),
+                wafer_run::ResourceGrant::read("suppers-ai/auth", VARIABLES_COLLECTION),
+                wafer_run::ResourceGrant::read("suppers-ai/userportal", BLOCK_SETTINGS_COLLECTION),
                 // Infrastructure logging: network/storage wrappers + pipeline write logs
-                wafer_run::ResourceGrant::read_write("*", "suppers_ai__admin__network_request_logs"),
-                wafer_run::ResourceGrant::read_write("*", "suppers_ai__admin__storage_access_logs"),
-                wafer_run::ResourceGrant::read_write("*", "suppers_ai__admin__request_logs"),
+                wafer_run::ResourceGrant::read_write("*", NETWORK_REQUEST_LOGS_COLLECTION),
+                wafer_run::ResourceGrant::read_write("*", STORAGE_ACCESS_LOGS_COLLECTION),
+                wafer_run::ResourceGrant::read_write("*", REQUEST_LOGS_COLLECTION),
+                // Default: allow all blocks to make outbound network requests.
+                // Remove this grant via the admin UI to restrict network access.
+                wafer_run::ResourceGrant::read("*", "*")
+                    .typed(wafer_run::types::ResourceType::Network),
             ])
             .category(wafer_run::BlockCategory::Feature)
             .description("Administration panel for managing users, roles, variables, blocks, and logs. Provides SSR dashboard with stats, user management with role assignment, IAM (roles and API keys), environment variables editor, block management with feature toggles, and system/audit log viewer.")
@@ -310,40 +305,12 @@ impl Block for AdminBlock {
                 }
             }
 
-            // Network rules CRUD (htmx)
-            if action == "create" && sub == "/network/rules" {
-                return handle_create_network_rule(ctx, msg).await;
-            }
-            if action == "delete" && sub.starts_with("/network/rules/") {
-                let rule_id = sub
-                    .strip_prefix("/network/rules/")
-                    .unwrap_or("")
-                    .to_string();
-                if !rule_id.is_empty() {
-                    return handle_delete_network_rule(ctx, msg, &rule_id).await;
-                }
-            }
-
             // Network detail fragments (htmx)
             if action == "retrieve" && sub == "/network/detail/inbound" {
                 return pages::network_inbound_detail(ctx, msg).await;
             }
             if action == "retrieve" && sub == "/network/detail/outbound" {
                 return pages::network_outbound_detail(ctx, msg).await;
-            }
-
-            // Storage rules CRUD (htmx)
-            if action == "create" && sub == "/storage/rules" {
-                return handle_create_storage_rule(ctx, msg).await;
-            }
-            if action == "delete" && sub.starts_with("/storage/rules/") {
-                let rule_id = sub
-                    .strip_prefix("/storage/rules/")
-                    .unwrap_or("")
-                    .to_string();
-                if !rule_id.is_empty() {
-                    return handle_delete_storage_rule(ctx, msg, &rule_id).await;
-                }
             }
 
             // WRAP grants CRUD (htmx)
@@ -398,101 +365,11 @@ impl Block for AdminBlock {
 }
 
 // ---------------------------------------------------------------------------
-// Network rule handlers
+// WRAP grant handlers
 // ---------------------------------------------------------------------------
 
 use crate::blocks::helpers::parse_form_body;
 use wafer_core::clients::database as db;
-
-async fn handle_create_network_rule(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let form = parse_form_body(&msg.data);
-    let rule_type = form.get("rule_type").cloned().unwrap_or_default();
-    let pattern = form.get("pattern").cloned().unwrap_or_default();
-    let block_name = form.get("block_name").cloned().unwrap_or_default();
-    let priority: i64 = form
-        .get("priority")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
-
-    if pattern.is_empty() || (rule_type != "block" && rule_type != "allow") {
-        return pages::permissions_page(ctx, msg).await;
-    }
-
-    let mut data = std::collections::HashMap::new();
-    data.insert("scope".into(), serde_json::json!(if block_name.is_empty() { "global" } else { "block" }));
-    data.insert("block_name".into(), serde_json::json!(block_name));
-    data.insert("rule_type".into(), serde_json::json!(rule_type));
-    data.insert("pattern".into(), serde_json::json!(pattern));
-    data.insert("priority".into(), serde_json::json!(priority));
-    let _ = db::create(ctx, "suppers_ai__admin__network_rules", data).await;
-
-    // Re-render the rules tab
-    msg.set_meta("req.query.tab", "network");
-    pages::permissions_page(ctx, msg).await
-}
-
-async fn handle_delete_network_rule(
-    ctx: &dyn Context,
-    msg: &mut Message,
-    rule_id: &str,
-) -> Result_ {
-    let _ = db::delete(ctx, "suppers_ai__admin__network_rules", rule_id).await;
-
-    msg.set_meta("req.query.tab", "network");
-    pages::permissions_page(ctx, msg).await
-}
-
-// ---------------------------------------------------------------------------
-// Storage rule handlers
-// ---------------------------------------------------------------------------
-
-async fn handle_create_storage_rule(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let form = parse_form_body(&msg.data);
-    let rule_type = form.get("rule_type").cloned().unwrap_or_default();
-    let source_block = form
-        .get("source_block")
-        .cloned()
-        .unwrap_or_else(|| "*".into());
-    let target_path = form.get("target_path").cloned().unwrap_or_default();
-    let access = form
-        .get("access")
-        .cloned()
-        .unwrap_or_else(|| "readwrite".into());
-    let priority: i64 = form
-        .get("priority")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
-
-    if target_path.is_empty() || (rule_type != "block" && rule_type != "allow") {
-        return pages::permissions_page(ctx, msg).await;
-    }
-
-    let mut data = std::collections::HashMap::new();
-    data.insert("rule_type".into(), serde_json::json!(rule_type));
-    data.insert("source_block".into(), serde_json::json!(source_block));
-    data.insert("target_path".into(), serde_json::json!(target_path));
-    data.insert("access".into(), serde_json::json!(access));
-    data.insert("priority".into(), serde_json::json!(priority));
-    let _ = db::create(ctx, "suppers_ai__admin__storage_rules", data).await;
-
-    msg.set_meta("req.query.tab", "storage");
-    pages::permissions_page(ctx, msg).await
-}
-
-async fn handle_delete_storage_rule(
-    ctx: &dyn Context,
-    msg: &mut Message,
-    rule_id: &str,
-) -> Result_ {
-    let _ = db::delete(ctx, "suppers_ai__admin__storage_rules", rule_id).await;
-
-    msg.set_meta("req.query.tab", "storage");
-    pages::permissions_page(ctx, msg).await
-}
-
-// ---------------------------------------------------------------------------
-// WRAP grant handlers
-// ---------------------------------------------------------------------------
 
 async fn handle_create_wrap_grant(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let form = parse_form_body(&msg.data);
@@ -518,7 +395,7 @@ async fn handle_create_wrap_grant(ctx: &dyn Context, msg: &mut Message) -> Resul
     );
     data.insert("resource_type".into(), serde_json::json!(resource_type));
     data.insert("description".into(), serde_json::json!(description));
-    let _ = db::create(ctx, "suppers_ai__admin__wrap_grants", data).await;
+    let _ = db::create(ctx, WRAP_GRANTS_COLLECTION, data).await;
 
     msg.set_meta("req.query.tab", "database");
     pages::permissions_page(ctx, msg).await
@@ -529,7 +406,7 @@ async fn handle_delete_wrap_grant(
     msg: &mut Message,
     grant_id: &str,
 ) -> Result_ {
-    let _ = db::delete(ctx, "suppers_ai__admin__wrap_grants", grant_id).await;
+    let _ = db::delete(ctx, WRAP_GRANTS_COLLECTION, grant_id).await;
     msg.set_meta("req.query.tab", "database");
     pages::permissions_page(ctx, msg).await
 }

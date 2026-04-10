@@ -5,8 +5,7 @@ use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
 
-const SHARES_COLLECTION: &str = "suppers_ai__files__cloud_shares";
-const ACCESS_LOGS_COLLECTION: &str = "suppers_ai__files__cloud_access_logs";
+use super::{ACCESS_LOGS_COLLECTION, BUCKETS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION};
 
 pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -101,7 +100,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             limit: 1,
             ..Default::default()
         };
-        let owns_bucket = match db::list(ctx, "suppers_ai__files__buckets", &opts).await {
+        let owns_bucket = match db::list(ctx, BUCKETS_COLLECTION, &opts).await {
             Ok(result) => !result.records.is_empty(),
             _ => false,
         };
@@ -263,7 +262,7 @@ async fn handle_admin_quotas(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         limit: 1000,
         ..Default::default()
     };
-    match db::list(ctx, "suppers_ai__files__cloud_quotas", &opts).await {
+    match db::list(ctx, QUOTAS_COLLECTION, &opts).await {
         Ok(result) => json_respond(msg, &result),
         Err(e) => err_internal(msg, &format!("Database error: {e}")),
     }
@@ -295,7 +294,7 @@ async fn handle_update_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     match db::upsert(
         ctx,
-        "suppers_ai__files__cloud_quotas",
+        QUOTAS_COLLECTION,
         "user_id",
         serde_json::Value::String(user_id.to_string()),
         data,

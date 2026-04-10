@@ -1,5 +1,6 @@
 use super::PROJECTS_COLLECTION;
 use crate::blocks::helpers::RecordExt;
+use crate::blocks::products::SUBSCRIPTIONS;
 use std::collections::HashMap;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, Record, SortField};
@@ -19,9 +20,10 @@ struct UserPlan {
 /// Look up the user's current plan and addon project count.
 /// Falls back to free with 0 addons when no active subscription exists.
 async fn get_user_plan(ctx: &dyn Context, user_id: &str) -> UserPlan {
+    // Uses COALESCE which is standard SQL -- keep as raw SQL with table constant.
     let rows = db::query_raw(
         ctx,
-        "SELECT plan, COALESCE(addon_projects, 0) as addon_projects FROM subscriptions WHERE user_id = ?1 AND status = 'active'",
+        &format!("SELECT plan, COALESCE(addon_projects, 0) as addon_projects FROM {SUBSCRIPTIONS} WHERE user_id = ?1 AND status = 'active'"),
         &[serde_json::Value::String(user_id.to_string())],
     ).await;
 

@@ -5,6 +5,7 @@ use wafer_core::clients::database::{ListOptions, SortField};
 use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_sql_utils::{ddl, introspect, Backend};
 
 pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let action = msg.action();
@@ -46,13 +47,8 @@ fn extract_record_id(path: &str) -> &str {
 }
 
 async fn handle_list_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let tables = match db::query_raw(
-        ctx,
-        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'custom_%' ORDER BY name",
-        &[],
-    )
-    .await
-    {
+    let (sql, args) = introspect::build_list_tables_like("custom_", Backend::Sqlite);
+    let tables = match db::query_raw(ctx, &sql, &args).await {
         Ok(t) => t,
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
@@ -137,7 +133,8 @@ async fn handle_drop_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
     let safe_name = sanitize_ident(&full_name);
 
-    match db::exec_raw(ctx, &format!("DROP TABLE IF EXISTS \"{}\"", safe_name), &[]).await {
+    let drop_sql = ddl::build_drop_table(&safe_name, Backend::Sqlite);
+    match db::exec_raw(ctx, &drop_sql, &[]).await {
         Ok(_) => json_respond(msg, &serde_json::json!({"deleted": true})),
         Err(e) => err_internal(msg, &format!("Failed to drop table: {e}")),
     }
