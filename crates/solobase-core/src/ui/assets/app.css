@@ -831,6 +831,11 @@ input, textarea, select, [contenteditable="true"] {
 	margin: 0 auto 1rem auto; display: block;
 }
 
+.login-app-name {
+	font-size: 1.5rem; font-weight: 700; display: block; margin-bottom: 0.5rem;
+	color: var(--text-primary);
+}
+
 .login-subtitle {
 	color: var(--text-secondary); font-size: 0.875rem; margin: 0;
 }

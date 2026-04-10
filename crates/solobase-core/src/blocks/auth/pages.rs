@@ -120,6 +120,8 @@ pub async fn login_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 div .login-logo {
                     @if !logo_url.is_empty() {
                         img .logo-image src=(logo_url) alt=(app_name);
+                    } @else {
+                        span .login-app-name { (app_name) }
                     }
                     p .login-subtitle { "Sign in to " (app_name) }
                 }
@@ -226,6 +228,8 @@ pub async fn signup_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 div .login-logo {
                     @if !logo_url.is_empty() {
                         img .logo-image src=(logo_url) alt=(app_name);
+                    } @else {
+                        span .login-app-name { (app_name) }
                     }
                     p .login-subtitle { "Create your " (app_name) " account" }
                 }
@@ -301,6 +305,7 @@ async function handleSignup(ev){
 pub async fn change_password_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let settings = load_variables(ctx).await;
     let config = site_config(&settings);
+    let app_name = &config.app_name;
     let logo_url = &config.logo_url;
 
     let markup = ui::layout::centered_page(
@@ -310,7 +315,9 @@ pub async fn change_password_page(ctx: &dyn Context, msg: &mut Message) -> Resul
             div .login-container {
                 div .login-logo {
                     @if !logo_url.is_empty() {
-                        img .logo-image src=(logo_url) alt="Solobase";
+                        img .logo-image src=(logo_url) alt=(app_name);
+                    } @else {
+                        span .login-app-name { (app_name) }
                     }
                     p .login-subtitle { "Change your password" }
                 }

@@ -10,7 +10,7 @@ mod variables;
 #[cfg(test)]
 mod tests;
 
-use super::rate_limit::{check_rate_limit, RateLimit, UserRateLimiter};
+use super::rate_limit::{check_user_rate_limit, UserRateLimiter};
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::helpers::*;
@@ -233,18 +233,8 @@ impl Block for ProductsBlock {
         }
 
         // Per-user rate limiting for authenticated endpoints
-        let user_id = msg.user_id().to_string();
-        if !user_id.is_empty() {
-            let (default, category) = if action == "retrieve" {
-                (RateLimit::API_READ, "api_read")
-            } else {
-                (RateLimit::API_WRITE, "api_write")
-            };
-            if let Some(r) =
-                check_rate_limit(&self.limiter, ctx, msg, &user_id, category, default).await
-            {
-                return r;
-            }
+        if let Some(r) = check_user_rate_limit(&self.limiter, ctx, msg).await {
+            return r;
         }
 
         // Admin API at /b/products/api/admin/... → normalize to /admin/b/products/...

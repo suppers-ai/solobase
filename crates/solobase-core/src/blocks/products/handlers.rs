@@ -2,6 +2,7 @@ use super::{
     GROUPS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION,
     SUBSCRIPTIONS, TYPES_COLLECTION,
 };
+use crate::blocks::crud;
 use crate::blocks::helpers::{field_as_string, RecordExt};
 use crate::blocks::projects::{PROJECTS_COLLECTION as DEPLOYMENTS, PROJECT_USAGE};
 use std::collections::HashMap;
@@ -188,8 +189,6 @@ pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 // --- Product CRUD ---
 
 async fn handle_list_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let (page, page_size, _) = msg.pagination_params(20);
-
     let mut filters = Vec::new();
     let group_id = msg.query("group_id").to_string();
     if !group_id.is_empty() {
@@ -216,271 +215,78 @@ async fn handle_list_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         });
     }
 
-    let sort = vec![SortField {
-        field: "created_at".to_string(),
-        desc: true,
-    }];
-    match db::paginated_list(
-        ctx,
-        PRODUCTS_COLLECTION,
-        page as i64,
-        page_size as i64,
-        filters,
-        sort,
-    )
-    .await
-    {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_list(ctx, msg, PRODUCTS_COLLECTION, filters).await
 }
 
 async fn handle_get_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let path = msg.path();
-    let id = path
-        .strip_prefix("/admin/b/products/products/")
-        .unwrap_or("");
-    if id.is_empty() {
-        return err_bad_request(msg, "Missing product ID");
-    }
-    match db::get(ctx, PRODUCTS_COLLECTION, id).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Product not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_get(ctx, msg, PRODUCTS_COLLECTION, "/admin/b/products/products/", "Product").await
 }
 
 async fn handle_create_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let body: HashMap<String, serde_json::Value> = match msg.decode() {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
-    };
-
-    let mut data = body;
-    let now = chrono::Utc::now().to_rfc3339();
-    data.entry("status".to_string())
-        .or_insert(serde_json::Value::String("draft".to_string()));
-    data.insert(
-        "created_at".to_string(),
-        serde_json::Value::String(now.clone()),
-    );
-    data.insert("updated_at".to_string(), serde_json::Value::String(now));
-    data.insert(
-        "created_by".to_string(),
-        serde_json::Value::String(msg.user_id().to_string()),
-    );
-
-    match db::create(ctx, PRODUCTS_COLLECTION, data).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    let mut defaults = HashMap::new();
+    defaults.insert("status".to_string(), serde_json::Value::String("draft".to_string()));
+    defaults.insert("created_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
+    crud::crud_create(ctx, msg, PRODUCTS_COLLECTION, defaults).await
 }
 
 async fn handle_update_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let path = msg.path();
-    let id = path
-        .strip_prefix("/admin/b/products/products/")
-        .unwrap_or("");
-    if id.is_empty() {
-        return err_bad_request(msg, "Missing product ID");
-    }
-
-    let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
-    };
-    body.insert(
-        "updated_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
-
-    match db::update(ctx, PRODUCTS_COLLECTION, id, body).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Product not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_update(ctx, msg, PRODUCTS_COLLECTION, "/admin/b/products/products/", "Product").await
 }
 
 async fn handle_delete_product(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let path = msg.path();
-    let id = path
-        .strip_prefix("/admin/b/products/products/")
-        .unwrap_or("");
-    if id.is_empty() {
-        return err_bad_request(msg, "Missing product ID");
-    }
-    match db::delete(ctx, PRODUCTS_COLLECTION, id).await {
-        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Product not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_delete(ctx, msg, PRODUCTS_COLLECTION, "/admin/b/products/products/", "Product").await
 }
 
 // --- Groups ---
 
 async fn handle_list_groups(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let opts = ListOptions {
-        sort: vec![SortField {
-            field: "name".to_string(),
-            desc: false,
-        }],
-        limit: 1000,
-        ..Default::default()
-    };
-    match db::list(ctx, GROUPS_COLLECTION, &opts).await {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_list(ctx, msg, GROUPS_COLLECTION, vec![]).await
 }
 
 async fn handle_create_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
-    };
-    body.insert(
-        "created_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
-    body.entry("user_id".to_string())
-        .or_insert(serde_json::Value::String(msg.user_id().to_string()));
-    match db::create(ctx, GROUPS_COLLECTION, body).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    let mut defaults = HashMap::new();
+    defaults.insert("user_id".to_string(), serde_json::Value::String(msg.user_id().to_string()));
+    crud::crud_create(ctx, msg, GROUPS_COLLECTION, defaults).await
 }
 
 async fn handle_update_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let path = msg.path();
-    let id = path.strip_prefix("/admin/b/products/groups/").unwrap_or("");
-    if id.is_empty() {
-        return err_bad_request(msg, "Missing group ID");
-    }
-    let body: HashMap<String, serde_json::Value> = match msg.decode() {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
-    };
-    match db::update(ctx, GROUPS_COLLECTION, id, body).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Group not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_update(ctx, msg, GROUPS_COLLECTION, "/admin/b/products/groups/", "Group").await
 }
 
 async fn handle_delete_group(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let path = msg.path();
-    let id = path.strip_prefix("/admin/b/products/groups/").unwrap_or("");
-    if id.is_empty() {
-        return err_bad_request(msg, "Missing group ID");
-    }
-    match db::delete(ctx, GROUPS_COLLECTION, id).await {
-        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Group not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_delete(ctx, msg, GROUPS_COLLECTION, "/admin/b/products/groups/", "Group").await
 }
 
 // --- Types ---
 
 async fn handle_list_types(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let opts = ListOptions {
-        limit: 1000,
-        ..Default::default()
-    };
-    match db::list(ctx, TYPES_COLLECTION, &opts).await {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_list(ctx, msg, TYPES_COLLECTION, vec![]).await
 }
 
 async fn handle_create_type(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let body: HashMap<String, serde_json::Value> = match msg.decode() {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
-    };
-    match db::create(ctx, TYPES_COLLECTION, body).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_create(ctx, msg, TYPES_COLLECTION, HashMap::new()).await
 }
 
 async fn handle_delete_type(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let path = msg.path();
-    let id = path.strip_prefix("/admin/b/products/types/").unwrap_or("");
-    if id.is_empty() {
-        return err_bad_request(msg, "Missing type ID");
-    }
-    match db::delete(ctx, TYPES_COLLECTION, id).await {
-        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Type not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_delete(ctx, msg, TYPES_COLLECTION, "/admin/b/products/types/", "Type").await
 }
 
 // --- Pricing Templates ---
 
 async fn handle_list_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let opts = ListOptions {
-        sort: vec![SortField {
-            field: "name".to_string(),
-            desc: false,
-        }],
-        limit: 1000,
-        ..Default::default()
-    };
-    match db::list(ctx, PRICING_COLLECTION, &opts).await {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_list(ctx, msg, PRICING_COLLECTION, vec![]).await
 }
 
 async fn handle_create_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
-    };
-    body.insert(
-        "created_at".to_string(),
-        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
-    );
-    match db::create(ctx, PRICING_COLLECTION, body).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_create(ctx, msg, PRICING_COLLECTION, HashMap::new()).await
 }
 
 async fn handle_update_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let path = msg.path();
-    let id = path
-        .strip_prefix("/admin/b/products/pricing/")
-        .unwrap_or("");
-    if id.is_empty() {
-        return err_bad_request(msg, "Missing pricing template ID");
-    }
-    let body: HashMap<String, serde_json::Value> = match msg.decode() {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
-    };
-    match db::update(ctx, PRICING_COLLECTION, id, body).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Pricing template not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_update(ctx, msg, PRICING_COLLECTION, "/admin/b/products/pricing/", "Pricing template").await
 }
 
 async fn handle_delete_pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let path = msg.path();
-    let id = path
-        .strip_prefix("/admin/b/products/pricing/")
-        .unwrap_or("");
-    if id.is_empty() {
-        return err_bad_request(msg, "Missing pricing template ID");
-    }
-    match db::delete(ctx, PRICING_COLLECTION, id).await {
-        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Pricing template not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
-    }
+    crud::crud_delete(ctx, msg, PRICING_COLLECTION, "/admin/b/products/pricing/", "Pricing template").await
 }
 
 // --- Public catalog ---

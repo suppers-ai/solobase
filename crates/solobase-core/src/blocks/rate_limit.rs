@@ -283,6 +283,29 @@ pub async fn check_rate_limit(
     }
 }
 
+/// Convenience wrapper: check per-user rate limit using the request's user_id.
+///
+/// Automatically determines read vs write category from the message action.
+/// Returns `Some(Result_)` with a 429 response if rate limited, `None` if allowed.
+/// Skips rate limiting for unauthenticated requests (empty user_id).
+pub async fn check_user_rate_limit(
+    limiter: &UserRateLimiter,
+    ctx: &dyn wafer_run::context::Context,
+    msg: &mut wafer_run::types::Message,
+) -> Option<wafer_run::types::Result_> {
+    let user_id = msg.user_id().to_string();
+    if user_id.is_empty() {
+        return None;
+    }
+    let action = msg.action().to_string();
+    let (default, category) = if action == "retrieve" {
+        (RateLimit::API_READ, "api_read")
+    } else {
+        (RateLimit::API_WRITE, "api_write")
+    };
+    check_rate_limit(limiter, ctx, msg, &user_id, category, default).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
