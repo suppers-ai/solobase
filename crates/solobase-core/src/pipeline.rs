@@ -29,6 +29,27 @@ pub async fn handle_request(
     features: &dyn FeatureConfig,
     factory: &dyn BlockFactory,
 ) -> Result_ {
+    // 0. Discovery endpoints — public, no auth required
+    let path = msg.path();
+    if path == "/openapi.json" || path == "/.well-known/agent.json" {
+        let is_openapi = path == "/openapi.json";
+        let blocks = factory.all_block_infos();
+        let host = msg.header("host").to_string();
+        let server_url = format!("https://{}", host);
+        let project_name = host.split('.').next().unwrap_or("Solobase Project");
+
+        let body = if is_openapi {
+            wafer_core::discovery::generate_openapi(&blocks, project_name, "", &server_url)
+        } else {
+            wafer_core::discovery::generate_agent_card(&blocks, project_name, "", &server_url)
+        };
+
+        return wafer_run::new_response(msg)
+            .set_header("Cache-Control", "public, max-age=3600")
+            .set_header("Access-Control-Allow-Origin", "*")
+            .json(&body);
+    }
+
     // 1. Strip /api prefix from resource path
     let resource = msg.path().to_string();
     if let Some(stripped) = resource.strip_prefix("/api") {

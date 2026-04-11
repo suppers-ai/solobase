@@ -327,18 +327,18 @@ impl Block for AuthBlock {
             .description("Handles user authentication, registration, and session management. Supports email/password login, OAuth providers (Google, GitHub, Microsoft), email verification, password reset, and API key management.")
             .endpoints(vec![
                 // SSR pages
-                BlockEndpoint::get("/b/auth/login", "Login page", AuthLevel::Public),
-                BlockEndpoint::get("/b/auth/signup", "Signup page", AuthLevel::Public),
-                BlockEndpoint::get("/b/auth/change-password", "Change password page", AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/auth/oauth/login", "Start OAuth flow", AuthLevel::Public),
+                BlockEndpoint::get("/b/auth/login").summary("Login page"),
+                BlockEndpoint::get("/b/auth/signup").summary("Signup page"),
+                BlockEndpoint::get("/b/auth/change-password").summary("Change password page").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/auth/oauth/login").summary("Start OAuth flow"),
                 // JSON API
-                BlockEndpoint::post("/b/auth/api/login", "Authenticate with email/password", AuthLevel::Public),
-                BlockEndpoint::post("/b/auth/api/signup", "Create account", AuthLevel::Public),
-                BlockEndpoint::post("/b/auth/api/logout", "Sign out", AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/auth/api/me", "Get current user", AuthLevel::Authenticated),
-                BlockEndpoint::post("/b/auth/api/change-password", "Change password", AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/auth/api/api-keys", "List API keys", AuthLevel::Authenticated),
-                BlockEndpoint::post("/b/auth/api/api-keys", "Create API key", AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/auth/api/login").summary("Authenticate with email/password"),
+                BlockEndpoint::post("/b/auth/api/signup").summary("Create account"),
+                BlockEndpoint::post("/b/auth/api/logout").summary("Sign out").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/auth/api/me").summary("Get current user").auth(AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/auth/api/change-password").summary("Change password").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/auth/api/api-keys").summary("List API keys").auth(AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/auth/api/api-keys").summary("Create API key").auth(AuthLevel::Authenticated),
             ])
             .config_keys(vec![
                 ConfigVar::new("SUPPERS_AI__AUTH__JWT_SECRET", "Secret key for signing auth tokens", "")

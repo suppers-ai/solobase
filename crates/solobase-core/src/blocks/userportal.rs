@@ -52,31 +52,11 @@ impl Block for UserPortalBlock {
         .category(wafer_run::BlockCategory::Feature)
         .description("User-facing profile page with editable display name, admin-configurable navigation buttons, and portal configuration endpoint.")
         .endpoints(vec![
-            BlockEndpoint::get(
-                "/b/userportal/",
-                "User profile page",
-                AuthLevel::Authenticated,
-            ),
-            BlockEndpoint::post(
-                "/b/userportal/update-profile",
-                "Update profile",
-                AuthLevel::Authenticated,
-            ),
-            BlockEndpoint::get(
-                "/b/userportal/config",
-                "Portal configuration",
-                AuthLevel::Public,
-            ),
-            BlockEndpoint::get(
-                "/b/userportal/admin/buttons",
-                "Manage portal buttons",
-                AuthLevel::Admin,
-            ),
-            BlockEndpoint::post(
-                "/b/userportal/admin/buttons",
-                "Create button",
-                AuthLevel::Admin,
-            ),
+            BlockEndpoint::get("/b/userportal/").summary("User profile page").auth(AuthLevel::Authenticated),
+            BlockEndpoint::post("/b/userportal/update-profile").summary("Update profile").auth(AuthLevel::Authenticated),
+            BlockEndpoint::get("/b/userportal/config").summary("Portal configuration"),
+            BlockEndpoint::get("/b/userportal/admin/buttons").summary("Manage portal buttons").auth(AuthLevel::Admin),
+            BlockEndpoint::post("/b/userportal/admin/buttons").summary("Create button").auth(AuthLevel::Admin),
         ])
         .config_keys(vec![])
         .admin_url("/b/userportal/admin/settings")

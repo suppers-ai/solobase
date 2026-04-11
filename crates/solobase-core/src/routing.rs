@@ -119,6 +119,8 @@ fn is_block_enabled(block_id: BlockId, features: &dyn FeatureConfig) -> bool {
 /// Implementations may return fresh instances (CF) or shared `Arc` clones (native).
 pub trait BlockFactory: wafer_run::MaybeSend + wafer_run::MaybeSync {
     fn create(&self, block_id: BlockId) -> Option<Arc<dyn Block>>;
+    /// Return `BlockInfo` for all registered blocks (used for discovery documents).
+    fn all_block_infos(&self) -> Vec<wafer_run::BlockInfo>;
 }
 
 /// Generate the routing table as JSON config (same format as wafer-run/router).

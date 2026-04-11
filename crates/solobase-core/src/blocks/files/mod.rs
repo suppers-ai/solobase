@@ -90,13 +90,13 @@ impl Block for FilesBlock {
             .category(wafer_run::BlockCategory::Feature)
             .description("File storage and management with bucket-based organization. Supports file upload, download, deletion, search, and sharing via public links with expiration and access counting. Includes per-user storage quotas.")
             .endpoints(vec![
-                BlockEndpoint::get("/b/storage/api/buckets", "List buckets", AuthLevel::Authenticated),
-                BlockEndpoint::post("/b/storage/api/buckets", "Create bucket", AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/storage/api/buckets/{name}/objects", "List objects", AuthLevel::Authenticated),
-                BlockEndpoint::post("/b/storage/api/buckets/{name}/objects", "Upload file", AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/storage/api/buckets/{name}/objects/{key}", "Download file", AuthLevel::Authenticated),
-                BlockEndpoint::delete("/b/storage/api/buckets/{name}/objects/{key}", "Delete file", AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/storage/direct/{token}", "Access shared file", AuthLevel::Public),
+                BlockEndpoint::get("/b/storage/api/buckets").summary("List buckets").auth(AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/storage/api/buckets").summary("Create bucket").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/storage/api/buckets/{name}/objects").summary("List objects").auth(AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/storage/api/buckets/{name}/objects").summary("Upload file").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/storage/api/buckets/{name}/objects/{key}").summary("Download file").auth(AuthLevel::Authenticated),
+                BlockEndpoint::delete("/b/storage/api/buckets/{name}/objects/{key}").summary("Delete file").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/storage/direct/{token}").summary("Access shared file"),
             ])
             .admin_url("/b/storage/admin/")
             .can_disable(true)

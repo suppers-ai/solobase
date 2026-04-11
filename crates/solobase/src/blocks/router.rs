@@ -33,11 +33,12 @@ impl NativeBlockFactory {
 }
 
 impl solobase_core::BlockFactory for NativeBlockFactory {
-    fn create(&self, block_id: BlockId) -> Arc<dyn Block> {
-        self.blocks
-            .get(&block_id)
-            .cloned()
-            .unwrap_or_else(|| panic!("solobase router: no block registered for {:?}", block_id))
+    fn create(&self, block_id: BlockId) -> Option<Arc<dyn Block>> {
+        self.blocks.get(&block_id).cloned()
+    }
+
+    fn all_block_infos(&self) -> Vec<wafer_run::BlockInfo> {
+        self.blocks.values().map(|b| b.info()).collect()
     }
 }
 

@@ -36,6 +36,10 @@ impl crate::BlockFactory for NativeBlockFactory {
     fn create(&self, block_id: BlockId) -> Option<Arc<dyn Block>> {
         self.blocks.get(&block_id).cloned()
     }
+
+    fn all_block_infos(&self) -> Vec<wafer_run::BlockInfo> {
+        self.blocks.values().map(|b| b.info()).collect()
+    }
 }
 
 /// The solobase router block — dispatches all API requests via the shared

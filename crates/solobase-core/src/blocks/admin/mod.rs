@@ -120,21 +120,21 @@ impl Block for AdminBlock {
             .category(wafer_run::BlockCategory::Feature)
             .description("Administration panel for managing users, roles, variables, blocks, and logs. Provides SSR dashboard with stats, user management with role assignment, IAM (roles and API keys), environment variables editor, block management with feature toggles, and system/audit log viewer.")
             .endpoints(vec![
-                BlockEndpoint::get("/b/admin/", "Dashboard", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/users", "User management", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/variables", "Config management", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/blocks", "Block management", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/network", "Network monitoring and rules", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/storage", "Storage isolation and rules", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/logs", "System and audit logs", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/email", "Email settings", AuthLevel::Admin),
-                BlockEndpoint::post("/b/admin/email", "Save email settings", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/permissions", "Permissions management", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/grants", "WRAP grants management", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/api/users", "List users API", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/api/iam/roles", "List roles API", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/api/settings", "List variables API", AuthLevel::Admin),
-                BlockEndpoint::get("/b/admin/api/logs", "Audit logs API", AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/").summary("Dashboard").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/users").summary("User management").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/variables").summary("Config management").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/blocks").summary("Block management").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/network").summary("Network monitoring and rules").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/storage").summary("Storage isolation and rules").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/logs").summary("System and audit logs").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/email").summary("Email settings").auth(AuthLevel::Admin),
+                BlockEndpoint::post("/b/admin/email").summary("Save email settings").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/permissions").summary("Permissions management").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/grants").summary("WRAP grants management").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/api/users").summary("List users API").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/api/iam/roles").summary("List roles API").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/api/settings").summary("List variables API").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/api/logs").summary("Audit logs API").auth(AuthLevel::Admin),
             ])
     }
 

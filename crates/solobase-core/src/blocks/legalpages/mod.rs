@@ -517,13 +517,13 @@ impl Block for LegalPagesBlock {
             .category(wafer_run::BlockCategory::Feature)
             .description("Legal document management with versioning and publishing. Create and manage terms of service, privacy policies, and other legal documents. Supports draft/published workflow with version tracking.")
             .endpoints(vec![
-                BlockEndpoint::get("/b/legalpages/terms", "Published terms of service", AuthLevel::Public),
-                BlockEndpoint::get("/b/legalpages/privacy", "Published privacy policy", AuthLevel::Public),
-                BlockEndpoint::get("/b/legalpages/admin", "Admin editor", AuthLevel::Admin),
-                BlockEndpoint::get("/b/legalpages/api/documents", "List documents", AuthLevel::Admin),
-                BlockEndpoint::post("/b/legalpages/api/documents", "Create document", AuthLevel::Admin),
-                BlockEndpoint::patch("/b/legalpages/api/documents/{id}", "Update document", AuthLevel::Admin),
-                BlockEndpoint::post("/b/legalpages/api/documents/{id}/publish", "Publish document", AuthLevel::Admin),
+                BlockEndpoint::get("/b/legalpages/terms").summary("Published terms of service"),
+                BlockEndpoint::get("/b/legalpages/privacy").summary("Published privacy policy"),
+                BlockEndpoint::get("/b/legalpages/admin").summary("Admin editor").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/legalpages/api/documents").summary("List documents").auth(AuthLevel::Admin),
+                BlockEndpoint::post("/b/legalpages/api/documents").summary("Create document").auth(AuthLevel::Admin),
+                BlockEndpoint::patch("/b/legalpages/api/documents/{id}").summary("Update document").auth(AuthLevel::Admin),
+                BlockEndpoint::post("/b/legalpages/api/documents/{id}/publish").summary("Publish document").auth(AuthLevel::Admin),
             ])
             .config_keys(vec![
                 ConfigVar::new("SUPPERS_AI__LEGALPAGES__BG_COLOR", "Background color for public legal pages", "#f8fafc")

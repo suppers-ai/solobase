@@ -62,13 +62,13 @@ impl Block for ProjectsBlock {
             .category(wafer_run::BlockCategory::Feature)
             .description("Project and deployment management for multi-tenant hosting. Users can create projects with unique subdomains, activate/deactivate deployments, and manage lifecycle. Integrates with the control plane for provisioning on Cloudflare Workers for Platforms.")
             .endpoints(vec![
-                BlockEndpoint::get("/b/projects/admin/", "Deployments overview", AuthLevel::Admin),
-                BlockEndpoint::get("/b/projects/api/admin", "List all projects", AuthLevel::Admin),
-                BlockEndpoint::get("/b/projects/api/admin/stats", "Deployment statistics", AuthLevel::Admin),
-                BlockEndpoint::get("/b/projects", "List user's projects", AuthLevel::Authenticated),
-                BlockEndpoint::post("/b/projects", "Create project", AuthLevel::Authenticated),
-                BlockEndpoint::patch("/b/projects/{id}", "Update/activate/deactivate project", AuthLevel::Authenticated),
-                BlockEndpoint::delete("/b/projects/{id}", "Delete project", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/projects/admin/").summary("Deployments overview").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/projects/api/admin").summary("List all projects").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/projects/api/admin/stats").summary("Deployment statistics").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/projects").summary("List user's projects").auth(AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/projects").summary("Create project").auth(AuthLevel::Authenticated),
+                BlockEndpoint::patch("/b/projects/{id}").summary("Update/activate/deactivate project").auth(AuthLevel::Authenticated),
+                BlockEndpoint::delete("/b/projects/{id}").summary("Delete project").auth(AuthLevel::Authenticated),
             ])
             .config_keys(vec![
                 ConfigVar::new("SUPPERS_AI__PROJECTS__CONTROL_PLANE_URL", "Control plane API URL for provisioning", "")

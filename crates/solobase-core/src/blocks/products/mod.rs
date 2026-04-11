@@ -135,15 +135,15 @@ impl Block for ProductsBlock {
             .category(wafer_run::BlockCategory::Feature)
             .description("Product catalog, pricing engine, and payment processing. Manages products, groups, pricing templates with formula evaluation, purchases, and Stripe integration for checkout and recurring subscriptions. Supports add-on packs for extending plan limits.")
             .endpoints(vec![
-                BlockEndpoint::get("/b/products/admin/", "Overview", AuthLevel::Admin),
-                BlockEndpoint::get("/b/products/admin/manage", "Manage products", AuthLevel::Admin),
-                BlockEndpoint::get("/b/products/api/admin/products", "List products API", AuthLevel::Admin),
-                BlockEndpoint::post("/b/products/api/admin/products", "Create product", AuthLevel::Admin),
-                BlockEndpoint::get("/b/products/catalog", "Browse catalog", AuthLevel::Public),
-                BlockEndpoint::post("/b/products/checkout", "Stripe checkout", AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/products/subscription", "Subscription status", AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/products/addons", "List add-on packs", AuthLevel::Authenticated),
-                BlockEndpoint::post("/b/products/addons/subscribe", "Subscribe to add-on", AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/products/admin/").summary("Overview").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/products/admin/manage").summary("Manage products").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/products/api/admin/products").summary("List products API").auth(AuthLevel::Admin),
+                BlockEndpoint::post("/b/products/api/admin/products").summary("Create product").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/products/catalog").summary("Browse catalog"),
+                BlockEndpoint::post("/b/products/checkout").summary("Stripe checkout").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/products/subscription").summary("Subscription status").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/products/addons").summary("List add-on packs").auth(AuthLevel::Authenticated),
+                BlockEndpoint::post("/b/products/addons/subscribe").summary("Subscribe to add-on").auth(AuthLevel::Authenticated),
             ])
             .config_keys(vec![
                 ConfigVar::new("SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY", "Stripe API secret key", "")
