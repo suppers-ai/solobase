@@ -26,16 +26,28 @@ impl AuthBlock {
         let email_lower = body.email.trim().to_lowercase();
 
         // Find user by email
-        let user = match db::get_by_field(
+        let user = db::get_by_field(
             ctx,
             USERS_COLLECTION,
             "email",
             serde_json::Value::String(email_lower.clone()),
         )
-        .await
-        {
-            Ok(u) => u,
-            Err(_) => {
+        .await;
+
+        // Always run Argon2 verification to prevent timing-based user enumeration.
+        // If user not found, compare against a dummy hash so the response time
+        // is indistinguishable from a wrong-password attempt.
+        let stored_hash = match &user {
+            Ok(u) => u.str_field("password_hash"),
+            Err(_) => super::DUMMY_HASH,
+        };
+        let password_ok = crypto::compare_hash(ctx, &body.password, stored_hash)
+            .await
+            .is_ok();
+
+        let user = match user {
+            Ok(u) if password_ok => u,
+            _ => {
                 return error_response(
                     msg,
                     ErrorCode::InvalidCredentials,
@@ -43,19 +55,6 @@ impl AuthBlock {
                 )
             }
         };
-
-        // Check password
-        let stored_hash = user.str_field("password_hash");
-        if crypto::compare_hash(ctx, &body.password, stored_hash)
-            .await
-            .is_err()
-        {
-            return error_response(
-                msg,
-                ErrorCode::InvalidCredentials,
-                "Invalid email or password",
-            );
-        }
 
         // Check if user is disabled
         if user.bool_field("disabled") {

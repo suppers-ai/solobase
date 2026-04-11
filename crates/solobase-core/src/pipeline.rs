@@ -35,9 +35,14 @@ pub async fn handle_request(
         msg.set_meta(META_REQ_RESOURCE, stripped);
     }
 
-    // 2. Validate JWT and set auth meta
+    // 2. Validate JWT or API key and set auth meta
     if let Some(header) = auth_header {
-        crate::crypto::extract_auth_meta(header, jwt_secret, msg);
+        if header.starts_with("Bearer ") {
+            crate::crypto::extract_auth_meta(header, jwt_secret, msg);
+        } else if header.starts_with("ApiKey ") {
+            let api_key = &header["ApiKey ".len()..];
+            crate::blocks::auth::authenticate_api_key(ctx, api_key, msg).await;
+        }
     }
 
     // Capture request info before routing (for logging)

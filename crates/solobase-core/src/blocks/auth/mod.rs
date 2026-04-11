@@ -38,6 +38,9 @@ pub(crate) const RATE_LIMITS_COLLECTION: &str = "suppers_ai__auth__rate_limits";
 pub(crate) const TOKENS_COLLECTION: &str = "suppers_ai__auth__tokens";
 pub(crate) const API_KEYS_COLLECTION: &str = "suppers_ai__auth__api_keys";
 
+/// Pre-computed Argon2id hash used for timing equalization when user is not found.
+const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
 use crate::blocks::admin::USER_ROLES_COLLECTION;
 
 // --- Shared helpers used by login.rs, oauth.rs, api_keys.rs ---
@@ -574,4 +577,70 @@ impl Block for AuthBlock {
         }
         Ok(())
     }
+}
+
+/// Authenticate a request using an API key.
+///
+/// Hashes the key with SHA-256, looks it up in the database by key_hash,
+/// checks it's not revoked/expired, and sets auth meta on the message.
+/// Silently does nothing if the key is invalid (request continues as
+/// unauthenticated), matching JWT behavior.
+pub async fn authenticate_api_key(
+    ctx: &dyn wafer_run::context::Context,
+    api_key: &str,
+    msg: &mut wafer_run::types::Message,
+) {
+    use crate::blocks::helpers::{sha256_hex, RecordExt};
+    use wafer_core::clients::database as db;
+    use wafer_run::meta::*;
+
+    let key_hash = sha256_hex(api_key.as_bytes());
+
+    // Look up by key_hash
+    let key_record = match db::get_by_field(
+        ctx,
+        API_KEYS_COLLECTION,
+        "key_hash",
+        serde_json::Value::String(key_hash),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+
+    // Check if revoked
+    let revoked_at = key_record.str_field("revoked_at");
+    if !revoked_at.is_empty() {
+        return;
+    }
+
+    // Check if expired
+    let expires_at = key_record.str_field("expires_at");
+    if !expires_at.is_empty() {
+        let now = crate::blocks::helpers::now_rfc3339();
+        if now > expires_at.to_string() {
+            return;
+        }
+    }
+
+    // Look up the user to get email and roles
+    let user_id = key_record.str_field("user_id");
+    if user_id.is_empty() {
+        return;
+    }
+
+    let user = match db::get(ctx, USERS_COLLECTION, user_id).await {
+        Ok(u) => u,
+        Err(_) => return,
+    };
+
+    // Fetch roles from user_roles collection (roles are not stored on the user record)
+    let roles = helpers::get_user_roles(ctx, user_id).await;
+    let roles_str = roles.join(",");
+
+    // Set auth meta (same fields as JWT auth)
+    msg.set_meta(META_AUTH_USER_ID, user_id);
+    msg.set_meta(META_AUTH_USER_EMAIL, user.str_field("email"));
+    msg.set_meta(META_AUTH_USER_ROLES, &roles_str);
 }
