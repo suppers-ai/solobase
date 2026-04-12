@@ -2375,6 +2375,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pbkdf2"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
+dependencies = [
+ "digest",
+ "hmac",
+]
+
+[[package]]
 name = "pem-rfc7468"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3304,6 +3314,7 @@ dependencies = [
  "chrono",
  "getrandom 0.2.17",
  "hmac",
+ "js-sys",
  "maud",
  "sea-query",
  "serde",
@@ -3326,12 +3337,17 @@ name = "solobase-web"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64ct",
  "chrono",
  "getrandom 0.2.17",
  "hex",
+ "hkdf",
+ "hmac",
  "js-sys",
+ "pbkdf2",
  "serde",
  "serde_json",
+ "sha2",
  "solobase-core",
  "uuid",
  "wafer-block",

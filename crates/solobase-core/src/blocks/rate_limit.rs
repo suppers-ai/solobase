@@ -173,10 +173,9 @@ impl UserRateLimiter {
     /// within the current window, or reset if the window has expired.
     #[cfg(target_arch = "wasm32")]
     pub async fn check(&self, ctx: &dyn Context, key: &str, limit: RateLimit) -> Result<u32, u64> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        // std::time::SystemTime::now() panics on wasm32-unknown-unknown
+        // (no system clock). Use js_sys::Date::now() which returns ms since epoch.
+        let now = (js_sys::Date::now() / 1000.0) as i64;
         let window_secs = limit.window.as_secs() as i64;
         let window_start = now - window_secs;
 

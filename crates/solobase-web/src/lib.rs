@@ -16,6 +16,7 @@ use wasm_bindgen::prelude::*;
 pub mod bridge;
 pub mod config;
 pub mod convert;
+pub mod crypto;
 pub mod database;
 pub mod logger;
 pub mod network;
@@ -179,10 +180,8 @@ fn register_service_blocks(
     wafer_core::service_blocks::config::register_with(wafer, Arc::new(config_service))
         .map_err(|e| JsValue::from_str(&e))?;
 
-    // Crypto — Argon2 password hashing + JWT (pure-Rust, wasm32-compatible)
-    let crypto_service = Arc::new(wafer_block_crypto::service::Argon2JwtCryptoService::new(
-        jwt_secret.to_string(),
-    ));
+    // Crypto — PBKDF2 password hashing + HS256 JWT (browser-optimized, fast in WASM)
+    let crypto_service = Arc::new(crypto::BrowserCryptoService::new(jwt_secret.to_string()));
     wafer_core::service_blocks::crypto::register_with(wafer, crypto_service)
         .map_err(|e| JsValue::from_str(&e))?;
 
