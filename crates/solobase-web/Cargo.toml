@@ -1,0 +1,61 @@
+[package]
+name = "solobase-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Solobase compiled to WASM for running in the browser via Service Worker"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# WASM bindings
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Request", "Response", "ResponseInit",
+    "Headers", "ReadableStream",
+    "Url",
+    "console",
+] }
+js-sys = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { workspace = true }
+
+# WAFER runtime (no tokio, no wasmi, no reqwest)
+wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
+wafer-core = { path = "../../../wafer-run/crates/wafer-core" }
+wafer-block = { path = "../../../wafer-run/crates/wafer-block" }
+
+# Solobase blocks
+solobase-core = { path = "../solobase-core", default-features = false }
+
+# Middleware blocks
+wafer-block-auth-validator = { path = "../../../wafer-run/crates/wafer-block-auth-validator" }
+wafer-block-cors = { path = "../../../wafer-run/crates/wafer-block-cors" }
+wafer-block-iam-guard = { path = "../../../wafer-run/crates/wafer-block-iam-guard" }
+wafer-block-inspector = { path = "../../../wafer-run/crates/wafer-block-inspector" }
+wafer-block-readonly-guard = { path = "../../../wafer-run/crates/wafer-block-readonly-guard" }
+wafer-block-router = { path = "../../../wafer-run/crates/wafer-block-router" }
+wafer-block-security-headers = { path = "../../../wafer-run/crates/wafer-block-security-headers" }
+wafer-block-web = { path = "../../../wafer-run/crates/wafer-block-web" }
+
+# Config service
+wafer-block-config = { path = "../../../wafer-run/crates/wafer-block-config" }
+
+# Crypto service (pure-Rust JWT via hmac+sha2+base64ct — wasm32-compatible)
+wafer-block-crypto = { path = "../../../wafer-run/crates/wafer-block-crypto" }
+
+# Async traits
+async-trait = "0.1"
+
+# Utils
+hex = "0.4"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+# uuid v4 needs a JS RNG source on wasm32
+uuid = { version = "1", features = ["v4", "js"] }

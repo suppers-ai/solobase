@@ -54,7 +54,6 @@ fn make_block(id: BlockId) -> Arc<dyn Block> {
 /// The same Arc instances should be registered with the WAFER runtime
 /// (for lifecycle hooks) and passed to the `NativeBlockFactory` (for
 /// request dispatch), ensuring state is shared.
-#[cfg(not(target_arch = "wasm32"))]
 pub fn create_blocks(filter: impl Fn(&str) -> bool) -> HashMap<BlockId, Arc<dyn Block>> {
     let mut map = HashMap::new();
     for &(name, id) in SOLOBASE_BLOCKS {
@@ -69,7 +68,6 @@ pub fn create_blocks(filter: impl Fn(&str) -> bool) -> HashMap<BlockId, Arc<dyn 
 ///
 /// This registers the blocks for lifecycle hooks (Init, Shutdown) and
 /// for `ctx.call_block("suppers-ai/...", ...)` calls.
-#[cfg(not(target_arch = "wasm32"))]
 pub fn register_shared_blocks(w: &mut wafer_run::Wafer, blocks: &HashMap<BlockId, Arc<dyn Block>>) {
     for (&id, block) in blocks {
         let name = block_id_to_name(id);

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/solobase",
     "crates/solobase-core",
+    "crates/solobase-web",
 ]
 
 [workspace.package]

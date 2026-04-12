@@ -131,6 +131,96 @@ function GetStarted() {
   return (
     <section style={{ background: "#ffffff", padding: "0 1.5rem 4rem" }}>
       <div class="max-w-2xl mx-auto">
+        {/* Browser option — easiest path, shown first */}
+        <div
+          class="mb-8"
+          style={{
+            background: "#fff7f4",
+            border: "2px solid #fe6627",
+            borderRadius: "0.75rem",
+            padding: "1.5rem 2rem",
+          }}
+        >
+          <div class="flex items-start gap-4">
+            <div
+              style={{
+                flexShrink: 0,
+                width: "2.5rem",
+                height: "2.5rem",
+                borderRadius: "0.5rem",
+                background: "#fe6627",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "white",
+              }}
+            >
+              <svg
+                style={{ width: "1.25rem", height: "1.25rem" }}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.5"
+                  d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 004 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div class="flex items-center gap-2 mb-1">
+                <h3 class="font-semibold text-gray-900" style={{ fontSize: "1rem" }}>
+                  Browser (No Install)
+                </h3>
+                <span
+                  style={{
+                    fontSize: "0.65rem",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    background: "#fe6627",
+                    color: "white",
+                    padding: "0.125rem 0.4rem",
+                    borderRadius: "0.25rem",
+                  }}
+                >
+                  Easiest
+                </span>
+              </div>
+              <p class="text-sm text-gray-600 mb-3">
+                No download. No setup. Runs entirely in your browser.
+              </p>
+              <a
+                href="https://demo.solobase.dev"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "inline-block",
+                  padding: "0.5rem 1.25rem",
+                  background: "#fe6627",
+                  color: "white",
+                  borderRadius: "0.5rem",
+                  fontWeight: 600,
+                  fontSize: "0.875rem",
+                  transition: "background 0.2s",
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.background = "#e55a1f")}
+                onMouseOut={(e) => (e.currentTarget.style.background = "#fe6627")}
+              >
+                Try Now
+              </a>
+              <p
+                class="text-gray-400"
+                style={{ fontSize: "0.75rem", marginTop: "0.75rem" }}
+              >
+                Data stays in your browser — local only, no sync between devices.
+                Storage limited by browser quotas.
+              </p>
+            </div>
+          </div>
+        </div>
         <CodeBlock />
         {/* Cloud section */}
         <div
@@ -452,11 +542,9 @@ function BottomCTA({ onOpenDemo }) {
             Sign In
           </a>
           <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              onOpenDemo?.();
-            }}
+            href="https://demo.solobase.dev"
+            target="_blank"
+            rel="noopener noreferrer"
             style={{
               display: "inline-block",
               padding: "0.75rem 2rem",
@@ -465,7 +553,6 @@ function BottomCTA({ onOpenDemo }) {
               borderRadius: "0.5rem",
               fontWeight: 600,
               transition: "background 0.2s",
-              cursor: "pointer",
             }}
             onMouseOver={(e) => (e.currentTarget.style.background = "#374151")}
             onMouseOut={(e) => (e.currentTarget.style.background = "#1f2937")}

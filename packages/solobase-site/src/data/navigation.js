@@ -3,7 +3,7 @@ export const siteConfig = {
   description: "Open source backend in a single binary",
   author: "Suppers Software Limited",
   logo: "/images/logo_long.png",
-  demoUrl: "https://solobase.dev/",
+  demoUrl: "https://demo.solobase.dev",
   githubUrl: "https://github.com/suppers-ai/solobase",
   discordUrl: "https://discord.gg/jKqMcbrVzm",
 };
@@ -12,7 +12,7 @@ export const mainMenu = [
   { name: "Home", url: "/" },
   { name: "Pricing", url: "/pricing/" },
   { name: "Docs", url: "/docs/" },
-  { name: "Demo", isDemo: true },
+  { name: "Demo", url: "https://demo.solobase.dev", external: true },
   {
     name: "Sign In",
     url: "https://cloud.solobase.dev/b/auth/login",
