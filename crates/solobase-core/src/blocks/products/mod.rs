@@ -254,6 +254,11 @@ impl Block for ProductsBlock {
             return handlers::handle_user(ctx, msg).await;
         }
 
+        // User endpoints at /b/products/... (catalog, checkout, subscription, etc.)
+        if path.starts_with("/b/products/") || path == "/b/products" {
+            return handlers::handle_user(ctx, msg).await;
+        }
+
         err_not_found(msg, "not found")
     }
 
