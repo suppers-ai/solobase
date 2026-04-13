@@ -105,8 +105,8 @@ impl Block for AdminBlock {
                     .field_default("description", "string", ""),
             ])
             .grants(vec![
-                wafer_run::ResourceGrant::read_write("suppers-ai/auth", USER_ROLES_COLLECTION),
-                wafer_run::ResourceGrant::read("suppers-ai/auth", VARIABLES_COLLECTION),
+                wafer_run::ResourceGrant::read_write(super::auth::AUTH_BLOCK_ID, USER_ROLES_COLLECTION),
+                wafer_run::ResourceGrant::read(super::auth::AUTH_BLOCK_ID, VARIABLES_COLLECTION),
                 wafer_run::ResourceGrant::read("suppers-ai/userportal", BLOCK_SETTINGS_COLLECTION),
                 // Infrastructure logging: network/storage wrappers + pipeline write logs
                 wafer_run::ResourceGrant::read_write("*", NETWORK_REQUEST_LOGS_COLLECTION),

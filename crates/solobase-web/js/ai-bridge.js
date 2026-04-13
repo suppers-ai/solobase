@@ -96,3 +96,77 @@ export async function chat(messages, onChunk) {
 
 // Make available globally for the chat page JS
 window.solobaseAI = { getAvailableModels, getStatus, loadModel, unloadModel, chat };
+
+// ---------------------------------------------------------------------------
+// Service Worker message bridge
+// ---------------------------------------------------------------------------
+// The SW forwards /b/local-llm/api/* requests here via postMessage.
+// We call the appropriate function and send the result back.
+
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', async (event) => {
+        const msg = event.data;
+        if (!msg || msg.type !== 'local-llm-request') return;
+
+        const { id, action, body } = msg;
+
+        // Send response back to SW
+        function reply(data) {
+            navigator.serviceWorker.controller?.postMessage({
+                type: 'local-llm-response',
+                id,
+                data,
+            });
+        }
+        function replyError(message, status = 500) {
+            navigator.serviceWorker.controller?.postMessage({
+                type: 'local-llm-response',
+                id,
+                error: message,
+                status,
+            });
+        }
+
+        try {
+            switch (action) {
+                case 'status':
+                    reply(getStatus());
+                    break;
+
+                case 'models':
+                    reply({ models: await getAvailableModels() });
+                    break;
+
+                case 'load': {
+                    if (!body?.model_id) {
+                        replyError('Missing model_id', 400);
+                        break;
+                    }
+                    await loadModel(body.model_id);
+                    reply({ loaded: body.model_id, status: 'ready' });
+                    break;
+                }
+
+                case 'unload':
+                    await unloadModel();
+                    reply({ status: 'unloaded' });
+                    break;
+
+                case 'chat': {
+                    if (!body?.messages) {
+                        replyError('Missing messages', 400);
+                        break;
+                    }
+                    const result = await chat(body.messages);
+                    reply(result);
+                    break;
+                }
+
+                default:
+                    replyError(`Unknown action: ${action}`, 404);
+            }
+        } catch (error) {
+            replyError(String(error));
+        }
+    });
+}

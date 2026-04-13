@@ -184,7 +184,7 @@ pub fn extract_auth_meta(auth_header: &str, jwt_secret: &str, msg: &mut wafer_ru
     // The auth block signs JWTs with a per-block derived key (HKDF from the
     // master secret + block ID). Try the derived key first, fall back to
     // the master secret for tokens signed without block derivation.
-    let derived_secret = derive_block_jwt_key(jwt_secret, "suppers-ai/auth");
+    let derived_secret = derive_block_jwt_key(jwt_secret, crate::blocks::auth::AUTH_BLOCK_ID);
     let claims = match jwt_verify(token, &derived_secret) {
         Ok(c) => c,
         Err(_) => match jwt_verify(token, jwt_secret) {

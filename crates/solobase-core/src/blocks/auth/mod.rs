@@ -15,6 +15,8 @@ use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
 
+pub const AUTH_BLOCK_ID: &str = "suppers-ai/auth";
+
 pub struct AuthBlock {
     limiter: UserRateLimiter,
 }
@@ -282,7 +284,7 @@ impl Block for AuthBlock {
         use wafer_run::types::CollectionSchema;
         use wafer_run::AuthLevel;
 
-        BlockInfo::new("suppers-ai/auth", "0.0.1", "http-handler@v1", "Authentication: login, signup, JWT, refresh tokens, OAuth, API keys")
+        BlockInfo::new(AUTH_BLOCK_ID, "0.0.1", "http-handler@v1", "Authentication: login, signup, JWT, refresh tokens, OAuth, API keys")
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into(), "wafer-run/crypto".into(), "wafer-run/config".into(), "suppers-ai/email".into()])
             .collections(vec![

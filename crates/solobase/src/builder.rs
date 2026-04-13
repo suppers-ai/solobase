@@ -4,7 +4,6 @@
 //! service implementations and calls the builder. The builder handles all
 //! common registration: service blocks, middleware, feature blocks, router, flow.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -20,14 +19,6 @@ use wafer_run::block::Block;
 use wafer_run::Wafer;
 
 use solobase_core::blocks::router::{NativeBlockFactory, SolobaseRouterBlock};
-
-// Thread-local storage for the storage block reference.
-// Used by `post_start()` to inject WRAP grants after the runtime starts.
-// Safe on all platforms: native (single-threaded at setup), CF (single-threaded per request),
-// browser (single-threaded).
-thread_local! {
-    static STORAGE_BLOCK_REF: RefCell<Option<Arc<SolobaseStorageBlock>>> = const { RefCell::new(None) };
-}
 
 pub struct SolobaseBuilder {
     database: Option<Arc<dyn DatabaseService>>,
@@ -101,7 +92,7 @@ impl SolobaseBuilder {
         self
     }
 
-    pub fn build(self) -> Result<Wafer, String> {
+    pub fn build(self) -> Result<(Wafer, Arc<SolobaseStorageBlock>), String> {
         // 1. Validate required services
         let database = self.database.ok_or("database service required")?;
         let storage = self.storage.ok_or("storage service required")?;
@@ -123,8 +114,7 @@ impl SolobaseBuilder {
 
         let admin_block_id = Arc::new("suppers-ai/admin".to_string());
         let storage_block = solobase_core::blocks::storage::create(storage, admin_block_id);
-        STORAGE_BLOCK_REF.with(|cell| *cell.borrow_mut() = Some(storage_block.clone()));
-        wafer.register_block("wafer-run/storage", storage_block)?;
+        wafer.register_block("wafer-run/storage", storage_block.clone())?;
         wafer.add_alias("storage", "wafer-run/storage");
 
         wafer_core::service_blocks::config::register_with(&mut wafer, config)?;
@@ -237,16 +227,12 @@ impl SolobaseBuilder {
         // 11. Register site-main flow
         crate::flows::register_site_main(&mut wafer)?;
 
-        Ok(wafer)
+        Ok((wafer, storage_block))
     }
 }
 
 /// Call after `wafer.start()` or `wafer.start_without_bind()` to inject
 /// collected WRAP grants into the storage block for cross-block access control.
-pub fn post_start(wafer: &Wafer) {
-    STORAGE_BLOCK_REF.with(|cell| {
-        if let Some(ref storage) = *cell.borrow() {
-            storage.update_wrap_grants(wafer.wrap_grants());
-        }
-    });
+pub fn post_start(wafer: &Wafer, storage_block: &SolobaseStorageBlock) {
+    storage_block.update_wrap_grants(wafer.wrap_grants());
 }

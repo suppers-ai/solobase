@@ -72,7 +72,7 @@ async fn main() {
         config_service.set(key, value);
     }
 
-    let mut wafer = SolobaseBuilder::new()
+    let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(Arc::new(
             wafer_block_sqlite::service::SQLiteDatabaseService::open(&infra.db_path)
                 .expect("failed to open SQLite database"),
@@ -115,7 +115,7 @@ async fn main() {
         .expect("failed to start WAFER runtime");
 
     // 12. Inject WRAP grants into storage block
-    builder::post_start(&wafer);
+    builder::post_start(&wafer, &storage_block);
     tracing::info!("WAFER runtime started — all blocks resolved");
 
     // 13. Wait for shutdown signal

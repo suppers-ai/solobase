@@ -28,6 +28,100 @@ self.addEventListener('activate', (event) => {
     event.waitUntil(self.clients.claim());
 });
 
+// ---------------------------------------------------------------------------
+// Local-LLM postMessage bridge
+// ---------------------------------------------------------------------------
+// local-llm runs in the main thread (WebGPU needs main thread access).
+// The SW forwards /b/local-llm/api/* requests to a page client via
+// postMessage and waits for the response.
+
+const pendingLocalLlm = new Map(); // requestId -> { resolve, reject }
+
+self.addEventListener('message', (event) => {
+    const msg = event.data;
+    if (msg && msg.type === 'local-llm-response') {
+        const pending = pendingLocalLlm.get(msg.id);
+        if (pending) {
+            pendingLocalLlm.delete(msg.id);
+            pending.resolve(msg);
+        }
+    }
+});
+
+let llmRequestId = 0;
+
+async function handleLocalLlm(request) {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    // Determine the action from the path
+    let action;
+    if (path === '/b/local-llm/api/chat') action = 'chat';
+    else if (path === '/b/local-llm/api/models') action = 'models';
+    else if (path === '/b/local-llm/api/load') action = 'load';
+    else if (path === '/b/local-llm/api/unload') action = 'unload';
+    else if (path === '/b/local-llm/api/status') action = 'status';
+    else {
+        return new Response(
+            JSON.stringify({ error: 'not_found', message: 'Unknown local-llm endpoint' }),
+            { status: 404, headers: { 'Content-Type': 'application/json' } }
+        );
+    }
+
+    // Parse request body for POST endpoints
+    let body = null;
+    if (request.method === 'POST') {
+        try { body = await request.json(); } catch (_) { body = {}; }
+    }
+
+    // Find a page client to forward to
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
+    if (clients.length === 0) {
+        return new Response(
+            JSON.stringify({ error: 'no_client', message: 'No active page — open the app in a tab to use local LLM' }),
+            { status: 503, headers: { 'Content-Type': 'application/json' } }
+        );
+    }
+
+    const id = ++llmRequestId;
+    const responsePromise = new Promise((resolve, reject) => {
+        pendingLocalLlm.set(id, { resolve, reject });
+        // Timeout after 5 minutes (model loading can be slow)
+        setTimeout(() => {
+            if (pendingLocalLlm.has(id)) {
+                pendingLocalLlm.delete(id);
+                reject(new Error('Local LLM request timed out'));
+            }
+        }, 300_000);
+    });
+
+    // Send to the first available client
+    clients[0].postMessage({
+        type: 'local-llm-request',
+        id,
+        action,
+        body,
+    });
+
+    try {
+        const result = await responsePromise;
+        const status = result.error ? (result.status || 500) : 200;
+        return new Response(
+            JSON.stringify(result.data || { error: result.error }),
+            { status, headers: { 'Content-Type': 'application/json' } }
+        );
+    } catch (error) {
+        return new Response(
+            JSON.stringify({ error: 'bridge_error', message: String(error) }),
+            { status: 500, headers: { 'Content-Type': 'application/json' } }
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fetch handler
+// ---------------------------------------------------------------------------
+
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
     // Only intercept same-origin requests
@@ -36,10 +130,16 @@ self.addEventListener('fetch', (event) => {
     if (url.pathname === '/sw.js' ||
         url.pathname === '/loader.js' ||
         url.pathname === '/ai-bridge.js' ||
+        url.pathname === '/manifest.json' ||
         url.pathname === '/index.html' ||
         url.pathname === '/' ||
         url.pathname.startsWith('/pkg/') ||
         url.pathname.startsWith('/sql-')) {
+        return;
+    }
+    // Local-LLM: handle via postMessage bridge to main thread (WebGPU)
+    if (url.pathname.startsWith('/b/local-llm/api/')) {
+        event.respondWith(handleLocalLlm(event.request));
         return;
     }
     event.respondWith(handleFetch(event.request));

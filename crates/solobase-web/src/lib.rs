@@ -70,7 +70,7 @@ pub async fn initialize() -> Result<(), JsValue> {
     }
 
     // 6. Build WAFER runtime via SolobaseBuilder.
-    let mut wafer = SolobaseBuilder::new()
+    let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(Arc::new(database::BrowserDatabaseService))
         .storage(Arc::new(storage::BrowserStorageService))
         .config(Arc::new(config_svc))
@@ -102,7 +102,7 @@ pub async fn initialize() -> Result<(), JsValue> {
         .map_err(|e| JsValue::from_str(&e))?;
 
     // 8. Inject WRAP grants.
-    builder::post_start(&wafer);
+    builder::post_start(&wafer, &storage_block);
 
     web_sys::console::log_1(&"solobase: WAFER runtime started".into());
 

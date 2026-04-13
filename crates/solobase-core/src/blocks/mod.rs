@@ -7,6 +7,7 @@ pub mod files;
 pub mod helpers;
 pub mod legalpages;
 pub mod llm;
+pub mod llm_backend;
 pub mod local_llm;
 pub mod messages;
 pub mod network;
