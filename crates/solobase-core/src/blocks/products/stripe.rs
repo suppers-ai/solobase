@@ -386,11 +386,14 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 let _ = db::exec_raw(ctx, &sql, &args).await;
             }
 
-            // Sync addon totals from the subscription's items
+            // Sync addon totals from Stripe subscription items metadata.
+            // Each addon subscription item has metadata fields: extra_projects,
+            // extra_requests, extra_r2_bytes, extra_d1_bytes (set when creating
+            // the subscription item via Stripe API).
             let user_id = get_user_for_stripe_sub(ctx, stripe_sub_id).await;
             if let Some(ref uid) = user_id {
                 if let Some(items) = data_object.get("items") {
-                    super::addons::sync_addons_from_stripe(ctx, uid, items).await;
+                    sync_addon_totals_from_items(ctx, uid, items).await;
                 }
             }
 
@@ -703,6 +706,67 @@ async fn user_owns_product(ctx: &dyn Context, user_id: &str, product_id: &str) -
     .await;
 
     matches!(&purchase_rows, Ok(rows) if !rows.is_empty())
+}
+
+/// Sync addon column totals from Stripe subscription items.
+///
+/// Reads addon values from item metadata (set by the platform when creating
+/// subscription items). This keeps the products block plan-agnostic — it
+/// doesn't need to know what addon packs exist, just what Stripe reports.
+async fn sync_addon_totals_from_items(ctx: &dyn Context, user_id: &str, items: &serde_json::Value) {
+    let mut total_projects: i64 = 0;
+    let mut total_requests: i64 = 0;
+    let mut total_r2: i64 = 0;
+    let mut total_d1: i64 = 0;
+
+    if let Some(data) = items.get("data").and_then(|v| v.as_array()) {
+        for item in data {
+            let meta = item.get("metadata")
+                .or_else(|| item.pointer("/price/metadata"));
+            let meta = match meta {
+                Some(m) => m,
+                None => continue,
+            };
+
+            // Skip non-addon items (the base plan item won't have addon_id)
+            if meta.get("addon_id").is_none() {
+                continue;
+            }
+
+            let qty = item.get("quantity").and_then(|v| v.as_i64()).unwrap_or(1);
+            let parse = |key: &str| -> i64 {
+                meta.get(key)
+                    .and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or_else(|| v.as_i64()))
+                    .unwrap_or(0)
+            };
+            total_projects += parse("extra_projects") * qty;
+            total_requests += parse("extra_requests") * qty;
+            total_r2 += parse("extra_r2_bytes") * qty;
+            total_d1 += parse("extra_d1_bytes") * qty;
+        }
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let sql = format!(
+        "UPDATE {SUBSCRIPTIONS} SET \
+           addon_projects = ?1, addon_requests = ?2, \
+           addon_r2_bytes = ?3, addon_d1_bytes = ?4, \
+           updated_at = ?5 \
+         WHERE user_id = ?6 AND status = 'active'"
+    );
+    let _ = db::exec_raw(
+        ctx,
+        &sql,
+        &[
+            serde_json::json!(total_projects),
+            serde_json::json!(total_requests),
+            serde_json::json!(total_r2),
+            serde_json::json!(total_d1),
+            serde_json::Value::String(now),
+            serde_json::Value::String(user_id.to_string()),
+        ],
+    )
+    .await;
 }
 
 #[cfg(test)]

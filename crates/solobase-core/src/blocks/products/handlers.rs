@@ -169,12 +169,6 @@ pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ("create", "/b/products/checkout") => super::stripe::handle_checkout(ctx, msg).await,
         // Subscription status
         ("retrieve", "/b/products/subscription") => handle_subscription(ctx, msg).await,
-        // Add-on packs (recurring subscription items)
-        ("retrieve", "/b/products/addons") => super::addons::handle_list(ctx, msg).await,
-        ("create", "/b/products/addons/subscribe") => {
-            super::addons::handle_subscribe(ctx, msg).await
-        }
-        ("create", "/b/products/addons/cancel") => super::addons::handle_cancel(ctx, msg).await,
         // User products/groups disabled
         (_, _)
             if path.starts_with("/b/products/products")

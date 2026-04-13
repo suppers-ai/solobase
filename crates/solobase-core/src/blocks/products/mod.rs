@@ -1,4 +1,3 @@
-mod addons;
 mod handlers;
 pub(crate) mod models;
 mod pages;
@@ -134,7 +133,7 @@ impl Block for ProductsBlock {
                     .field_default("product_id", "string", ""),
             ])
             .category(wafer_run::BlockCategory::Feature)
-            .description("Product catalog, pricing engine, and payment processing. Manages products, groups, pricing templates with formula evaluation, purchases, and Stripe integration for checkout and recurring subscriptions. Supports add-on packs for extending plan limits.")
+            .description("Product catalog, pricing engine, and payment processing. Manages products, groups, pricing templates with formula evaluation, purchases, and Stripe integration for checkout and recurring subscriptions.")
             .endpoints(vec![
                 BlockEndpoint::get("/b/products/admin/").summary("Overview").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/products/admin/manage").summary("Manage products").auth(AuthLevel::Admin),
@@ -143,8 +142,6 @@ impl Block for ProductsBlock {
                 BlockEndpoint::get("/b/products/catalog").summary("Browse catalog"),
                 BlockEndpoint::post("/b/products/checkout").summary("Stripe checkout").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/products/subscription").summary("Subscription status").auth(AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/products/addons").summary("List add-on packs").auth(AuthLevel::Authenticated),
-                BlockEndpoint::post("/b/products/addons/subscribe").summary("Subscribe to add-on").auth(AuthLevel::Authenticated),
             ])
             .config_keys(vec![
                 ConfigVar::new("SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY", "Stripe API secret key", "")
