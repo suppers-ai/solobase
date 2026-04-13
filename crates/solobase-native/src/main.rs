@@ -20,12 +20,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use solobase::app_config::{load_block_settings, InfraConfig};
-use solobase::blocks;
-use solobase::blocks::router::{NativeBlockFactory, SolobaseRouterBlock};
-use solobase::flows;
+mod app_config;
+use app_config::{load_block_settings, InfraConfig};
 
+use solobase::builder::SolobaseBuilder;
 use tracing_subscriber::{fmt, EnvFilter};
+use wafer_core::interfaces::config::service::ConfigService;
 use wafer_run::Wafer;
 
 // ---------------------------------------------------------------------------
@@ -66,145 +66,63 @@ async fn main() {
         .unwrap_or_default();
     let features = load_block_settings(&infra.db_path);
 
-    // 7. Create WAFER runtime
-    let mut wafer = Wafer::new();
-    wafer.set_admin_block("suppers-ai/admin");
-
-    // 8. Register non-service block configs (http-listener, web)
-    let (block_configs, aliases) = infra.to_blocks_json();
-    for (name, config) in block_configs {
-        wafer.add_block_config(name, config);
-    }
-    for (alias, target) in aliases {
-        wafer.add_alias(alias, target);
+    // 7. Build WAFER runtime via SolobaseBuilder
+    let config_service = wafer_block_config::service::EnvConfigService::new();
+    for (key, value) in &vars {
+        config_service.set(key, value);
     }
 
-    // 9. Register unified service blocks (database, storage, config, crypto, network, logger)
-    let storage_block_ref;
-    {
-        use wafer_core::interfaces::config::service::ConfigService;
-
-        // Database — open SQLite (already opened above for variable seeding, but the
-        // service needs its own connection for the block runtime)
-        let db_service = Arc::new(
+    let build_result = SolobaseBuilder::new()
+        .database(Arc::new(
             wafer_block_sqlite::service::SQLiteDatabaseService::open(&infra.db_path)
-                .expect("failed to open SQLite database for block runtime"),
-        );
-        wafer_core::service_blocks::database::register_with(&mut wafer, db_service)
-            .expect("register database");
-        wafer.add_alias("db", "wafer-run/database");
-
-        // Storage — local filesystem (solobase wrapper adds path isolation + WRAP access control)
-        let storage_service = Arc::new(
+                .expect("failed to open SQLite database"),
+        ))
+        .storage(Arc::new(
             wafer_block_local_storage::service::LocalStorageService::new(&infra.storage_root)
                 .expect("failed to create local storage service"),
-        );
-        let admin_block_id = Arc::new("suppers-ai/admin".to_string());
-        let storage_block = solobase::blocks::storage::create(storage_service, admin_block_id);
-        storage_block_ref = storage_block.clone();
-        wafer
-            .register_block("wafer-run/storage", storage_block)
-            .expect("register storage");
-        wafer.add_alias("storage", "wafer-run/storage");
+        ))
+        .config(Arc::new(config_service))
+        .crypto(Arc::new(
+            wafer_block_crypto::service::Argon2JwtCryptoService::new(jwt_secret),
+        ))
+        .network(Arc::new(wafer_block_network::service::HttpNetworkService::new()))
+        .logger(Arc::new(wafer_block_logger::service::TracingLogger))
+        .block_settings(features)
+        .build()
+        .expect("failed to build solobase runtime");
+    let mut wafer = build_result.wafer;
 
-        // Config — env vars with variables table overrides
-        let config_service = wafer_block_config::service::EnvConfigService::new();
-        for (key, value) in &vars {
-            config_service.set(key, value);
-        }
-        wafer_core::service_blocks::config::register_with(&mut wafer, Arc::new(config_service))
-            .expect("register config");
-
-        // Crypto — Argon2 password hashing + JWT
-        let crypto_service = Arc::new(wafer_block_crypto::service::Argon2JwtCryptoService::new(
-            jwt_secret.clone(),
-        ));
-        wafer_core::service_blocks::crypto::register_with(&mut wafer, crypto_service)
-            .expect("register crypto");
-
-        // Network — async HTTP client (solobase wrapper adds logging + rules)
-        let network_service = Arc::new(wafer_block_network::service::HttpNetworkService::new());
-        let network_block = solobase::blocks::network::create(network_service);
-        wafer
-            .register_block("wafer-run/network", network_block)
-            .expect("register network");
-
-        // Logger — tracing
-        let logger_service = Arc::new(wafer_block_logger::service::TracingLogger);
-        wafer_core::service_blocks::logger::register_with(&mut wafer, logger_service)
-            .expect("register logger");
-    }
-
-    // 10. Register middleware and other infrastructure blocks
-    wafer_block_auth_validator::register(&mut wafer).expect("register auth-validator");
-    wafer_block_cors::register(&mut wafer).expect("register cors");
-    wafer_block_iam_guard::register(&mut wafer).expect("register iam-guard");
-    wafer_block_inspector::register(&mut wafer).expect("register inspector");
+    // 8. Native-only: register http-listener
+    wafer_block_http_listener::register(&mut wafer).expect("register http-listener");
     wafer.add_block_config(
-        "wafer-run/inspector",
-        serde_json::json!({
-            "allow_anonymous": false
-        }),
+        "wafer-run/http-listener",
+        serde_json::json!({ "flow": "site-main", "listen": infra.listen }),
     );
-    wafer_block_readonly_guard::register(&mut wafer).expect("register readonly-guard");
-    wafer_block_router::register(&mut wafer).expect("register router");
-    wafer_block_security_headers::register(&mut wafer).expect("register security-headers");
-    wafer_block_web::register(&mut wafer).expect("register web");
-    #[cfg(feature = "server")]
-    {
-        wafer_block_http_listener::register(&mut wafer).expect("register http-listener");
-    }
-    tracing::info!("infrastructure blocks registered");
 
-    // 12. Create feature blocks based on variables-derived feature config
-    let shared_blocks = blocks::create_blocks(|name| features.is_enabled(name));
-    blocks::register_shared_blocks(&mut wafer, &shared_blocks);
-
-    // 12b. Register service blocks (always available, not feature-gated)
-    wafer
-        .register_block(
-            "suppers-ai/email",
-            std::sync::Arc::new(blocks::email::EmailBlock),
-        )
-        .expect("register email");
-
-    // 13. Build the solobase router
-    let feature_config: Arc<dyn solobase_core::FeatureConfig> = Arc::new(features);
-    let factory = NativeBlockFactory::new(shared_blocks);
-    let router = SolobaseRouterBlock::new(jwt_secret, feature_config, factory);
-    wafer
-        .register_block("suppers-ai/router", Arc::new(router))
-        .expect("register solobase-router");
-    wafer.add_block_config("suppers-ai/router", solobase_core::routing::routes_config());
-    tracing::info!("feature blocks registered");
-
-    // 14. Register flow definitions
-    flows::register_site_main(&mut wafer).unwrap_or_else(|e| {
-        tracing::error!("failed to register site-main flow: {e}");
-        std::process::exit(1);
-    });
-
-    // 15. Register observability hooks
+    // 9. Register observability hooks
     register_observability_hooks(&mut wafer);
 
-    // 16. Load custom WRAP grants from DB and start runtime
-    let db_grants = solobase::app_config::load_wrap_grants(&infra.db_path);
+    // 10. Load custom WRAP grants from DB
+    let db_grants = app_config::load_wrap_grants(&infra.db_path);
     if !db_grants.is_empty() {
         tracing::info!(count = db_grants.len(), "loaded custom WRAP grants from database");
         wafer.add_wrap_grants(db_grants);
     }
+
+    // 11. Start runtime
     let wafer = wafer
         .start()
         .await
-        .expect("failed to resolve and start WAFER runtime");
-    // Inject collected WRAP grants into the storage block for cross-block access checks
-    storage_block_ref.update_wrap_grants(wafer.wrap_grants());
+        .expect("failed to start WAFER runtime");
+
+    // 12. Inject WRAP grants into storage block
+    build_result.inject_wrap_grants(&wafer);
     tracing::info!("WAFER runtime started — all blocks resolved");
 
-    // 17. Wait for shutdown signal
+    // 13. Wait for shutdown signal
     shutdown_signal().await;
 
-    // 18. Graceful shutdown
+    // 14. Graceful shutdown
     wafer.shutdown().await;
     tracing::info!("solobase shutdown complete");
 }

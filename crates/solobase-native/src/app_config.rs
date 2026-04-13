@@ -7,7 +7,6 @@
 
 use std::collections::HashMap;
 
-use serde_json::{json, Map, Value};
 pub use solobase_core::features::BlockSettings;
 
 // ---------------------------------------------------------------------------
@@ -37,29 +36,6 @@ impl InfraConfig {
         }
     }
 
-    pub fn to_blocks_json(&self) -> (Map<String, Value>, Vec<(String, String)>) {
-        let mut blocks = Map::new();
-        let aliases: Vec<(String, String)> = Vec::new();
-
-        blocks.insert(
-            "wafer-run/http-listener".into(),
-            json!({
-                "flow": "site-main",
-                "listen": self.listen
-            }),
-        );
-
-        blocks.insert(
-            "wafer-run/web".into(),
-            json!({
-                "web_root": "site",
-                "web_spa": "true",
-                "web_index": "index.html"
-            }),
-        );
-
-        (blocks, aliases)
-    }
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -92,7 +68,6 @@ pub const BLOCK_DEFAULTS: &[BlockDefault] = &[
     ("suppers-ai/system", true),
 ];
 
-#[cfg(feature = "server")]
 pub fn load_block_settings(db_path: &str) -> BlockSettings {
     let conn = match rusqlite::Connection::open(db_path) {
         Ok(c) => c,
@@ -167,7 +142,6 @@ pub fn load_block_settings(db_path: &str) -> BlockSettings {
 ///
 /// Reads the `suppers_ai__admin__wrap_grants` table and returns a list of
 /// `ResourceGrant` values that should be injected into the WAFER runtime.
-#[cfg(feature = "server")]
 pub fn load_wrap_grants(db_path: &str) -> Vec<wafer_run::ResourceGrant> {
     let conn = match rusqlite::Connection::open(db_path) {
         Ok(c) => c,

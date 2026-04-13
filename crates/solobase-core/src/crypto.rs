@@ -146,6 +146,23 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// Per-block JWT key derivation (must match wafer-block-crypto's HKDF)
+// ---------------------------------------------------------------------------
+
+/// Derive a per-block JWT signing key from the master secret using HKDF-SHA256.
+/// This matches the derivation in `wafer-block-crypto::Argon2JwtCryptoService`.
+fn derive_block_jwt_key(master_secret: &str, block_id: &str) -> String {
+    use hkdf::Hkdf;
+    use sha2::Sha256;
+
+    let hk = Hkdf::<Sha256>::new(None, master_secret.as_bytes());
+    let info = format!("wafer-jwt|{block_id}");
+    let mut okm = [0u8; 32];
+    hk.expand(info.as_bytes(), &mut okm).expect("HKDF expand");
+    okm.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+// ---------------------------------------------------------------------------
 // Auth meta extraction
 // ---------------------------------------------------------------------------
 
@@ -164,9 +181,16 @@ pub fn extract_auth_meta(auth_header: &str, jwt_secret: &str, msg: &mut wafer_ru
         None => return,
     };
 
-    let claims = match jwt_verify(token, jwt_secret) {
+    // The auth block signs JWTs with a per-block derived key (HKDF from the
+    // master secret + block ID). Try the derived key first, fall back to
+    // the master secret for tokens signed without block derivation.
+    let derived_secret = derive_block_jwt_key(jwt_secret, "suppers-ai/auth");
+    let claims = match jwt_verify(token, &derived_secret) {
         Ok(c) => c,
-        Err(_) => return,
+        Err(_) => match jwt_verify(token, jwt_secret) {
+            Ok(c) => c,
+            Err(_) => return,
+        },
     };
 
     // Only accept "access" tokens for authentication (reject refresh tokens)
