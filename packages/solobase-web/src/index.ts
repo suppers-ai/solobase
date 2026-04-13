@@ -31,9 +31,13 @@ export async function setupSolobase(config?: SolobaseConfig): Promise<void> {
       sw.addEventListener('statechange', () => {
         if (sw.state === 'activated') resolve();
       });
+      // Re-check after attaching the listener to close the race window
+      // where the SW activated between the outer check and addEventListener.
+      if (sw.state === 'activated') resolve();
     });
   }
 
-  // Send route config to the SW
-  registration.active?.postMessage({ type: 'solobase:config', routes });
+  // Wait for navigator.serviceWorker.ready to guarantee registration.active is non-null.
+  const ready = await navigator.serviceWorker.ready;
+  ready.active!.postMessage({ type: 'solobase:config', routes });
 }

@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use wasm_bindgen::prelude::*;
 
-use solobase::builder::{self, SolobaseBuilder};
+use solobase::builder::SolobaseBuilder;
 use wafer_core::interfaces::config::service::ConfigService;
 
 pub mod bridge;
@@ -70,7 +70,7 @@ pub async fn initialize() -> Result<(), JsValue> {
     }
 
     // 6. Build WAFER runtime via SolobaseBuilder.
-    let mut wafer = SolobaseBuilder::new()
+    let build_result = SolobaseBuilder::new()
         .database(Arc::new(database::BrowserDatabaseService))
         .storage(Arc::new(storage::BrowserStorageService))
         .config(Arc::new(config_svc))
@@ -78,8 +78,23 @@ pub async fn initialize() -> Result<(), JsValue> {
         .network(Arc::new(network::BrowserNetworkService))
         .logger(Arc::new(logger::ConsoleLogger))
         .block_settings(features)
+        .block_config("wafer-run/security-headers", serde_json::json!({
+            "csp": concat!(
+                "default-src 'self'; ",
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; ",
+                "style-src 'self' 'unsafe-inline'; ",
+                "img-src 'self' data: blob: https:; ",
+                "font-src 'self' https:; ",
+                "connect-src 'self' https://cdn.jsdelivr.net https://esm.run https://huggingface.co ",
+                    "https://raw.githubusercontent.com https://*.huggingface.co https://*.hf.co https://*.xethub.hf.co; ",
+                "frame-ancestors 'none'; ",
+                "base-uri 'self'; ",
+                "form-action 'self'"
+            )
+        }))
         .build()
         .map_err(|e| JsValue::from_str(&e))?;
+    let mut wafer = build_result.wafer;
 
     // 7. Start runtime.
     wafer
@@ -88,7 +103,7 @@ pub async fn initialize() -> Result<(), JsValue> {
         .map_err(|e| JsValue::from_str(&e))?;
 
     // 8. Inject WRAP grants.
-    builder::post_start(&wafer);
+    build_result.inject_wrap_grants(&wafer);
 
     web_sys::console::log_1(&"solobase: WAFER runtime started".into());
 
