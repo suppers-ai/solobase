@@ -30,23 +30,16 @@ wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = f
 wafer-core = { path = "../../../wafer-run/crates/wafer-core" }
 wafer-block = { path = "../../../wafer-run/crates/wafer-block" }
 
+# Solobase library (builder + flows + router)
+solobase = { path = "../solobase", default-features = false }
+
 # Solobase blocks
 solobase-core = { path = "../solobase-core", default-features = false }
 
-# Middleware blocks
-wafer-block-auth-validator = { path = "../../../wafer-run/crates/wafer-block-auth-validator" }
-wafer-block-cors = { path = "../../../wafer-run/crates/wafer-block-cors" }
-wafer-block-iam-guard = { path = "../../../wafer-run/crates/wafer-block-iam-guard" }
-wafer-block-inspector = { path = "../../../wafer-run/crates/wafer-block-inspector" }
-wafer-block-readonly-guard = { path = "../../../wafer-run/crates/wafer-block-readonly-guard" }
-wafer-block-router = { path = "../../../wafer-run/crates/wafer-block-router" }
-wafer-block-security-headers = { path = "../../../wafer-run/crates/wafer-block-security-headers" }
-wafer-block-web = { path = "../../../wafer-run/crates/wafer-block-web" }
-
-# Config service
+# Config service (needed for EnvConfigService::new() and ConfigService::set())
 wafer-block-config = { path = "../../../wafer-run/crates/wafer-block-config" }
 
-# Crypto service (pure-Rust JWT via hmac+sha2+base64ct — wasm32-compatible)
+# Crypto service (pure-Rust JWT via hmac+sha2+base64ct — wasm32-compatible, needed for BrowserCryptoService)
 wafer-block-crypto = { path = "../../../wafer-run/crates/wafer-block-crypto" }
 
 # Async traits

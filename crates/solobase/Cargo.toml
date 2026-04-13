@@ -10,7 +10,7 @@ name = "solobase"
 path = "src/lib.rs"
 
 [dependencies]
-# WAFER runtime (minimal — types + clients only)
+# WAFER runtime (minimal — types + clients only, no tokio/wasmi/reqwest)
 wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
 wafer-core = { path = "../../../wafer-run/crates/wafer-core" }
 
@@ -26,9 +26,7 @@ wafer-block-web = { path = "../../../wafer-run/crates/wafer-block-web" }
 
 # Service block config (needed by builder for ConfigService trait)
 wafer-block-config = { path = "../../../wafer-run/crates/wafer-block-config" }
-wafer-block-logger = { path = "../../../wafer-run/crates/wafer-block-logger" }
 wafer-block-crypto = { path = "../../../wafer-run/crates/wafer-block-crypto" }
-wafer-block-network = { path = "../../../wafer-run/crates/wafer-block-network" }
 
 # Solobase shared core (routing, crypto, features, pipeline, backend blocks)
 solobase-core = { path = "../solobase-core", default-features = false }

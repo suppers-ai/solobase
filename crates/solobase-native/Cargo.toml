@@ -1,0 +1,75 @@
+[package]
+name = "solobase-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Solobase native binary — standalone server with tokio, SQLite, local storage"
+
+[[bin]]
+name = "solobase"
+path = "src/main.rs"
+
+[features]
+default = ["sqlite", "storage-local"]
+sqlite = ["solobase-core/sqlite"]
+storage-local = ["solobase-core/storage-local"]
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
+storage-s3 = ["solobase-core/storage-s3", "dep:wafer-block-s3"]
+postgres = ["solobase-core/postgres", "dep:wafer-block-postgres"]
+
+[dependencies]
+# Solobase library (platform-agnostic builder + flows + router)
+solobase = { path = "../solobase" }
+solobase-core = { path = "../solobase-core", default-features = false }
+
+# WAFER runtime
+wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false, features = ["full"] }
+wafer-core = { path = "../../../wafer-run/crates/wafer-core" }
+
+# Native service implementation crates
+wafer-block-sqlite = { path = "../../../wafer-run/crates/wafer-block-sqlite" }
+wafer-block-local-storage = { path = "../../../wafer-run/crates/wafer-block-local-storage" }
+wafer-block-config = { path = "../../../wafer-run/crates/wafer-block-config" }
+wafer-block-crypto = { path = "../../../wafer-run/crates/wafer-block-crypto" }
+wafer-block-network = { path = "../../../wafer-run/crates/wafer-block-network" }
+wafer-block-logger = { path = "../../../wafer-run/crates/wafer-block-logger" }
+wafer-block-http-listener = { path = "../../../wafer-run/crates/wafer-block-http-listener" }
+
+# Optional backends
+wafer-block-s3 = { path = "../../../wafer-run/crates/wafer-block-s3", optional = true }
+wafer-block-postgres = { path = "../../../wafer-run/crates/wafer-block-postgres", optional = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+
+# Config loading
+dotenvy = { workspace = true }
+rusqlite = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Crypto
+sha2 = { workspace = true }
+hmac = "0.12"
+getrandom = "0.2"
+
+# Time
+chrono = { workspace = true }
+
+# Utils
+uuid = { workspace = true }
