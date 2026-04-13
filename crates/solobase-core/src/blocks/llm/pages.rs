@@ -21,8 +21,8 @@ const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
 const DEFAULT_MODEL_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_MODEL";
 const DEFAULT_PROVIDER: &str = "suppers-ai/provider-llm";
 
-const THREADS_COLLECTION: &str = "suppers_ai__messages__threads";
-const MESSAGES_COLLECTION: &str = "suppers_ai__messages__messages";
+const CONTEXTS_COLLECTION: &str = "suppers_ai__messages__contexts";
+const ENTRIES_COLLECTION: &str = "suppers_ai__messages__entries";
 const PROVIDERS_COLLECTION: &str = "suppers_ai__provider_llm__providers";
 
 // ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ pub async fn chat_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ..Default::default()
     };
 
-    let threads = match db::list(ctx, THREADS_COLLECTION, &opts).await {
+    let threads = match db::list(ctx, CONTEXTS_COLLECTION, &opts).await {
         Ok(r) => r.records,
         Err(_) => vec![],
     };
@@ -281,7 +281,7 @@ pub async fn thread_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         return ui::not_found_response(msg);
     }
 
-    let thread = match db::get(ctx, THREADS_COLLECTION, thread_id).await {
+    let thread = match db::get(ctx, CONTEXTS_COLLECTION, thread_id).await {
         Ok(r) => r,
         Err(e) if e.code == ErrorCode::NotFound => return ui::not_found_response(msg),
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
@@ -289,7 +289,7 @@ pub async fn thread_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let messages_opts = ListOptions {
         filters: vec![Filter {
-            field: "thread_id".to_string(),
+            field: "context_id".to_string(),
             operator: FilterOp::Equal,
             value: serde_json::Value::String(thread_id.to_string()),
         }],
@@ -301,7 +301,7 @@ pub async fn thread_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         ..Default::default()
     };
 
-    let messages = match db::list(ctx, MESSAGES_COLLECTION, &messages_opts).await {
+    let messages = match db::list(ctx, ENTRIES_COLLECTION, &messages_opts).await {
         Ok(r) => r.records,
         Err(_) => vec![],
     };

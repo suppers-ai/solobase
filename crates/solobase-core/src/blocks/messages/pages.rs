@@ -1,34 +1,27 @@
 //! SSR pages for the messages block.
 //!
 //! Provides:
-//! - Thread list page (`GET /b/messages/`)
-//! - Thread view page (`GET /b/messages/threads/{id}`)
-//! - Message HTML fragment (htmx partial for new messages)
+//! - Context list page (`GET /b/messages/`)
+//! - Context detail page (`GET /b/messages/contexts/{id}`)
 
 use crate::blocks::helpers::RecordExt;
 use crate::ui::{self, components, NavItem, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
 
-use super::{MESSAGES_COLLECTION, THREADS_COLLECTION};
-
-// ---------------------------------------------------------------------------
-// Navigation
-// ---------------------------------------------------------------------------
+use super::service::{self, ListContextsParams, ListEntriesParams};
 
 fn nav() -> Vec<NavItem> {
     vec![NavItem {
-        label: "Threads".into(),
+        label: "Contexts".into(),
         href: "/b/messages/".into(),
         icon: "message-square",
     }]
 }
 
-/// Wrap content in the messages shell (sidebar + layout).
 fn messages_page(
     title: &str,
     config: &SiteConfig,
@@ -43,43 +36,59 @@ fn messages_page(
     ui::html_response(msg, markup)
 }
 
-// ---------------------------------------------------------------------------
-// Message card fragment (also used inline in thread view)
-// ---------------------------------------------------------------------------
-
-/// Render a single message card. Used both on the full thread page and as
-/// an htmx fragment when a new message is created.
-pub fn message_card(record: &db::Record) -> Markup {
+pub fn entry_card(record: &db::Record) -> Markup {
+    let kind = record.str_field("kind");
     let role = record.str_field("role");
     let content = record.str_field("content");
+    let content_type = record.str_field("content_type");
     let created_at = record.str_field("created_at");
     let date = created_at.get(..10).unwrap_or(created_at);
 
-    let (bg_style, badge_class) = match role {
-        "user" => (
-            "background:#eff6ff;border-left:3px solid #3b82f6",
-            "badge-info",
+    let (bg_style, badge_class) = match kind {
+        "artifact" => (
+            "background:#fdf4ff;border-left:3px solid #a855f7",
+            "badge-warning",
         ),
-        "assistant" => (
-            "background:#f8fafc;border-left:3px solid #94a3b8",
-            "badge",
-        ),
-        "system" => (
+        "notification" => (
             "background:#fefce8;border-left:3px solid #eab308",
             "badge-warning",
         ),
-        _ => (
-            "background:#f0fdf4;border-left:3px solid #22c55e",
-            "badge-success",
+        "status" => (
+            "background:#f0f9ff;border-left:3px solid #0ea5e9",
+            "badge-info",
         ),
+        _ => match role {
+            "user" => (
+                "background:#eff6ff;border-left:3px solid #3b82f6",
+                "badge-info",
+            ),
+            "agent" | "assistant" => (
+                "background:#f8fafc;border-left:3px solid #94a3b8",
+                "badge",
+            ),
+            "system" => (
+                "background:#fefce8;border-left:3px solid #eab308",
+                "badge-warning",
+            ),
+            _ => (
+                "background:#f0fdf4;border-left:3px solid #22c55e",
+                "badge-success",
+            ),
+        },
     };
 
     html! {
         div .card style={"margin-bottom:0.75rem;" (bg_style)} {
             div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem" {
-                span .badge .(badge_class) style="text-transform:capitalize" { (role) }
+                span .badge .(badge_class) style="text-transform:capitalize" { (kind) }
+                @if !role.is_empty() {
+                    span .badge style="text-transform:capitalize" { (role) }
+                }
+                @if kind == "artifact" && !content_type.is_empty() && content_type != "text/plain" {
+                    span .text-muted style="font-size:0.7rem" { (content_type) }
+                }
                 @if !date.is_empty() {
-                    span .text-muted style="font-size:0.75rem" { (date) }
+                    span .text-muted style="font-size:0.75rem;margin-left:auto" { (date) }
                 }
             }
             p style="margin:0;white-space:pre-wrap;word-break:break-word" { (content) }
@@ -87,25 +96,21 @@ pub fn message_card(record: &db::Record) -> Markup {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Thread list page
-// ---------------------------------------------------------------------------
-
-pub async fn thread_list_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn context_list_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
 
-    let opts = ListOptions {
-        sort: vec![SortField {
-            field: "updated_at".to_string(),
-            desc: true,
-        }],
-        limit: 50,
-        ..Default::default()
+    let params = ListContextsParams {
+        context_type: None,
+        status: None,
+        sender_id: None,
+        parent_id: None,
+        page_size: 50,
+        offset: 0,
     };
 
-    let threads = match db::list(ctx, THREADS_COLLECTION, &opts).await {
+    let contexts = match service::list_contexts(ctx, &params).await {
         Ok(r) => r.records,
         Err(_) => vec![],
     };
@@ -113,24 +118,28 @@ pub async fn thread_list_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let content = html! {
         (components::page_header(
             "Messages",
-            Some("Manage conversation threads"),
+            Some("Manage contexts and entries"),
             None,
         ))
 
-        // New thread form
         div .card style="margin-bottom:1.5rem" {
-            h3 style="font-size:1rem;font-weight:600;margin:0 0 0.75rem" { "New Thread" }
+            h3 style="font-size:1rem;font-weight:600;margin:0 0 0.75rem" { "New Context" }
             form
-                hx-post="/b/messages/api/threads"
-                hx-target="#thread-list"
+                hx-post="/b/messages/api/contexts"
+                hx-target="#context-list"
                 hx-swap="afterbegin"
                 hx-on--after-request="if(event.detail.successful){this.reset()}"
             {
                 div style="display:flex;gap:0.5rem" {
+                    select .form-input name="type" style="width:auto" {
+                        option value="conversation" { "Conversation" }
+                        option value="task" { "Task" }
+                        option value="notification" { "Notification" }
+                    }
                     input .form-input
                         type="text"
                         name="title"
-                        placeholder="Thread title"
+                        placeholder="Title"
                         required
                         style="flex:1"
                     ;
@@ -139,29 +148,36 @@ pub async fn thread_list_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             }
         }
 
-        // Thread list
-        div #thread-list {
-            @if threads.is_empty() {
+        div #context-list {
+            @if contexts.is_empty() {
                 div .text-center .text-muted style="padding:2rem" {
-                    "No threads yet. Create one above."
+                    "No contexts yet. Create one above."
                 }
             } @else {
-                @for thread in &threads {
-                    @let id = thread.id.as_str();
-                    @let title = thread.str_field("title");
-                    @let updated_at = thread.str_field("updated_at");
+                @for context in &contexts {
+                    @let id = context.id.as_str();
+                    @let title = context.str_field("title");
+                    @let context_type = context.str_field("type");
+                    @let status = context.str_field("status");
+                    @let updated_at = context.str_field("updated_at");
                     @let date = updated_at.get(..10).unwrap_or(updated_at);
-                    a .card href={"/b/messages/threads/" (id)}
+                    a .card href={"/b/messages/contexts/" (id)}
                         style="display:block;text-decoration:none;margin-bottom:0.5rem;transition:box-shadow 0.15s"
                         onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'"
                         onmouseout="this.style.boxShadow=''"
                     {
                         div style="display:flex;align-items:center;justify-content:space-between" {
-                            span style="font-weight:500;color:var(--text-primary)" {
-                                @if title.is_empty() { "Untitled thread" } @else { (title) }
+                            div style="display:flex;align-items:center;gap:0.5rem" {
+                                span .badge style="text-transform:capitalize" { (context_type) }
+                                span style="font-weight:500;color:var(--text-primary)" {
+                                    @if title.is_empty() { "Untitled" } @else { (title) }
+                                }
                             }
-                            @if !date.is_empty() {
-                                span .text-muted style="font-size:0.8rem" { (date) }
+                            div style="display:flex;align-items:center;gap:0.5rem" {
+                                span .badge { (status) }
+                                @if !date.is_empty() {
+                                    span .text-muted style="font-size:0.8rem" { (date) }
+                                }
                             }
                         }
                     }
@@ -173,108 +189,103 @@ pub async fn thread_list_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     messages_page("Messages", &config, &path, user.as_ref(), content, msg)
 }
 
-// ---------------------------------------------------------------------------
-// Thread view page
-// ---------------------------------------------------------------------------
-
-pub async fn thread_view_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn context_detail_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
 
-    // Extract thread ID from path: /b/messages/threads/{id}
-    let thread_id = path
-        .strip_prefix("/b/messages/threads/")
+    let context_id = path
+        .strip_prefix("/b/messages/contexts/")
         .unwrap_or("")
         .split('/')
         .next()
         .unwrap_or("");
 
-    if thread_id.is_empty() {
+    if context_id.is_empty() {
         return ui::not_found_response(msg);
     }
 
-    let thread = match db::get(ctx, THREADS_COLLECTION, thread_id).await {
+    let context = match service::get_context(ctx, context_id).await {
         Ok(r) => r,
         Err(e) if e.code == ErrorCode::NotFound => return ui::not_found_response(msg),
         Err(e) => return err_internal(msg, &format!("Database error: {e}")),
     };
 
-    let opts = ListOptions {
-        filters: vec![Filter {
-            field: "thread_id".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(thread_id.to_string()),
-        }],
-        sort: vec![SortField {
-            field: "created_at".to_string(),
-            desc: false,
-        }],
-        limit: 200,
-        ..Default::default()
+    let entries_params = ListEntriesParams {
+        kind: None,
+        role: None,
+        page_size: 200,
+        offset: 0,
     };
 
-    let messages = match db::list(ctx, MESSAGES_COLLECTION, &opts).await {
+    let entries = match service::list_entries(ctx, context_id, &entries_params).await {
         Ok(r) => r.records,
         Err(_) => vec![],
     };
 
-    let thread_title = thread.str_field("title");
-    let display_title = if thread_title.is_empty() {
-        "Untitled thread"
+    let context_title = context.str_field("title");
+    let context_type = context.str_field("type");
+    let context_status = context.str_field("status");
+    let display_title = if context_title.is_empty() {
+        "Untitled"
     } else {
-        thread_title
+        context_title
     };
 
-    let post_url = format!("/b/messages/api/threads/{thread_id}/messages");
+    let post_url = format!("/b/messages/api/contexts/{context_id}/entries");
 
     let content = html! {
-        // Header with back button
         div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem" {
             a .btn .btn-ghost .btn-sm href="/b/messages/" { "\u{2190} Back" }
             h1 .page-title style="margin:0" { (display_title) }
+            span .badge style="text-transform:capitalize" { (context_type) }
+            span .badge { (context_status) }
         }
 
-        // Messages area
-        div #messages-list style="margin-bottom:1.5rem;max-height:60vh;overflow-y:auto" {
-            @if messages.is_empty() {
+        div #entries-list style="margin-bottom:1.5rem;max-height:60vh;overflow-y:auto" {
+            @if entries.is_empty() {
                 div .text-center .text-muted style="padding:2rem" {
-                    "No messages yet. Send the first one below."
+                    "No entries yet. Add one below."
                 }
             } @else {
-                @for m in &messages {
-                    (message_card(m))
+                @for e in &entries {
+                    (entry_card(e))
                 }
             }
         }
 
-        // New message form
         div .card {
             h3 style="font-size:0.9rem;font-weight:600;margin:0 0 0.75rem;color:var(--text-muted)" {
-                "Add Message"
+                "Add Entry"
             }
             form
                 hx-post=(post_url)
-                hx-target="#messages-list"
+                hx-target="#entries-list"
                 hx-swap="beforeend"
-                hx-on--after-request="if(event.detail.successful){this.reset();var list=document.getElementById('messages-list');list.scrollTop=list.scrollHeight;}"
+                hx-on--after-request="if(event.detail.successful){this.reset();var list=document.getElementById('entries-list');list.scrollTop=list.scrollHeight;}"
             {
-                div style="margin-bottom:0.5rem" {
+                div style="display:flex;gap:0.5rem;margin-bottom:0.5rem" {
+                    select .form-input name="kind" style="width:auto" {
+                        option value="message" { "message" }
+                        option value="artifact" { "artifact" }
+                        option value="notification" { "notification" }
+                        option value="status" { "status" }
+                    }
                     select .form-input name="role" style="width:auto" {
                         option value="user" { "user" }
-                        option value="assistant" { "assistant" }
+                        option value="agent" { "agent" }
                         option value="system" { "system" }
                     }
                 }
                 div style="display:flex;gap:0.5rem;align-items:flex-end" {
                     textarea .form-input
                         name="content"
-                        placeholder="Message content"
+                        placeholder="Entry content"
                         rows="3"
                         required
                         style="flex:1;resize:vertical"
                     {}
-                    button .btn .btn-primary type="submit" { "Send" }
+                    button .btn .btn-primary type="submit" { "Add" }
                 }
             }
         }

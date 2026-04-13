@@ -1,0 +1,225 @@
+//! REST endpoint handlers for the messages block.
+//!
+//! Thin layer: parse HTTP request → call service → format JSON response.
+
+use super::service::{self, ListContextsParams, ListEntriesParams};
+use wafer_run::context::Context;
+use wafer_run::helpers::*;
+use wafer_run::types::*;
+
+/// Convert empty string to None (msg.query() returns "" for missing params).
+fn non_empty(s: &str) -> Option<String> {
+    if s.is_empty() { None } else { Some(s.to_string()) }
+}
+
+// ---------------------------------------------------------------------------
+// Path extraction helpers
+// ---------------------------------------------------------------------------
+
+/// Extract context ID from paths like `/b/messages/api/contexts/{id}`
+/// or `/b/messages/api/contexts/{id}/entries`.
+fn extract_context_id(msg: &Message) -> &str {
+    let var = msg.var("id");
+    if !var.is_empty() {
+        return var;
+    }
+    let path = msg.path();
+    let suffix = path
+        .strip_prefix("/b/messages/api/contexts/")
+        .unwrap_or("");
+    suffix.split('/').next().unwrap_or("")
+}
+
+/// Extract entry ID from paths like `/b/messages/api/entries/{id}`.
+fn extract_entry_id(msg: &Message) -> &str {
+    let var = msg.var("id");
+    if !var.is_empty() {
+        return var;
+    }
+    let path = msg.path();
+    let suffix = path
+        .strip_prefix("/b/messages/api/entries/")
+        .unwrap_or("");
+    suffix.split('/').next().unwrap_or("")
+}
+
+// ---------------------------------------------------------------------------
+// Context endpoints
+// ---------------------------------------------------------------------------
+
+pub async fn list_contexts(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let (_, page_size, offset) = msg.pagination_params(20);
+    let params = ListContextsParams {
+        context_type: non_empty(msg.query("type")),
+        status: non_empty(msg.query("status")),
+        sender_id: non_empty(msg.query("sender_id")),
+        parent_id: non_empty(msg.query("parent_id")),
+        page_size: page_size as i64,
+        offset: offset as i64,
+    };
+    match service::list_contexts(ctx, &params).await {
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &e),
+    }
+}
+
+pub async fn create_context(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    #[derive(serde::Deserialize)]
+    struct Body {
+        #[serde(rename = "type")]
+        context_type: String,
+        #[serde(default)]
+        title: String,
+        #[serde(default)]
+        sender_id: String,
+        #[serde(default)]
+        recipient_id: String,
+        parent_id: Option<String>,
+        metadata: Option<serde_json::Value>,
+    }
+    let body: Body = match msg.decode() {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+    };
+    match service::create_context(
+        ctx,
+        &body.context_type,
+        &body.title,
+        &body.sender_id,
+        &body.recipient_id,
+        body.parent_id.as_deref(),
+        body.metadata,
+    )
+    .await
+    {
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &e),
+    }
+}
+
+pub async fn get_context(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let id = extract_context_id(msg);
+    if id.is_empty() {
+        return err_bad_request(msg, "Missing context ID");
+    }
+    match service::get_context(ctx, id).await {
+        Ok(record) => json_respond(msg, &record),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Context not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+pub async fn update_context(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let id = extract_context_id(msg);
+    if id.is_empty() {
+        return err_bad_request(msg, "Missing context ID");
+    }
+    let body: std::collections::HashMap<String, serde_json::Value> = match msg.decode() {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+    };
+    match service::update_context(ctx, id, body).await {
+        Ok(record) => json_respond(msg, &record),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Context not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+pub async fn delete_context(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let id = extract_context_id(msg);
+    if id.is_empty() {
+        return err_bad_request(msg, "Missing context ID");
+    }
+    match service::delete_context(ctx, id).await {
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Err(e) => err_internal(msg, &e),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Entry endpoints
+// ---------------------------------------------------------------------------
+
+pub async fn list_entries(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let context_id = extract_context_id(msg);
+    if context_id.is_empty() {
+        return err_bad_request(msg, "Missing context ID");
+    }
+    let (_, page_size, offset) = msg.pagination_params(100);
+    let params = ListEntriesParams {
+        kind: non_empty(msg.query("kind")),
+        role: non_empty(msg.query("role")),
+        page_size: page_size as i64,
+        offset: offset as i64,
+    };
+    match service::list_entries(ctx, context_id, &params).await {
+        Ok(result) => json_respond(msg, &result),
+        Err(e) => err_internal(msg, &e),
+    }
+}
+
+pub async fn add_entry(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let context_id = extract_context_id(msg);
+    if context_id.is_empty() {
+        return err_bad_request(msg, "Missing context ID");
+    }
+    #[derive(serde::Deserialize)]
+    struct Body {
+        #[serde(default = "default_kind")]
+        kind: String,
+        #[serde(default)]
+        role: String,
+        #[serde(default)]
+        sender_id: String,
+        #[serde(default)]
+        content: String,
+        content_type: Option<String>,
+        metadata: Option<serde_json::Value>,
+    }
+    fn default_kind() -> String {
+        "message".to_string()
+    }
+    let body: Body = match msg.decode() {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+    };
+    match service::add_entry(
+        ctx,
+        context_id,
+        &body.kind,
+        &body.role,
+        &body.sender_id,
+        &body.content,
+        body.content_type.as_deref(),
+        body.metadata,
+    )
+    .await
+    {
+        Ok(record) => json_respond(msg, &record),
+        Err(e) => err_internal(msg, &e),
+    }
+}
+
+pub async fn get_entry(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let id = extract_entry_id(msg);
+    if id.is_empty() {
+        return err_bad_request(msg, "Missing entry ID");
+    }
+    match service::get_entry(ctx, id).await {
+        Ok(record) => json_respond(msg, &record),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Entry not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}
+
+pub async fn delete_entry(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    let id = extract_entry_id(msg);
+    if id.is_empty() {
+        return err_bad_request(msg, "Missing entry ID");
+    }
+    match service::delete_entry(ctx, id).await {
+        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Entry not found"),
+        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    }
+}

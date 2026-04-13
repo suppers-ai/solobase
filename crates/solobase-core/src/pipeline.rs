@@ -66,6 +66,11 @@ pub async fn handle_request(
         }
     }
 
+    // A2A JSON-RPC endpoint
+    if msg.path() == "/a2a" {
+        return crate::blocks::messages::a2a::handle_a2a(ctx, msg).await;
+    }
+
     // Capture request info before routing (for logging)
     let method = msg.action().to_string();
     let path = msg.path().to_string();

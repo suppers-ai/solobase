@@ -21,21 +21,22 @@ const DEFAULT_PROVIDER: &str = "suppers-ai/provider-llm";
 // Inter-block call helpers
 // ---------------------------------------------------------------------------
 
-/// Call the messages block to create a message in a thread.
+/// Call the messages block to create an entry in a context.
 async fn messages_create(
     ctx: &dyn Context,
     original_msg: &Message,
-    thread_id: &str,
+    context_id: &str,
     role: &str,
     content: &str,
 ) -> Option<serde_json::Value> {
     let body = serde_json::to_vec(&serde_json::json!({
+        "kind": "message",
         "role": role,
         "content": content,
     }))
     .unwrap_or_default();
 
-    let resource = format!("/b/messages/api/threads/{thread_id}/messages");
+    let resource = format!("/b/messages/api/contexts/{context_id}/entries");
     let mut msg = Message::new(
         format!("create:{resource}"),
         body,
@@ -68,13 +69,13 @@ async fn messages_create(
     None
 }
 
-/// Call the messages block to list messages in a thread.
+/// Call the messages block to list entries in a context.
 async fn messages_list(
     ctx: &dyn Context,
     original_msg: &Message,
-    thread_id: &str,
+    context_id: &str,
 ) -> Vec<serde_json::Value> {
-    let resource = format!("/b/messages/api/threads/{thread_id}/messages");
+    let resource = format!("/b/messages/api/contexts/{context_id}/entries?kind=message");
     let mut msg = Message::new(format!("retrieve:{resource}"), vec![]);
     msg.set_meta("req.action", "retrieve");
     msg.set_meta("req.resource", &resource);
