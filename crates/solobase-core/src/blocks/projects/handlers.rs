@@ -1,6 +1,5 @@
 use super::PROJECTS_COLLECTION;
 use crate::blocks::helpers::RecordExt;
-use crate::blocks::products::SUBSCRIPTIONS;
 use std::collections::HashMap;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, Record, SortField};
@@ -8,93 +7,6 @@ use wafer_core::clients::{config, network};
 use wafer_run::context::Context;
 use wafer_run::helpers::*;
 use wafer_run::types::*;
-
-use crate::plans;
-
-/// User's plan and addon project slots.
-struct UserPlan {
-    plan: String,
-    addon_projects: usize,
-}
-
-/// Look up the user's current plan and addon project count.
-/// Falls back to free with 0 addons when no active subscription exists.
-async fn get_user_plan(ctx: &dyn Context, user_id: &str) -> UserPlan {
-    // Uses COALESCE which is standard SQL -- keep as raw SQL with table constant.
-    let rows = db::query_raw(
-        ctx,
-        &format!("SELECT plan, COALESCE(addon_projects, 0) as addon_projects FROM {SUBSCRIPTIONS} WHERE user_id = ?1 AND status = 'active'"),
-        &[serde_json::Value::String(user_id.to_string())],
-    ).await;
-
-    match rows {
-        Ok(records) if !records.is_empty() => {
-            let plan = records[0]
-                .data
-                .get("plan")
-                .and_then(|v| v.as_str())
-                .unwrap_or("free")
-                .to_string();
-            let addon_projects = records[0]
-                .data
-                .get("addon_projects")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0) as usize;
-            UserPlan {
-                plan,
-                addon_projects,
-            }
-        }
-        _ => UserPlan {
-            plan: "free".to_string(),
-            addon_projects: 0,
-        },
-    }
-}
-
-/// Count the user's live projects — pending, active, or inactive (for create limit).
-/// Excludes "deleted" and "failed" statuses.
-async fn count_live_projects(ctx: &dyn Context, user_id: &str) -> i64 {
-    // Count pending + active + inactive (exclude deleted and failed)
-    let mut total = 0i64;
-    for status in &["pending", "active", "inactive"] {
-        let filters = vec![
-            Filter {
-                field: "user_id".to_string(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(user_id.to_string()),
-            },
-            Filter {
-                field: "status".to_string(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(status.to_string()),
-            },
-        ];
-        total += db::count(ctx, PROJECTS_COLLECTION, &filters)
-            .await
-            .unwrap_or(0);
-    }
-    total
-}
-
-/// Count the user's active projects (for activate limit).
-async fn count_active_projects(ctx: &dyn Context, user_id: &str) -> i64 {
-    let filters = vec![
-        Filter {
-            field: "user_id".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(user_id.to_string()),
-        },
-        Filter {
-            field: "status".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String("active".to_string()),
-        },
-    ];
-    db::count(ctx, PROJECTS_COLLECTION, &filters)
-        .await
-        .unwrap_or(0)
-}
 
 /// Reserved subdomains that cannot be used as project names.
 const RESERVED_SUBDOMAINS: &[&str] = &[
@@ -370,20 +282,6 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         return err_conflict(msg, &format!("Subdomain '{}' is already taken", slug));
     }
 
-    // Check plan limit for project creation (count non-deleted projects)
-    let user_plan = get_user_plan(ctx, &user_id).await;
-    let limits = plans::get_limits(&user_plan.plan);
-    let max_created = limits
-        .max_projects_created
-        .saturating_add(user_plan.addon_projects);
-    let current_count = count_live_projects(ctx, &user_id).await;
-    if current_count as usize >= max_created {
-        return err_bad_request(
-            msg,
-            "Project limit reached. Upgrade your plan or purchase extra project slots.",
-        );
-    }
-
     let now = chrono::Utc::now().to_rfc3339();
 
     let mut data = HashMap::new();
@@ -480,12 +378,12 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 }
 
-/// Activate a pending or inactive project: check plan capacity, provision via control plane.
+/// Activate a pending or inactive project: provision via control plane.
 async fn handle_activate(
     ctx: &dyn Context,
     msg: &mut Message,
     id: &str,
-    user_id: &str,
+    _user_id: &str,
     record: &Record,
 ) -> Result_ {
     let status = record.str_field("status");
@@ -493,25 +391,6 @@ async fn handle_activate(
         return err_bad_request(
             msg,
             &format!("Project cannot be activated from '{}' status", status),
-        );
-    }
-
-    // Check plan capacity for active projects
-    let user_plan = get_user_plan(ctx, user_id).await;
-    let limits = plans::get_limits(&user_plan.plan);
-    let max_active = limits
-        .max_projects_active
-        .saturating_add(user_plan.addon_projects);
-
-    if max_active == 0 {
-        return err_forbidden(msg, "Upgrade to a paid plan to activate projects");
-    }
-
-    let active_count = count_active_projects(ctx, user_id).await;
-    if active_count as usize >= max_active {
-        return err_bad_request(
-            msg,
-            "Active project limit reached. Deactivate a project or upgrade.",
         );
     }
 

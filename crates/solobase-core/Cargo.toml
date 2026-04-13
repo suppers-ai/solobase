@@ -26,9 +26,6 @@ wafer-sql-utils = { path = "../../../wafer-run/crates/wafer-sql-utils" }
 # SQL query builder (used via wafer-sql-utils, re-exported for complex conditions)
 sea-query = "0.32"
 
-# Plan definitions (shared with CF worker)
-solobase-plans = { path = "../solobase-plans" }
-
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }

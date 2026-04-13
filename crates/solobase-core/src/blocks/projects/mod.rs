@@ -8,7 +8,6 @@ use wafer_run::helpers::*;
 use wafer_run::types::*;
 
 pub(crate) const PROJECTS_COLLECTION: &str = "suppers_ai__projects__deployments";
-pub(crate) const PROJECT_USAGE: &str = "suppers_ai__projects__usage";
 
 pub struct ProjectsBlock {
     limiter: UserRateLimiter,

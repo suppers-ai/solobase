@@ -4,7 +4,6 @@ use super::{
 };
 use crate::blocks::crud;
 use crate::blocks::helpers::{field_as_string, RecordExt};
-use crate::blocks::projects::{PROJECTS_COLLECTION as DEPLOYMENTS, PROJECT_USAGE};
 use std::collections::HashMap;
 use wafer_core::clients::config;
 use wafer_core::clients::database as db;
@@ -713,7 +712,6 @@ async fn handle_subscription(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         return err_unauthorized(msg, "Not authenticated");
     }
 
-    // Query subscriptions table (platform table, populated by Stripe webhooks)
     let rows = db::query_raw(
         ctx,
         &format!("SELECT id, plan, status, stripe_subscription_id, grace_period_end, \
@@ -723,87 +721,16 @@ async fn handle_subscription(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 COALESCE(addon_d1_bytes, 0) as addon_d1_bytes, \
                 created_at, updated_at \
          FROM {SUBSCRIPTIONS} WHERE user_id = ?1"),
-        &[serde_json::Value::String(user_id.clone())],
+        &[serde_json::Value::String(user_id)],
     )
     .await;
 
     let sub = match rows {
-        Ok(records) if !records.is_empty() => {
-            let r = &records[0];
-            Some(r.data.clone())
-        }
+        Ok(records) if !records.is_empty() => Some(records[0].data.clone()),
         _ => None,
     };
 
-    match sub {
-        Some(s) => {
-            let plan = s.get("plan").and_then(|v| v.as_str()).unwrap_or("free");
-            let plan_cfg = crate::plans::get_limits(plan);
-            let month = chrono::Utc::now().format("%Y-%m").to_string();
-
-            // Sum usage across all user's projects for this month (account-level)
-            let usage_rows = db::query_raw(
-                ctx,
-                &format!("SELECT COALESCE(SUM(requests), 0) as total_requests, \
-                        COALESCE(SUM(r2_bytes), 0) as total_r2, \
-                        COALESCE(SUM(COALESCE(d1_bytes, 0)), 0) as total_d1 \
-                 FROM {PROJECT_USAGE} pu \
-                 JOIN {DEPLOYMENTS} p ON p.id = pu.project_id \
-                 WHERE p.user_id = ?1 AND pu.month = ?2"),
-                &[
-                    serde_json::Value::String(user_id),
-                    serde_json::Value::String(month.clone()),
-                ],
-            )
-            .await;
-
-            let usage = usage_rows
-                .ok()
-                .and_then(|r| r.into_iter().next())
-                .map(|r| r.data)
-                .unwrap_or_default();
-
-            // Read account-level addons from subscription
-            let addon_req = s
-                .get("addon_requests")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let addon_r2 = s
-                .get("addon_r2_bytes")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let addon_d1 = s
-                .get("addon_d1_bytes")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-
-            json_respond(
-                msg,
-                &serde_json::json!({
-                    "subscription": s,
-                    "usage": {
-                        "month": month,
-                        "requests": {
-                            "used": usage.get("total_requests").and_then(|v| v.as_u64()).unwrap_or(0),
-                            "limit": plan_cfg.max_requests_per_month + addon_req,
-                        },
-                        "r2Storage": {
-                            "usedBytes": usage.get("total_r2").and_then(|v| v.as_u64()).unwrap_or(0),
-                            "limitBytes": plan_cfg.max_r2_storage_bytes + addon_r2,
-                        },
-                        "d1Storage": {
-                            "usedBytes": usage.get("total_d1").and_then(|v| v.as_u64()).unwrap_or(0),
-                            "limitBytes": plan_cfg.max_d1_storage_bytes + addon_d1,
-                        },
-                    }
-                }),
-            )
-        }
-        None => json_respond(
-            msg,
-            &serde_json::json!({"subscription": null, "usage": null}),
-        ),
-    }
+    json_respond(msg, &serde_json::json!({"subscription": sub}))
 }
 
 // --- Stats ---

@@ -80,10 +80,12 @@ impl Block for SolobaseRouterBlock {
     async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
         // Resolve auth token from Authorization header or auth_token cookie.
         let auth_header = msg.header("authorization");
+        tracing::debug!(auth_header_found = !auth_header.is_empty(), "router: checking auth header");
         let auth_value = if !auth_header.is_empty() {
             Some(auth_header.to_string())
         } else {
             let cookie_token = msg.cookie("auth_token");
+            tracing::debug!(cookie_found = !cookie_token.is_empty(), "router: checking auth_token cookie");
             if !cookie_token.is_empty() {
                 Some(format!("Bearer {}", cookie_token))
             } else {
