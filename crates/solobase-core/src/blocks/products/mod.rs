@@ -74,6 +74,7 @@ impl Block for ProductsBlock {
                     .field_default("group_template_id", "string", "")
                     .field_default("product_template_id", "string", "")
                     .field_default("pricing_template_id", "string", "")
+                    .field_default("requires", "string", "")
                     .field_default("created_by", "string", "")
                     .field_optional("deleted_at", "datetime")
                     .index(&["status"])

@@ -51,6 +51,38 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         return err_bad_request(msg, "Purchase total must be positive");
     }
 
+    // Check product dependency (requires field)
+    let line_items = db::query_raw(
+        ctx,
+        &format!(
+            "SELECT product_id FROM {} WHERE purchase_id = ?1 LIMIT 1",
+            super::LINE_ITEMS_COLLECTION
+        ),
+        &[serde_json::Value::String(body.purchase_id.clone())],
+    )
+    .await;
+
+    if let Ok(items) = &line_items {
+        for item in items {
+            let product_id = item.data.get("product_id").and_then(|v| v.as_str()).unwrap_or("");
+            if product_id.is_empty() {
+                continue;
+            }
+            if let Ok(product) = db::get(ctx, super::PRODUCTS_COLLECTION, product_id).await {
+                let requires = product.data.get("requires").and_then(|v| v.as_str()).unwrap_or("");
+                if !requires.is_empty() {
+                    let has_required = user_owns_product(ctx, purchase_user, requires).await;
+                    if !has_required {
+                        return err_bad_request(
+                            msg,
+                            "You must own the required product before purchasing this item.",
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     // Atomic status transition: pending -> checkout_started (prevents double-checkout race)
     let (sql, vals) = wafer_sql_utils::query::build_update_where(
         PURCHASES_COLLECTION,
@@ -631,6 +663,46 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         result |= x ^ y;
     }
     result == 0
+}
+
+/// Check if a user owns a product — either via an active subscription that
+/// references it, or a completed purchase containing it as a line item.
+async fn user_owns_product(ctx: &dyn Context, user_id: &str, product_id: &str) -> bool {
+    // Check subscriptions: the plan field may reference the product
+    let sub_rows = db::query_raw(
+        ctx,
+        &format!(
+            "SELECT 1 FROM {} WHERE user_id = ?1 AND status = 'active' AND plan = ?2 LIMIT 1",
+            SUBSCRIPTIONS
+        ),
+        &[
+            serde_json::Value::String(user_id.to_string()),
+            serde_json::Value::String(product_id.to_string()),
+        ],
+    )
+    .await;
+
+    if matches!(&sub_rows, Ok(rows) if !rows.is_empty()) {
+        return true;
+    }
+
+    // Check completed purchases containing this product as a line item
+    let purchase_rows = db::query_raw(
+        ctx,
+        &format!(
+            "SELECT 1 FROM {} p JOIN {} li ON li.purchase_id = p.id \
+             WHERE p.user_id = ?1 AND p.status = 'completed' AND li.product_id = ?2 LIMIT 1",
+            super::PURCHASES_COLLECTION,
+            super::LINE_ITEMS_COLLECTION,
+        ),
+        &[
+            serde_json::Value::String(user_id.to_string()),
+            serde_json::Value::String(product_id.to_string()),
+        ],
+    )
+    .await;
+
+    matches!(&purchase_rows, Ok(rows) if !rows.is_empty())
 }
 
 #[cfg(test)]
