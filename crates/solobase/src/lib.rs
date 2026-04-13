@@ -1,9 +1,10 @@
 //! Solobase — self-hosted backend platform powered by the WAFER runtime.
 //!
-//! This library exposes the solobase feature blocks and flow definitions
-//! for use by different deployment targets (standalone binary, Cloudflare
-//! Workers adapter).
+//! This library is platform-agnostic. It provides the `SolobaseBuilder` for
+//! unified runtime setup, flow definitions, and the router block. Platform-specific
+//! code (native binary, browser WASM, Cloudflare Workers) lives in separate crates
+//! that depend on this one.
 
-pub mod app_config;
+pub mod builder;
 pub use solobase_core::blocks;
 pub mod flows;
