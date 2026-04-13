@@ -23,7 +23,7 @@ use std::sync::Arc;
 mod app_config;
 use app_config::{load_block_settings, InfraConfig};
 
-use solobase::builder::SolobaseBuilder;
+use solobase::builder::{self, SolobaseBuilder};
 use tracing_subscriber::{fmt, EnvFilter};
 use wafer_core::interfaces::config::service::ConfigService;
 use wafer_run::Wafer;
@@ -72,7 +72,7 @@ async fn main() {
         config_service.set(key, value);
     }
 
-    let build_result = SolobaseBuilder::new()
+    let mut wafer = SolobaseBuilder::new()
         .database(Arc::new(
             wafer_block_sqlite::service::SQLiteDatabaseService::open(&infra.db_path)
                 .expect("failed to open SQLite database"),
@@ -90,7 +90,6 @@ async fn main() {
         .block_settings(features)
         .build()
         .expect("failed to build solobase runtime");
-    let mut wafer = build_result.wafer;
 
     // 8. Native-only: register http-listener
     wafer_block_http_listener::register(&mut wafer).expect("register http-listener");
@@ -116,7 +115,7 @@ async fn main() {
         .expect("failed to start WAFER runtime");
 
     // 12. Inject WRAP grants into storage block
-    build_result.inject_wrap_grants(&wafer);
+    builder::post_start(&wafer);
     tracing::info!("WAFER runtime started — all blocks resolved");
 
     // 13. Wait for shutdown signal

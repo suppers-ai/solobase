@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use wasm_bindgen::prelude::*;
 
-use solobase::builder::SolobaseBuilder;
+use solobase::builder::{self, SolobaseBuilder};
 use wafer_core::interfaces::config::service::ConfigService;
 
 pub mod bridge;
@@ -70,7 +70,7 @@ pub async fn initialize() -> Result<(), JsValue> {
     }
 
     // 6. Build WAFER runtime via SolobaseBuilder.
-    let build_result = SolobaseBuilder::new()
+    let mut wafer = SolobaseBuilder::new()
         .database(Arc::new(database::BrowserDatabaseService))
         .storage(Arc::new(storage::BrowserStorageService))
         .config(Arc::new(config_svc))
@@ -94,7 +94,6 @@ pub async fn initialize() -> Result<(), JsValue> {
         }))
         .build()
         .map_err(|e| JsValue::from_str(&e))?;
-    let mut wafer = build_result.wafer;
 
     // 7. Start runtime.
     wafer
@@ -103,7 +102,7 @@ pub async fn initialize() -> Result<(), JsValue> {
         .map_err(|e| JsValue::from_str(&e))?;
 
     // 8. Inject WRAP grants.
-    build_result.inject_wrap_grants(&wafer);
+    builder::post_start(&wafer);
 
     web_sys::console::log_1(&"solobase: WAFER runtime started".into());
 
