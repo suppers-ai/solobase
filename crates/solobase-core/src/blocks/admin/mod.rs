@@ -135,6 +135,9 @@ impl Block for AdminBlock {
                 BlockEndpoint::get("/b/admin/api/iam/roles").summary("List roles API").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/api/settings").summary("List variables API").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/api/logs").summary("Audit logs API").auth(AuthLevel::Admin),
+                BlockEndpoint::post("/b/admin/custom-blocks/install").summary("Install custom block from registry").auth(AuthLevel::Admin),
+                BlockEndpoint::post("/b/admin/custom-blocks/upload").summary("Upload custom .wasm block").auth(AuthLevel::Admin),
+                BlockEndpoint::delete("/b/admin/custom-blocks/{name}").summary("Delete custom block").auth(AuthLevel::Admin),
             ])
     }
 
@@ -330,6 +333,21 @@ impl Block for AdminBlock {
             // Email settings save (POST)
             if action == "create" && sub == "/email" {
                 return pages::handle_save_email_settings(ctx, msg).await;
+            }
+
+            // Custom block management
+            if action == "create" && sub == "/custom-blocks/install" {
+                return pages::handle_custom_block_install(ctx, msg).await;
+            }
+            if action == "create" && sub == "/custom-blocks/upload" {
+                return pages::handle_custom_block_upload(ctx, msg).await;
+            }
+            if action == "delete" && sub.starts_with("/custom-blocks/") {
+                let encoded = sub.strip_prefix("/custom-blocks/").unwrap_or("").to_string();
+                if !encoded.is_empty() {
+                    let block_name = encoded.replace("--", "/");
+                    return pages::handle_custom_block_delete(ctx, msg, &block_name).await;
+                }
             }
 
             // SSR page handlers (GET)

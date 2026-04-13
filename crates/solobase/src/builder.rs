@@ -178,7 +178,63 @@ impl SolobaseBuilder {
         wafer.register_block("suppers-ai/router", Arc::new(router))?;
         wafer.add_block_config("suppers-ai/router", solobase_core::routing::routes_config());
 
-        // 10. Register site-main flow
+        // 10. Auto-discover WASM blocks from cwd/blocks/**/target/block.wasm
+        //     and flow JSON files from cwd/flows/**/*.json.
+        //     Only available when compiled with the `wasm` feature (wasmi interpreter).
+        #[cfg(feature = "wasm")]
+        {
+            use std::sync::Arc;
+            use wafer_run::discovery::{discover_flows, discover_wasm_blocks};
+            use wafer_run::wasm::WasmiBlock;
+
+            let cwd = std::env::current_dir()
+                .map_err(|e| format!("failed to get current directory: {e}"))?;
+
+            // Discover and load WASM blocks.
+            let wasm_paths = discover_wasm_blocks(&cwd.join("blocks"));
+            for wasm_path in &wasm_paths {
+                let bytes = match std::fs::read(wasm_path) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::warn!(path = %wasm_path.display(), error = %e, "failed to read WASM block — skipping");
+                        continue;
+                    }
+                };
+                let block = match WasmiBlock::load_from_bytes(&bytes) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::warn!(path = %wasm_path.display(), error = %e, "failed to load WASM block — skipping");
+                        continue;
+                    }
+                };
+                let name = block.info().name.clone();
+                tracing::info!(name = %name, path = %wasm_path.display(), "discovered WASM block");
+                wafer.register_block(&name, Arc::new(block))
+                    .map_err(|e| format!("auto-discovered block '{name}': {e}"))?;
+            }
+
+            // Discover and load flow JSON files.
+            let flow_paths = discover_flows(&cwd.join("flows"));
+            for flow_path in &flow_paths {
+                let json = match std::fs::read_to_string(flow_path) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!(path = %flow_path.display(), error = %e, "failed to read flow JSON — skipping");
+                        continue;
+                    }
+                };
+                match wafer.add_flow_json(&json) {
+                    Ok(()) => {
+                        tracing::info!(path = %flow_path.display(), "discovered flow");
+                    }
+                    Err(e) => {
+                        tracing::warn!(path = %flow_path.display(), error = %e, "failed to load flow JSON — skipping");
+                    }
+                }
+            }
+        }
+
+        // 11. Register site-main flow
         crate::flows::register_site_main(&mut wafer)?;
 
         Ok(wafer)

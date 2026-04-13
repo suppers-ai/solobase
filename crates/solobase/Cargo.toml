@@ -9,6 +9,10 @@ description = "Solobase — self-hosted backend platform powered by the WAFER ru
 name = "solobase"
 path = "src/lib.rs"
 
+[features]
+# Enable WASM block loading via the wasmi interpreter for auto-discovery.
+wasm = ["wafer-run/wasm"]
+
 [dependencies]
 # WAFER runtime (minimal — types + clients only, no tokio/wasmi/reqwest)
 wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }

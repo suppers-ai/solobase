@@ -16,6 +16,7 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let active_tab = match tab {
         "services" => "services",
         "infrastructure" => "infrastructure",
+        "custom" => "custom",
         _ => "features",
     };
 
@@ -96,81 +97,91 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::settings()) " Infrastructure" }
+            a .tab .(if active_tab == "custom" { "active" } else { "" })
+                href="/b/admin/blocks?tab=custom"
+                hx-get="/b/admin/blocks?tab=custom"
+                hx-target="#content"
+                hx-push-url="true"
+            { (icons::package()) " Custom" }
         }
 
         div #blocks-tab-content {
-            @let runtime_filter = msg.query("runtime");
-            @let filtered: Vec<_> = all_blocks.iter().filter(|b| {
-                let cat_match = match active_tab {
-                    "services" => b.category == wafer_run::BlockCategory::Service,
-                    "infrastructure" => b.category == wafer_run::BlockCategory::Infrastructure,
-                    _ => b.category == wafer_run::BlockCategory::Feature,
-                };
-                cat_match && match runtime_filter {
-                    "native" => b.runtime == wafer_run::BlockRuntime::Native,
-                    "wasm" => b.runtime == wafer_run::BlockRuntime::Wasm,
-                    _ => true,
-                }
-            }).collect();
+            @if active_tab == "custom" {
+                (custom_tab_content())
+            } @else {
+                @let runtime_filter = msg.query("runtime");
+                @let filtered: Vec<_> = all_blocks.iter().filter(|b| {
+                    let cat_match = match active_tab {
+                        "services" => b.category == wafer_run::BlockCategory::Service,
+                        "infrastructure" => b.category == wafer_run::BlockCategory::Infrastructure,
+                        _ => b.category == wafer_run::BlockCategory::Feature,
+                    };
+                    cat_match && match runtime_filter {
+                        "native" => b.runtime == wafer_run::BlockRuntime::Native,
+                        "wasm" => b.runtime == wafer_run::BlockRuntime::Wasm,
+                        _ => true,
+                    }
+                }).collect();
 
-            // Runtime filter dropdown
-            div style="display:flex;justify-content:flex-end;margin-bottom:8px" {
-                select .form-input style="width:auto;font-size:12px;padding:4px 8px"
-                    onchange={"window.location.href='/b/admin/blocks?tab=" (active_tab) "&runtime='+this.value"}
-                {
-                    option value="" selected[runtime_filter.is_empty()] { "All runtimes" }
-                    option value="native" selected[runtime_filter == "native"] { "Native only" }
-                    option value="wasm" selected[runtime_filter == "wasm"] { "WASM only" }
-                }
-            }
-
-            @if filtered.is_empty() {
-                (components::empty_state("No blocks", "No blocks registered in this category"))
-            }
-
-            div .cards style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px;align-items:start" {
-                style { (maud::PreEscaped("
-                    .block-card-collapsed { min-height: 120px; }
-                    .block-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; }
-                ")) }
-                @for block in &filtered {
-                    @let is_enabled = block_enabled.get(&block.name).copied().unwrap_or(true);
-
-                    @let encoded_name = block.name.replace('/', "--");
-                    div .card
-                        style={"cursor:pointer;height:100px;display:flex;flex-direction:column;justify-content:space-between;position:relative;" (if !is_enabled { "opacity:0.5;" } else { "" })}
-                        hx-get={"/b/admin/blocks/" (encoded_name) "/detail"}
-                        hx-target="#block-detail-modal"
-                        hx-swap="innerHTML"
+                // Runtime filter dropdown
+                div style="display:flex;justify-content:flex-end;margin-bottom:8px" {
+                    select .form-input style="width:auto;font-size:12px;padding:4px 8px"
+                        onchange={"window.location.href='/b/admin/blocks?tab=" (active_tab) "&runtime='+this.value"}
                     {
-                        // Top-right: status icon + version + details link
-                        div style="position:absolute;top:12px;right:12px;display:flex;align-items:center;gap:6px" {
-                            @if is_enabled {
-                                span style="color:#10b981;font-size:14px" title="Enabled" { "\u{2713}" }
-                            } @else {
-                                span style="color:#94a3b8;font-size:14px" title="Disabled" { "\u{2717}" }
+                        option value="" selected[runtime_filter.is_empty()] { "All runtimes" }
+                        option value="native" selected[runtime_filter == "native"] { "Native only" }
+                        option value="wasm" selected[runtime_filter == "wasm"] { "WASM only" }
+                    }
+                }
+
+                @if filtered.is_empty() {
+                    (components::empty_state("No blocks", "No blocks registered in this category"))
+                }
+
+                div .cards style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px;align-items:start" {
+                    style { (maud::PreEscaped("
+                        .block-card-collapsed { min-height: 120px; }
+                        .block-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; }
+                    ")) }
+                    @for block in &filtered {
+                        @let is_enabled = block_enabled.get(&block.name).copied().unwrap_or(true);
+
+                        @let encoded_name = block.name.replace('/', "--");
+                        div .card
+                            style={"cursor:pointer;height:100px;display:flex;flex-direction:column;justify-content:space-between;position:relative;" (if !is_enabled { "opacity:0.5;" } else { "" })}
+                            hx-get={"/b/admin/blocks/" (encoded_name) "/detail"}
+                            hx-target="#block-detail-modal"
+                            hx-swap="innerHTML"
+                        {
+                            // Top-right: status icon + version + details link
+                            div style="position:absolute;top:12px;right:12px;display:flex;align-items:center;gap:6px" {
+                                @if is_enabled {
+                                    span style="color:#10b981;font-size:14px" title="Enabled" { "\u{2713}" }
+                                } @else {
+                                    span style="color:#94a3b8;font-size:14px" title="Disabled" { "\u{2717}" }
+                                }
+                                @if block.runtime == wafer_run::BlockRuntime::Wasm {
+                                    span .badge style="font-size:9px;padding:1px 5px;background:#8b5cf6;color:#fff" { "WASM" }
+                                } @else {
+                                    span .badge style="font-size:9px;padding:1px 5px;background:#e2e8f0;color:#64748b" { "Native" }
+                                }
+                                span style="font-size:11px;color:#94a3b8" { "v" (block.version) }
+                                span style="color:#94a3b8;font-size:11px;display:flex;align-items:center;gap:2px" {
+                                    "Details" (icons::chevron_right())
+                                }
                             }
-                            @if block.runtime == wafer_run::BlockRuntime::Wasm {
-                                span .badge style="font-size:9px;padding:1px 5px;background:#8b5cf6;color:#fff" { "WASM" }
-                            } @else {
-                                span .badge style="font-size:9px;padding:1px 5px;background:#e2e8f0;color:#64748b" { "Native" }
+                            div {
+                                h3 style="font-size:14px;font-weight:600;color:#1e3a5f;margin:0 0 4px;padding-right:50px" { (block.name) }
+                                p .text-muted .block-summary style="font-size:13px;margin:0;line-height:1.4" { (block.summary) }
                             }
-                            span style="font-size:11px;color:#94a3b8" { "v" (block.version) }
-                            span style="color:#94a3b8;font-size:11px;display:flex;align-items:center;gap:2px" {
-                                "Details" (icons::chevron_right())
-                            }
-                        }
-                        div {
-                            h3 style="font-size:14px;font-weight:600;color:#1e3a5f;margin:0 0 4px;padding-right:50px" { (block.name) }
-                            p .text-muted .block-summary style="font-size:13px;margin:0;line-height:1.4" { (block.summary) }
-                        }
-                        @if is_enabled && !block.admin_url.is_empty() {
-                            div style="position:absolute;bottom:10px;right:12px" {
-                                a .btn .btn-sm .btn-primary
-                                    href=(block.admin_url)
-                                    onclick="event.stopPropagation()"
-                                    style="font-size:11px;padding:2px 8px"
-                                { "Open" }
+                            @if is_enabled && !block.admin_url.is_empty() {
+                                div style="position:absolute;bottom:10px;right:12px" {
+                                    a .btn .btn-sm .btn-primary
+                                        href=(block.admin_url)
+                                        onclick="event.stopPropagation()"
+                                        style="font-size:11px;padding:2px 8px"
+                                    { "Open" }
+                                }
                             }
                         }
                     }
@@ -469,5 +480,220 @@ pub async fn handle_block_detail(
         script { (maud::PreEscaped("document.getElementById('block-detail-modal-overlay').removeAttribute('hidden');")) }
     };
 
+    ui::html_response(msg, markup)
+}
+
+// ---------------------------------------------------------------------------
+// Custom tab helpers
+// ---------------------------------------------------------------------------
+
+fn custom_tab_content() -> maud::Markup {
+    html! {
+        // Install from Registry
+        div .card style="margin-bottom:16px" {
+            h3 style="font-size:14px;font-weight:600;margin:0 0 12px" {
+                (icons::arrow_up_right()) " Install from Registry"
+            }
+            p .text-muted style="font-size:13px;margin:0 0 12px" {
+                "Enter a manifest URL from the "
+                a href="https://wafer.run/registry" target="_blank" { "WAFER registry" }
+                " to install a custom WASM block."
+            }
+            form
+                hx-post="/b/admin/custom-blocks/install"
+                hx-target="#custom-blocks-list"
+                hx-swap="outerHTML"
+                style="display:flex;gap:8px;align-items:flex-end"
+            {
+                div style="flex:1" {
+                    label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px" {
+                        "Manifest URL"
+                    }
+                    input .form-input type="text" name="manifest_url"
+                        placeholder="https://wafer.run/registry/org/block/manifest.json"
+                        style="width:100%";
+                }
+                button .btn .btn-primary type="submit" {
+                    (icons::arrow_up_right()) " Install"
+                }
+            }
+        }
+
+        // Upload .wasm
+        div .card style="margin-bottom:16px" {
+            h3 style="font-size:14px;font-weight:600;margin:0 0 12px" {
+                (icons::hard_drive()) " Upload .wasm"
+            }
+            p .text-muted style="font-size:13px;margin:0 0 12px" {
+                "Upload a compiled .wasm block directly. The block name will be derived from the filename."
+            }
+            form
+                hx-post="/b/admin/custom-blocks/upload"
+                hx-target="#custom-blocks-list"
+                hx-swap="outerHTML"
+                hx-encoding="multipart/form-data"
+                style="display:flex;gap:8px;align-items:flex-end"
+            {
+                div style="flex:1" {
+                    label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px" {
+                        "WASM file"
+                    }
+                    input .form-input type="file" name="wasm_file" accept=".wasm"
+                        style="width:100%";
+                }
+                button .btn .btn-primary type="submit" {
+                    (icons::arrow_up_right()) " Upload"
+                }
+            }
+        }
+
+        // Installed custom blocks list (initially empty placeholder)
+        div #custom-blocks-list {
+            (custom_blocks_list(&[]))
+        }
+    }
+}
+
+/// Render the installed custom blocks table. `blocks` is a slice of
+/// `(name, version, uploaded_at)` tuples coming from the backend.
+pub fn custom_blocks_list(blocks: &[(&str, &str, &str)]) -> maud::Markup {
+    html! {
+        div #custom-blocks-list {
+            h3 style="font-size:14px;font-weight:600;margin:0 0 12px" {
+                (icons::package()) " Installed Custom Blocks"
+            }
+            @if blocks.is_empty() {
+                div .card style="text-align:center;padding:32px;color:#94a3b8" {
+                    p style="margin:0" { "No custom blocks installed yet." }
+                    p style="margin:8px 0 0;font-size:13px" {
+                        "Use the forms above to install from the registry or upload a .wasm file."
+                    }
+                }
+            } @else {
+                div .table-container {
+                    table .table {
+                        thead {
+                            tr {
+                                th { "Name" }
+                                th { "Version" }
+                                th { "Uploaded" }
+                                th style="width:120px" { "Status" }
+                                th style="width:80px" { "" }
+                            }
+                        }
+                        tbody {
+                            @for (name, version, uploaded_at) in blocks {
+                                @let encoded = name.replace('/', "--");
+                                tr {
+                                    td .text-sm { code style="font-size:12px" { (name) } }
+                                    td .text-sm .text-muted { "v" (version) }
+                                    td .text-sm .text-muted { (uploaded_at) }
+                                    td {
+                                        label .toggle {
+                                            input type="checkbox"
+                                                checked
+                                                hx-post={"/b/admin/blocks/" (encoded) "/toggle"}
+                                                hx-target="#content";
+                                            span .toggle-slider {}
+                                        }
+                                    }
+                                    td {
+                                        button .btn .btn-sm
+                                            style="background:#fce4ec;color:#c62828;border:none"
+                                            hx-delete={"/b/admin/custom-blocks/" (encoded)}
+                                            hx-target="#custom-blocks-list"
+                                            hx-swap="outerHTML"
+                                            hx-confirm={"Delete custom block " (name) "?"}
+                                        {
+                                            (icons::trash())
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Custom block endpoint handlers
+// ---------------------------------------------------------------------------
+
+/// POST /b/admin/custom-blocks/install — install a block from a manifest URL
+pub async fn handle_custom_block_install(
+    _ctx: &dyn Context,
+    msg: &mut Message,
+) -> Result_ {
+    use crate::blocks::helpers::parse_form_body;
+    let form = parse_form_body(&msg.data);
+    let manifest_url = form.get("manifest_url").cloned().unwrap_or_default();
+
+    if manifest_url.is_empty() {
+        let markup = html! {
+            div #custom-blocks-list {
+                div .card style="color:#c62828;padding:16px" {
+                    "Error: manifest URL is required."
+                }
+            }
+        };
+        return ui::html_response(msg, markup);
+    }
+
+    // TODO(cloud): delegate to /_internal/blocks/install when running in cloud mode.
+    // For local deployment, custom blocks are auto-discovered from the blocks/ directory.
+    let markup = html! {
+        div #custom-blocks-list {
+            div .card style="padding:16px;background:#fef3c7;color:#92400e;border-left:3px solid #f59e0b" {
+                p style="margin:0 0 8px;font-weight:600" { "Local deployment" }
+                p style="margin:0;font-size:13px" {
+                    "Custom blocks are auto-discovered from the "
+                    code { "blocks/" }
+                    " directory. Use "
+                    code { "wafer build" }
+                    " to compile blocks locally, then restart the server."
+                }
+            }
+        }
+    };
+    ui::html_response(msg, markup)
+}
+
+/// POST /b/admin/custom-blocks/upload — upload a .wasm file
+pub async fn handle_custom_block_upload(
+    _ctx: &dyn Context,
+    msg: &mut Message,
+) -> Result_ {
+    // TODO(cloud): parse multipart body and store to R2/D1 when running in cloud mode.
+    // For local deployment, point users to the blocks/ directory workflow.
+    let markup = html! {
+        div #custom-blocks-list {
+            div .card style="padding:16px;background:#fef3c7;color:#92400e;border-left:3px solid #f59e0b" {
+                p style="margin:0 0 8px;font-weight:600" { "Local deployment" }
+                p style="margin:0;font-size:13px" {
+                    "Custom blocks are auto-discovered from the "
+                    code { "blocks/" }
+                    " directory. Place your compiled "
+                    code { ".wasm" }
+                    " file there and restart the server. Use "
+                    code { "wafer build" }
+                    " to compile blocks locally."
+                }
+            }
+        }
+    };
+    ui::html_response(msg, markup)
+}
+
+/// DELETE /b/admin/custom-blocks/{name} — delete a custom block
+pub async fn handle_custom_block_delete(
+    _ctx: &dyn Context,
+    msg: &mut Message,
+    _block_name: &str,
+) -> Result_ {
+    // TODO(cloud): delete from R2/D1 when running in cloud mode.
+    let markup = custom_blocks_list(&[]);
     ui::html_response(msg, markup)
 }
