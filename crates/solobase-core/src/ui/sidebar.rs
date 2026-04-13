@@ -16,7 +16,7 @@ pub fn sidebar(
         nav .sidebar {
             // Logo header
             div .sidebar-header {
-                a .sidebar-logo href="/" {
+                a .sidebar-logo href="/b/admin/" {
                     @if !logo_url.is_empty() {
                         img .sidebar-logo-long src=(logo_url) alt="Home";
                     }
@@ -24,7 +24,7 @@ pub fn sidebar(
                         img .sidebar-logo-icon src=(logo_icon_url) alt="Home";
                     }
                     @if logo_url.is_empty() && logo_icon_url.is_empty() {
-                        span .font-semibold style="font-size: 1.25rem;" { "Home" }
+                        span .font-semibold style="font-size: 1.25rem;" { "Solobase" }
                     }
                 }
             }

@@ -24,6 +24,10 @@ pub enum BlockId {
     Products,
     Projects,
     UserPortal,
+    Messages,
+    Llm,
+    ProviderLlm,
+    LocalLlm,
 }
 
 /// A single route entry.
@@ -105,6 +109,33 @@ pub const ROUTES: &[Route] = &[
         requires_admin: false,
         block_id: BlockId::UserPortal,
     },
+    // Messages — generic thread/message system
+    // Route is open; block enforces admin for UI pages, authenticated for API
+    Route {
+        prefix: "/b/messages",
+        requires_admin: false,
+        block_id: BlockId::Messages,
+    },
+    // LLM — chat orchestrator
+    // Route is open; block enforces admin for UI pages, authenticated for API
+    Route {
+        prefix: "/b/llm",
+        requires_admin: false,
+        block_id: BlockId::Llm,
+    },
+    // Provider LLM — remote API providers
+    // Route is open; block enforces admin for UI/config, authenticated for chat API
+    Route {
+        prefix: "/b/provider-llm",
+        requires_admin: false,
+        block_id: BlockId::ProviderLlm,
+    },
+    // Local LLM — WebLLM browser inference
+    Route {
+        prefix: "/b/local-llm",
+        requires_admin: false,
+        block_id: BlockId::LocalLlm,
+    },
 ];
 
 /// Check if a block's feature is enabled.
@@ -148,6 +179,10 @@ fn block_id_short_name(id: BlockId) -> &'static str {
         BlockId::Products => "products",
         BlockId::Projects => "projects",
         BlockId::UserPortal => "userportal",
+        BlockId::Messages => "messages",
+        BlockId::Llm => "llm",
+        BlockId::ProviderLlm => "provider-llm",
+        BlockId::LocalLlm => "local-llm",
     }
 }
 

@@ -23,6 +23,7 @@ build: pkg/sql-wasm-esm.js
 	wasm-pack build --target web --release --out-dir pkg
 	cp js/sw.js pkg/
 	cp js/loader.js pkg/
+	cp js/ai-bridge.js pkg/
 	cp js/index.html pkg/
 
 # Build for development
@@ -30,6 +31,7 @@ dev: pkg/sql-wasm-esm.js
 	wasm-pack build --target web --dev --out-dir pkg
 	cp js/sw.js pkg/
 	cp js/loader.js pkg/
+	cp js/ai-bridge.js pkg/
 	cp js/index.html pkg/
 
 # Serve locally for testing (localhost is exempt from HTTPS requirement for SW)

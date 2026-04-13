@@ -40,7 +40,21 @@ pub fn seed_and_load_variables() -> HashMap<String, String> {
         "[]",
     );
 
-    // 2. Auto-generate secrets for config vars marked with auto_generate
+    // 2. Seed default admin account for browser build.
+    //    Email: admin@solobase.local / Password: admin
+    //    This is local-only (OPFS) so a simple default is acceptable.
+    bridge::db_exec_raw(
+        "INSERT OR IGNORE INTO variables (id, key, name, description, value, sensitive, created_at, updated_at)
+         VALUES ('var_admin_email', 'SUPPERS_AI__AUTH__ADMIN_EMAIL', 'Admin Email', 'Admin account email', 'admin@solobase.local', 0, datetime('now'), datetime('now'))",
+        "[]",
+    );
+    bridge::db_exec_raw(
+        "INSERT OR IGNORE INTO variables (id, key, name, description, value, sensitive, created_at, updated_at)
+         VALUES ('var_admin_pass', 'SUPPERS_AI__AUTH__ADMIN_PASSWORD', 'Admin Password', 'Admin account password', 'admin', 1, datetime('now'), datetime('now'))",
+        "[]",
+    );
+
+    // 3. Auto-generate secrets for config vars marked with auto_generate
     seed_auto_generated();
 
     // 3. Load all variables

@@ -6,9 +6,13 @@ pub mod errors;
 pub mod files;
 pub mod helpers;
 pub mod legalpages;
+pub mod llm;
+pub mod local_llm;
+pub mod messages;
 pub mod network;
 pub mod products;
 pub mod projects;
+pub mod provider_llm;
 pub mod rate_limit;
 pub mod router;
 pub mod storage;
@@ -31,6 +35,10 @@ const SOLOBASE_BLOCKS: &[(&str, BlockId)] = &[
     ("files", BlockId::Files),
     ("products", BlockId::Products),
     ("projects", BlockId::Projects),
+    ("messages", BlockId::Messages),
+    ("llm", BlockId::Llm),
+    ("provider-llm", BlockId::ProviderLlm),
+    ("local-llm", BlockId::LocalLlm),
 ];
 
 /// Create a block instance for a given BlockId.
@@ -44,6 +52,10 @@ fn make_block(id: BlockId) -> Arc<dyn Block> {
         BlockId::Files => Arc::new(files::FilesBlock::new()),
         BlockId::Products => Arc::new(products::ProductsBlock::new()),
         BlockId::Projects => Arc::new(projects::ProjectsBlock::new()),
+        BlockId::Messages => Arc::new(messages::MessagesBlock),
+        BlockId::Llm => Arc::new(llm::LlmBlock),
+        BlockId::ProviderLlm => Arc::new(provider_llm::ProviderLlmBlock),
+        BlockId::LocalLlm => Arc::new(local_llm::LocalLlmBlock),
         BlockId::Inspector => unreachable!("inspector dispatched via ctx.call_block"),
     }
 }
@@ -86,6 +98,10 @@ fn block_id_to_name(id: BlockId) -> &'static str {
         BlockId::Files => "files",
         BlockId::Products => "products",
         BlockId::Projects => "projects",
+        BlockId::Messages => "messages",
+        BlockId::Llm => "llm",
+        BlockId::ProviderLlm => "provider-llm",
+        BlockId::LocalLlm => "local-llm",
         BlockId::Inspector => "inspector",
     }
 }

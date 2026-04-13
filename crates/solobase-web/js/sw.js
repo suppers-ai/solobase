@@ -35,6 +35,7 @@ self.addEventListener('fetch', (event) => {
     // Don't intercept requests for static assets served from CDN
     if (url.pathname === '/sw.js' ||
         url.pathname === '/loader.js' ||
+        url.pathname === '/ai-bridge.js' ||
         url.pathname === '/index.html' ||
         url.pathname === '/' ||
         url.pathname.startsWith('/pkg/') ||

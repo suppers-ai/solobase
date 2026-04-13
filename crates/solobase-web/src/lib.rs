@@ -257,7 +257,7 @@ fn register_site_main_flow(wafer: &mut wafer_run::Wafer) -> Result<(), JsValue> 
         "version": "0.1.0",
         "description": "Top-level HTTP dispatch — API router + frontend SPA",
         "steps": [
-            { "id": "security-headers", "block": "wafer-run/security-headers" },
+            { "id": "security-headers", "block": "wafer-run/security-headers", "config": { "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' https:; connect-src 'self' https://cdn.jsdelivr.net https://esm.run https://huggingface.co https://raw.githubusercontent.com https://*.huggingface.co https://*.hf.co https://*.xethub.hf.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" } },
             { "id": "cors", "block": "wafer-run/cors" },
             { "id": "readonly-guard", "block": "wafer-run/readonly-guard" },
             { "id": "router", "block": "wafer-run/router" }
