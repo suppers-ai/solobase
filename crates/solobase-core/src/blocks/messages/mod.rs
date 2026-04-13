@@ -1,4 +1,5 @@
 pub mod pages;
+pub mod service;
 
 use crate::blocks::helpers::{self, json_map};
 use wafer_core::clients::database as db;
