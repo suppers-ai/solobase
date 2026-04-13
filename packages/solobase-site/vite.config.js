@@ -32,6 +32,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         pricing: resolve(__dirname, 'pricing/index.html'),
+        'use-cases': resolve(__dirname, 'use-cases/index.html'),
       },
     },
   },

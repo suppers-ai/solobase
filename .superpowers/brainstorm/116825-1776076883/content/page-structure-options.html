@@ -1,0 +1,42 @@
+<h2>How should the use cases page be structured?</h2>
+<p class="subtitle">Three approaches for presenting 12 use cases across 3 groups. Click to select.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Single Long Page with Group Sections</h3>
+      <p>One scrollable page. Hero at top, then 3 colored sections (Browser/WASM, Single Binary, Platform/Edge). Each use case is a card within its section — title, one-paragraph vision, expandable "how it works" detail.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Simple to build and maintain</li><li>Users see everything at a glance</li><li>Good for SEO — all content on one URL</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>12 use cases on one page could feel long</li><li>Harder to link to a specific use case</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Overview Page + Individual Use Case Pages</h3>
+      <p>A hub page showing all 3 groups as visual cards with short descriptions. Each use case links to its own dedicated page with the full vision, architecture diagram, code snippets, and "how to get started." Like Vercel's or Supabase's use case pages.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Each use case gets room to breathe</li><li>Shareable individual URLs</li><li>Can deep-link from blog posts, docs, etc.</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>More pages to build and maintain (13 total)</li><li>Content might feel thin on some pages</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Overview Page + Group Detail Pages</h3>
+      <p>A hub page showing 3 groups. Each group links to its own page (e.g., /use-cases/browser, /use-cases/native, /use-cases/platform) where all use cases in that group are laid out with full detail. 4 pages total instead of 13.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Balanced — room for detail without 13 pages</li><li>Groups reinforce the "3 deployment models" story</li><li>Easier to maintain than individual pages</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Can't link to a single use case directly</li><li>Group pages might feel like a wall of content</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 24px;"><strong>My recommendation:</strong> Option A — a single page. 12 use cases with short cards is digestible, anchor links solve deep-linking, and it's far less maintenance. You can always split into individual pages later if a use case needs its own marketing push.</p>

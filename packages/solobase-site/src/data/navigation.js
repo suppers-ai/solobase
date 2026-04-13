@@ -10,6 +10,7 @@ export const siteConfig = {
 
 export const mainMenu = [
   { name: "Home", url: "/" },
+  { name: "Use Cases", url: "/use-cases/" },
   { name: "Pricing", url: "/pricing/" },
   { name: "Docs", url: "/docs/" },
   { name: "Demo", url: "https://demo.solobase.dev", external: true },

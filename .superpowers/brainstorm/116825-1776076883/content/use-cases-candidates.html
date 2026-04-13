@@ -1,0 +1,87 @@
+<h2>Which use cases feel most compelling?</h2>
+<p class="subtitle">Select all that resonate. These are candidates for the use cases page — we'll refine the final list together. Think about what makes solobase genuinely different, not just "another BaaS."</p>
+
+<div class="options" data-multiselect>
+
+  <div class="option" data-choice="pr-previews" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content">
+      <h3>Per-PR Preview Environments (Zero Infrastructure)</h3>
+      <p><strong>Audience:</strong> Teams, open-source maintainers</p>
+      <p>The one we discussed — solobase-web compiles the entire backend to WASM, so PR previews are just static files. No containers, no databases, no teardown. Reviewers click a link and the backend runs in their browser. <em>Groundbreaking because:</em> every other preview env solution requires server infrastructure.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="offline-first" onclick="toggleSelect(this)">
+    <div class="letter">2</div>
+    <div class="content">
+      <h3>Offline-First Apps With a Real Backend</h3>
+      <p><strong>Audience:</strong> Mobile/PWA developers, field workers, emerging markets</p>
+      <p>solobase-web runs in a Service Worker with OPFS persistence. Your app works fully offline — auth, database, file storage — then syncs when connectivity returns. Not a "cache some API responses" offline mode, but a complete backend running locally. <em>Groundbreaking because:</em> offline-first usually means gutting your backend logic or building a separate sync layer.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="ai-agent-infra" onclick="toggleSelect(this)">
+    <div class="letter">3</div>
+    <div class="content">
+      <h3>Autonomous AI Agent Infrastructure</h3>
+      <p><strong>Audience:</strong> AI/agent builders</p>
+      <p>An AI agent can spin up a solobase instance (single binary, zero config), get auth + database + file storage + API instantly, and start building. No cloud console, no provisioning, no API key management dance. The agent IS the developer. A2A messaging built in for multi-agent coordination. <em>Groundbreaking because:</em> agents currently need humans to provision infrastructure.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="browser-backend" onclick="toggleSelect(this)">
+    <div class="letter">4</div>
+    <div class="content">
+      <h3>Backend-in-the-Browser (No Server Required)</h3>
+      <p><strong>Audience:</strong> Educators, demo builders, prototypers</p>
+      <p>Ship a full-stack app as a static site. The backend runs in the user's browser via WASM. Perfect for tutorials ("build a SaaS in 10 minutes — no server needed"), interactive documentation, product demos where prospects can actually use the product, not just watch a video. <em>Groundbreaking because:</em> eliminates the "but first, set up a server" barrier entirely.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="e2e-testing" onclick="toggleSelect(this)">
+    <div class="letter">5</div>
+    <div class="content">
+      <h3>Zero-Infrastructure E2E Testing</h3>
+      <p><strong>Audience:</strong> QA teams, CI/CD pipelines</p>
+      <p>Run Playwright/Cypress tests against solobase-web in headless Chrome. No test database to manage, no server process to start/stop, no port conflicts in parallel CI. Each test gets a fresh isolated backend instance. Seed data via the Service Worker, run tests, done. <em>Groundbreaking because:</em> E2E tests usually need complex docker-compose setups or shared staging environments.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="single-binary-saas" onclick="toggleSelect(this)">
+    <div class="letter">6</div>
+    <div class="content">
+      <h3>Launch a SaaS in One Binary</h3>
+      <p><strong>Audience:</strong> Indie hackers, solo founders</p>
+      <p>Auth, payments (Stripe), admin panel, user dashboard, file storage, database — all in a single binary you deploy to a $5 VPS or Cloudflare Workers. No microservices, no managed databases, no DevOps. Write your business logic, deploy one thing. <em>Groundbreaking because:</em> typical SaaS stacks are 5-10 services before you write line one of business logic.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="multi-tenant" onclick="toggleSelect(this)">
+    <div class="letter">7</div>
+    <div class="content">
+      <h3>Multi-Tenant Platform (Workers for Platforms)</h3>
+      <p><strong>Audience:</strong> Platform builders</p>
+      <p>Build a platform where each customer gets their own isolated solobase instance via Cloudflare Workers for Platforms. Automatic subdomain provisioning, per-tenant config, deployment lifecycle management. Your users get their own backend without you managing infrastructure per customer. <em>Groundbreaking because:</em> multi-tenant isolation usually requires complex Kubernetes setups or shared-database compromises.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="local-first-dev" onclick="toggleSelect(this)">
+    <div class="letter">8</div>
+    <div class="content">
+      <h3>Local-First Development (Full Backend on Localhost)</h3>
+      <p><strong>Audience:</strong> All developers</p>
+      <p>Download one binary, run it. Full backend on localhost in seconds — no Docker, no database install, no cloud account. Develop on a plane. Push to production on Cloudflare or any VPS. Same code, same behavior, zero config drift. <em>Groundbreaking because:</em> most BaaS platforms require cloud connectivity even for development.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="privacy-first" onclick="toggleSelect(this)">
+    <div class="letter">9</div>
+    <div class="content">
+      <h3>Privacy-First / Data Sovereignty Apps</h3>
+      <p><strong>Audience:</strong> Healthcare, legal, government, EU companies</p>
+      <p>With solobase-web, user data never leaves their browser. With native, deploy on-premise in any jurisdiction. No third-party cloud dependency, no data residency concerns. Full backend functionality without sending a single byte to someone else's server. <em>Groundbreaking because:</em> most backends assume cloud deployment; true data sovereignty requires self-hosting expertise.</p>
+    </div>
+  </div>
+
+</div>

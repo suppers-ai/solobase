@@ -1,0 +1,131 @@
+<h2>Use Cases — Grouped by Theme</h2>
+<p class="subtitle">All 9 original use cases plus new ones for native/binary strengths. Does this grouping make sense? Any to add, move, or cut?</p>
+
+<!-- GROUP 1: WASM / Browser -->
+<div class="section">
+  <h3 style="color: #7c3aed; border-bottom: 2px solid #7c3aed; padding-bottom: 8px;">🌐 Run Anywhere — Backend in the Browser (solobase-web)</h3>
+  <p class="subtitle">The entire backend compiled to WASM. No server required.</p>
+
+  <div class="options">
+    <div class="option" style="cursor:default;">
+      <div class="letter" style="background:#7c3aed;">1</div>
+      <div class="content">
+        <h3>Per-PR Preview Environments</h3>
+        <p>PR previews as static files. Reviewers click a link, the backend runs in their browser. No containers, no databases, no teardown.</p>
+      </div>
+    </div>
+    <div class="option" style="cursor:default;">
+      <div class="letter" style="background:#7c3aed;">2</div>
+      <div class="content">
+        <h3>Offline-First Apps</h3>
+        <p>Full backend in a Service Worker with OPFS persistence. Works on a plane, in the field, in emerging markets. Not "cached responses" — a real backend running locally.</p>
+      </div>
+    </div>
+    <div class="option" style="cursor:default;">
+      <div class="letter" style="background:#7c3aed;">3</div>
+      <div class="content">
+        <h3>Backend-in-the-Browser</h3>
+        <p>Ship full-stack apps as static sites. Tutorials, interactive docs, product demos where prospects actually use the product.</p>
+      </div>
+    </div>
+    <div class="option" style="cursor:default;">
+      <div class="letter" style="background:#7c3aed;">4</div>
+      <div class="content">
+        <h3>Zero-Infrastructure E2E Testing</h3>
+        <p>Playwright/Cypress against solobase-web in headless Chrome. Each test gets a fresh isolated backend. No docker-compose, no port conflicts.</p>
+      </div>
+    </div>
+    <div class="option" style="cursor:default;">
+      <div class="letter" style="background:#7c3aed;">5</div>
+      <div class="content">
+        <h3>Privacy-First / Data Sovereignty</h3>
+        <p>User data never leaves the browser. No third-party cloud, no data residency concerns. GDPR/HIPAA-friendly by architecture, not policy.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- GROUP 2: Single Binary / Native -->
+<div class="section">
+  <h3 style="color: #059669; border-bottom: 2px solid #059669; padding-bottom: 8px;">⚡ Single Binary — Deploy and Forget (solobase native)</h3>
+  <p class="subtitle">One Rust binary. Everything included. Incredibly cheap to run.</p>
+
+  <div class="options">
+    <div class="option" style="cursor:default;">
+      <div class="letter" style="background:#059669;">6</div>
+      <div class="content">
+        <h3>Launch a SaaS in One Binary</h3>
+        <p>Auth, payments, admin panel, user dashboard, file storage, database. Deploy to a $5/mo VPS. No microservices, no managed databases, no DevOps team.</p>
+      </div>
+    </div>
+    <div class="option" style="cursor:default;">
+      <div class="letter" style="background:#059669;">7</div>
+      <div class="content">
+        <h3>Ridiculously Cheap to Run</h3>
+        <p><strong>NEW.</strong> A single Rust binary uses ~20MB RAM idle. Run a full production backend on a $5 VPS that would cost $50-200/mo on a typical stack (managed DB + app server + cache + CDN). Rust's zero-cost abstractions mean you're not paying for a runtime, a GC, or an ORM. Scale vertically before you ever need to think about horizontal.</p>
+      </div>
+    </div>
+    <div class="option" style="cursor:default;">
+      <div class="letter" style="background:#059669;">8</div>
+      <div class="content">
+        <h3>Local-First Development</h3>
+        <p>Download binary, run it. Full backend on localhost in seconds. No Docker, no database install, no cloud account. Develop on a plane. Same code in prod.</p>
+      </div>
+    </div>
+    <div class="option" style="cursor:default;">
+      <div class="letter" style="background:#059669;">9</div>
+      <div class="content">
+        <h3>AI Agent Infrastructure</h3>
+        <p>An agent spins up solobase (single binary, zero config), gets auth + DB + storage + API instantly. The agent IS the developer. A2A messaging for multi-agent coordination.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- GROUP 3: Platform / Edge / Security -->
+<div class="section">
+  <h3 style="color: #d97706; border-bottom: 2px solid #d97706; padding-bottom: 8px;">🔒 Platform — Edge, Isolation & Trust (solobase on Cloudflare)</h3>
+  <p class="subtitle">Run at the edge. Sandbox third-party code. Scale to millions.</p>
+
+  <div class="options">
+    <div class="option" style="cursor:default;">
+      <div class="letter" style="background:#d97706;">10</div>
+      <div class="content">
+        <h3>Multi-Tenant Platform (Workers for Platforms)</h3>
+        <p>Each customer gets their own isolated solobase instance on Cloudflare. Automatic subdomain provisioning, per-tenant config, deployment lifecycle. No Kubernetes, no shared-database compromises.</p>
+      </div>
+    </div>
+    <div class="option" style="cursor:default;">
+      <div class="letter" style="background:#d97706;">11</div>
+      <div class="content">
+        <h3>Safe Third-Party Extensions (WASM Sandboxing)</h3>
+        <p><strong>NEW.</strong> Let third parties build extensions/blocks that run inside your platform — but sandboxed in WASM. They can't access your env vars, can't make unauthorized network calls, can't touch other tenants' data. Everything is isolated by default. Think app marketplace (like Shopify apps) but where malicious code literally cannot escape the sandbox. Services like OpenClaw could run third-party legal automation without risk.</p>
+      </div>
+    </div>
+    <div class="option" style="cursor:default;">
+      <div class="letter" style="background:#d97706;">12</div>
+      <div class="content">
+        <h3>Edge Computing — Global, Sub-50ms</h3>
+        <p><strong>NEW.</strong> Deploy solobase to Cloudflare's 300+ edge locations. Your backend runs within 50ms of every user on Earth. Not just a CDN in front of a central server — the actual backend logic executes at the edge. D1 for database, R2 for storage, all colocated. Perfect for latency-sensitive apps: real-time collaboration, gaming backends, financial tools.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 32px; padding: 20px; background: #1a1a2e; border-radius: 12px; border: 1px solid #333;">
+  <h3 style="margin-top:0; color: #e2e8f0;">Summary: 3 Groups, 12 Use Cases</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-top: 12px;">
+    <div>
+      <p style="color: #7c3aed; font-weight: 600; margin-bottom: 4px;">🌐 Browser/WASM (5)</p>
+      <p style="color: #94a3b8; font-size: 14px;">PR previews, offline-first, browser backend, E2E testing, privacy/sovereignty</p>
+    </div>
+    <div>
+      <p style="color: #059669; font-weight: 600; margin-bottom: 4px;">⚡ Single Binary (4)</p>
+      <p style="color: #94a3b8; font-size: 14px;">SaaS in one binary, cheap to run, local-first dev, AI agent infra</p>
+    </div>
+    <div>
+      <p style="color: #d97706; font-weight: 600; margin-bottom: 4px;">🔒 Platform/Edge (3)</p>
+      <p style="color: #94a3b8; font-size: 14px;">Multi-tenant, WASM sandboxing, edge computing</p>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solobase — Use Cases</title>
+<link href="https://fonts.googleapis.com/css2?family=Itim&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Itim', cursive; color: #1f2937; background: #fff; line-height: 1.6; }
+
+  /* Nav */
+  nav { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #e5e7eb; padding: 12px 32px; display: flex; align-items: center; justify-content: space-between; z-index: 100; }
+  nav .logo { font-size: 20px; font-weight: 700; color: #1f2937; }
+  nav .logo span { color: #fe6627; }
+  nav .links { display: flex; gap: 24px; font-size: 15px; }
+  nav .links a { color: #6b7280; text-decoration: none; transition: color 0.2s; }
+  nav .links a:hover, nav .links a.active { color: #fe6627; }
+
+  /* Hero */
+  .hero { text-align: center; padding: 80px 32px 48px; max-width: 800px; margin: 0 auto; }
+  .hero h1 { font-size: 48px; font-weight: 700; margin-bottom: 16px; }
+  .hero h1 span { color: #fe6627; }
+  .hero p { font-size: 20px; color: #6b7280; max-width: 640px; margin: 0 auto; }
+
+  /* Group tabs */
+  .group-nav { display: flex; justify-content: center; gap: 12px; padding: 0 32px 48px; flex-wrap: wrap; }
+  .group-tab { padding: 10px 20px; border-radius: 999px; border: 2px solid #e5e7eb; background: #fff; cursor: pointer; font-family: 'Itim', cursive; font-size: 15px; color: #6b7280; transition: all 0.2s; }
+  .group-tab:hover { border-color: #fe6627; color: #fe6627; }
+  .group-tab.wasm { background: #f5f3ff; border-color: #7c3aed; color: #7c3aed; }
+  .group-tab.native { background: #ecfdf5; border-color: #059669; color: #059669; }
+  .group-tab.platform { background: #fffbeb; border-color: #d97706; color: #d97706; }
+
+  /* Sections */
+  .group-section { padding: 48px 32px; max-width: 1100px; margin: 0 auto; }
+  .group-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .group-header .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .group-header h2 { font-size: 28px; }
+  .group-subtitle { color: #6b7280; font-size: 17px; margin-bottom: 32px; }
+
+  /* Divider */
+  .section-divider { border: none; border-top: 1px solid #e5e7eb; max-width: 1100px; margin: 0 auto; }
+
+  /* Cards grid */
+  .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+  .use-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 24px; transition: all 0.2s; position: relative; overflow: hidden; }
+  .use-card:hover { border-color: #d1d5db; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+  .use-card .tag { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 10px; border-radius: 999px; display: inline-block; margin-bottom: 12px; }
+  .use-card .tag.wasm { background: #f5f3ff; color: #7c3aed; }
+  .use-card .tag.native { background: #ecfdf5; color: #059669; }
+  .use-card .tag.platform { background: #fffbeb; color: #d97706; }
+  .use-card h3 { font-size: 19px; margin-bottom: 8px; }
+  .use-card .vision { color: #6b7280; font-size: 15px; margin-bottom: 16px; }
+  .use-card .groundbreaking { font-size: 13px; color: #fe6627; font-weight: 600; padding-top: 12px; border-top: 1px solid #f3f4f6; }
+
+  /* CTA */
+  .bottom-cta { text-align: center; padding: 64px 32px; background: #f9fafb; }
+  .bottom-cta h2 { font-size: 32px; margin-bottom: 12px; }
+  .bottom-cta p { color: #6b7280; font-size: 18px; margin-bottom: 24px; }
+  .bottom-cta .buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .bottom-cta .btn { padding: 12px 28px; border-radius: 8px; font-family: 'Itim', cursive; font-size: 16px; text-decoration: none; font-weight: 600; transition: all 0.2s; border: none; cursor: pointer; }
+  .btn-primary { background: #fe6627; color: #fff; }
+  .btn-primary:hover { background: #b72a07; transform: translateY(-1px); }
+  .btn-secondary { background: #1f2937; color: #fff; }
+  .btn-secondary:hover { background: #374151; transform: translateY(-1px); }
+
+  /* Annotation bar */
+  .annotation { position: fixed; bottom: 0; left: 0; right: 0; background: #1e1e1e; color: #d4d4d4; text-align: center; padding: 10px; font-size: 13px; z-index: 200; font-family: monospace; }
+  .annotation span { color: #fe6627; }
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="logo">solo<span>base</span></div>
+  <div class="links">
+    <a href="#">Home</a>
+    <a href="#" class="active">Use Cases</a>
+    <a href="#">Docs</a>
+    <a href="#">Pricing</a>
+    <a href="#">Demo</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<div class="hero">
+  <h1>What can you <span>build</span>?</h1>
+  <p>One codebase. Three deployment models. From browser-only apps to global edge platforms — solobase adapts to your architecture, not the other way around.</p>
+</div>
+
+<!-- Group nav pills -->
+<div class="group-nav">
+  <div class="group-tab wasm">Browser / WASM — 5 use cases</div>
+  <div class="group-tab native">Single Binary — 4 use cases</div>
+  <div class="group-tab platform">Platform / Edge — 3 use cases</div>
+</div>
+
+<!-- GROUP 1: WASM -->
+<div class="group-section" id="wasm">
+  <div class="group-header">
+    <div class="dot" style="background:#7c3aed;"></div>
+    <h2>Run Anywhere — Backend in the Browser</h2>
+  </div>
+  <p class="group-subtitle">The entire backend compiled to WebAssembly. No server required. Your backend runs in a Service Worker — auth, database, storage, everything.</p>
+
+  <div class="cards-grid">
+    <div class="use-card">
+      <span class="tag wasm">WASM</span>
+      <h3>Per-PR Preview Environments</h3>
+      <p class="vision">PR previews as static files. Reviewers click a link and the backend runs in their browser. No containers, no databases, no teardown. Each reviewer gets their own isolated instance.</p>
+      <p class="groundbreaking">Every other preview env solution requires server infrastructure.</p>
+    </div>
+    <div class="use-card">
+      <span class="tag wasm">WASM</span>
+      <h3>Offline-First Apps</h3>
+      <p class="vision">Full backend in a Service Worker with OPFS persistence. Works on a plane, in the field, in emerging markets. Not "cached responses" — a real backend running locally with auth, database, and file storage.</p>
+      <p class="groundbreaking">Offline-first usually means gutting your backend or building a sync layer.</p>
+    </div>
+    <div class="use-card">
+      <span class="tag wasm">WASM</span>
+      <h3>Backend-in-the-Browser</h3>
+      <p class="vision">Ship full-stack apps as static sites. Perfect for tutorials, interactive documentation, and product demos where prospects actually use the product — not just watch a video.</p>
+      <p class="groundbreaking">Eliminates the "but first, set up a server" barrier entirely.</p>
+    </div>
+    <div class="use-card">
+      <span class="tag wasm">WASM</span>
+      <h3>Zero-Infrastructure E2E Testing</h3>
+      <p class="vision">Run Playwright or Cypress against solobase-web in headless Chrome. Each test gets a fresh isolated backend. No docker-compose, no port conflicts, no shared staging environment.</p>
+      <p class="groundbreaking">E2E tests usually need complex Docker setups or shared staging.</p>
+    </div>
+    <div class="use-card">
+      <span class="tag wasm">WASM</span>
+      <h3>Privacy-First / Data Sovereignty</h3>
+      <p class="vision">User data never leaves the browser. No third-party cloud dependency, no data residency concerns. Full backend functionality without sending a single byte to someone else's server.</p>
+      <p class="groundbreaking">GDPR/HIPAA-friendly by architecture, not just policy.</p>
+    </div>
+  </div>
+</div>
+
+<hr class="section-divider">
+
+<!-- GROUP 2: Native -->
+<div class="group-section" id="native">
+  <div class="group-header">
+    <div class="dot" style="background:#059669;"></div>
+    <h2>Single Binary — Deploy and Forget</h2>
+  </div>
+  <p class="group-subtitle">One Rust binary. Auth, database, storage, payments, admin — everything included. Incredibly cheap to run, trivial to deploy.</p>
+
+  <div class="cards-grid">
+    <div class="use-card">
+      <span class="tag native">Native</span>
+      <h3>Launch a SaaS in One Binary</h3>
+      <p class="vision">Auth, payments (Stripe), admin panel, user dashboard, file storage, database — deploy to a $5/mo VPS. No microservices, no managed databases, no DevOps team. Write your business logic, deploy one thing.</p>
+      <p class="groundbreaking">Typical SaaS stacks are 5-10 services before line one of business logic.</p>
+    </div>
+    <div class="use-card">
+      <span class="tag native">Native</span>
+      <h3>Ridiculously Cheap to Run</h3>
+      <p class="vision">A single Rust binary uses ~20MB RAM. Run a full production backend on a $5 VPS that would cost $50-200/mo on a typical stack. No runtime overhead, no GC pauses, no ORM tax. Scale vertically before you ever think horizontal.</p>
+      <p class="groundbreaking">Rust's zero-cost abstractions mean you're not paying for abstraction layers.</p>
+    </div>
+    <div class="use-card">
+      <span class="tag native">Native</span>
+      <h3>Local-First Development</h3>
+      <p class="vision">Download one binary, run it. Full backend on localhost in seconds — no Docker, no database install, no cloud account. Develop on a plane. Push to production with zero config drift.</p>
+      <p class="groundbreaking">Most BaaS platforms require cloud connectivity even for development.</p>
+    </div>
+    <div class="use-card">
+      <span class="tag native">Native</span>
+      <h3>AI Agent Infrastructure</h3>
+      <p class="vision">An AI agent spins up solobase (single binary, zero config), gets auth + database + storage + API instantly. The agent IS the developer. A2A messaging built in for multi-agent coordination.</p>
+      <p class="groundbreaking">Agents currently need humans to provision infrastructure.</p>
+    </div>
+  </div>
+</div>
+
+<hr class="section-divider">
+
+<!-- GROUP 3: Platform -->
+<div class="group-section" id="platform">
+  <div class="group-header">
+    <div class="dot" style="background:#d97706;"></div>
+    <h2>Platform — Edge, Isolation & Trust</h2>
+  </div>
+  <p class="group-subtitle">Run at the edge on Cloudflare's global network. Sandbox third-party code in WASM. Scale to millions of tenants.</p>
+
+  <div class="cards-grid">
+    <div class="use-card">
+      <span class="tag platform">Platform</span>
+      <h3>Multi-Tenant Platform</h3>
+      <p class="vision">Each customer gets their own isolated solobase instance via Cloudflare Workers for Platforms. Automatic subdomain provisioning, per-tenant config, deployment lifecycle management.</p>
+      <p class="groundbreaking">Multi-tenant isolation usually requires Kubernetes or shared-database compromises.</p>
+    </div>
+    <div class="use-card">
+      <span class="tag platform">Platform</span>
+      <h3>Safe Third-Party Extensions</h3>
+      <p class="vision">Let third parties build extensions that run inside your platform — sandboxed in WASM. They can't access your env vars, can't make unauthorized network calls, can't touch other tenants' data. Everything isolated by default.</p>
+      <p class="groundbreaking">App marketplaces where malicious code literally cannot escape the sandbox.</p>
+    </div>
+    <div class="use-card">
+      <span class="tag platform">Platform</span>
+      <h3>Edge Computing — Global, Sub-50ms</h3>
+      <p class="vision">Deploy to Cloudflare's 300+ edge locations. Your backend logic executes within 50ms of every user on Earth. D1 for database, R2 for storage, all colocated. Not just a CDN — the actual backend at the edge.</p>
+      <p class="groundbreaking">True edge backends, not just edge caching in front of a central server.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom CTA -->
+<div class="bottom-cta">
+  <h2>Ready to build?</h2>
+  <p>Same codebase runs everywhere. Start in the browser, deploy to the edge.</p>
+  <div class="buttons">
+    <a class="btn btn-primary" href="#">Try in Browser</a>
+    <a class="btn btn-secondary" href="#">Download Binary</a>
+  </div>
+</div>
+
+<!-- Annotation -->
+<div class="annotation">
+  <span>MOCKUP</span> — solobase use cases page. Group pills at top would scroll to sections. Cards could expand on click for "how it works" detail.
+</div>
+
+</body>
+</html>
