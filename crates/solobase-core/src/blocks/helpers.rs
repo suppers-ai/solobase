@@ -1,6 +1,9 @@
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use wafer_core::clients::database::Record;
+use wafer_run::types::{ErrorCode, WaferError};
+use wafer_run::OutputStream;
 
 /// Current UTC time as RFC 3339 string.
 pub fn now_rfc3339() -> String {
@@ -121,6 +124,84 @@ pub fn parse_form_body(data: &[u8]) -> HashMap<String, String> {
         }
     }
     map
+}
+
+// ---------------------------------------------------------------------------
+// Response construction helpers for the streaming block protocol.
+// These replace the old wafer_run::helpers::* functions (json_respond, err_*)
+// that were deleted in the migration to the streaming protocol.
+// ---------------------------------------------------------------------------
+
+/// Serialize `value` to JSON and return a successful `OutputStream`.
+/// Returns `OutputStream::error(Internal)` if serialization fails.
+pub fn ok_json<T: Serialize>(value: &T) -> OutputStream {
+    match serde_json::to_vec(value) {
+        Ok(body) => OutputStream::respond(body),
+        Err(e) => OutputStream::error(WaferError {
+            code: ErrorCode::Internal,
+            message: format!("serialize failed: {}", e),
+            meta: vec![],
+        }),
+    }
+}
+
+/// Return an empty 200-OK `OutputStream` (no body).
+pub fn ok_empty() -> OutputStream {
+    OutputStream::respond(vec![])
+}
+
+/// Return a 400 Bad Request `OutputStream`.
+pub fn err_bad_request(message: &str) -> OutputStream {
+    OutputStream::error(WaferError {
+        code: ErrorCode::InvalidArgument,
+        message: message.to_string(),
+        meta: vec![],
+    })
+}
+
+/// Return a 401 Unauthorized `OutputStream`.
+pub fn err_unauthorized(message: &str) -> OutputStream {
+    OutputStream::error(WaferError {
+        code: ErrorCode::Unauthenticated,
+        message: message.to_string(),
+        meta: vec![],
+    })
+}
+
+/// Return a 403 Forbidden `OutputStream`.
+pub fn err_forbidden(message: &str) -> OutputStream {
+    OutputStream::error(WaferError {
+        code: ErrorCode::PermissionDenied,
+        message: message.to_string(),
+        meta: vec![],
+    })
+}
+
+/// Return a 404 Not Found `OutputStream`.
+pub fn err_not_found(message: &str) -> OutputStream {
+    OutputStream::error(WaferError {
+        code: ErrorCode::NotFound,
+        message: message.to_string(),
+        meta: vec![],
+    })
+}
+
+/// Return a 409 Conflict `OutputStream`.
+pub fn err_conflict(message: &str) -> OutputStream {
+    OutputStream::error(WaferError {
+        code: ErrorCode::AlreadyExists,
+        message: message.to_string(),
+        meta: vec![],
+    })
+}
+
+/// Return a 500 Internal Server Error `OutputStream`.
+pub fn err_internal(message: &str) -> OutputStream {
+    OutputStream::error(WaferError {
+        code: ErrorCode::Internal,
+        message: message.to_string(),
+        meta: vec![],
+    })
 }
 
 #[cfg(test)]

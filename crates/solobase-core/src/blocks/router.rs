@@ -12,7 +12,7 @@ use std::sync::Arc;
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
-use wafer_run::types::{LifecycleEvent, WaferError};
+use wafer_run::{InputStream, OutputStream};
 
 use crate::features::FeatureConfig;
 use crate::routing::BlockId;
@@ -86,7 +86,7 @@ impl Block for SolobaseRouterBlock {
         Ok(()) // No-op — individual blocks handle their own lifecycle
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(&self, ctx: &dyn Context, mut msg: Message, input: InputStream) -> OutputStream {
         // Resolve auth token from Authorization header or auth_token cookie.
         let auth_header = msg.header("authorization");
         let auth_value = if !auth_header.is_empty() {
@@ -100,9 +100,13 @@ impl Block for SolobaseRouterBlock {
             }
         };
 
+        // NOTE: pipeline::handle_request will be updated to accept (msg, input, ...) in a
+        // subsequent migration task. For now, pass msg by mutable reference and drop input.
+        // The InputStream will be threaded through once pipeline.rs is migrated.
+        drop(input);
         crate::handle_request(
             ctx,
-            msg,
+            &mut msg,
             auth_value.as_deref(),
             &self.jwt_secret,
             self.features.as_ref(),
