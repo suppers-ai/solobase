@@ -4,13 +4,13 @@
 //! - Context list page (`GET /b/messages/`)
 //! - Context detail page (`GET /b/messages/contexts/{id}`)
 
-use crate::blocks::helpers::RecordExt;
+use crate::blocks::helpers::{err_internal, RecordExt};
 use crate::ui::{self, components, NavItem, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
 
 use super::service::{self, ListContextsParams, ListEntriesParams};
 
@@ -28,12 +28,12 @@ fn messages_page(
     path: &str,
     user: Option<&UserInfo>,
     content: Markup,
-    msg: &mut Message,
-) -> Result_ {
+    msg: &Message,
+) -> OutputStream {
     let is_fragment = ui::is_htmx(msg);
     let markup =
         ui::layout::block_shell(title, config, &nav(), user, path, content, is_fragment);
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 pub fn entry_card(record: &db::Record) -> Markup {
@@ -96,7 +96,7 @@ pub fn entry_card(record: &db::Record) -> Markup {
     }
 }
 
-pub async fn context_list_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn context_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
@@ -189,7 +189,7 @@ pub async fn context_list_page(ctx: &dyn Context, msg: &mut Message) -> Result_ 
     messages_page("Messages", &config, &path, user.as_ref(), content, msg)
 }
 
-pub async fn context_detail_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
@@ -208,7 +208,7 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &mut Message) -> Result
     let context = match service::get_context(ctx, context_id).await {
         Ok(r) => r,
         Err(e) if e.code == ErrorCode::NotFound => return ui::not_found_response(msg),
-        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
     let entries_params = ListEntriesParams {

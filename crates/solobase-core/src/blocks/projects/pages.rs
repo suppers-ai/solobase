@@ -1,13 +1,13 @@
 //! SSR pages for the projects block.
 
-use crate::blocks::helpers::RecordExt;
+use crate::blocks::helpers::{ok_json, RecordExt};
 use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
 use maud::{html, Markup, PreEscaped};
 use wafer_core::clients::database::{Filter, FilterOp, SortField};
 use wafer_core::clients::{config, database as db};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 use super::PROJECTS_COLLECTION;
 
@@ -32,8 +32,8 @@ fn projects_page(
     path: &str,
     user: Option<&UserInfo>,
     content: Markup,
-    msg: &mut Message,
-) -> Result_ {
+    msg: &Message,
+) -> OutputStream {
     let is_fragment = ui::is_htmx(msg);
     let markup = ui::layout::block_shell(
         title,
@@ -44,14 +44,14 @@ fn projects_page(
         content,
         is_fragment,
     );
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 // ---------------------------------------------------------------------------
 // Admin: Deployments list + stats
 // ---------------------------------------------------------------------------
 
-pub async fn admin_deployments(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn admin_deployments(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let (page, page_size, _) = msg.pagination_params(20);
@@ -201,7 +201,7 @@ const SETTINGS_KEYS: &[(&str, &str, &str, &str, bool)] = &[
     ),
 ];
 
-pub async fn settings(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn settings(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -269,14 +269,12 @@ function submitProjectSettings(e) {
     )
 }
 
-pub async fn handle_save_settings(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let body: std::collections::HashMap<String, String> = match msg.decode() {
+pub async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body: std::collections::HashMap<String, String> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
         Err(e) => {
-            return json_respond(
-                msg,
-                &serde_json::json!({"error": format!("Invalid request: {e}")}),
-            )
+            return ok_json(&serde_json::json!({"error": format!("Invalid request: {e}")}))
         }
     };
     for &(key, _, _, _, _) in SETTINGS_KEYS {
@@ -284,5 +282,5 @@ pub async fn handle_save_settings(ctx: &dyn Context, msg: &mut Message) -> Resul
             let _ = config::set(ctx, key, value).await;
         }
     }
-    json_respond(msg, &serde_json::json!({"message": "Settings saved"}))
+    ok_json(&serde_json::json!({"message": "Settings saved"}))
 }

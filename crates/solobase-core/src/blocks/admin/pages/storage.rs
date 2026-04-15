@@ -3,6 +3,7 @@ use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, ListOptions, SortField};
 use wafer_run::context::Context;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
 use wafer_sql_utils::value::sea_values_to_json;
 use wafer_sql_utils::{query, Backend};
 
@@ -12,7 +13,7 @@ use crate::blocks::admin::{
     STORAGE_RULES_COLLECTION as STORAGE_RULES,
 };
 
-pub async fn storage_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let tab = msg.query("tab");
@@ -72,7 +73,7 @@ pub async fn storage_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
 }
 
-async fn storage_logs_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
+async fn storage_logs_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
     let (sql, vals) = query::build_select_columns(
         STORAGE_ACCESS_LOGS,
         &["source_block", "operation", "path", "status", "created_at"],
@@ -146,7 +147,7 @@ async fn storage_logs_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
     }
 }
 
-pub(crate) async fn storage_rules_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
+pub(crate) async fn storage_rules_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
     let blocks = ctx.registered_blocks();
     let block_names: Vec<&str> = blocks.iter().map(|b| b.name.as_str()).collect();
 

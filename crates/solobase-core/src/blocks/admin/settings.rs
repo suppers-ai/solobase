@@ -1,30 +1,34 @@
-use crate::blocks::helpers::{self, json_map, RecordExt};
+use crate::blocks::helpers::{
+    self, err_bad_request, err_internal, err_not_found, json_map, ok_json, RecordExt,
+};
 use std::collections::HashMap;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::ListOptions;
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::{self, *};
+use wafer_run::{InputStream, OutputStream};
 
 use super::VARIABLES_COLLECTION as COLLECTION;
 const MASKED_VALUE: &str = "********";
 
-pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/admin/settings/all") => handle_list_full(ctx, msg).await,
-        ("retrieve", "/admin/settings") | ("retrieve", "/settings") => handle_list(ctx, msg).await,
+        ("retrieve", "/admin/settings/all") => handle_list_full(ctx).await,
+        ("retrieve", "/admin/settings") | ("retrieve", "/settings") => handle_list(ctx).await,
         ("retrieve", _)
             if path.starts_with("/admin/settings/") || path.starts_with("/settings/") =>
         {
             handle_get(ctx, msg).await
         }
-        ("update", _) if path.starts_with("/admin/settings/") => handle_set(ctx, msg).await,
-        ("create", "/admin/settings") => handle_create(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/settings/") => {
+            handle_set(ctx, msg, input).await
+        }
+        ("create", "/admin/settings") => handle_create(ctx, msg, input).await,
         ("delete", _) if path.starts_with("/admin/settings/") => handle_delete(ctx, msg).await,
-        _ => err_not_found(msg, "not found"),
+        _ => err_not_found("not found"),
     }
 }
 
@@ -100,7 +104,7 @@ fn validate_url_value(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-async fn handle_list_full(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_full(ctx: &dyn Context) -> OutputStream {
     let opts = ListOptions {
         limit: 1000,
         ..Default::default()
@@ -134,13 +138,13 @@ async fn handle_list_full(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     })
                 })
                 .collect();
-            json_respond(msg, &vars)
+            ok_json(&vars)
         }
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list(ctx: &dyn Context) -> OutputStream {
     let opts = ListOptions {
         limit: 1000,
         ..Default::default()
@@ -165,20 +169,20 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     settings.insert(key.to_string(), value);
                 }
             }
-            json_respond(msg, &settings)
+            ok_json(&settings)
         }
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let key = path
         .strip_prefix("/admin/settings/")
         .or_else(|| path.strip_prefix("/settings/"))
         .unwrap_or("");
     if key.is_empty() {
-        return err_bad_request(msg, "Missing setting key");
+        return err_bad_request("Missing setting key");
     }
 
     match db::get_by_field(
@@ -197,34 +201,35 @@ async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     serde_json::Value::String(MASKED_VALUE.to_string()),
                 );
             }
-            json_respond(msg, &record)
+            ok_json(&record)
         }
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Setting not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Setting not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_set(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_set(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let path = msg.path();
     let key = path.strip_prefix("/admin/settings/").unwrap_or("");
     if key.is_empty() {
-        return err_bad_request(msg, "Missing setting key");
+        return err_bad_request("Missing setting key");
     }
 
     #[derive(serde::Deserialize)]
     struct Req {
         value: serde_json::Value,
     }
-    let body: Req = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: Req = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     // Prevent setting sensitive keys (secrets/keys) to empty (would break auth)
     if key.ends_with("_SECRET") || key.ends_with("_KEY") {
         let val_str = body.value.as_str().unwrap_or("");
         if val_str.is_empty() {
-            return err_bad_request(msg, &format!("Cannot set {} to an empty value", key));
+            return err_bad_request(&format!("Cannot set {} to an empty value", key));
         }
     }
 
@@ -232,7 +237,7 @@ async fn handle_set(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     if key.ends_with("_URL") {
         let val_str = body.value.as_str().unwrap_or("");
         if let Err(e) = validate_url_value(val_str) {
-            return err_bad_request(msg, &format!("Invalid value for {}: {}", key, e));
+            return err_bad_request(&format!("Invalid value for {}: {}", key, e));
         }
     }
 
@@ -252,12 +257,16 @@ async fn handle_set(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
     .await
     {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(record) => ok_json(&record),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct Req {
         key: String,
@@ -266,19 +275,20 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         description: Option<String>,
         sensitive: Option<bool>,
     }
-    let body: Req = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: Req = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
     if body.key.is_empty() {
-        return err_bad_request(msg, "key is required");
+        return err_bad_request("key is required");
     }
 
     // Validate URL-type keys
     if body.key.ends_with("_URL") {
         let val_str = body.value.as_deref().unwrap_or("");
         if let Err(e) = validate_url_value(val_str) {
-            return err_bad_request(msg, &format!("Invalid value for {}: {}", body.key, e));
+            return err_bad_request(&format!("Invalid value for {}: {}", body.key, e));
         }
     }
 
@@ -292,23 +302,20 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         "created_at": helpers::now_rfc3339()
     }));
     match db::create(ctx, COLLECTION, data).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(record) => ok_json(&record),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let key = path.strip_prefix("/admin/settings/").unwrap_or("");
     if key.is_empty() {
-        return err_bad_request(msg, "Missing setting key");
+        return err_bad_request("Missing setting key");
     }
 
     if key.starts_with("SOLOBASE_SHARED__") {
-        return err_bad_request(
-            msg,
-            &format!("Cannot delete shared system variable: {}", key),
-        );
+        return err_bad_request(&format!("Cannot delete shared system variable: {}", key));
     }
 
     match db::get_by_field(
@@ -320,10 +327,10 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     .await
     {
         Ok(record) => match db::delete(ctx, COLLECTION, &record.id).await {
-            Ok(_) => json_respond(msg, &serde_json::json!({"deleted": key})),
-            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+            Ok(_) => ok_json(&serde_json::json!({"deleted": key})),
+            Err(e) => err_internal(&format!("Database error: {e}")),
         },
-        Err(_) => err_not_found(msg, "Setting not found"),
+        Err(_) => err_not_found("Setting not found"),
     }
 }
 

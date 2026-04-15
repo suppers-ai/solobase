@@ -2,35 +2,39 @@ use std::collections::HashMap;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
+
+use crate::blocks::helpers::{
+    err_bad_request, err_forbidden, err_internal, err_not_found, ok_json,
+};
 
 use super::{ACCESS_LOGS_COLLECTION, BUCKETS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION};
 
-pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle(ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
         // User-facing cloud storage
-        ("retrieve", "/b/cloudstorage/shares") => handle_list_shares(ctx, msg).await,
-        ("create", "/b/cloudstorage/shares") => handle_create_share(ctx, msg).await,
+        ("retrieve", "/b/cloudstorage/shares") => handle_list_shares(ctx, &msg).await,
+        ("create", "/b/cloudstorage/shares") => handle_create_share(ctx, &msg, input).await,
         ("delete", _) if path.starts_with("/b/cloudstorage/shares/") => {
-            handle_delete_share(ctx, msg).await
+            handle_delete_share(ctx, &msg).await
         }
-        ("retrieve", "/b/cloudstorage/quota") => handle_get_quota(ctx, msg).await,
+        ("retrieve", "/b/cloudstorage/quota") => handle_get_quota(ctx, &msg).await,
         // Admin cloud storage
-        ("retrieve", "/admin/b/cloudstorage/shares") => handle_admin_list_shares(ctx, msg).await,
-        ("retrieve", "/admin/b/cloudstorage/access-logs") => handle_access_logs(ctx, msg).await,
-        ("retrieve", "/admin/b/cloudstorage/quotas") => handle_admin_quotas(ctx, msg).await,
+        ("retrieve", "/admin/b/cloudstorage/shares") => handle_admin_list_shares(ctx, &msg).await,
+        ("retrieve", "/admin/b/cloudstorage/access-logs") => handle_access_logs(ctx, &msg).await,
+        ("retrieve", "/admin/b/cloudstorage/quotas") => handle_admin_quotas(ctx, &msg).await,
         ("update", _) if path.starts_with("/admin/b/cloudstorage/quotas/") => {
-            handle_update_quota(ctx, msg).await
+            handle_update_quota(ctx, &msg, input).await
         }
-        _ => err_not_found(msg, "not found"),
+        _ => err_not_found("not found"),
     }
 }
 
-async fn handle_list_shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
 
     let opts = ListOptions {
@@ -48,12 +52,16 @@ async fn handle_list_shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match db::list(ctx, SHARES_COLLECTION, &opts).await {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create_share(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct Req {
         bucket: String,
@@ -61,20 +69,21 @@ async fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         expires_in_hours: Option<i64>,
         max_access_count: Option<i64>,
     }
-    let body: Req = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: Req = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     // Validate bucket/key
     if body.bucket.is_empty() || body.key.is_empty() {
-        return err_bad_request(msg, "Bucket and key are required");
+        return err_bad_request("Bucket and key are required");
     }
     if body.bucket.contains("..") || body.bucket.contains('/') || body.bucket.contains('\0') {
-        return err_bad_request(msg, "Invalid bucket name");
+        return err_bad_request("Invalid bucket name");
     }
     if body.key.contains("..") || body.key.starts_with('/') || body.key.contains('\0') {
-        return err_bad_request(msg, "Invalid object key");
+        return err_bad_request("Invalid object key");
     }
 
     // Verify the user owns this bucket
@@ -105,7 +114,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             _ => false,
         };
         if !owns_bucket {
-            return err_forbidden(msg, "Access denied to this bucket");
+            return err_forbidden("Access denied to this bucket");
         }
     }
 
@@ -114,7 +123,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .await
         .is_err()
     {
-        return err_not_found(msg, "File not found in storage");
+        return err_not_found("File not found in storage");
     }
 
     // Generate share token
@@ -156,23 +165,20 @@ async fn handle_create_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     match db::create(ctx, SHARES_COLLECTION, data).await {
-        Ok(record) => json_respond(
-            msg,
-            &serde_json::json!({
-                "id": record.id,
-                "token": token,
-                "direct_url": format!("/b/storage/direct/{}", token)
-            }),
-        ),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(record) => ok_json(&serde_json::json!({
+            "id": record.id,
+            "token": token,
+            "direct_url": format!("/b/storage/direct/{}", token)
+        })),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_delete_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete_share(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let id = path.strip_prefix("/b/cloudstorage/shares/").unwrap_or("");
     if id.is_empty() {
-        return err_bad_request(msg, "Missing share ID");
+        return err_bad_request("Missing share ID");
     }
 
     // Verify ownership
@@ -188,30 +194,27 @@ async fn handle_delete_share(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 .split(',')
                 .any(|r| r.trim() == "admin")
         {
-            return err_forbidden(msg, "Cannot delete another user's share");
+            return err_forbidden("Cannot delete another user's share");
         }
     }
 
     match db::delete(ctx, SHARES_COLLECTION, id).await {
-        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Share not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Share not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_get_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_get_quota(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let quota = super::quota::get_user_quota(ctx, msg.user_id()).await;
     let usage = super::quota::get_user_usage(ctx, msg.user_id()).await;
-    json_respond(
-        msg,
-        &serde_json::json!({
-            "quota": quota,
-            "usage": usage
-        }),
-    )
+    ok_json(&serde_json::json!({
+        "quota": quota,
+        "usage": usage
+    }))
 }
 
-async fn handle_admin_list_shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_admin_list_shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (page, page_size, _) = msg.pagination_params(20);
     let opts = ListOptions {
         sort: vec![SortField {
@@ -223,12 +226,12 @@ async fn handle_admin_list_shares(ctx: &dyn Context, msg: &mut Message) -> Resul
         ..Default::default()
     };
     match db::list(ctx, SHARES_COLLECTION, &opts).await {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_access_logs(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_access_logs(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (page, page_size, _) = msg.pagination_params(50);
 
     let mut filters = Vec::new();
@@ -252,34 +255,39 @@ async fn handle_access_logs(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match db::list(ctx, ACCESS_LOGS_COLLECTION, &opts).await {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_admin_quotas(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_admin_quotas(ctx: &dyn Context, _msg: &Message) -> OutputStream {
     let opts = ListOptions {
         limit: 1000,
         ..Default::default()
     };
     match db::list(ctx, QUOTAS_COLLECTION, &opts).await {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_update_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_update_quota(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let path = msg.path();
     let user_id = path
         .strip_prefix("/admin/b/cloudstorage/quotas/")
         .unwrap_or("");
     if user_id.is_empty() {
-        return err_bad_request(msg, "Missing user ID");
+        return err_bad_request("Missing user ID");
     }
 
-    let body: HashMap<String, serde_json::Value> = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     let mut data = body;
@@ -301,7 +309,7 @@ async fn handle_update_quota(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
     .await
     {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(record) => ok_json(&record),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }

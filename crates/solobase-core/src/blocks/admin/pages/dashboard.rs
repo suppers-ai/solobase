@@ -3,6 +3,7 @@ use maud::html;
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
 use wafer_run::context::Context;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
 use wafer_sql_utils::value::sea_values_to_json;
 use wafer_sql_utils::{aggregate, query, Backend};
 
@@ -12,7 +13,7 @@ use crate::blocks::admin::{
 };
 use crate::blocks::auth::USERS_COLLECTION as USERS;
 
-pub async fn dashboard(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 

@@ -4,7 +4,8 @@ mod oauth;
 mod pages;
 
 use super::helpers::{hex_encode, json_map};
-use super::rate_limit::{check_rate_limit, RateLimit, UserRateLimiter};
+use super::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter};
+use crate::blocks::helpers::err_not_found;
 use std::collections::HashMap;
 use std::time::Duration;
 use wafer_core::clients::database as db;
@@ -12,8 +13,8 @@ use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
 use wafer_core::clients::{config, crypto};
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 pub const AUTH_BLOCK_ID: &str = "suppers-ai/auth";
 
@@ -114,10 +115,10 @@ mod helpers {
         user_id: &str,
         email: &str,
         roles: &[String],
-    ) -> Result<(String, String, String), Result_> {
+    ) -> std::result::Result<(String, String, String), OutputStream> {
         let family = match crypto::random_bytes(ctx, 16).await {
             Ok(bytes) => hex_encode(&bytes),
-            Err(e) => return Err(Result_::error(e)),
+            Err(e) => return Err(OutputStream::error(e)),
         };
 
         let mut access_claims = HashMap::new();
@@ -141,7 +142,7 @@ mod helpers {
 
         let access_token = crypto::sign(ctx, &access_claims, Duration::from_secs(86400))
             .await
-            .map_err(Result_::error)?;
+            .map_err(OutputStream::error)?;
 
         let mut refresh_claims = HashMap::new();
         refresh_claims.insert(
@@ -163,7 +164,7 @@ mod helpers {
 
         let refresh_token = crypto::sign(ctx, &refresh_claims, Duration::from_secs(604800))
             .await
-            .map_err(Result_::error)?;
+            .map_err(OutputStream::error)?;
 
         Ok((access_token, refresh_token, family))
     }
@@ -392,7 +393,12 @@ impl Block for AuthBlock {
         ]
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         let action = msg.action().to_string();
         // Normalize: /b/auth/... → /auth/...
         let raw_path = msg.path().to_string();
@@ -412,9 +418,8 @@ impl Block for AuthBlock {
                 } else {
                     ip
                 };
-                if let Some(r) =
-                    check_rate_limit(&self.limiter, ctx, msg, &identity, "auth", RateLimit::AUTH)
-                        .await
+                if let RateLimitOutcome::Limited(r) =
+                    check_rate_limit(&self.limiter, ctx, &identity, "auth", RateLimit::AUTH).await
                 {
                     return r;
                 }
@@ -426,10 +431,9 @@ impl Block for AuthBlock {
                 } else {
                     ip
                 };
-                if let Some(r) = check_rate_limit(
+                if let RateLimitOutcome::Limited(r) = check_rate_limit(
                     &self.limiter,
                     ctx,
-                    msg,
                     &identity,
                     "refresh",
                     RateLimit::REFRESH,
@@ -450,9 +454,8 @@ impl Block for AuthBlock {
                 } else {
                     ip
                 };
-                if let Some(r) =
-                    check_rate_limit(&self.limiter, ctx, msg, &identity, "auth", RateLimit::AUTH)
-                        .await
+                if let RateLimitOutcome::Limited(r) =
+                    check_rate_limit(&self.limiter, ctx, &identity, "auth", RateLimit::AUTH).await
                 {
                     return r;
                 }
@@ -464,10 +467,9 @@ impl Block for AuthBlock {
             | ("delete", _) => {
                 let user_id = msg.user_id().to_string();
                 if !user_id.is_empty() {
-                    if let Some(r) = check_rate_limit(
+                    if let RateLimitOutcome::Limited(r) = check_rate_limit(
                         &self.limiter,
                         ctx,
-                        msg,
                         &user_id,
                         "auth_write",
                         RateLimit::API_WRITE,
@@ -482,10 +484,9 @@ impl Block for AuthBlock {
             ("retrieve", "/auth/api/me") | ("retrieve", "/auth/api/api-keys") => {
                 let user_id = msg.user_id().to_string();
                 if !user_id.is_empty() {
-                    if let Some(r) = check_rate_limit(
+                    if let RateLimitOutcome::Limited(r) = check_rate_limit(
                         &self.limiter,
                         ctx,
-                        msg,
                         &user_id,
                         "auth_read",
                         RateLimit::API_READ,
@@ -507,9 +508,9 @@ impl Block for AuthBlock {
                     .split(',')
                     .any(|r| r.trim() == "admin")
                 {
-                    return crate::ui::forbidden_response(msg);
+                    return crate::ui::forbidden_response(&msg);
                 }
-                pages::settings_page(ctx, msg).await
+                pages::settings_page(ctx, &msg).await
             }
             ("create", "/auth/admin/settings") => {
                 if !msg
@@ -517,55 +518,65 @@ impl Block for AuthBlock {
                     .split(',')
                     .any(|r| r.trim() == "admin")
                 {
-                    return crate::ui::forbidden_response(msg);
+                    return crate::ui::forbidden_response(&msg);
                 }
-                pages::handle_save_settings(ctx, msg).await
+                pages::handle_save_settings(ctx, input).await
             }
             // ── SSR pages (HTML) ──────────────────────────────────────
-            ("retrieve", "/auth/login") => pages::login_page(ctx, msg).await,
-            ("retrieve", "/auth/signup") => pages::signup_page(ctx, msg).await,
+            ("retrieve", "/auth/login") => pages::login_page(ctx, &msg).await,
+            ("retrieve", "/auth/signup") => pages::signup_page(ctx, &msg).await,
             ("retrieve", "/auth/change-password") => {
                 if msg.user_id().is_empty() {
-                    return pages::login_page(ctx, msg).await;
+                    return pages::login_page(ctx, &msg).await;
                 }
-                pages::change_password_page(ctx, msg).await
+                pages::change_password_page(ctx, &msg).await
             }
-            ("retrieve", "/auth/reset-password") => self.handle_reset_password_form(ctx, msg).await,
+            ("retrieve", "/auth/reset-password") => {
+                self.handle_reset_password_form(ctx, &msg).await
+            }
             // OAuth browser redirects
-            ("retrieve", "/auth/oauth/login") => self.handle_oauth_login(ctx, msg).await,
-            ("retrieve", "/auth/oauth/callback") => self.handle_oauth_callback(ctx, msg).await,
+            ("retrieve", "/auth/oauth/login") => self.handle_oauth_login(ctx, &msg).await,
+            ("retrieve", "/auth/oauth/callback") => self.handle_oauth_callback(ctx, &msg).await,
 
             // ── JSON API under /auth/api/ ─────────────────────────────
-            ("create", "/auth/api/login") => self.handle_login(ctx, msg).await,
-            ("create", "/auth/api/signup") => self.handle_signup(ctx, msg).await,
-            ("create", "/auth/api/refresh") => self.handle_refresh(ctx, msg).await,
-            ("create", "/auth/api/logout") => self.handle_logout(ctx, msg).await,
-            ("retrieve", "/auth/api/me") => self.handle_me_get(ctx, msg).await,
-            ("update", "/auth/api/me") => self.handle_me_update(ctx, msg).await,
-            ("create", "/auth/api/change-password") => self.handle_change_password(ctx, msg).await,
+            ("create", "/auth/api/login") => self.handle_login(ctx, input).await,
+            ("create", "/auth/api/signup") => self.handle_signup(ctx, input).await,
+            ("create", "/auth/api/refresh") => self.handle_refresh(ctx, input).await,
+            ("create", "/auth/api/logout") => self.handle_logout(ctx, &msg).await,
+            ("retrieve", "/auth/api/me") => self.handle_me_get(ctx, &msg).await,
+            ("update", "/auth/api/me") => self.handle_me_update(ctx, &msg, input).await,
+            ("create", "/auth/api/change-password") => {
+                self.handle_change_password(ctx, &msg, input).await
+            }
             // API keys
-            ("retrieve", "/auth/api/api-keys") => self.handle_api_keys_list(ctx, msg).await,
-            ("create", "/auth/api/api-keys") => self.handle_api_keys_create(ctx, msg).await,
+            ("retrieve", "/auth/api/api-keys") => self.handle_api_keys_list(ctx, &msg).await,
+            ("create", "/auth/api/api-keys") => self.handle_api_keys_create(ctx, &msg, input).await,
             ("update", _) if path.starts_with("/auth/api/api-keys/") => {
-                self.handle_api_keys_revoke(ctx, msg).await
+                self.handle_api_keys_revoke(ctx, &msg).await
             }
             ("delete", _) if path.starts_with("/auth/api/api-keys/") => {
-                self.handle_api_keys_delete(ctx, msg).await
+                self.handle_api_keys_delete(ctx, &msg).await
             }
             // Email verification
-            ("retrieve" | "create", "/auth/api/verify") => self.handle_verify_email(ctx, msg).await,
+            ("retrieve" | "create", "/auth/api/verify") => {
+                self.handle_verify_email(ctx, &msg, input).await
+            }
             ("create", "/auth/api/resend-verification") => {
-                self.handle_resend_verification(ctx, msg).await
+                self.handle_resend_verification(ctx, input).await
             }
             // Password reset
-            ("create", "/auth/api/forgot-password") => self.handle_forgot_password(ctx, msg).await,
-            ("create", "/auth/api/reset-password") => self.handle_reset_password(ctx, msg).await,
+            ("create", "/auth/api/forgot-password") => {
+                self.handle_forgot_password(ctx, input).await
+            }
+            ("create", "/auth/api/reset-password") => self.handle_reset_password(ctx, input).await,
             // OAuth API
             ("retrieve", "/auth/api/oauth/providers") => {
-                self.handle_oauth_providers(ctx, msg).await
+                self.handle_oauth_providers(ctx).await
             }
-            ("create", "/auth/api/oauth/sync-user") => self.handle_sync_user(ctx, msg).await,
-            _ => err_not_found(msg, "not found"),
+            ("create", "/auth/api/oauth/sync-user") => {
+                self.handle_sync_user(ctx, &msg, input).await
+            }
+            _ => err_not_found("not found"),
         }
     }
 

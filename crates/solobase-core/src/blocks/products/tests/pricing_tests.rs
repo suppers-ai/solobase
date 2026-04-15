@@ -306,7 +306,7 @@ async fn calculate_price_direct_base_price() {
     product_data.insert("currency".to_string(), serde_json::json!("USD"));
     ctx.seed("suppers_ai__products__products", "prod_1", product_data);
 
-    let mut msg = create_msg(
+    let (_msg, input) = create_msg(
         "/b/products/calculate-price",
         "user_1",
         serde_json::json!({
@@ -315,9 +315,8 @@ async fn calculate_price_direct_base_price() {
         }),
     );
 
-    let result = pricing::handle_calculate(&ctx, &mut msg).await;
-    assert_eq!(result.action, wafer_run::types::Action::Respond);
-    let body = response_json(&result);
+    let out = pricing::handle_calculate(&ctx, input).await;
+    let body = output_to_json(out).await;
     assert!((body["unit_price"].as_f64().unwrap() - 29.99).abs() < 0.01);
     assert_eq!(body["quantity"].as_i64().unwrap(), 3);
     assert!((body["total"].as_f64().unwrap() - 89.97).abs() < 0.01);
@@ -349,7 +348,7 @@ async fn calculate_price_with_formula() {
     product_data.insert("currency".to_string(), serde_json::json!("EUR"));
     ctx.seed("suppers_ai__products__products", "prod_2", product_data);
 
-    let mut msg = create_msg(
+    let (_msg, input) = create_msg(
         "/b/products/calculate-price",
         "user_1",
         serde_json::json!({
@@ -359,9 +358,8 @@ async fn calculate_price_with_formula() {
         }),
     );
 
-    let result = pricing::handle_calculate(&ctx, &mut msg).await;
-    assert_eq!(result.action, wafer_run::types::Action::Respond);
-    let body = response_json(&result);
+    let out = pricing::handle_calculate(&ctx, input).await;
+    let body = output_to_json(out).await;
     assert!((body["unit_price"].as_f64().unwrap() - 15.0).abs() < 0.01);
     assert!((body["total"].as_f64().unwrap() - 30.0).abs() < 0.01);
     assert_eq!(body["currency"].as_str().unwrap(), "EUR");
@@ -372,14 +370,14 @@ async fn calculate_price_product_not_found() {
     use crate::blocks::products::pricing;
 
     let ctx = MockContext::new();
-    let mut msg = create_msg(
+    let (_msg, input) = create_msg(
         "/b/products/calculate-price",
         "user_1",
         serde_json::json!({ "product_id": "nonexistent" }),
     );
 
-    let result = pricing::handle_calculate(&ctx, &mut msg).await;
-    assert!(is_error(&result, "not_found"));
+    let out = pricing::handle_calculate(&ctx, input).await;
+    assert!(output_is_error(out, "not_found").await);
 }
 
 #[tokio::test]
@@ -418,7 +416,7 @@ async fn calculate_price_with_conditions() {
     ctx.seed("suppers_ai__products__products", "prod_bulk", product_data);
 
     // Under threshold — should use base formula
-    let mut msg = create_msg(
+    let (_msg, input) = create_msg(
         "/b/products/calculate-price",
         "user_1",
         serde_json::json!({
@@ -427,12 +425,12 @@ async fn calculate_price_with_conditions() {
             "quantity": 50
         }),
     );
-    let result = pricing::handle_calculate(&ctx, &mut msg).await;
-    let body = response_json(&result);
+    let out = pricing::handle_calculate(&ctx, input).await;
+    let body = output_to_json(out).await;
     assert!((body["unit_price"].as_f64().unwrap() - 10.0).abs() < 0.01);
 
     // Over threshold — should use condition formula (20% discount)
-    let mut msg2 = create_msg(
+    let (_msg2, input2) = create_msg(
         "/b/products/calculate-price",
         "user_1",
         serde_json::json!({
@@ -441,7 +439,7 @@ async fn calculate_price_with_conditions() {
             "quantity": 150
         }),
     );
-    let result2 = pricing::handle_calculate(&ctx, &mut msg2).await;
-    let body2 = response_json(&result2);
+    let out2 = pricing::handle_calculate(&ctx, input2).await;
+    let body2 = output_to_json(out2).await;
     assert!((body2["unit_price"].as_f64().unwrap() - 8.0).abs() < 0.01);
 }

@@ -3,6 +3,7 @@ use maud::{html, Markup};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
 
 use super::admin_page;
 use super::network::network_rules_tab;
@@ -13,12 +14,12 @@ use crate::blocks::admin::{
     WRAP_GRANTS_COLLECTION as WRAP_GRANTS,
 };
 
-pub async fn grants_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn grants_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // Redirect to the unified Permissions page
     permissions_page(ctx, msg).await
 }
 
-pub async fn permissions_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn permissions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let tab = msg.query("tab");
@@ -150,7 +151,7 @@ fn grants_code_tab(ctx: &dyn Context) -> Markup {
     }
 }
 
-pub(crate) async fn grants_custom_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
+pub(crate) async fn grants_custom_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
     let grants = db::list_all(ctx, WRAP_GRANTS, vec![])
         .await
         .unwrap_or_default();
@@ -397,7 +398,7 @@ pub(crate) async fn grants_custom_tab(ctx: &dyn Context, _msg: &mut Message) -> 
 
 /// "All" tab: combines data from DB grants, storage rules, and network rules
 /// into one unified table with human-readable descriptions.
-async fn permissions_all_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
+async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
     let blocks = ctx.registered_blocks();
 
     // 1. Code grants (from block declarations)
@@ -634,7 +635,7 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
 }
 
 /// "Database & Config" tab: wraps the existing grants_code_tab and grants_custom_tab.
-async fn permissions_database_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
+async fn permissions_database_tab(ctx: &dyn Context, msg: &Message) -> Markup {
     html! {
         (grants_custom_tab(ctx, msg).await)
         (grants_code_tab(ctx))
@@ -642,12 +643,12 @@ async fn permissions_database_tab(ctx: &dyn Context, msg: &mut Message) -> Marku
 }
 
 /// "Storage" tab: delegates to the existing storage_rules_tab.
-async fn permissions_storage_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
+async fn permissions_storage_tab(ctx: &dyn Context, msg: &Message) -> Markup {
     storage_rules_tab(ctx, msg).await
 }
 
 /// "Network" tab: delegates to the existing network_rules_tab.
-async fn permissions_network_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
+async fn permissions_network_tab(ctx: &dyn Context, msg: &Message) -> Markup {
     network_rules_tab(ctx, msg).await
 }
 

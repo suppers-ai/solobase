@@ -1,8 +1,9 @@
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
+use crate::blocks::helpers::{err_not_found, ok_json, ResponseBuilder};
 use crate::ui;
 
 pub struct SystemBlock;
@@ -22,17 +23,22 @@ impl Block for SystemBlock {
             ])
     }
 
-    async fn handle(&self, _ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(
+        &self,
+        _ctx: &dyn Context,
+        msg: Message,
+        _input: InputStream,
+    ) -> OutputStream {
         let path = msg.path();
 
         match path {
             "/health" => {
                 let resp = serde_json::json!({"status": "ok"});
-                json_respond(msg, &resp)
+                ok_json(&resp)
             }
             // Embedded static assets (CSS, JS) with content-hash URLs for cache busting
             _ if path.starts_with("/b/static/app-") && path.ends_with(".css") => {
-                ResponseBuilder::new(msg)
+                ResponseBuilder::new()
                     .set_header("Cache-Control", "public, max-age=31536000, immutable")
                     .body(
                         ui::assets::css().as_bytes().to_vec(),
@@ -40,14 +46,14 @@ impl Block for SystemBlock {
                     )
             }
             _ if path.starts_with("/b/static/htmx-") && path.ends_with(".min.js") => {
-                ResponseBuilder::new(msg)
+                ResponseBuilder::new()
                     .set_header("Cache-Control", "public, max-age=31536000, immutable")
                     .body(
                         ui::assets::htmx_js().as_bytes().to_vec(),
                         "application/javascript; charset=utf-8",
                     )
             }
-            _ => err_not_found(msg, "not found"),
+            _ => err_not_found("not found"),
         }
     }
 

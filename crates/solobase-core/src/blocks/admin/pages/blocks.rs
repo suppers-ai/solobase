@@ -3,13 +3,14 @@ use maud::html;
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions};
 use wafer_run::context::Context;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 use wafer_sql_utils::value::sea_values_to_json;
 use wafer_sql_utils::{query, upsert, Backend};
 
 use super::admin_page;
 use crate::blocks::admin::BLOCK_SETTINGS_COLLECTION as BLOCK_SETTINGS;
 
-pub async fn blocks_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let tab = msg.query("tab");
@@ -212,9 +213,9 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 /// POST /b/admin/blocks/{name}/toggle -- toggle a block's enabled state
 pub async fn handle_toggle_feature(
     ctx: &dyn Context,
-    msg: &mut Message,
+    msg: &Message,
     block_name: &str,
-) -> Result_ {
+) -> OutputStream {
     // Read current state from block_settings
     let (sql, vals) = query::build_select_columns(
         BLOCK_SETTINGS,
@@ -271,9 +272,9 @@ pub async fn handle_toggle_feature(
 /// GET /b/admin/blocks/{name}/detail -- block detail modal content
 pub async fn handle_block_detail(
     ctx: &dyn Context,
-    msg: &mut Message,
+    _msg: &Message,
     block_name: &str,
-) -> Result_ {
+) -> OutputStream {
     let blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
     let block_opt = blocks.iter().find(|b| b.name == block_name);
 
@@ -336,7 +337,7 @@ pub async fn handle_block_detail(
             }
             script { (maud::PreEscaped("document.getElementById('block-detail-modal-overlay').removeAttribute('hidden');")) }
         };
-        return ui::html_response(msg, markup);
+        return ui::html_response(markup);
     }
 
     let block = block_opt.unwrap();
@@ -480,7 +481,7 @@ pub async fn handle_block_detail(
         script { (maud::PreEscaped("document.getElementById('block-detail-modal-overlay').removeAttribute('hidden');")) }
     };
 
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 // ---------------------------------------------------------------------------
@@ -625,10 +626,12 @@ pub fn custom_blocks_list(blocks: &[(&str, &str, &str)]) -> maud::Markup {
 /// POST /b/admin/custom-blocks/install — install a block from a manifest URL
 pub async fn handle_custom_block_install(
     _ctx: &dyn Context,
-    msg: &mut Message,
-) -> Result_ {
+    _msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     use crate::blocks::helpers::parse_form_body;
-    let form = parse_form_body(&msg.data);
+    let body = input.collect_to_bytes().await;
+    let form = parse_form_body(&body);
     let manifest_url = form.get("manifest_url").cloned().unwrap_or_default();
 
     if manifest_url.is_empty() {
@@ -639,7 +642,7 @@ pub async fn handle_custom_block_install(
                 }
             }
         };
-        return ui::html_response(msg, markup);
+        return ui::html_response(markup);
     }
 
     // TODO(cloud): delegate to /_internal/blocks/install when running in cloud mode.
@@ -658,14 +661,15 @@ pub async fn handle_custom_block_install(
             }
         }
     };
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 /// POST /b/admin/custom-blocks/upload — upload a .wasm file
 pub async fn handle_custom_block_upload(
     _ctx: &dyn Context,
-    msg: &mut Message,
-) -> Result_ {
+    _msg: &Message,
+    _input: InputStream,
+) -> OutputStream {
     // TODO(cloud): parse multipart body and store to R2/D1 when running in cloud mode.
     // For local deployment, point users to the blocks/ directory workflow.
     let markup = html! {
@@ -684,16 +688,16 @@ pub async fn handle_custom_block_upload(
             }
         }
     };
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 /// DELETE /b/admin/custom-blocks/{name} — delete a custom block
 pub async fn handle_custom_block_delete(
     _ctx: &dyn Context,
-    msg: &mut Message,
+    _msg: &Message,
     _block_name: &str,
-) -> Result_ {
+) -> OutputStream {
     // TODO(cloud): delete from R2/D1 when running in cloud mode.
     let markup = custom_blocks_list(&[]);
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }

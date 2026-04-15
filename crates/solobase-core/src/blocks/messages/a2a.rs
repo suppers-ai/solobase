@@ -4,11 +4,11 @@
 //! Maps A2A Task/Message/Artifact concepts to internal contexts/entries.
 
 use super::service::{self, ListContextsParams, ListEntriesParams};
-use crate::blocks::helpers::RecordExt;
+use crate::blocks::helpers::{ok_json, RecordExt};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 #[derive(serde::Deserialize)]
 struct JsonRpcRequest {
@@ -41,18 +41,23 @@ fn jsonrpc_error(
     })
 }
 
-pub async fn handle_a2a(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let req: JsonRpcRequest = match msg.decode() {
+pub async fn handle_a2a(
+    ctx: &dyn Context,
+    _msg: Message,
+    input: InputStream,
+) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let req: JsonRpcRequest = match serde_json::from_slice(&raw) {
         Ok(r) => r,
         Err(e) => {
             let body = jsonrpc_error(None, -32700, &format!("Parse error: {e}"));
-            return json_respond(msg, &body);
+            return ok_json(&body);
         }
     };
 
     if req.jsonrpc != "2.0" {
         let body = jsonrpc_error(req.id, -32600, "Invalid JSON-RPC version");
-        return json_respond(msg, &body);
+        return ok_json(&body);
     }
 
     let params = req.params.unwrap_or(serde_json::Value::Null);
@@ -69,7 +74,7 @@ pub async fn handle_a2a(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Ok(value) => jsonrpc_response(req.id, value),
         Err((code, message)) => jsonrpc_error(req.id, code, &message),
     };
-    json_respond(msg, &body)
+    ok_json(&body)
 }
 
 async fn handle_send_message(

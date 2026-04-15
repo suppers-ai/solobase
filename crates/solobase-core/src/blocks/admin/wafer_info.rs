@@ -1,20 +1,22 @@
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
 
-pub fn handle(_ctx: &dyn Context, msg: &mut Message) -> Result_ {
+use crate::blocks::helpers::{err_not_found, ok_json};
+
+pub fn handle(_ctx: &dyn Context, msg: &Message) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/admin/wafer/blocks") => handle_blocks(msg),
-        ("retrieve", "/admin/wafer/flows") => handle_flows(msg),
-        ("retrieve", "/admin/wafer/info") => handle_info(msg),
-        _ => err_not_found(msg, "not found"),
+        ("retrieve", "/admin/wafer/blocks") => handle_blocks(),
+        ("retrieve", "/admin/wafer/flows") => handle_flows(),
+        ("retrieve", "/admin/wafer/info") => handle_info(),
+        _ => err_not_found("not found"),
     }
 }
 
-fn handle_blocks(msg: &mut Message) -> Result_ {
+fn handle_blocks() -> OutputStream {
     // Return list of registered blocks
     // In a real implementation, this would query the Wafer runtime
     // For now, return the known block list
@@ -36,10 +38,10 @@ fn handle_blocks(msg: &mut Message) -> Result_ {
         {"name": "wafer-run/ip-rate-limit", "version": "0.1.0", "interface": "middleware@v1", "type": "native"},
         {"name": "wafer-run/iam-guard", "version": "0.1.0", "interface": "middleware@v1", "type": "native"}
     ]);
-    json_respond(msg, &blocks)
+    ok_json(&blocks)
 }
 
-fn handle_flows(msg: &mut Message) -> Result_ {
+fn handle_flows() -> OutputStream {
     // Return flow list. In production, query Wafer runtime.
     let flows = serde_json::json!([
         {"id": "auth", "summary": "Authentication routes"},
@@ -56,18 +58,15 @@ fn handle_flows(msg: &mut Message) -> Result_ {
         {"id": "auth-pipe", "summary": "Authentication pipeline"},
         {"id": "admin-pipe", "summary": "Admin authorization pipeline"}
     ]);
-    json_respond(msg, &flows)
+    ok_json(&flows)
 }
 
-fn handle_info(msg: &mut Message) -> Result_ {
-    json_respond(
-        msg,
-        &serde_json::json!({
-            "runtime": "wafer",
-            "version": "1.0.0",
-            "platform": "solobase",
-            "block_mode": "native-rust",
-            "features": ["database", "storage", "crypto", "network", "config"]
-        }),
-    )
+fn handle_info() -> OutputStream {
+    ok_json(&serde_json::json!({
+        "runtime": "wafer",
+        "version": "1.0.0",
+        "platform": "solobase",
+        "block_mode": "native-rust",
+        "features": ["database", "storage", "crypto", "network", "config"]
+    }))
 }

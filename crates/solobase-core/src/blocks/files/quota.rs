@@ -1,11 +1,10 @@
 use super::models::QuotaConfig;
 use super::{OBJECTS_COLLECTION, QUOTAS_COLLECTION};
-use crate::blocks::helpers::RecordExt;
+use crate::blocks::helpers::{err_bad_request, RecordExt};
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+use wafer_run::OutputStream;
 
 pub async fn get_user_quota(ctx: &dyn Context, user_id: &str) -> QuotaConfig {
     // Check for user-specific override
@@ -59,7 +58,11 @@ pub async fn get_user_usage(ctx: &dyn Context, user_id: &str) -> serde_json::Val
     })
 }
 
-pub async fn check_quota(ctx: &dyn Context, user_id: &str, file_size: i64) -> Result<(), Result_> {
+pub async fn check_quota(
+    ctx: &dyn Context,
+    user_id: &str,
+    file_size: i64,
+) -> Result<(), OutputStream> {
     let quota = get_user_quota(ctx, user_id).await;
     let usage = get_user_usage(ctx, user_id).await;
 
@@ -69,20 +72,14 @@ pub async fn check_quota(ctx: &dyn Context, user_id: &str, file_size: i64) -> Re
         .unwrap_or(0);
 
     if file_size > quota.max_file_size_bytes {
-        return Err(err_bad_request(
-            &Message::new("", ""),
-            &format!(
-                "File exceeds maximum size of {} bytes",
-                quota.max_file_size_bytes
-            ),
-        ));
+        return Err(err_bad_request(&format!(
+            "File exceeds maximum size of {} bytes",
+            quota.max_file_size_bytes
+        )));
     }
 
     if current_bytes + file_size > quota.max_storage_bytes {
-        return Err(err_bad_request(
-            &Message::new("", ""),
-            "Storage quota exceeded",
-        ));
+        return Err(err_bad_request("Storage quota exceeded"));
     }
 
     let file_count = usage
@@ -90,13 +87,10 @@ pub async fn check_quota(ctx: &dyn Context, user_id: &str, file_size: i64) -> Re
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
     if quota.max_files_per_bucket > 0 && file_count >= quota.max_files_per_bucket {
-        return Err(err_bad_request(
-            &Message::new("", ""),
-            &format!(
-                "File count limit reached (max {})",
-                quota.max_files_per_bucket
-            ),
-        ));
+        return Err(err_bad_request(&format!(
+            "File count limit reached (max {})",
+            quota.max_files_per_bucket
+        )));
     }
 
     Ok(())

@@ -6,15 +6,19 @@ use std::collections::HashMap;
 use wafer_core::clients::{config, database as db, network};
 use wafer_core::interfaces::database::service::{Filter, FilterOp, ListOptions};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 use wafer_sql_utils::value::sea_values_to_json;
 use wafer_sql_utils::Backend;
 
-pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+use crate::blocks::helpers::{
+    err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
+};
+
+pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let stripe_key = match config::get(ctx, "SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY").await {
         Ok(k) => k,
-        Err(_) => return err_internal(msg, "Stripe is not configured"),
+        Err(_) => return err_internal("Stripe is not configured"),
     };
 
     #[derive(serde::Deserialize)]
@@ -23,15 +27,16 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         success_url: Option<String>,
         cancel_url: Option<String>,
     }
-    let body: CheckoutReq = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: CheckoutReq = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     // Get purchase and verify ownership
     let purchase = match db::get(ctx, PURCHASES_COLLECTION, &body.purchase_id).await {
         Ok(p) => p,
-        Err(_) => return err_not_found(msg, "Purchase not found"),
+        Err(_) => return err_not_found("Purchase not found"),
     };
     let purchase_user = purchase
         .data
@@ -39,7 +44,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if purchase_user != msg.user_id() {
-        return err_forbidden(msg, "Cannot checkout another user's purchase");
+        return err_forbidden("Cannot checkout another user's purchase");
     }
 
     let total_cents = purchase
@@ -48,7 +53,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
     if total_cents <= 0 {
-        return err_bad_request(msg, "Purchase total must be positive");
+        return err_bad_request("Purchase total must be positive");
     }
 
     // Check product dependency (requires field)
@@ -74,7 +79,6 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     let has_required = user_owns_product(ctx, purchase_user, requires).await;
                     if !has_required {
                         return err_bad_request(
-                            msg,
                             "You must own the required product before purchasing this item.",
                         );
                     }
@@ -100,7 +104,6 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let rows = db::exec_raw(ctx, &sql, &args).await.unwrap_or(0);
     if rows == 0 {
         return err_bad_request(
-            msg,
             "Purchase is not in pending state or is already being processed",
         );
     }
@@ -167,7 +170,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     .await
     {
         Ok(r) => r,
-        Err(e) => return err_internal(msg, &format!("Stripe API error: {e}")),
+        Err(e) => return err_internal(&format!("Stripe API error: {e}")),
     };
 
     if resp.status_code >= 400 {
@@ -187,15 +190,12 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let revert_args = sea_values_to_json(revert_vals);
         let _ = db::exec_raw(ctx, &revert_sql, &revert_args).await;
         let err_body = String::from_utf8_lossy(&resp.body);
-        return err_internal(
-            msg,
-            &format!("Stripe error ({}): {}", resp.status_code, err_body),
-        );
+        return err_internal(&format!("Stripe error ({}): {}", resp.status_code, err_body));
     }
 
     let session: serde_json::Value = match serde_json::from_slice(&resp.body) {
         Ok(d) => d,
-        Err(_) => return err_internal(msg, "Failed to parse Stripe response"),
+        Err(_) => return err_internal("Failed to parse Stripe response"),
     };
 
     let session_id = session.get("id").and_then(|v| v.as_str()).unwrap_or("");
@@ -219,37 +219,34 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         tracing::warn!("Failed to update purchase with Stripe session ID: {e}");
     }
 
-    json_respond(
-        msg,
-        &serde_json::json!({
-            "session_id": session_id,
-            "checkout_url": checkout_url
-        }),
-    )
+    ok_json(&serde_json::json!({
+        "session_id": session_id,
+        "checkout_url": checkout_url
+    }))
 }
 
-pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     // Verify Stripe webhook signature - REQUIRED
     let webhook_secret =
         config::get_default(ctx, "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET", "").await;
     if webhook_secret.is_empty() {
         return err_internal(
-            msg,
             "STRIPE_WEBHOOK_SECRET not configured — webhook processing disabled for security",
         );
     }
-    let sig_header = msg.header("stripe-signature");
+    let sig_header = msg.header("stripe-signature").to_string();
     if sig_header.is_empty() {
-        return err_unauthorized(msg, "Missing Stripe-Signature header");
+        return err_unauthorized("Missing Stripe-Signature header");
     }
-    if !verify_stripe_signature(&msg.data, sig_header, &webhook_secret) {
-        return err_unauthorized(msg, "Invalid webhook signature");
+    let raw_body = input.collect_to_bytes().await;
+    if !verify_stripe_signature(&raw_body, &sig_header, &webhook_secret) {
+        return err_unauthorized("Invalid webhook signature");
     }
 
     // Parse webhook event
-    let event: serde_json::Value = match msg.decode() {
+    let event: serde_json::Value = match serde_json::from_slice(&raw_body) {
         Ok(e) => e,
-        Err(e) => return err_bad_request(msg, &format!("Invalid webhook body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid webhook body: {e}")),
     };
 
     let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -504,7 +501,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &purchase.id, data).await
                     {
                         tracing::error!("Failed to mark purchase as refunded: {e}");
-                        return err_internal(msg, &format!("Failed to update purchase: {e}"));
+                        return err_internal(&format!("Failed to update purchase: {e}"));
                     }
                 }
             }
@@ -515,7 +512,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     }
 
-    json_respond(msg, &serde_json::json!({"received": true}))
+    ok_json(&serde_json::json!({"received": true}))
 }
 
 async fn get_user_for_stripe_sub(ctx: &dyn Context, stripe_sub_id: &str) -> Option<String> {

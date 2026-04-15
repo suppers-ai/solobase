@@ -5,14 +5,14 @@
 //! - Terms of Service editor (Quill rich text editor)
 //! - API endpoints reference
 
-use crate::blocks::helpers::{self, json_map, RecordExt};
+use crate::blocks::helpers::{self, json_map, ok_json, RecordExt};
 use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
 use maud::{html, Markup, PreEscaped};
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 const COLLECTION: &str = super::COLLECTION;
 
@@ -52,11 +52,11 @@ fn legalpages_page(
     path: &str,
     user: Option<&UserInfo>,
     content: Markup,
-    msg: &mut Message,
-) -> Result_ {
+    msg: &Message,
+) -> OutputStream {
     let is_fragment = ui::is_htmx(msg);
     let markup = ui::layout::block_shell(title, config, &nav(), user, path, content, is_fragment);
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ async fn find_current_doc(ctx: &dyn Context, doc_type: &str) -> Option<db::Recor
 // Editor page (Privacy / Terms)
 // ---------------------------------------------------------------------------
 
-pub async fn editor_page(ctx: &dyn Context, msg: &mut Message, doc_type: &str) -> Result_ {
+pub async fn editor_page(ctx: &dyn Context, msg: &Message, doc_type: &str) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -436,7 +436,7 @@ const EDITOR_JS: &str = r#"
 // Endpoints page
 // ---------------------------------------------------------------------------
 
-pub async fn endpoints_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn endpoints_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -600,14 +600,16 @@ struct SaveRequest {
 
 /// Save a draft document. If the current doc is published, creates a new draft
 /// so the live version stays untouched until the admin explicitly publishes.
-pub async fn handle_save(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let body: SaveRequest = match msg.decode() {
+pub async fn handle_save(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body: SaveRequest = match serde_json::from_slice(&raw) {
         Ok(b) => b,
         Err(e) => {
-            return json_respond(
-                msg,
-                &serde_json::json!({"error": format!("Invalid request: {e}")}),
-            )
+            return ok_json(&serde_json::json!({"error": format!("Invalid request: {e}")}))
         }
     };
 
@@ -641,18 +643,12 @@ pub async fn handle_save(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             "created_by": msg.user_id()
         }));
         match db::create(ctx, COLLECTION, data).await {
-            Ok(record) => json_respond(
-                msg,
-                &serde_json::json!({
-                    "doc_id": record.id,
-                    "status": "draft",
-                    "message": "Draft saved"
-                }),
-            ),
-            Err(e) => json_respond(
-                msg,
-                &serde_json::json!({"error": format!("Failed to save: {e}")}),
-            ),
+            Ok(record) => ok_json(&serde_json::json!({
+                "doc_id": record.id,
+                "status": "draft",
+                "message": "Draft saved"
+            })),
+            Err(e) => ok_json(&serde_json::json!({"error": format!("Failed to save: {e}")})),
         }
     } else {
         let data = json_map(serde_json::json!({
@@ -661,32 +657,28 @@ pub async fn handle_save(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             "updated_at": now
         }));
         match db::update(ctx, COLLECTION, &body.doc_id, data).await {
-            Ok(_) => json_respond(
-                msg,
-                &serde_json::json!({
-                    "doc_id": body.doc_id,
-                    "status": "draft",
-                    "message": "Draft saved"
-                }),
-            ),
-            Err(e) => json_respond(
-                msg,
-                &serde_json::json!({"error": format!("Failed to save: {e}")}),
-            ),
+            Ok(_) => ok_json(&serde_json::json!({
+                "doc_id": body.doc_id,
+                "status": "draft",
+                "message": "Draft saved"
+            })),
+            Err(e) => ok_json(&serde_json::json!({"error": format!("Failed to save: {e}")})),
         }
     }
 }
 
 /// Save and publish a document. Archives any previously published document
 /// of the same type.
-pub async fn handle_publish(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let body: SaveRequest = match msg.decode() {
+pub async fn handle_publish(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body: SaveRequest = match serde_json::from_slice(&raw) {
         Ok(b) => b,
         Err(e) => {
-            return json_respond(
-                msg,
-                &serde_json::json!({"error": format!("Invalid request: {e}")}),
-            )
+            return ok_json(&serde_json::json!({"error": format!("Invalid request: {e}")}))
         }
     };
 
@@ -742,19 +734,13 @@ pub async fn handle_publish(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             "updated_at": now
         }));
         match db::update(ctx, COLLECTION, &body.doc_id, data).await {
-            Ok(_) => json_respond(
-                msg,
-                &serde_json::json!({
-                    "doc_id": body.doc_id,
-                    "status": "published",
-                    "version": next_version,
-                    "message": format!("Published as v{}", next_version)
-                }),
-            ),
-            Err(e) => json_respond(
-                msg,
-                &serde_json::json!({"error": format!("Failed to publish: {e}")}),
-            ),
+            Ok(_) => ok_json(&serde_json::json!({
+                "doc_id": body.doc_id,
+                "status": "published",
+                "version": next_version,
+                "message": format!("Published as v{}", next_version)
+            })),
+            Err(e) => ok_json(&serde_json::json!({"error": format!("Failed to publish: {e}")})),
         }
     } else {
         // Create new published document
@@ -770,19 +756,13 @@ pub async fn handle_publish(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             "created_by": msg.user_id()
         }));
         match db::create(ctx, COLLECTION, data).await {
-            Ok(record) => json_respond(
-                msg,
-                &serde_json::json!({
-                    "doc_id": record.id,
-                    "status": "published",
-                    "version": next_version,
-                    "message": format!("Published as v{}", next_version)
-                }),
-            ),
-            Err(e) => json_respond(
-                msg,
-                &serde_json::json!({"error": format!("Failed to publish: {e}")}),
-            ),
+            Ok(record) => ok_json(&serde_json::json!({
+                "doc_id": record.id,
+                "status": "published",
+                "version": next_version,
+                "message": format!("Published as v{}", next_version)
+            })),
+            Err(e) => ok_json(&serde_json::json!({"error": format!("Failed to publish: {e}")})),
         }
     }
 }
@@ -812,7 +792,7 @@ const SETTINGS_KEYS: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
-pub async fn settings_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     use wafer_core::clients::config;
 
     let site_config = SiteConfig::load(ctx).await;
@@ -926,16 +906,14 @@ pub async fn settings_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
 }
 
-pub async fn handle_save_settings(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputStream {
     use wafer_core::clients::config;
 
-    let body: std::collections::HashMap<String, String> = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: std::collections::HashMap<String, String> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
         Err(e) => {
-            return json_respond(
-                msg,
-                &serde_json::json!({"error": format!("Invalid request: {e}")}),
-            )
+            return ok_json(&serde_json::json!({"error": format!("Invalid request: {e}")}))
         }
     };
 
@@ -945,7 +923,7 @@ pub async fn handle_save_settings(ctx: &dyn Context, msg: &mut Message) -> Resul
         }
     }
 
-    json_respond(msg, &serde_json::json!({"message": "Settings saved"}))
+    ok_json(&serde_json::json!({"message": "Settings saved"}))
 }
 
 /// Archive all published documents of a given type, except the specified ID.

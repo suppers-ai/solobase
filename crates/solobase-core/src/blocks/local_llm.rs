@@ -1,7 +1,9 @@
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
+
+use crate::blocks::helpers::{err_not_found, ResponseBuilder};
 
 pub struct LocalLlmBlock;
 
@@ -24,7 +26,12 @@ impl Block for LocalLlmBlock {
             ])
     }
 
-    async fn handle(&self, _ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(
+        &self,
+        _ctx: &dyn Context,
+        msg: Message,
+        _input: InputStream,
+    ) -> OutputStream {
         let action = msg.action();
         let path = msg.path();
 
@@ -39,9 +46,9 @@ impl Block for LocalLlmBlock {
                     "error": "not_available",
                     "message": "Local LLM requires the browser runtime with WebGPU support"
                 });
-                ResponseBuilder::new(msg).status(501).json(&body)
+                ResponseBuilder::new().status(501).json(&body)
             }
-            _ => err_not_found(msg, "not found"),
+            _ => err_not_found("not found"),
         }
     }
 

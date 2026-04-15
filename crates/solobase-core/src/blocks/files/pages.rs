@@ -7,6 +7,7 @@ use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use wafer_run::context::Context;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
 
 use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION};
 
@@ -41,8 +42,8 @@ fn files_page(
     path: &str,
     user: Option<&UserInfo>,
     content: Markup,
-    msg: &mut Message,
-) -> Result_ {
+    msg: &Message,
+) -> OutputStream {
     let is_fragment = ui::is_htmx(msg);
     let markup = ui::layout::block_shell(
         title,
@@ -53,14 +54,14 @@ fn files_page(
         content,
         is_fragment,
     );
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 // ---------------------------------------------------------------------------
 // Overview
 // ---------------------------------------------------------------------------
 
-pub async fn overview(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let one = ListOptions {
@@ -154,7 +155,7 @@ pub async fn overview(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 // Buckets
 // ---------------------------------------------------------------------------
 
-pub async fn buckets(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -212,7 +213,7 @@ pub async fn buckets(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 // Shares
 // ---------------------------------------------------------------------------
 
-pub async fn shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -281,7 +282,7 @@ pub async fn shares(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 // Quotas
 // ---------------------------------------------------------------------------
 
-pub async fn quotas(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 

@@ -1,14 +1,17 @@
-use crate::blocks::helpers::{parse_form_body, RecordExt};
+use crate::blocks::helpers::{
+    self, err_bad_request, err_internal, err_not_found, parse_form_body, RecordExt,
+};
 use crate::ui::{self, components, icons, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, ListOptions};
 use wafer_run::context::Context;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 use super::admin_page;
 use crate::blocks::admin::VARIABLES_COLLECTION as VARIABLES;
 
-pub async fn variables_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let tab = msg.query("tab");
@@ -432,10 +435,15 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
 }
 
 /// POST /b/admin/variables -- create a new variable
-pub async fn handle_create_variable(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_create_variable(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
-    let body = parse_form_body(&msg.data);
+    let bytes = input.collect_to_bytes().await;
+    let body = parse_form_body(&bytes);
 
     let key = body
         .get("key")
@@ -443,7 +451,7 @@ pub async fn handle_create_variable(ctx: &dyn Context, msg: &mut Message) -> Res
         .unwrap_or("")
         .to_string();
     if key.is_empty() {
-        return wafer_run::helpers::err_bad_request(msg, "Key is required");
+        return err_bad_request("Key is required");
     }
 
     let mut data = std::collections::HashMap::new();
@@ -459,10 +467,10 @@ pub async fn handle_create_variable(ctx: &dyn Context, msg: &mut Message) -> Res
         "sensitive".to_string(),
         serde_json::json!(if sensitive == "1" { 1 } else { 0 }),
     );
-    crate::blocks::helpers::stamp_created(&mut data);
+    helpers::stamp_created(&mut data);
 
     if let Err(e) = db::create(ctx, VARIABLES, data).await {
-        return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
+        return err_internal(&format!("Failed: {}", e.message));
     }
     super::super::logs::audit_log(
         ctx,
@@ -474,15 +482,15 @@ pub async fn handle_create_variable(ctx: &dyn Context, msg: &mut Message) -> Res
     .await;
 
     // Re-render the variables page (htmx will swap #content)
-    variables_page(ctx, msg).await
+    variables_page(ctx, &msg).await
 }
 
 /// GET /b/admin/variables/{key}/edit -- return modal edit form content
 pub async fn handle_edit_variable_form(
     ctx: &dyn Context,
-    msg: &mut Message,
+    _msg: &Message,
     var_key: &str,
-) -> Result_ {
+) -> OutputStream {
     let record = match db::get_by_field(
         ctx,
         VARIABLES,
@@ -492,7 +500,7 @@ pub async fn handle_edit_variable_form(
     .await
     {
         Ok(r) => r,
-        Err(_) => return wafer_run::helpers::err_not_found(msg, "Variable not found"),
+        Err(_) => return err_not_found("Variable not found"),
     };
 
     let key = record.str_field("key").to_string();
@@ -553,27 +561,26 @@ pub async fn handle_edit_variable_form(
         script { (maud::PreEscaped("document.getElementById('edit-var-modal-overlay').removeAttribute('hidden');")) }
     };
 
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 /// PUT /b/admin/variables/{key} -- update variable value
 pub async fn handle_update_variable(
     ctx: &dyn Context,
-    msg: &mut Message,
+    msg: &Message,
+    input: InputStream,
     var_key: &str,
-) -> Result_ {
+) -> OutputStream {
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
-    let body = parse_form_body(&msg.data);
+    let bytes = input.collect_to_bytes().await;
+    let body = parse_form_body(&bytes);
 
     // Prevent setting sensitive keys (secrets/keys) to empty (would break auth)
     if var_key.ends_with("_SECRET") || var_key.ends_with("_KEY") {
         let new_value = body.get("value").map(|s| s.as_str()).unwrap_or("");
         if new_value.is_empty() {
-            return wafer_run::helpers::err_bad_request(
-                msg,
-                &format!("Cannot set {} to an empty value", var_key),
-            );
+            return err_bad_request(&format!("Cannot set {} to an empty value", var_key));
         }
     }
 
@@ -587,7 +594,7 @@ pub async fn handle_update_variable(
     .await
     {
         Ok(r) => r,
-        Err(_) => return wafer_run::helpers::err_not_found(msg, "Variable not found"),
+        Err(_) => return err_not_found("Variable not found"),
     };
 
     let mut data = std::collections::HashMap::new();
@@ -597,10 +604,10 @@ pub async fn handle_update_variable(
     if let Some(v) = body.get("description") {
         data.insert("description".to_string(), serde_json::json!(v));
     }
-    crate::blocks::helpers::stamp_updated(&mut data);
+    helpers::stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, VARIABLES, &record.id, data).await {
-        return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
+        return err_internal(&format!("Failed: {}", e.message));
     }
     super::super::logs::audit_log(
         ctx,
@@ -611,5 +618,5 @@ pub async fn handle_update_variable(
     )
     .await;
 
-    variables_page(ctx, msg).await
+    variables_page(ctx, &msg).await
 }

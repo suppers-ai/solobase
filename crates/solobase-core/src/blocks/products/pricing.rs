@@ -3,10 +3,13 @@ use crate::blocks::helpers::RecordExt;
 use std::collections::HashMap;
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
-pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+use crate::blocks::helpers::{
+    err_bad_request, err_internal, err_not_found, ok_json,
+};
+
+pub async fn handle_calculate(ctx: &dyn Context, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct CalcReq {
         product_id: String,
@@ -19,15 +22,16 @@ pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         1
     }
 
-    let body: CalcReq = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: CalcReq = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     // Get product
     let product = match db::get(ctx, PRODUCTS_COLLECTION, &body.product_id).await {
         Ok(p) => p,
-        Err(_) => return err_not_found(msg, "Product not found"),
+        Err(_) => return err_not_found("Product not found"),
     };
 
     // Get pricing template
@@ -40,31 +44,28 @@ pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
         let total = base_price * body.quantity as f64;
-        return json_respond(
-            msg,
-            &serde_json::json!({
-                "unit_price": base_price,
-                "quantity": body.quantity,
-                "total": total,
-                "currency": product.data.get("currency").and_then(|v| v.as_str()).unwrap_or("USD")
-            }),
-        );
+        return ok_json(&serde_json::json!({
+            "unit_price": base_price,
+            "quantity": body.quantity,
+            "total": total,
+            "currency": product.data.get("currency").and_then(|v| v.as_str()).unwrap_or("USD")
+        }));
     }
 
     let template = match db::get(ctx, PRICING_COLLECTION, template_id).await {
         Ok(t) => t,
-        Err(_) => return err_internal(msg, "Pricing template not found"),
+        Err(_) => return err_internal("Pricing template not found"),
     };
 
     let formula = template.str_field("price_formula");
     if formula.is_empty() {
-        return err_internal(msg, "Empty pricing formula");
+        return err_internal("Empty pricing formula");
     }
 
     // Evaluate formula
     let unit_price = match evaluate_formula(formula, &body.variables) {
         Ok(p) => p,
-        Err(e) => return err_bad_request(msg, &format!("Formula evaluation error: {e}")),
+        Err(e) => return err_bad_request(&format!("Formula evaluation error: {e}")),
     };
 
     // Check conditions
@@ -89,17 +90,14 @@ pub async fn handle_calculate(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let total = final_price * body.quantity as f64;
 
-    json_respond(
-        msg,
-        &serde_json::json!({
-            "unit_price": final_price,
-            "quantity": body.quantity,
-            "total": total,
-            "currency": product.data.get("currency").and_then(|v| v.as_str()).unwrap_or("USD"),
-            "formula": formula,
-            "variables_used": body.variables
-        }),
-    )
+    ok_json(&serde_json::json!({
+        "unit_price": final_price,
+        "quantity": body.quantity,
+        "total": total,
+        "currency": product.data.get("currency").and_then(|v| v.as_str()).unwrap_or("USD"),
+        "formula": formula,
+        "variables_used": body.variables
+    }))
 }
 
 /// Evaluate a simple pricing formula.

@@ -1,7 +1,6 @@
 use super::mock_context::*;
 use crate::blocks::products::handlers;
 use std::collections::HashMap;
-use wafer_run::types::Action;
 
 // ============================================================
 // Admin Product CRUD
@@ -10,7 +9,7 @@ use wafer_run::types::Action;
 #[tokio::test]
 async fn admin_create_product() {
     let ctx = MockContext::new();
-    let mut msg = admin_create_msg(
+    let (msg, input) = admin_create_msg(
         "/admin/b/products/products",
         serde_json::json!({
             "name": "Cloud Hosting",
@@ -20,9 +19,8 @@ async fn admin_create_product() {
         }),
     );
 
-    let result = handlers::handle_admin(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = handlers::handle_admin(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     assert!(body["id"].as_str().is_some());
     assert_eq!(body["data"]["name"], "Cloud Hosting");
     assert_eq!(body["data"]["status"], "draft");
@@ -34,25 +32,24 @@ async fn admin_list_products() {
     let ctx = MockContext::new();
 
     // Create two products
-    let mut msg1 = admin_create_msg(
+    let (msg1, input1) = admin_create_msg(
         "/admin/b/products/products",
         serde_json::json!({
             "name": "Product A", "base_price": 10
         }),
     );
-    handlers::handle_admin(&ctx, &mut msg1).await;
-    let mut msg2 = admin_create_msg(
+    handlers::handle_admin(&ctx, &msg1, input1).await;
+    let (msg2, input2) = admin_create_msg(
         "/admin/b/products/products",
         serde_json::json!({
             "name": "Product B", "base_price": 20
         }),
     );
-    handlers::handle_admin(&ctx, &mut msg2).await;
+    handlers::handle_admin(&ctx, &msg2, input2).await;
 
-    let mut list_msg = admin_get_msg("/admin/b/products/products");
-    let result = handlers::handle_admin(&ctx, &mut list_msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let (list_msg, list_input) = admin_get_msg("/admin/b/products/products");
+    let out = handlers::handle_admin(&ctx, &list_msg, list_input).await;
+    let body = output_to_json(out).await;
     assert!(body["records"].as_array().unwrap().len() >= 2);
 }
 
@@ -60,22 +57,21 @@ async fn admin_list_products() {
 async fn admin_get_product() {
     let ctx = MockContext::new();
 
-    let mut create_msg_data = admin_create_msg(
+    let (create_msg_data, create_input) = admin_create_msg(
         "/admin/b/products/products",
         serde_json::json!({
             "name": "Widget", "base_price": 5.0
         }),
     );
-    let create_result = handlers::handle_admin(&ctx, &mut create_msg_data).await;
-    let id = response_json(&create_result)["id"]
+    let create_out = handlers::handle_admin(&ctx, &create_msg_data, create_input).await;
+    let id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
-    let mut get_msg_data = admin_get_msg(&format!("/admin/b/products/products/{}", id));
-    let result = handlers::handle_admin(&ctx, &mut get_msg_data).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let (get_msg_data, get_input) = admin_get_msg(&format!("/admin/b/products/products/{}", id));
+    let out = handlers::handle_admin(&ctx, &get_msg_data, get_input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["data"]["name"], "Widget");
 }
 
@@ -83,19 +79,19 @@ async fn admin_get_product() {
 async fn admin_update_product() {
     let ctx = MockContext::new();
 
-    let mut create = admin_create_msg(
+    let (create, create_input) = admin_create_msg(
         "/admin/b/products/products",
         serde_json::json!({
             "name": "Old Name", "base_price": 10
         }),
     );
-    let create_result = handlers::handle_admin(&ctx, &mut create).await;
-    let id = response_json(&create_result)["id"]
+    let create_out = handlers::handle_admin(&ctx, &create, create_input).await;
+    let id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
-    let mut update = request_msg(
+    let (mut update, update_input) = request_msg(
         "update",
         &format!("/admin/b/products/products/{}", id),
         "admin_1",
@@ -104,9 +100,8 @@ async fn admin_update_product() {
         }),
     );
     update.set_meta("auth.user_roles", "admin");
-    let result = handlers::handle_admin(&ctx, &mut update).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = handlers::handle_admin(&ctx, &update, update_input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["data"]["name"], "New Name");
 }
 
@@ -114,29 +109,28 @@ async fn admin_update_product() {
 async fn admin_delete_product() {
     let ctx = MockContext::new();
 
-    let mut create = admin_create_msg(
+    let (create, create_input) = admin_create_msg(
         "/admin/b/products/products",
         serde_json::json!({
             "name": "To Delete"
         }),
     );
-    let create_result = handlers::handle_admin(&ctx, &mut create).await;
-    let id = response_json(&create_result)["id"]
+    let create_out = handlers::handle_admin(&ctx, &create, create_input).await;
+    let id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
-    let mut del = delete_msg(&format!("/admin/b/products/products/{}", id), "admin_1");
+    let (mut del, del_input) = delete_msg(&format!("/admin/b/products/products/{}", id), "admin_1");
     del.set_meta("auth.user_roles", "admin");
-    let result = handlers::handle_admin(&ctx, &mut del).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = handlers::handle_admin(&ctx, &del, del_input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["deleted"], true);
 
     // Verify it's gone
-    let mut get = admin_get_msg(&format!("/admin/b/products/products/{}", id));
-    let result = handlers::handle_admin(&ctx, &mut get).await;
-    assert!(is_error(&result, "not_found"));
+    let (get, get_input) = admin_get_msg(&format!("/admin/b/products/products/{}", id));
+    let out = handlers::handle_admin(&ctx, &get, get_input).await;
+    assert!(output_is_error(out, "not_found").await);
 }
 
 // ============================================================
@@ -147,21 +141,20 @@ async fn admin_delete_product() {
 async fn admin_create_and_list_groups() {
     let ctx = MockContext::new();
 
-    let mut create = admin_create_msg(
+    let (create, create_input) = admin_create_msg(
         "/admin/b/products/groups",
         serde_json::json!({
             "name": "Electronics"
         }),
     );
-    let result = handlers::handle_admin(&ctx, &mut create).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = handlers::handle_admin(&ctx, &create, create_input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["data"]["name"], "Electronics");
     assert_eq!(body["data"]["user_id"], "admin_1");
 
-    let mut list = admin_get_msg("/admin/b/products/groups");
-    let list_result = handlers::handle_admin(&ctx, &mut list).await;
-    let list_body = response_json(&list_result);
+    let (list, list_input) = admin_get_msg("/admin/b/products/groups");
+    let list_out = handlers::handle_admin(&ctx, &list, list_input).await;
+    let list_body = output_to_json(list_out).await;
     assert_eq!(list_body["records"].as_array().unwrap().len(), 1);
 }
 
@@ -173,18 +166,17 @@ async fn admin_create_and_list_groups() {
 async fn admin_create_and_list_types() {
     let ctx = MockContext::new();
 
-    let mut create = admin_create_msg(
+    let (create, create_input) = admin_create_msg(
         "/admin/b/products/types",
         serde_json::json!({
             "name": "subscription", "display_name": "Subscription"
         }),
     );
-    handlers::handle_admin(&ctx, &mut create).await;
+    handlers::handle_admin(&ctx, &create, create_input).await;
 
-    let mut list = admin_get_msg("/admin/b/products/types");
-    let result = handlers::handle_admin(&ctx, &mut list).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let (list, list_input) = admin_get_msg("/admin/b/products/types");
+    let out = handlers::handle_admin(&ctx, &list, list_input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["records"].as_array().unwrap().len(), 1);
 }
 
@@ -197,7 +189,7 @@ async fn admin_pricing_template_crud() {
     let ctx = MockContext::new();
 
     // Create
-    let mut create = admin_create_msg(
+    let (create, create_input) = admin_create_msg(
         "/admin/b/products/pricing",
         serde_json::json!({
             "name": "volume-discount",
@@ -205,15 +197,14 @@ async fn admin_pricing_template_crud() {
             "conditions": [{"field": "quantity", "operator": ">", "value": 10, "formula": "base * quantity * 0.8"}]
         }),
     );
-    let create_result = handlers::handle_admin(&ctx, &mut create).await;
-    assert_eq!(create_result.action, Action::Respond);
-    let id = response_json(&create_result)["id"]
+    let create_out = handlers::handle_admin(&ctx, &create, create_input).await;
+    let id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
     // Update
-    let mut update = request_msg(
+    let (mut update, update_input) = request_msg(
         "update",
         &format!("/admin/b/products/pricing/{}", id),
         "admin_1",
@@ -222,18 +213,15 @@ async fn admin_pricing_template_crud() {
         }),
     );
     update.set_meta("auth.user_roles", "admin");
-    let update_result = handlers::handle_admin(&ctx, &mut update).await;
-    assert_eq!(update_result.action, Action::Respond);
-    assert_eq!(
-        response_json(&update_result)["data"]["price_formula"],
-        "base * quantity * 0.85"
-    );
+    let update_out = handlers::handle_admin(&ctx, &update, update_input).await;
+    let update_body = output_to_json(update_out).await;
+    assert_eq!(update_body["data"]["price_formula"], "base * quantity * 0.85");
 
     // Delete
-    let mut del = delete_msg(&format!("/admin/b/products/pricing/{}", id), "admin_1");
+    let (mut del, del_input) = delete_msg(&format!("/admin/b/products/pricing/{}", id), "admin_1");
     del.set_meta("auth.user_roles", "admin");
-    let del_result = handlers::handle_admin(&ctx, &mut del).await;
-    assert_eq!(response_json(&del_result)["deleted"], true);
+    let del_out = handlers::handle_admin(&ctx, &del, del_input).await;
+    assert_eq!(output_to_json(del_out).await["deleted"], true);
 }
 
 // ============================================================
@@ -261,10 +249,9 @@ async fn admin_stats() {
     purchase_data.insert("total_cents".to_string(), serde_json::json!(2999));
     ctx.seed("suppers_ai__products__purchases", "pur1", purchase_data);
 
-    let mut msg = admin_get_msg("/admin/b/products/stats");
-    let result = handlers::handle_admin(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let (msg, input) = admin_get_msg("/admin/b/products/stats");
+    let out = handlers::handle_admin(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["total_products"].as_i64().unwrap(), 2);
     assert_eq!(body["active_products"].as_i64().unwrap(), 1);
     assert_eq!(body["total_purchases"].as_i64().unwrap(), 1);
@@ -284,21 +271,21 @@ async fn user_create_product_in_own_group() {
     let ctx = user_products_ctx();
 
     // Create a group for user_1
-    let mut create_group = create_msg(
+    let (create_group, cg_input) = create_msg(
         "/b/products/groups",
         "user_1",
         serde_json::json!({
             "name": "My Store"
         }),
     );
-    let group_result = handlers::handle_user(&ctx, &mut create_group).await;
-    let group_id = response_json(&group_result)["id"]
+    let group_out = handlers::handle_user(&ctx, &create_group, cg_input).await;
+    let group_id = output_to_json(group_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
     // Create a product in that group
-    let mut create_prod = create_msg(
+    let (create_prod, cp_input) = create_msg(
         "/b/products/products",
         "user_1",
         serde_json::json!({
@@ -307,9 +294,8 @@ async fn user_create_product_in_own_group() {
             "group_id": group_id
         }),
     );
-    let result = handlers::handle_user(&ctx, &mut create_prod).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = handlers::handle_user(&ctx, &create_prod, cp_input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["data"]["name"], "Widget");
     assert_eq!(body["data"]["created_by"], "user_1");
 }
@@ -319,21 +305,21 @@ async fn user_cannot_create_product_in_other_users_group() {
     let ctx = user_products_ctx();
 
     // Create a group for user_1
-    let mut create_group = create_msg(
+    let (create_group, cg_input) = create_msg(
         "/b/products/groups",
         "user_1",
         serde_json::json!({
             "name": "User1 Store"
         }),
     );
-    let group_result = handlers::handle_user(&ctx, &mut create_group).await;
-    let group_id = response_json(&group_result)["id"]
+    let group_out = handlers::handle_user(&ctx, &create_group, cg_input).await;
+    let group_id = output_to_json(group_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
     // user_2 tries to create a product in user_1's group
-    let mut create_prod = create_msg(
+    let (create_prod, cp_input) = create_msg(
         "/b/products/products",
         "user_2",
         serde_json::json!({
@@ -341,8 +327,8 @@ async fn user_cannot_create_product_in_other_users_group() {
             "group_id": group_id
         }),
     );
-    let result = handlers::handle_user(&ctx, &mut create_prod).await;
-    assert!(is_error(&result, "invalid_argument"));
+    let out = handlers::handle_user(&ctx, &create_prod, cp_input).await;
+    assert!(output_is_error(out, "invalid_argument").await);
 }
 
 #[tokio::test]
@@ -350,73 +336,73 @@ async fn user_cannot_see_other_users_products() {
     let ctx = user_products_ctx();
 
     // user_1 creates a product
-    let mut create = create_msg(
+    let (create, create_input) = create_msg(
         "/b/products/products",
         "user_1",
         serde_json::json!({
             "name": "Private Product"
         }),
     );
-    let create_result = handlers::handle_user(&ctx, &mut create).await;
-    let prod_id = response_json(&create_result)["id"]
+    let create_out = handlers::handle_user(&ctx, &create, create_input).await;
+    let prod_id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
     // user_2 tries to get it
-    let mut get = get_msg(&format!("/b/products/products/{}", prod_id), "user_2");
-    let result = handlers::handle_user(&ctx, &mut get).await;
-    assert!(is_error(&result, "not_found"));
+    let (get, get_input) = get_msg(&format!("/b/products/products/{}", prod_id), "user_2");
+    let out = handlers::handle_user(&ctx, &get, get_input).await;
+    assert!(output_is_error(out, "not_found").await);
 }
 
 #[tokio::test]
 async fn user_cannot_update_other_users_products() {
     let ctx = user_products_ctx();
 
-    let mut create = create_msg(
+    let (create, create_input) = create_msg(
         "/b/products/products",
         "user_1",
         serde_json::json!({
             "name": "My Product"
         }),
     );
-    let create_result = handlers::handle_user(&ctx, &mut create).await;
-    let prod_id = response_json(&create_result)["id"]
+    let create_out = handlers::handle_user(&ctx, &create, create_input).await;
+    let prod_id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
-    let mut update = update_msg(
+    let (update, update_input) = update_msg(
         &format!("/b/products/products/{}", prod_id),
         "user_2",
         serde_json::json!({
             "name": "Hijacked!"
         }),
     );
-    let result = handlers::handle_user(&ctx, &mut update).await;
-    assert!(is_error(&result, "not_found"));
+    let out = handlers::handle_user(&ctx, &update, update_input).await;
+    assert!(output_is_error(out, "not_found").await);
 }
 
 #[tokio::test]
 async fn user_cannot_delete_other_users_products() {
     let ctx = user_products_ctx();
 
-    let mut create = create_msg(
+    let (create, create_input) = create_msg(
         "/b/products/products",
         "user_1",
         serde_json::json!({
             "name": "My Product"
         }),
     );
-    let create_result = handlers::handle_user(&ctx, &mut create).await;
-    let prod_id = response_json(&create_result)["id"]
+    let create_out = handlers::handle_user(&ctx, &create, create_input).await;
+    let prod_id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
-    let mut del = delete_msg(&format!("/b/products/products/{}", prod_id), "user_2");
-    let result = handlers::handle_user(&ctx, &mut del).await;
-    assert!(is_error(&result, "not_found"));
+    let (del, del_input) = delete_msg(&format!("/b/products/products/{}", prod_id), "user_2");
+    let out = handlers::handle_user(&ctx, &del, del_input).await;
+    assert!(output_is_error(out, "not_found").await);
 }
 
 #[tokio::test]
@@ -424,25 +410,25 @@ async fn user_list_only_own_products() {
     let ctx = user_products_ctx();
 
     // user_1 creates a product
-    let mut c1 = create_msg(
+    let (c1, c1_input) = create_msg(
         "/b/products/products",
         "user_1",
         serde_json::json!({"name": "U1 Product"}),
     );
-    handlers::handle_user(&ctx, &mut c1).await;
+    handlers::handle_user(&ctx, &c1, c1_input).await;
 
     // user_2 creates a product
-    let mut c2 = create_msg(
+    let (c2, c2_input) = create_msg(
         "/b/products/products",
         "user_2",
         serde_json::json!({"name": "U2 Product"}),
     );
-    handlers::handle_user(&ctx, &mut c2).await;
+    handlers::handle_user(&ctx, &c2, c2_input).await;
 
     // user_1 lists — should only see their own
-    let mut list = get_msg("/b/products/products", "user_1");
-    let result = handlers::handle_user(&ctx, &mut list).await;
-    let body = response_json(&result);
+    let (list, list_input) = get_msg("/b/products/products", "user_1");
+    let out = handlers::handle_user(&ctx, &list, list_input).await;
+    let body = output_to_json(out).await;
     let records = body["records"].as_array().unwrap();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0]["data"]["name"], "U1 Product");
@@ -452,19 +438,19 @@ async fn user_list_only_own_products() {
 async fn user_update_prevents_ownership_change() {
     let ctx = user_products_ctx();
 
-    let mut create = create_msg(
+    let (create, create_input) = create_msg(
         "/b/products/products",
         "user_1",
         serde_json::json!({"name": "Mine"}),
     );
-    let create_result = handlers::handle_user(&ctx, &mut create).await;
-    let prod_id = response_json(&create_result)["id"]
+    let create_out = handlers::handle_user(&ctx, &create, create_input).await;
+    let prod_id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
     // Try to change created_by — should be stripped
-    let mut update = update_msg(
+    let (update, update_input) = update_msg(
         &format!("/b/products/products/{}", prod_id),
         "user_1",
         serde_json::json!({
@@ -472,9 +458,8 @@ async fn user_update_prevents_ownership_change() {
             "created_by": "attacker"
         }),
     );
-    let result = handlers::handle_user(&ctx, &mut update).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = handlers::handle_user(&ctx, &update, update_input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["data"]["created_by"], "user_1");
 }
 
@@ -486,23 +471,23 @@ async fn user_update_prevents_ownership_change() {
 async fn user_list_only_own_groups() {
     let ctx = user_products_ctx();
 
-    let mut g1 = create_msg(
+    let (g1, g1_input) = create_msg(
         "/b/products/groups",
         "user_1",
         serde_json::json!({"name": "U1 Group"}),
     );
-    handlers::handle_user(&ctx, &mut g1).await;
+    handlers::handle_user(&ctx, &g1, g1_input).await;
 
-    let mut g2 = create_msg(
+    let (g2, g2_input) = create_msg(
         "/b/products/groups",
         "user_2",
         serde_json::json!({"name": "U2 Group"}),
     );
-    handlers::handle_user(&ctx, &mut g2).await;
+    handlers::handle_user(&ctx, &g2, g2_input).await;
 
-    let mut list = get_msg("/b/products/groups", "user_1");
-    let result = handlers::handle_user(&ctx, &mut list).await;
-    let body = response_json(&result);
+    let (list, list_input) = get_msg("/b/products/groups", "user_1");
+    let out = handlers::handle_user(&ctx, &list, list_input).await;
+    let body = output_to_json(out).await;
     let records = body["records"].as_array().unwrap();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0]["data"]["name"], "U1 Group");
@@ -512,44 +497,44 @@ async fn user_list_only_own_groups() {
 async fn user_cannot_update_other_users_group() {
     let ctx = user_products_ctx();
 
-    let mut create = create_msg(
+    let (create, create_input) = create_msg(
         "/b/products/groups",
         "user_1",
         serde_json::json!({"name": "My Group"}),
     );
-    let create_result = handlers::handle_user(&ctx, &mut create).await;
-    let group_id = response_json(&create_result)["id"]
+    let create_out = handlers::handle_user(&ctx, &create, create_input).await;
+    let group_id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
-    let mut update = update_msg(
+    let (update, update_input) = update_msg(
         &format!("/b/products/groups/{}", group_id),
         "user_2",
         serde_json::json!({
             "name": "Stolen"
         }),
     );
-    let result = handlers::handle_user(&ctx, &mut update).await;
-    assert!(is_error(&result, "not_found"));
+    let out = handlers::handle_user(&ctx, &update, update_input).await;
+    assert!(output_is_error(out, "not_found").await);
 }
 
 #[tokio::test]
 async fn user_group_update_prevents_ownership_change() {
     let ctx = user_products_ctx();
 
-    let mut create = create_msg(
+    let (create, create_input) = create_msg(
         "/b/products/groups",
         "user_1",
         serde_json::json!({"name": "My Group"}),
     );
-    let create_result = handlers::handle_user(&ctx, &mut create).await;
-    let group_id = response_json(&create_result)["id"]
+    let create_out = handlers::handle_user(&ctx, &create, create_input).await;
+    let group_id = output_to_json(create_out).await["id"]
         .as_str()
         .unwrap()
         .to_string();
 
-    let mut update = update_msg(
+    let (update, update_input) = update_msg(
         &format!("/b/products/groups/{}", group_id),
         "user_1",
         serde_json::json!({
@@ -557,9 +542,8 @@ async fn user_group_update_prevents_ownership_change() {
             "user_id": "attacker"
         }),
     );
-    let result = handlers::handle_user(&ctx, &mut update).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = handlers::handle_user(&ctx, &update, update_input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["data"]["user_id"], "user_1");
 }
 
@@ -581,9 +565,9 @@ async fn catalog_only_shows_active_products() {
     d2.insert("status".to_string(), serde_json::json!("draft"));
     ctx.seed("suppers_ai__products__products", "p_draft", d2);
 
-    let mut msg = get_msg("/b/products/catalog", "");
-    let result = handlers::handle_user(&ctx, &mut msg).await;
-    let body = response_json(&result);
+    let (msg, input) = get_msg("/b/products/catalog", "");
+    let out = handlers::handle_user(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     let records = body["records"].as_array().unwrap();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0]["data"]["name"], "Active");
@@ -598,9 +582,9 @@ async fn catalog_get_hides_non_active() {
     d.insert("status".to_string(), serde_json::json!("draft"));
     ctx.seed("suppers_ai__products__products", "p_hidden", d);
 
-    let mut msg = get_msg("/b/products/catalog/p_hidden", "");
-    let result = handlers::handle_user(&ctx, &mut msg).await;
-    assert!(is_error(&result, "not_found"));
+    let (msg, input) = get_msg("/b/products/catalog/p_hidden", "");
+    let out = handlers::handle_user(&ctx, &msg, input).await;
+    assert!(output_is_error(out, "not_found").await);
 }
 
 // ============================================================
@@ -612,16 +596,16 @@ async fn user_group_products_list() {
     let ctx = user_products_ctx();
 
     // Create group
-    let mut cg = create_msg(
+    let (cg, cg_input) = create_msg(
         "/b/products/groups",
         "user_1",
         serde_json::json!({"name": "Store"}),
     );
-    let gr = handlers::handle_user(&ctx, &mut cg).await;
-    let gid = response_json(&gr)["id"].as_str().unwrap().to_string();
+    let gr = handlers::handle_user(&ctx, &cg, cg_input).await;
+    let gid = output_to_json(gr).await["id"].as_str().unwrap().to_string();
 
     // Create product in group
-    let mut cp = create_msg(
+    let (cp, cp_input) = create_msg(
         "/b/products/products",
         "user_1",
         serde_json::json!({
@@ -629,13 +613,12 @@ async fn user_group_products_list() {
             "group_id": gid
         }),
     );
-    handlers::handle_user(&ctx, &mut cp).await;
+    handlers::handle_user(&ctx, &cp, cp_input).await;
 
     // List products in group
-    let mut list = get_msg(&format!("/b/products/groups/{}/products", gid), "user_1");
-    let result = handlers::handle_user(&ctx, &mut list).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let (list, list_input) = get_msg(&format!("/b/products/groups/{}/products", gid), "user_1");
+    let out = handlers::handle_user(&ctx, &list, list_input).await;
+    let body = output_to_json(out).await;
     assert!(body["records"].as_array().unwrap().len() >= 1);
 }
 
@@ -643,18 +626,18 @@ async fn user_group_products_list() {
 async fn user_cannot_list_other_users_group_products() {
     let ctx = user_products_ctx();
 
-    let mut cg = create_msg(
+    let (cg, cg_input) = create_msg(
         "/b/products/groups",
         "user_1",
         serde_json::json!({"name": "Private"}),
     );
-    let gr = handlers::handle_user(&ctx, &mut cg).await;
-    let gid = response_json(&gr)["id"].as_str().unwrap().to_string();
+    let gr = handlers::handle_user(&ctx, &cg, cg_input).await;
+    let gid = output_to_json(gr).await["id"].as_str().unwrap().to_string();
 
     // user_2 tries to list user_1's group products
-    let mut list = get_msg(&format!("/b/products/groups/{}/products", gid), "user_2");
-    let result = handlers::handle_user(&ctx, &mut list).await;
-    assert!(is_error(&result, "not_found"));
+    let (list, list_input) = get_msg(&format!("/b/products/groups/{}/products", gid), "user_2");
+    let out = handlers::handle_user(&ctx, &list, list_input).await;
+    assert!(output_is_error(out, "not_found").await);
 }
 
 // ============================================================
@@ -665,25 +648,25 @@ async fn user_cannot_list_other_users_group_products() {
 async fn user_products_rejected_when_disabled() {
     let ctx = MockContext::new(); // no ALLOW_USER_PRODUCTS config → defaults to false
 
-    let mut create = create_msg(
+    let (create, create_input) = create_msg(
         "/b/products/products",
         "user_1",
         serde_json::json!({"name": "Test"}),
     );
-    let result = handlers::handle_user(&ctx, &mut create).await;
-    assert!(is_error(&result, "permission_denied"));
+    let out = handlers::handle_user(&ctx, &create, create_input).await;
+    assert!(output_is_error(out, "permission_denied").await);
 
-    let mut list = get_msg("/b/products/products", "user_1");
-    let result = handlers::handle_user(&ctx, &mut list).await;
-    assert!(is_error(&result, "permission_denied"));
+    let (list, list_input) = get_msg("/b/products/products", "user_1");
+    let out = handlers::handle_user(&ctx, &list, list_input).await;
+    assert!(output_is_error(out, "permission_denied").await);
 
-    let mut group = create_msg(
+    let (group, group_input) = create_msg(
         "/b/products/groups",
         "user_1",
         serde_json::json!({"name": "Group"}),
     );
-    let result = handlers::handle_user(&ctx, &mut group).await;
-    assert!(is_error(&result, "permission_denied"));
+    let out = handlers::handle_user(&ctx, &group, group_input).await;
+    assert!(output_is_error(out, "permission_denied").await);
 }
 
 #[tokio::test]
@@ -695,10 +678,9 @@ async fn catalog_still_works_when_user_products_disabled() {
     d.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("suppers_ai__products__products", "p1", d);
 
-    let mut msg = get_msg("/b/products/catalog", "");
-    let result = handlers::handle_user(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let (msg, input) = get_msg("/b/products/catalog", "");
+    let out = handlers::handle_user(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["records"].as_array().unwrap().len(), 1);
 }
 
@@ -709,15 +691,15 @@ async fn catalog_still_works_when_user_products_disabled() {
 #[tokio::test]
 async fn unknown_admin_route() {
     let ctx = MockContext::new();
-    let mut msg = admin_get_msg("/admin/b/products/nonexistent");
-    let result = handlers::handle_admin(&ctx, &mut msg).await;
-    assert!(is_error(&result, "not_found"));
+    let (msg, input) = admin_get_msg("/admin/b/products/nonexistent");
+    let out = handlers::handle_admin(&ctx, &msg, input).await;
+    assert!(output_is_error(out, "not_found").await);
 }
 
 #[tokio::test]
 async fn unknown_user_route() {
     let ctx = MockContext::new();
-    let mut msg = get_msg("/b/products/nonexistent", "user_1");
-    let result = handlers::handle_user(&ctx, &mut msg).await;
-    assert!(is_error(&result, "not_found"));
+    let (msg, input) = get_msg("/b/products/nonexistent", "user_1");
+    let out = handlers::handle_user(&ctx, &msg, input).await;
+    assert!(output_is_error(out, "not_found").await);
 }

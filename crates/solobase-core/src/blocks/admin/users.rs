@@ -1,28 +1,32 @@
-use crate::blocks::helpers::{self, RecordExt};
+use crate::blocks::helpers::{
+    self, err_bad_request, err_internal, err_not_found, ok_json, RecordExt,
+};
 use std::collections::HashMap;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 use super::USER_ROLES_COLLECTION;
 use crate::blocks::auth::USERS_COLLECTION as COLLECTION;
 
-pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
         ("retrieve", "/admin/users") => handle_list(ctx, msg).await,
         ("retrieve", _) if path.starts_with("/admin/users/") => handle_get(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/users/") => handle_update(ctx, msg).await,
+        ("update", _) if path.starts_with("/admin/users/") => {
+            handle_update(ctx, msg, input).await
+        }
         ("delete", _) if path.starts_with("/admin/users/") => handle_delete(ctx, msg).await,
-        _ => err_not_found(msg, "not found"),
+        _ => err_not_found("not found"),
     }
 }
 
-async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (page, page_size, _) = msg.pagination_params(20);
     let search = msg.query("search").to_string();
 
@@ -80,27 +84,27 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     .data
                     .insert("roles".to_string(), serde_json::json!(roles));
             }
-            json_respond(msg, &result)
+            ok_json(&result)
         }
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let id = msg.var("id").to_string();
     if id.is_empty() {
         // Extract from path
         let path = msg.path().to_string();
         let id = path.strip_prefix("/admin/users/").unwrap_or("").to_string();
         if id.is_empty() {
-            return err_bad_request(msg, "Missing user ID");
+            return err_bad_request("Missing user ID");
         }
-        return get_user(ctx, msg, &id).await;
+        return get_user(ctx, &id).await;
     }
-    get_user(ctx, msg, &id).await
+    get_user(ctx, &id).await
 }
 
-async fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
+async fn get_user(ctx: &dyn Context, id: &str) -> OutputStream {
     match db::get(ctx, COLLECTION, id).await {
         Ok(mut record) => {
             record.data.remove("password_hash");
@@ -126,14 +130,18 @@ async fn get_user(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
             if let Some(obj) = resp.as_object_mut() {
                 obj.insert("roles".to_string(), serde_json::json!(roles));
             }
-            json_respond(msg, &resp)
+            ok_json(&resp)
         }
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "User not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("User not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_update(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let path = msg.path();
     let id = msg.var("id");
     let id = if id.is_empty() {
@@ -142,19 +150,20 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         id
     };
     if id.is_empty() {
-        return err_bad_request(msg, "Missing user ID");
+        return err_bad_request("Missing user ID");
     }
 
     // Prevent admin from disabling themselves
     let current_user_id = msg.user_id();
-    let body: HashMap<String, serde_json::Value> = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
     if id == current_user_id {
         if let Some(disabled) = body.get("disabled") {
             if disabled == &serde_json::Value::Bool(true) || disabled == &serde_json::json!(1) {
-                return err_bad_request(msg, "Cannot disable your own account");
+                return err_bad_request("Cannot disable your own account");
             }
         }
     }
@@ -171,14 +180,14 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     match db::update(ctx, COLLECTION, id, data).await {
         Ok(mut record) => {
             record.data.remove("password_hash");
-            json_respond(msg, &record)
+            ok_json(&record)
         }
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "User not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("User not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let id = msg.var("id");
     let id = if id.is_empty() {
@@ -187,18 +196,18 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         id
     };
     if id.is_empty() {
-        return err_bad_request(msg, "Missing user ID");
+        return err_bad_request("Missing user ID");
     }
 
     // Prevent admin from deleting themselves
     if id == msg.user_id() {
-        return err_bad_request(msg, "Cannot delete your own account");
+        return err_bad_request("Cannot delete your own account");
     }
 
     // Soft delete
     match db::soft_delete(ctx, COLLECTION, id).await {
-        Ok(_) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "User not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(_) => ok_json(&serde_json::json!({"deleted": true})),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("User not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }

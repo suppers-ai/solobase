@@ -3,6 +3,7 @@ use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
 use wafer_run::context::Context;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
 use wafer_sql_utils::value::sea_values_to_json;
 use wafer_sql_utils::{query, Backend};
 
@@ -13,7 +14,7 @@ use crate::blocks::admin::{
     REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
 };
 
-pub async fn network_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn network_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let tab = msg.query("tab");
@@ -82,7 +83,7 @@ pub async fn network_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
 }
 
-async fn network_inbound_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
+async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
     let search = msg.query("search").to_string();
 
     let (where_clause, args) = if search.is_empty() {
@@ -191,7 +192,7 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
 }
 
 /// Htmx fragment: individual requests for a given inbound path.
-pub async fn network_inbound_detail(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let method = msg.query("method").to_string();
     let path = msg.query("path").to_string();
     let offset: i64 = msg.query("offset").parse().unwrap_or(0);
@@ -271,10 +272,10 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &mut Message) -> Res
             }
         }
     };
-    crate::ui::html_response(msg, markup)
+    crate::ui::html_response(markup)
 }
 
-async fn network_outbound_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
+async fn network_outbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
     let search = msg.query("search").to_string();
 
     let (where_clause, args) = if search.is_empty() {
@@ -382,7 +383,7 @@ async fn network_outbound_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
 }
 
 /// Htmx fragment: individual requests for a given outbound URL.
-pub async fn network_outbound_detail(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn network_outbound_detail(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let method = msg.query("method").to_string();
     let url = msg.query("url").to_string();
     let offset: i64 = msg.query("offset").parse().unwrap_or(0);
@@ -473,10 +474,10 @@ pub async fn network_outbound_detail(ctx: &dyn Context, msg: &mut Message) -> Re
             }
         }
     };
-    crate::ui::html_response(msg, markup)
+    crate::ui::html_response(markup)
 }
 
-pub(crate) async fn network_rules_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
+pub(crate) async fn network_rules_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
     let blocks = ctx.registered_blocks();
     let block_names: Vec<&str> = blocks.iter().map(|b| b.name.as_str()).collect();
 

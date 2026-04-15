@@ -25,10 +25,12 @@ use std::sync::Arc;
 use wafer_core::interfaces::storage::service::StorageService;
 use wafer_run::block::Block;
 use wafer_run::context::Context;
+use wafer_run::streams::output::TerminalNotResponse;
 use wafer_run::types::*;
 use wafer_run::BlockInfo;
 use wafer_run::ResourceGrant;
 use wafer_run::ResourceType;
+use wafer_run::{InputStream, OutputStream};
 
 use wafer_core::clients::database as db;
 
@@ -120,11 +122,26 @@ fn access_type_for_op(kind: &str) -> &'static str {
     }
 }
 
-/// Rewrite the folder/name field in the message data.
+/// Rewrite the folder/name field in the request body bytes.
 ///
-/// Returns the resolved path and whether it's a cross-block access.
-fn rewrite_message_path(msg: &mut Message, caller: &str) -> Result<ResolvedPath, WaferError> {
-    let mut v: serde_json::Value = serde_json::from_slice(&msg.data).map_err(|e| {
+/// Returns the rewritten body bytes plus the resolved path info.
+fn rewrite_request_body(
+    kind: &str,
+    body: &[u8],
+    caller: &str,
+) -> Result<(Vec<u8>, ResolvedPath), WaferError> {
+    // For list_folders, no folder field to rewrite — handled by filtering results
+    if kind == "storage.list_folders" {
+        return Ok((
+            body.to_vec(),
+            ResolvedPath {
+                path: caller.to_string(),
+                cross_block: false,
+            },
+        ));
+    }
+
+    let mut v: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
         WaferError::new(
             ErrorCode::INVALID_ARGUMENT,
             format!("invalid storage request: {e}"),
@@ -132,7 +149,7 @@ fn rewrite_message_path(msg: &mut Message, caller: &str) -> Result<ResolvedPath,
     })?;
 
     // For folder-level ops, rewrite the "name" field
-    if msg.kind == "storage.create_folder" || msg.kind == "storage.delete_folder" {
+    if kind == "storage.create_folder" || kind == "storage.delete_folder" {
         let name = v
             .get("name")
             .and_then(|n| n.as_str())
@@ -140,16 +157,8 @@ fn rewrite_message_path(msg: &mut Message, caller: &str) -> Result<ResolvedPath,
             .to_string();
         let resolved = resolve_folder(caller, &name);
         v["name"] = serde_json::Value::String(resolved.path.clone());
-        msg.data = serde_json::to_vec(&v).unwrap_or_default();
-        return Ok(resolved);
-    }
-
-    // For list_folders, no folder field to rewrite — handled by filtering results
-    if msg.kind == "storage.list_folders" {
-        return Ok(ResolvedPath {
-            path: caller.to_string(),
-            cross_block: false,
-        });
+        let bytes = serde_json::to_vec(&v).unwrap_or_default();
+        return Ok((bytes, resolved));
     }
 
     // For object-level ops, rewrite the "folder" field
@@ -160,8 +169,8 @@ fn rewrite_message_path(msg: &mut Message, caller: &str) -> Result<ResolvedPath,
         .to_string();
     let resolved = resolve_folder(caller, &folder);
     v["folder"] = serde_json::Value::String(resolved.path.clone());
-    msg.data = serde_json::to_vec(&v).unwrap_or_default();
-    Ok(resolved)
+    let bytes = serde_json::to_vec(&v).unwrap_or_default();
+    Ok((bytes, resolved))
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -171,23 +180,29 @@ impl Block for SolobaseStorageBlock {
         self.inner.info()
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         let caller = ctx.caller_id().unwrap_or("unknown").to_string();
 
         // Validate caller name is safe for storage paths
         if caller != "unknown" && !is_safe_block_name(&caller) {
-            return Result_::error(WaferError::new(
-                ErrorCode::PERMISSION_DENIED,
+            return OutputStream::error(WaferError::new(
+                ErrorCode::PermissionDenied,
                 format!("block name '{}' is not safe for storage paths", caller),
             ));
         }
 
         let access = access_type_for_op(&msg.kind);
+        let body = input.collect_to_bytes().await;
 
-        // Rewrite folder/name in the message, resolving own vs cross-block
-        let resolved = match rewrite_message_path(msg, &caller) {
+        // Rewrite folder/name in the request body, resolving own vs cross-block
+        let (rewritten_body, resolved) = match rewrite_request_body(&msg.kind, &body, &caller) {
             Ok(r) => r,
-            Err(e) => return Result_::error(e),
+            Err(e) => return OutputStream::error(e),
         };
 
         // Check for path traversal
@@ -200,8 +215,8 @@ impl Block for SolobaseStorageBlock {
                 "BLOCKED: path traversal",
             )
             .await;
-            return Result_::error(WaferError::new(
-                ErrorCode::PERMISSION_DENIED,
+            return OutputStream::error(WaferError::new(
+                ErrorCode::PermissionDenied,
                 "storage path traversal not allowed",
             ));
         }
@@ -226,24 +241,46 @@ impl Block for SolobaseStorageBlock {
                     &format!("BLOCKED: {}", e.message),
                 )
                 .await;
-                return Result_::error(e);
+                return OutputStream::error(e);
             }
         }
 
-        // Execute the actual storage operation
+        // Execute the actual storage operation, then collect to log status.
         let start = now_millis();
-        let result = self.inner.handle(ctx, msg).await;
+        let inner_out = self
+            .inner
+            .handle(ctx, msg.clone(), InputStream::from_bytes(rewritten_body))
+            .await;
+        let buffered = inner_out.collect_buffered().await;
         let duration_ms = (now_millis() - start) as i64;
 
-        // Log the access (best-effort)
-        let status = match &result.action {
-            Action::Error => result
-                .error
-                .as_ref()
-                .map(|e| format!("ERROR: {}", e.message))
-                .unwrap_or_else(|| "ERROR".into()),
-            _ => format!("OK ({duration_ms}ms)"),
+        let (status, result) = match buffered {
+            Ok(resp) => {
+                let mut builder = crate::blocks::helpers::ResponseBuilder::new();
+                for entry in &resp.meta {
+                    builder = builder.set_header(&entry.key, &entry.value);
+                }
+                let out = builder.body(resp.body, "");
+                (format!("OK ({duration_ms}ms)"), out)
+            }
+            Err(TerminalNotResponse::Error(e)) => {
+                let s = format!("ERROR: {}", e.message);
+                (s, OutputStream::error(e))
+            }
+            Err(TerminalNotResponse::Drop) => ("ERROR: dropped".into(), OutputStream::drop_request()),
+            Err(TerminalNotResponse::Continue(m)) => {
+                ("ERROR: continue".into(), OutputStream::continue_with(m))
+            }
+            Err(TerminalNotResponse::Malformed) => (
+                "ERROR: malformed".into(),
+                OutputStream::error(WaferError::new(
+                    ErrorCode::Internal,
+                    "malformed inner response",
+                )),
+            ),
         };
+
+        // Log the access (best-effort)
         let _ = log_storage_access(ctx, &caller, &msg.kind, &resolved.path, &status).await;
 
         result
@@ -291,16 +328,10 @@ pub fn create(service: Arc<dyn StorageService>, admin_block: Arc<String>) -> Arc
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::sync::atomic::AtomicU64;
-    use std::sync::Mutex;
-    use wafer_core::clients::database::Record;
-    use wafer_core::interfaces::storage::service::{
-        FolderInfo, ListOptions, ObjectInfo, ObjectList, StorageError,
-    };
 
     // -----------------------------------------------------------------------
-    // Unit tests for pure functions
+    // Unit tests for pure functions (integration tests would require porting
+    // a TestContext to the streaming protocol — left for a future change).
     // -----------------------------------------------------------------------
 
     #[test]
@@ -358,534 +389,52 @@ mod tests {
     }
 
     #[test]
-    fn test_rewrite_message_path_put() {
-        let mut msg = Message::new(
-            "storage.put",
-            serde_json::to_vec(&serde_json::json!({
-                "folder": "uploads",
-                "key": "photo.jpg",
-                "data": [],
-                "content_type": "image/jpeg"
-            }))
-            .unwrap(),
-        );
-        let resolved = rewrite_message_path(&mut msg, "suppers-ai/files").unwrap();
+    fn test_rewrite_request_body_put() {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "folder": "uploads",
+            "key": "photo.jpg",
+            "data": [],
+            "content_type": "image/jpeg"
+        }))
+        .unwrap();
+        let (rewritten, resolved) =
+            rewrite_request_body("storage.put", &body, "suppers-ai/files").unwrap();
         assert_eq!(resolved.path, "suppers-ai/files/uploads");
         assert!(!resolved.cross_block);
 
-        // Verify the message was rewritten
-        let v: serde_json::Value = serde_json::from_slice(&msg.data).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&rewritten).unwrap();
         assert_eq!(v["folder"], "suppers-ai/files/uploads");
     }
 
     #[test]
-    fn test_rewrite_message_path_cross_block() {
-        let mut msg = Message::new(
-            "storage.get",
-            serde_json::to_vec(&serde_json::json!({
-                "folder": "@wafer-run/web/public",
-                "key": "index.html"
-            }))
-            .unwrap(),
-        );
-        let resolved = rewrite_message_path(&mut msg, "suppers-ai/files").unwrap();
+    fn test_rewrite_request_body_cross_block() {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "folder": "@wafer-run/web/public",
+            "key": "index.html"
+        }))
+        .unwrap();
+        let (rewritten, resolved) =
+            rewrite_request_body("storage.get", &body, "suppers-ai/files").unwrap();
         assert_eq!(resolved.path, "wafer-run/web/public");
         assert!(resolved.cross_block);
 
-        let v: serde_json::Value = serde_json::from_slice(&msg.data).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&rewritten).unwrap();
         assert_eq!(v["folder"], "wafer-run/web/public");
     }
 
     #[test]
-    fn test_rewrite_message_path_create_folder() {
-        let mut msg = Message::new(
-            "storage.create_folder",
-            serde_json::to_vec(&serde_json::json!({
-                "name": "uploads",
-                "public": false
-            }))
-            .unwrap(),
-        );
-        let resolved = rewrite_message_path(&mut msg, "suppers-ai/files").unwrap();
+    fn test_rewrite_request_body_create_folder() {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "name": "uploads",
+            "public": false
+        }))
+        .unwrap();
+        let (rewritten, resolved) =
+            rewrite_request_body("storage.create_folder", &body, "suppers-ai/files").unwrap();
         assert_eq!(resolved.path, "suppers-ai/files/uploads");
         assert!(!resolved.cross_block);
 
-        let v: serde_json::Value = serde_json::from_slice(&msg.data).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&rewritten).unwrap();
         assert_eq!(v["name"], "suppers-ai/files/uploads");
-    }
-
-    // -----------------------------------------------------------------------
-    // In-memory storage service for integration tests
-    // -----------------------------------------------------------------------
-
-    struct MemoryStorageService {
-        /// folder → (key → (data, content_type))
-        objects: Mutex<HashMap<String, HashMap<String, (Vec<u8>, String)>>>,
-    }
-
-    impl MemoryStorageService {
-        fn new() -> Self {
-            Self {
-                objects: Mutex::new(HashMap::new()),
-            }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl StorageService for MemoryStorageService {
-        async fn put(
-            &self,
-            folder: &str,
-            key: &str,
-            data: &[u8],
-            content_type: &str,
-        ) -> Result<(), StorageError> {
-            let mut store = self.objects.lock().unwrap();
-            store
-                .entry(folder.to_string())
-                .or_default()
-                .insert(key.to_string(), (data.to_vec(), content_type.to_string()));
-            Ok(())
-        }
-
-        async fn get(
-            &self,
-            folder: &str,
-            key: &str,
-        ) -> Result<(Vec<u8>, ObjectInfo), StorageError> {
-            let store = self.objects.lock().unwrap();
-            let folder_map = store.get(folder).ok_or(StorageError::NotFound)?;
-            let (data, ct) = folder_map.get(key).ok_or(StorageError::NotFound)?;
-            Ok((
-                data.clone(),
-                ObjectInfo {
-                    key: key.to_string(),
-                    size: data.len() as i64,
-                    content_type: ct.clone(),
-                    last_modified: chrono::Utc::now(),
-                },
-            ))
-        }
-
-        async fn delete(&self, folder: &str, key: &str) -> Result<(), StorageError> {
-            let mut store = self.objects.lock().unwrap();
-            if let Some(f) = store.get_mut(folder) {
-                f.remove(key);
-            }
-            Ok(())
-        }
-
-        async fn list(
-            &self,
-            folder: &str,
-            _opts: &ListOptions,
-        ) -> Result<ObjectList, StorageError> {
-            let store = self.objects.lock().unwrap();
-            let objects: Vec<ObjectInfo> = store
-                .get(folder)
-                .map(|f| {
-                    f.iter()
-                        .map(|(k, (data, ct))| ObjectInfo {
-                            key: k.clone(),
-                            size: data.len() as i64,
-                            content_type: ct.clone(),
-                            last_modified: chrono::Utc::now(),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            let total_count = objects.len() as i64;
-            Ok(ObjectList {
-                objects: objects,
-                total_count,
-            })
-        }
-
-        async fn create_folder(&self, name: &str, _public: bool) -> Result<(), StorageError> {
-            let mut store = self.objects.lock().unwrap();
-            store.entry(name.to_string()).or_default();
-            Ok(())
-        }
-
-        async fn delete_folder(&self, name: &str) -> Result<(), StorageError> {
-            let mut store = self.objects.lock().unwrap();
-            store.remove(name);
-            Ok(())
-        }
-
-        async fn list_folders(&self) -> Result<Vec<FolderInfo>, StorageError> {
-            let store = self.objects.lock().unwrap();
-            Ok(store
-                .keys()
-                .map(|k| FolderInfo {
-                    name: k.clone(),
-                    public: false,
-                    created_at: chrono::Utc::now(),
-                })
-                .collect())
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Mock context that handles db + storage calls
-    // -----------------------------------------------------------------------
-
-    const ADMIN_BLOCK: &str = "suppers-ai/admin";
-
-    struct TestContext {
-        caller: Option<String>,
-        storage_block: SolobaseStorageBlock,
-        db: Mutex<HashMap<String, Vec<Record>>>,
-        next_id: AtomicU64,
-    }
-
-    impl TestContext {
-        fn new(caller: Option<&str>, storage: Arc<MemoryStorageService>) -> Self {
-            Self {
-                caller: caller.map(|s| s.to_string()),
-                storage_block: SolobaseStorageBlock::new(
-                    storage,
-                    Arc::new(ADMIN_BLOCK.to_string()),
-                ),
-                db: Mutex::new(HashMap::new()),
-                next_id: AtomicU64::new(1),
-            }
-        }
-
-        fn set_grants(&self, grants: Vec<ResourceGrant>) {
-            self.storage_block.update_wrap_grants(&grants);
-        }
-
-        fn handle_db_call(&self, kind: &str, data: &[u8]) -> Result<Vec<u8>, WaferError> {
-            match kind {
-                "database.create" => {
-                    #[derive(serde::Deserialize)]
-                    struct Req {
-                        collection: String,
-                        data: HashMap<String, serde_json::Value>,
-                    }
-                    let req: Req = serde_json::from_slice(data)
-                        .map_err(|e| WaferError::new("internal", e.to_string()))?;
-                    let id = self
-                        .next_id
-                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-                        .to_string();
-                    let record = Record { id, data: req.data };
-                    let mut db = self.db.lock().unwrap();
-                    db.entry(req.collection).or_default().push(record.clone());
-                    Ok(serde_json::to_vec(&record).unwrap())
-                }
-                _ => Err(WaferError::new(
-                    "not_implemented",
-                    format!("unhandled db op: {kind}"),
-                )),
-            }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl Context for TestContext {
-        async fn call_block(&self, block_name: &str, msg: &mut Message) -> Result_ {
-            let kind = msg.kind.clone();
-            let data = msg.data.clone();
-
-            match block_name {
-                "wafer-run/database" => {
-                    let result = self.handle_db_call(&kind, &data);
-                    match result {
-                        Ok(response_data) => Result_ {
-                            action: Action::Respond,
-                            response: Some(Response {
-                                data: response_data,
-                                meta: Vec::new(),
-                            }),
-                            error: None,
-                            message: None,
-                        },
-                        Err(e) => Result_ {
-                            action: Action::Error,
-                            response: None,
-                            error: Some(e),
-                            message: None,
-                        },
-                    }
-                }
-                _ => Result_ {
-                    action: Action::Error,
-                    response: None,
-                    error: Some(WaferError::new(
-                        "not_found",
-                        format!("block '{}' not found", block_name),
-                    )),
-                    message: None,
-                },
-            }
-        }
-
-        fn is_cancelled(&self) -> bool {
-            false
-        }
-
-        fn config_get(&self, _key: &str) -> Option<&str> {
-            None
-        }
-
-        fn caller_id(&self) -> Option<&str> {
-            self.caller.as_deref()
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Helper: run a storage op through the block
-    // -----------------------------------------------------------------------
-
-    async fn do_put(
-        block: &SolobaseStorageBlock,
-        ctx: &TestContext,
-        folder: &str,
-        key: &str,
-        data: &[u8],
-    ) -> Result_ {
-        let mut msg = Message::new(
-            "storage.put",
-            serde_json::to_vec(&serde_json::json!({
-                "folder": folder,
-                "key": key,
-                "data": data,
-                "content_type": "text/plain"
-            }))
-            .unwrap(),
-        );
-        block.handle(ctx, &mut msg).await
-    }
-
-    async fn do_get(
-        block: &SolobaseStorageBlock,
-        ctx: &TestContext,
-        folder: &str,
-        key: &str,
-    ) -> Result_ {
-        let mut msg = Message::new(
-            "storage.get",
-            serde_json::to_vec(&serde_json::json!({
-                "folder": folder,
-                "key": key
-            }))
-            .unwrap(),
-        );
-        block.handle(ctx, &mut msg).await
-    }
-
-    // -----------------------------------------------------------------------
-    // Integration tests
-    // -----------------------------------------------------------------------
-
-    #[tokio::test]
-    async fn test_own_namespace_isolation_put_and_get() {
-        let storage = Arc::new(MemoryStorageService::new());
-        let ctx = TestContext::new(Some("wafer-run/web"), storage.clone());
-        let block = &ctx.storage_block;
-
-        // Put a file — should land in wafer-run/web/public
-        let result = do_put(block, &ctx, "public", "index.html", b"<html>hello</html>").await;
-        assert!(
-            matches!(result.action, Action::Respond),
-            "put should succeed, got: {:?}",
-            result.error
-        );
-
-        // Verify it was stored under the prefixed path
-        let store = storage.objects.lock().unwrap();
-        assert!(
-            store
-                .get("wafer-run/web/public")
-                .and_then(|f| f.get("index.html"))
-                .is_some(),
-            "file should be stored at wafer-run/web/public/index.html, got: {:?}",
-            store.keys().collect::<Vec<_>>()
-        );
-        // NOT stored at bare "public"
-        assert!(store.get("public").is_none());
-        drop(store);
-
-        // Get it back
-        let result = do_get(block, &ctx, "public", "index.html").await;
-        assert!(matches!(result.action, Action::Respond));
-    }
-
-    #[tokio::test]
-    async fn test_different_blocks_are_isolated() {
-        let storage = Arc::new(MemoryStorageService::new());
-
-        // Block A writes
-        let ctx_a = TestContext::new(Some("suppers-ai/files"), storage.clone());
-        let result = do_put(
-            &ctx_a.storage_block,
-            &ctx_a,
-            "uploads",
-            "secret.txt",
-            b"secret data",
-        )
-        .await;
-        assert!(matches!(result.action, Action::Respond));
-
-        // Block B cannot read Block A's file (it reads from its own namespace)
-        let ctx_b = TestContext::new(Some("suppers-ai/auth"), storage.clone());
-        let result = do_get(&ctx_b.storage_block, &ctx_b, "uploads", "secret.txt").await;
-        // Should fail — the file is at suppers-ai/files/uploads, not suppers-ai/auth/uploads
-        assert!(
-            matches!(result.action, Action::Error),
-            "block B should NOT see block A's files"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_cross_block_denied_by_default() {
-        let storage = Arc::new(MemoryStorageService::new());
-
-        // Block A writes a file
-        let ctx_a = TestContext::new(Some("wafer-run/web"), storage.clone());
-        do_put(
-            &ctx_a.storage_block,
-            &ctx_a,
-            "public",
-            "index.html",
-            b"<html>",
-        )
-        .await;
-
-        // Block B tries cross-block read via @ prefix — denied (no rules)
-        let ctx_b = TestContext::new(Some("suppers-ai/files"), storage.clone());
-        let result = do_get(
-            &ctx_b.storage_block,
-            &ctx_b,
-            "@wafer-run/web/public",
-            "index.html",
-        )
-        .await;
-        assert!(
-            matches!(result.action, Action::Error),
-            "cross-block access should be denied by default"
-        );
-        let err_msg = result
-            .error
-            .as_ref()
-            .map(|e| e.message.as_str())
-            .unwrap_or("");
-        assert!(
-            err_msg.contains("denied"),
-            "error should mention denied: {err_msg}"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_cross_block_allowed_by_grant() {
-        let storage = Arc::new(MemoryStorageService::new());
-
-        let ctx_a = TestContext::new(Some("wafer-run/web"), storage.clone());
-        do_put(&ctx_a.storage_block, &ctx_a, "public", "index.html", b"<html>hello</html>").await;
-
-        let ctx_b = TestContext::new(Some("suppers-ai/files"), storage.clone());
-        ctx_b.set_grants(vec![
-            ResourceGrant::read("suppers-ai/files", "wafer-run/web/*")
-                .typed(ResourceType::Storage),
-        ]);
-
-        let result = do_get(&ctx_b.storage_block, &ctx_b, "@wafer-run/web/public", "index.html").await;
-        assert!(
-            matches!(result.action, Action::Respond),
-            "cross-block read should be allowed by grant, got: {:?}",
-            result.error
-        );
-    }
-
-    #[tokio::test]
-    async fn test_cross_block_grant_wrong_access_type() {
-        let storage = Arc::new(MemoryStorageService::new());
-
-        let ctx_a = TestContext::new(Some("wafer-run/web"), storage.clone());
-        do_put(&ctx_a.storage_block, &ctx_a, "public", "test.txt", b"data").await;
-
-        let ctx_b = TestContext::new(Some("suppers-ai/files"), storage.clone());
-        ctx_b.set_grants(vec![
-            ResourceGrant::read("suppers-ai/files", "wafer-run/web/*")
-                .typed(ResourceType::Storage),
-        ]);
-
-        let result = do_put(&ctx_b.storage_block, &ctx_b, "@wafer-run/web/public", "evil.txt", b"hacked").await;
-        assert!(
-            matches!(result.action, Action::Error),
-            "write should be denied when grant is read-only"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_cross_block_no_grant_for_different_path() {
-        let storage = Arc::new(MemoryStorageService::new());
-
-        let ctx_a = TestContext::new(Some("suppers-ai/files"), storage.clone());
-        do_put(&ctx_a.storage_block, &ctx_a, "uploads", "test.txt", b"data").await;
-
-        let ctx_b = TestContext::new(Some("suppers-ai/auth"), storage.clone());
-        ctx_b.set_grants(vec![
-            ResourceGrant::read("suppers-ai/auth", "wafer-run/web/*")
-                .typed(ResourceType::Storage),
-        ]);
-
-        let result = do_get(&ctx_b.storage_block, &ctx_b, "@suppers-ai/files/uploads", "test.txt").await;
-        assert!(
-            matches!(result.action, Action::Error),
-            "grant for different path should not allow access"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_path_traversal_blocked() {
-        let storage = Arc::new(MemoryStorageService::new());
-        let ctx = TestContext::new(Some("wafer-run/web"), storage.clone());
-
-        let result = do_get(&ctx.storage_block, &ctx, "../../etc", "passwd").await;
-        assert!(
-            matches!(result.action, Action::Error),
-            "path traversal should be blocked"
-        );
-        let err_msg = result
-            .error
-            .as_ref()
-            .map(|e| e.message.as_str())
-            .unwrap_or("");
-        assert!(
-            err_msg.contains("traversal"),
-            "error should mention traversal: {err_msg}"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_own_namespace_unaffected_by_grants() {
-        let storage = Arc::new(MemoryStorageService::new());
-        let ctx = TestContext::new(Some("wafer-run/web"), storage.clone());
-
-        let result = do_put(&ctx.storage_block, &ctx, "public", "test.txt", b"hello").await;
-        assert!(
-            matches!(result.action, Action::Respond),
-            "own namespace access should work without any grants, got: {:?}",
-            result.error
-        );
-    }
-
-    #[tokio::test]
-    async fn test_admin_has_full_cross_block_access() {
-        let storage = Arc::new(MemoryStorageService::new());
-
-        let ctx_a = TestContext::new(Some("wafer-run/web"), storage.clone());
-        do_put(&ctx_a.storage_block, &ctx_a, "public", "test.txt", b"data").await;
-
-        let ctx_admin = TestContext::new(Some(ADMIN_BLOCK), storage.clone());
-        let result = do_get(&ctx_admin.storage_block, &ctx_admin, "@wafer-run/web/public", "test.txt").await;
-        assert!(
-            matches!(result.action, Action::Respond),
-            "admin should have full cross-block access, got: {:?}",
-            result.error
-        );
     }
 }

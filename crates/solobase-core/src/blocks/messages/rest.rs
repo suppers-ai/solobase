@@ -3,9 +3,10 @@
 //! Thin layer: parse HTTP request → call service → format JSON response.
 
 use super::service::{self, ListContextsParams, ListEntriesParams};
+use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 /// Convert empty string to None (msg.query() returns "" for missing params).
 fn non_empty(s: &str) -> Option<String> {
@@ -47,7 +48,7 @@ fn extract_entry_id(msg: &Message) -> &str {
 // Context endpoints
 // ---------------------------------------------------------------------------
 
-pub async fn list_contexts(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn list_contexts(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (_, page_size, offset) = msg.pagination_params(20);
     let params = ListContextsParams {
         context_type: non_empty(msg.query("type")),
@@ -58,12 +59,12 @@ pub async fn list_contexts(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         offset: offset as i64,
     };
     match service::list_contexts(ctx, &params).await {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &e),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&e),
     }
 }
 
-pub async fn create_context(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn create_context(ctx: &dyn Context, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct Body {
         #[serde(rename = "type")]
@@ -77,9 +78,10 @@ pub async fn create_context(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         parent_id: Option<String>,
         metadata: Option<serde_json::Value>,
     }
-    let body: Body = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: Body = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
     match service::create_context(
         ctx,
@@ -92,47 +94,53 @@ pub async fn create_context(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
     .await
     {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) => err_internal(msg, &e),
+        Ok(record) => ok_json(&record),
+        Err(e) => err_internal(&e),
     }
 }
 
-pub async fn get_context(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn get_context(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let id = extract_context_id(msg);
     if id.is_empty() {
-        return err_bad_request(msg, "Missing context ID");
+        return err_bad_request("Missing context ID");
     }
     match service::get_context(ctx, id).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Context not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(record) => ok_json(&record),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Context not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-pub async fn update_context(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn update_context(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let id = extract_context_id(msg);
     if id.is_empty() {
-        return err_bad_request(msg, "Missing context ID");
+        return err_bad_request("Missing context ID");
     }
-    let body: std::collections::HashMap<String, serde_json::Value> = match msg.decode() {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
-    };
+    let raw = input.collect_to_bytes().await;
+    let body: std::collections::HashMap<String, serde_json::Value> =
+        match serde_json::from_slice(&raw) {
+            Ok(b) => b,
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
+        };
     match service::update_context(ctx, id, body).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Context not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(record) => ok_json(&record),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Context not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-pub async fn delete_context(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn delete_context(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let id = extract_context_id(msg);
     if id.is_empty() {
-        return err_bad_request(msg, "Missing context ID");
+        return err_bad_request("Missing context ID");
     }
     match service::delete_context(ctx, id).await {
-        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) => err_internal(msg, &e),
+        Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
+        Err(e) => err_internal(&e),
     }
 }
 
@@ -140,10 +148,10 @@ pub async fn delete_context(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 // Entry endpoints
 // ---------------------------------------------------------------------------
 
-pub async fn list_entries(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn list_entries(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let context_id = extract_context_id(msg);
     if context_id.is_empty() {
-        return err_bad_request(msg, "Missing context ID");
+        return err_bad_request("Missing context ID");
     }
     let (_, page_size, offset) = msg.pagination_params(100);
     let params = ListEntriesParams {
@@ -153,15 +161,19 @@ pub async fn list_entries(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         offset: offset as i64,
     };
     match service::list_entries(ctx, context_id, &params).await {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &e),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&e),
     }
 }
 
-pub async fn add_entry(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn add_entry(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let context_id = extract_context_id(msg);
     if context_id.is_empty() {
-        return err_bad_request(msg, "Missing context ID");
+        return err_bad_request("Missing context ID");
     }
     #[derive(serde::Deserialize)]
     struct Body {
@@ -179,9 +191,10 @@ pub async fn add_entry(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     fn default_kind() -> String {
         "message".to_string()
     }
-    let body: Body = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: Body = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
     match service::add_entry(
         ctx,
@@ -195,31 +208,31 @@ pub async fn add_entry(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
     .await
     {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) => err_internal(msg, &e),
+        Ok(record) => ok_json(&record),
+        Err(e) => err_internal(&e),
     }
 }
 
-pub async fn get_entry(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn get_entry(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let id = extract_entry_id(msg);
     if id.is_empty() {
-        return err_bad_request(msg, "Missing entry ID");
+        return err_bad_request("Missing entry ID");
     }
     match service::get_entry(ctx, id).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Entry not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(record) => ok_json(&record),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Entry not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-pub async fn delete_entry(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn delete_entry(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let id = extract_entry_id(msg);
     if id.is_empty() {
-        return err_bad_request(msg, "Missing entry ID");
+        return err_bad_request("Missing entry ID");
     }
     match service::delete_entry(ctx, id).await {
-        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Entry not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Entry not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }

@@ -4,8 +4,12 @@ use wafer_core::clients::crypto;
 use wafer_core::clients::database as db;
 use wafer_core::clients::storage as store;
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
+
+use crate::blocks::helpers::{
+    err_bad_request, err_forbidden, err_internal, err_not_found, ResponseBuilder,
+};
 
 use super::{ACCESS_LOGS_COLLECTION, SHARES_COLLECTION};
 
@@ -13,7 +17,7 @@ pub async fn generate_share_token(
     ctx: &dyn Context,
     bucket: &str,
     key: &str,
-) -> Result<String, Result_> {
+) -> Result<String, OutputStream> {
     let mut claims = HashMap::new();
     claims.insert(
         "bucket".to_string(),
@@ -30,19 +34,14 @@ pub async fn generate_share_token(
 
     crypto::sign(ctx, &claims, Duration::from_secs(365 * 24 * 3600))
         .await
-        .map_err(|e| {
-            Result_::error(WaferError::new(
-                "internal",
-                format!("Token generation failed: {e}"),
-            ))
-        })
+        .map_err(|e| err_internal(&format!("Token generation failed: {e}")))
 }
 
-pub async fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_direct_access(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let token = path.strip_prefix("/storage/direct/").unwrap_or("");
     if token.is_empty() {
-        return err_bad_request(msg, "Missing share token");
+        return err_bad_request("Missing share token");
     }
 
     // Look up share by token
@@ -55,7 +54,7 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Resul
     .await
     {
         Ok(s) => s,
-        Err(_) => return err_not_found(msg, "Share not found or expired"),
+        Err(_) => return err_not_found("Share not found or expired"),
     };
 
     // Check expiry
@@ -63,7 +62,7 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Resul
         if !expires.is_empty() {
             if let Ok(exp_time) = chrono::DateTime::parse_from_rfc3339(expires) {
                 if exp_time < chrono::Utc::now() {
-                    return err_forbidden(msg, "Share link has expired");
+                    return err_forbidden("Share link has expired");
                 }
             }
         }
@@ -77,7 +76,7 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Resul
         .unwrap_or(0);
     if let Some(max) = share.data.get("max_access_count").and_then(|v| v.as_i64()) {
         if max > 0 && access_count >= max {
-            return err_forbidden(msg, "Share link access limit reached");
+            return err_forbidden("Share link access limit reached");
         }
     }
 
@@ -89,7 +88,7 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Resul
     let key = share.data.get("key").and_then(|v| v.as_str()).unwrap_or("");
 
     if bucket.is_empty() || key.is_empty() {
-        return err_internal(msg, "Invalid share data");
+        return err_internal("Invalid share data");
     }
 
     // Increment access count
@@ -126,7 +125,7 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Resul
 
     // Serve the file
     match store::get(ctx, bucket, key).await {
-        Ok((data, info)) => ResponseBuilder::new(msg)
+        Ok((data, info)) => ResponseBuilder::new()
             .set_header(
                 "Content-Disposition",
                 &format!(
@@ -136,7 +135,7 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &mut Message) -> Resul
             )
             .set_header("Cache-Control", "private, max-age=3600")
             .body(data, &info.content_type),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "File not found"),
-        Err(e) => err_internal(msg, &format!("Storage error: {e}")),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("File not found"),
+        Err(e) => err_internal(&format!("Storage error: {e}")),
     }
 }

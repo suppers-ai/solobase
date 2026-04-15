@@ -9,8 +9,10 @@ use std::sync::Arc;
 use wafer_core::interfaces::network::service::NetworkService;
 use wafer_run::block::Block;
 use wafer_run::context::Context;
+use wafer_run::streams::output::TerminalNotResponse;
 use wafer_run::types::*;
 use wafer_run::BlockInfo;
+use wafer_run::{InputStream, OutputStream};
 
 use wafer_core::clients::database as db;
 
@@ -30,8 +32,8 @@ impl SolobaseNetworkBlock {
 }
 
 /// Parse the request payload to extract method + url for logging.
-fn parse_request_info(msg: &Message) -> (String, String) {
-    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&msg.data) {
+fn parse_request_info(body: &[u8]) -> (String, String) {
+    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) {
         let method = v
             .get("method")
             .and_then(|m| m.as_str())
@@ -55,40 +57,44 @@ impl Block for SolobaseNetworkBlock {
         self.inner.info()
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         let source_block = ctx.caller_id().unwrap_or("unknown").to_string();
-        let (method, url) = parse_request_info(msg);
+        let body = input.collect_to_bytes().await;
+        let (method, url) = parse_request_info(&body);
 
         // Network access control is enforced by WRAP in call_block() before
         // reaching this handler. This block only handles logging + execution.
 
-        // Execute the actual request
+        // Execute the actual request (re-wrap body as a fresh InputStream).
         let start = now_millis();
-        let result = self.inner.handle(ctx, msg).await;
+        let inner_out = self
+            .inner
+            .handle(ctx, msg, InputStream::from_bytes(body))
+            .await;
+        let buffered = inner_out.collect_buffered().await;
         let duration_ms = (now_millis() - start) as i64;
 
-        // Extract status code from response
-        let (status_code, error_message) = match &result.action {
-            Action::Respond => {
-                if let Some(ref resp) = result.response {
-                    let status = serde_json::from_slice::<serde_json::Value>(&resp.data)
-                        .ok()
-                        .and_then(|v| v.get("status_code").and_then(|s| s.as_i64()))
-                        .unwrap_or(0);
-                    (status, String::new())
-                } else {
-                    (0, String::new())
+        // Extract status code from response, then re-emit the buffered output.
+        let (status_code, error_message, result) = match buffered {
+            Ok(resp) => {
+                let status = serde_json::from_slice::<serde_json::Value>(&resp.body)
+                    .ok()
+                    .and_then(|v| v.get("status_code").and_then(|s| s.as_i64()))
+                    .unwrap_or(0);
+                // Re-emit as a buffered response, preserving meta if any.
+                let mut builder = crate::blocks::helpers::ResponseBuilder::new();
+                for entry in &resp.meta {
+                    builder = builder.set_header(&entry.key, &entry.value);
                 }
+                let out = builder.body(resp.body, "");
+                (status, String::new(), out)
             }
-            Action::Error => {
-                let err_msg = result
-                    .error
-                    .as_ref()
-                    .map(|e| e.message.clone())
-                    .unwrap_or_default();
-                (0, err_msg)
-            }
-            _ => (0, String::new()),
+            Err(terminal) => terminal_to_output(terminal),
         };
 
         // Log the request (best-effort, don't fail the actual request)
@@ -121,6 +127,27 @@ impl Block for SolobaseNetworkBlock {
 /// Create a new SolobaseNetworkBlock (caller must register it with the runtime).
 pub fn create(service: Arc<dyn NetworkService>) -> Arc<SolobaseNetworkBlock> {
     Arc::new(SolobaseNetworkBlock::new(service))
+}
+
+/// Convert a non-Complete terminal into a re-emitted OutputStream plus the
+/// status/error fields used for logging.
+fn terminal_to_output(terminal: TerminalNotResponse) -> (i64, String, OutputStream) {
+    match terminal {
+        TerminalNotResponse::Error(e) => {
+            let msg = e.message.clone();
+            (0, msg, OutputStream::error(e))
+        }
+        TerminalNotResponse::Drop => (0, String::new(), OutputStream::drop_request()),
+        TerminalNotResponse::Continue(m) => (0, String::new(), OutputStream::continue_with(m)),
+        TerminalNotResponse::Malformed => (
+            0,
+            "malformed inner response".into(),
+            OutputStream::error(WaferError::new(
+                ErrorCode::Internal,
+                "malformed inner response",
+            )),
+        ),
+    }
 }
 
 // Pattern matching tests are in wafer-block/src/wrap.rs (grant_matches_resource)

@@ -9,11 +9,12 @@ mod variables;
 #[cfg(test)]
 mod tests;
 
-use super::rate_limit::{check_user_rate_limit, UserRateLimiter};
+use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
+use crate::blocks::helpers::err_not_found;
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 pub(crate) const PRODUCTS_COLLECTION: &str = "suppers_ai__products__products";
 pub(crate) const GROUPS_COLLECTION: &str = "suppers_ai__products__groups";
@@ -178,7 +179,7 @@ impl Block for ProductsBlock {
         ]
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(&self, ctx: &dyn Context, mut msg: Message, input: InputStream) -> OutputStream {
         let path = msg.path().to_string();
         let action = msg.action().to_string();
 
@@ -189,9 +190,9 @@ impl Block for ProductsBlock {
                 .split(',')
                 .any(|r| r.trim() == "admin");
             if !is_admin {
-                return crate::ui::forbidden_response(msg);
+                return crate::ui::forbidden_response(&msg);
             }
-            return pages::handle_save_settings(ctx, msg).await;
+            return pages::handle_save_settings(ctx, input).await;
         }
 
         // SSR pages (GET requests to specific page paths)
@@ -204,35 +205,35 @@ impl Block for ProductsBlock {
                     .split(',')
                     .any(|r| r.trim() == "admin");
                 if !is_admin {
-                    return crate::ui::forbidden_response(msg);
+                    return crate::ui::forbidden_response(&msg);
                 }
                 let admin_sub = sub.strip_prefix("/admin").unwrap_or("/");
                 return match admin_sub {
-                    "" | "/" => pages::overview(ctx, msg).await,
-                    "/manage" => pages::manage_products(ctx, msg).await,
-                    "/groups" => pages::groups(ctx, msg).await,
-                    "/pricing" => pages::pricing(ctx, msg).await,
-                    "/purchases" => pages::purchases(ctx, msg).await,
-                    "/settings" => pages::settings(ctx, msg).await,
-                    _ => err_not_found(msg, "not found"),
+                    "" | "/" => pages::overview(ctx, &msg).await,
+                    "/manage" => pages::manage_products(ctx, &msg).await,
+                    "/groups" => pages::groups(ctx, &msg).await,
+                    "/pricing" => pages::pricing(ctx, &msg).await,
+                    "/purchases" => pages::purchases(ctx, &msg).await,
+                    "/settings" => pages::settings(ctx, &msg).await,
+                    _ => err_not_found("not found"),
                 };
             }
             // User-facing pages (require auth but not admin)
             match sub {
-                "/my-products" => return pages::my_products(ctx, msg).await,
-                "/my-purchases" => return pages::my_purchases(ctx, msg).await,
+                "/my-products" => return pages::my_products(ctx, &msg).await,
+                "/my-purchases" => return pages::my_purchases(ctx, &msg).await,
                 _ => {} // fall through to API handlers
             }
         }
 
         // Webhook (no auth, no user rate limit)
         if path == "/b/products/webhooks" || path.starts_with("/b/products/webhooks/") {
-            return stripe::handle_webhook(ctx, msg).await;
+            return stripe::handle_webhook(ctx, &msg, input).await;
         }
 
         // Per-user rate limiting for authenticated endpoints
-        if let Some(r) = check_user_rate_limit(&self.limiter, ctx, msg).await {
-            return r;
+        if let RateLimitOutcome::Limited(out) = check_user_rate_limit(&self.limiter, ctx, &msg).await {
+            return out;
         }
 
         // Admin API at /b/products/api/admin/... → normalize to /admin/b/products/...
@@ -242,24 +243,24 @@ impl Block for ProductsBlock {
                 .split(',')
                 .any(|r| r.trim() == "admin");
             if !is_admin {
-                return crate::ui::forbidden_response(msg);
+                return crate::ui::forbidden_response(&msg);
             }
             msg.set_meta("req.resource", format!("/admin/b/products{rest}"));
-            return handlers::handle_admin(ctx, msg).await;
+            return handlers::handle_admin(ctx, &msg, input).await;
         }
 
         // User API at /b/products/api/... → normalize to /b/products/...
         if let Some(rest) = path.strip_prefix("/b/products/api") {
             msg.set_meta("req.resource", format!("/b/products{rest}"));
-            return handlers::handle_user(ctx, msg).await;
+            return handlers::handle_user(ctx, &msg, input).await;
         }
 
         // User endpoints at /b/products/... (catalog, checkout, subscription, etc.)
         if path.starts_with("/b/products/") || path == "/b/products" {
-            return handlers::handle_user(ctx, msg).await;
+            return handlers::handle_user(ctx, &msg, input).await;
         }
 
-        err_not_found(msg, "not found")
+        err_not_found("not found")
     }
 
     async fn lifecycle(

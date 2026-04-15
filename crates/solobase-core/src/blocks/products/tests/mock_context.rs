@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use wafer_core::clients::database::{Record, RecordList};
 use wafer_run::context::Context;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 /// In-memory database: collection name → Vec<Record>
 type Db = HashMap<String, Vec<Record>>;
@@ -548,9 +549,14 @@ fn compare_json_values(
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Context for MockContext {
-    async fn call_block(&self, block_name: &str, msg: &mut Message) -> Result_ {
+    async fn call_block(
+        &self,
+        block_name: &str,
+        msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         let kind = msg.kind.clone();
-        let data = msg.data.clone();
+        let data = input.collect_to_bytes().await;
 
         let result = match block_name {
             "wafer-run/database" => self.handle_db_call(&kind, &data),
@@ -562,21 +568,8 @@ impl Context for MockContext {
         };
 
         match result {
-            Ok(response_data) => Result_ {
-                action: Action::Respond,
-                response: Some(Response {
-                    data: response_data,
-                    meta: Vec::new(),
-                }),
-                error: None,
-                message: None,
-            },
-            Err(e) => Result_ {
-                action: Action::Error,
-                response: None,
-                error: Some(e),
-                message: None,
-            },
+            Ok(response_data) => OutputStream::respond(response_data),
+            Err(e) => OutputStream::error(e),
         }
     }
 
@@ -591,62 +584,81 @@ impl Context for MockContext {
 // --- Test message builders ---
 
 /// Build a request message with JSON body, action, path, and user_id.
-pub fn request_msg(action: &str, path: &str, user_id: &str, body: serde_json::Value) -> Message {
+/// Returns (Message, InputStream) — the body is provided via the input stream
+/// in the streaming protocol, not via the message.
+pub fn request_msg(
+    action: &str,
+    path: &str,
+    user_id: &str,
+    body: serde_json::Value,
+) -> (Message, InputStream) {
     let data = serde_json::to_vec(&body).unwrap();
-    let mut msg = Message::new("http.request", data);
+    let mut msg = Message::new("http.request");
     msg.set_meta("req.action", action);
     msg.set_meta("req.resource", path);
     if !user_id.is_empty() {
         msg.set_meta("auth.user_id", user_id);
     }
-    msg
+    (msg, InputStream::from_bytes(data))
 }
 
 /// Build a GET request with optional query params.
-pub fn get_msg(path: &str, user_id: &str) -> Message {
+pub fn get_msg(path: &str, user_id: &str) -> (Message, InputStream) {
     request_msg("retrieve", path, user_id, serde_json::json!({}))
 }
 
 /// Build a POST/create request.
-pub fn create_msg(path: &str, user_id: &str, body: serde_json::Value) -> Message {
+pub fn create_msg(
+    path: &str,
+    user_id: &str,
+    body: serde_json::Value,
+) -> (Message, InputStream) {
     request_msg("create", path, user_id, body)
 }
 
 /// Build a PATCH/update request.
-pub fn update_msg(path: &str, user_id: &str, body: serde_json::Value) -> Message {
+pub fn update_msg(
+    path: &str,
+    user_id: &str,
+    body: serde_json::Value,
+) -> (Message, InputStream) {
     request_msg("update", path, user_id, body)
 }
 
 /// Build a DELETE request.
-pub fn delete_msg(path: &str, user_id: &str) -> Message {
+pub fn delete_msg(path: &str, user_id: &str) -> (Message, InputStream) {
     request_msg("delete", path, user_id, serde_json::json!({}))
 }
 
 /// Build an admin GET request.
-pub fn admin_get_msg(path: &str) -> Message {
-    let mut msg = get_msg(path, "admin_1");
+pub fn admin_get_msg(path: &str) -> (Message, InputStream) {
+    let (mut msg, input) = get_msg(path, "admin_1");
     msg.set_meta("auth.user_roles", "admin");
-    msg
+    (msg, input)
 }
 
 /// Build an admin create request.
-pub fn admin_create_msg(path: &str, body: serde_json::Value) -> Message {
-    let mut msg = create_msg(path, "admin_1", body);
+pub fn admin_create_msg(path: &str, body: serde_json::Value) -> (Message, InputStream) {
+    let (mut msg, input) = create_msg(path, "admin_1", body);
     msg.set_meta("auth.user_roles", "admin");
-    msg
+    (msg, input)
 }
 
-/// Extract the JSON response body from a Result_.
-pub fn response_json(result: &Result_) -> serde_json::Value {
-    result
-        .response
-        .as_ref()
-        .map(|r| serde_json::from_slice(&r.data).unwrap_or(serde_json::Value::Null))
-        .unwrap_or(serde_json::Value::Null)
+/// Collect an OutputStream's body and decode it as JSON.
+/// Returns `Value::Null` if the stream did not terminate with `Complete`.
+pub async fn output_to_json(out: OutputStream) -> serde_json::Value {
+    match out.collect_buffered().await {
+        Ok(buf) => serde_json::from_slice(&buf.body).unwrap_or(serde_json::Value::Null),
+        Err(_) => serde_json::Value::Null,
+    }
 }
 
-/// Check if a result is an error with a specific code.
-pub fn is_error(result: &Result_, code: &str) -> bool {
-    let code: ErrorCode = code.into();
-    result.action == Action::Error && result.error.as_ref().is_some_and(|e| e.code == code)
+/// Check if an OutputStream terminated with an error of the given code.
+pub async fn output_is_error(out: OutputStream, code: &str) -> bool {
+    use wafer_run::streams::output::TerminalNotResponse;
+    let expected: ErrorCode = code.into();
+    matches!(
+        out.collect_buffered().await,
+        Err(TerminalNotResponse::Error(e)) if e.code == expected
+    )
 }

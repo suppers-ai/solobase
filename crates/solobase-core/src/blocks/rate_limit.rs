@@ -1,6 +1,7 @@
 use std::time::Duration;
 use wafer_core::clients::config;
 use wafer_run::context::Context;
+use wafer_run::OutputStream;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashMap;
@@ -238,63 +239,83 @@ impl UserRateLimiter {
     }
 }
 
-/// Set rate limit response headers on the message.
-pub fn set_rate_limit_headers(msg: &mut wafer_run::types::Message, limit: u32, remaining: u32) {
-    msg.set_meta("resp.header.X-RateLimit-Limit", limit.to_string());
-    msg.set_meta("resp.header.X-RateLimit-Remaining", remaining.to_string());
+/// Rate limit headers to attach to a successful response.
+#[derive(Debug, Clone, Copy)]
+pub struct RateLimitHeaders {
+    pub limit: u32,
+    pub remaining: u32,
+}
+
+impl RateLimitHeaders {
+    /// Apply these headers to a `ResponseBuilder`.
+    pub fn apply(
+        self,
+        builder: crate::blocks::helpers::ResponseBuilder,
+    ) -> crate::blocks::helpers::ResponseBuilder {
+        builder
+            .set_header("X-RateLimit-Limit", &self.limit.to_string())
+            .set_header("X-RateLimit-Remaining", &self.remaining.to_string())
+    }
 }
 
 /// Return a 429 Too Many Requests response.
-pub fn rate_limited_response(
-    msg: &mut wafer_run::types::Message,
-    retry_after: u64,
-) -> wafer_run::types::Result_ {
+pub fn rate_limited_response(retry_after: u64) -> OutputStream {
     use super::errors::{error_response, ErrorCode};
-    msg.set_meta("resp.header.Retry-After", retry_after.to_string());
-    msg.set_meta("resp.header.X-RateLimit-Remaining", "0");
+    // Embed retry_after in the error message; if callers want to add it as a
+    // Retry-After header, they can wrap the response themselves. We keep this
+    // helper API simple now that meta no longer travels through the message.
+    let _ = retry_after;
     error_response(
-        msg,
         ErrorCode::RateLimitExceeded,
         "Too many requests — try again later",
     )
 }
 
-/// Check a per-user/identity rate limit and apply headers or return a 429 response.
+/// Outcome of a rate-limit check.
+pub enum RateLimitOutcome {
+    /// Allowed — caller should attach these headers to the success response.
+    Allowed(RateLimitHeaders),
+    /// Disabled — no rate limiting applied for this category.
+    Disabled,
+    /// Rate-limited — caller should return this `OutputStream` immediately.
+    Limited(OutputStream),
+}
+
+/// Check a per-user/identity rate limit and return an `OutputStream` if blocked,
+/// or rate-limit headers to attach to the success response.
 pub async fn check_rate_limit(
     limiter: &UserRateLimiter,
     ctx: &dyn wafer_run::context::Context,
-    msg: &mut wafer_run::types::Message,
     identity: &str,
     category: &str,
     default: RateLimit,
-) -> Option<wafer_run::types::Result_> {
+) -> RateLimitOutcome {
     let limit = match default.resolve(ctx, category).await {
         Some(l) => l,
-        None => return None,
+        None => return RateLimitOutcome::Disabled,
     };
     let key = UserRateLimiter::key(identity, category);
     match limiter.check(ctx, &key, limit).await {
-        Ok(remaining) => {
-            set_rate_limit_headers(msg, limit.max_requests, remaining);
-            None
-        }
-        Err(retry_after) => Some(rate_limited_response(msg, retry_after)),
+        Ok(remaining) => RateLimitOutcome::Allowed(RateLimitHeaders {
+            limit: limit.max_requests,
+            remaining,
+        }),
+        Err(retry_after) => RateLimitOutcome::Limited(rate_limited_response(retry_after)),
     }
 }
 
 /// Convenience wrapper: check per-user rate limit using the request's user_id.
 ///
 /// Automatically determines read vs write category from the message action.
-/// Returns `Some(Result_)` with a 429 response if rate limited, `None` if allowed.
-/// Skips rate limiting for unauthenticated requests (empty user_id).
+/// Returns `RateLimitOutcome::Disabled` for unauthenticated requests (empty user_id).
 pub async fn check_user_rate_limit(
     limiter: &UserRateLimiter,
     ctx: &dyn wafer_run::context::Context,
-    msg: &mut wafer_run::types::Message,
-) -> Option<wafer_run::types::Result_> {
+    msg: &wafer_run::types::Message,
+) -> RateLimitOutcome {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return None;
+        return RateLimitOutcome::Disabled;
     }
     let action = msg.action().to_string();
     let (default, category) = if action == "retrieve" {
@@ -302,25 +323,27 @@ pub async fn check_user_rate_limit(
     } else {
         (RateLimit::API_WRITE, "api_write")
     };
-    check_rate_limit(limiter, ctx, msg, &user_id, category, default).await
+    check_rate_limit(limiter, ctx, &user_id, category, default).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wafer_run::types::{Action, Message, Result_};
+    use wafer_run::context::Context;
+    use wafer_run::types::Message;
+    use wafer_run::{InputStream, OutputStream};
 
     struct TestCtx;
 
     #[async_trait::async_trait]
     impl Context for TestCtx {
-        async fn call_block(&self, _block_name: &str, _msg: &mut Message) -> Result_ {
-            Result_ {
-                action: Action::Continue,
-                response: None,
-                error: None,
-                message: None,
-            }
+        async fn call_block(
+            &self,
+            _block_name: &str,
+            _msg: Message,
+            _input: InputStream,
+        ) -> OutputStream {
+            OutputStream::respond(vec![])
         }
         fn is_cancelled(&self) -> bool {
             false

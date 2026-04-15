@@ -2,7 +2,6 @@ use super::mock_context::*;
 use crate::blocks::products::handlers;
 use crate::blocks::products::purchase;
 use std::collections::HashMap;
-use wafer_run::types::Action;
 
 // ============================================================
 // Purchase creation — happy path
@@ -20,7 +19,7 @@ async fn create_purchase_single_item() {
     product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("suppers_ai__products__products", "prod_1", product);
 
-    let mut msg = create_msg(
+    let (msg, input) = create_msg(
         "/b/products/purchases",
         "user_1",
         serde_json::json!({
@@ -28,9 +27,8 @@ async fn create_purchase_single_item() {
         }),
     );
 
-    let result = purchase::handle_create(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = purchase::handle_create(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     assert!(body["id"].as_str().is_some());
     assert_eq!(body["status"], "pending");
     // 19.99 * 2 = 39.98 → 3998 cents
@@ -54,7 +52,7 @@ async fn create_purchase_multiple_items() {
     p2.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("suppers_ai__products__products", "pb", p2);
 
-    let mut msg = create_msg(
+    let (msg, input) = create_msg(
         "/b/products/purchases",
         "user_1",
         serde_json::json!({
@@ -65,9 +63,8 @@ async fn create_purchase_multiple_items() {
         }),
     );
 
-    let result = purchase::handle_create(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = purchase::handle_create(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     // 10.0*1 + 25.50*3 = 10 + 76.50 = 86.50 → 8650 cents
     assert_eq!(body["total_cents"].as_i64().unwrap(), 8650);
     assert_eq!(body["item_count"].as_i64().unwrap(), 2);
@@ -96,7 +93,7 @@ async fn create_purchase_with_pricing_template() {
     product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("suppers_ai__products__products", "prod_svc", product);
 
-    let mut msg = create_msg(
+    let (msg, input) = create_msg(
         "/b/products/purchases",
         "user_1",
         serde_json::json!({
@@ -108,9 +105,8 @@ async fn create_purchase_with_pricing_template() {
         }),
     );
 
-    let result = purchase::handle_create(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = purchase::handle_create(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     // formula: base * rate = 100 * 0.15 = 15.0 per unit, qty=2, total = 30.0 → 3000 cents
     assert_eq!(body["total_cents"].as_i64().unwrap(), 3000);
 }
@@ -125,7 +121,7 @@ async fn create_purchase_defaults_to_usd() {
     product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("suppers_ai__products__products", "p1", product);
 
-    let mut msg = create_msg(
+    let (msg, input) = create_msg(
         "/b/products/purchases",
         "user_1",
         serde_json::json!({
@@ -133,10 +129,10 @@ async fn create_purchase_defaults_to_usd() {
         }),
     );
 
-    let result = purchase::handle_create(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    // Currency defaults to USD — verify purchase was created (check via DB)
-    assert_eq!(body_status(&result), "pending");
+    let out = purchase::handle_create(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
+    // Currency defaults to USD — verify purchase was created
+    assert_eq!(body["status"], "pending");
 }
 
 // ============================================================
@@ -147,7 +143,7 @@ async fn create_purchase_defaults_to_usd() {
 async fn create_purchase_empty_items() {
     let ctx = MockContext::new();
 
-    let mut msg = create_msg(
+    let (msg, input) = create_msg(
         "/b/products/purchases",
         "user_1",
         serde_json::json!({
@@ -155,8 +151,8 @@ async fn create_purchase_empty_items() {
         }),
     );
 
-    let result = purchase::handle_create(&ctx, &mut msg).await;
-    assert!(is_error(&result, "invalid_argument"));
+    let out = purchase::handle_create(&ctx, &msg, input).await;
+    assert!(output_is_error(out, "invalid_argument").await);
 }
 
 #[tokio::test]
@@ -168,7 +164,7 @@ async fn create_purchase_zero_quantity() {
     product.insert("base_price".to_string(), serde_json::json!(10.0));
     ctx.seed("suppers_ai__products__products", "p1", product);
 
-    let mut msg = create_msg(
+    let (msg, input) = create_msg(
         "/b/products/purchases",
         "user_1",
         serde_json::json!({
@@ -176,8 +172,8 @@ async fn create_purchase_zero_quantity() {
         }),
     );
 
-    let result = purchase::handle_create(&ctx, &mut msg).await;
-    assert!(is_error(&result, "invalid_argument"));
+    let out = purchase::handle_create(&ctx, &msg, input).await;
+    assert!(output_is_error(out, "invalid_argument").await);
 }
 
 #[tokio::test]
@@ -189,7 +185,7 @@ async fn create_purchase_negative_quantity() {
     product.insert("base_price".to_string(), serde_json::json!(10.0));
     ctx.seed("suppers_ai__products__products", "p1", product);
 
-    let mut msg = create_msg(
+    let (msg, input) = create_msg(
         "/b/products/purchases",
         "user_1",
         serde_json::json!({
@@ -197,15 +193,15 @@ async fn create_purchase_negative_quantity() {
         }),
     );
 
-    let result = purchase::handle_create(&ctx, &mut msg).await;
-    assert!(is_error(&result, "invalid_argument"));
+    let out = purchase::handle_create(&ctx, &msg, input).await;
+    assert!(output_is_error(out, "invalid_argument").await);
 }
 
 #[tokio::test]
 async fn create_purchase_product_not_found() {
     let ctx = MockContext::new();
 
-    let mut msg = create_msg(
+    let (msg, input) = create_msg(
         "/b/products/purchases",
         "user_1",
         serde_json::json!({
@@ -213,8 +209,8 @@ async fn create_purchase_product_not_found() {
         }),
     );
 
-    let result = purchase::handle_create(&ctx, &mut msg).await;
-    assert!(is_error(&result, "not_found"));
+    let out = purchase::handle_create(&ctx, &msg, input).await;
+    assert!(output_is_error(out, "not_found").await);
 }
 
 #[tokio::test]
@@ -232,7 +228,7 @@ async fn create_purchase_fallback_when_template_missing() {
     product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("suppers_ai__products__products", "p_fb", product);
 
-    let mut msg = create_msg(
+    let (msg, input) = create_msg(
         "/b/products/purchases",
         "user_1",
         serde_json::json!({
@@ -240,9 +236,8 @@ async fn create_purchase_fallback_when_template_missing() {
         }),
     );
 
-    let result = purchase::handle_create(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = purchase::handle_create(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     // Should fall back to base_price = 42.0 → 4200 cents
     assert_eq!(body["total_cents"].as_i64().unwrap(), 4200);
 }
@@ -257,7 +252,7 @@ async fn create_purchase_no_base_price_rejected() {
     product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("suppers_ai__products__products", "p_free", product);
 
-    let mut msg = create_msg(
+    let (msg, input) = create_msg(
         "/b/products/purchases",
         "user_1",
         serde_json::json!({
@@ -265,9 +260,9 @@ async fn create_purchase_no_base_price_rejected() {
         }),
     );
 
-    let result = purchase::handle_create(&ctx, &mut msg).await;
+    let out = purchase::handle_create(&ctx, &msg, input).await;
     assert!(
-        is_error(&result, "bad_request"),
+        output_is_error(out, "invalid_argument").await,
         "zero-price purchases should be rejected"
     );
 }
@@ -293,10 +288,9 @@ async fn list_user_purchases_only_own() {
     p2.insert("total_cents".to_string(), serde_json::json!(2000));
     ctx.seed("suppers_ai__products__purchases", "pur_2", p2);
 
-    let mut msg = get_msg("/b/products/purchases", "user_1");
-    let result = purchase::handle_list_user(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let (msg, _input) = get_msg("/b/products/purchases", "user_1");
+    let out = purchase::handle_list_user(&ctx, &msg).await;
+    let body = output_to_json(out).await;
     let records = body["records"].as_array().unwrap();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0]["id"], "pur_1");
@@ -316,10 +310,9 @@ async fn get_purchase_own() {
     pd.insert("total_cents".to_string(), serde_json::json!(5000));
     ctx.seed("suppers_ai__products__purchases", "pur_own", pd);
 
-    let mut msg = get_msg("/b/products/purchases/pur_own", "user_1");
-    let result = purchase::handle_get(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let (msg, _input) = get_msg("/b/products/purchases/pur_own", "user_1");
+    let out = purchase::handle_get(&ctx, &msg).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["purchase"]["id"], "pur_own");
 }
 
@@ -333,18 +326,18 @@ async fn get_purchase_denied_for_other_user() {
     ctx.seed("suppers_ai__products__purchases", "pur_priv", pd);
 
     // user_2 tries to access user_1's purchase
-    let mut msg = get_msg("/b/products/purchases/pur_priv", "user_2");
-    let result = purchase::handle_get(&ctx, &mut msg).await;
-    assert!(is_error(&result, "permission_denied"));
+    let (msg, _input) = get_msg("/b/products/purchases/pur_priv", "user_2");
+    let out = purchase::handle_get(&ctx, &msg).await;
+    assert!(output_is_error(out, "permission_denied").await);
 }
 
 #[tokio::test]
 async fn get_purchase_not_found() {
     let ctx = MockContext::new();
 
-    let mut msg = get_msg("/b/products/purchases/nonexistent", "user_1");
-    let result = purchase::handle_get(&ctx, &mut msg).await;
-    assert!(is_error(&result, "not_found"));
+    let (msg, _input) = get_msg("/b/products/purchases/nonexistent", "user_1");
+    let out = purchase::handle_get(&ctx, &msg).await;
+    assert!(output_is_error(out, "not_found").await);
 }
 
 #[tokio::test]
@@ -356,10 +349,11 @@ async fn get_purchase_admin_can_view_any() {
     pd.insert("status".to_string(), serde_json::json!("completed"));
     ctx.seed("suppers_ai__products__purchases", "pur_any", pd);
 
-    let mut msg = get_msg("/b/products/purchases/pur_any", "admin_1");
+    let (mut msg, _input) = get_msg("/b/products/purchases/pur_any", "admin_1");
     msg.set_meta("auth.user_roles", "admin");
-    let result = purchase::handle_get(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
+    let out = purchase::handle_get(&ctx, &msg).await;
+    let body = output_to_json(out).await;
+    assert!(body["purchase"]["id"].as_str().is_some());
 }
 
 // ============================================================
@@ -376,16 +370,15 @@ async fn refund_completed_purchase() {
     pd.insert("total_cents".to_string(), serde_json::json!(5000));
     ctx.seed("suppers_ai__products__purchases", "pur_refund", pd);
 
-    let mut msg = create_msg(
+    let (mut msg, input) = create_msg(
         "/admin/b/products/purchases/pur_refund/refund",
         "admin_1",
         serde_json::json!({"reason": "Customer requested"}),
     );
     msg.set_meta("auth.user_roles", "admin");
 
-    let result = purchase::handle_refund(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = purchase::handle_refund(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["data"]["status"], "refunded");
     assert_eq!(body["data"]["refund_reason"], "Customer requested");
     assert!(body["data"]["refunded_by"].as_str().is_some());
@@ -400,15 +393,15 @@ async fn refund_non_completed_fails() {
     pd.insert("status".to_string(), serde_json::json!("pending"));
     ctx.seed("suppers_ai__products__purchases", "pur_pending", pd);
 
-    let mut msg = create_msg(
+    let (mut msg, input) = create_msg(
         "/admin/b/products/purchases/pur_pending/refund",
         "admin_1",
         serde_json::json!({}),
     );
     msg.set_meta("auth.user_roles", "admin");
 
-    let result = purchase::handle_refund(&ctx, &mut msg).await;
-    assert!(is_error(&result, "invalid_argument"));
+    let out = purchase::handle_refund(&ctx, &msg, input).await;
+    assert!(output_is_error(out, "invalid_argument").await);
 }
 
 #[tokio::test]
@@ -420,30 +413,30 @@ async fn refund_already_refunded_fails() {
     pd.insert("status".to_string(), serde_json::json!("refunded"));
     ctx.seed("suppers_ai__products__purchases", "pur_already", pd);
 
-    let mut msg = create_msg(
+    let (mut msg, input) = create_msg(
         "/admin/b/products/purchases/pur_already/refund",
         "admin_1",
         serde_json::json!({}),
     );
     msg.set_meta("auth.user_roles", "admin");
 
-    let result = purchase::handle_refund(&ctx, &mut msg).await;
-    assert!(is_error(&result, "invalid_argument"));
+    let out = purchase::handle_refund(&ctx, &msg, input).await;
+    assert!(output_is_error(out, "invalid_argument").await);
 }
 
 #[tokio::test]
 async fn refund_purchase_not_found() {
     let ctx = MockContext::new();
 
-    let mut msg = create_msg(
+    let (mut msg, input) = create_msg(
         "/admin/b/products/purchases/nonexistent/refund",
         "admin_1",
         serde_json::json!({}),
     );
     msg.set_meta("auth.user_roles", "admin");
 
-    let result = purchase::handle_refund(&ctx, &mut msg).await;
-    assert!(is_error(&result, "not_found"));
+    let out = purchase::handle_refund(&ctx, &msg, input).await;
+    assert!(output_is_error(out, "not_found").await);
 }
 
 #[tokio::test]
@@ -455,16 +448,15 @@ async fn refund_without_reason() {
     pd.insert("status".to_string(), serde_json::json!("completed"));
     ctx.seed("suppers_ai__products__purchases", "pur_noreason", pd);
 
-    let mut msg = create_msg(
+    let (mut msg, input) = create_msg(
         "/admin/b/products/purchases/pur_noreason/refund",
         "admin_1",
         serde_json::json!({}),
     );
     msg.set_meta("auth.user_roles", "admin");
 
-    let result = purchase::handle_refund(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = purchase::handle_refund(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["data"]["status"], "refunded");
 }
 
@@ -482,7 +474,7 @@ async fn purchase_create_via_user_handler() {
     product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("suppers_ai__products__products", "p_route", product);
 
-    let mut msg = create_msg(
+    let (msg, input) = create_msg(
         "/b/products/purchases",
         "user_1",
         serde_json::json!({
@@ -490,9 +482,8 @@ async fn purchase_create_via_user_handler() {
         }),
     );
 
-    let result = handlers::handle_user(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let out = handlers::handle_user(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["total_cents"].as_i64().unwrap(), 1000);
 }
 
@@ -505,10 +496,9 @@ async fn purchase_list_via_user_handler() {
     pd.insert("status".to_string(), serde_json::json!("pending"));
     ctx.seed("suppers_ai__products__purchases", "pur_route", pd);
 
-    let mut msg = get_msg("/b/products/purchases", "user_1");
-    let result = handlers::handle_user(&ctx, &mut msg).await;
-    assert_eq!(result.action, Action::Respond);
-    let body = response_json(&result);
+    let (msg, input) = get_msg("/b/products/purchases", "user_1");
+    let out = handlers::handle_user(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["records"].as_array().unwrap().len(), 1);
 }
 
@@ -527,7 +517,7 @@ async fn purchase_rounding_precision() {
     product.insert("status".to_string(), serde_json::json!("active"));
     ctx.seed("suppers_ai__products__products", "p_round", product);
 
-    let mut msg = create_msg(
+    let (msg, input) = create_msg(
         "/b/products/purchases",
         "user_1",
         serde_json::json!({
@@ -535,16 +525,7 @@ async fn purchase_rounding_precision() {
         }),
     );
 
-    let result = purchase::handle_create(&ctx, &mut msg).await;
-    let body = response_json(&result);
+    let out = purchase::handle_create(&ctx, &msg, input).await;
+    let body = output_to_json(out).await;
     assert_eq!(body["total_cents"].as_i64().unwrap(), 5997);
-}
-
-// --- helpers ---
-
-fn body_status(result: &wafer_run::types::Result_) -> String {
-    response_json(result)["status"]
-        .as_str()
-        .unwrap_or("")
-        .to_string()
 }

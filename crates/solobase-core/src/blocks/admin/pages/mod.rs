@@ -27,6 +27,7 @@ pub use variables::*;
 use crate::ui::{self, NavItem, SiteConfig, UserInfo};
 use maud::Markup;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
 
 /// Admin nav items for the sidebar.
 pub(crate) fn admin_nav() -> Vec<NavItem> {
@@ -86,8 +87,8 @@ pub(crate) fn admin_page(
     path: &str,
     user: Option<&UserInfo>,
     content: Markup,
-    msg: &mut Message,
-) -> Result_ {
+    msg: &Message,
+) -> OutputStream {
     let is_fragment = ui::is_htmx(msg);
     let markup = ui::layout::block_shell(
         title,
@@ -98,5 +99,5 @@ pub(crate) fn admin_page(
         content,
         is_fragment,
     );
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }

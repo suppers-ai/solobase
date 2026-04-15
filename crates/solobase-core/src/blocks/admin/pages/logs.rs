@@ -4,13 +4,14 @@ use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, Filter, FilterOp, SortField};
 use wafer_run::context::Context;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
 
 use super::admin_page;
 use crate::blocks::admin::{
     AUDIT_LOGS_COLLECTION as AUDIT_LOGS, REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
 };
 
-pub async fn logs_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn logs_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let tab = msg.query("tab");
@@ -65,7 +66,7 @@ pub async fn logs_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
 }
 
-async fn system_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
+async fn system_logs_tab(ctx: &dyn Context, msg: &Message) -> Markup {
     let (page, page_size, _) = msg.pagination_params(50);
     let search = msg.query("search").to_string();
 
@@ -156,7 +157,7 @@ async fn system_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
     }
 }
 
-async fn audit_logs_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
+async fn audit_logs_tab(ctx: &dyn Context, msg: &Message) -> Markup {
     let (page, page_size, _) = msg.pagination_params(50);
     let search = msg.query("search").to_string();
 

@@ -378,31 +378,19 @@ fn register_observability_hooks(wafer: &mut Wafer) {
         tracing::info_span!("flow", flow = %flow_id).in_scope(|| {});
     });
 
-    wafer.hooks.on_block_end(|obs_ctx, result, duration| {
-        let status = match result.action {
-            wafer_run::Action::Error => "ERROR",
-            wafer_run::Action::Respond => "RESPOND",
-            wafer_run::Action::Continue => "CONTINUE",
-            wafer_run::Action::Drop => "DROP",
-        };
+    wafer.hooks.on_block_end(|obs_ctx, duration| {
         tracing::debug!(
             flow   = %obs_ctx.flow_id,
             block  = %obs_ctx.block_name,
             trace  = %obs_ctx.trace_id,
-            status = status,
             ms     = duration.as_millis() as u64,
             "block executed"
         );
     });
 
-    wafer.hooks.on_flow_end(|flow_id, result, duration| {
-        let status = match result.action {
-            wafer_run::Action::Error => "ERROR",
-            _ => "OK",
-        };
+    wafer.hooks.on_flow_end(|flow_id, duration| {
         tracing::info!(
             flow   = %flow_id,
-            status = status,
             ms     = duration.as_millis() as u64,
             "flow completed"
         );

@@ -5,15 +5,15 @@
 //! - Thread page (`GET /b/llm/threads/{id}`) — focused thread view
 //! - Settings page (`GET /b/llm/settings`) — default provider/model config
 
-use crate::blocks::helpers::RecordExt;
+use crate::blocks::helpers::{err_internal, RecordExt};
 use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::config;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
 
 use super::SETTINGS_COLLECTION;
 
@@ -50,18 +50,18 @@ fn llm_page(
     path: &str,
     user: Option<&UserInfo>,
     content: Markup,
-    msg: &mut Message,
-) -> Result_ {
+    msg: &Message,
+) -> OutputStream {
     let is_fragment = ui::is_htmx(msg);
     let markup = ui::layout::block_shell(title, config, &nav(), user, path, content, is_fragment);
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 // ---------------------------------------------------------------------------
 // Chat page
 // ---------------------------------------------------------------------------
 
-pub async fn chat_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn chat_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
@@ -265,7 +265,7 @@ fn thread_list_items(threads: &[db::Record]) -> Markup {
 // Thread page (focused view)
 // ---------------------------------------------------------------------------
 
-pub async fn thread_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn thread_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
@@ -284,7 +284,7 @@ pub async fn thread_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     let thread = match db::get(ctx, CONTEXTS_COLLECTION, thread_id).await {
         Ok(r) => r,
         Err(e) if e.code == ErrorCode::NotFound => return ui::not_found_response(msg),
-        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
     let messages_opts = ListOptions {
@@ -450,7 +450,7 @@ pub async fn thread_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 // Settings page
 // ---------------------------------------------------------------------------
 
-pub async fn settings_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();

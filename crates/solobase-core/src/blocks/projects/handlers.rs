@@ -1,12 +1,14 @@
 use super::PROJECTS_COLLECTION;
-use crate::blocks::helpers::RecordExt;
+use crate::blocks::helpers::{
+    err_bad_request, err_conflict, err_forbidden, err_internal, err_not_found, ok_json, RecordExt,
+};
 use std::collections::HashMap;
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, Record, SortField};
 use wafer_core::clients::{config, network};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 /// Reserved subdomains that cannot be used as project names.
 const RESERVED_SUBDOMAINS: &[&str] = &[
@@ -134,43 +136,53 @@ async fn update_status(ctx: &dyn Context, id: &str, status: &str) {
     let _ = db::update(ctx, PROJECTS_COLLECTION, id, data).await;
 }
 
-pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_admin(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
         ("retrieve", "/admin/b/projects") => handle_admin_list(ctx, msg).await,
-        ("retrieve", "/admin/b/projects/stats") => handle_admin_stats(ctx, msg).await,
+        ("retrieve", "/admin/b/projects/stats") => handle_admin_stats(ctx).await,
         ("retrieve", _) if path.starts_with("/admin/b/projects/") => {
             handle_admin_get(ctx, msg).await
         }
         ("update", _) if path.starts_with("/admin/b/projects/") => {
-            handle_admin_update(ctx, msg).await
+            handle_admin_update(ctx, msg, input).await
         }
-        _ => err_not_found(msg, "not found"),
+        _ => err_not_found("not found"),
     }
 }
 
-pub async fn handle_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_user(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
         ("retrieve", "/b/projects") => handle_list(ctx, msg).await,
         ("retrieve", _) if path.starts_with("/b/projects/") => handle_get(ctx, msg).await,
-        ("create", "/b/projects") => handle_create(ctx, msg).await,
-        ("update", _) if path.starts_with("/b/projects/") => handle_update(ctx, msg).await,
+        ("create", "/b/projects") => handle_create(ctx, msg, input).await,
+        ("update", _) if path.starts_with("/b/projects/") => {
+            handle_update(ctx, msg, input).await
+        }
         ("delete", _) if path.starts_with("/b/projects/") => handle_delete(ctx, msg).await,
-        _ => err_not_found(msg, "not found"),
+        _ => err_not_found("not found"),
     }
 }
 
 // --- User handlers ---
 
-async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return err_forbidden(msg, "Authentication required");
+        return err_forbidden("Authentication required");
     }
 
     let (page, page_size, _) = msg.pagination_params(20);
@@ -195,45 +207,50 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
     .await
     {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return err_forbidden(msg, "Authentication required");
+        return err_forbidden("Authentication required");
     }
 
     let path = msg.path();
     let id = path.strip_prefix("/b/projects/").unwrap_or("");
     if id.is_empty() {
-        return err_bad_request(msg, "Missing deployment ID");
+        return err_bad_request("Missing deployment ID");
     }
 
     match db::get(ctx, PROJECTS_COLLECTION, id).await {
         Ok(record) => {
             let owner = record.str_field("user_id");
             if owner != user_id {
-                return err_not_found(msg, "Deployment not found");
+                return err_not_found("Deployment not found");
             }
-            json_respond(msg, &record)
+            ok_json(&record)
         }
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Deployment not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Deployment not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return err_forbidden(msg, "Authentication required");
+        return err_forbidden("Authentication required");
     }
 
-    let body: HashMap<String, serde_json::Value> = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     let name = body
@@ -243,12 +260,12 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .trim()
         .to_lowercase();
     if name.is_empty() {
-        return err_bad_request(msg, "Subdomain is required");
+        return err_bad_request("Subdomain is required");
     }
 
     // Validate subdomain format
     if let Err(e) = validate_subdomain(&name) {
-        return err_bad_request(msg, &e);
+        return err_bad_request(&e);
     }
 
     let slug = name.clone();
@@ -279,7 +296,7 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
     let _slug_filters: Vec<Filter> = vec![];
     if taken {
-        return err_conflict(msg, &format!("Subdomain '{}' is already taken", slug));
+        return err_conflict(&format!("Subdomain '{}' is already taken", slug));
     }
 
     let now = chrono::Utc::now().to_rfc3339();
@@ -309,23 +326,27 @@ async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let record = match db::create(ctx, PROJECTS_COLLECTION, data).await {
         Ok(r) => r,
-        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
-    json_respond(msg, &record)
+    ok_json(&record)
 }
 
-async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_update(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return err_forbidden(msg, "Authentication required");
+        return err_forbidden("Authentication required");
     }
 
     let id = {
         let path = msg.path();
         let raw = path.strip_prefix("/b/projects/").unwrap_or("");
         if raw.is_empty() {
-            return err_bad_request(msg, "Missing deployment ID");
+            return err_bad_request("Missing deployment ID");
         }
         raw.to_string()
     };
@@ -335,19 +356,20 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Ok(record) => {
             let owner = record.str_field("user_id");
             if owner != user_id {
-                return err_not_found(msg, "Deployment not found");
+                return err_not_found("Deployment not found");
             }
             record
         }
         Err(e) if e.code == ErrorCode::NotFound => {
-            return err_not_found(msg, "Deployment not found")
+            return err_not_found("Deployment not found")
         }
-        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
-    let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let mut body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     // Handle lifecycle actions
@@ -356,9 +378,9 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .and_then(|v| v.as_str().map(String::from))
     {
         match action.as_str() {
-            "activate" => return handle_activate(ctx, msg, &id, &user_id, &record).await,
-            "deactivate" => return handle_deactivate(ctx, msg, &id, &record).await,
-            _ => return err_bad_request(msg, &format!("Unknown action: {action}")),
+            "activate" => return handle_activate(ctx, &id, &user_id, &record).await,
+            "deactivate" => return handle_deactivate(ctx, &id, &record).await,
+            _ => return err_bad_request(&format!("Unknown action: {action}")),
         }
     }
 
@@ -372,26 +394,25 @@ async fn handle_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     );
 
     match db::update(ctx, PROJECTS_COLLECTION, &id, body).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Deployment not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(record) => ok_json(&record),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Deployment not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
 /// Activate a pending or inactive project: provision via control plane.
 async fn handle_activate(
     ctx: &dyn Context,
-    msg: &mut Message,
     id: &str,
     _user_id: &str,
     record: &Record,
-) -> Result_ {
+) -> OutputStream {
     let status = record.str_field("status");
     if status != "pending" && status != "inactive" {
-        return err_bad_request(
-            msg,
-            &format!("Project cannot be activated from '{}' status", status),
-        );
+        return err_bad_request(&format!(
+            "Project cannot be activated from '{}' status",
+            status
+        ));
     }
 
     // Provision via control plane
@@ -434,8 +455,8 @@ async fn handle_activate(
             );
 
             match db::update(ctx, PROJECTS_COLLECTION, id, update_data).await {
-                Ok(updated) => json_respond(msg, &updated),
-                Err(e) => err_internal(msg, &format!("Database error: {e}")),
+                Ok(updated) => ok_json(&updated),
+                Err(e) => err_internal(&format!("Database error: {e}")),
             }
         }
         Ok((status_code, resp_json)) => {
@@ -446,7 +467,7 @@ async fn handle_activate(
                 .unwrap_or("Provisioning failed");
 
             if status_code == 409 {
-                return err_conflict(msg, error_msg);
+                return err_conflict(error_msg);
             }
 
             // Update status to "failed"
@@ -464,7 +485,7 @@ async fn handle_activate(
                 serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
             );
             let _ = db::update(ctx, PROJECTS_COLLECTION, id, update_data).await;
-            err_internal(msg, &format!("Provisioning failed: {error_msg}"))
+            err_internal(&format!("Provisioning failed: {error_msg}"))
         }
         Err(e) => {
             let mut update_data = HashMap::new();
@@ -477,7 +498,7 @@ async fn handle_activate(
                 serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
             );
             let _ = db::update(ctx, PROJECTS_COLLECTION, id, update_data).await;
-            err_internal(msg, &format!("Control plane error: {e}"))
+            err_internal(&format!("Control plane error: {e}"))
         }
     }
 }
@@ -486,19 +507,15 @@ async fn handle_activate(
 /// Does NOT delete CF resources -- they stay alive during the 30-day grace period.
 async fn handle_deactivate(
     ctx: &dyn Context,
-    msg: &mut Message,
     id: &str,
     record: &Record,
-) -> Result_ {
+) -> OutputStream {
     let status = record.str_field("status");
     if status != "active" {
-        return err_bad_request(
-            msg,
-            &format!(
-                "Only active projects can be deactivated (current status: '{}')",
-                status
-            ),
-        );
+        return err_bad_request(&format!(
+            "Only active projects can be deactivated (current status: '{}')",
+            status
+        ));
     }
 
     let now = chrono::Utc::now();
@@ -522,7 +539,7 @@ async fn handle_deactivate(
 
     let result = match db::update(ctx, PROJECTS_COLLECTION, id, update_data).await {
         Ok(updated) => updated,
-        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
     // Notify control plane about the status change (best-effort)
@@ -537,19 +554,19 @@ async fn handle_deactivate(
         let _ = control_plane_request(ctx, "PUT", &cp_path, Some(&cp_bytes)).await;
     }
 
-    json_respond(msg, &result)
+    ok_json(&result)
 }
 
-async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return err_forbidden(msg, "Authentication required");
+        return err_forbidden("Authentication required");
     }
 
     let path = msg.path();
     let id = path.strip_prefix("/b/projects/").unwrap_or("");
     if id.is_empty() {
-        return err_bad_request(msg, "Missing deployment ID");
+        return err_bad_request("Missing deployment ID");
     }
 
     // Verify ownership and get deployment details
@@ -557,14 +574,14 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Ok(record) => {
             let owner = record.str_field("user_id");
             if owner != user_id {
-                return err_not_found(msg, "Deployment not found");
+                return err_not_found("Deployment not found");
             }
             record
         }
         Err(e) if e.code == ErrorCode::NotFound => {
-            return err_not_found(msg, "Deployment not found")
+            return err_not_found("Deployment not found")
         }
-        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
     // Deprovision tenant on the control plane
@@ -605,14 +622,14 @@ async fn handle_delete(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     data.insert("updated_at".to_string(), serde_json::Value::String(now));
 
     match db::update(ctx, PROJECTS_COLLECTION, id, data).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(record) => ok_json(&record),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
 // --- Admin handlers ---
 
-async fn handle_admin_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_admin_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (page, page_size, _) = msg.pagination_params(20);
 
     let mut filters = Vec::new();
@@ -648,35 +665,40 @@ async fn handle_admin_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
     .await
     {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_admin_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_admin_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let id = path.strip_prefix("/admin/b/projects/").unwrap_or("");
     if id.is_empty() {
-        return err_bad_request(msg, "Missing deployment ID");
+        return err_bad_request("Missing deployment ID");
     }
 
     match db::get(ctx, PROJECTS_COLLECTION, id).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Deployment not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(record) => ok_json(&record),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Deployment not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_admin_update(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let path = msg.path();
     let id = path.strip_prefix("/admin/b/projects/").unwrap_or("");
     if id.is_empty() {
-        return err_bad_request(msg, "Missing deployment ID");
+        return err_bad_request("Missing deployment ID");
     }
 
-    let mut body: HashMap<String, serde_json::Value> = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let mut body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     // Handle admin actions that interact with the control plane
@@ -687,9 +709,9 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         let record = match db::get(ctx, PROJECTS_COLLECTION, id).await {
             Ok(r) => r,
             Err(e) if e.code == ErrorCode::NotFound => {
-                return err_not_found(msg, "Deployment not found")
+                return err_not_found("Deployment not found")
             }
-            Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+            Err(e) => return err_internal(&format!("Database error: {e}")),
         };
 
         let subdomain = record
@@ -743,8 +765,8 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                             serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
                         );
                         match db::update(ctx, PROJECTS_COLLECTION, id, update_data).await {
-                            Ok(updated) => return json_respond(msg, &updated),
-                            Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+                            Ok(updated) => return ok_json(&updated),
+                            Err(e) => return err_internal(&format!("Database error: {e}")),
                         }
                     }
                     Ok((sc, resp)) => {
@@ -753,12 +775,12 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown");
                         update_status(ctx, id, "failed").await;
-                        return err_internal(
-                            msg,
-                            &format!("Provisioning failed ({}): {}", sc, error_msg),
-                        );
+                        return err_internal(&format!(
+                            "Provisioning failed ({}): {}",
+                            sc, error_msg
+                        ));
                     }
-                    Err(e) => return err_internal(msg, &e),
+                    Err(e) => return err_internal(&e),
                 }
             }
             "deprovision" => {
@@ -773,12 +795,12 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                                 .get("error")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("unknown");
-                            return err_internal(
-                                msg,
-                                &format!("Deprovision failed ({}): {}", sc, error_msg),
-                            );
+                            return err_internal(&format!(
+                                "Deprovision failed ({}): {}",
+                                sc, error_msg
+                            ));
                         }
-                        Err(e) => return err_internal(msg, &e),
+                        Err(e) => return err_internal(&e),
                     }
                 }
                 let now = chrono::Utc::now().to_rfc3339();
@@ -793,11 +815,11 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                 );
                 del_data.insert("updated_at".to_string(), serde_json::Value::String(now));
                 match db::update(ctx, PROJECTS_COLLECTION, id, del_data).await {
-                    Ok(updated) => return json_respond(msg, &updated),
-                    Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+                    Ok(updated) => return ok_json(&updated),
+                    Err(e) => return err_internal(&format!("Database error: {e}")),
                 }
             }
-            _ => return err_bad_request(msg, &format!("Unknown action: {admin_action}")),
+            _ => return err_bad_request(&format!("Unknown action: {admin_action}")),
         }
     }
 
@@ -807,13 +829,13 @@ async fn handle_admin_update(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     );
 
     match db::update(ctx, PROJECTS_COLLECTION, id, body).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Deployment not found"),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(record) => ok_json(&record),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Deployment not found"),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_admin_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_admin_stats(ctx: &dyn Context) -> OutputStream {
     let total = db::count(ctx, PROJECTS_COLLECTION, &[]).await.unwrap_or(0);
     let pending = db::count(
         ctx,
@@ -882,16 +904,13 @@ async fn handle_admin_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     .await
     .unwrap_or(0);
 
-    json_respond(
-        msg,
-        &serde_json::json!({
-            "total": total,
-            "pending": pending,
-            "active": active,
-            "inactive": inactive,
-            "stopped": stopped,
-            "failed": failed,
-            "deleted": deleted
-        }),
-    )
+    ok_json(&serde_json::json!({
+        "total": total,
+        "pending": pending,
+        "active": active,
+        "inactive": inactive,
+        "stopped": stopped,
+        "failed": failed,
+        "deleted": deleted
+    }))
 }

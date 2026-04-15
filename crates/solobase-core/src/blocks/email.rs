@@ -11,8 +11,10 @@ use serde::{Deserialize, Serialize};
 
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
+
+use crate::blocks::helpers::{err_bad_request, err_not_found, ok_json};
 
 pub struct EmailBlock;
 
@@ -38,11 +40,16 @@ impl Block for EmailBlock {
             ])
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         match msg.kind.as_str() {
-            "email.send" => handle_send(ctx, msg).await,
-            "email.send_template" => handle_send_template(ctx, msg).await,
-            _ => err_not_found(msg, &format!("unknown email op: {}", msg.kind)),
+            "email.send" => handle_send(ctx, input).await,
+            "email.send_template" => handle_send_template(ctx, input).await,
+            _ => err_not_found(&format!("unknown email op: {}", msg.kind)),
         }
     }
 
@@ -73,14 +80,15 @@ struct SendResp {
     sent: bool,
 }
 
-async fn handle_send(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let req: SendReq = match msg.decode() {
+async fn handle_send(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let req: SendReq = match serde_json::from_slice(&raw) {
         Ok(r) => r,
-        Err(e) => return err_invalid(msg, &format!("invalid email.send: {e}")),
+        Err(e) => return err_bad_request(&format!("invalid email.send: {e}")),
     };
 
     let sent = send_email(ctx, &req.to, &req.subject, &req.html, req.text.as_deref()).await;
-    json_respond(msg, &SendResp { sent })
+    ok_json(&SendResp { sent })
 }
 
 // ---------------------------------------------------------------------------
@@ -99,10 +107,11 @@ struct TemplateReq {
     days_remaining: Option<u32>,
 }
 
-async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let req: TemplateReq = match msg.decode() {
+async fn handle_send_template(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let req: TemplateReq = match serde_json::from_slice(&raw) {
         Ok(r) => r,
-        Err(e) => return err_invalid(msg, &format!("invalid email.send_template: {e}")),
+        Err(e) => return err_bad_request(&format!("invalid email.send_template: {e}")),
     };
 
     let (subject, html, text) = match req.template.as_str() {
@@ -186,12 +195,12 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             )
         }
         other => {
-            return err_invalid(msg, &format!("unknown email template: {other}"));
+            return err_bad_request(&format!("unknown email template: {other}"));
         }
     };
 
     let sent = send_email(ctx, &req.to, &subject, &html, Some(&text)).await;
-    json_respond(msg, &SendResp { sent })
+    ok_json(&SendResp { sent })
 }
 
 // ---------------------------------------------------------------------------
@@ -260,25 +269,26 @@ async fn send_email(
         "body": body.as_bytes().to_vec(),
     });
 
-    let mut network_msg = Message::new(
-        "network.do",
-        serde_json::to_vec(&network_req).unwrap_or_default(),
-    );
+    let network_msg = Message::new("network.do");
+    let req_bytes = serde_json::to_vec(&network_req).unwrap_or_default();
 
-    let result = ctx.call_block("wafer-run/network", &mut network_msg).await;
+    let out = ctx
+        .call_block(
+            "wafer-run/network",
+            network_msg,
+            InputStream::from_bytes(req_bytes),
+        )
+        .await;
 
-    match result.action {
-        Action::Respond => {
-            if let Some(ref resp) = result.response {
-                // Check if status was 200
-                if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&resp.data) {
-                    let status = v.get("status_code").and_then(|s| s.as_u64()).unwrap_or(0);
-                    return (200..300).contains(&status);
-                }
+    match out.collect_buffered().await {
+        Ok(resp) => {
+            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&resp.body) {
+                let status = v.get("status_code").and_then(|s| s.as_u64()).unwrap_or(0);
+                return (200..300).contains(&status);
             }
             false
         }
-        _ => false,
+        Err(_) => false,
     }
 }
 
@@ -370,8 +380,4 @@ impl<'a> std::io::Write for Base64Encoder<'a> {
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
-}
-
-fn err_invalid(_msg: &Message, message: &str) -> Result_ {
-    Result_::error(WaferError::new("invalid_argument", message))
 }

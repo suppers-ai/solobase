@@ -3,10 +3,12 @@ pub mod pages;
 pub mod rest;
 pub mod service;
 
+use crate::blocks::helpers::err_not_found;
+use crate::ui;
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 pub struct MessagesBlock;
 
@@ -178,15 +180,20 @@ impl Block for MessagesBlock {
         vec![wafer_run::UiRoute::authenticated("/")]
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let action = msg.action();
-        let path = msg.path();
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
+        let action = msg.action().to_string();
+        let path = msg.path().to_string();
         let is_api = path.contains("/api/");
         let user_id = msg.user_id().to_string();
 
         // All endpoints require authentication
         if user_id.is_empty() {
-            return crate::ui::forbidden_response(msg);
+            return ui::forbidden_response(&msg);
         }
 
         // UI pages require admin role
@@ -196,39 +203,39 @@ impl Block for MessagesBlock {
                 .split(',')
                 .any(|r| r.trim() == "admin");
             if !is_admin {
-                return crate::ui::forbidden_response(msg);
+                return ui::forbidden_response(&msg);
             }
         }
 
-        match (action, path) {
+        match (action.as_str(), path.as_str()) {
             // UI pages
-            ("retrieve", "/b/messages/") => pages::context_list_page(ctx, msg).await,
+            ("retrieve", "/b/messages/") => pages::context_list_page(ctx, &msg).await,
             ("retrieve", _)
                 if path.starts_with("/b/messages/contexts/") && !path.contains("/api/") =>
             {
-                pages::context_detail_page(ctx, msg).await
+                pages::context_detail_page(ctx, &msg).await
             }
 
             // Context CRUD
-            ("retrieve", "/b/messages/api/contexts") => rest::list_contexts(ctx, msg).await,
-            ("create", "/b/messages/api/contexts") => rest::create_context(ctx, msg).await,
+            ("retrieve", "/b/messages/api/contexts") => rest::list_contexts(ctx, &msg).await,
+            ("create", "/b/messages/api/contexts") => rest::create_context(ctx, input).await,
             ("retrieve", _)
                 if path.starts_with("/b/messages/api/contexts/")
                     && !path["/b/messages/api/contexts/".len()..].contains('/') =>
             {
-                rest::get_context(ctx, msg).await
+                rest::get_context(ctx, &msg).await
             }
             ("update", _)
                 if path.starts_with("/b/messages/api/contexts/")
                     && !path["/b/messages/api/contexts/".len()..].contains('/') =>
             {
-                rest::update_context(ctx, msg).await
+                rest::update_context(ctx, &msg, input).await
             }
             ("delete", _)
                 if path.starts_with("/b/messages/api/contexts/")
                     && !path["/b/messages/api/contexts/".len()..].contains('/') =>
             {
-                rest::delete_context(ctx, msg).await
+                rest::delete_context(ctx, &msg).await
             }
 
             // Entries within a context
@@ -236,24 +243,24 @@ impl Block for MessagesBlock {
                 if path.starts_with("/b/messages/api/contexts/")
                     && path.ends_with("/entries") =>
             {
-                rest::list_entries(ctx, msg).await
+                rest::list_entries(ctx, &msg).await
             }
             ("create", _)
                 if path.starts_with("/b/messages/api/contexts/")
                     && path.ends_with("/entries") =>
             {
-                rest::add_entry(ctx, msg).await
+                rest::add_entry(ctx, &msg, input).await
             }
 
             // Direct entry access
             ("retrieve", _) if path.starts_with("/b/messages/api/entries/") => {
-                rest::get_entry(ctx, msg).await
+                rest::get_entry(ctx, &msg).await
             }
             ("delete", _) if path.starts_with("/b/messages/api/entries/") => {
-                rest::delete_entry(ctx, msg).await
+                rest::delete_entry(ctx, &msg).await
             }
 
-            _ => err_not_found(msg, "not found"),
+            _ => err_not_found("not found"),
         }
     }
 

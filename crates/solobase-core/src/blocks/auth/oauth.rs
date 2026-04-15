@@ -1,14 +1,16 @@
 use super::helpers::*;
 use super::{AuthBlock, USERS_COLLECTION};
-use crate::blocks::helpers::{json_map, RecordExt};
+use crate::blocks::helpers::{
+    err_bad_request, err_forbidden, err_internal, json_map, ok_json, RecordExt, ResponseBuilder,
+};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::time::Duration;
 use wafer_core::clients::database as db;
 use wafer_core::clients::{config, crypto, network};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
 
 /// Generate a PKCE code verifier (43-128 chars, URL-safe).
 fn generate_pkce_verifier() -> Result<String, String> {
@@ -23,11 +25,7 @@ fn pkce_challenge(verifier: &str) -> String {
 }
 
 impl AuthBlock {
-    pub(super) async fn handle_oauth_providers(
-        &self,
-        ctx: &dyn Context,
-        msg: &mut Message,
-    ) -> Result_ {
+    pub(super) async fn handle_oauth_providers(&self, ctx: &dyn Context) -> OutputStream {
         let mut providers = Vec::new();
 
         for provider_name in &["google", "github", "microsoft"] {
@@ -43,19 +41,23 @@ impl AuthBlock {
             }
         }
 
-        json_respond(msg, &serde_json::json!({"providers": providers}))
+        ok_json(&serde_json::json!({"providers": providers}))
     }
 
-    pub(super) async fn handle_oauth_login(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    pub(super) async fn handle_oauth_login(
+        &self,
+        ctx: &dyn Context,
+        msg: &Message,
+    ) -> OutputStream {
         // Check ENABLE_OAUTH flag
         let enable_oauth = config::get_default(ctx, "SOLOBASE_SHARED__ENABLE_OAUTH", "false").await;
         if enable_oauth != "true" && enable_oauth != "1" {
-            return err_forbidden(msg, "OAuth login is not enabled");
+            return err_forbidden("OAuth login is not enabled");
         }
 
         let provider = msg.query("provider");
         if provider.is_empty() {
-            return err_bad_request(msg, "Missing provider parameter");
+            return err_bad_request("Missing provider parameter");
         }
 
         let client_id_key = format!(
@@ -65,10 +67,10 @@ impl AuthBlock {
         let client_id = match config::get(ctx, &client_id_key).await {
             Ok(id) => id,
             Err(_) => {
-                return err_bad_request(
-                    msg,
-                    &format!("OAuth provider '{}' not configured", provider),
-                )
+                return err_bad_request(&format!(
+                    "OAuth provider '{}' not configured",
+                    provider
+                ))
             }
         };
 
@@ -82,7 +84,7 @@ impl AuthBlock {
         // Generate PKCE code verifier and challenge
         let code_verifier = match generate_pkce_verifier() {
             Ok(v) => v,
-            Err(e) => return err_internal(msg, &format!("Failed to generate PKCE verifier: {e}")),
+            Err(e) => return err_internal(&format!("Failed to generate PKCE verifier: {e}")),
         };
         let code_challenge = pkce_challenge(&code_verifier);
 
@@ -102,7 +104,7 @@ impl AuthBlock {
         );
         let state = match crypto::sign(ctx, &state_claims, Duration::from_secs(600)).await {
             Ok(s) => s,
-            Err(e) => return err_internal(msg, &format!("Failed to generate state: {e}")),
+            Err(e) => return err_internal(&format!("Failed to generate state: {e}")),
         };
 
         let auth_url = match provider {
@@ -118,46 +120,43 @@ impl AuthBlock {
                 "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}&code_challenge={}&code_challenge_method=S256",
                 client_id, redirect_uri, urlencode(&state), urlencode(&code_challenge)
             ),
-            _ => return err_bad_request(msg, &format!("Unsupported provider: {}", provider)),
+            _ => return err_bad_request(&format!("Unsupported provider: {}", provider)),
         };
 
-        json_respond(
-            msg,
-            &serde_json::json!({
-                "auth_url": auth_url,
-                "provider": provider
-            }),
-        )
+        ok_json(&serde_json::json!({
+            "auth_url": auth_url,
+            "provider": provider
+        }))
     }
 
     pub(super) async fn handle_oauth_callback(
         &self,
         ctx: &dyn Context,
-        msg: &mut Message,
-    ) -> Result_ {
+        msg: &Message,
+    ) -> OutputStream {
         // Check ENABLE_OAUTH flag
         let enable_oauth = config::get_default(ctx, "SOLOBASE_SHARED__ENABLE_OAUTH", "false").await;
         if enable_oauth != "true" && enable_oauth != "1" {
-            return err_forbidden(msg, "OAuth login is not enabled");
+            return err_forbidden("OAuth login is not enabled");
         }
 
         let code = msg.query("code");
         let state = msg.query("state");
         if code.is_empty() || state.is_empty() {
-            return err_bad_request(msg, "Missing code or state parameter");
+            return err_bad_request("Missing code or state parameter");
         }
 
         // Verify CSRF state token and extract provider name
         let state_claims = match crypto::verify(ctx, state).await {
             Ok(c) => c,
-            Err(_) => return err_bad_request(msg, "Invalid or expired OAuth state"),
+            Err(_) => return err_bad_request("Invalid or expired OAuth state"),
         };
         let state_type = state_claims
             .get("type")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         if state_type != "oauth_state" {
-            return err_bad_request(msg, "Invalid OAuth state token");
+            return err_bad_request("Invalid OAuth state token");
         }
         let provider = state_claims
             .get("provider")
@@ -165,7 +164,7 @@ impl AuthBlock {
             .unwrap_or("")
             .to_string();
         if provider.is_empty() {
-            return err_bad_request(msg, "Missing provider in OAuth state");
+            return err_bad_request("Missing provider in OAuth state");
         }
         let code_verifier = state_claims
             .get("code_verifier")
@@ -199,7 +198,7 @@ impl AuthBlock {
         .await;
 
         if client_id.is_empty() || client_secret.is_empty() {
-            return err_internal(msg, "OAuth provider not fully configured");
+            return err_internal("OAuth provider not fully configured");
         }
 
         // Exchange code for token (URL-encode all values, include PKCE verifier)
@@ -219,7 +218,7 @@ impl AuthBlock {
                 format!("code={}&client_id={}&client_secret={}&redirect_uri={}&grant_type=authorization_code&code_verifier={}",
                     urlencode(code), urlencode(&client_id), urlencode(&client_secret), urlencode(&redirect_uri), urlencode(&code_verifier)),
             ),
-            _ => return err_bad_request(msg, "Unsupported OAuth provider"),
+            _ => return err_bad_request("Unsupported OAuth provider"),
         };
 
         let mut headers = HashMap::new();
@@ -235,12 +234,12 @@ impl AuthBlock {
                 .await
             {
                 Ok(r) => r,
-                Err(e) => return err_internal(msg, &format!("Token exchange failed: {e}")),
+                Err(e) => return err_internal(&format!("Token exchange failed: {e}")),
             };
 
         let token_data: serde_json::Value = match serde_json::from_slice(&token_resp.body) {
             Ok(d) => d,
-            Err(_) => return err_internal(msg, "Failed to parse token response"),
+            Err(_) => return err_internal("Failed to parse token response"),
         };
 
         let access_token_oauth = token_data
@@ -248,7 +247,7 @@ impl AuthBlock {
             .and_then(|v| v.as_str())
             .unwrap_or("");
         if access_token_oauth.is_empty() {
-            return err_internal(msg, "No access token in OAuth response");
+            return err_internal("No access token in OAuth response");
         }
 
         // Get user info
@@ -265,7 +264,7 @@ impl AuthBlock {
                 "https://graph.microsoft.com/v1.0/me".to_string(),
                 format!("Bearer {}", access_token_oauth),
             ),
-            _ => return err_internal(msg, "Unsupported provider"),
+            _ => return err_internal("Unsupported provider"),
         };
 
         let mut info_headers = HashMap::new();
@@ -275,12 +274,12 @@ impl AuthBlock {
         let info_resp =
             match network::do_request(ctx, "GET", &userinfo_url, &info_headers, None).await {
                 Ok(r) => r,
-                Err(e) => return err_internal(msg, &format!("User info request failed: {e}")),
+                Err(e) => return err_internal(&format!("User info request failed: {e}")),
             };
 
         let user_info: serde_json::Value = match serde_json::from_slice(&info_resp.body) {
             Ok(d) => d,
-            Err(_) => return err_internal(msg, "Failed to parse user info"),
+            Err(_) => return err_internal("Failed to parse user info"),
         };
 
         let email = user_info
@@ -301,7 +300,7 @@ impl AuthBlock {
             .to_string();
 
         if email.is_empty() {
-            return err_internal(msg, "No email returned by OAuth provider");
+            return err_internal("No email returned by OAuth provider");
         }
 
         // Upsert user
@@ -316,7 +315,7 @@ impl AuthBlock {
             Ok(existing) => {
                 // Check if the existing user account is disabled
                 if existing.bool_field("disabled") {
-                    return err_forbidden(msg, "Account is disabled");
+                    return err_forbidden("Account is disabled");
                 }
 
                 let mut upd = json_map(serde_json::json!({
@@ -342,7 +341,7 @@ impl AuthBlock {
                 let allow_signup =
                     config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_SIGNUP", "true").await;
                 if allow_signup != "true" && allow_signup != "1" {
-                    return err_forbidden(msg, "Signups are currently disabled");
+                    return err_forbidden("Signups are currently disabled");
                 }
 
                 // Enforce AUTH_ALLOWED_EMAIL_DOMAINS for new OAuth signups
@@ -353,7 +352,6 @@ impl AuthBlock {
                     let allowed = allowed_domains.split(',').any(|d| d.trim() == email_domain);
                     if !allowed {
                         return err_forbidden(
-                            msg,
                             "Signups from this email domain are not allowed",
                         );
                     }
@@ -370,7 +368,7 @@ impl AuthBlock {
                 crate::blocks::helpers::stamp_created(&mut data);
                 match create_user_and_assign_role(ctx, data).await {
                     Ok((u, _)) => u,
-                    Err(e) => return err_internal(msg, &e),
+                    Err(e) => return err_internal(&e),
                 }
             }
         };
@@ -401,7 +399,7 @@ impl AuthBlock {
 
         let cookie = build_auth_cookie(&jwt_token, 86400, ctx).await;
 
-        ResponseBuilder::new(msg)
+        ResponseBuilder::new()
             .status(302)
             .set_cookie(&cookie)
             .set_header("Location", &redirect_url)

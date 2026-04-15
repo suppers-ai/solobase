@@ -179,14 +179,7 @@ mod tests {
 ///
 /// Maps a solobase `ErrorCode` to the appropriate wafer `ErrorCode` and
 /// returns an `OutputStream::error(...)` with the error code as part of the message.
-///
-/// The `_msg` parameter is retained for call-site compatibility during migration;
-/// it is not used in the new streaming protocol.
-pub fn error_response(
-    _msg: &wafer_run::Message,
-    code: ErrorCode,
-    message: &str,
-) -> wafer_run::OutputStream {
+pub fn error_response(code: ErrorCode, message: &str) -> wafer_run::OutputStream {
     let wafer_code = solobase_error_code_to_wafer(code);
     let full_message = format!("[{}] {}", code.as_str(), message);
     wafer_run::OutputStream::error(wafer_run::WaferError {

@@ -1,23 +1,25 @@
 use wafer_core::clients::database as db;
 use wafer_core::clients::database::{Filter, FilterOp, SortField};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
+
+use crate::blocks::helpers::{err_internal, err_not_found, ok_json};
 
 use super::{AUDIT_LOGS_COLLECTION as COLLECTION, REQUEST_LOGS_COLLECTION};
 
-pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
         ("retrieve", "/admin/logs") => handle_list(ctx, msg).await,
         ("retrieve", "/admin/system-logs") => handle_system_logs(ctx, msg).await,
-        _ => err_not_found(msg, "not found"),
+        _ => err_not_found("not found"),
     }
 }
 
-async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (page, page_size, _) = msg.pagination_params(50);
 
     let mut filters = Vec::new();
@@ -61,12 +63,12 @@ async fn handle_list(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
     .await
     {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_system_logs(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_system_logs(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (page, page_size, _) = msg.pagination_params(50);
 
     let mut filters = Vec::new();
@@ -102,8 +104,8 @@ async fn handle_system_logs(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
     .await
     {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 

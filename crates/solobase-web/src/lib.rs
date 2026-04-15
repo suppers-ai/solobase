@@ -124,7 +124,7 @@ pub async fn initialize() -> Result<(), JsValue> {
 /// through the `site-main` flow, and returns a browser `Response`.
 #[wasm_bindgen]
 pub async fn handle_request(request: web_sys::Request) -> Result<web_sys::Response, JsValue> {
-    let mut msg = convert::request_to_message(&request).await?;
+    let (msg, input) = convert::request_to_message(&request).await?;
 
     // Dispatch through the site-main flow.
     //
@@ -144,8 +144,8 @@ pub async fn handle_request(request: web_sys::Request) -> Result<web_sys::Respon
         }
     })?;
     let wafer = unsafe { &*wafer_ptr };
-    let result = wafer.run("site-main", &mut msg).await;
+    let output = wafer.run("site-main", msg, input).await;
 
-    convert::result_to_response(result)
+    convert::output_to_response(output).await
 }
 

@@ -1,11 +1,13 @@
 mod handlers;
 mod pages;
 
-use super::rate_limit::{check_user_rate_limit, UserRateLimiter};
+use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
+use crate::blocks::helpers::err_not_found;
+use crate::ui;
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 pub(crate) const PROJECTS_COLLECTION: &str = "suppers_ai__projects__deployments";
 
@@ -82,11 +84,17 @@ impl Block for ProjectsBlock {
             .default_enabled(false)
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        mut msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         let path = msg.path().to_string();
 
         // Per-user rate limiting for authenticated endpoints
-        if let Some(r) = check_user_rate_limit(&self.limiter, ctx, msg).await {
+        if let RateLimitOutcome::Limited(r) = check_user_rate_limit(&self.limiter, ctx, &msg).await
+        {
             return r;
         }
 
@@ -97,15 +105,15 @@ impl Block for ProjectsBlock {
                 .split(',')
                 .any(|r| r.trim() == "admin");
             if !is_admin {
-                return crate::ui::forbidden_response(msg);
+                return ui::forbidden_response(&msg);
             }
             let action = msg.action().to_string();
             let sub = path.strip_prefix("/b/projects/admin").unwrap_or("/");
             return match (action.as_str(), sub) {
-                ("retrieve", "" | "/") => pages::admin_deployments(ctx, msg).await,
-                ("retrieve", "/settings") => pages::settings(ctx, msg).await,
-                ("create", "/settings") => pages::handle_save_settings(ctx, msg).await,
-                _ => err_not_found(msg, "not found"),
+                ("retrieve", "" | "/") => pages::admin_deployments(ctx, &msg).await,
+                ("retrieve", "/settings") => pages::settings(ctx, &msg).await,
+                ("create", "/settings") => pages::handle_save_settings(ctx, input).await,
+                _ => err_not_found("not found"),
             };
         }
 
@@ -116,19 +124,19 @@ impl Block for ProjectsBlock {
                 .split(',')
                 .any(|r| r.trim() == "admin");
             if !is_admin {
-                return crate::ui::forbidden_response(msg);
+                return ui::forbidden_response(&msg);
             }
             msg.set_meta("req.resource", format!("/admin/b/projects{rest}"));
-            return handlers::handle_admin(ctx, msg).await;
+            return handlers::handle_admin(ctx, &msg, input).await;
         }
 
         // User API at /b/projects/api/... → normalize to /b/projects/...
         if let Some(rest) = path.strip_prefix("/b/projects/api") {
             msg.set_meta("req.resource", format!("/b/projects{rest}"));
-            return handlers::handle_user(ctx, msg).await;
+            return handlers::handle_user(ctx, &msg, input).await;
         }
 
-        err_not_found(msg, "not found")
+        err_not_found("not found")
     }
 
     fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {

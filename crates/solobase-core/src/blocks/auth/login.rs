@@ -1,26 +1,34 @@
 use super::helpers::*;
 use super::{AuthBlock, USERS_COLLECTION};
 use crate::blocks::errors::{error_response, ErrorCode};
-use crate::blocks::helpers::{hex_encode, json_map, RecordExt};
+use crate::blocks::helpers::{
+    err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, hex_encode,
+    json_map, ok_json, RecordExt, ResponseBuilder,
+};
 use crate::ui;
 use maud::{html, PreEscaped};
 use std::collections::HashMap;
 use wafer_core::clients::database as db;
 use wafer_core::clients::{config, crypto};
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 impl AuthBlock {
-    pub(super) async fn handle_login(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    pub(super) async fn handle_login(
+        &self,
+        ctx: &dyn Context,
+        input: InputStream,
+    ) -> OutputStream {
         #[derive(serde::Deserialize)]
         struct LoginReq {
             email: String,
             password: String,
         }
-        let body: LoginReq = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: LoginReq = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         let email_lower = body.email.trim().to_lowercase();
@@ -49,7 +57,6 @@ impl AuthBlock {
             Ok(u) if password_ok => u,
             _ => {
                 return error_response(
-                    msg,
                     ErrorCode::InvalidCredentials,
                     "Invalid email or password",
                 )
@@ -58,7 +65,7 @@ impl AuthBlock {
 
         // Check if user is disabled
         if user.bool_field("disabled") {
-            return error_response(msg, ErrorCode::AccountDisabled, "Account is disabled");
+            return error_response(ErrorCode::AccountDisabled, "Account is disabled");
         }
 
         // Check email verification if required
@@ -67,7 +74,7 @@ impl AuthBlock {
         if (require_verification == "true" || require_verification == "1")
             && !user.bool_field("email_verified")
         {
-            return error_response(msg, ErrorCode::EmailNotVerified, "Please verify your email before logging in. Check your inbox for the verification link.");
+            return error_response(ErrorCode::EmailNotVerified, "Please verify your email before logging in. Check your inbox for the verification link.");
         }
 
         // Get roles
@@ -92,7 +99,7 @@ impl AuthBlock {
 
         let cookie = build_auth_cookie(&access_token, 86400, ctx).await;
 
-        ResponseBuilder::new(msg)
+        ResponseBuilder::new()
             .set_cookie(&cookie)
             .json(&serde_json::json!({
                 "access_token": access_token,
@@ -108,11 +115,15 @@ impl AuthBlock {
             }))
     }
 
-    pub(super) async fn handle_signup(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    pub(super) async fn handle_signup(
+        &self,
+        ctx: &dyn Context,
+        input: InputStream,
+    ) -> OutputStream {
         // Enforce ALLOW_SIGNUP on the API (not just the page)
         let allow_signup = config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_SIGNUP", "true").await;
         if allow_signup != "true" && allow_signup != "1" {
-            return error_response(msg, ErrorCode::Forbidden, "Signups are currently disabled");
+            return error_response(ErrorCode::Forbidden, "Signups are currently disabled");
         }
 
         #[derive(serde::Deserialize)]
@@ -121,16 +132,17 @@ impl AuthBlock {
             password: String,
             name: Option<String>,
         }
-        let body: SignupReq = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: SignupReq = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         let email_lower = body.email.trim().to_lowercase();
         let parts: Vec<&str> = email_lower.splitn(2, '@').collect();
         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() || !parts[1].contains('.')
         {
-            return error_response(msg, ErrorCode::InvalidEmail, "Invalid email address");
+            return error_response(ErrorCode::InvalidEmail, "Invalid email address");
         }
 
         // Check allowed email domains (if configured)
@@ -141,7 +153,6 @@ impl AuthBlock {
             let allowed = allowed_domains.split(',').any(|d| d.trim() == email_domain);
             if !allowed {
                 return error_response(
-                    msg,
                     ErrorCode::InvalidEmail,
                     "Signups from this email domain are not allowed",
                 );
@@ -150,28 +161,24 @@ impl AuthBlock {
 
         if body.password.len() < 8 {
             return error_response(
-                msg,
                 ErrorCode::PasswordTooShort,
                 "Password must be at least 8 characters",
             );
         }
         if body.password.len() > 1024 {
             return error_response(
-                msg,
                 ErrorCode::PasswordTooLong,
                 "Password must not exceed 1024 characters",
             );
         }
         if body.password.chars().any(|c| c.is_control()) {
             return error_response(
-                msg,
                 ErrorCode::InvalidInput,
                 "Password must not contain control characters",
             );
         }
         if email_lower.len() > 255 {
             return error_response(
-                msg,
                 ErrorCode::InvalidEmail,
                 "Email must not exceed 255 characters",
             );
@@ -179,7 +186,6 @@ impl AuthBlock {
         if let Some(ref name) = body.name {
             if name.len() > 200 {
                 return error_response(
-                    msg,
                     ErrorCode::InvalidInput,
                     "Name must not exceed 200 characters",
                 );
@@ -197,7 +203,6 @@ impl AuthBlock {
         .is_ok()
         {
             return error_response(
-                msg,
                 ErrorCode::EmailAlreadyExists,
                 "Email already registered",
             );
@@ -206,7 +211,7 @@ impl AuthBlock {
         // Hash password
         let password_hash = match crypto::hash(ctx, &body.password).await {
             Ok(h) => h,
-            Err(e) => return err_internal(msg, &format!("Failed to hash password: {e}")),
+            Err(e) => return err_internal(&format!("Failed to hash password: {e}")),
         };
 
         // Check if email verification is required
@@ -219,10 +224,7 @@ impl AuthBlock {
             match crypto::random_bytes(ctx, 32).await {
                 Ok(bytes) => hex_encode(&bytes),
                 Err(e) => {
-                    return err_internal(
-                        msg,
-                        &format!("Failed to generate verification token: {e}"),
-                    )
+                    return err_internal(&format!("Failed to generate verification token: {e}"))
                 }
             }
         } else {
@@ -241,7 +243,7 @@ impl AuthBlock {
 
         let (user, default_role) = match create_user_and_assign_role(ctx, data).await {
             Ok(r) => r,
-            Err(e) => return err_internal(msg, &e),
+            Err(e) => return err_internal(&e),
         };
 
         let roles = vec![default_role];
@@ -250,7 +252,7 @@ impl AuthBlock {
         if require_verification {
             send_verification_email(ctx, &email_lower, &verification_token).await;
             // Do NOT issue tokens before email is verified
-            return ResponseBuilder::new(msg)
+            return ResponseBuilder::new()
                 .status(201)
                 .json(&serde_json::json!({
                     "email_verified": false,
@@ -273,7 +275,7 @@ impl AuthBlock {
 
         let cookie = build_auth_cookie(&access_token, 86400, ctx).await;
 
-        ResponseBuilder::new(msg)
+        ResponseBuilder::new()
             .status(201)
             .set_cookie(&cookie)
             .json(&serde_json::json!({
@@ -291,14 +293,19 @@ impl AuthBlock {
             }))
     }
 
-    pub(super) async fn handle_refresh(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    pub(super) async fn handle_refresh(
+        &self,
+        ctx: &dyn Context,
+        input: InputStream,
+    ) -> OutputStream {
         #[derive(serde::Deserialize)]
         struct RefreshReq {
             refresh_token: String,
         }
-        let body: RefreshReq = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: RefreshReq = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         // Verify refresh token
@@ -306,7 +313,6 @@ impl AuthBlock {
             Ok(c) => c,
             Err(_) => {
                 return error_response(
-                    msg,
                     ErrorCode::InvalidToken,
                     "Invalid or expired refresh token",
                 )
@@ -321,12 +327,12 @@ impl AuthBlock {
             .to_string();
 
         if user_id.is_empty() {
-            return error_response(msg, ErrorCode::InvalidToken, "Invalid refresh token");
+            return error_response(ErrorCode::InvalidToken, "Invalid refresh token");
         }
 
         let token_type = claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
         if token_type != "refresh" {
-            return error_response(msg, ErrorCode::InvalidToken, "Not a refresh token");
+            return error_response(ErrorCode::InvalidToken, "Not a refresh token");
         }
 
         // Validate refresh token exists in DB (prevents use of revoked tokens)
@@ -344,7 +350,6 @@ impl AuthBlock {
             Ok(result) if !result.records.is_empty() => {} // Token exists — proceed
             _ => {
                 return error_response(
-                    msg,
                     ErrorCode::InvalidToken,
                     "Refresh token has been revoked",
                 )
@@ -354,11 +359,11 @@ impl AuthBlock {
         // Get user and verify account is still active
         let user = match db::get(ctx, USERS_COLLECTION, &user_id).await {
             Ok(u) => u,
-            Err(_) => return error_response(msg, ErrorCode::NotAuthenticated, "User not found"),
+            Err(_) => return error_response(ErrorCode::NotAuthenticated, "User not found"),
         };
 
         if user.bool_field("disabled") {
-            return error_response(msg, ErrorCode::AccountDisabled, "Account is disabled");
+            return error_response(ErrorCode::AccountDisabled, "Account is disabled");
         }
 
         let require_verification =
@@ -366,7 +371,7 @@ impl AuthBlock {
         if (require_verification == "true" || require_verification == "1")
             && !user.bool_field("email_verified")
         {
-            return error_response(msg, ErrorCode::EmailNotVerified, "Email not verified");
+            return error_response(ErrorCode::EmailNotVerified, "Email not verified");
         }
 
         let email = user.str_field("email").to_string();
@@ -399,7 +404,7 @@ impl AuthBlock {
 
         let cookie = build_auth_cookie(&access_token, 86400, ctx).await;
 
-        ResponseBuilder::new(msg)
+        ResponseBuilder::new()
             .set_cookie(&cookie)
             .json(&serde_json::json!({
                 "access_token": access_token,
@@ -409,7 +414,7 @@ impl AuthBlock {
             }))
     }
 
-    pub(super) async fn handle_logout(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    pub(super) async fn handle_logout(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
         let user_id = msg.user_id();
         if !user_id.is_empty() {
             db::delete_by_field(
@@ -423,47 +428,50 @@ impl AuthBlock {
         }
 
         let cookie = build_auth_cookie("", 0, ctx).await;
-        ResponseBuilder::new(msg)
+        ResponseBuilder::new()
             .set_cookie(&cookie)
             .status(303)
             .set_header("Location", "/b/auth/login")
             .json(&serde_json::json!({"message": "Logged out successfully"}))
     }
 
-    pub(super) async fn handle_me_get(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    pub(super) async fn handle_me_get(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
         let user_id = msg.user_id();
         if user_id.is_empty() {
-            return error_response(msg, ErrorCode::NotAuthenticated, "Not authenticated");
+            return error_response(ErrorCode::NotAuthenticated, "Not authenticated");
         }
         let user = match db::get(ctx, USERS_COLLECTION, user_id).await {
             Ok(u) => u,
-            Err(_) => return err_not_found(msg, "User not found"),
+            Err(_) => return err_not_found("User not found"),
         };
         let roles = get_user_roles(ctx, user_id).await;
-        json_respond(
-            msg,
-            &serde_json::json!({
-                "user": {
-                    "id": user.id,
-                    "email": user.str_field("email"),
-                    "name": user.str_field("name"),
-                    "roles": roles,
-                    "created_at": user.str_field("created_at"),
-                    "avatar_url": user.str_field("avatar_url")
-                }
-            }),
-        )
+        ok_json(&serde_json::json!({
+            "user": {
+                "id": user.id,
+                "email": user.str_field("email"),
+                "name": user.str_field("name"),
+                "roles": roles,
+                "created_at": user.str_field("created_at"),
+                "avatar_url": user.str_field("avatar_url")
+            }
+        }))
     }
 
-    pub(super) async fn handle_me_update(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    pub(super) async fn handle_me_update(
+        &self,
+        ctx: &dyn Context,
+        msg: &Message,
+        input: InputStream,
+    ) -> OutputStream {
         let user_id = msg.user_id();
         if user_id.is_empty() {
-            return error_response(msg, ErrorCode::NotAuthenticated, "Not authenticated");
+            return error_response(ErrorCode::NotAuthenticated, "Not authenticated");
         }
 
-        let body: HashMap<String, serde_json::Value> = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         // Only allow updating certain fields
@@ -478,28 +486,26 @@ impl AuthBlock {
         match db::update(ctx, USERS_COLLECTION, user_id, data).await {
             Ok(user) => {
                 let roles = get_user_roles(ctx, user_id).await;
-                json_respond(
-                    msg,
-                    &serde_json::json!({
-                        "id": user.id,
-                        "email": user.str_field("email"),
-                        "name": user.str_field("name"),
-                        "roles": roles
-                    }),
-                )
+                ok_json(&serde_json::json!({
+                    "id": user.id,
+                    "email": user.str_field("email"),
+                    "name": user.str_field("name"),
+                    "roles": roles
+                }))
             }
-            Err(e) => err_internal(msg, &format!("Update failed: {e}")),
+            Err(e) => err_internal(&format!("Update failed: {e}")),
         }
     }
 
     pub(super) async fn handle_change_password(
         &self,
         ctx: &dyn Context,
-        msg: &mut Message,
-    ) -> Result_ {
+        msg: &Message,
+        input: InputStream,
+    ) -> OutputStream {
         let user_id = msg.user_id();
         if user_id.is_empty() {
-            return error_response(msg, ErrorCode::NotAuthenticated, "Not authenticated");
+            return error_response(ErrorCode::NotAuthenticated, "Not authenticated");
         }
 
         #[derive(serde::Deserialize)]
@@ -507,21 +513,20 @@ impl AuthBlock {
             current_password: String,
             new_password: String,
         }
-        let body: ChangePwReq = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: ChangePwReq = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         if body.new_password.len() < 8 {
             return error_response(
-                msg,
                 ErrorCode::PasswordTooShort,
                 "New password must be at least 8 characters",
             );
         }
         if body.new_password.len() > 1024 {
             return error_response(
-                msg,
                 ErrorCode::PasswordTooLong,
                 "Password must not exceed 1024 characters",
             );
@@ -529,7 +534,7 @@ impl AuthBlock {
 
         let user = match db::get(ctx, USERS_COLLECTION, user_id).await {
             Ok(u) => u,
-            Err(_) => return err_not_found(msg, "User not found"),
+            Err(_) => return err_not_found("User not found"),
         };
 
         let stored_hash = user.str_field("password_hash");
@@ -538,7 +543,6 @@ impl AuthBlock {
             .is_err()
         {
             return error_response(
-                msg,
                 ErrorCode::InvalidCredentials,
                 "Current password is incorrect",
             );
@@ -546,7 +550,7 @@ impl AuthBlock {
 
         let new_hash = match crypto::hash(ctx, &body.new_password).await {
             Ok(h) => h,
-            Err(e) => return err_internal(msg, &format!("Hash failed: {e}")),
+            Err(e) => return err_internal(&format!("Hash failed: {e}")),
         };
 
         let mut data = json_map(serde_json::json!({"password_hash": new_hash}));
@@ -563,30 +567,31 @@ impl AuthBlock {
                 )
                 .await
                 .ok();
-                json_respond(
-                    msg,
-                    &serde_json::json!({"message": "Password changed successfully"}),
-                )
+                ok_json(&serde_json::json!({"message": "Password changed successfully"}))
             }
-            Err(e) => err_internal(msg, &format!("Update failed: {e}")),
+            Err(e) => err_internal(&format!("Update failed: {e}")),
         }
     }
 
-    pub(super) async fn handle_sync_user(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    pub(super) async fn handle_sync_user(
+        &self,
+        ctx: &dyn Context,
+        msg: &Message,
+        input: InputStream,
+    ) -> OutputStream {
         // Internal endpoint for OAuth user sync — requires INTERNAL_SECRET
         let expected_secret =
             wafer_core::clients::config::get_default(ctx, "SUPPERS_AI__AUTH__INTERNAL_SECRET", "")
                 .await;
         if expected_secret.is_empty() {
             return err_forbidden(
-                msg,
                 "INTERNAL_SECRET not configured — internal endpoints are disabled",
             );
         }
         let provided_secret = msg.header("x-internal-secret");
         if !crate::crypto::constant_time_eq(provided_secret.as_bytes(), expected_secret.as_bytes())
         {
-            return err_unauthorized(msg, "Invalid internal secret");
+            return err_unauthorized("Invalid internal secret");
         }
 
         #[derive(serde::Deserialize)]
@@ -595,9 +600,10 @@ impl AuthBlock {
             name: Option<String>,
             provider: Option<String>,
         }
-        let body: SyncReq = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: SyncReq = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         let email_lower = body.email.trim().to_lowercase();
@@ -620,22 +626,20 @@ impl AuthBlock {
                 crate::blocks::helpers::stamp_created(&mut data);
                 match db::create(ctx, USERS_COLLECTION, data).await {
                     Ok(u) => u,
-                    Err(e) => return err_internal(msg, &format!("Create failed: {e}")),
+                    Err(e) => return err_internal(&format!("Create failed: {e}")),
                 }
             }
         };
 
-        json_respond(
-            msg,
-            &serde_json::json!({"id": user.id, "email": user.data.get("email")}),
-        )
+        ok_json(&serde_json::json!({"id": user.id, "email": user.data.get("email")}))
     }
 
     pub(super) async fn handle_verify_email(
         &self,
         ctx: &dyn Context,
-        msg: &mut Message,
-    ) -> Result_ {
+        msg: &Message,
+        input: InputStream,
+    ) -> OutputStream {
         let logo_url = db::get_by_field(
             ctx,
             crate::blocks::admin::VARIABLES_COLLECTION,
@@ -656,40 +660,40 @@ impl AuthBlock {
                 struct Req {
                     token: String,
                 }
-                match msg.decode::<Req>() {
+                let raw = input.collect_to_bytes().await;
+                match serde_json::from_slice::<Req>(&raw) {
                     Ok(r) => r.token,
-                    Err(_) => return err_bad_request(msg, "Missing verification token"),
+                    Err(_) => return err_bad_request("Missing verification token"),
                 }
             }
         };
 
         if token.is_empty() {
-            return err_bad_request(msg, "Missing verification token");
+            return err_bad_request("Missing verification token");
         }
 
         // Find user by verification token
-        let user =
-            match db::get_by_field(
-                ctx,
-                USERS_COLLECTION,
-                "verification_token",
-                serde_json::Value::String(token.clone()),
-            )
-            .await
-            {
-                Ok(u) => u,
-                Err(_) => return html_respond(
-                    msg,
+        let user = match db::get_by_field(
+            ctx,
+            USERS_COLLECTION,
+            "verification_token",
+            serde_json::Value::String(token.clone()),
+        )
+        .await
+        {
+            Ok(u) => u,
+            Err(_) => {
+                return html_respond(
                     "Invalid Link",
                     "This verification link is invalid or has expired. Please request a new one.",
                     false,
                     &logo_url,
-                ),
-            };
+                )
+            }
+        };
 
         if user.bool_field("email_verified") {
             return html_respond(
-                msg,
                 "Email Already Verified",
                 "Your email has already been verified. You can sign in now.",
                 true,
@@ -705,11 +709,10 @@ impl AuthBlock {
         crate::blocks::helpers::stamp_updated(&mut data);
 
         if let Err(e) = db::update(ctx, USERS_COLLECTION, &user.id, data).await {
-            return err_internal(msg, &format!("Failed to verify email: {e}"));
+            return err_internal(&format!("Failed to verify email: {e}"));
         }
 
         html_respond(
-            msg,
             "Email Verified",
             "Your email has been verified successfully. You can now sign in.",
             true,
@@ -720,15 +723,16 @@ impl AuthBlock {
     pub(super) async fn handle_resend_verification(
         &self,
         ctx: &dyn Context,
-        msg: &mut Message,
-    ) -> Result_ {
+        input: InputStream,
+    ) -> OutputStream {
         #[derive(serde::Deserialize)]
         struct Req {
             email: String,
         }
-        let body: Req = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: Req = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         let email_lower = body.email.trim().to_lowercase();
@@ -743,14 +747,11 @@ impl AuthBlock {
         .await
         {
             Ok(u) => u,
-            Err(_) => return json_respond(msg, &serde_json::json!({"message": safe_msg})),
+            Err(_) => return ok_json(&serde_json::json!({"message": safe_msg})),
         };
 
         if user.bool_field("email_verified") {
-            return json_respond(
-                msg,
-                &serde_json::json!({"message": "Email is already verified."}),
-            );
+            return ok_json(&serde_json::json!({"message": "Email is already verified."}));
         }
 
         // Rate limit: 60 second cooldown
@@ -760,13 +761,10 @@ impl AuthBlock {
                 let elapsed = chrono::Utc::now() - last.with_timezone(&chrono::Utc);
                 let remaining = 60 - elapsed.num_seconds();
                 if remaining > 0 {
-                    return json_respond(
-                        msg,
-                        &serde_json::json!({
-                            "message": format!("Please wait {} seconds before requesting another email.", remaining),
-                            "retry_after": remaining
-                        }),
-                    );
+                    return ok_json(&serde_json::json!({
+                        "message": format!("Please wait {} seconds before requesting another email.", remaining),
+                        "retry_after": remaining
+                    }));
                 }
             }
         }
@@ -774,7 +772,7 @@ impl AuthBlock {
         // Generate new token
         let new_token = match crypto::random_bytes(ctx, 32).await {
             Ok(bytes) => hex_encode(&bytes),
-            Err(e) => return err_internal(msg, &format!("Token generation failed: {e}")),
+            Err(e) => return err_internal(&format!("Token generation failed: {e}")),
         };
 
         let now = crate::blocks::helpers::now_rfc3339();
@@ -785,26 +783,27 @@ impl AuthBlock {
         crate::blocks::helpers::stamp_updated(&mut data);
 
         if let Err(e) = db::update(ctx, USERS_COLLECTION, &user.id, data).await {
-            return err_internal(msg, &format!("Failed to update token: {e}"));
+            return err_internal(&format!("Failed to update token: {e}"));
         }
 
         send_verification_email(ctx, &email_lower, &new_token).await;
 
-        json_respond(msg, &serde_json::json!({"message": safe_msg}))
+        ok_json(&serde_json::json!({"message": safe_msg}))
     }
 
     pub(super) async fn handle_forgot_password(
         &self,
         ctx: &dyn Context,
-        msg: &mut Message,
-    ) -> Result_ {
+        input: InputStream,
+    ) -> OutputStream {
         #[derive(serde::Deserialize)]
         struct Req {
             email: String,
         }
-        let body: Req = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: Req = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         let email_lower = body.email.trim().to_lowercase();
@@ -819,13 +818,13 @@ impl AuthBlock {
         .await
         {
             Ok(u) => u,
-            Err(_) => return json_respond(msg, &serde_json::json!({"message": safe_msg})),
+            Err(_) => return ok_json(&serde_json::json!({"message": safe_msg})),
         };
 
         // Generate reset token (expires in 1 hour)
         let reset_token = match crypto::random_bytes(ctx, 32).await {
             Ok(bytes) => hex_encode(&bytes),
-            Err(e) => return err_internal(msg, &format!("Token generation failed: {e}")),
+            Err(e) => return err_internal(&format!("Token generation failed: {e}")),
         };
 
         let expires = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
@@ -836,20 +835,20 @@ impl AuthBlock {
         crate::blocks::helpers::stamp_updated(&mut data);
 
         if let Err(e) = db::update(ctx, USERS_COLLECTION, &user.id, data).await {
-            return err_internal(msg, &format!("Failed to store reset token: {e}"));
+            return err_internal(&format!("Failed to store reset token: {e}"));
         }
 
         // Send reset email
         send_reset_email(ctx, &email_lower, &reset_token).await;
 
-        json_respond(msg, &serde_json::json!({"message": safe_msg}))
+        ok_json(&serde_json::json!({"message": safe_msg}))
     }
 
     pub(super) async fn handle_reset_password_form(
         &self,
         ctx: &dyn Context,
-        msg: &mut Message,
-    ) -> Result_ {
+        msg: &Message,
+    ) -> OutputStream {
         let logo_url = db::get_by_field(
             ctx,
             crate::blocks::admin::VARIABLES_COLLECTION,
@@ -863,7 +862,6 @@ impl AuthBlock {
         let token = msg.get_meta("req.query.token").to_string();
         if token.is_empty() {
             return html_respond(
-                msg,
                 "Invalid Link",
                 "This password reset link is invalid.",
                 false,
@@ -934,34 +932,33 @@ async function handleReset(e){
             },
         );
 
-        ui::html_response(msg, markup)
+        ui::html_response(markup)
     }
 
     pub(super) async fn handle_reset_password(
         &self,
         ctx: &dyn Context,
-        msg: &mut Message,
-    ) -> Result_ {
+        input: InputStream,
+    ) -> OutputStream {
         #[derive(serde::Deserialize)]
         struct Req {
             token: String,
             new_password: String,
         }
-        let body: Req = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: Req = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         if body.new_password.len() < 8 {
             return error_response(
-                msg,
                 ErrorCode::PasswordTooShort,
                 "Password must be at least 8 characters",
             );
         }
         if body.new_password.len() > 1024 {
             return error_response(
-                msg,
                 ErrorCode::PasswordTooLong,
                 "Password must not exceed 1024 characters",
             );
@@ -979,7 +976,6 @@ async function handleReset(e){
             Ok(u) => u,
             Err(_) => {
                 return error_response(
-                    msg,
                     ErrorCode::InvalidToken,
                     "Invalid or expired reset token",
                 )
@@ -990,7 +986,6 @@ async function handleReset(e){
         let expires = user.str_field("reset_token_expires");
         if expires.is_empty() {
             return error_response(
-                msg,
                 ErrorCode::TokenExpired,
                 "Reset token has expired. Please request a new one.",
             );
@@ -999,7 +994,6 @@ async function handleReset(e){
             Ok(exp) => {
                 if chrono::Utc::now() > exp.with_timezone(&chrono::Utc) {
                     return error_response(
-                        msg,
                         ErrorCode::TokenExpired,
                         "Reset token has expired. Please request a new one.",
                     );
@@ -1007,7 +1001,6 @@ async function handleReset(e){
             }
             Err(_) => {
                 return error_response(
-                    msg,
                     ErrorCode::TokenExpired,
                     "Reset token has expired. Please request a new one.",
                 );
@@ -1017,7 +1010,7 @@ async function handleReset(e){
         // Hash new password
         let new_hash = match crypto::hash(ctx, &body.new_password).await {
             Ok(h) => h,
-            Err(e) => return err_internal(msg, &format!("Hash failed: {e}")),
+            Err(e) => return err_internal(&format!("Hash failed: {e}")),
         };
 
         // Update password, clear reset token
@@ -1029,7 +1022,7 @@ async function handleReset(e){
         crate::blocks::helpers::stamp_updated(&mut data);
 
         if let Err(e) = db::update(ctx, USERS_COLLECTION, &user.id, data).await {
-            return err_internal(msg, &format!("Failed to update password: {e}"));
+            return err_internal(&format!("Failed to update password: {e}"));
         }
 
         // Revoke all refresh tokens — invalidate any stolen sessions
@@ -1042,21 +1035,12 @@ async function handleReset(e){
         .await
         .ok();
 
-        json_respond(
-            msg,
-            &serde_json::json!({"message": "Password reset successfully"}),
-        )
+        ok_json(&serde_json::json!({"message": "Password reset successfully"}))
     }
 }
 
 /// Return an HTML page response (for verify/reset endpoints opened in browser).
-fn html_respond(
-    msg: &mut Message,
-    title: &str,
-    message: &str,
-    success: bool,
-    logo_url: &str,
-) -> Result_ {
+fn html_respond(title: &str, message: &str, success: bool, logo_url: &str) -> OutputStream {
     let color = if success { "#10b981" } else { "#ef4444" };
     let config = ui::SiteConfig {
         app_name: "Solobase".into(),
@@ -1087,7 +1071,7 @@ fn html_respond(
             }
         },
     );
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 /// Send verification email via the email block.
@@ -1114,18 +1098,22 @@ async fn send_template_email(
     if let Some(n) = name {
         req["name"] = serde_json::Value::String(n.to_string());
     }
-    let mut email_msg = Message {
+    let email_msg = Message {
         kind: "email.send_template".to_string(),
-        data: serde_json::to_vec(&req).unwrap_or_default(),
         meta: Vec::new(),
     };
-    let result = ctx.call_block("suppers-ai/email", &mut email_msg).await;
-    if matches!(result.action, Action::Error) {
-        tracing::warn!(
-            "Failed to send {} email to {}: {:?}",
-            template,
-            to,
-            result.error
-        );
+    let body_bytes = serde_json::to_vec(&req).unwrap_or_default();
+    let out = ctx
+        .call_block(
+            "suppers-ai/email",
+            email_msg,
+            InputStream::from_bytes(body_bytes),
+        )
+        .await;
+    match out.collect_buffered().await {
+        Ok(_) => {}
+        Err(e) => {
+            tracing::warn!("Failed to send {} email to {}: {:?}", template, to, e);
+        }
     }
 }

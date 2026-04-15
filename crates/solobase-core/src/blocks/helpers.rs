@@ -2,7 +2,10 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use wafer_core::clients::database::Record;
-use wafer_run::types::{ErrorCode, WaferError};
+use wafer_run::meta::{
+    META_RESP_CONTENT_TYPE, META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX, META_RESP_STATUS,
+};
+use wafer_run::types::{ErrorCode, MetaEntry, WaferError};
 use wafer_run::OutputStream;
 
 /// Current UTC time as RFC 3339 string.
@@ -202,6 +205,98 @@ pub fn err_internal(message: &str) -> OutputStream {
         message: message.to_string(),
         meta: vec![],
     })
+}
+
+// ---------------------------------------------------------------------------
+// ResponseBuilder — streaming replacement for wafer_run::helpers::ResponseBuilder
+// Builds an OutputStream with custom status, headers, cookies, and body/JSON.
+// ---------------------------------------------------------------------------
+
+/// Build a response `OutputStream` with custom status, headers, and cookies.
+pub struct ResponseBuilder {
+    meta: Vec<MetaEntry>,
+    cookie_count: usize,
+}
+
+impl ResponseBuilder {
+    /// Create a new empty response builder.
+    pub fn new() -> Self {
+        Self {
+            meta: Vec::new(),
+            cookie_count: 0,
+        }
+    }
+
+    /// Set an explicit HTTP status code (e.g. 201, 301, 302).
+    pub fn status(mut self, status: u16) -> Self {
+        self.meta.push(MetaEntry {
+            key: META_RESP_STATUS.to_string(),
+            value: status.to_string(),
+        });
+        self
+    }
+
+    /// Add a response header.
+    pub fn set_header(mut self, key: &str, value: &str) -> Self {
+        self.meta.push(MetaEntry {
+            key: format!("{}{}", META_RESP_HEADER_PREFIX, key),
+            value: value.to_string(),
+        });
+        self
+    }
+
+    /// Append a `Set-Cookie` header.
+    pub fn set_cookie(mut self, cookie: &str) -> Self {
+        self.meta.push(MetaEntry {
+            key: format!("{}{}", META_RESP_COOKIE_PREFIX, self.cookie_count),
+            value: cookie.to_string(),
+        });
+        self.cookie_count += 1;
+        self
+    }
+
+    /// Serialise `value` to JSON and emit with Content-Type: application/json.
+    pub fn json<T: Serialize>(mut self, value: &T) -> OutputStream {
+        match serde_json::to_vec(value) {
+            Ok(body) => {
+                self.meta.push(MetaEntry {
+                    key: META_RESP_CONTENT_TYPE.to_string(),
+                    value: "application/json".to_string(),
+                });
+                respond_with_meta(body, self.meta)
+            }
+            Err(e) => err_internal(&format!("serialize failed: {}", e)),
+        }
+    }
+
+    /// Emit `bytes` with the given content type.
+    pub fn body(mut self, bytes: Vec<u8>, content_type: &str) -> OutputStream {
+        if !content_type.is_empty() {
+            self.meta.push(MetaEntry {
+                key: META_RESP_CONTENT_TYPE.to_string(),
+                value: content_type.to_string(),
+            });
+        }
+        respond_with_meta(bytes, self.meta)
+    }
+
+    /// Emit an empty body (headers / cookies only).
+    pub fn empty(self) -> OutputStream {
+        respond_with_meta(Vec::new(), self.meta)
+    }
+}
+
+impl Default for ResponseBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Internal helper: create an `OutputStream` that emits `body` then completes
+/// with `meta` as trailing metadata. Delegates to `OutputStream::respond_with_meta`
+/// so we don't need a direct `tokio` dependency.
+fn respond_with_meta(body: Vec<u8>, meta: Vec<MetaEntry>) -> OutputStream {
+    OutputStream::respond_with_meta(body, meta)
 }
 
 #[cfg(test)]

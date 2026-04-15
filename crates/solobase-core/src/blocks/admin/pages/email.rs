@@ -1,9 +1,10 @@
+use crate::blocks::helpers::{err_bad_request, ok_json};
 use crate::ui::{components, icons, SiteConfig, UserInfo};
 use maud::{html, PreEscaped};
 use wafer_core::clients::config;
 use wafer_run::context::Context;
-use wafer_run::helpers::*;
 use wafer_run::types::*;
+use wafer_run::{InputStream, OutputStream};
 
 use super::admin_page;
 
@@ -38,7 +39,7 @@ const EMAIL_SETTINGS_KEYS: &[(&str, &str, &str, &str, bool)] = &[
     ),
 ];
 
-pub async fn email_settings_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn email_settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -106,20 +107,20 @@ function submitEmailSettings(e) {
     )
 }
 
-pub async fn handle_save_email_settings(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let body: std::collections::HashMap<String, String> = match msg.decode() {
+pub async fn handle_save_email_settings(
+    ctx: &dyn Context,
+    _msg: &Message,
+    input: InputStream,
+) -> OutputStream {
+    let bytes = input.collect_to_bytes().await;
+    let body: std::collections::HashMap<String, String> = match serde_json::from_slice(&bytes) {
         Ok(b) => b,
-        Err(e) => {
-            return json_respond(
-                msg,
-                &serde_json::json!({"error": format!("Invalid request: {e}")}),
-            )
-        }
+        Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
     };
     for &(key, _, _, _, _) in EMAIL_SETTINGS_KEYS {
         if let Some(value) = body.get(key) {
             let _ = config::set(ctx, key, value).await;
         }
     }
-    json_respond(msg, &serde_json::json!({"message": "Email settings saved"}))
+    ok_json(&serde_json::json!({"message": "Email settings saved"}))
 }

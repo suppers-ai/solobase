@@ -9,6 +9,7 @@ use wafer_core::clients::database as db;
 use wafer_core::clients::database::ListOptions;
 use wafer_run::context::Context;
 use wafer_run::types::*;
+use wafer_run::OutputStream;
 
 use super::PROVIDERS_COLLECTION;
 
@@ -37,18 +38,18 @@ fn provider_llm_page(
     path: &str,
     user: Option<&UserInfo>,
     content: Markup,
-    msg: &mut Message,
-) -> Result_ {
+    msg: &Message,
+) -> OutputStream {
     let is_fragment = ui::is_htmx(msg);
     let markup = ui::layout::block_shell(title, config, &nav(), user, path, content, is_fragment);
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 // ---------------------------------------------------------------------------
 // Providers list page
 // ---------------------------------------------------------------------------
 
-pub async fn admin_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn admin_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
