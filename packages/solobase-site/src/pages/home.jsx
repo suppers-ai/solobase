@@ -6,8 +6,6 @@ import Hero from "../components/Hero";
 import Footer from "../components/Footer";
 import DemoModal from "../components/DemoModal";
 
-const SIGN_IN_URL = "https://cloud.solobase.dev/b/auth/login";
-
 const platforms = [
   {
     name: "Linux",
@@ -222,57 +220,6 @@ function GetStarted() {
           </div>
         </div>
         <CodeBlock />
-        {/* Cloud section */}
-        <div
-          class="mt-10 mb-8"
-          style={{
-            background: "#f9fafb",
-            borderRadius: "0.75rem",
-            padding: "1.5rem 2rem",
-            textAlign: "center",
-          }}
-        >
-          <p
-            style={{
-              fontSize: "1rem",
-              color: "#374151",
-              marginBottom: "0.75rem",
-            }}
-          >
-            Or have a super fast edge instance hosted by us
-          </p>
-          <img
-            src="/images/cloudflare_solobase.png"
-            alt="Cloudflare"
-            style={{ height: "100px", margin: "0 auto 1rem", display: "block" }}
-          />
-          <p
-            style={{
-              fontSize: "0.875rem",
-              color: "#6b7280",
-              marginBottom: "1rem",
-            }}
-          >
-            Cheap, global, and lightning fast.
-          </p>
-          <a
-            href={SIGN_IN_URL}
-            style={{
-              display: "inline-block",
-              padding: "0.625rem 1.5rem",
-              background: "#b72a07",
-              color: "white",
-              borderRadius: "0.5rem",
-              fontWeight: 600,
-              fontSize: "0.875rem",
-              transition: "background 0.2s",
-            }}
-            onMouseOver={(e) => (e.currentTarget.style.background = "#9a1f0a")}
-            onMouseOut={(e) => (e.currentTarget.style.background = "#b72a07")}
-          >
-            Sign In
-          </a>
-        </div>
       </div>
     </section>
   );
@@ -525,22 +472,6 @@ function BottomCTA({ onOpenDemo }) {
           Ready to get started?
         </h2>
         <div class="flex justify-center gap-4 flex-wrap">
-          <a
-            href={SIGN_IN_URL}
-            style={{
-              display: "inline-block",
-              padding: "0.75rem 2rem",
-              background: "#b72a07",
-              color: "white",
-              borderRadius: "0.5rem",
-              fontWeight: 600,
-              transition: "background 0.2s",
-            }}
-            onMouseOver={(e) => (e.currentTarget.style.background = "#9a1f0a")}
-            onMouseOut={(e) => (e.currentTarget.style.background = "#b72a07")}
-          >
-            Sign In
-          </a>
           <a
             href="https://demo.solobase.dev"
             target="_blank"

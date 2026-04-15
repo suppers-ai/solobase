@@ -11,14 +11,8 @@ export const siteConfig = {
 export const mainMenu = [
   { name: "Home", url: "/" },
   { name: "Use Cases", url: "/use-cases/" },
-  { name: "Pricing", url: "/pricing/" },
   { name: "Docs", url: "/docs/" },
   { name: "Demo", url: "https://demo.solobase.dev", external: true },
-  {
-    name: "Sign In",
-    url: "https://cloud.solobase.dev/b/auth/login",
-    external: true,
-  },
 ];
 
 export const socialLinks = [
@@ -59,7 +53,6 @@ export const docsSidebar = [
     title: "Deployment",
     items: [
       { name: "Docker", path: "/docs/deployment/docker/" },
-      { name: "Solobase Cloud", path: "/docs/cloud/" },
     ],
   },
 ];
