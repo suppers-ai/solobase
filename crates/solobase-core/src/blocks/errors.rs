@@ -190,7 +190,7 @@ pub fn error_response(code: ErrorCode, message: &str) -> wafer_run::OutputStream
 }
 
 /// Map a solobase `ErrorCode` to a wafer `ErrorCode`.
-fn solobase_error_code_to_wafer(code: ErrorCode) -> wafer_run::ErrorCode {
+pub(crate) fn solobase_error_code_to_wafer(code: ErrorCode) -> wafer_run::ErrorCode {
     match code {
         ErrorCode::InvalidCredentials
         | ErrorCode::NotAuthenticated

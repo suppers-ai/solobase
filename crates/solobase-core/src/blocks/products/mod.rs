@@ -232,6 +232,7 @@ impl Block for ProductsBlock {
         }
 
         // Per-user rate limiting for authenticated endpoints
+        // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
         if let RateLimitOutcome::Limited(out) = check_user_rate_limit(&self.limiter, ctx, &msg).await {
             return out;
         }

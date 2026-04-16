@@ -418,6 +418,9 @@ impl Block for AuthBlock {
                 } else {
                     ip
                 };
+                // TODO: RateLimitOutcome::Allowed(headers) is currently discarded.
+                // Injecting X-RateLimit-* headers requires a streaming middleware
+                // pattern that doesn't exist yet.
                 if let RateLimitOutcome::Limited(r) =
                     check_rate_limit(&self.limiter, ctx, &identity, "auth", RateLimit::AUTH).await
                 {
@@ -431,6 +434,7 @@ impl Block for AuthBlock {
                 } else {
                     ip
                 };
+                // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
                 if let RateLimitOutcome::Limited(r) = check_rate_limit(
                     &self.limiter,
                     ctx,
@@ -454,6 +458,7 @@ impl Block for AuthBlock {
                 } else {
                     ip
                 };
+                // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
                 if let RateLimitOutcome::Limited(r) =
                     check_rate_limit(&self.limiter, ctx, &identity, "auth", RateLimit::AUTH).await
                 {
@@ -467,6 +472,7 @@ impl Block for AuthBlock {
             | ("delete", _) => {
                 let user_id = msg.user_id().to_string();
                 if !user_id.is_empty() {
+                    // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
                     if let RateLimitOutcome::Limited(r) = check_rate_limit(
                         &self.limiter,
                         ctx,
@@ -484,6 +490,7 @@ impl Block for AuthBlock {
             ("retrieve", "/auth/api/me") | ("retrieve", "/auth/api/api-keys") => {
                 let user_id = msg.user_id().to_string();
                 if !user_id.is_empty() {
+                    // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
                     if let RateLimitOutcome::Limited(r) = check_rate_limit(
                         &self.limiter,
                         ctx,

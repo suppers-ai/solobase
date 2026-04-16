@@ -157,6 +157,7 @@ impl Block for FilesBlock {
             } else {
                 (RateLimit::API_WRITE, "api_write")
             };
+            // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
             if let RateLimitOutcome::Limited(r) =
                 check_rate_limit(&self.limiter, ctx, &user_id, category, default).await
             {

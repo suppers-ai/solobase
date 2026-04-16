@@ -258,17 +258,22 @@ impl RateLimitHeaders {
     }
 }
 
-/// Return a 429 Too Many Requests response.
+/// Return a 429 Too Many Requests response with a `Retry-After` header.
 pub fn rate_limited_response(retry_after: u64) -> OutputStream {
-    use super::errors::{error_response, ErrorCode};
-    // Embed retry_after in the error message; if callers want to add it as a
-    // Retry-After header, they can wrap the response themselves. We keep this
-    // helper API simple now that meta no longer travels through the message.
-    let _ = retry_after;
-    error_response(
-        ErrorCode::RateLimitExceeded,
-        "Too many requests — try again later",
-    )
+    use super::errors::ErrorCode;
+    let wafer_code = super::errors::solobase_error_code_to_wafer(ErrorCode::RateLimitExceeded);
+    let full_message = format!(
+        "[{}] Too many requests — try again later",
+        ErrorCode::RateLimitExceeded.as_str()
+    );
+    OutputStream::error(wafer_run::WaferError {
+        code: wafer_code,
+        message: full_message,
+        meta: vec![wafer_run::types::MetaEntry {
+            key: "resp.header.Retry-After".to_string(),
+            value: retry_after.to_string(),
+        }],
+    })
 }
 
 /// Outcome of a rate-limit check.
