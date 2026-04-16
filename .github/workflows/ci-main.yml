@@ -11,7 +11,7 @@ on:
       - '.github/workflows/ci-main.yml'
 
 concurrency:
-  group: ci-main-${{ github.sha }}
+  group: ci-main
   cancel-in-progress: true
 
 env:
@@ -97,6 +97,27 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  sdk:
+    name: TypeScript SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Checkout wafer-run (for local dependency)
+        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
+
+      - name: Install and build SDK
+        working-directory: packages/solobase-js
+        run: |
+          npm ci
+          npm run build
+          npm run lint
 
   cross-compile:
     name: Cross-Compile (${{ matrix.name }})
