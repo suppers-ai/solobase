@@ -3,12 +3,11 @@
 //! Handles `POST /a2a` — dispatches by JSON-RPC method field.
 //! Maps A2A Task/Message/Artifact concepts to internal contexts/entries.
 
-use super::service::{self, ListContextsParams, ListEntriesParams};
-use crate::blocks::helpers::RecordExt;
 use wafer_core::clients::database as db;
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+
+use super::service::{self, ListContextsParams, ListEntriesParams};
+use crate::blocks::helpers::{ok_json, RecordExt};
 
 #[derive(serde::Deserialize)]
 struct JsonRpcRequest {
@@ -26,11 +25,7 @@ fn jsonrpc_response(id: Option<serde_json::Value>, result: serde_json::Value) ->
     })
 }
 
-fn jsonrpc_error(
-    id: Option<serde_json::Value>,
-    code: i64,
-    message: &str,
-) -> serde_json::Value {
+fn jsonrpc_error(id: Option<serde_json::Value>, code: i64, message: &str) -> serde_json::Value {
     serde_json::json!({
         "jsonrpc": "2.0",
         "error": {
@@ -41,18 +36,19 @@ fn jsonrpc_error(
     })
 }
 
-pub async fn handle_a2a(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let req: JsonRpcRequest = match msg.decode() {
+pub async fn handle_a2a(ctx: &dyn Context, _msg: Message, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let req: JsonRpcRequest = match serde_json::from_slice(&raw) {
         Ok(r) => r,
         Err(e) => {
             let body = jsonrpc_error(None, -32700, &format!("Parse error: {e}"));
-            return json_respond(msg, &body);
+            return ok_json(&body);
         }
     };
 
     if req.jsonrpc != "2.0" {
         let body = jsonrpc_error(req.id, -32600, "Invalid JSON-RPC version");
-        return json_respond(msg, &body);
+        return ok_json(&body);
     }
 
     let params = req.params.unwrap_or(serde_json::Value::Null);
@@ -69,7 +65,7 @@ pub async fn handle_a2a(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         Ok(value) => jsonrpc_response(req.id, value),
         Err((code, message)) => jsonrpc_error(req.id, code, &message),
     };
-    json_respond(msg, &body)
+    ok_json(&body)
 }
 
 async fn handle_send_message(
@@ -87,9 +83,7 @@ async fn handle_send_message(
 
     let content = extract_text_from_parts(message);
 
-    let context_id = params
-        .get("contextId")
-        .and_then(|c| c.as_str());
+    let context_id = params.get("contextId").and_then(|c| c.as_str());
 
     let task_context = if let Some(cid) = context_id {
         match service::get_context(ctx, cid).await {
@@ -148,9 +142,7 @@ async fn handle_get_task(
         .and_then(|i| i.as_str())
         .ok_or((-32602, "Missing 'id' parameter".to_string()))?;
 
-    let history_length = params
-        .get("historyLength")
-        .and_then(|h| h.as_i64());
+    let history_length = params.get("historyLength").and_then(|h| h.as_i64());
 
     build_task_response_with_history(ctx, id, history_length).await
 }
@@ -186,11 +178,7 @@ async fn handle_list_tasks(
         .await
         .map_err(|e| (-32000, e))?;
 
-    let tasks: Vec<serde_json::Value> = result
-        .records
-        .iter()
-        .map(context_to_task)
-        .collect();
+    let tasks: Vec<serde_json::Value> = result.records.iter().map(context_to_task).collect();
 
     Ok(serde_json::json!({
         "tasks": tasks,
@@ -207,20 +195,21 @@ async fn handle_cancel_task(
         .and_then(|i| i.as_str())
         .ok_or((-32602, "Missing 'id' parameter".to_string()))?;
 
-    let context = service::get_context(ctx, id)
-        .await
-        .map_err(|e| {
-            if e.code == ErrorCode::NotFound {
-                (-32001, format!("Task not found: {id}"))
-            } else {
-                (-32000, format!("Database error: {e}"))
-            }
-        })?;
+    let context = service::get_context(ctx, id).await.map_err(|e| {
+        if e.code == ErrorCode::NotFound {
+            (-32001, format!("Task not found: {id}"))
+        } else {
+            (-32000, format!("Database error: {e}"))
+        }
+    })?;
 
     let current_status = context.str_field("status");
     let terminal = ["completed", "failed", "canceled", "rejected"];
     if terminal.contains(&current_status) {
-        return Err((-32002, format!("Task is already in terminal state: {current_status}")));
+        return Err((
+            -32002,
+            format!("Task is already in terminal state: {current_status}"),
+        ));
     }
 
     let mut updates = std::collections::HashMap::new();
@@ -276,15 +265,13 @@ async fn build_task_response_with_history(
     context_id: &str,
     history_length: Option<i64>,
 ) -> Result<serde_json::Value, (i64, String)> {
-    let context = service::get_context(ctx, context_id)
-        .await
-        .map_err(|e| {
-            if e.code == ErrorCode::NotFound {
-                (-32001, format!("Task not found: {context_id}"))
-            } else {
-                (-32000, format!("Database error: {e}"))
-            }
-        })?;
+    let context = service::get_context(ctx, context_id).await.map_err(|e| {
+        if e.code == ErrorCode::NotFound {
+            (-32001, format!("Task not found: {context_id}"))
+        } else {
+            (-32000, format!("Database error: {e}"))
+        }
+    })?;
 
     let mut task = context_to_task(&context);
 

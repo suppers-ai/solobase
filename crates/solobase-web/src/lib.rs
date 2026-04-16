@@ -7,13 +7,11 @@
 //!   browser `Request` into a WAFER `Message`, dispatches it through the
 //!   `site-main` flow, and returns a browser `Response`.
 
-use std::cell::RefCell;
-use std::sync::Arc;
-
-use wasm_bindgen::prelude::*;
+use std::{cell::RefCell, sync::Arc};
 
 use solobase::builder::{self, SolobaseBuilder};
 use wafer_core::interfaces::config::service::ConfigService;
+use wasm_bindgen::prelude::*;
 
 pub mod bridge;
 pub mod config;
@@ -45,6 +43,12 @@ thread_local! {
 /// and `wafer.start_without_bind()`.
 #[wasm_bindgen]
 pub async fn initialize() -> Result<(), JsValue> {
+    // Guard against double initialization
+    let already_init = RUNTIME.with(|r| r.borrow().is_some());
+    if already_init {
+        return Ok(());
+    }
+
     // 1. Load sql.js WASM + open/create the OPFS database.
     bridge::dbInit().await;
 
@@ -93,13 +97,13 @@ pub async fn initialize() -> Result<(), JsValue> {
             )
         }))
         .build()
-        .map_err(|e| JsValue::from_str(&e))?;
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     // 7. Start runtime.
     wafer
         .start_without_bind()
         .await
-        .map_err(|e| JsValue::from_str(&e))?;
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     // 8. Inject WRAP grants.
     builder::post_start(&wafer, &storage_block);
@@ -124,7 +128,7 @@ pub async fn initialize() -> Result<(), JsValue> {
 /// through the `site-main` flow, and returns a browser `Response`.
 #[wasm_bindgen]
 pub async fn handle_request(request: web_sys::Request) -> Result<web_sys::Response, JsValue> {
-    let mut msg = convert::request_to_message(&request).await?;
+    let (msg, input) = convert::request_to_message(&request).await?;
 
     // Dispatch through the site-main flow.
     //
@@ -144,8 +148,7 @@ pub async fn handle_request(request: web_sys::Request) -> Result<web_sys::Respon
         }
     })?;
     let wafer = unsafe { &*wafer_ptr };
-    let result = wafer.run("site-main", &mut msg).await;
+    let output = wafer.run("site-main", msg, input).await;
 
-    convert::result_to_response(result)
+    convert::output_to_response(output).await
 }
-

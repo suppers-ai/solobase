@@ -15,22 +15,22 @@ wasm = ["wafer-run/wasm"]
 
 [dependencies]
 # WAFER runtime (minimal — types + clients only, no tokio/wasmi/reqwest)
-wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
-wafer-core = { path = "../../../wafer-run/crates/wafer-core" }
+wafer-run = { workspace = true }
+wafer-core = { workspace = true }
 
 # Middleware blocks (always registered by the builder)
-wafer-block-auth-validator = { path = "../../../wafer-run/crates/wafer-block-auth-validator" }
-wafer-block-cors = { path = "../../../wafer-run/crates/wafer-block-cors" }
-wafer-block-iam-guard = { path = "../../../wafer-run/crates/wafer-block-iam-guard" }
-wafer-block-inspector = { path = "../../../wafer-run/crates/wafer-block-inspector" }
-wafer-block-readonly-guard = { path = "../../../wafer-run/crates/wafer-block-readonly-guard" }
-wafer-block-router = { path = "../../../wafer-run/crates/wafer-block-router" }
-wafer-block-security-headers = { path = "../../../wafer-run/crates/wafer-block-security-headers" }
-wafer-block-web = { path = "../../../wafer-run/crates/wafer-block-web" }
+wafer-block-auth-validator = { workspace = true }
+wafer-block-cors = { workspace = true }
+wafer-block-iam-guard = { workspace = true }
+wafer-block-inspector = { workspace = true }
+wafer-block-readonly-guard = { workspace = true }
+wafer-block-router = { workspace = true }
+wafer-block-security-headers = { workspace = true }
+wafer-block-web = { workspace = true }
 
 # Service block config (needed by builder for ConfigService trait)
-wafer-block-config = { path = "../../../wafer-run/crates/wafer-block-config" }
-wafer-block-crypto = { path = "../../../wafer-run/crates/wafer-block-crypto" }
+wafer-block-config = { workspace = true }
+wafer-block-crypto = { workspace = true }
 
 # Solobase shared core (routing, crypto, features, pipeline, backend blocks)
 solobase-core = { path = "../solobase-core", default-features = false }
@@ -55,3 +55,6 @@ chrono = { workspace = true }
 
 # Utils
 uuid = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,15 +1,22 @@
 mod pages;
 
-use crate::blocks::helpers::{self, json_map};
 use std::collections::HashMap;
-use wafer_core::clients::config;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{ListOptions, SortField};
-use wafer_core::clients::network;
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+
+use wafer_core::clients::{
+    config, database as db,
+    database::{ListOptions, SortField},
+    network,
+};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
+use crate::blocks::helpers::{
+    self, err_bad_request, err_internal, err_not_found, json_map, ok_json,
+};
 
 pub struct ProviderLlmBlock;
 
@@ -36,7 +43,7 @@ fn extract_provider_id(msg: &Message) -> &str {
 // ---------------------------------------------------------------------------
 
 impl ProviderLlmBlock {
-    async fn handle_chat(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_chat(&self, ctx: &dyn Context, input: InputStream) -> OutputStream {
         #[derive(serde::Deserialize)]
         struct ChatRequest {
             messages: Vec<serde_json::Value>,
@@ -44,18 +51,17 @@ impl ProviderLlmBlock {
             provider_id: String,
         }
 
-        let body: ChatRequest = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: ChatRequest = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         // Load provider record
         let provider = match db::get(ctx, PROVIDERS_COLLECTION, &body.provider_id).await {
             Ok(r) => r,
-            Err(e) if e.code == ErrorCode::NotFound => {
-                return err_not_found(msg, "Provider not found")
-            }
-            Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+            Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Provider not found"),
+            Err(e) => return err_internal(&format!("Database error: {e}")),
         };
 
         let provider_type = provider
@@ -92,15 +98,14 @@ impl ProviderLlmBlock {
 
         let api_key = config::get_default(ctx, api_key_var, "").await;
         if api_key.is_empty() {
-            return err_bad_request(
-                msg,
-                &format!("API key not configured. Set {api_key_var} in config."),
-            );
+            return err_bad_request(&format!(
+                "API key not configured. Set {api_key_var} in config."
+            ));
         }
 
         let req_bytes = match serde_json::to_vec(&req_body) {
             Ok(b) => b,
-            Err(e) => return err_internal(msg, &format!("Failed to serialize request: {e}")),
+            Err(e) => return err_internal(&format!("Failed to serialize request: {e}")),
         };
 
         let mut headers: HashMap<String, String> = HashMap::new();
@@ -108,10 +113,7 @@ impl ProviderLlmBlock {
 
         if provider_type == "anthropic" {
             headers.insert("x-api-key".to_string(), api_key);
-            headers.insert(
-                "anthropic-version".to_string(),
-                "2023-06-01".to_string(),
-            );
+            headers.insert("anthropic-version".to_string(), "2023-06-01".to_string());
         } else {
             headers.insert("Authorization".to_string(), format!("Bearer {api_key}"));
         }
@@ -119,20 +121,17 @@ impl ProviderLlmBlock {
         let resp =
             match network::do_request(ctx, "POST", &api_url, &headers, Some(&req_bytes)).await {
                 Ok(r) => r,
-                Err(e) => return err_internal(msg, &format!("Network error: {e}")),
+                Err(e) => return err_internal(&format!("Network error: {e}")),
             };
 
         if resp.status_code < 200 || resp.status_code >= 300 {
             let body_str = String::from_utf8_lossy(&resp.body);
-            return err_internal(
-                msg,
-                &format!("LLM API error {}: {}", resp.status_code, body_str),
-            );
+            return err_internal(&format!("LLM API error {}: {}", resp.status_code, body_str));
         }
 
         let resp_json: serde_json::Value = match serde_json::from_slice(&resp.body) {
             Ok(v) => v,
-            Err(e) => return err_internal(msg, &format!("Failed to parse LLM response: {e}")),
+            Err(e) => return err_internal(&format!("Failed to parse LLM response: {e}")),
         };
 
         let (content, input_tokens, output_tokens) = if provider_type == "anthropic" {
@@ -167,24 +166,21 @@ impl ProviderLlmBlock {
             (text, input_t, output_t)
         };
 
-        json_respond(
-            msg,
-            &serde_json::json!({
-                "content": content,
-                "model": body.model,
-                "usage": {
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                }
-            }),
-        )
+        ok_json(&serde_json::json!({
+            "content": content,
+            "model": body.model,
+            "usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+            }
+        }))
     }
 
     // ---------------------------------------------------------------------------
     // Provider CRUD
     // ---------------------------------------------------------------------------
 
-    async fn handle_list_providers(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_list_providers(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
         let (_, page_size, offset) = msg.pagination_params(50);
         let opts = ListOptions {
             sort: vec![SortField {
@@ -196,12 +192,12 @@ impl ProviderLlmBlock {
             ..Default::default()
         };
         match db::list(ctx, PROVIDERS_COLLECTION, &opts).await {
-            Ok(result) => json_respond(msg, &result),
-            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+            Ok(result) => ok_json(&result),
+            Err(e) => err_internal(&format!("Database error: {e}")),
         }
     }
 
-    async fn handle_create_provider(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_create_provider(&self, ctx: &dyn Context, input: InputStream) -> OutputStream {
         #[derive(serde::Deserialize)]
         struct CreateProvider {
             name: String,
@@ -211,9 +207,10 @@ impl ProviderLlmBlock {
             enabled: Option<i64>,
         }
 
-        let body: CreateProvider = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: CreateProvider = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         let default_endpoint = match body.provider_type.as_str() {
@@ -236,41 +233,47 @@ impl ProviderLlmBlock {
         helpers::stamp_created(&mut data);
 
         match db::create(ctx, PROVIDERS_COLLECTION, data).await {
-            Ok(record) => json_respond(msg, &record),
-            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+            Ok(record) => ok_json(&record),
+            Err(e) => err_internal(&format!("Database error: {e}")),
         }
     }
 
-    async fn handle_update_provider(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let id = extract_provider_id(msg);
+    async fn handle_update_provider(
+        &self,
+        ctx: &dyn Context,
+        msg: &Message,
+        input: InputStream,
+    ) -> OutputStream {
+        let id = extract_provider_id(msg).to_string();
         if id.is_empty() {
-            return err_bad_request(msg, "Missing provider ID");
+            return err_bad_request("Missing provider ID");
         }
 
-        let body: HashMap<String, serde_json::Value> = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         let mut data = body;
         helpers::stamp_updated(&mut data);
 
-        match db::update(ctx, PROVIDERS_COLLECTION, id, data).await {
-            Ok(record) => json_respond(msg, &record),
-            Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Provider not found"),
-            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        match db::update(ctx, PROVIDERS_COLLECTION, &id, data).await {
+            Ok(record) => ok_json(&record),
+            Err(e) if e.code == ErrorCode::NotFound => err_not_found("Provider not found"),
+            Err(e) => err_internal(&format!("Database error: {e}")),
         }
     }
 
-    async fn handle_delete_provider(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let id = extract_provider_id(msg);
+    async fn handle_delete_provider(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
+        let id = extract_provider_id(msg).to_string();
         if id.is_empty() {
-            return err_bad_request(msg, "Missing provider ID");
+            return err_bad_request("Missing provider ID");
         }
-        match db::delete(ctx, PROVIDERS_COLLECTION, id).await {
-            Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-            Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Provider not found"),
-            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        match db::delete(ctx, PROVIDERS_COLLECTION, &id).await {
+            Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
+            Err(e) if e.code == ErrorCode::NotFound => err_not_found("Provider not found"),
+            Err(e) => err_internal(&format!("Database error: {e}")),
         }
     }
 
@@ -278,7 +281,7 @@ impl ProviderLlmBlock {
     // Aggregate models list
     // ---------------------------------------------------------------------------
 
-    async fn handle_list_models(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_list_models(&self, ctx: &dyn Context) -> OutputStream {
         use wafer_core::clients::database::{Filter, FilterOp};
 
         let opts = ListOptions {
@@ -297,7 +300,7 @@ impl ProviderLlmBlock {
 
         let providers = match db::list(ctx, PROVIDERS_COLLECTION, &opts).await {
             Ok(r) => r,
-            Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+            Err(e) => return err_internal(&format!("Database error: {e}")),
         };
 
         let mut models: Vec<serde_json::Value> = Vec::new();
@@ -319,8 +322,7 @@ impl ProviderLlmBlock {
                 .and_then(|v| v.as_str())
                 .unwrap_or("[]");
 
-            let model_ids: Vec<String> =
-                serde_json::from_str(models_json).unwrap_or_default();
+            let model_ids: Vec<String> = serde_json::from_str(models_json).unwrap_or_default();
 
             for model_id in model_ids {
                 models.push(serde_json::json!({
@@ -332,7 +334,7 @@ impl ProviderLlmBlock {
             }
         }
 
-        json_respond(msg, &serde_json::json!({ "models": models }))
+        ok_json(&serde_json::json!({ "models": models }))
     }
 
     // ---------------------------------------------------------------------------
@@ -386,8 +388,7 @@ impl ProviderLlmBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for ProviderLlmBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new(
             "suppers-ai/provider-llm",
@@ -413,8 +414,7 @@ impl Block for ProviderLlmBlock {
             "Manage remote LLM API providers (OpenAI, Anthropic) and route chat completions.",
         )
         .endpoints(vec![
-            BlockEndpoint::post("/b/provider-llm/api/chat")
-                .summary("Chat completion via provider"),
+            BlockEndpoint::post("/b/provider-llm/api/chat").summary("Chat completion via provider"),
             BlockEndpoint::get("/b/provider-llm/api/providers")
                 .summary("List providers")
                 .auth(AuthLevel::Admin),
@@ -433,13 +433,9 @@ impl Block for ProviderLlmBlock {
                 .auth(AuthLevel::Admin),
         ])
         .config_keys(vec![
-            ConfigVar::new(
-                "SUPPERS_AI__PROVIDER_LLM__OPENAI_KEY",
-                "OpenAI API key",
-                "",
-            )
-            .name("OpenAI API Key")
-            .input_type(InputType::Password),
+            ConfigVar::new("SUPPERS_AI__PROVIDER_LLM__OPENAI_KEY", "OpenAI API key", "")
+                .name("OpenAI API Key")
+                .input_type(InputType::Password),
             ConfigVar::new(
                 "SUPPERS_AI__PROVIDER_LLM__ANTHROPIC_KEY",
                 "Anthropic API key",
@@ -453,14 +449,14 @@ impl Block for ProviderLlmBlock {
         .default_enabled(true)
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let action = msg.action();
         let path = msg.path();
         let user_id = msg.user_id().to_string();
 
         // All endpoints require authentication
         if user_id.is_empty() {
-            return crate::ui::forbidden_response(msg);
+            return crate::ui::forbidden_response(&msg);
         }
 
         // UI pages and provider config API require admin role.
@@ -470,42 +466,39 @@ impl Block for ProviderLlmBlock {
             || path == "/b/provider-llm/admin"
             || path == "/b/provider-llm/admin/";
         if needs_admin {
-            let is_admin = msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin");
+            let is_admin = helpers::is_admin(&msg);
             if !is_admin {
-                return crate::ui::forbidden_response(msg);
+                return crate::ui::forbidden_response(&msg);
             }
         }
 
         match (action, path) {
             // Admin UI
             ("retrieve", "/b/provider-llm/admin") | ("retrieve", "/b/provider-llm/admin/") => {
-                pages::admin_page(ctx, msg).await
+                pages::admin_page(ctx, &msg).await
             }
 
             // Chat API
-            ("create", "/b/provider-llm/api/chat") => self.handle_chat(ctx, msg).await,
+            ("create", "/b/provider-llm/api/chat") => self.handle_chat(ctx, input).await,
 
             // Provider CRUD
             ("retrieve", "/b/provider-llm/api/providers") => {
-                self.handle_list_providers(ctx, msg).await
+                self.handle_list_providers(ctx, &msg).await
             }
             ("create", "/b/provider-llm/api/providers") => {
-                self.handle_create_provider(ctx, msg).await
+                self.handle_create_provider(ctx, input).await
             }
             ("update", _) if path.starts_with("/b/provider-llm/api/providers/") => {
-                self.handle_update_provider(ctx, msg).await
+                self.handle_update_provider(ctx, &msg, input).await
             }
             ("delete", _) if path.starts_with("/b/provider-llm/api/providers/") => {
-                self.handle_delete_provider(ctx, msg).await
+                self.handle_delete_provider(ctx, &msg).await
             }
 
             // Models aggregate
-            ("retrieve", "/b/provider-llm/api/models") => self.handle_list_models(ctx, msg).await,
+            ("retrieve", "/b/provider-llm/api/models") => self.handle_list_models(ctx).await,
 
-            _ => err_not_found(msg, "not found"),
+            _ => err_not_found("not found"),
         }
     }
 

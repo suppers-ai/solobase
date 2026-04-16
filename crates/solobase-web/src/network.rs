@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use serde::Deserialize;
-
 use wafer_core::interfaces::network::service::{NetworkError, NetworkService, Request, Response};
 
 use crate::bridge;
@@ -37,8 +36,9 @@ impl NetworkService for BrowserNetworkService {
             .map(|s| s.as_string().unwrap_or_default())
             .unwrap_or_default();
 
-        let fetch_resp: FetchResponse = serde_json::from_str(&json_str)
-            .map_err(|e| NetworkError::RequestError(format!("failed to parse fetch response: {e}")))?;
+        let fetch_resp: FetchResponse = serde_json::from_str(&json_str).map_err(|e| {
+            NetworkError::RequestError(format!("failed to parse fetch response: {e}"))
+        })?;
 
         // Collapse single-value headers into Vec<String> as NetworkService::Response expects.
         let headers: HashMap<String, Vec<String>> = fetch_resp

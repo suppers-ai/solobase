@@ -1,11 +1,18 @@
 mod handlers;
 mod pages;
 
-use super::rate_limit::{check_user_rate_limit, UserRateLimiter};
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
+use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
+use crate::{
+    blocks::helpers::{self, err_not_found},
+    ui,
+};
 
 pub(crate) const PROJECTS_COLLECTION: &str = "suppers_ai__projects__deployments";
 
@@ -31,8 +38,7 @@ impl ProjectsBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for ProjectsBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/projects", "0.0.1", "http-handler@v1", "Project management for users and admins")
             .instance_mode(InstanceMode::Singleton)
@@ -82,53 +88,54 @@ impl Block for ProjectsBlock {
             .default_enabled(false)
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        mut msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         let path = msg.path().to_string();
 
         // Per-user rate limiting for authenticated endpoints
-        if let Some(r) = check_user_rate_limit(&self.limiter, ctx, msg).await {
+        // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
+        if let RateLimitOutcome::Limited(r) = check_user_rate_limit(&self.limiter, ctx, &msg).await
+        {
             return r;
         }
 
         // SSR pages — admin UI at /b/projects/admin/
         if path.starts_with("/b/projects/admin") {
-            let is_admin = msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin");
+            let is_admin = helpers::is_admin(&msg);
             if !is_admin {
-                return crate::ui::forbidden_response(msg);
+                return ui::forbidden_response(&msg);
             }
             let action = msg.action().to_string();
             let sub = path.strip_prefix("/b/projects/admin").unwrap_or("/");
             return match (action.as_str(), sub) {
-                ("retrieve", "" | "/") => pages::admin_deployments(ctx, msg).await,
-                ("retrieve", "/settings") => pages::settings(ctx, msg).await,
-                ("create", "/settings") => pages::handle_save_settings(ctx, msg).await,
-                _ => err_not_found(msg, "not found"),
+                ("retrieve", "" | "/") => pages::admin_deployments(ctx, &msg).await,
+                ("retrieve", "/settings") => pages::settings(ctx, &msg).await,
+                ("create", "/settings") => pages::handle_save_settings(ctx, input).await,
+                _ => err_not_found("not found"),
             };
         }
 
         // Admin API at /b/projects/api/admin/... → normalize to /admin/b/projects/...
         if let Some(rest) = path.strip_prefix("/b/projects/api/admin") {
-            let is_admin = msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin");
+            let is_admin = helpers::is_admin(&msg);
             if !is_admin {
-                return crate::ui::forbidden_response(msg);
+                return ui::forbidden_response(&msg);
             }
             msg.set_meta("req.resource", format!("/admin/b/projects{rest}"));
-            return handlers::handle_admin(ctx, msg).await;
+            return handlers::handle_admin(ctx, &msg, input).await;
         }
 
         // User API at /b/projects/api/... → normalize to /b/projects/...
         if let Some(rest) = path.strip_prefix("/b/projects/api") {
             msg.set_meta("req.resource", format!("/b/projects{rest}"));
-            return handlers::handle_user(ctx, msg).await;
+            return handlers::handle_user(ctx, &msg, input).await;
         }
 
-        err_not_found(msg, "not found")
+        err_not_found("not found")
     }
 
     fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {

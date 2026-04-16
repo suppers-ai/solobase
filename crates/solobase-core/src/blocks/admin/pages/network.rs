@@ -1,19 +1,18 @@
-use crate::ui::{components, icons, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_sql_utils::value::sea_values_to_json;
-use wafer_sql_utils::{query, Backend};
+use wafer_run::{context::Context, types::*, OutputStream};
+use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
 
 use super::admin_page;
-use crate::blocks::admin::{
-    NETWORK_REQUEST_LOGS_COLLECTION as NETWORK_REQUEST_LOGS,
-    NETWORK_RULES_COLLECTION as NETWORK_RULES,
-    REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
+use crate::{
+    blocks::admin::{
+        NETWORK_REQUEST_LOGS_COLLECTION as NETWORK_REQUEST_LOGS,
+        NETWORK_RULES_COLLECTION as NETWORK_RULES, REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
+    },
+    ui::{components, icons, SiteConfig, UserInfo},
 };
 
-pub async fn network_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn network_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let tab = msg.query("tab");
@@ -82,7 +81,7 @@ pub async fn network_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
 }
 
-async fn network_inbound_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
+async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
     let search = msg.query("search").to_string();
 
     let (where_clause, args) = if search.is_empty() {
@@ -191,7 +190,7 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
 }
 
 /// Htmx fragment: individual requests for a given inbound path.
-pub async fn network_inbound_detail(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let method = msg.query("method").to_string();
     let path = msg.query("path").to_string();
     let offset: i64 = msg.query("offset").parse().unwrap_or(0);
@@ -199,13 +198,30 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &mut Message) -> Res
 
     let (sql, vals) = query::build_select_columns(
         REQUEST_LOGS,
-        &["status_code", "duration_ms", "client_ip", "user_id", "created_at"],
+        &[
+            "status_code",
+            "duration_ms",
+            "client_ip",
+            "user_id",
+            "created_at",
+        ],
         &ListOptions {
             filters: vec![
-                Filter { field: "method".into(), operator: FilterOp::Equal, value: serde_json::json!(&method) },
-                Filter { field: "path".into(), operator: FilterOp::Equal, value: serde_json::json!(&path) },
+                Filter {
+                    field: "method".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(&method),
+                },
+                Filter {
+                    field: "path".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(&path),
+                },
             ],
-            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            sort: vec![SortField {
+                field: "created_at".into(),
+                desc: true,
+            }],
             limit: limit + 1, // fetch one extra to detect "has more"
             offset,
             ..Default::default()
@@ -271,10 +287,10 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &mut Message) -> Res
             }
         }
     };
-    crate::ui::html_response(msg, markup)
+    crate::ui::html_response(markup)
 }
 
-async fn network_outbound_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
+async fn network_outbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
     let search = msg.query("search").to_string();
 
     let (where_clause, args) = if search.is_empty() {
@@ -382,7 +398,7 @@ async fn network_outbound_tab(ctx: &dyn Context, msg: &mut Message) -> Markup {
 }
 
 /// Htmx fragment: individual requests for a given outbound URL.
-pub async fn network_outbound_detail(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn network_outbound_detail(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let method = msg.query("method").to_string();
     let url = msg.query("url").to_string();
     let offset: i64 = msg.query("offset").parse().unwrap_or(0);
@@ -390,13 +406,30 @@ pub async fn network_outbound_detail(ctx: &dyn Context, msg: &mut Message) -> Re
 
     let (sql, vals) = query::build_select_columns(
         NETWORK_REQUEST_LOGS,
-        &["status_code", "duration_ms", "source_block", "error_message", "created_at"],
+        &[
+            "status_code",
+            "duration_ms",
+            "source_block",
+            "error_message",
+            "created_at",
+        ],
         &ListOptions {
             filters: vec![
-                Filter { field: "method".into(), operator: FilterOp::Equal, value: serde_json::json!(&method) },
-                Filter { field: "url".into(), operator: FilterOp::Equal, value: serde_json::json!(&url) },
+                Filter {
+                    field: "method".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(&method),
+                },
+                Filter {
+                    field: "url".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(&url),
+                },
             ],
-            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            sort: vec![SortField {
+                field: "created_at".into(),
+                desc: true,
+            }],
             limit: limit + 1,
             offset,
             ..Default::default()
@@ -473,10 +506,10 @@ pub async fn network_outbound_detail(ctx: &dyn Context, msg: &mut Message) -> Re
             }
         }
     };
-    crate::ui::html_response(msg, markup)
+    crate::ui::html_response(markup)
 }
 
-pub(crate) async fn network_rules_tab(ctx: &dyn Context, _msg: &mut Message) -> Markup {
+pub(crate) async fn network_rules_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
     let blocks = ctx.registered_blocks();
     let block_names: Vec<&str> = blocks.iter().map(|b| b.name.as_str()).collect();
 

@@ -87,11 +87,8 @@ pub fn is_htmx(msg: &wafer_run::types::Message) -> bool {
 }
 
 /// Respond with full HTML page or htmx fragment depending on request type.
-pub fn html_response(
-    msg: &mut wafer_run::types::Message,
-    markup: maud::Markup,
-) -> wafer_run::types::Result_ {
-    wafer_run::helpers::ResponseBuilder::new(msg).body(
+pub fn html_response(markup: maud::Markup) -> wafer_run::OutputStream {
+    crate::blocks::helpers::ResponseBuilder::new().body(
         markup.into_string().into_bytes(),
         "text/html; charset=utf-8",
     )
@@ -158,47 +155,46 @@ pub fn forbidden_page() -> maud::Markup {
 }
 
 /// Return styled 403 for browser requests, JSON for API requests.
-pub fn forbidden_response(msg: &mut wafer_run::types::Message) -> wafer_run::types::Result_ {
+pub fn forbidden_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
     if accept.contains("text/html") && !accept.contains("application/json") {
-        wafer_run::helpers::ResponseBuilder::new(msg)
+        crate::blocks::helpers::ResponseBuilder::new()
             .status(403)
             .body(
                 forbidden_page().into_string().into_bytes(),
                 "text/html; charset=utf-8",
             )
     } else {
-        wafer_run::helpers::err_forbidden(msg, "admin access required")
+        crate::blocks::helpers::err_forbidden("admin access required")
     }
 }
 
 /// Return styled 404 for browser requests, JSON for API requests.
-pub fn not_found_response(msg: &mut wafer_run::types::Message) -> wafer_run::types::Result_ {
+pub fn not_found_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
     if accept.contains("text/html") && !accept.contains("application/json") {
-        wafer_run::helpers::ResponseBuilder::new(msg)
+        crate::blocks::helpers::ResponseBuilder::new()
             .status(404)
             .body(
                 not_found_page().into_string().into_bytes(),
                 "text/html; charset=utf-8",
             )
     } else {
-        wafer_run::helpers::err_not_found(msg, "endpoint not found")
+        crate::blocks::helpers::err_not_found("endpoint not found")
     }
 }
 
 /// Respond with HTML + an HX-Trigger header for toast notifications.
 pub fn html_response_with_toast(
-    msg: &mut wafer_run::types::Message,
     markup: maud::Markup,
     toast_message: &str,
     toast_type: &str,
-) -> wafer_run::types::Result_ {
+) -> wafer_run::OutputStream {
     let trigger = format!(
         r#"{{"showToast":{{"message":"{}","type":"{}"}}}}"#,
         toast_message, toast_type
     );
-    wafer_run::helpers::ResponseBuilder::new(msg)
+    crate::blocks::helpers::ResponseBuilder::new()
         .set_header("HX-Trigger", &trigger)
         .body(
             markup.into_string().into_bytes(),

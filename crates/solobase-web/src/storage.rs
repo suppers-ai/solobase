@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::Deserialize;
-
 use wafer_core::interfaces::storage::service::{
     FolderInfo, ListOptions, ObjectInfo, ObjectList, StorageError, StorageService,
 };
@@ -103,8 +102,7 @@ impl StorageService for BrowserStorageService {
         let limit = if opts.limit > 0 { opts.limit as u32 } else { 0 };
         let offset = opts.offset as u32;
 
-        let json =
-            await_bridge(bridge::storage_list(folder, &opts.prefix, limit, offset)).await?;
+        let json = await_bridge(bridge::storage_list(folder, &opts.prefix, limit, offset)).await?;
 
         // Bridge returns a JSON array of key strings.
         // ObjectInfo fields beyond `key` are not available from the list call;

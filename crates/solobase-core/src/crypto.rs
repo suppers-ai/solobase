@@ -2,8 +2,7 @@
 //!
 //! Works on both native and wasm32 targets (uses `getrandom` for RNG).
 
-use std::collections::HashMap;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 // ---------------------------------------------------------------------------
 // Password hashing (argon2id)
@@ -43,7 +42,7 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
 // HMAC-SHA256 JWT
 // ---------------------------------------------------------------------------
 
-fn hmac_sha256(data: &[u8], key: &[u8]) -> Result<Vec<u8>, String> {
+pub fn hmac_sha256(data: &[u8], key: &[u8]) -> Result<Vec<u8>, String> {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;

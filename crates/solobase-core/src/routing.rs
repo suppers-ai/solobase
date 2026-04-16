@@ -6,11 +6,9 @@
 
 use std::sync::Arc;
 
-use wafer_run::block::Block;
-use wafer_run::context::Context;
-use wafer_run::types::*;
+use wafer_run::{block::Block, context::Context, types::*, InputStream, OutputStream};
 
-use crate::features::FeatureConfig;
+use crate::{blocks::helpers, features::FeatureConfig};
 
 /// Block identifier for the routing table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -192,10 +190,11 @@ fn block_id_short_name(id: BlockId) -> &'static str {
 /// instantiate the matched block.
 pub async fn route_to_block(
     ctx: &dyn Context,
-    msg: &mut Message,
+    msg: Message,
+    input: InputStream,
     features: &dyn FeatureConfig,
     _factory: &dyn BlockFactory,
-) -> Result_ {
+) -> OutputStream {
     let path = msg.path().to_string();
 
     for route in ROUTES {
@@ -206,28 +205,23 @@ pub async fn route_to_block(
 
         // Feature gate
         if !is_block_enabled(route.block_id, features) {
-            return wafer_run::helpers::err_not_found(msg, "endpoint not found");
+            return crate::blocks::helpers::err_not_found("endpoint not found");
         }
 
         // Admin gate
-        if route.requires_admin
-            && !msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin")
-        {
-            return crate::ui::forbidden_response(msg);
+        if route.requires_admin && !helpers::is_admin(&msg) {
+            return crate::ui::forbidden_response(&msg);
         }
 
         // Dispatch to block via call_block so WRAP sees the correct caller identity
         if route.block_id == BlockId::Inspector {
-            return ctx.call_block("wafer-run/inspector", msg).await;
+            return ctx.call_block("wafer-run/inspector", msg, input).await;
         }
         let block_name = format!("suppers-ai/{}", block_id_short_name(route.block_id));
-        return ctx.call_block(&block_name, msg).await;
+        return ctx.call_block(&block_name, msg, input).await;
     }
 
-    crate::ui::not_found_response(msg)
+    crate::ui::not_found_response(&msg)
 }
 
 // ---------------------------------------------------------------------------

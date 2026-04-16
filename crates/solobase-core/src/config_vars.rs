@@ -57,6 +57,13 @@ pub fn shared_config_vars() -> Vec<ConfigVar> {
         .name("Frontend URL")
         .input_type(InputType::Url),
         ConfigVar::new(
+            "SOLOBASE_SHARED__SITE_URL",
+            "Marketing site URL for docs and pricing links",
+            "https://solobase.dev",
+        )
+        .name("Site URL")
+        .input_type(InputType::Url),
+        ConfigVar::new(
             "SOLOBASE_SHARED__LOGO_URL",
             "Logo shown in header and emails",
             "",

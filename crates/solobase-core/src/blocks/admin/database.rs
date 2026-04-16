@@ -1,31 +1,33 @@
 use wafer_core::clients::database as db;
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use wafer_sql_utils::{introspect, Backend};
 
-pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+use crate::blocks::helpers::{
+    err_bad_request, err_forbidden, err_internal, err_not_found, ok_json,
+};
+
+pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/admin/database/info") => handle_info(ctx, msg).await,
-        ("retrieve", "/admin/database/tables") => handle_tables(ctx, msg).await,
+        ("retrieve", "/admin/database/info") => handle_info(ctx).await,
+        ("retrieve", "/admin/database/tables") => handle_tables(ctx).await,
         ("retrieve", _)
             if path.starts_with("/admin/database/tables/") && path.ends_with("/columns") =>
         {
             handle_columns(ctx, msg).await
         }
-        ("create", "/admin/database/query") => handle_query(ctx, msg).await,
-        _ => err_not_found(msg, "not found"),
+        ("create", "/admin/database/query") => handle_query(ctx, input).await,
+        _ => err_not_found("not found"),
     }
 }
 
-async fn handle_info(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_info(ctx: &dyn Context) -> OutputStream {
     let sql = introspect::build_list_tables(Backend::Sqlite);
     let tables = match db::query_raw(ctx, &sql, &[]).await {
         Ok(t) => t,
-        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
     let table_names: Vec<&str> = tables
@@ -33,21 +35,18 @@ async fn handle_info(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
         .collect();
 
-    json_respond(
-        msg,
-        &serde_json::json!({
-            "type": "sqlite",
-            "tables": table_names,
-            "table_count": table_names.len()
-        }),
-    )
+    ok_json(&serde_json::json!({
+        "type": "sqlite",
+        "tables": table_names,
+        "table_count": table_names.len()
+    }))
 }
 
-async fn handle_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_tables(ctx: &dyn Context) -> OutputStream {
     let sql = introspect::build_list_tables(Backend::Sqlite);
     let tables = match db::query_raw(ctx, &sql, &[]).await {
         Ok(t) => t,
-        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
     let mut table_info = Vec::new();
@@ -73,10 +72,10 @@ async fn handle_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }));
     }
 
-    json_respond(msg, &serde_json::json!(table_info))
+    ok_json(&serde_json::json!(table_info))
 }
 
-async fn handle_columns(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_columns(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     // Extract table name from /admin/database/tables/{name}/columns
     let table_name = path
@@ -85,13 +84,13 @@ async fn handle_columns(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .unwrap_or("");
 
     if table_name.is_empty() {
-        return err_bad_request(msg, "Missing table name");
+        return err_bad_request("Missing table name");
     }
 
     let (info_sql, info_args) = introspect::build_table_info(table_name, Backend::Sqlite);
     let columns = match db::query_raw(ctx, &info_sql, &info_args).await {
         Ok(c) => c,
-        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
     let col_info: Vec<serde_json::Value> = columns
@@ -107,22 +106,20 @@ async fn handle_columns(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         })
         .collect();
 
-    json_respond(
-        msg,
-        &serde_json::json!({"table": table_name, "columns": col_info}),
-    )
+    ok_json(&serde_json::json!({"table": table_name, "columns": col_info}))
 }
 
-async fn handle_query(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_query(ctx: &dyn Context, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct QueryReq {
         query: String,
         #[serde(default)]
         args: Vec<serde_json::Value>,
     }
-    let body: QueryReq = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: QueryReq = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     // Strict read-only query validation
@@ -130,7 +127,7 @@ async fn handle_query(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     // Reject multi-statement queries (prevent piggy-backed writes)
     if trimmed.contains(';') {
-        return err_forbidden(msg, "Multi-statement queries are not allowed");
+        return err_forbidden("Multi-statement queries are not allowed");
     }
 
     let query_upper = trimmed.to_uppercase();
@@ -167,10 +164,7 @@ async fn handle_query(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             let after_ok =
                 after_pos >= upper.len() || !upper.as_bytes()[after_pos].is_ascii_alphanumeric();
             if before_ok && after_ok {
-                return err_forbidden(
-                    msg,
-                    &format!("{} is not allowed in read-only queries", keyword),
-                );
+                return err_forbidden(&format!("{} is not allowed in read-only queries", keyword));
             }
             start = abs_pos + kw.len();
         }
@@ -205,7 +199,6 @@ async fn handle_query(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             .unwrap_or("");
         if !SAFE_PRAGMAS.iter().any(|p| pragma_name.starts_with(p)) {
             return err_forbidden(
-                msg,
                 "Only read-only PRAGMA queries are allowed (table_info, index_list, etc.)",
             );
         }
@@ -215,19 +208,16 @@ async fn handle_query(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     match first_word {
         "SELECT" | "PRAGMA" | "EXPLAIN" | "WITH" => {
             match db::query_raw(ctx, &body.query, &body.args).await {
-                Ok(records) => json_respond(
-                    msg,
-                    &serde_json::json!({
+                Ok(records) => {
+                    let row_count = records.len();
+                    ok_json(&serde_json::json!({
                         "rows": records,
-                        "row_count": records.len()
-                    }),
-                ),
-                Err(e) => err_bad_request(msg, &format!("Query error: {e}")),
+                        "row_count": row_count
+                    }))
+                }
+                Err(e) => err_bad_request(&format!("Query error: {e}")),
             }
         }
-        _ => err_forbidden(
-            msg,
-            "Only SELECT, PRAGMA, EXPLAIN, and WITH queries are allowed",
-        ),
+        _ => err_forbidden("Only SELECT, PRAGMA, EXPLAIN, and WITH queries are allowed"),
     }
 }

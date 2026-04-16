@@ -17,12 +17,10 @@
 //! 4. Read variables table → JWT secret, feature flags, app config
 //! 5. Start WAFER runtime
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 mod app_config;
 use app_config::{load_block_settings, InfraConfig};
-
 use solobase::builder::{self, SolobaseBuilder};
 use tracing_subscriber::{fmt, EnvFilter};
 use wafer_core::interfaces::config::service::ConfigService;
@@ -85,7 +83,9 @@ async fn main() {
         .crypto(Arc::new(
             wafer_block_crypto::service::Argon2JwtCryptoService::new(jwt_secret),
         ))
-        .network(Arc::new(wafer_block_network::service::HttpNetworkService::new()))
+        .network(Arc::new(
+            wafer_block_network::service::HttpNetworkService::new(),
+        ))
         .logger(Arc::new(wafer_block_logger::service::TracingLogger))
         .block_settings(features)
         .build()
@@ -104,15 +104,15 @@ async fn main() {
     // 10. Load custom WRAP grants from DB
     let db_grants = app_config::load_wrap_grants(&infra.db_path);
     if !db_grants.is_empty() {
-        tracing::info!(count = db_grants.len(), "loaded custom WRAP grants from database");
+        tracing::info!(
+            count = db_grants.len(),
+            "loaded custom WRAP grants from database"
+        );
         wafer.add_wrap_grants(db_grants);
     }
 
     // 11. Start runtime
-    let wafer = wafer
-        .start()
-        .await
-        .expect("failed to start WAFER runtime");
+    let wafer = wafer.start().await.expect("failed to start WAFER runtime");
 
     // 12. Inject WRAP grants into storage block
     builder::post_start(&wafer, &storage_block);
@@ -334,9 +334,7 @@ fn init_tracing(log_format: &str) {
 #[cfg(feature = "otel")]
 fn init_tracing_with_otel(log_format: &str, filter: EnvFilter) {
     use opentelemetry::trace::TracerProvider;
-    use tracing_subscriber::layer::SubscriberExt;
-    use tracing_subscriber::util::SubscriberInitExt;
-    use tracing_subscriber::Layer;
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
@@ -378,31 +376,19 @@ fn register_observability_hooks(wafer: &mut Wafer) {
         tracing::info_span!("flow", flow = %flow_id).in_scope(|| {});
     });
 
-    wafer.hooks.on_block_end(|obs_ctx, result, duration| {
-        let status = match result.action {
-            wafer_run::Action::Error => "ERROR",
-            wafer_run::Action::Respond => "RESPOND",
-            wafer_run::Action::Continue => "CONTINUE",
-            wafer_run::Action::Drop => "DROP",
-        };
+    wafer.hooks.on_block_end(|obs_ctx, duration| {
         tracing::debug!(
             flow   = %obs_ctx.flow_id,
             block  = %obs_ctx.block_name,
             trace  = %obs_ctx.trace_id,
-            status = status,
             ms     = duration.as_millis() as u64,
             "block executed"
         );
     });
 
-    wafer.hooks.on_flow_end(|flow_id, result, duration| {
-        let status = match result.action {
-            wafer_run::Action::Error => "ERROR",
-            _ => "OK",
-        };
+    wafer.hooks.on_flow_end(|flow_id, duration| {
         tracing::info!(
             flow   = %flow_id,
-            status = status,
             ms     = duration.as_millis() as u64,
             "flow completed"
         );

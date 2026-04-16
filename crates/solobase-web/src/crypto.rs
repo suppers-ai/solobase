@@ -10,8 +10,7 @@
 //! Since browser data is local-only (no sync to native), hash format
 //! differences don't matter.
 
-use std::collections::HashMap;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use wafer_core::interfaces::crypto::service::{CryptoError, CryptoService};
 
@@ -36,16 +35,16 @@ impl BrowserCryptoService {
         Self { jwt_secret }
     }
 
-    fn derive_block_key(&self, block_id: &str) -> String {
-        use hmac::Mac;
+    fn derive_block_key(&self, block_id: &str) -> Result<String, CryptoError> {
         use hkdf::Hkdf;
         use sha2::Sha256;
 
         let hk = Hkdf::<Sha256>::new(None, self.jwt_secret.as_bytes());
         let info = format!("wafer-jwt|{block_id}");
         let mut okm = [0u8; 32];
-        hk.expand(info.as_bytes(), &mut okm).expect("HKDF expand");
-        okm.iter().map(|b| format!("{b:02x}")).collect()
+        hk.expand(info.as_bytes(), &mut okm)
+            .map_err(|_| CryptoError::Other("HKDF expand failed".to_string()))?;
+        Ok(okm.iter().map(|b| format!("{b:02x}")).collect())
     }
 }
 
@@ -136,7 +135,7 @@ impl CryptoService for BrowserCryptoService {
         claims: HashMap<String, serde_json::Value>,
         expiry: Duration,
     ) -> Result<String, CryptoError> {
-        let derived = self.derive_block_key(block_id);
+        let derived = self.derive_block_key(block_id)?;
         let temp = BrowserCryptoService::new(derived);
         temp.sign(claims, expiry)
     }
@@ -146,7 +145,7 @@ impl CryptoService for BrowserCryptoService {
         block_id: &str,
         token: &str,
     ) -> Result<HashMap<String, serde_json::Value>, CryptoError> {
-        let derived = self.derive_block_key(block_id);
+        let derived = self.derive_block_key(block_id)?;
         let temp = BrowserCryptoService::new(derived);
         temp.verify(token)
     }

@@ -8,11 +8,15 @@
 //! and `wafer-run/config` for MAILGUN_API_KEY, MAILGUN_DOMAIN, MAILGUN_FROM.
 
 use serde::{Deserialize, Serialize};
+use wafer_core::clients::config;
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
 
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+use crate::blocks::helpers::{err_bad_request, err_not_found, ok_json};
 
 pub struct EmailBlock;
 
@@ -38,11 +42,11 @@ impl Block for EmailBlock {
             ])
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         match msg.kind.as_str() {
-            "email.send" => handle_send(ctx, msg).await,
-            "email.send_template" => handle_send_template(ctx, msg).await,
-            _ => err_not_found(msg, &format!("unknown email op: {}", msg.kind)),
+            "email.send" => handle_send(ctx, input).await,
+            "email.send_template" => handle_send_template(ctx, input).await,
+            _ => err_not_found(&format!("unknown email op: {}", msg.kind)),
         }
     }
 
@@ -73,14 +77,15 @@ struct SendResp {
     sent: bool,
 }
 
-async fn handle_send(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let req: SendReq = match msg.decode() {
+async fn handle_send(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let req: SendReq = match serde_json::from_slice(&raw) {
         Ok(r) => r,
-        Err(e) => return err_invalid(msg, &format!("invalid email.send: {e}")),
+        Err(e) => return err_bad_request(&format!("invalid email.send: {e}")),
     };
 
     let sent = send_email(ctx, &req.to, &req.subject, &req.html, req.text.as_deref()).await;
-    json_respond(msg, &SendResp { sent })
+    ok_json(&SendResp { sent })
 }
 
 // ---------------------------------------------------------------------------
@@ -99,21 +104,29 @@ struct TemplateReq {
     days_remaining: Option<u32>,
 }
 
-async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let req: TemplateReq = match msg.decode() {
+async fn handle_send_template(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let req: TemplateReq = match serde_json::from_slice(&raw) {
         Ok(r) => r,
-        Err(e) => return err_invalid(msg, &format!("invalid email.send_template: {e}")),
+        Err(e) => return err_bad_request(&format!("invalid email.send_template: {e}")),
     };
+
+    let base_url = config::get_default(
+        ctx,
+        "SOLOBASE_SHARED__FRONTEND_URL",
+        "http://localhost:5173",
+    )
+    .await;
+    let site_url =
+        config::get_default(ctx, "SOLOBASE_SHARED__SITE_URL", "https://solobase.dev").await;
+    let app_name = config::get_default(ctx, "SOLOBASE_SHARED__APP_NAME", "Solobase").await;
 
     let (subject, html, text) = match req.template.as_str() {
         "verification" => {
             let token = req.token.as_deref().unwrap_or("");
-            let url = format!(
-                "https://cloud.solobase.dev/b/auth/api/verify?token={}",
-                url_encode(token)
-            );
+            let url = format!("{}/b/auth/api/verify?token={}", base_url, url_encode(token));
             (
-                "Verify your Solobase email".to_string(),
+                format!("Verify your {app_name} email"),
                 format!(
                     r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#1e293b">Verify your email</h2>
@@ -122,17 +135,18 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 <p style="color:#94a3b8;font-size:0.813rem">If you didn't create an account, you can ignore this email.</p>
 </div>"#
                 ),
-                format!("Verify your Solobase email: {url}"),
+                format!("Verify your {app_name} email: {url}"),
             )
         }
         "password_reset" => {
             let token = req.token.as_deref().unwrap_or("");
             let url = format!(
-                "https://cloud.solobase.dev/b/auth/reset-password?token={}",
+                "{}/b/auth/reset-password?token={}",
+                base_url,
                 url_encode(token)
             );
             (
-                "Reset your Solobase password".to_string(),
+                format!("Reset your {app_name} password"),
                 format!(
                     r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#1e293b">Reset your password</h2>
@@ -141,23 +155,24 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 <p style="color:#94a3b8;font-size:0.813rem">If you didn't request a password reset, you can ignore this email.</p>
 </div>"#
                 ),
-                format!("Reset your Solobase password: {url}"),
+                format!("Reset your {app_name} password: {url}"),
             )
         }
         "payment_failed" => {
             let days = req.days_remaining.unwrap_or(7);
+            let settings_url = format!("{base_url}/b/admin/#settings");
             (
-                "Solobase: Payment failed — action required".to_string(),
+                format!("{app_name}: Payment failed — action required"),
                 format!(
                     r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#dc2626">Payment failed</h2>
 <p style="color:#64748b;line-height:1.6">We were unable to process your subscription payment. Your service will remain active for <strong>{days} more days</strong>. After that, your projects will be suspended.</p>
-<a href="https://cloud.solobase.dev/b/admin/#settings" style="display:inline-block;background:#dc2626;color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">Update Payment Method</a>
+<a href="{settings_url}" style="display:inline-block;background:#dc2626;color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">Update Payment Method</a>
 <p style="color:#94a3b8;font-size:0.813rem">If you've already updated your payment method, you can ignore this email.</p>
 </div>"#
                 ),
                 format!(
-                    "Your Solobase payment failed. Update your payment method within {} days.",
+                    "Your {app_name} payment failed. Update your payment method within {} days.",
                     days
                 ),
             )
@@ -169,29 +184,32 @@ async fn handle_send_template(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             } else {
                 format!("Welcome, {}!", name)
             };
+            let pricing_url = format!("{site_url}/pricing/");
+            let dashboard_url = format!("{base_url}/b/admin/");
+            let docs_url = format!("{site_url}/docs/");
             (
-                "Welcome to Solobase!".to_string(),
+                format!("Welcome to {app_name}!"),
                 format!(
                     r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#1e293b">{greeting}</h2>
-<p style="color:#64748b;line-height:1.6">Your Solobase account is ready. Here's how to get started:</p>
+<p style="color:#64748b;line-height:1.6">Your {app_name} account is ready. Here's how to get started:</p>
 <ol style="color:#64748b;line-height:1.8">
-<li>Choose a plan on the <a href="https://solobase.dev/pricing/" style="color:#0ea5e9">pricing page</a></li>
-<li>Create your first project from the <a href="https://cloud.solobase.dev/b/admin/" style="color:#0ea5e9">dashboard</a></li>
-<li>Read the <a href="https://solobase.dev/docs/" style="color:#0ea5e9">documentation</a></li>
+<li>Choose a plan on the <a href="{pricing_url}" style="color:#0ea5e9">pricing page</a></li>
+<li>Create your first project from the <a href="{dashboard_url}" style="color:#0ea5e9">dashboard</a></li>
+<li>Read the <a href="{docs_url}" style="color:#0ea5e9">documentation</a></li>
 </ol>
 </div>"#
                 ),
-                "Welcome to Solobase! Get started: https://cloud.solobase.dev/b/admin/".to_string(),
+                format!("Welcome to {app_name}! Get started: {dashboard_url}"),
             )
         }
         other => {
-            return err_invalid(msg, &format!("unknown email template: {other}"));
+            return err_bad_request(&format!("unknown email template: {other}"));
         }
     };
 
     let sent = send_email(ctx, &req.to, &subject, &html, Some(&text)).await;
-    json_respond(msg, &SendResp { sent })
+    ok_json(&SendResp { sent })
 }
 
 // ---------------------------------------------------------------------------
@@ -205,16 +223,10 @@ async fn send_email(
     html: &str,
     text: Option<&str>,
 ) -> bool {
-    let api_key =
-        wafer_core::clients::config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_API_KEY", "")
-            .await;
-    let domain =
-        wafer_core::clients::config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_DOMAIN", "")
-            .await;
+    let api_key = config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_API_KEY", "").await;
+    let domain = config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_DOMAIN", "").await;
     let from = {
-        let f =
-            wafer_core::clients::config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_FROM", "")
-                .await;
+        let f = config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_FROM", "").await;
         if f.is_empty() {
             format!("Solobase <noreply@{domain}>")
         } else {
@@ -234,9 +246,7 @@ async fn send_email(
         format!("subject={}", url_encode(subject)),
         format!("html={}", url_encode(html)),
     ];
-    let reply_to =
-        wafer_core::clients::config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO", "")
-            .await;
+    let reply_to = config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO", "").await;
     if !reply_to.is_empty() {
         parts.push(format!("h:Reply-To={}", url_encode(&reply_to)));
     }
@@ -260,25 +270,26 @@ async fn send_email(
         "body": body.as_bytes().to_vec(),
     });
 
-    let mut network_msg = Message::new(
-        "network.do",
-        serde_json::to_vec(&network_req).unwrap_or_default(),
-    );
+    let network_msg = Message::new("network.do");
+    let req_bytes = serde_json::to_vec(&network_req).unwrap_or_default();
 
-    let result = ctx.call_block("wafer-run/network", &mut network_msg).await;
+    let out = ctx
+        .call_block(
+            "wafer-run/network",
+            network_msg,
+            InputStream::from_bytes(req_bytes),
+        )
+        .await;
 
-    match result.action {
-        Action::Respond => {
-            if let Some(ref resp) = result.response {
-                // Check if status was 200
-                if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&resp.data) {
-                    let status = v.get("status_code").and_then(|s| s.as_u64()).unwrap_or(0);
-                    return (200..300).contains(&status);
-                }
+    match out.collect_buffered().await {
+        Ok(resp) => {
+            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&resp.body) {
+                let status = v.get("status_code").and_then(|s| s.as_u64()).unwrap_or(0);
+                return (200..300).contains(&status);
             }
             false
         }
-        _ => false,
+        Err(_) => false,
     }
 }
 
@@ -370,8 +381,4 @@ impl<'a> std::io::Write for Base64Encoder<'a> {
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
-}
-
-fn err_invalid(_msg: &Message, message: &str) -> Result_ {
-    Result_::error(WaferError::new("invalid_argument", message))
 }

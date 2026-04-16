@@ -1,17 +1,17 @@
-name: CI
+name: CI Main
 
 on:
-  pull_request:
+  push:
     branches: [main]
     paths:
       - 'crates/**'
       - 'packages/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - '.github/workflows/ci.yml'
+      - '.github/workflows/ci-main.yml'
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-main
   cancel-in-progress: true
 
 env:
@@ -112,33 +112,106 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Check for SDK changes
-        id: sdk-changes
-        run: |
-          CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }}..HEAD -- packages/solobase-js/)
-          if [ -z "$CHANGED" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Setup Node
-        if: steps.sdk-changes.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Checkout wafer-run (for local dependency)
-        if: steps.sdk-changes.outputs.skip != 'true'
         run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
 
       - name: Install and build SDK
-        if: steps.sdk-changes.outputs.skip != 'true'
         working-directory: packages/solobase-js
         run: |
           npm ci
           npm run build
           npm run lint
+
+  cross-compile:
+    name: Cross-Compile (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux-arm64
+            cross: true
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            name: darwin-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            name: darwin-amd64
+          - target: x86_64-pc-windows-gnu
+            os: ubuntu-latest
+            name: windows-amd64
+            cross: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout wafer-run
+        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: cross-${{ matrix.name }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          echo '[target.aarch64-unknown-linux-gnu]' >> ~/.cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
+
+      - name: Install cross-compilation tools (Windows)
+        if: matrix.target == 'x86_64-pc-windows-gnu'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+
+      - name: Build
+        run: cargo build -p solobase --release --target ${{ matrix.target }}
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout wafer-run
+        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: coverage
+
+      - name: Generate coverage
+        run: cargo llvm-cov --workspace --exclude solobase-web --lcov --output-path lcov.info
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false

@@ -27,8 +27,7 @@ extern "C" {
 
     /// Write file + metadata to OPFS.
     #[wasm_bindgen(js_name = storagePut)]
-    pub async fn storage_put(folder: &str, key: &str, data: &[u8], content_type: &str)
-        -> JsValue;
+    pub async fn storage_put(folder: &str, key: &str, data: &[u8], content_type: &str) -> JsValue;
 
     /// Read file + metadata from OPFS.
     /// Returns JSON string: `{ data: number[], meta: { content_type, size } }`.
@@ -42,12 +41,7 @@ extern "C" {
     /// List files in a folder matching a prefix, with pagination.
     /// Returns JSON array of key strings.
     #[wasm_bindgen(js_name = storageList)]
-    pub async fn storage_list(
-        folder: &str,
-        prefix: &str,
-        limit: u32,
-        offset: u32,
-    ) -> JsValue;
+    pub async fn storage_list(folder: &str, prefix: &str, limit: u32, offset: u32) -> JsValue;
 
     /// Create an OPFS directory under the storage root.
     #[wasm_bindgen(js_name = storageCreateFolder)]
@@ -69,10 +63,5 @@ extern "C" {
     /// `body` is the request body bytes (pass empty slice for no body).
     /// Returns JSON string: `{ status, headers, body: number[] }`.
     #[wasm_bindgen(js_name = httpFetch)]
-    pub async fn http_fetch(
-        method: &str,
-        url: &str,
-        headers_json: &str,
-        body: &[u8],
-    ) -> JsValue;
+    pub async fn http_fetch(method: &str, url: &str, headers_json: &str, body: &[u8]) -> JsValue;
 }

@@ -200,9 +200,7 @@ pub fn lock() -> Markup {
 }
 
 pub fn info() -> Markup {
-    icon(
-        r#"<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>"#,
-    )
+    icon(r#"<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>"#)
 }
 
 pub fn database() -> Markup {

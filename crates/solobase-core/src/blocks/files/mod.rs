@@ -12,11 +12,15 @@ pub(crate) const ACCESS_LOGS_COLLECTION: &str = "suppers_ai__files__cloud_access
 pub(crate) const QUOTAS_COLLECTION: &str = "suppers_ai__files__cloud_quotas";
 pub(crate) const VIEWS_COLLECTION: &str = "suppers_ai__files__views";
 
-use super::rate_limit::{check_rate_limit, RateLimit, UserRateLimiter};
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
+use super::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter};
+use crate::blocks::helpers::{self, err_not_found};
 
 pub struct FilesBlock {
     limiter: UserRateLimiter,
@@ -40,8 +44,7 @@ impl FilesBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for FilesBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/files", "0.0.1", "http-handler@v1", "File storage, sharing, quotas, and access logging")
             .instance_mode(InstanceMode::Singleton)
@@ -102,25 +105,23 @@ impl Block for FilesBlock {
             .can_disable(true)
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
+        let mut msg = msg;
         let path = msg.path().to_string();
 
         // Admin SSR pages at /b/storage/admin/...
         if path.starts_with("/b/storage/admin") && msg.action() == "retrieve" {
-            let is_admin = msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin");
+            let is_admin = helpers::is_admin(&msg);
             if !is_admin {
-                return crate::ui::forbidden_response(msg);
+                return crate::ui::forbidden_response(&msg);
             }
             let sub = path.strip_prefix("/b/storage/admin").unwrap_or("/");
             return match sub {
-                "" | "/" => pages::overview(ctx, msg).await,
-                "/buckets" => pages::buckets(ctx, msg).await,
-                "/shares" => pages::shares(ctx, msg).await,
-                "/quotas" => pages::quotas(ctx, msg).await,
-                _ => err_not_found(msg, "not found"),
+                "" | "/" => pages::overview(ctx, &msg).await,
+                "/buckets" => pages::buckets(ctx, &msg).await,
+                "/shares" => pages::shares(ctx, &msg).await,
+                "/quotas" => pages::quotas(ctx, &msg).await,
+                _ => err_not_found("not found"),
             };
         }
 
@@ -136,13 +137,13 @@ impl Block for FilesBlock {
 
         // Direct share access (public, no auth, no user rate limit)
         if normalized.starts_with("/storage/direct/") {
-            return share::handle_direct_access(ctx, msg).await;
+            return share::handle_direct_access(ctx, &msg).await;
         }
 
         // Require authentication for all non-public endpoints
         let user_id = msg.user_id().to_string();
         if user_id.is_empty() {
-            return wafer_run::helpers::err_unauthorized(msg, "Authentication required");
+            return crate::blocks::helpers::err_unauthorized("Authentication required");
         }
 
         // Per-user rate limiting
@@ -155,8 +156,9 @@ impl Block for FilesBlock {
             } else {
                 (RateLimit::API_WRITE, "api_write")
             };
-            if let Some(r) =
-                check_rate_limit(&self.limiter, ctx, msg, &user_id, category, default).await
+            // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
+            if let RateLimitOutcome::Limited(r) =
+                check_rate_limit(&self.limiter, ctx, &user_id, category, default).await
             {
                 return r;
             }
@@ -164,7 +166,7 @@ impl Block for FilesBlock {
 
         // Cloud storage routes (/b/cloudstorage/...)
         if normalized.starts_with("/b/cloudstorage") {
-            return cloud::handle(ctx, msg).await;
+            return cloud::handle(ctx, msg, input).await;
         }
 
         // User storage API routes (/b/storage/api/... → /storage/api/...)
@@ -172,10 +174,10 @@ impl Block for FilesBlock {
             // Normalize for sub-module: /storage/api/buckets → /storage/buckets
             let api_path = normalized.replacen("/storage/api", "/storage", 1);
             msg.set_meta("req.resource", &api_path);
-            return storage::handle(ctx, msg).await;
+            return storage::handle(ctx, msg, input).await;
         }
 
-        err_not_found(msg, "not found")
+        err_not_found("not found")
     }
 
     fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
@@ -198,12 +200,20 @@ impl Block for FilesBlock {
 
 /// Admin storage delegation — called from the Admin block's API section.
 /// Expects msg path already normalized to `/admin/storage/...`.
-pub async fn handle_admin_storage(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    storage::handle_admin(ctx, msg).await
+pub async fn handle_admin_storage(
+    ctx: &dyn Context,
+    msg: Message,
+    input: InputStream,
+) -> OutputStream {
+    storage::handle_admin(ctx, msg, input).await
 }
 
 /// Admin cloud storage delegation — called from the Admin block's API section.
 /// Expects msg path already normalized to `/admin/b/cloudstorage/...`.
-pub async fn handle_admin_cloud(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    cloud::handle(ctx, msg).await
+pub async fn handle_admin_cloud(
+    ctx: &dyn Context,
+    msg: Message,
+    input: InputStream,
+) -> OutputStream {
+    cloud::handle(ctx, msg, input).await
 }

@@ -1,50 +1,54 @@
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_core::clients::storage as store;
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+    storage as store,
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION as OBJECTS_META_COLLECTION};
+use crate::blocks::helpers::{
+    self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, ResponseBuilder,
+};
 
-pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle(ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/storage/buckets") => handle_list_buckets(ctx, msg).await,
-        ("create", "/storage/buckets") => handle_create_bucket(ctx, msg).await,
+        ("retrieve", "/storage/buckets") => handle_list_buckets(ctx, &msg).await,
+        ("create", "/storage/buckets") => handle_create_bucket(ctx, &msg, input).await,
         ("retrieve", _) if path.starts_with("/storage/buckets/") && path.contains("/objects") => {
             if path.contains("/objects/") {
-                handle_get_object(ctx, msg).await
+                handle_get_object(ctx, &msg).await
             } else {
-                handle_list_objects(ctx, msg).await
+                handle_list_objects(ctx, &msg).await
             }
         }
         ("create", _) if path.starts_with("/storage/buckets/") && path.contains("/objects") => {
-            handle_upload_object(ctx, msg).await
+            handle_upload_object(ctx, &msg, input).await
         }
         ("delete", _) if path.starts_with("/storage/buckets/") && path.contains("/objects/") => {
-            handle_delete_object(ctx, msg).await
+            handle_delete_object(ctx, &msg).await
         }
         ("delete", _) if path.starts_with("/storage/buckets/") => {
-            handle_delete_bucket(ctx, msg).await
+            handle_delete_bucket(ctx, &msg).await
         }
-        ("retrieve", "/storage/search") => handle_search(ctx, msg).await,
-        ("retrieve", "/storage/recent") => handle_recent(ctx, msg).await,
-        _ => err_not_found(msg, "not found"),
+        ("retrieve", "/storage/search") => handle_search(ctx, &msg).await,
+        ("retrieve", "/storage/recent") => handle_recent(ctx, &msg).await,
+        _ => err_not_found("not found"),
     }
 }
 
-pub async fn handle_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_admin(ctx: &dyn Context, msg: Message, _input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/admin/storage/buckets") => handle_list_buckets(ctx, msg).await,
-        ("retrieve", "/admin/storage/stats") => handle_stats(ctx, msg).await,
-        _ => err_not_found(msg, "not found"),
+        ("retrieve", "/admin/storage/buckets") => handle_list_buckets(ctx, &msg).await,
+        ("retrieve", "/admin/storage/stats") => handle_stats(ctx, &msg).await,
+        _ => err_not_found("not found"),
     }
 }
 
@@ -71,10 +75,7 @@ fn extract_object_key(path: &str) -> &str {
 /// Check if the current user owns the given bucket (or is admin).
 /// Returns true if access is denied.
 async fn is_bucket_access_denied(ctx: &dyn Context, msg: &Message, bucket: &str) -> bool {
-    let is_admin = msg
-        .get_meta("auth.user_roles")
-        .split(',')
-        .any(|r| r.trim() == "admin");
+    let is_admin = helpers::is_admin(msg);
     if is_admin {
         return false;
     }
@@ -113,17 +114,14 @@ fn is_valid_bucket_name(name: &str) -> bool {
     !name.is_empty() && !name.contains("..") && !name.contains('/') && !name.contains('\0')
 }
 
-async fn handle_list_buckets(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // Only show buckets owned by the current user (or all for admin)
     let user_id = msg.user_id();
-    let is_admin = msg
-        .get_meta("auth.user_roles")
-        .split(',')
-        .any(|r| r.trim() == "admin");
+    let is_admin = helpers::is_admin(msg);
     if is_admin {
         match store::list_folders(ctx).await {
-            Ok(folders) => json_respond(msg, &serde_json::json!({"buckets": folders})),
-            Err(e) => err_internal(msg, &format!("Storage error: {e}")),
+            Ok(folders) => ok_json(&serde_json::json!({"buckets": folders})),
+            Err(e) => err_internal(&format!("Storage error: {e}")),
         }
     } else {
         let opts = ListOptions {
@@ -142,30 +140,35 @@ async fn handle_list_buckets(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     .iter()
                     .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
                     .collect();
-                json_respond(msg, &serde_json::json!({"buckets": names}))
+                ok_json(&serde_json::json!({"buckets": names}))
             }
-            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+            Err(e) => err_internal(&format!("Database error: {e}")),
         }
     }
 }
 
-async fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create_bucket(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct Req {
         name: String,
         #[serde(default)]
         public: bool,
     }
-    let body: Req = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: Req = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     if body.name.is_empty() {
-        return err_bad_request(msg, "Bucket name is required");
+        return err_bad_request("Bucket name is required");
     }
     if !is_valid_bucket_name(&body.name) {
-        return err_bad_request(msg, "Invalid bucket name");
+        return err_bad_request("Invalid bucket name");
     }
 
     match store::create_folder(ctx, &body.name, body.public).await {
@@ -188,26 +191,23 @@ async fn handle_create_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             if let Err(e) = db::create(ctx, BUCKETS_COLLECTION, data).await {
                 tracing::warn!("Failed to track bucket creation in database: {e}");
             }
-            json_respond(
-                msg,
-                &serde_json::json!({"name": body.name, "created": true}),
-            )
+            ok_json(&serde_json::json!({"name": body.name, "created": true}))
         }
-        Err(e) => err_internal(msg, &format!("Failed to create bucket: {e}")),
+        Err(e) => err_internal(&format!("Failed to create bucket: {e}")),
     }
 }
 
-async fn handle_delete_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete_bucket(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let bucket = extract_bucket_name(path);
     if bucket.is_empty() {
-        return err_bad_request(msg, "Missing bucket name");
+        return err_bad_request("Missing bucket name");
     }
     if !is_valid_bucket_name(bucket) {
-        return err_bad_request(msg, "Invalid bucket name");
+        return err_bad_request("Invalid bucket name");
     }
     if is_bucket_access_denied(ctx, msg, bucket).await {
-        return err_forbidden(msg, "Access denied to this bucket");
+        return err_forbidden("Access denied to this bucket");
     }
 
     match store::delete_folder(ctx, bucket).await {
@@ -229,23 +229,23 @@ async fn handle_delete_bucket(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             )
             .await
             .ok();
-            json_respond(msg, &serde_json::json!({"deleted": true}))
+            ok_json(&serde_json::json!({"deleted": true}))
         }
-        Err(e) => err_internal(msg, &format!("Failed to delete bucket: {e}")),
+        Err(e) => err_internal(&format!("Failed to delete bucket: {e}")),
     }
 }
 
-async fn handle_list_objects(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_objects(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let bucket = extract_bucket_name(path);
     if bucket.is_empty() {
-        return err_bad_request(msg, "Missing bucket name");
+        return err_bad_request("Missing bucket name");
     }
     if !is_valid_bucket_name(bucket) {
-        return err_bad_request(msg, "Invalid bucket name");
+        return err_bad_request("Invalid bucket name");
     }
     if is_bucket_access_denied(ctx, msg, bucket).await {
-        return err_forbidden(msg, "Access denied to this bucket");
+        return err_forbidden("Access denied to this bucket");
     }
 
     let prefix = msg.query("prefix").to_string();
@@ -258,23 +258,23 @@ async fn handle_list_objects(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match store::list(ctx, bucket, &opts).await {
-        Ok(list) => json_respond(msg, &list),
-        Err(e) => err_internal(msg, &format!("Storage error: {e}")),
+        Ok(list) => ok_json(&list),
+        Err(e) => err_internal(&format!("Storage error: {e}")),
     }
 }
 
-async fn handle_get_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_get_object(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let bucket = extract_bucket_name(path);
     let key = extract_object_key(path);
     if bucket.is_empty() || key.is_empty() {
-        return err_bad_request(msg, "Missing bucket name or object key");
+        return err_bad_request("Missing bucket name or object key");
     }
     if !is_valid_storage_key(key) {
-        return err_bad_request(msg, "Invalid object key");
+        return err_bad_request("Invalid object key");
     }
     if is_bucket_access_denied(ctx, msg, bucket).await {
-        return err_forbidden(msg, "Access denied to this bucket");
+        return err_forbidden("Access denied to this bucket");
     }
 
     // Track view in DB
@@ -300,41 +300,47 @@ async fn handle_get_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     }
 
     match store::get(ctx, bucket, key).await {
-        Ok((data, info)) => respond(msg, data, &info.content_type),
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Object not found"),
-        Err(e) => err_internal(msg, &format!("Storage error: {e}")),
+        Ok((data, info)) => ResponseBuilder::new().body(data, &info.content_type),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Object not found"),
+        Err(e) => err_internal(&format!("Storage error: {e}")),
     }
 }
 
-async fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_upload_object(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let path = msg.path();
     let bucket = extract_bucket_name(path);
     if bucket.is_empty() {
-        return err_bad_request(msg, "Missing bucket name");
+        return err_bad_request("Missing bucket name");
     }
 
     let key = msg.query("key").to_string();
     if key.is_empty() {
-        return err_bad_request(msg, "Missing object key (pass as ?key=filename)");
+        return err_bad_request("Missing object key (pass as ?key=filename)");
     }
     if !is_valid_storage_key(&key) {
-        return err_bad_request(msg, "Invalid object key");
+        return err_bad_request("Invalid object key");
     }
     if is_bucket_access_denied(ctx, msg, bucket).await {
-        return err_forbidden(msg, "Access denied to this bucket");
+        return err_forbidden("Access denied to this bucket");
     }
 
     let content_type = {
         let ct = msg.get_meta("req.content_type");
         if ct.is_empty() {
-            "application/octet-stream"
+            "application/octet-stream".to_string()
         } else {
-            ct
+            ct.to_string()
         }
     };
 
+    let body_bytes = input.collect_to_bytes().await;
+
     // Check quota
-    if let Err(r) = super::quota::check_quota(ctx, msg.user_id(), msg.body().len() as i64).await {
+    if let Err(r) = super::quota::check_quota(ctx, msg.user_id(), body_bytes.len() as i64).await {
         return r;
     }
 
@@ -346,10 +352,10 @@ async fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         serde_json::Value::String(bucket.to_string()),
     );
     pending_data.insert("key".to_string(), serde_json::Value::String(key.clone()));
-    pending_data.insert("size".to_string(), serde_json::json!(msg.body().len()));
+    pending_data.insert("size".to_string(), serde_json::json!(body_bytes.len()));
     pending_data.insert(
         "content_type".to_string(),
-        serde_json::Value::String(content_type.to_string()),
+        serde_json::Value::String(content_type.clone()),
     );
     pending_data.insert(
         "status".to_string(),
@@ -366,10 +372,10 @@ async fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let pending_record = match db::create(ctx, OBJECTS_META_COLLECTION, pending_data).await {
         Ok(record) => record,
-        Err(e) => return err_internal(msg, &format!("Failed to reserve upload slot: {e}")),
+        Err(e) => return err_internal(&format!("Failed to reserve upload slot: {e}")),
     };
 
-    match store::put(ctx, bucket, &key, msg.body(), content_type).await {
+    match store::put(ctx, bucket, &key, &body_bytes, &content_type).await {
         Ok(()) => {
             // Upload succeeded — mark the pending record as complete.
             let mut update_data = HashMap::new();
@@ -387,10 +393,7 @@ async fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             {
                 tracing::warn!("Failed to mark upload as complete: {e}");
             }
-            json_respond(
-                msg,
-                &serde_json::json!({"bucket": bucket, "key": key, "uploaded": true}),
-            )
+            ok_json(&serde_json::json!({"bucket": bucket, "key": key, "uploaded": true}))
         }
         Err(e) => {
             // Upload failed — delete the pending record so it doesn't block quota.
@@ -398,23 +401,23 @@ async fn handle_upload_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             {
                 tracing::warn!("Failed to clean up pending record: {del_err}");
             }
-            err_internal(msg, &format!("Upload failed: {e}"))
+            err_internal(&format!("Upload failed: {e}"))
         }
     }
 }
 
-async fn handle_delete_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete_object(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let bucket = extract_bucket_name(path);
     let key = extract_object_key(path);
     if bucket.is_empty() || key.is_empty() {
-        return err_bad_request(msg, "Missing bucket name or object key");
+        return err_bad_request("Missing bucket name or object key");
     }
     if !is_valid_storage_key(key) {
-        return err_bad_request(msg, "Invalid object key");
+        return err_bad_request("Invalid object key");
     }
     if is_bucket_access_denied(ctx, msg, bucket).await {
-        return err_forbidden(msg, "Access denied to this bucket");
+        return err_forbidden("Access denied to this bucket");
     }
 
     match store::delete(ctx, bucket, key).await {
@@ -438,17 +441,17 @@ async fn handle_delete_object(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             )
             .await
             .ok();
-            json_respond(msg, &serde_json::json!({"deleted": true}))
+            ok_json(&serde_json::json!({"deleted": true}))
         }
-        Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Object not found"),
-        Err(e) => err_internal(msg, &format!("Delete failed: {e}")),
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Object not found"),
+        Err(e) => err_internal(&format!("Delete failed: {e}")),
     }
 }
 
-async fn handle_search(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_search(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let query = msg.query("q").to_string();
     if query.is_empty() {
-        return err_bad_request(msg, "Missing search query");
+        return err_bad_request("Missing search query");
     }
 
     let (_, page_size, offset) = msg.pagination_params(20);
@@ -481,12 +484,12 @@ async fn handle_search(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match db::list(ctx, OBJECTS_META_COLLECTION, &opts).await {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Search failed: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Search failed: {e}")),
     }
 }
 
-async fn handle_recent(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_recent(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
 
     let opts = ListOptions {
@@ -504,8 +507,8 @@ async fn handle_recent(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match db::list(ctx, super::VIEWS_COLLECTION, &opts).await {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
@@ -581,7 +584,7 @@ mod tests {
     }
 }
 
-async fn handle_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
     let complete_filter = &[Filter {
         field: "status".to_string(),
         operator: FilterOp::Equal,
@@ -595,12 +598,9 @@ async fn handle_stats(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .unwrap_or(0.0);
     let bucket_count = store::list_folders(ctx).await.map(|f| f.len()).unwrap_or(0);
 
-    json_respond(
-        msg,
-        &serde_json::json!({
-            "total_objects": total_objects,
-            "total_size_bytes": total_size as i64,
-            "bucket_count": bucket_count
-        }),
-    )
+    ok_json(&serde_json::json!({
+        "total_objects": total_objects,
+        "total_size_bytes": total_size as i64,
+        "bucket_count": bucket_count
+    }))
 }

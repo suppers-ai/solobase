@@ -3,16 +3,16 @@
 //! Uses maud for compile-time HTML generation. Settings are read from
 //! the `variables` table at render time.
 
-use crate::blocks::helpers::RecordExt;
-use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
-use maud::{html, Markup, PreEscaped};
 use std::collections::HashMap;
-use wafer_core::clients::config;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::ListOptions;
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+
+use maud::{html, Markup, PreEscaped};
+use wafer_core::clients::{config, database as db, database::ListOptions};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+
+use crate::{
+    blocks::helpers::{err_bad_request, ok_json, RecordExt},
+    ui::{self, components, icons, NavItem, SiteConfig, UserInfo},
+};
 
 /// Read all key-value pairs from the variables table.
 async fn load_variables(ctx: &dyn Context) -> HashMap<String, String> {
@@ -81,7 +81,7 @@ fn pw_toggle_js() -> &'static str {
 // Login page
 // ---------------------------------------------------------------------------
 
-pub async fn login_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn login_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let settings = load_variables(ctx).await;
     let config = site_config(&settings);
     let app_name = get(&settings, "SOLOBASE_SHARED__APP_NAME", "Solobase");
@@ -189,14 +189,14 @@ async function handleForgot(){
         },
     );
 
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 // ---------------------------------------------------------------------------
 // Signup page
 // ---------------------------------------------------------------------------
 
-pub async fn signup_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn signup_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let settings = load_variables(ctx).await;
     let config = site_config(&settings);
     let app_name = get(&settings, "SOLOBASE_SHARED__APP_NAME", "Solobase");
@@ -295,14 +295,14 @@ async function handleSignup(ev){
         },
     );
 
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 // ---------------------------------------------------------------------------
 // Change password page (requires auth — caller must check)
 // ---------------------------------------------------------------------------
 
-pub async fn change_password_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn change_password_page(ctx: &dyn Context, _msg: &Message) -> OutputStream {
     let settings = load_variables(ctx).await;
     let config = site_config(&settings);
     let app_name = &config.app_name;
@@ -380,7 +380,7 @@ async function handleChange(ev){
         },
     );
 
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 // ---------------------------------------------------------------------------
@@ -479,7 +479,7 @@ fn auth_admin_nav() -> Vec<NavItem> {
     }]
 }
 
-pub async fn settings_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -537,7 +537,7 @@ pub async fn settings_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         content,
         is_fragment,
     );
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 const SETTINGS_JS: &str = r#"
@@ -575,15 +575,11 @@ function submitSettings(e) {
 }
 "#;
 
-pub async fn handle_save_settings(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let body: HashMap<String, String> = match msg.decode() {
+pub async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body: HashMap<String, String> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => {
-            return json_respond(
-                msg,
-                &serde_json::json!({"error": format!("Invalid request: {e}")}),
-            )
-        }
+        Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
     };
 
     for &(key, _, _, _, _, _) in SETTINGS_KEYS {
@@ -592,7 +588,7 @@ pub async fn handle_save_settings(ctx: &dyn Context, msg: &mut Message) -> Resul
         }
     }
 
-    json_respond(msg, &serde_json::json!({"message": "Settings saved"}))
+    ok_json(&serde_json::json!({"message": "Settings saved"}))
 }
 
 fn render_setting_field(

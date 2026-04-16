@@ -1,12 +1,20 @@
-use super::helpers::{parse_form_body, stamp_updated, RecordExt};
-use crate::ui::{self, components, icons, sidebar::nav_icon, NavItem, SiteConfig, UserInfo};
 use maud::{html, PreEscaped};
-use wafer_core::clients::database::{ListOptions, SortField};
-use wafer_core::clients::{config, database as db};
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+use wafer_core::clients::{
+    config, database as db,
+    database::{ListOptions, SortField},
+};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
+use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
+use crate::{
+    blocks::helpers::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json},
+    ui::{self, components, icons, sidebar::nav_icon, NavItem, SiteConfig, UserInfo},
+};
 
 const BUTTONS_COLLECTION: &str = "suppers_ai__userportal__buttons";
 
@@ -68,33 +76,32 @@ impl Block for UserPortalBlock {
         vec![wafer_run::UiRoute::authenticated("/")]
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let path = msg.path().to_string();
         let action = msg.action().to_string();
 
         if !path.starts_with("/b/userportal") {
-            return self.handle_config(ctx, msg).await;
+            return self.handle_config(ctx).await;
         }
 
-        let sub = path.strip_prefix("/b/userportal").unwrap_or("/");
+        let sub = path
+            .strip_prefix("/b/userportal")
+            .unwrap_or("/")
+            .to_string();
 
         // Admin routes — require admin role
         if sub.starts_with("/admin/") {
-            if !msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin")
-            {
-                return crate::ui::forbidden_response(msg);
+            if !helpers::is_admin(&msg) {
+                return crate::ui::forbidden_response(&msg);
             }
-            return self.handle_admin(ctx, msg, &action, sub).await;
+            return self.handle_admin(ctx, msg, input, &action, &sub).await;
         }
 
-        match (action.as_str(), sub) {
-            ("retrieve", "" | "/") => profile_page(ctx, msg).await,
-            ("create", "/update-profile") => handle_update_profile(ctx, msg).await,
-            ("retrieve", "/config") => self.handle_config(ctx, msg).await,
-            _ => err_not_found(msg, "not found"),
+        match (action.as_str(), sub.as_str()) {
+            ("retrieve", "" | "/") => profile_page(ctx, &msg).await,
+            ("create", "/update-profile") => handle_update_profile(ctx, &msg, input).await,
+            ("retrieve", "/config") => self.handle_config(ctx).await,
+            _ => err_not_found("not found"),
         }
     }
 
@@ -108,7 +115,7 @@ impl Block for UserPortalBlock {
 }
 
 impl UserPortalBlock {
-    async fn handle_config(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_config(&self, ctx: &dyn Context) -> OutputStream {
         let block_rows = db::list_all(ctx, crate::blocks::admin::BLOCK_SETTINGS_COLLECTION, vec![])
             .await
             .unwrap_or_default();
@@ -138,46 +145,47 @@ impl UserPortalBlock {
                 "userportal": is_enabled("suppers-ai/userportal"),
             }
         });
-        json_respond(msg, &config_val)
+        ok_json(&config_val)
     }
 
     async fn handle_admin(
         &self,
         ctx: &dyn Context,
-        msg: &mut Message,
+        msg: Message,
+        input: InputStream,
         action: &str,
         sub: &str,
-    ) -> Result_ {
+    ) -> OutputStream {
         match (action, sub) {
-            ("retrieve", "/admin/settings") => admin_settings_page(ctx, msg).await,
-            ("create", "/admin/settings") => handle_save_settings(ctx, msg).await,
-            ("retrieve", "/admin/buttons") => admin_buttons_page(ctx, msg).await,
-            ("create", "/admin/buttons") => handle_create_button(ctx, msg).await,
+            ("retrieve", "/admin/settings") => admin_settings_page(ctx, &msg).await,
+            ("create", "/admin/settings") => handle_save_settings(ctx, input).await,
+            ("retrieve", "/admin/buttons") => admin_buttons_page(ctx, &msg).await,
+            ("create", "/admin/buttons") => handle_create_button(ctx, input).await,
             ("retrieve", s) if s.starts_with("/admin/buttons/") && s.ends_with("/edit") => {
                 let id = s
                     .strip_prefix("/admin/buttons/")
                     .and_then(|s| s.strip_suffix("/edit"))
                     .unwrap_or("");
                 if id.is_empty() {
-                    return err_not_found(msg, "not found");
+                    return err_not_found("not found");
                 }
-                handle_edit_button_form(ctx, msg, id).await
+                handle_edit_button_form(ctx, id).await
             }
             ("update", s) if s.starts_with("/admin/buttons/") => {
                 let id = s.strip_prefix("/admin/buttons/").unwrap_or("");
                 if id.is_empty() {
-                    return err_not_found(msg, "not found");
+                    return err_not_found("not found");
                 }
-                handle_update_button(ctx, msg, id).await
+                handle_update_button(ctx, input, id).await
             }
             ("delete", s) if s.starts_with("/admin/buttons/") => {
                 let id = s.strip_prefix("/admin/buttons/").unwrap_or("");
                 if id.is_empty() {
-                    return err_not_found(msg, "not found");
+                    return err_not_found("not found");
                 }
-                handle_delete_button(ctx, msg, id).await
+                handle_delete_button(ctx, id).await
             }
-            _ => err_not_found(msg, "not found"),
+            _ => err_not_found("not found"),
         }
     }
 }
@@ -221,11 +229,11 @@ fn render_page(
     path: &str,
     user: Option<&UserInfo>,
     content: maud::Markup,
-    msg: &mut Message,
-) -> Result_ {
+    msg: &Message,
+) -> OutputStream {
     let is_fragment = ui::is_htmx(msg);
     let markup = ui::layout::block_shell(title, config, nav, user, path, content, is_fragment);
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 async fn load_buttons(ctx: &dyn Context) -> Vec<wafer_core::clients::database::Record> {
@@ -250,13 +258,15 @@ async fn load_buttons(ctx: &dyn Context) -> Vec<wafer_core::clients::database::R
 // User-facing: Profile page
 // ---------------------------------------------------------------------------
 
-async fn profile_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let user_id = msg.user_id().to_string();
 
     // Load user details
-    let user_record = db::get(ctx, crate::blocks::auth::USERS_COLLECTION, &user_id).await.ok();
+    let user_record = db::get(ctx, crate::blocks::auth::USERS_COLLECTION, &user_id)
+        .await
+        .ok();
     let display_name = user_record
         .as_ref()
         .map(|r| r.str_field("name").to_string())
@@ -367,13 +377,18 @@ async fn profile_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 // User-facing: Update profile
 // ---------------------------------------------------------------------------
 
-async fn handle_update_profile(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_update_profile(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return err_forbidden(msg, "Not authenticated");
+        return err_forbidden("Not authenticated");
     }
 
-    let body = parse_form_body(&msg.data);
+    let raw = input.collect_to_bytes().await;
+    let body = parse_form_body(&raw);
     let name = body.get("name").map(|s| s.as_str()).unwrap_or("");
 
     let mut data = std::collections::HashMap::new();
@@ -381,7 +396,7 @@ async fn handle_update_profile(ctx: &dyn Context, msg: &mut Message) -> Result_ 
     stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, crate::blocks::auth::USERS_COLLECTION, &user_id, data).await {
-        return err_internal(msg, &format!("Failed to update profile: {}", e.message));
+        return err_internal(&format!("Failed to update profile: {}", e.message));
     }
 
     // Re-render the profile page (htmx will swap content)
@@ -392,7 +407,7 @@ async fn handle_update_profile(ctx: &dyn Context, msg: &mut Message) -> Result_ 
 // Admin: Buttons management page
 // ---------------------------------------------------------------------------
 
-async fn admin_buttons_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn admin_buttons_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let buttons = load_buttons(ctx).await;
@@ -527,8 +542,9 @@ fn render_buttons_table(buttons: &[wafer_core::clients::database::Record]) -> ma
 // Admin: Button CRUD handlers
 // ---------------------------------------------------------------------------
 
-async fn handle_create_button(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let body = parse_form_body(&msg.data);
+async fn handle_create_button(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body = parse_form_body(&raw);
 
     let label = body.get("label").map(|s| s.as_str()).unwrap_or("").trim();
     let path = body.get("path").map(|s| s.as_str()).unwrap_or("").trim();
@@ -543,7 +559,7 @@ async fn handle_create_button(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .unwrap_or(0);
 
     if label.is_empty() || path.is_empty() {
-        return err_bad_request(msg, "Label and path are required");
+        return err_bad_request("Label and path are required");
     }
 
     let mut data = super::helpers::json_map(serde_json::json!({
@@ -555,18 +571,18 @@ async fn handle_create_button(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     super::helpers::stamp_created(&mut data);
 
     if let Err(e) = db::create(ctx, BUTTONS_COLLECTION, data).await {
-        return err_internal(msg, &format!("Failed to create button: {}", e.message));
+        return err_internal(&format!("Failed to create button: {}", e.message));
     }
 
     // Re-render buttons table
     let buttons = load_buttons(ctx).await;
-    ui::html_response(msg, render_buttons_table(&buttons))
+    ui::html_response(render_buttons_table(&buttons))
 }
 
-async fn handle_edit_button_form(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
+async fn handle_edit_button_form(ctx: &dyn Context, id: &str) -> OutputStream {
     let record = match db::get(ctx, BUTTONS_COLLECTION, id).await {
         Ok(r) => r,
-        Err(_) => return err_not_found(msg, "Button not found"),
+        Err(_) => return err_not_found("Button not found"),
     };
 
     let current_icon = record.str_field("icon");
@@ -616,11 +632,12 @@ async fn handle_edit_button_form(ctx: &dyn Context, msg: &mut Message, id: &str)
         ))) }
     };
 
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
-async fn handle_update_button(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
-    let body = parse_form_body(&msg.data);
+async fn handle_update_button(ctx: &dyn Context, input: InputStream, id: &str) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body = parse_form_body(&raw);
 
     let label = body.get("label").map(|s| s.as_str()).unwrap_or("").trim();
     let path = body.get("path").map(|s| s.as_str()).unwrap_or("").trim();
@@ -635,7 +652,7 @@ async fn handle_update_button(ctx: &dyn Context, msg: &mut Message, id: &str) ->
         .unwrap_or(0);
 
     if label.is_empty() || path.is_empty() {
-        return err_bad_request(msg, "Label and path are required");
+        return err_bad_request("Label and path are required");
     }
 
     let mut data = super::helpers::json_map(serde_json::json!({
@@ -647,21 +664,21 @@ async fn handle_update_button(ctx: &dyn Context, msg: &mut Message, id: &str) ->
     stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, BUTTONS_COLLECTION, id, data).await {
-        return err_internal(msg, &format!("Failed to update button: {}", e.message));
+        return err_internal(&format!("Failed to update button: {}", e.message));
     }
 
     // Re-render buttons table
     let buttons = load_buttons(ctx).await;
-    ui::html_response(msg, render_buttons_table(&buttons))
+    ui::html_response(render_buttons_table(&buttons))
 }
 
-async fn handle_delete_button(ctx: &dyn Context, msg: &mut Message, id: &str) -> Result_ {
+async fn handle_delete_button(ctx: &dyn Context, id: &str) -> OutputStream {
     if let Err(e) = db::delete(ctx, BUTTONS_COLLECTION, id).await {
-        return err_internal(msg, &format!("Failed to delete button: {}", e.message));
+        return err_internal(&format!("Failed to delete button: {}", e.message));
     }
 
     let buttons = load_buttons(ctx).await;
-    ui::html_response(msg, render_buttons_table(&buttons))
+    ui::html_response(render_buttons_table(&buttons))
 }
 
 // ---------------------------------------------------------------------------
@@ -713,7 +730,7 @@ const PORTAL_SETTINGS_KEYS: &[(&str, &str, &str, &str, &str)] = &[
     ),
 ];
 
-async fn admin_settings_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn admin_settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -780,14 +797,12 @@ function submitPortalSettings(e) {
     )
 }
 
-async fn handle_save_settings(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let body: std::collections::HashMap<String, String> = match msg.decode() {
+async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body: std::collections::HashMap<String, String> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
         Err(e) => {
-            return json_respond(
-                msg,
-                &serde_json::json!({"error": format!("Invalid request: {e}")}),
-            )
+            return ok_json(&serde_json::json!({"error": format!("Invalid request: {e}")}));
         }
     };
     for &(key, _, _, _, _) in PORTAL_SETTINGS_KEYS {
@@ -795,5 +810,5 @@ async fn handle_save_settings(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             let _ = config::set(ctx, key, value).await;
         }
     }
-    json_respond(msg, &serde_json::json!({"message": "Settings saved"}))
+    ok_json(&serde_json::json!({"message": "Settings saved"}))
 }

@@ -1,15 +1,25 @@
 mod pages;
 
-use crate::blocks::helpers::{self, json_map};
-use crate::ui::SiteConfig;
-use maud::{html, Markup, PreEscaped, DOCTYPE};
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+
+use maud::{html, Markup, PreEscaped, DOCTYPE};
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
+use crate::{
+    blocks::helpers::{
+        self, err_bad_request, err_internal, err_not_found, json_map, ok_json, ResponseBuilder,
+    },
+    ui::{self, SiteConfig},
+};
 
 pub struct LegalPagesBlock;
 
@@ -32,12 +42,7 @@ fn extract_doc_id(msg: &Message) -> &str {
 }
 
 impl LegalPagesBlock {
-    async fn handle_get_public(
-        &self,
-        ctx: &dyn Context,
-        msg: &mut Message,
-        doc_type: &str,
-    ) -> Result_ {
+    async fn handle_get_public(&self, ctx: &dyn Context, doc_type: &str) -> OutputStream {
         use wafer_core::clients::config;
 
         let site = SiteConfig::load(ctx).await;
@@ -77,7 +82,7 @@ impl LegalPagesBlock {
 
         let result = match db::list(ctx, COLLECTION, &opts).await {
             Ok(r) => r,
-            Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+            Err(e) => return err_internal(&format!("Database error: {e}")),
         };
 
         let page_config = PublicPageConfig {
@@ -97,8 +102,7 @@ impl LegalPagesBlock {
                 1,
                 "<p>No document has been published yet.</p>",
             );
-            return respond(
-                msg,
+            return ResponseBuilder::new().body(
                 markup.into_string().into_bytes(),
                 "text/html; charset=utf-8",
             );
@@ -139,14 +143,13 @@ impl LegalPagesBlock {
         };
 
         let markup = public_page(&page_config, title, &meta, version, &content);
-        respond(
-            msg,
+        ResponseBuilder::new().body(
             markup.into_string().into_bytes(),
             "text/html; charset=utf-8",
         )
     }
 
-    async fn handle_admin_list(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_admin_list(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
         let (_, page_size, offset) = msg.pagination_params(20);
         let doc_type = msg.query("type");
         let mut filters = Vec::new();
@@ -167,33 +170,39 @@ impl LegalPagesBlock {
             offset: offset as i64,
         };
         match db::list(ctx, COLLECTION, &opts).await {
-            Ok(result) => json_respond(msg, &result),
-            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+            Ok(result) => ok_json(&result),
+            Err(e) => err_internal(&format!("Database error: {e}")),
         }
     }
 
-    async fn handle_admin_get(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_admin_get(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
         let id = extract_doc_id(msg);
         if id.is_empty() {
-            return err_bad_request(msg, "Missing document ID");
+            return err_bad_request("Missing document ID");
         }
         match db::get(ctx, COLLECTION, id).await {
-            Ok(record) => json_respond(msg, &record),
-            Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Document not found"),
-            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+            Ok(record) => ok_json(&record),
+            Err(e) if e.code == ErrorCode::NotFound => err_not_found("Document not found"),
+            Err(e) => err_internal(&format!("Database error: {e}")),
         }
     }
 
-    async fn handle_admin_create(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_admin_create(
+        &self,
+        ctx: &dyn Context,
+        msg: &Message,
+        input: InputStream,
+    ) -> OutputStream {
         #[derive(serde::Deserialize)]
         struct CreateDoc {
             doc_type: String,
             title: String,
             content: String,
         }
-        let body: CreateDoc = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: CreateDoc = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         let mut data = json_map(serde_json::json!({
@@ -207,45 +216,49 @@ impl LegalPagesBlock {
         helpers::stamp_created(&mut data);
 
         match db::create(ctx, COLLECTION, data).await {
-            Ok(record) => json_respond(msg, &record),
-            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+            Ok(record) => ok_json(&record),
+            Err(e) => err_internal(&format!("Database error: {e}")),
         }
     }
 
-    async fn handle_admin_update(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_admin_update(
+        &self,
+        ctx: &dyn Context,
+        msg: &Message,
+        input: InputStream,
+    ) -> OutputStream {
         let id = extract_doc_id(msg);
         if id.is_empty() {
-            return err_bad_request(msg, "Missing document ID");
+            return err_bad_request("Missing document ID");
         }
 
-        let body: HashMap<String, serde_json::Value> = match msg.decode() {
+        let raw = input.collect_to_bytes().await;
+        let body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
             Ok(b) => b,
-            Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
         };
 
         let mut data = body;
         helpers::stamp_updated(&mut data);
 
         match db::update(ctx, COLLECTION, id, data).await {
-            Ok(record) => json_respond(msg, &record),
-            Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Document not found"),
-            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+            Ok(record) => ok_json(&record),
+            Err(e) if e.code == ErrorCode::NotFound => err_not_found("Document not found"),
+            Err(e) => err_internal(&format!("Database error: {e}")),
         }
     }
 
-    async fn handle_admin_publish(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_admin_publish(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
         let id = extract_doc_id(msg);
         if id.is_empty() {
-            return err_bad_request(msg, "Missing document ID");
+            return err_bad_request("Missing document ID");
         }
 
         // Get current document
         let doc = match db::get(ctx, COLLECTION, id).await {
             Ok(r) => r,
-            Err(e) if e.code == ErrorCode::NotFound => {
-                return err_not_found(msg, "Document not found")
-            }
-            Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+            Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Document not found"),
+            Err(e) => return err_internal(&format!("Database error: {e}")),
         };
 
         let doc_type = doc
@@ -291,20 +304,20 @@ impl LegalPagesBlock {
         }));
 
         match db::update(ctx, COLLECTION, id, data).await {
-            Ok(record) => json_respond(msg, &record),
-            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+            Ok(record) => ok_json(&record),
+            Err(e) => err_internal(&format!("Database error: {e}")),
         }
     }
 
-    async fn handle_admin_delete(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle_admin_delete(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
         let id = extract_doc_id(msg);
         if id.is_empty() {
-            return err_bad_request(msg, "Missing document ID");
+            return err_bad_request("Missing document ID");
         }
         match db::delete(ctx, COLLECTION, id).await {
-            Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
-            Err(e) if e.code == ErrorCode::NotFound => err_not_found(msg, "Document not found"),
-            Err(e) => err_internal(msg, &format!("Database error: {e}")),
+            Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
+            Err(e) if e.code == ErrorCode::NotFound => err_not_found("Document not found"),
+            Err(e) => err_internal(&format!("Database error: {e}")),
         }
     }
 
@@ -497,8 +510,7 @@ fn sanitize_html(input: &str) -> String {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for LegalPagesBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/legalpages", "0.0.1", "http-handler@v1", "Legal pages management with versioning and publishing")
             .instance_mode(InstanceMode::Singleton)
@@ -540,53 +552,55 @@ impl Block for LegalPagesBlock {
             .default_enabled(false)
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
-        let action = msg.action();
-        let path = msg.path();
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
+        let action = msg.action().to_string();
+        let path = msg.path().to_string();
 
-        match (action, path) {
+        match (action.as_str(), path.as_str()) {
             // Public endpoints
-            ("retrieve", "/b/legalpages/terms") => self.handle_get_public(ctx, msg, "terms").await,
-            ("retrieve", "/b/legalpages/privacy") => {
-                self.handle_get_public(ctx, msg, "privacy").await
-            }
+            ("retrieve", "/b/legalpages/terms") => self.handle_get_public(ctx, "terms").await,
+            ("retrieve", "/b/legalpages/privacy") => self.handle_get_public(ctx, "privacy").await,
 
             // Admin UI pages (SSR)
             ("retrieve", "/b/legalpages/admin") | ("retrieve", "/b/legalpages/admin/privacy") => {
-                pages::editor_page(ctx, msg, "privacy").await
+                pages::editor_page(ctx, &msg, "privacy").await
             }
             ("retrieve", "/b/legalpages/admin/terms") => {
-                pages::editor_page(ctx, msg, "terms").await
+                pages::editor_page(ctx, &msg, "terms").await
             }
-            ("retrieve", "/b/legalpages/admin/settings") => pages::settings_page(ctx, msg).await,
-            ("retrieve", "/b/legalpages/admin/endpoints") => pages::endpoints_page(ctx, msg).await,
+            ("retrieve", "/b/legalpages/admin/settings") => pages::settings_page(ctx, &msg).await,
+            ("retrieve", "/b/legalpages/admin/endpoints") => pages::endpoints_page(ctx, &msg).await,
 
             // Admin UI mutations (from editor save/publish)
-            ("create", "/b/legalpages/admin/save") => pages::handle_save(ctx, msg).await,
-            ("create", "/b/legalpages/admin/publish") => pages::handle_publish(ctx, msg).await,
+            ("create", "/b/legalpages/admin/save") => pages::handle_save(ctx, &msg, input).await,
+            ("create", "/b/legalpages/admin/publish") => {
+                pages::handle_publish(ctx, &msg, input).await
+            }
             ("create", "/b/legalpages/admin/settings") => {
-                pages::handle_save_settings(ctx, msg).await
+                pages::handle_save_settings(ctx, input).await
             }
 
             // JSON API at /b/legalpages/api/documents/...
-            ("retrieve", "/b/legalpages/api/documents") => self.handle_admin_list(ctx, msg).await,
+            ("retrieve", "/b/legalpages/api/documents") => self.handle_admin_list(ctx, &msg).await,
             ("retrieve", _) if path.starts_with("/b/legalpages/api/documents/") => {
-                self.handle_admin_get(ctx, msg).await
+                self.handle_admin_get(ctx, &msg).await
             }
-            ("create", "/b/legalpages/api/documents") => self.handle_admin_create(ctx, msg).await,
+            ("create", "/b/legalpages/api/documents") => {
+                self.handle_admin_create(ctx, &msg, input).await
+            }
             ("update", _)
                 if path.starts_with("/b/legalpages/api/documents/")
                     && path.ends_with("/publish") =>
             {
-                self.handle_admin_publish(ctx, msg).await
+                self.handle_admin_publish(ctx, &msg).await
             }
             ("update", _) if path.starts_with("/b/legalpages/api/documents/") => {
-                self.handle_admin_update(ctx, msg).await
+                self.handle_admin_update(ctx, &msg, input).await
             }
             ("delete", _) if path.starts_with("/b/legalpages/api/documents/") => {
-                self.handle_admin_delete(ctx, msg).await
+                self.handle_admin_delete(ctx, &msg).await
             }
-            _ => err_not_found(msg, "not found"),
+            _ => ui::not_found_response(&msg),
         }
     }
 

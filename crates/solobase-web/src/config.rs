@@ -63,10 +63,7 @@ pub fn seed_and_load_variables() -> HashMap<String, String> {
 
     let mut vars = HashMap::new();
     for row in rows {
-        let key = row
-            .get("key")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default();
+        let key = row.get("key").and_then(|v| v.as_str()).unwrap_or_default();
         let value = row
             .get("value")
             .and_then(|v| v.as_str())
@@ -95,7 +92,12 @@ fn seed_auto_generated() {
 
         // Generate a random 32-byte hex secret
         let mut bytes = [0u8; 32];
-        getrandom::getrandom(&mut bytes).expect("getrandom failed");
+        if let Err(e) = getrandom::getrandom(&mut bytes) {
+            web_sys::console::warn_1(
+                &format!("solobase: getrandom failed for {}: {e}", var.key).into(),
+            );
+            continue;
+        }
         let secret: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
 
         let id = format!("var_{}", uuid::Uuid::new_v4());
@@ -173,11 +175,7 @@ pub fn load_block_settings() -> solobase_core::features::BlockSettings {
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string();
-        let enabled = row
-            .get("enabled")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(1)
-            != 0;
+        let enabled = row.get("enabled").and_then(|v| v.as_i64()).unwrap_or(1) != 0;
         if !name.is_empty() {
             map.insert(name, enabled);
         }

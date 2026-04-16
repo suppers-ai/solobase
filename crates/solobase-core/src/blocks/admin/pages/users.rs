@@ -1,17 +1,21 @@
-use crate::blocks::helpers::{parse_form_body, RecordExt};
-use crate::ui::{self, components, icons, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::admin_page;
-use crate::blocks::admin::{
-    ROLES_COLLECTION, USER_ROLES_COLLECTION,
+use crate::{
+    blocks::{
+        admin::{ROLES_COLLECTION, USER_ROLES_COLLECTION},
+        auth::{API_KEYS_COLLECTION as API_KEYS, USERS_COLLECTION as USERS},
+        helpers::{
+            self, err_bad_request, err_forbidden, err_internal, parse_form_body, RecordExt,
+            ResponseBuilder,
+        },
+    },
+    ui::{self, components, icons, SiteConfig, UserInfo},
 };
-use crate::blocks::auth::{API_KEYS_COLLECTION as API_KEYS, USERS_COLLECTION as USERS};
 
-pub async fn users_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let tab = msg.query("tab");
@@ -69,7 +73,7 @@ pub async fn users_page(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 }
 
 /// Users tab content (table + search + pagination).
-async fn users_tab(ctx: &dyn Context, msg: &mut Message, current_user_id: &str) -> Markup {
+async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> Markup {
     let (page, page_size, _) = msg.pagination_params(20);
     let search = msg.query("search").to_string();
 
@@ -105,15 +109,7 @@ async fn users_tab(ctx: &dyn Context, msg: &mut Message, current_user_id: &str) 
             field: "created_at".into(),
             desc: true,
         }];
-        db::paginated_list(
-            ctx,
-            USERS,
-            page as i64,
-            page_size as i64,
-            filters,
-            sort,
-        )
-        .await
+        db::paginated_list(ctx, USERS, page as i64, page_size as i64, filters, sort).await
     };
 
     html! {
@@ -320,17 +316,17 @@ async fn user_row_fragment(ctx: &dyn Context, user_id: &str) -> Markup {
 }
 
 /// POST /b/admin/users/{id}/disable
-pub async fn handle_user_disable(ctx: &dyn Context, msg: &mut Message, user_id: &str) -> Result_ {
+pub async fn handle_user_disable(ctx: &dyn Context, msg: &Message, user_id: &str) -> OutputStream {
     let admin_id = msg.user_id().to_string();
     if admin_id == user_id {
-        return wafer_run::helpers::err_bad_request(msg, "Cannot disable your own account");
+        return err_bad_request("Cannot disable your own account");
     }
     let ip = msg.remote_addr().to_string();
     let mut data = std::collections::HashMap::new();
     data.insert("disabled".to_string(), serde_json::json!(true));
-    crate::blocks::helpers::stamp_updated(&mut data);
+    helpers::stamp_updated(&mut data);
     if let Err(e) = db::update(ctx, USERS, user_id, data).await {
-        return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
+        return err_internal(&format!("Failed: {}", e.message));
     }
     super::super::logs::audit_log(
         ctx,
@@ -341,18 +337,18 @@ pub async fn handle_user_disable(ctx: &dyn Context, msg: &mut Message, user_id: 
     )
     .await;
     let row = user_row_fragment(ctx, user_id).await;
-    ui::html_response_with_toast(msg, row, "User disabled", "success")
+    ui::html_response_with_toast(row, "User disabled", "success")
 }
 
 /// POST /b/admin/users/{id}/enable
-pub async fn handle_user_enable(ctx: &dyn Context, msg: &mut Message, user_id: &str) -> Result_ {
+pub async fn handle_user_enable(ctx: &dyn Context, msg: &Message, user_id: &str) -> OutputStream {
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
     let mut data = std::collections::HashMap::new();
     data.insert("disabled".to_string(), serde_json::json!(false));
-    crate::blocks::helpers::stamp_updated(&mut data);
+    helpers::stamp_updated(&mut data);
     if let Err(e) = db::update(ctx, USERS, user_id, data).await {
-        return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
+        return err_internal(&format!("Failed: {}", e.message));
     }
     super::super::logs::audit_log(
         ctx,
@@ -363,18 +359,18 @@ pub async fn handle_user_enable(ctx: &dyn Context, msg: &mut Message, user_id: &
     )
     .await;
     let row = user_row_fragment(ctx, user_id).await;
-    ui::html_response_with_toast(msg, row, "User enabled", "success")
+    ui::html_response_with_toast(row, "User enabled", "success")
 }
 
 /// DELETE /b/admin/users/{id}
-pub async fn handle_user_delete(ctx: &dyn Context, msg: &mut Message, user_id: &str) -> Result_ {
+pub async fn handle_user_delete(ctx: &dyn Context, msg: &Message, user_id: &str) -> OutputStream {
     let admin_id = msg.user_id().to_string();
     if admin_id == user_id {
-        return wafer_run::helpers::err_bad_request(msg, "Cannot delete your own account");
+        return err_bad_request("Cannot delete your own account");
     }
     let ip = msg.remote_addr().to_string();
     if let Err(e) = db::soft_delete(ctx, USERS, user_id).await {
-        return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
+        return err_internal(&format!("Failed: {}", e.message));
     }
     super::super::logs::audit_log(
         ctx,
@@ -384,14 +380,19 @@ pub async fn handle_user_delete(ctx: &dyn Context, msg: &mut Message, user_id: &
         &ip,
     )
     .await;
-    ui::html_response_with_toast(msg, html! {}, "User deleted", "success")
+    ui::html_response_with_toast(html! {}, "User deleted", "success")
 }
 
 /// POST /b/admin/iam/roles (create role from modal form)
-pub async fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_create_role(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
-    let body = parse_form_body(&msg.data);
+    let bytes = input.collect_to_bytes().await;
+    let body = parse_form_body(&bytes);
 
     let name = body
         .get("name")
@@ -399,7 +400,7 @@ pub async fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_
         .unwrap_or("")
         .to_string();
     if name.is_empty() {
-        return wafer_run::helpers::err_bad_request(msg, "Role name is required");
+        return err_bad_request("Role name is required");
     }
 
     let mut data = std::collections::HashMap::new();
@@ -407,17 +408,18 @@ pub async fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_
     if let Some(desc) = body.get("description") {
         data.insert("description".to_string(), serde_json::json!(desc));
     }
-    crate::blocks::helpers::stamp_created(&mut data);
+    helpers::stamp_created(&mut data);
 
     if let Err(e) = db::create(ctx, ROLES_COLLECTION, data).await {
-        return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
+        return err_internal(&format!("Failed: {}", e.message));
     }
-    super::super::logs::audit_log(ctx, &admin_id, "role.create", &format!("roles/{name}"), &ip).await;
+    super::super::logs::audit_log(ctx, &admin_id, "role.create", &format!("roles/{name}"), &ip)
+        .await;
 
     // Return the updated roles tab + close modal + toast
     let content = roles_tab(ctx).await;
     let trigger = r#"{"showToast":{"message":"Role created","type":"success"},"closeModal":{"id":"create-role"}}"#;
-    wafer_run::helpers::ResponseBuilder::new(msg)
+    ResponseBuilder::new()
         .set_header("HX-Trigger", trigger)
         .body(
             content.into_string().into_bytes(),
@@ -425,18 +427,18 @@ pub async fn handle_create_role(ctx: &dyn Context, msg: &mut Message) -> Result_
         )
 }
 
-pub async fn handle_delete_role(ctx: &dyn Context, msg: &mut Message, role_id: &str) -> Result_ {
+pub async fn handle_delete_role(ctx: &dyn Context, msg: &Message, role_id: &str) -> OutputStream {
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
     // Check if system role
     if let Ok(record) = db::get(ctx, ROLES_COLLECTION, role_id).await {
         if record.bool_field("is_system") {
-            return wafer_run::helpers::err_forbidden(msg, "Cannot delete system role");
+            return err_forbidden("Cannot delete system role");
         }
     }
 
     if let Err(e) = db::delete(ctx, ROLES_COLLECTION, role_id).await {
-        return wafer_run::helpers::err_internal(msg, &format!("Failed: {}", e.message));
+        return err_internal(&format!("Failed: {}", e.message));
     }
     super::super::logs::audit_log(
         ctx,
@@ -448,7 +450,7 @@ pub async fn handle_delete_role(ctx: &dyn Context, msg: &mut Message, role_id: &
     .await;
 
     let content = roles_tab(ctx).await;
-    ui::html_response_with_toast(msg, content, "Role deleted", "success")
+    ui::html_response_with_toast(content, "Role deleted", "success")
 }
 
 async fn roles_tab(ctx: &dyn Context) -> Markup {

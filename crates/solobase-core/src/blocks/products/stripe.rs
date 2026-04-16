@@ -1,20 +1,22 @@
-use super::{PURCHASES_COLLECTION, SUBSCRIPTIONS};
-use crate::blocks::helpers::hex_encode;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
 use std::collections::HashMap;
-use wafer_core::clients::{config, database as db, network};
-use wafer_core::interfaces::database::service::{Filter, FilterOp, ListOptions};
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
-use wafer_sql_utils::value::sea_values_to_json;
-use wafer_sql_utils::Backend;
 
-pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+use wafer_core::{
+    clients::{config, database as db, network},
+    interfaces::database::service::{Filter, FilterOp, ListOptions},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_sql_utils::{value::sea_values_to_json, Backend};
+
+use super::{PURCHASES_COLLECTION, SUBSCRIPTIONS};
+use crate::blocks::helpers::{
+    err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, hex_encode,
+    ok_json,
+};
+
+pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let stripe_key = match config::get(ctx, "SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY").await {
         Ok(k) => k,
-        Err(_) => return err_internal(msg, "Stripe is not configured"),
+        Err(_) => return err_internal("Stripe is not configured"),
     };
 
     #[derive(serde::Deserialize)]
@@ -23,15 +25,16 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         success_url: Option<String>,
         cancel_url: Option<String>,
     }
-    let body: CheckoutReq = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: CheckoutReq = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     // Get purchase and verify ownership
     let purchase = match db::get(ctx, PURCHASES_COLLECTION, &body.purchase_id).await {
         Ok(p) => p,
-        Err(_) => return err_not_found(msg, "Purchase not found"),
+        Err(_) => return err_not_found("Purchase not found"),
     };
     let purchase_user = purchase
         .data
@@ -39,7 +42,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if purchase_user != msg.user_id() {
-        return err_forbidden(msg, "Cannot checkout another user's purchase");
+        return err_forbidden("Cannot checkout another user's purchase");
     }
 
     let total_cents = purchase
@@ -48,7 +51,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
     if total_cents <= 0 {
-        return err_bad_request(msg, "Purchase total must be positive");
+        return err_bad_request("Purchase total must be positive");
     }
 
     // Check product dependency (requires field)
@@ -64,17 +67,24 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     if let Ok(items) = &line_items {
         for item in items {
-            let product_id = item.data.get("product_id").and_then(|v| v.as_str()).unwrap_or("");
+            let product_id = item
+                .data
+                .get("product_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if product_id.is_empty() {
                 continue;
             }
             if let Ok(product) = db::get(ctx, super::PRODUCTS_COLLECTION, product_id).await {
-                let requires = product.data.get("requires").and_then(|v| v.as_str()).unwrap_or("");
+                let requires = product
+                    .data
+                    .get("requires")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if !requires.is_empty() {
                     let has_required = user_owns_product(ctx, purchase_user, requires).await;
                     if !has_required {
                         return err_bad_request(
-                            msg,
                             "You must own the required product before purchasing this item.",
                         );
                     }
@@ -88,21 +98,29 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         PURCHASES_COLLECTION,
         &[
             ("status".to_string(), serde_json::json!("checkout_started")),
-            ("updated_at".to_string(), serde_json::json!(chrono::Utc::now().to_rfc3339())),
+            (
+                "updated_at".to_string(),
+                serde_json::json!(chrono::Utc::now().to_rfc3339()),
+            ),
         ],
         &[
-            Filter { field: "id".into(), operator: FilterOp::Equal, value: serde_json::json!(body.purchase_id) },
-            Filter { field: "status".into(), operator: FilterOp::Equal, value: serde_json::json!("pending") },
+            Filter {
+                field: "id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(body.purchase_id),
+            },
+            Filter {
+                field: "status".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!("pending"),
+            },
         ],
         Backend::Sqlite,
     );
     let args = sea_values_to_json(vals);
     let rows = db::exec_raw(ctx, &sql, &args).await.unwrap_or(0);
     if rows == 0 {
-        return err_bad_request(
-            msg,
-            "Purchase is not in pending state or is already being processed",
-        );
+        return err_bad_request("Purchase is not in pending state or is already being processed");
     }
 
     let currency = purchase
@@ -167,7 +185,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     .await
     {
         Ok(r) => r,
-        Err(e) => return err_internal(msg, &format!("Stripe API error: {e}")),
+        Err(e) => return err_internal(&format!("Stripe API error: {e}")),
     };
 
     if resp.status_code >= 400 {
@@ -176,26 +194,37 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             PURCHASES_COLLECTION,
             &[
                 ("status".to_string(), serde_json::json!("pending")),
-                ("updated_at".to_string(), serde_json::json!(chrono::Utc::now().to_rfc3339())),
+                (
+                    "updated_at".to_string(),
+                    serde_json::json!(chrono::Utc::now().to_rfc3339()),
+                ),
             ],
             &[
-                Filter { field: "id".into(), operator: FilterOp::Equal, value: serde_json::json!(body.purchase_id) },
-                Filter { field: "status".into(), operator: FilterOp::Equal, value: serde_json::json!("checkout_started") },
+                Filter {
+                    field: "id".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(body.purchase_id),
+                },
+                Filter {
+                    field: "status".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!("checkout_started"),
+                },
             ],
             Backend::Sqlite,
         );
         let revert_args = sea_values_to_json(revert_vals);
         let _ = db::exec_raw(ctx, &revert_sql, &revert_args).await;
         let err_body = String::from_utf8_lossy(&resp.body);
-        return err_internal(
-            msg,
-            &format!("Stripe error ({}): {}", resp.status_code, err_body),
-        );
+        return err_internal(&format!(
+            "Stripe error ({}): {}",
+            resp.status_code, err_body
+        ));
     }
 
     let session: serde_json::Value = match serde_json::from_slice(&resp.body) {
         Ok(d) => d,
-        Err(_) => return err_internal(msg, "Failed to parse Stripe response"),
+        Err(_) => return err_internal("Failed to parse Stripe response"),
     };
 
     let session_id = session.get("id").and_then(|v| v.as_str()).unwrap_or("");
@@ -219,37 +248,34 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         tracing::warn!("Failed to update purchase with Stripe session ID: {e}");
     }
 
-    json_respond(
-        msg,
-        &serde_json::json!({
-            "session_id": session_id,
-            "checkout_url": checkout_url
-        }),
-    )
+    ok_json(&serde_json::json!({
+        "session_id": session_id,
+        "checkout_url": checkout_url
+    }))
 }
 
-pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     // Verify Stripe webhook signature - REQUIRED
     let webhook_secret =
         config::get_default(ctx, "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET", "").await;
     if webhook_secret.is_empty() {
         return err_internal(
-            msg,
             "STRIPE_WEBHOOK_SECRET not configured — webhook processing disabled for security",
         );
     }
-    let sig_header = msg.header("stripe-signature");
+    let sig_header = msg.header("stripe-signature").to_string();
     if sig_header.is_empty() {
-        return err_unauthorized(msg, "Missing Stripe-Signature header");
+        return err_unauthorized("Missing Stripe-Signature header");
     }
-    if !verify_stripe_signature(&msg.data, sig_header, &webhook_secret) {
-        return err_unauthorized(msg, "Invalid webhook signature");
+    let raw_body = input.collect_to_bytes().await;
+    if !verify_stripe_signature(&raw_body, &sig_header, &webhook_secret) {
+        return err_unauthorized("Invalid webhook signature");
     }
 
     // Parse webhook event
-    let event: serde_json::Value = match msg.decode() {
+    let event: serde_json::Value = match serde_json::from_slice(&raw_body) {
         Ok(e) => e,
-        Err(e) => return err_bad_request(msg, &format!("Invalid webhook body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid webhook body: {e}")),
     };
 
     let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -281,13 +307,24 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     PURCHASES_COLLECTION,
                     &[
                         ("status".to_string(), serde_json::json!("completed")),
-                        ("provider_payment_intent_id".to_string(), serde_json::json!(payment_intent)),
+                        (
+                            "provider_payment_intent_id".to_string(),
+                            serde_json::json!(payment_intent),
+                        ),
                         ("approved_at".to_string(), serde_json::json!(&now)),
                         ("updated_at".to_string(), serde_json::json!(&now)),
                     ],
                     &[
-                        Filter { field: "id".into(), operator: FilterOp::Equal, value: serde_json::json!(purchase_id) },
-                        Filter { field: "status".into(), operator: FilterOp::In, value: serde_json::json!(["checkout_started", "pending"]) },
+                        Filter {
+                            field: "id".into(),
+                            operator: FilterOp::Equal,
+                            value: serde_json::json!(purchase_id),
+                        },
+                        Filter {
+                            field: "status".into(),
+                            operator: FilterOp::In,
+                            value: serde_json::json!(["checkout_started", "pending"]),
+                        },
                     ],
                     Backend::Sqlite,
                 );
@@ -328,15 +365,27 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     &[
                         ("id".to_string(), serde_json::json!(sub_id)),
                         ("user_id".to_string(), serde_json::json!(user_id)),
-                        ("stripe_customer_id".to_string(), serde_json::json!(stripe_customer_id)),
-                        ("stripe_subscription_id".to_string(), serde_json::json!(stripe_sub_id)),
+                        (
+                            "stripe_customer_id".to_string(),
+                            serde_json::json!(stripe_customer_id),
+                        ),
+                        (
+                            "stripe_subscription_id".to_string(),
+                            serde_json::json!(stripe_sub_id),
+                        ),
                         ("plan".to_string(), serde_json::json!(plan)),
                         ("status".to_string(), serde_json::json!("active")),
                         ("created_at".to_string(), serde_json::json!(&now)),
                         ("updated_at".to_string(), serde_json::json!(&now)),
                     ],
                     &["user_id"],
-                    &["stripe_customer_id", "stripe_subscription_id", "plan", "status", "updated_at"],
+                    &[
+                        "stripe_customer_id",
+                        "stripe_subscription_id",
+                        "plan",
+                        "status",
+                        "updated_at",
+                    ],
                     Backend::Sqlite,
                 );
                 let args = sea_values_to_json(vals);
@@ -366,9 +415,11 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             let now = chrono::Utc::now().to_rfc3339();
 
             {
-                let sub_filter = vec![
-                    Filter { field: "stripe_subscription_id".into(), operator: FilterOp::Equal, value: serde_json::json!(stripe_sub_id) },
-                ];
+                let sub_filter = vec![Filter {
+                    field: "stripe_subscription_id".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(stripe_sub_id),
+                }];
                 let mut data: Vec<(String, serde_json::Value)> = vec![
                     ("status".to_string(), serde_json::json!(status)),
                     ("updated_at".to_string(), serde_json::json!(&now)),
@@ -422,12 +473,17 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     SUBSCRIPTIONS,
                     &[
                         ("status".to_string(), serde_json::json!("past_due")),
-                        ("grace_period_end".to_string(), serde_json::json!(&grace_end)),
+                        (
+                            "grace_period_end".to_string(),
+                            serde_json::json!(&grace_end),
+                        ),
                         ("updated_at".to_string(), serde_json::json!(&now)),
                     ],
-                    &[
-                        Filter { field: "stripe_subscription_id".into(), operator: FilterOp::Equal, value: serde_json::json!(stripe_sub_id) },
-                    ],
+                    &[Filter {
+                        field: "stripe_subscription_id".into(),
+                        operator: FilterOp::Equal,
+                        value: serde_json::json!(stripe_sub_id),
+                    }],
                     Backend::Sqlite,
                 );
                 let args = sea_values_to_json(vals);
@@ -452,9 +508,11 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     ("addon_d1_bytes".to_string(), serde_json::json!(0)),
                     ("updated_at".to_string(), serde_json::json!(&now)),
                 ],
-                &[
-                    Filter { field: "stripe_subscription_id".into(), operator: FilterOp::Equal, value: serde_json::json!(stripe_sub_id) },
-                ],
+                &[Filter {
+                    field: "stripe_subscription_id".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(stripe_sub_id),
+                }],
                 Backend::Sqlite,
             );
             let args = sea_values_to_json(vals);
@@ -504,7 +562,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
                     if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &purchase.id, data).await
                     {
                         tracing::error!("Failed to mark purchase as refunded: {e}");
-                        return err_internal(msg, &format!("Failed to update purchase: {e}"));
+                        return err_internal(&format!("Failed to update purchase: {e}"));
                     }
                 }
             }
@@ -515,14 +573,16 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
     }
 
-    json_respond(msg, &serde_json::json!({"received": true}))
+    ok_json(&serde_json::json!({"received": true}))
 }
 
 async fn get_user_for_stripe_sub(ctx: &dyn Context, stripe_sub_id: &str) -> Option<String> {
     let opts = ListOptions {
-        filters: vec![
-            Filter { field: "stripe_subscription_id".into(), operator: FilterOp::Equal, value: serde_json::json!(stripe_sub_id) },
-        ],
+        filters: vec![Filter {
+            field: "stripe_subscription_id".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::json!(stripe_sub_id),
+        }],
         limit: 1,
         ..Default::default()
     };
@@ -561,7 +621,7 @@ async fn fire_products_webhook(ctx: &dyn Context, event: &str, data: &serde_json
 
     // Sign with HMAC-SHA256 (same pattern as Stripe webhook verification)
     let signature = if !secret.is_empty() {
-        let sig = hmac_sha256(secret.as_bytes(), &payload);
+        let sig = hmac_sha256_local(secret.as_bytes(), &payload);
         format!("sha256={}", hex_encode(&sig))
     } else {
         String::new()
@@ -606,8 +666,6 @@ pub(super) fn urlencoding(s: &str) -> String {
 /// Verify Stripe webhook signature using HMAC-SHA256.
 /// Stripe sends `t=timestamp,v1=signature` in the Stripe-Signature header.
 fn verify_stripe_signature(payload: &[u8], sig_header: &str, secret: &str) -> bool {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     let mut timestamp = "";
     let mut expected_sig = "";
 
@@ -626,10 +684,7 @@ fn verify_stripe_signature(payload: &[u8], sig_header: &str, secret: &str) -> bo
 
     // Reject events with timestamps older than 5 minutes (replay protection)
     if let Ok(ts) = timestamp.parse::<u64>() {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = chrono::Utc::now().timestamp() as u64;
         if now.abs_diff(ts) > 300 {
             return false;
         }
@@ -643,29 +698,15 @@ fn verify_stripe_signature(payload: &[u8], sig_header: &str, secret: &str) -> bo
     // Use ring or hmac crate if available; fallback to manual HMAC-SHA256
     // For now, use the crypto service pattern — but since we don't have it here,
     // implement a constant-time comparison with the sha2/hmac approach
-    let computed = hmac_sha256(secret.as_bytes(), signed_payload.as_bytes());
+    let computed = hmac_sha256_local(secret.as_bytes(), signed_payload.as_bytes());
     let computed_hex = hex_encode(&computed);
 
     // Constant-time comparison
-    constant_time_eq(computed_hex.as_bytes(), expected_sig.as_bytes())
+    crate::crypto::constant_time_eq(computed_hex.as_bytes(), expected_sig.as_bytes())
 }
 
-fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
-    type HmacSha256 = Hmac<Sha256>;
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC key");
-    mac.update(data);
-    mac.finalize().into_bytes().into()
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut result = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        result |= x ^ y;
-    }
-    result == 0
+fn hmac_sha256_local(key: &[u8], data: &[u8]) -> Vec<u8> {
+    crate::crypto::hmac_sha256(data, key).unwrap_or_default()
 }
 
 /// Check if a user owns a product — either via an active subscription that
@@ -721,7 +762,8 @@ async fn sync_addon_totals_from_items(ctx: &dyn Context, user_id: &str, items: &
 
     if let Some(data) = items.get("data").and_then(|v| v.as_array()) {
         for item in data {
-            let meta = item.get("metadata")
+            let meta = item
+                .get("metadata")
                 .or_else(|| item.pointer("/price/metadata"));
             let meta = match meta {
                 Some(m) => m,
@@ -736,7 +778,11 @@ async fn sync_addon_totals_from_items(ctx: &dyn Context, user_id: &str, items: &
             let qty = item.get("quantity").and_then(|v| v.as_i64()).unwrap_or(1);
             let parse = |key: &str| -> i64 {
                 meta.get(key)
-                    .and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or_else(|| v.as_i64()))
+                    .and_then(|v| {
+                        v.as_str()
+                            .and_then(|s| s.parse().ok())
+                            .or_else(|| v.as_i64())
+                    })
                     .unwrap_or(0)
             };
             total_projects += parse("extra_projects") * qty;
@@ -775,57 +821,52 @@ mod tests {
 
     #[test]
     fn test_constant_time_eq_equal() {
-        assert!(constant_time_eq(b"hello", b"hello"));
-        assert!(constant_time_eq(b"", b""));
+        assert!(crate::crypto::constant_time_eq(b"hello", b"hello"));
+        assert!(crate::crypto::constant_time_eq(b"", b""));
     }
 
     #[test]
     fn test_constant_time_eq_not_equal() {
-        assert!(!constant_time_eq(b"hello", b"world"));
-        assert!(!constant_time_eq(b"hello", b"hell"));
-        assert!(!constant_time_eq(b"a", b"b"));
+        assert!(!crate::crypto::constant_time_eq(b"hello", b"world"));
+        assert!(!crate::crypto::constant_time_eq(b"hello", b"hell"));
+        assert!(!crate::crypto::constant_time_eq(b"a", b"b"));
     }
 
     #[test]
     fn test_constant_time_eq_different_lengths() {
-        assert!(!constant_time_eq(b"short", b"longer"));
-        assert!(!constant_time_eq(b"", b"x"));
+        assert!(!crate::crypto::constant_time_eq(b"short", b"longer"));
+        assert!(!crate::crypto::constant_time_eq(b"", b"x"));
     }
 
     #[test]
     fn test_hmac_sha256_deterministic() {
-        let hash1 = hmac_sha256(b"secret", b"payload");
-        let hash2 = hmac_sha256(b"secret", b"payload");
+        let hash1 = hmac_sha256_local(b"secret", b"payload");
+        let hash2 = hmac_sha256_local(b"secret", b"payload");
         assert_eq!(hash1, hash2);
     }
 
     #[test]
     fn test_hmac_sha256_different_keys() {
-        let hash1 = hmac_sha256(b"key1", b"data");
-        let hash2 = hmac_sha256(b"key2", b"data");
+        let hash1 = hmac_sha256_local(b"key1", b"data");
+        let hash2 = hmac_sha256_local(b"key2", b"data");
         assert_ne!(hash1, hash2);
     }
 
     #[test]
     fn test_hmac_sha256_different_data() {
-        let hash1 = hmac_sha256(b"key", b"data1");
-        let hash2 = hmac_sha256(b"key", b"data2");
+        let hash1 = hmac_sha256_local(b"key", b"data1");
+        let hash2 = hmac_sha256_local(b"key", b"data2");
         assert_ne!(hash1, hash2);
     }
 
     #[test]
     fn test_verify_stripe_signature_valid() {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
         let secret = "whsec_test_secret";
         let payload = b"{\"type\":\"checkout.session.completed\"}";
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = chrono::Utc::now().timestamp() as u64;
 
         let signed_payload = format!("{}.{}", timestamp, String::from_utf8_lossy(payload));
-        let computed = hmac_sha256(secret.as_bytes(), signed_payload.as_bytes());
+        let computed = hmac_sha256_local(secret.as_bytes(), signed_payload.as_bytes());
         let computed_hex = hex_encode(&computed);
 
         let sig_header = format!("t={},v1={}", timestamp, computed_hex);
@@ -835,12 +876,7 @@ mod tests {
 
     #[test]
     fn test_verify_stripe_signature_invalid_sig() {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = chrono::Utc::now().timestamp() as u64;
 
         let sig_header = format!(
             "t={},v1=0000000000000000000000000000000000000000000000000000000000000000",
@@ -857,7 +893,7 @@ mod tests {
         let old_timestamp = 1000000; // way in the past
 
         let signed_payload = format!("{}.{}", old_timestamp, String::from_utf8_lossy(payload));
-        let computed = hmac_sha256(secret.as_bytes(), signed_payload.as_bytes());
+        let computed = hmac_sha256_local(secret.as_bytes(), signed_payload.as_bytes());
         let computed_hex = hex_encode(&computed);
 
         let sig_header = format!("t={},v1={}", old_timestamp, computed_hex);

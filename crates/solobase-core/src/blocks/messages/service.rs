@@ -3,11 +3,13 @@
 //! Plain async functions — no HTTP awareness. Both REST and A2A handlers
 //! call these. All database interactions live here.
 
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{context::Context, WaferError};
+
 use crate::blocks::helpers::{self, json_map};
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::WaferError;
 
 pub const CONTEXTS_COLLECTION: &str = "suppers_ai__messages__contexts";
 pub const ENTRIES_COLLECTION: &str = "suppers_ai__messages__entries";
@@ -25,8 +27,7 @@ pub async fn create_context(
     parent_id: Option<&str>,
     metadata: Option<serde_json::Value>,
 ) -> Result<db::Record, String> {
-    let metadata = metadata
-        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+    let metadata = metadata.unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
 
     let mut data = json_map(serde_json::json!({
         "type": context_type,
@@ -48,10 +49,7 @@ pub async fn create_context(
         .map_err(|e| format!("Database error: {e}"))
 }
 
-pub async fn get_context(
-    ctx: &dyn Context,
-    id: &str,
-) -> Result<db::Record, WaferError> {
+pub async fn get_context(ctx: &dyn Context, id: &str) -> Result<db::Record, WaferError> {
     db::get(ctx, CONTEXTS_COLLECTION, id).await
 }
 
@@ -131,10 +129,7 @@ pub async fn update_context(
     db::update(ctx, CONTEXTS_COLLECTION, id, data).await
 }
 
-pub async fn delete_context(
-    ctx: &dyn Context,
-    id: &str,
-) -> Result<(), String> {
+pub async fn delete_context(ctx: &dyn Context, id: &str) -> Result<(), String> {
     // Cascade delete entries first
     let filters = vec![Filter {
         field: "context_id".to_string(),
@@ -164,8 +159,7 @@ pub async fn add_entry(
     content_type: Option<&str>,
     metadata: Option<serde_json::Value>,
 ) -> Result<db::Record, String> {
-    let metadata = metadata
-        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+    let metadata = metadata.unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
     let content_type = content_type.unwrap_or("text/plain");
 
     let now = helpers::now_rfc3339();
@@ -195,10 +189,7 @@ pub async fn add_entry(
     Ok(record)
 }
 
-pub async fn get_entry(
-    ctx: &dyn Context,
-    id: &str,
-) -> Result<db::Record, WaferError> {
+pub async fn get_entry(ctx: &dyn Context, id: &str) -> Result<db::Record, WaferError> {
     db::get(ctx, ENTRIES_COLLECTION, id).await
 }
 
@@ -250,9 +241,6 @@ pub async fn list_entries(
         .map_err(|e| format!("Database error: {e}"))
 }
 
-pub async fn delete_entry(
-    ctx: &dyn Context,
-    id: &str,
-) -> Result<(), WaferError> {
+pub async fn delete_entry(ctx: &dyn Context, id: &str) -> Result<(), WaferError> {
     db::delete(ctx, ENTRIES_COLLECTION, id).await
 }

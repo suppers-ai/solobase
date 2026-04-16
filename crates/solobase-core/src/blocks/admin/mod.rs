@@ -20,12 +20,15 @@ pub(crate) const VARIABLES_COLLECTION: &str = "suppers_ai__admin__variables";
 pub(crate) const NETWORK_RULES_COLLECTION: &str = "suppers_ai__admin__network_rules";
 pub(crate) const WRAP_GRANTS_COLLECTION: &str = "suppers_ai__admin__wrap_grants";
 
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
-
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
 pub(crate) use wafer_sql_utils::ident::sanitize_ident;
+
+use crate::blocks::helpers::{err_not_found, ok_json};
 
 pub struct AdminBlock;
 
@@ -33,8 +36,7 @@ pub struct AdminBlock;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for AdminBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/admin", "0.0.1", "http-handler@v1", "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables")
             .instance_mode(InstanceMode::Singleton)
@@ -155,7 +157,12 @@ impl Block for AdminBlock {
         ]
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: &mut Message) -> Result_ {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        mut msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         let path = msg.path().to_string();
 
         // JSON API at /b/admin/api/... — normalize to /admin/... for sub-module compatibility
@@ -164,19 +171,19 @@ impl Block for AdminBlock {
             msg.set_meta("req.resource", &normalized);
 
             if api_rest.starts_with("/users") {
-                return users::handle(ctx, msg).await;
+                return users::handle(ctx, &msg, input).await;
             }
             if api_rest.starts_with("/database") {
-                return database::handle(ctx, msg).await;
+                return database::handle(ctx, &msg, input).await;
             }
             if api_rest.starts_with("/iam") {
-                return iam::handle(ctx, msg).await;
+                return iam::handle(ctx, &msg, input).await;
             }
             if api_rest.starts_with("/logs") {
-                return logs::handle(ctx, msg).await;
+                return logs::handle(ctx, &msg).await;
             }
             if api_rest.starts_with("/settings") {
-                return settings::handle(ctx, msg).await;
+                return settings::handle(ctx, &msg, input).await;
             }
             if api_rest.starts_with("/extensions") {
                 let blocks: Vec<_> = ctx
@@ -192,18 +199,18 @@ impl Block for AdminBlock {
                         })
                     })
                     .collect();
-                return wafer_run::helpers::json_respond(msg, &blocks);
+                return ok_json(&blocks);
             }
             if api_rest.starts_with("/wafer") {
-                return wafer_info::handle(ctx, msg);
+                return wafer_info::handle(ctx, &msg);
             }
             if api_rest.starts_with("/custom-tables") {
-                return custom_tables::handle(ctx, msg).await;
+                return custom_tables::handle(ctx, &msg, input).await;
             }
             // Delegate admin storage to Files block
             if api_rest.starts_with("/storage") {
                 msg.set_meta("req.resource", format!("/admin{}", api_rest));
-                return crate::blocks::files::handle_admin_storage(ctx, msg).await;
+                return crate::blocks::files::handle_admin_storage(ctx, msg, input).await;
             }
             // Delegate admin cloud storage to Files block
             if api_rest.starts_with("/cloudstorage") {
@@ -214,18 +221,15 @@ impl Block for AdminBlock {
                         api_rest.strip_prefix("/cloudstorage").unwrap_or("")
                     ),
                 );
-                return crate::blocks::files::handle_admin_cloud(ctx, msg).await;
+                return crate::blocks::files::handle_admin_cloud(ctx, msg, input).await;
             }
-            return err_not_found(msg, "not found");
+            return err_not_found("not found");
         }
 
         // SSR pages + htmx mutations at /b/admin/...
         if path.starts_with("/b/admin") {
             let action = msg.action().to_string();
-            let sub = path.strip_prefix("/b/admin").unwrap_or("/");
-
-            // Extract IDs upfront as owned strings (avoids borrow conflicts with msg)
-            let sub = sub.to_string();
+            let sub = path.strip_prefix("/b/admin").unwrap_or("/").to_string();
 
             // htmx mutation handlers
             if action == "create" && sub.ends_with("/disable") {
@@ -235,7 +239,7 @@ impl Block for AdminBlock {
                     .unwrap_or("")
                     .to_string();
                 if !user_id.is_empty() {
-                    return pages::handle_user_disable(ctx, msg, &user_id).await;
+                    return pages::handle_user_disable(ctx, &msg, &user_id).await;
                 }
             }
             if action == "create" && sub.ends_with("/enable") {
@@ -245,22 +249,22 @@ impl Block for AdminBlock {
                     .unwrap_or("")
                     .to_string();
                 if !user_id.is_empty() {
-                    return pages::handle_user_enable(ctx, msg, &user_id).await;
+                    return pages::handle_user_enable(ctx, &msg, &user_id).await;
                 }
             }
             if action == "delete" && sub.starts_with("/users/") {
                 let user_id = sub.strip_prefix("/users/").unwrap_or("").to_string();
                 if !user_id.is_empty() {
-                    return pages::handle_user_delete(ctx, msg, &user_id).await;
+                    return pages::handle_user_delete(ctx, &msg, &user_id).await;
                 }
             }
             if action == "create" && sub == "/iam/roles" {
-                return pages::handle_create_role(ctx, msg).await;
+                return pages::handle_create_role(ctx, &msg, input).await;
             }
             if action == "delete" && sub.starts_with("/iam/roles/") {
                 let role_id = sub.strip_prefix("/iam/roles/").unwrap_or("").to_string();
                 if !role_id.is_empty() {
-                    return pages::handle_delete_role(ctx, msg, &role_id).await;
+                    return pages::handle_delete_role(ctx, &msg, &role_id).await;
                 }
             }
             // Block detail modal
@@ -272,7 +276,7 @@ impl Block for AdminBlock {
                     .to_string();
                 let block_name = encoded.replace("--", "/");
                 if !block_name.is_empty() {
-                    return pages::handle_block_detail(ctx, msg, &block_name).await;
+                    return pages::handle_block_detail(ctx, &msg, &block_name).await;
                 }
             }
             // Block feature toggle
@@ -284,12 +288,12 @@ impl Block for AdminBlock {
                     .to_string();
                 let block_name = encoded.replace("--", "/");
                 if !block_name.is_empty() {
-                    return pages::handle_toggle_feature(ctx, msg, &block_name).await;
+                    return pages::handle_toggle_feature(ctx, &msg, &block_name).await;
                 }
             }
             // Variable mutations
             if action == "create" && sub == "/variables" {
-                return pages::handle_create_variable(ctx, msg).await;
+                return pages::handle_create_variable(ctx, &msg, input).await;
             }
             if action == "retrieve" && sub.ends_with("/edit") && sub.starts_with("/variables/") {
                 let var_key = sub
@@ -298,33 +302,30 @@ impl Block for AdminBlock {
                     .unwrap_or("")
                     .to_string();
                 if !var_key.is_empty() {
-                    return pages::handle_edit_variable_form(ctx, msg, &var_key).await;
+                    return pages::handle_edit_variable_form(ctx, &msg, &var_key).await;
                 }
             }
             if action == "update" && sub.starts_with("/variables/") {
                 let var_key = sub.strip_prefix("/variables/").unwrap_or("").to_string();
                 if !var_key.is_empty() {
-                    return pages::handle_update_variable(ctx, msg, &var_key).await;
+                    return pages::handle_update_variable(ctx, &msg, input, &var_key).await;
                 }
             }
 
             // Network detail fragments (htmx)
             if action == "retrieve" && sub == "/network/detail/inbound" {
-                return pages::network_inbound_detail(ctx, msg).await;
+                return pages::network_inbound_detail(ctx, &msg).await;
             }
             if action == "retrieve" && sub == "/network/detail/outbound" {
-                return pages::network_outbound_detail(ctx, msg).await;
+                return pages::network_outbound_detail(ctx, &msg).await;
             }
 
             // WRAP grants CRUD (htmx)
             if action == "create" && sub == "/grants/rules" {
-                return handle_create_wrap_grant(ctx, msg).await;
+                return handle_create_wrap_grant(ctx, msg, input).await;
             }
             if action == "delete" && sub.starts_with("/grants/rules/") {
-                let rule_id = sub
-                    .strip_prefix("/grants/rules/")
-                    .unwrap_or("")
-                    .to_string();
+                let rule_id = sub.strip_prefix("/grants/rules/").unwrap_or("").to_string();
                 if !rule_id.is_empty() {
                     return handle_delete_wrap_grant(ctx, msg, &rule_id).await;
                 }
@@ -332,41 +333,44 @@ impl Block for AdminBlock {
 
             // Email settings save (POST)
             if action == "create" && sub == "/email" {
-                return pages::handle_save_email_settings(ctx, msg).await;
+                return pages::handle_save_email_settings(ctx, &msg, input).await;
             }
 
             // Custom block management
             if action == "create" && sub == "/custom-blocks/install" {
-                return pages::handle_custom_block_install(ctx, msg).await;
+                return pages::handle_custom_block_install(ctx, &msg, input).await;
             }
             if action == "create" && sub == "/custom-blocks/upload" {
-                return pages::handle_custom_block_upload(ctx, msg).await;
+                return pages::handle_custom_block_upload(ctx, &msg, input).await;
             }
             if action == "delete" && sub.starts_with("/custom-blocks/") {
-                let encoded = sub.strip_prefix("/custom-blocks/").unwrap_or("").to_string();
+                let encoded = sub
+                    .strip_prefix("/custom-blocks/")
+                    .unwrap_or("")
+                    .to_string();
                 if !encoded.is_empty() {
                     let block_name = encoded.replace("--", "/");
-                    return pages::handle_custom_block_delete(ctx, msg, &block_name).await;
+                    return pages::handle_custom_block_delete(ctx, &msg, &block_name).await;
                 }
             }
 
             // SSR page handlers (GET)
             return match sub.as_str() {
-                "" | "/" => pages::dashboard(ctx, msg).await,
-                "/users" => pages::users_page(ctx, msg).await,
-                "/variables" => pages::variables_page(ctx, msg).await,
-                "/network" => pages::network_page(ctx, msg).await,
-                "/storage" => pages::storage_page(ctx, msg).await,
-                "/blocks" => pages::blocks_page(ctx, msg).await,
-                "/logs" => pages::logs_page(ctx, msg).await,
-                "/email" => pages::email_settings_page(ctx, msg).await,
-                "/permissions" => pages::permissions_page(ctx, msg).await,
-                "/grants" => pages::grants_page(ctx, msg).await,
-                _ => err_not_found(msg, "not found"),
+                "" | "/" => pages::dashboard(ctx, &msg).await,
+                "/users" => pages::users_page(ctx, &msg).await,
+                "/variables" => pages::variables_page(ctx, &msg).await,
+                "/network" => pages::network_page(ctx, &msg).await,
+                "/storage" => pages::storage_page(ctx, &msg).await,
+                "/blocks" => pages::blocks_page(ctx, &msg).await,
+                "/logs" => pages::logs_page(ctx, &msg).await,
+                "/email" => pages::email_settings_page(ctx, &msg).await,
+                "/permissions" => pages::permissions_page(ctx, &msg).await,
+                "/grants" => pages::grants_page(ctx, &msg).await,
+                _ => err_not_found("not found"),
             };
         }
 
-        err_not_found(msg, "not found")
+        err_not_found("not found")
     }
 
     async fn lifecycle(
@@ -386,11 +390,17 @@ impl Block for AdminBlock {
 // WRAP grant handlers
 // ---------------------------------------------------------------------------
 
-use crate::blocks::helpers::parse_form_body;
 use wafer_core::clients::database as db;
 
-async fn handle_create_wrap_grant(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let form = parse_form_body(&msg.data);
+use crate::blocks::helpers::parse_form_body;
+
+async fn handle_create_wrap_grant(
+    ctx: &dyn Context,
+    mut msg: Message,
+    input: InputStream,
+) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let form = parse_form_body(&raw);
     let grantee = form.get("grantee").cloned().unwrap_or_default();
     let resource = form.get("resource").cloned().unwrap_or_default();
     let write = form
@@ -401,30 +411,27 @@ async fn handle_create_wrap_grant(ctx: &dyn Context, msg: &mut Message) -> Resul
     let description = form.get("description").cloned().unwrap_or_default();
 
     if grantee.is_empty() || resource.is_empty() {
-        return pages::permissions_page(ctx, msg).await;
+        return pages::permissions_page(ctx, &msg).await;
     }
 
     let mut data = std::collections::HashMap::new();
     data.insert("grantee".into(), serde_json::json!(grantee));
     data.insert("resource".into(), serde_json::json!(resource));
-    data.insert(
-        "write".into(),
-        serde_json::json!(if write { 1 } else { 0 }),
-    );
+    data.insert("write".into(), serde_json::json!(if write { 1 } else { 0 }));
     data.insert("resource_type".into(), serde_json::json!(resource_type));
     data.insert("description".into(), serde_json::json!(description));
     let _ = db::create(ctx, WRAP_GRANTS_COLLECTION, data).await;
 
     msg.set_meta("req.query.tab", "database");
-    pages::permissions_page(ctx, msg).await
+    pages::permissions_page(ctx, &msg).await
 }
 
 async fn handle_delete_wrap_grant(
     ctx: &dyn Context,
-    msg: &mut Message,
+    mut msg: Message,
     grant_id: &str,
-) -> Result_ {
+) -> OutputStream {
     let _ = db::delete(ctx, WRAP_GRANTS_COLLECTION, grant_id).await;
     msg.set_meta("req.query.tab", "database");
-    pages::permissions_page(ctx, msg).await
+    pages::permissions_page(ctx, &msg).await
 }

@@ -1,15 +1,19 @@
-use super::{LINE_ITEMS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION};
-use crate::blocks::helpers::RecordExt;
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
-use wafer_sql_utils::value::sea_values_to_json;
-use wafer_sql_utils::Backend;
 
-pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_sql_utils::{value::sea_values_to_json, Backend};
+
+use super::{LINE_ITEMS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION};
+use crate::blocks::helpers::{
+    self, err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
+    RecordExt,
+};
+
+pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct CreateReq {
         items: Vec<PurchaseItem>,
@@ -23,20 +27,21 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         variables: HashMap<String, f64>,
     }
 
-    let body: CreateReq = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: CreateReq = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     if body.items.is_empty() {
-        return err_bad_request(msg, "No items in purchase");
+        return err_bad_request("No items in purchase");
     }
 
     let currency = body.currency.unwrap_or_else(|| "USD".to_string());
     let now = chrono::Utc::now().to_rfc3339();
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
-        return err_unauthorized(msg, "Authentication required to create a purchase");
+        return err_unauthorized("Authentication required to create a purchase");
     }
 
     // Calculate totals
@@ -45,11 +50,11 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     for item in &body.items {
         if item.quantity <= 0 {
-            return err_bad_request(msg, "Quantity must be positive");
+            return err_bad_request("Quantity must be positive");
         }
         let product = match db::get(ctx, PRODUCTS_COLLECTION, &item.product_id).await {
             Ok(p) => p,
-            Err(_) => return err_not_found(msg, &format!("Product {} not found", item.product_id)),
+            Err(_) => return err_not_found(&format!("Product {} not found", item.product_id)),
         };
 
         // Reject draft/deleted/inactive products
@@ -59,13 +64,10 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             .and_then(|v| v.as_str())
             .unwrap_or("active");
         if product_status != "active" {
-            return err_bad_request(
-                msg,
-                &format!(
-                    "Product {} is not available for purchase (status: {})",
-                    item.product_id, product_status
-                ),
-            );
+            return err_bad_request(&format!(
+                "Product {} is not available for purchase (status: {})",
+                item.product_id, product_status
+            ));
         }
         if !product
             .data
@@ -74,7 +76,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             .unwrap_or("")
             .is_empty()
         {
-            return err_not_found(msg, &format!("Product {} not found", item.product_id));
+            return err_not_found(&format!("Product {} not found", item.product_id));
         }
 
         let product_name = product
@@ -122,13 +124,10 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
         // Reject negative or zero unit prices (prevent price manipulation via variables)
         if unit_price < 0.0 {
-            return err_bad_request(
-                msg,
-                &format!(
-                    "Invalid price for product {}: price cannot be negative",
-                    item.product_id
-                ),
-            );
+            return err_bad_request(&format!(
+                "Invalid price for product {}: price cannot be negative",
+                item.product_id
+            ));
         }
 
         let line_total = unit_price * item.quantity as f64;
@@ -146,7 +145,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let total_cents = (total_amount * 100.0).round() as i64;
     if total_cents <= 0 {
-        return err_bad_request(msg, "Purchase total must be greater than zero");
+        return err_bad_request("Purchase total must be greater than zero");
     }
 
     // Create purchase
@@ -177,7 +176,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let purchase = match db::create(ctx, PURCHASES_COLLECTION, purchase_data).await {
         Ok(p) => p,
-        Err(e) => return err_internal(msg, &format!("Failed to create purchase: {e}")),
+        Err(e) => return err_internal(&format!("Failed to create purchase: {e}")),
     };
 
     // Create line items — roll back purchase on failure
@@ -206,22 +205,19 @@ pub async fn handle_create(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         if let Err(e) = db::create(ctx, LINE_ITEMS_COLLECTION, item_data).await {
             // Clean up the purchase since line items are incomplete
             let _ = db::delete(ctx, PURCHASES_COLLECTION, &purchase.id).await;
-            return err_internal(msg, &format!("Failed to create line item: {e}"));
+            return err_internal(&format!("Failed to create line item: {e}"));
         }
     }
 
-    json_respond(
-        msg,
-        &serde_json::json!({
-            "id": purchase.id,
-            "status": "pending",
-            "total_cents": total_cents,
-            "item_count": line_items_data.len()
-        }),
-    )
+    ok_json(&serde_json::json!({
+        "id": purchase.id,
+        "status": "pending",
+        "total_cents": total_cents,
+        "item_count": line_items_data.len()
+    }))
 }
 
-pub async fn handle_list_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_list_user(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
     let (page, page_size, _) = msg.pagination_params(20);
 
@@ -245,12 +241,12 @@ pub async fn handle_list_user(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     )
     .await
     {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-pub async fn handle_list_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_list_admin(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (page, page_size, _) = msg.pagination_params(20);
 
     let mut filters = Vec::new();
@@ -286,33 +282,28 @@ pub async fn handle_list_admin(ctx: &dyn Context, msg: &mut Message) -> Result_ 
     )
     .await
     {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-pub async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let id = path.rsplit('/').next().unwrap_or("");
     if id.is_empty() || id == "purchases" {
-        return err_bad_request(msg, "Missing purchase ID");
+        return err_bad_request("Missing purchase ID");
     }
 
     let purchase = match db::get(ctx, PURCHASES_COLLECTION, id).await {
         Ok(p) => p,
-        Err(e) if e.code == ErrorCode::NotFound => return err_not_found(msg, "Purchase not found"),
-        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+        Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Purchase not found"),
+        Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
     // Verify access: user can only view their own, admin can view all
     let purchase_user = purchase.str_field("user_id");
-    if purchase_user != msg.user_id()
-        && !msg
-            .get_meta("auth.user_roles")
-            .split(',')
-            .any(|r| r.trim() == "admin")
-    {
-        return err_forbidden(msg, "Access denied");
+    if purchase_user != msg.user_id() && !helpers::is_admin(msg) {
+        return err_forbidden("Access denied");
     }
 
     // Get line items
@@ -329,38 +320,37 @@ pub async fn handle_get(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .map(|r| r.records)
         .unwrap_or_default();
 
-    json_respond(
-        msg,
-        &serde_json::json!({
-            "purchase": purchase,
-            "line_items": line_items
-        }),
-    )
+    ok_json(&serde_json::json!({
+        "purchase": purchase,
+        "line_items": line_items
+    }))
 }
 
-pub async fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let path = msg.path();
     // /admin/b/products/purchases/{id}/refund
     let id = path
         .strip_prefix("/admin/b/products/purchases/")
         .and_then(|s| s.strip_suffix("/refund"))
-        .unwrap_or("");
+        .unwrap_or("")
+        .to_string();
     if id.is_empty() {
-        return err_bad_request(msg, "Missing purchase ID");
+        return err_bad_request("Missing purchase ID");
     }
 
     #[derive(serde::Deserialize, Default)]
     struct RefundReq {
         reason: Option<String>,
     }
-    let body: RefundReq = msg.decode().unwrap_or_default();
+    let raw = input.collect_to_bytes().await;
+    let body: RefundReq = serde_json::from_slice(&raw).unwrap_or_default();
 
     // Verify purchase exists
-    if let Err(e) = db::get(ctx, PURCHASES_COLLECTION, id).await {
+    if let Err(e) = db::get(ctx, PURCHASES_COLLECTION, &id).await {
         if e.code == ErrorCode::NotFound {
-            return err_not_found(msg, "Purchase not found");
+            return err_not_found("Purchase not found");
         }
-        return err_internal(msg, &format!("Database error: {e}"));
+        return err_internal(&format!("Database error: {e}"));
     }
 
     // Atomic status transition: completed → refunded (prevents double-refund race)
@@ -378,8 +368,16 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
             ("updated_at".to_string(), serde_json::json!(&now)),
         ],
         &[
-            Filter { field: "id".into(), operator: FilterOp::Equal, value: serde_json::json!(id) },
-            Filter { field: "status".into(), operator: FilterOp::Equal, value: serde_json::json!("completed") },
+            Filter {
+                field: "id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(&id),
+            },
+            Filter {
+                field: "status".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!("completed"),
+            },
         ],
         Backend::Sqlite,
     );
@@ -388,14 +386,13 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     if rows == 0 {
         return err_bad_request(
-            msg,
             "Can only refund completed purchases (status may have changed concurrently)",
         );
     }
 
     // Fetch the updated record for the response
-    match db::get(ctx, PURCHASES_COLLECTION, id).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+    match db::get(ctx, PURCHASES_COLLECTION, &id).await {
+        Ok(record) => ok_json(&record),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }

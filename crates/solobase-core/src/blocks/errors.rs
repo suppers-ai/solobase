@@ -176,19 +176,52 @@ mod tests {
 }
 
 /// Helper to create a JSON error response with a structured error code.
-pub fn error_response(
-    msg: &mut wafer_run::types::Message,
-    code: ErrorCode,
-    message: &str,
-) -> wafer_run::types::Result_ {
-    let status = code.status_code();
-    let body = serde_json::json!({
-        "error": {
-            "code": code.as_str(),
-            "message": message
+///
+/// Maps a solobase `ErrorCode` to the appropriate wafer `ErrorCode` and
+/// returns an `OutputStream::error(...)` with the error code as part of the message.
+pub fn error_response(code: ErrorCode, message: &str) -> wafer_run::OutputStream {
+    let wafer_code = solobase_error_code_to_wafer(code);
+    let full_message = format!("[{}] {}", code.as_str(), message);
+    wafer_run::OutputStream::error(wafer_run::WaferError {
+        code: wafer_code,
+        message: full_message,
+        meta: vec![],
+    })
+}
+
+/// Map a solobase `ErrorCode` to a wafer `ErrorCode`.
+pub(crate) fn solobase_error_code_to_wafer(code: ErrorCode) -> wafer_run::ErrorCode {
+    match code {
+        ErrorCode::InvalidCredentials
+        | ErrorCode::NotAuthenticated
+        | ErrorCode::InvalidToken
+        | ErrorCode::TokenExpired => wafer_run::ErrorCode::Unauthenticated,
+
+        ErrorCode::Forbidden
+        | ErrorCode::AdminRequired
+        | ErrorCode::AccountDisabled
+        | ErrorCode::EmailNotVerified => wafer_run::ErrorCode::PermissionDenied,
+
+        ErrorCode::NotFound => wafer_run::ErrorCode::NotFound,
+
+        ErrorCode::EmailAlreadyExists | ErrorCode::Conflict => wafer_run::ErrorCode::AlreadyExists,
+
+        ErrorCode::PasswordTooShort
+        | ErrorCode::PasswordTooLong
+        | ErrorCode::InvalidEmail
+        | ErrorCode::InvalidInput
+        | ErrorCode::InvalidPurchaseStatus => wafer_run::ErrorCode::InvalidArgument,
+
+        ErrorCode::QuotaExceeded | ErrorCode::FileTooLarge => {
+            wafer_run::ErrorCode::ResourceExhausted
         }
-    });
-    wafer_run::helpers::ResponseBuilder::new(msg)
-        .status(status)
-        .json(&body)
+
+        ErrorCode::RateLimitExceeded => wafer_run::ErrorCode::ResourceExhausted,
+
+        ErrorCode::PaymentNotConfigured
+        | ErrorCode::ConfigurationError
+        | ErrorCode::DatabaseError
+        | ErrorCode::InternalError
+        | ErrorCode::RefundFailed => wafer_run::ErrorCode::Internal,
+    }
 }

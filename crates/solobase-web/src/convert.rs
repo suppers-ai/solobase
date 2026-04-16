@@ -1,14 +1,19 @@
 use js_sys::{ArrayBuffer, Uint8Array};
+use wafer_block::{
+    meta::{
+        META_REQ_ACTION, META_REQ_CLIENT_IP, META_REQ_CONTENT_TYPE, META_REQ_QUERY_PREFIX,
+        META_REQ_RESOURCE, META_RESP_CONTENT_TYPE, META_RESP_COOKIE_PREFIX,
+        META_RESP_HEADER_PREFIX, META_RESP_STATUS,
+    },
+    streams::{
+        input::InputStream,
+        output::{OutputStream, TerminalNotResponse},
+    },
+    ErrorCode, Message, MetaAccess,
+};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, ResponseInit};
-
-use wafer_block::meta::{
-    META_REQ_ACTION, META_REQ_CLIENT_IP, META_REQ_CONTENT_TYPE, META_REQ_QUERY_PREFIX,
-    META_REQ_RESOURCE, META_RESP_CONTENT_TYPE, META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX,
-    META_RESP_STATUS,
-};
-use wafer_block::{Action, ErrorCode, Message, MetaAccess, Result_};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,12 +74,14 @@ fn error_code_to_http_status(code: &ErrorCode) -> u16 {
 // Request conversion
 // ---------------------------------------------------------------------------
 
-/// Convert a browser `web_sys::Request` into a WAFER `Message`.
+/// Convert a browser `web_sys::Request` into a WAFER `(Message, InputStream)` pair.
 ///
 /// Mirrors `http_to_message()` from `wafer-block-http-listener`.  The remote
 /// address is always `"127.0.0.1"` — in a Service Worker the request comes
 /// from the same device.
-pub async fn request_to_message(request: &web_sys::Request) -> Result<Message, JsValue> {
+pub async fn request_to_message(
+    request: &web_sys::Request,
+) -> Result<(Message, InputStream), JsValue> {
     let method = request.method();
     let url_str = request.url();
 
@@ -86,18 +93,23 @@ pub async fn request_to_message(request: &web_sys::Request) -> Result<Message, J
     let raw_query = if search.starts_with('?') {
         search[1..].to_string()
     } else {
-        search.clone()
+        search
     };
 
     // Read body bytes via ArrayBuffer.
+    const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10MB
     let body: Vec<u8> = {
         let promise = request.array_buffer()?;
         let ab_val = JsFuture::from(promise).await?;
         let ab: ArrayBuffer = ab_val.dyn_into()?;
-        Uint8Array::new(&ab).to_vec()
+        let arr = Uint8Array::new(&ab);
+        if arr.length() as usize > MAX_BODY_SIZE {
+            return Err(JsValue::from_str("Request body too large"));
+        }
+        arr.to_vec()
     };
 
-    let mut msg = Message::new(format!("{}:{}", method, path), body);
+    let mut msg = Message::new(format!("{}:{}", method, path));
 
     // HTTP-specific meta (mirrors the native listener).
     msg.set_meta("http.method", method.clone());
@@ -108,7 +120,8 @@ pub async fn request_to_message(request: &web_sys::Request) -> Result<Message, J
     // Collect headers into meta.
     let headers: Headers = request.headers();
     // Iterate the headers JS iterator.
-    let iter = js_sys::try_iter(&headers)?.ok_or_else(|| JsValue::from_str("headers not iterable"))?;
+    let iter =
+        js_sys::try_iter(&headers)?.ok_or_else(|| JsValue::from_str("headers not iterable"))?;
     let mut content_type = String::new();
     let mut host = String::new();
     for item in iter {
@@ -147,7 +160,7 @@ pub async fn request_to_message(request: &web_sys::Request) -> Result<Message, J
         }
     }
 
-    Ok(msg)
+    Ok((msg, InputStream::from_bytes(body)))
 }
 
 // ---------------------------------------------------------------------------
@@ -157,10 +170,7 @@ pub async fn request_to_message(request: &web_sys::Request) -> Result<Message, J
 /// Apply response meta entries to a `web_sys::Headers` object.
 ///
 /// Mirrors `apply_response_meta()` from the native listener.
-fn apply_response_meta(
-    headers: &Headers,
-    meta: &[wafer_block::MetaEntry],
-) -> Result<(), JsValue> {
+fn apply_response_meta(headers: &Headers, meta: &[wafer_block::MetaEntry]) -> Result<(), JsValue> {
     for entry in meta {
         let k = entry.key.as_str();
         let v = &entry.value;
@@ -220,7 +230,11 @@ fn get_error_status_code(
 
 /// Build a `web_sys::Response` from raw bytes, a status code, and a
 /// `web_sys::Headers` object.
-fn make_response(body: Vec<u8>, status: u16, headers: Headers) -> Result<web_sys::Response, JsValue> {
+fn make_response(
+    body: Vec<u8>,
+    status: u16,
+    headers: Headers,
+) -> Result<web_sys::Response, JsValue> {
     let init = ResponseInit::new();
     init.set_status(status);
     init.set_headers(&headers);
@@ -232,92 +246,69 @@ fn make_response(body: Vec<u8>, status: u16, headers: Headers) -> Result<web_sys
         let arr = Uint8Array::new_with_length(body.len() as u32);
         arr.copy_from(&body);
         let ab: ArrayBuffer = arr.buffer();
-        web_sys::Response::new_with_opt_buffer_source_and_init(
-            Some(&ab.into()),
-            &init,
-        )
+        web_sys::Response::new_with_opt_buffer_source_and_init(Some(&ab.into()), &init)
     }
 }
 
-/// Convert a WAFER `Result_` into a browser `web_sys::Response`.
+/// Convert a WAFER `OutputStream` into a browser `web_sys::Response` by
+/// buffering the entire stream.
 ///
-/// Mirrors `wafer_result_to_response()` from `wafer-block-http-listener`.
-pub fn result_to_response(result: Result_) -> Result<web_sys::Response, JsValue> {
-    match result.action {
-        Action::Respond => {
-            let empty_meta: Vec<wafer_block::MetaEntry> = Vec::new();
-            let resp_meta = result
-                .response
-                .as_ref()
-                .map(|r| r.meta.as_slice())
-                .unwrap_or(&empty_meta);
-
-            let status = get_status_code(resp_meta, 200);
+/// Mirrors `wafer_output_to_response()` from `wafer-block-http-listener`.
+pub async fn output_to_response(output: OutputStream) -> Result<web_sys::Response, JsValue> {
+    match output.collect_buffered().await {
+        Ok(buf) => {
+            let status = get_status_code(&buf.meta, 200);
             let headers = Headers::new()?;
-            apply_response_meta(&headers, resp_meta)?;
+            apply_response_meta(&headers, &buf.meta)?;
 
-            if let Some(ref msg) = result.message {
-                apply_response_meta(&headers, &msg.meta)?;
-            }
-
-            let has_ct = MetaAccess::contains_key(resp_meta, META_RESP_CONTENT_TYPE)
-                || MetaAccess::contains_key(resp_meta, "Content-Type");
+            let has_ct = MetaAccess::contains_key(&buf.meta, META_RESP_CONTENT_TYPE)
+                || MetaAccess::contains_key(&buf.meta, "Content-Type");
             if !has_ct {
                 headers.set("Content-Type", "application/json")?;
             }
 
-            let body = result.response.map(|r| r.data).unwrap_or_default();
-            make_response(body, status, headers)
+            make_response(buf.body, status, headers)
         }
 
-        Action::Error => {
-            let empty_meta: Vec<wafer_block::MetaEntry> = Vec::new();
-            let err_meta = result
-                .error
-                .as_ref()
-                .map(|e| e.meta.as_slice())
-                .unwrap_or(&empty_meta);
-
-            let status = get_error_status_code(result.error.as_ref(), err_meta);
+        Err(TerminalNotResponse::Error(err)) => {
+            let status = get_error_status_code(Some(&err), &err.meta);
             let headers = Headers::new()?;
-            apply_response_meta(&headers, err_meta)?;
-
-            if let Some(ref msg) = result.message {
-                apply_response_meta(&headers, &msg.meta)?;
-            }
-
+            apply_response_meta(&headers, &err.meta)?;
             headers.set("Content-Type", "application/json")?;
 
-            let body = if let Some(ref err) = result.error {
-                serde_json::json!({
-                    "error": err.code,
-                    "message": err.message,
-                })
-                .to_string()
-                .into_bytes()
-            } else {
-                b"{}".to_vec()
-            };
+            let body = serde_json::json!({
+                "error": err.code,
+                "message": err.message,
+            })
+            .to_string()
+            .into_bytes();
 
             make_response(body, status, headers)
         }
 
-        Action::Drop => {
+        Err(TerminalNotResponse::Drop) => {
             let headers = Headers::new()?;
-            if let Some(ref msg) = result.message {
-                apply_response_meta(&headers, &msg.meta)?;
-            }
             make_response(Vec::new(), 204, headers)
         }
 
-        Action::Continue => {
+        Err(TerminalNotResponse::Continue(_msg)) => {
             let headers = Headers::new()?;
-            if let Some(ref msg) = result.message {
-                apply_response_meta(&headers, &msg.meta)?;
-            }
             headers.set("Content-Type", "application/json")?;
-            let body = result.message.map(|m| m.data).unwrap_or_default();
-            make_response(body, 200, headers)
+            make_response(
+                b"{\"error\":\"continue not supported by listener\"}".to_vec(),
+                500,
+                headers,
+            )
+        }
+
+        Err(TerminalNotResponse::Malformed) => {
+            let headers = Headers::new()?;
+            headers.set("Content-Type", "application/json")?;
+            make_response(
+                b"{\"error\":\"stream ended without terminal event\"}".to_vec(),
+                500,
+                headers,
+            )
         }
     }
 }

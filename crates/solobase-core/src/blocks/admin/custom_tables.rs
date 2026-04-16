@@ -1,19 +1,22 @@
-use super::sanitize_ident;
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+
+use wafer_core::clients::{
+    database as db,
+    database::{ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use wafer_sql_utils::{ddl, introspect, Backend};
 
-pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+use super::sanitize_ident;
+use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json};
+
+pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/admin/custom-tables") => handle_list_tables(ctx, msg).await,
-        ("create", "/admin/custom-tables") => handle_create_table(ctx, msg).await,
+        ("retrieve", "/admin/custom-tables") => handle_list_tables(ctx).await,
+        ("create", "/admin/custom-tables") => handle_create_table(ctx, input).await,
         ("delete", _)
             if path.starts_with("/admin/custom-tables/") && !path.contains("/records") =>
         {
@@ -21,10 +24,10 @@ pub async fn handle(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         }
         // Record CRUD
         ("retrieve", _) if path.contains("/records") => handle_list_records(ctx, msg).await,
-        ("create", _) if path.contains("/records") => handle_create_record(ctx, msg).await,
-        ("update", _) if path.contains("/records/") => handle_update_record(ctx, msg).await,
+        ("create", _) if path.contains("/records") => handle_create_record(ctx, msg, input).await,
+        ("update", _) if path.contains("/records/") => handle_update_record(ctx, msg, input).await,
         ("delete", _) if path.contains("/records/") => handle_delete_record(ctx, msg).await,
-        _ => err_not_found(msg, "not found"),
+        _ => err_not_found("not found"),
     }
 }
 
@@ -46,11 +49,11 @@ fn extract_record_id(path: &str) -> &str {
     }
 }
 
-async fn handle_list_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_tables(ctx: &dyn Context) -> OutputStream {
     let (sql, args) = introspect::build_list_tables_like("custom_", Backend::Sqlite);
     let tables = match db::query_raw(ctx, &sql, &args).await {
         Ok(t) => t,
-        Err(e) => return err_internal(msg, &format!("Database error: {e}")),
+        Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
     let names: Vec<&str> = tables
@@ -58,10 +61,10 @@ async fn handle_list_tables(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
         .collect();
 
-    json_respond(msg, &serde_json::json!({"tables": names}))
+    ok_json(&serde_json::json!({"tables": names}))
 }
 
-async fn handle_create_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create_table(ctx: &dyn Context, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct Req {
         name: String,
@@ -78,9 +81,10 @@ async fn handle_create_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         "TEXT".to_string()
     }
 
-    let body: Req = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: Req = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     // Sanitize name
@@ -111,19 +115,16 @@ async fn handle_create_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     );
 
     match db::exec_raw(ctx, &sql, &[]).await {
-        Ok(_) => json_respond(
-            msg,
-            &serde_json::json!({"table": table_name, "created": true}),
-        ),
-        Err(e) => err_internal(msg, &format!("Failed to create table: {e}")),
+        Ok(_) => ok_json(&serde_json::json!({"table": table_name, "created": true})),
+        Err(e) => err_internal(&format!("Failed to create table: {e}")),
     }
 }
 
-async fn handle_drop_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_drop_table(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let table_name = extract_table_name(path);
     if table_name.is_empty() {
-        return err_bad_request(msg, "Missing table name");
+        return err_bad_request("Missing table name");
     }
 
     let full_name = if table_name.starts_with("custom_") {
@@ -135,16 +136,16 @@ async fn handle_drop_table(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 
     let drop_sql = ddl::build_drop_table(&safe_name, Backend::Sqlite);
     match db::exec_raw(ctx, &drop_sql, &[]).await {
-        Ok(_) => json_respond(msg, &serde_json::json!({"deleted": true})),
-        Err(e) => err_internal(msg, &format!("Failed to drop table: {e}")),
+        Ok(_) => ok_json(&serde_json::json!({"deleted": true})),
+        Err(e) => err_internal(&format!("Failed to drop table: {e}")),
     }
 }
 
-async fn handle_list_records(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_list_records(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let table_name = extract_table_name(path);
     if table_name.is_empty() {
-        return err_bad_request(msg, "Missing table name");
+        return err_bad_request("Missing table name");
     }
 
     let full_name = if table_name.starts_with("custom_") {
@@ -165,16 +166,20 @@ async fn handle_list_records(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match db::list(ctx, &full_name, &opts).await {
-        Ok(result) => json_respond(msg, &result),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(result) => ok_json(&result),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_create_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_create_record(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let path = msg.path();
     let table_name = extract_table_name(path);
     if table_name.is_empty() {
-        return err_bad_request(msg, "Missing table name");
+        return err_bad_request("Missing table name");
     }
 
     let full_name = if table_name.starts_with("custom_") {
@@ -183,23 +188,28 @@ async fn handle_create_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         format!("custom_{}", table_name)
     };
 
-    let body: HashMap<String, serde_json::Value> = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     match db::create(ctx, &full_name, body).await {
-        Ok(record) => json_respond(msg, &record),
-        Err(e) => err_internal(msg, &format!("Database error: {e}")),
+        Ok(record) => ok_json(&record),
+        Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
 
-async fn handle_update_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_update_record(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let path = msg.path();
     let table_name = extract_table_name(path);
     let record_id = extract_record_id(path);
     if table_name.is_empty() || record_id.is_empty() {
-        return err_bad_request(msg, "Missing table name or record ID");
+        return err_bad_request("Missing table name or record ID");
     }
 
     let full_name = if table_name.starts_with("custom_") {
@@ -208,30 +218,31 @@ async fn handle_update_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         format!("custom_{}", table_name)
     };
 
-    let body: HashMap<String, serde_json::Value> = match msg.decode() {
+    let raw = input.collect_to_bytes().await;
+    let body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return err_bad_request(msg, &format!("Invalid body: {e}")),
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
     match db::update(ctx, &full_name, record_id, body).await {
-        Ok(record) => json_respond(msg, &record),
+        Ok(record) => ok_json(&record),
         Err(e) => {
             let msg_str = format!("{e}");
             if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg, "Record not found")
+                err_not_found("Record not found")
             } else {
-                err_internal(msg, &format!("Database error: {e}"))
+                err_internal(&format!("Database error: {e}"))
             }
         }
     }
 }
 
-async fn handle_delete_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+async fn handle_delete_record(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let table_name = extract_table_name(path);
     let record_id = extract_record_id(path);
     if table_name.is_empty() || record_id.is_empty() {
-        return err_bad_request(msg, "Missing table name or record ID");
+        return err_bad_request("Missing table name or record ID");
     }
 
     let full_name = if table_name.starts_with("custom_") {
@@ -241,13 +252,13 @@ async fn handle_delete_record(ctx: &dyn Context, msg: &mut Message) -> Result_ {
     };
 
     match db::delete(ctx, &full_name, record_id).await {
-        Ok(()) => json_respond(msg, &serde_json::json!({"deleted": true})),
+        Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) => {
             let msg_str = format!("{e}");
             if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found(msg, "Record not found")
+                err_not_found("Record not found")
             } else {
-                err_internal(msg, &format!("Database error: {e}"))
+                err_internal(&format!("Database error: {e}"))
             }
         }
     }

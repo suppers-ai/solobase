@@ -104,11 +104,7 @@ fn parse_rows(json: &str) -> Result<Vec<Record>, DatabaseError> {
     for row in rows {
         let obj = match row {
             serde_json::Value::Object(map) => map,
-            _ => {
-                return Err(DatabaseError::Internal(
-                    "expected row object".to_string(),
-                ))
-            }
+            _ => return Err(DatabaseError::Internal("expected row object".to_string())),
         };
 
         let mut data: HashMap<String, serde_json::Value> = HashMap::new();
@@ -149,53 +145,16 @@ fn parse_rows_modified(json: &str) -> i64 {
 }
 
 /// Return current UTC timestamp as an RFC 3339 string.
-/// In WASM we cannot use `chrono` (no OS clock); use `js_sys::Date` instead.
 fn now_rfc3339() -> String {
-    // js_sys::Date::now() returns milliseconds since epoch as f64
-    let ms = js_sys::Date::now();
-    let secs = (ms / 1000.0) as i64;
-    let millis = (ms as i64) % 1000;
-
-    // Format as ISO 8601 / RFC 3339: YYYY-MM-DDTHH:MM:SS.mmmZ
-    // We compute the calendar fields manually to avoid any dependency.
-    let days_since_epoch = secs / 86400;
-    let time_of_day = secs % 86400;
-
-    let hour = time_of_day / 3600;
-    let minute = (time_of_day % 3600) / 60;
-    let second = time_of_day % 60;
-
-    // Convert days_since_epoch (from 1970-01-01) to Y/M/D
-    let (year, month, day) = days_to_ymd(days_since_epoch);
-
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        year, month, day, hour, minute, second, millis
-    )
-}
-
-/// Convert days since Unix epoch (1970-01-01) to (year, month, day).
-/// Uses the proleptic Gregorian calendar algorithm.
-fn days_to_ymd(days: i64) -> (i64, i64, i64) {
-    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
-    let z = days + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y, m, d)
+    chrono::Utc::now().to_rfc3339()
 }
 
 /// Generate a random hex ID using `getrandom`.
-fn new_id() -> String {
+fn new_id() -> Result<String, DatabaseError> {
     let mut bytes = [0u8; 16];
-    getrandom::getrandom(&mut bytes).expect("getrandom failed");
-    hex::encode(bytes)
+    getrandom::getrandom(&mut bytes)
+        .map_err(|e| DatabaseError::Internal(format!("getrandom failed: {e}")))?;
+    Ok(hex::encode(bytes))
 }
 
 // ─── ensure_schema_table helpers ─────────────────────────────────────────────
@@ -339,8 +298,7 @@ fn existing_columns(table: &str) -> Vec<String> {
 
 /// Check whether a table exists in the sqlite_master catalog.
 fn table_exists_sync(name: &str) -> bool {
-    let sql =
-        "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?";
+    let sql = "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?";
     let params = params_to_json(&[serde_json::Value::String(name.to_string())]);
     let result = bridge::db_query_raw(sql, &params);
     let rows: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap_or_default();
@@ -369,10 +327,7 @@ impl DatabaseService for BrowserDatabaseService {
         let json = bridge::db_query_raw(&sql, &params);
 
         let records = parse_rows(&json)?;
-        records
-            .into_iter()
-            .next()
-            .ok_or(DatabaseError::NotFound)
+        records.into_iter().next().ok_or(DatabaseError::NotFound)
     }
 
     // ── list ─────────────────────────────────────────────────────────────────
@@ -411,11 +366,7 @@ impl DatabaseService for BrowserDatabaseService {
             .unwrap_or(0);
 
         // SELECT
-        let mut select_sql = format!(
-            "SELECT * FROM {} {}",
-            quote_ident(&table),
-            where_clause
-        );
+        let mut select_sql = format!("SELECT * FROM {} {}", quote_ident(&table), where_clause);
 
         if !opts.sort.is_empty() {
             let order_parts: Vec<String> = opts
@@ -468,7 +419,7 @@ impl DatabaseService for BrowserDatabaseService {
 
         // Auto-generate a random ID if not provided
         if !data.contains_key("id") {
-            data.insert("id".to_string(), serde_json::Value::String(new_id()));
+            data.insert("id".to_string(), serde_json::Value::String(new_id()?));
         }
 
         // Auto-set timestamps
@@ -480,20 +431,13 @@ impl DatabaseService for BrowserDatabaseService {
             );
         }
         if !data.contains_key("updated_at") {
-            data.insert(
-                "updated_at".to_string(),
-                serde_json::Value::String(now),
-            );
+            data.insert("updated_at".to_string(), serde_json::Value::String(now));
         }
 
         // Auto-create the table if it does not exist
         if !table_exists_sync(&table) {
             let mut col_defs = Vec::new();
-            if data.contains_key("id") {
-                col_defs.push(format!("{} TEXT PRIMARY KEY", quote_ident("id")));
-            } else {
-                col_defs.push(format!("{} TEXT PRIMARY KEY", quote_ident("id")));
-            }
+            col_defs.push(format!("{} TEXT PRIMARY KEY", quote_ident("id")));
             for key in data.keys() {
                 if key != "id" {
                     col_defs.push(format!("{} TEXT", quote_ident(&sanitize_ident(key))));
@@ -593,10 +537,8 @@ impl DatabaseService for BrowserDatabaseService {
             set_clauses.join(", ")
         );
 
-        let mut params: Vec<serde_json::Value> = set_pairs
-            .iter()
-            .map(|(_, v)| coerce_param(v))
-            .collect();
+        let mut params: Vec<serde_json::Value> =
+            set_pairs.iter().map(|(_, v)| coerce_param(v)).collect();
         params.push(serde_json::Value::String(id.to_string()));
         let params_json = params_to_json(&params);
 
@@ -729,11 +671,7 @@ impl DatabaseService for BrowserDatabaseService {
         }
 
         let (where_clause, filter_params) = build_where(filters);
-        let sql = format!(
-            "DELETE FROM {} {}",
-            quote_ident(&table),
-            where_clause
-        );
+        let sql = format!("DELETE FROM {} {}", quote_ident(&table), where_clause);
         let params_json = params_to_json(&filter_params);
         bridge::db_exec_raw(&sql, &params_json);
 
@@ -775,10 +713,8 @@ impl DatabaseService for BrowserDatabaseService {
             where_clause
         );
 
-        let mut params: Vec<serde_json::Value> = set_pairs
-            .iter()
-            .map(|(_, v)| coerce_param(v))
-            .collect();
+        let mut params: Vec<serde_json::Value> =
+            set_pairs.iter().map(|(_, v)| coerce_param(v)).collect();
         params.extend(filter_params);
         let params_json = params_to_json(&params);
 

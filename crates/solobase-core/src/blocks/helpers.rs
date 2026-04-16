@@ -1,6 +1,15 @@
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+
+use serde::Serialize;
+use sha2::{Digest, Sha256};
 use wafer_core::clients::database::Record;
+use wafer_run::{
+    meta::{
+        META_RESP_CONTENT_TYPE, META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX, META_RESP_STATUS,
+    },
+    types::{ErrorCode, MetaEntry, WaferError},
+    OutputStream,
+};
 
 /// Current UTC time as RFC 3339 string.
 pub fn now_rfc3339() -> String {
@@ -74,7 +83,19 @@ pub fn stamp_updated(data: &mut std::collections::HashMap<String, serde_json::Va
 
 /// Encode bytes as lowercase hex string.
 pub fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    use std::fmt::Write;
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        write!(s, "{:02x}", b).unwrap();
+    }
+    s
+}
+
+/// Check if the current user has admin role from the message metadata.
+pub fn is_admin(msg: &wafer_run::types::Message) -> bool {
+    msg.get_meta("auth.user_roles")
+        .split(',')
+        .any(|r| r.trim() == "admin")
 }
 
 /// Compute SHA-256 and return as hex string. Used for deterministic hashing (API keys, etc.).
@@ -121,6 +142,173 @@ pub fn parse_form_body(data: &[u8]) -> HashMap<String, String> {
         }
     }
     map
+}
+
+// ---------------------------------------------------------------------------
+// Response construction helpers for the streaming block protocol.
+// ---------------------------------------------------------------------------
+
+/// Serialize `value` to JSON and return a successful `OutputStream`
+/// with `Content-Type: application/json`.
+/// Returns `OutputStream::error(Internal)` if serialization fails.
+pub fn ok_json<T: Serialize>(value: &T) -> OutputStream {
+    match serde_json::to_vec(value) {
+        Ok(body) => OutputStream::respond_with_meta(
+            body,
+            vec![MetaEntry {
+                key: META_RESP_CONTENT_TYPE.to_string(),
+                value: "application/json".to_string(),
+            }],
+        ),
+        Err(e) => OutputStream::error(WaferError {
+            code: ErrorCode::Internal,
+            message: format!("serialize failed: {}", e),
+            meta: vec![],
+        }),
+    }
+}
+
+/// Return an empty 200-OK `OutputStream` (no body).
+pub fn ok_empty() -> OutputStream {
+    OutputStream::respond(vec![])
+}
+
+/// Return a 400 Bad Request `OutputStream`.
+pub fn err_bad_request(message: &str) -> OutputStream {
+    OutputStream::error(WaferError {
+        code: ErrorCode::InvalidArgument,
+        message: message.to_string(),
+        meta: vec![],
+    })
+}
+
+/// Return a 401 Unauthorized `OutputStream`.
+pub fn err_unauthorized(message: &str) -> OutputStream {
+    OutputStream::error(WaferError {
+        code: ErrorCode::Unauthenticated,
+        message: message.to_string(),
+        meta: vec![],
+    })
+}
+
+/// Return a 403 Forbidden `OutputStream`.
+pub fn err_forbidden(message: &str) -> OutputStream {
+    OutputStream::error(WaferError {
+        code: ErrorCode::PermissionDenied,
+        message: message.to_string(),
+        meta: vec![],
+    })
+}
+
+/// Return a 404 Not Found `OutputStream`.
+pub fn err_not_found(message: &str) -> OutputStream {
+    OutputStream::error(WaferError {
+        code: ErrorCode::NotFound,
+        message: message.to_string(),
+        meta: vec![],
+    })
+}
+
+/// Return a 409 Conflict `OutputStream`.
+pub fn err_conflict(message: &str) -> OutputStream {
+    OutputStream::error(WaferError {
+        code: ErrorCode::AlreadyExists,
+        message: message.to_string(),
+        meta: vec![],
+    })
+}
+
+/// Return a 500 Internal Server Error `OutputStream`.
+pub fn err_internal(message: &str) -> OutputStream {
+    OutputStream::error(WaferError {
+        code: ErrorCode::Internal,
+        message: message.to_string(),
+        meta: vec![],
+    })
+}
+
+// ---------------------------------------------------------------------------
+// ResponseBuilder — builds an OutputStream with status, headers, cookies, and body/JSON.
+// ---------------------------------------------------------------------------
+
+/// Build a response `OutputStream` with custom status, headers, and cookies.
+pub struct ResponseBuilder {
+    meta: Vec<MetaEntry>,
+    cookie_count: usize,
+}
+
+impl ResponseBuilder {
+    /// Create a new empty response builder.
+    pub fn new() -> Self {
+        Self {
+            meta: Vec::new(),
+            cookie_count: 0,
+        }
+    }
+
+    /// Set an explicit HTTP status code (e.g. 201, 301, 302).
+    pub fn status(mut self, status: u16) -> Self {
+        self.meta.push(MetaEntry {
+            key: META_RESP_STATUS.to_string(),
+            value: status.to_string(),
+        });
+        self
+    }
+
+    /// Add a response header.
+    pub fn set_header(mut self, key: &str, value: &str) -> Self {
+        self.meta.push(MetaEntry {
+            key: format!("{}{}", META_RESP_HEADER_PREFIX, key),
+            value: value.to_string(),
+        });
+        self
+    }
+
+    /// Append a `Set-Cookie` header.
+    pub fn set_cookie(mut self, cookie: &str) -> Self {
+        self.meta.push(MetaEntry {
+            key: format!("{}{}", META_RESP_COOKIE_PREFIX, self.cookie_count),
+            value: cookie.to_string(),
+        });
+        self.cookie_count += 1;
+        self
+    }
+
+    /// Serialise `value` to JSON and emit with Content-Type: application/json.
+    pub fn json<T: Serialize>(mut self, value: &T) -> OutputStream {
+        match serde_json::to_vec(value) {
+            Ok(body) => {
+                self.meta.push(MetaEntry {
+                    key: META_RESP_CONTENT_TYPE.to_string(),
+                    value: "application/json".to_string(),
+                });
+                OutputStream::respond_with_meta(body, self.meta)
+            }
+            Err(e) => err_internal(&format!("serialize failed: {}", e)),
+        }
+    }
+
+    /// Emit `bytes` with the given content type.
+    pub fn body(mut self, bytes: Vec<u8>, content_type: &str) -> OutputStream {
+        if !content_type.is_empty() {
+            self.meta.push(MetaEntry {
+                key: META_RESP_CONTENT_TYPE.to_string(),
+                value: content_type.to_string(),
+            });
+        }
+        OutputStream::respond_with_meta(bytes, self.meta)
+    }
+
+    /// Emit an empty body (headers / cookies only).
+    pub fn empty(self) -> OutputStream {
+        OutputStream::respond_with_meta(Vec::new(), self.meta)
+    }
+}
+
+impl Default for ResponseBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

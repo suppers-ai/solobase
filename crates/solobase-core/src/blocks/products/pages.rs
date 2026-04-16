@@ -1,16 +1,17 @@
 //! SSR pages for the products block (admin + user views).
 
-use crate::blocks::helpers::RecordExt;
-use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
 use maud::{html, Markup, PreEscaped};
-use wafer_core::clients::config;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::helpers::*;
-use wafer_run::types::*;
+use wafer_core::clients::{
+    config, database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::{GROUPS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION};
+use crate::{
+    blocks::helpers::{ok_json, RecordExt},
+    ui::{self, components, icons, NavItem, SiteConfig, UserInfo},
+};
 
 /// Admin nav items.
 fn products_admin_nav() -> Vec<NavItem> {
@@ -49,16 +50,16 @@ fn products_admin_nav() -> Vec<NavItem> {
 }
 
 fn products_page(
-    title: &str,
+    _title: &str,
     config: &SiteConfig,
     path: &str,
     user: Option<&UserInfo>,
     content: Markup,
-    msg: &mut Message,
-) -> Result_ {
+    msg: &Message,
+) -> OutputStream {
     let is_fragment = ui::is_htmx(msg);
     let markup = ui::layout::block_shell(
-        title,
+        _title,
         config,
         &products_admin_nav(),
         user,
@@ -66,14 +67,14 @@ fn products_page(
         content,
         is_fragment,
     );
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 // ---------------------------------------------------------------------------
 // Admin: Overview (stats)
 // ---------------------------------------------------------------------------
 
-pub async fn overview(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let one = ListOptions {
@@ -122,7 +123,7 @@ pub async fn overview(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 // Admin: Manage Products
 // ---------------------------------------------------------------------------
 
-pub async fn manage_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let (page, page_size, _) = msg.pagination_params(20);
@@ -220,7 +221,7 @@ pub async fn manage_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 // Admin: Groups
 // ---------------------------------------------------------------------------
 
-pub async fn groups(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn groups(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let opts = ListOptions {
@@ -277,7 +278,7 @@ pub async fn groups(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 // Admin: Pricing Templates
 // ---------------------------------------------------------------------------
 
-pub async fn pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn pricing(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let opts = ListOptions {
@@ -333,7 +334,7 @@ pub async fn pricing(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 // Admin: Purchases
 // ---------------------------------------------------------------------------
 
-pub async fn purchases(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let (page, page_size, _) = msg.pagination_params(20);
@@ -424,7 +425,7 @@ pub async fn purchases(ctx: &dyn Context, msg: &mut Message) -> Result_ {
 // User: My Products
 // ---------------------------------------------------------------------------
 
-pub async fn my_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn my_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let user_id = msg.user_id().to_string();
@@ -511,14 +512,14 @@ pub async fn my_products(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         content,
         is_fragment,
     );
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 // ---------------------------------------------------------------------------
 // User: My Purchases
 // ---------------------------------------------------------------------------
 
-pub async fn my_purchases(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn my_purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let user_id = msg.user_id().to_string();
@@ -600,7 +601,7 @@ pub async fn my_purchases(ctx: &dyn Context, msg: &mut Message) -> Result_ {
         content,
         is_fragment,
     );
-    ui::html_response(msg, markup)
+    ui::html_response(markup)
 }
 
 // ---------------------------------------------------------------------------
@@ -659,7 +660,7 @@ const SETTINGS_KEYS: &[(&str, &str, &str, &str, bool)] = &[
     ),
 ];
 
-pub async fn settings(ctx: &dyn Context, msg: &mut Message) -> Result_ {
+pub async fn settings(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -752,14 +753,12 @@ function submitSettings(e) {
     )
 }
 
-pub async fn handle_save_settings(ctx: &dyn Context, msg: &mut Message) -> Result_ {
-    let body: std::collections::HashMap<String, String> = match msg.decode() {
+pub async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body: std::collections::HashMap<String, String> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
         Err(e) => {
-            return json_respond(
-                msg,
-                &serde_json::json!({"error": format!("Invalid request: {e}")}),
-            )
+            return ok_json(&serde_json::json!({"error": format!("Invalid request: {e}")}));
         }
     };
     for &(key, _, _, _, _) in SETTINGS_KEYS {
@@ -767,7 +766,7 @@ pub async fn handle_save_settings(ctx: &dyn Context, msg: &mut Message) -> Resul
             let _ = config::set(ctx, key, value).await;
         }
     }
-    json_respond(msg, &serde_json::json!({"message": "Settings saved"}))
+    ok_json(&serde_json::json!({"message": "Settings saved"}))
 }
 
 fn render_sensitive_field(key: &str, label: &str, help: &str, value: &str) -> Markup {
