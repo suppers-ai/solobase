@@ -80,7 +80,19 @@ pub fn stamp_updated(data: &mut std::collections::HashMap<String, serde_json::Va
 
 /// Encode bytes as lowercase hex string.
 pub fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    use std::fmt::Write;
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        write!(s, "{:02x}", b).unwrap();
+    }
+    s
+}
+
+/// Check if the current user has admin role from the message metadata.
+pub fn is_admin(msg: &wafer_run::types::Message) -> bool {
+    msg.get_meta("auth.user_roles")
+        .split(',')
+        .any(|r| r.trim() == "admin")
 }
 
 /// Compute SHA-256 and return as hex string. Used for deterministic hashing (API keys, etc.).

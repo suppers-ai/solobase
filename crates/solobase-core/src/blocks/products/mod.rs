@@ -10,7 +10,7 @@ mod variables;
 mod tests;
 
 use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
-use crate::blocks::helpers::err_not_found;
+use crate::blocks::helpers::{self, err_not_found};
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
@@ -185,10 +185,7 @@ impl Block for ProductsBlock {
 
         // Settings save (POST to admin settings page)
         if action == "create" && path == "/b/products/admin/settings" {
-            let is_admin = msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin");
+            let is_admin = helpers::is_admin(&msg);
             if !is_admin {
                 return crate::ui::forbidden_response(&msg);
             }
@@ -200,10 +197,7 @@ impl Block for ProductsBlock {
             let sub = path.strip_prefix("/b/products").unwrap_or("/");
             // Admin pages under /b/products/admin/...
             if sub.starts_with("/admin") {
-                let is_admin = msg
-                    .get_meta("auth.user_roles")
-                    .split(',')
-                    .any(|r| r.trim() == "admin");
+                let is_admin = helpers::is_admin(&msg);
                 if !is_admin {
                     return crate::ui::forbidden_response(&msg);
                 }
@@ -239,10 +233,7 @@ impl Block for ProductsBlock {
 
         // Admin API at /b/products/api/admin/... → normalize to /admin/b/products/...
         if let Some(rest) = path.strip_prefix("/b/products/api/admin") {
-            let is_admin = msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin");
+            let is_admin = helpers::is_admin(&msg);
             if !is_admin {
                 return crate::ui::forbidden_response(&msg);
             }

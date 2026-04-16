@@ -17,8 +17,8 @@ license = "MIT"
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
-chrono = { version = "0.4", features = ["serde", "wasmbind"] }
+tokio = { version = "1", features = ["rt", "sync", "macros", "rt-multi-thread"] }
+chrono = { version = "0.4", default-features = false, features = ["serde", "std", "clock", "wasmbind"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry"] }
 opentelemetry = "0.27"
@@ -36,3 +36,14 @@ opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
+
+[workspace.lints.clippy]
+redundant_clone = "warn"
+large_enum_variant = "warn"
+needless_collect = "warn"
+uninlined_format_args = "warn"
+cloned_instead_of_copied = "warn"
+manual_let_else = "warn"
+
+[workspace.lints.rust]
+unused_must_use = "warn"

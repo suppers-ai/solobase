@@ -45,7 +45,7 @@ wafer-block-s3 = { path = "../../../wafer-run/crates/wafer-block-s3", optional =
 wafer-block-postgres = { path = "../../../wafer-run/crates/wafer-block-postgres", optional = true }
 
 # Async runtime
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 
 # Observability
 tracing = { workspace = true }
@@ -73,3 +73,6 @@ chrono = { workspace = true }
 
 # Utils
 uuid = { workspace = true }
+
+[lints]
+workspace = true

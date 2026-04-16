@@ -1,8 +1,8 @@
 use super::AuthBlock;
 use super::API_KEYS_COLLECTION;
 use crate::blocks::helpers::{
-    err_bad_request, err_forbidden, err_internal, err_not_found, hex_encode, ok_json, sha256_hex,
-    RecordExt,
+    self, err_bad_request, err_forbidden, err_internal, err_not_found, hex_encode, ok_json,
+    sha256_hex, RecordExt,
 };
 use std::collections::HashMap;
 use wafer_core::clients::crypto;
@@ -133,10 +133,7 @@ impl AuthBlock {
         };
         let key_owner = key.str_field("user_id");
         if key_owner != user_id
-            && !msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin")
+            && !helpers::is_admin(msg)
         {
             return err_forbidden("Cannot revoke another user's API key");
         }
@@ -169,10 +166,7 @@ impl AuthBlock {
         };
         let key_owner = key.str_field("user_id");
         if key_owner != user_id
-            && !msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin")
+            && !helpers::is_admin(msg)
         {
             return err_forbidden("Cannot delete another user's API key");
         }

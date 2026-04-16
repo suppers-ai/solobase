@@ -16,7 +16,7 @@ use wafer_core::interfaces::logger::service::LoggerService;
 use wafer_core::interfaces::network::service::NetworkService;
 use wafer_core::interfaces::storage::service::StorageService;
 use wafer_run::block::Block;
-use wafer_run::Wafer;
+use wafer_run::{RuntimeError, Wafer};
 
 use solobase_core::blocks::router::{NativeBlockFactory, SolobaseRouterBlock};
 
@@ -92,7 +92,7 @@ impl SolobaseBuilder {
         self
     }
 
-    pub fn build(self) -> Result<(Wafer, Arc<SolobaseStorageBlock>), String> {
+    pub fn build(self) -> Result<(Wafer, Arc<SolobaseStorageBlock>), RuntimeError> {
         // 1. Validate required services
         let database = self.database.ok_or("database service required")?;
         let storage = self.storage.ok_or("storage service required")?;
@@ -148,7 +148,7 @@ impl SolobaseBuilder {
         let shared_blocks = solobase_core::blocks::create_blocks(|name| {
             self.block_settings.is_enabled(name)
         });
-        solobase_core::blocks::register_shared_blocks(&mut wafer, &shared_blocks);
+        solobase_core::blocks::register_shared_blocks(&mut wafer, &shared_blocks)?;
 
         // 7. Email block (always on, not feature-gated)
         wafer.register_block(

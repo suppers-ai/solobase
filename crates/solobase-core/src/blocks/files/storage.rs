@@ -7,7 +7,7 @@ use wafer_run::types::*;
 use wafer_run::{InputStream, OutputStream};
 
 use crate::blocks::helpers::{
-    err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, ResponseBuilder,
+    self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, ResponseBuilder,
 };
 
 use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION as OBJECTS_META_COLLECTION};
@@ -75,10 +75,7 @@ fn extract_object_key(path: &str) -> &str {
 /// Check if the current user owns the given bucket (or is admin).
 /// Returns true if access is denied.
 async fn is_bucket_access_denied(ctx: &dyn Context, msg: &Message, bucket: &str) -> bool {
-    let is_admin = msg
-        .get_meta("auth.user_roles")
-        .split(',')
-        .any(|r| r.trim() == "admin");
+    let is_admin = helpers::is_admin(msg);
     if is_admin {
         return false;
     }
@@ -120,10 +117,7 @@ fn is_valid_bucket_name(name: &str) -> bool {
 async fn handle_list_buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // Only show buckets owned by the current user (or all for admin)
     let user_id = msg.user_id();
-    let is_admin = msg
-        .get_meta("auth.user_roles")
-        .split(',')
-        .any(|r| r.trim() == "admin");
+    let is_admin = helpers::is_admin(msg);
     if is_admin {
         match store::list_folders(ctx).await {
             Ok(folders) => ok_json(&serde_json::json!({"buckets": folders})),

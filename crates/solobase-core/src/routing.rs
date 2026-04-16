@@ -11,6 +11,7 @@ use wafer_run::context::Context;
 use wafer_run::types::*;
 use wafer_run::{InputStream, OutputStream};
 
+use crate::blocks::helpers;
 use crate::features::FeatureConfig;
 
 /// Block identifier for the routing table.
@@ -212,12 +213,7 @@ pub async fn route_to_block(
         }
 
         // Admin gate
-        if route.requires_admin
-            && !msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin")
-        {
+        if route.requires_admin && !helpers::is_admin(&msg) {
             return crate::ui::forbidden_response(&msg);
         }
 

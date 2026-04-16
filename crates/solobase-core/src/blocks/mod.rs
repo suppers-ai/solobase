@@ -81,12 +81,12 @@ pub fn create_blocks(filter: impl Fn(&str) -> bool) -> HashMap<BlockId, Arc<dyn 
 ///
 /// This registers the blocks for lifecycle hooks (Init, Shutdown) and
 /// for `ctx.call_block("suppers-ai/...", ...)` calls.
-pub fn register_shared_blocks(w: &mut wafer_run::Wafer, blocks: &HashMap<BlockId, Arc<dyn Block>>) {
+pub fn register_shared_blocks(w: &mut wafer_run::Wafer, blocks: &HashMap<BlockId, Arc<dyn Block>>) -> Result<(), wafer_run::RuntimeError> {
     for (&id, block) in blocks {
         let name = block_id_to_name(id);
-        w.register_block(format!("suppers-ai/{name}"), block.clone())
-            .expect("register solobase block");
+        w.register_block(format!("suppers-ai/{name}"), block.clone())?;
     }
+    Ok(())
 }
 
 fn block_id_to_name(id: BlockId) -> &'static str {

@@ -485,10 +485,7 @@ impl Block for ProviderLlmBlock {
             || path == "/b/provider-llm/admin"
             || path == "/b/provider-llm/admin/";
         if needs_admin {
-            let is_admin = msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin");
+            let is_admin = helpers::is_admin(&msg);
             if !is_admin {
                 return crate::ui::forbidden_response(&msg);
             }

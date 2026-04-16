@@ -1,4 +1,4 @@
-use super::helpers::{parse_form_body, stamp_updated, RecordExt};
+use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
 use crate::blocks::helpers::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json};
 use crate::ui::{self, components, icons, sidebar::nav_icon, NavItem, SiteConfig, UserInfo};
 use maud::{html, PreEscaped};
@@ -86,11 +86,7 @@ impl Block for UserPortalBlock {
 
         // Admin routes — require admin role
         if sub.starts_with("/admin/") {
-            if !msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin")
-            {
+            if !helpers::is_admin(&msg) {
                 return crate::ui::forbidden_response(&msg);
             }
             return self.handle_admin(ctx, msg, input, &action, &sub).await;

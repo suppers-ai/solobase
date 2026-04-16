@@ -6,7 +6,7 @@ use wafer_run::types::*;
 use wafer_run::{InputStream, OutputStream};
 
 use crate::blocks::helpers::{
-    err_bad_request, err_forbidden, err_internal, err_not_found, ok_json,
+    self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json,
 };
 
 use super::{ACCESS_LOGS_COLLECTION, BUCKETS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION};
@@ -87,10 +87,7 @@ async fn handle_create_share(
     }
 
     // Verify the user owns this bucket
-    let is_admin = msg
-        .get_meta("auth.user_roles")
-        .split(',')
-        .any(|r| r.trim() == "admin");
+    let is_admin = helpers::is_admin(&msg);
     if !is_admin {
         let user_id = msg.user_id();
         let opts = wafer_core::clients::database::ListOptions {
@@ -188,12 +185,7 @@ async fn handle_delete_share(ctx: &dyn Context, msg: &Message) -> OutputStream {
             .get("created_by")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if owner != msg.user_id()
-            && !msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin")
-        {
+        if owner != msg.user_id() && !helpers::is_admin(&msg) {
             return err_forbidden("Cannot delete another user's share");
         }
     }

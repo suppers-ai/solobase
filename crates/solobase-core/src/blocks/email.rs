@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use wafer_core::clients::config;
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
@@ -114,15 +115,20 @@ async fn handle_send_template(ctx: &dyn Context, input: InputStream) -> OutputSt
         Err(e) => return err_bad_request(&format!("invalid email.send_template: {e}")),
     };
 
+    let base_url = config::get_default(ctx, "SOLOBASE_SHARED__FRONTEND_URL", "http://localhost:5173").await;
+    let site_url = config::get_default(ctx, "SOLOBASE_SHARED__SITE_URL", "https://solobase.dev").await;
+    let app_name = config::get_default(ctx, "SOLOBASE_SHARED__APP_NAME", "Solobase").await;
+
     let (subject, html, text) = match req.template.as_str() {
         "verification" => {
             let token = req.token.as_deref().unwrap_or("");
             let url = format!(
-                "https://cloud.solobase.dev/b/auth/api/verify?token={}",
+                "{}/b/auth/api/verify?token={}",
+                base_url,
                 url_encode(token)
             );
             (
-                "Verify your Solobase email".to_string(),
+                format!("Verify your {app_name} email"),
                 format!(
                     r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#1e293b">Verify your email</h2>
@@ -131,17 +137,18 @@ async fn handle_send_template(ctx: &dyn Context, input: InputStream) -> OutputSt
 <p style="color:#94a3b8;font-size:0.813rem">If you didn't create an account, you can ignore this email.</p>
 </div>"#
                 ),
-                format!("Verify your Solobase email: {url}"),
+                format!("Verify your {app_name} email: {url}"),
             )
         }
         "password_reset" => {
             let token = req.token.as_deref().unwrap_or("");
             let url = format!(
-                "https://cloud.solobase.dev/b/auth/reset-password?token={}",
+                "{}/b/auth/reset-password?token={}",
+                base_url,
                 url_encode(token)
             );
             (
-                "Reset your Solobase password".to_string(),
+                format!("Reset your {app_name} password"),
                 format!(
                     r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#1e293b">Reset your password</h2>
@@ -150,23 +157,24 @@ async fn handle_send_template(ctx: &dyn Context, input: InputStream) -> OutputSt
 <p style="color:#94a3b8;font-size:0.813rem">If you didn't request a password reset, you can ignore this email.</p>
 </div>"#
                 ),
-                format!("Reset your Solobase password: {url}"),
+                format!("Reset your {app_name} password: {url}"),
             )
         }
         "payment_failed" => {
             let days = req.days_remaining.unwrap_or(7);
+            let settings_url = format!("{base_url}/b/admin/#settings");
             (
-                "Solobase: Payment failed — action required".to_string(),
+                format!("{app_name}: Payment failed — action required"),
                 format!(
                     r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#dc2626">Payment failed</h2>
 <p style="color:#64748b;line-height:1.6">We were unable to process your subscription payment. Your service will remain active for <strong>{days} more days</strong>. After that, your projects will be suspended.</p>
-<a href="https://cloud.solobase.dev/b/admin/#settings" style="display:inline-block;background:#dc2626;color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">Update Payment Method</a>
+<a href="{settings_url}" style="display:inline-block;background:#dc2626;color:white;padding:0.75rem 1.5rem;border-radius:8px;text-decoration:none;font-weight:600;margin:1rem 0">Update Payment Method</a>
 <p style="color:#94a3b8;font-size:0.813rem">If you've already updated your payment method, you can ignore this email.</p>
 </div>"#
                 ),
                 format!(
-                    "Your Solobase payment failed. Update your payment method within {} days.",
+                    "Your {app_name} payment failed. Update your payment method within {} days.",
                     days
                 ),
             )
@@ -178,20 +186,23 @@ async fn handle_send_template(ctx: &dyn Context, input: InputStream) -> OutputSt
             } else {
                 format!("Welcome, {}!", name)
             };
+            let pricing_url = format!("{site_url}/pricing/");
+            let dashboard_url = format!("{base_url}/b/admin/");
+            let docs_url = format!("{site_url}/docs/");
             (
-                "Welcome to Solobase!".to_string(),
+                format!("Welcome to {app_name}!"),
                 format!(
                     r#"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:500px;margin:0 auto;padding:2rem">
 <h2 style="color:#1e293b">{greeting}</h2>
-<p style="color:#64748b;line-height:1.6">Your Solobase account is ready. Here's how to get started:</p>
+<p style="color:#64748b;line-height:1.6">Your {app_name} account is ready. Here's how to get started:</p>
 <ol style="color:#64748b;line-height:1.8">
-<li>Choose a plan on the <a href="https://solobase.dev/pricing/" style="color:#0ea5e9">pricing page</a></li>
-<li>Create your first project from the <a href="https://cloud.solobase.dev/b/admin/" style="color:#0ea5e9">dashboard</a></li>
-<li>Read the <a href="https://solobase.dev/docs/" style="color:#0ea5e9">documentation</a></li>
+<li>Choose a plan on the <a href="{pricing_url}" style="color:#0ea5e9">pricing page</a></li>
+<li>Create your first project from the <a href="{dashboard_url}" style="color:#0ea5e9">dashboard</a></li>
+<li>Read the <a href="{docs_url}" style="color:#0ea5e9">documentation</a></li>
 </ol>
 </div>"#
                 ),
-                "Welcome to Solobase! Get started: https://cloud.solobase.dev/b/admin/".to_string(),
+                format!("Welcome to {app_name}! Get started: {dashboard_url}"),
             )
         }
         other => {
@@ -215,14 +226,14 @@ async fn send_email(
     text: Option<&str>,
 ) -> bool {
     let api_key =
-        wafer_core::clients::config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_API_KEY", "")
+        config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_API_KEY", "")
             .await;
     let domain =
-        wafer_core::clients::config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_DOMAIN", "")
+        config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_DOMAIN", "")
             .await;
     let from = {
         let f =
-            wafer_core::clients::config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_FROM", "")
+            config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_FROM", "")
                 .await;
         if f.is_empty() {
             format!("Solobase <noreply@{domain}>")
@@ -244,7 +255,7 @@ async fn send_email(
         format!("html={}", url_encode(html)),
     ];
     let reply_to =
-        wafer_core::clients::config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO", "")
+        config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO", "")
             .await;
     if !reply_to.is_empty() {
         parts.push(format!("h:Reply-To={}", url_encode(&reply_to)));

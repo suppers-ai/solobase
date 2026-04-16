@@ -3,7 +3,7 @@ pub mod pages;
 pub mod rest;
 pub mod service;
 
-use crate::blocks::helpers::err_not_found;
+use crate::blocks::helpers::{self, err_not_found};
 use crate::ui;
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
@@ -198,10 +198,7 @@ impl Block for MessagesBlock {
 
         // UI pages require admin role
         if !is_api {
-            let is_admin = msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin");
+            let is_admin = helpers::is_admin(&msg);
             if !is_admin {
                 return ui::forbidden_response(&msg);
             }

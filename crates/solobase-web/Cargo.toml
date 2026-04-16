@@ -55,6 +55,9 @@ sha2 = "0.10"
 hmac = "0.12"
 base64ct = { version = "1", features = ["alloc"] }
 
+[lints]
+workspace = true
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
 # uuid v4 needs a JS RNG source on wasm32

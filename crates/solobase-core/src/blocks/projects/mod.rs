@@ -2,7 +2,7 @@ mod handlers;
 mod pages;
 
 use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
-use crate::blocks::helpers::err_not_found;
+use crate::blocks::helpers::{self, err_not_found};
 use crate::ui;
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
@@ -101,10 +101,7 @@ impl Block for ProjectsBlock {
 
         // SSR pages — admin UI at /b/projects/admin/
         if path.starts_with("/b/projects/admin") {
-            let is_admin = msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin");
+            let is_admin = helpers::is_admin(&msg);
             if !is_admin {
                 return ui::forbidden_response(&msg);
             }
@@ -120,10 +117,7 @@ impl Block for ProjectsBlock {
 
         // Admin API at /b/projects/api/admin/... → normalize to /admin/b/projects/...
         if let Some(rest) = path.strip_prefix("/b/projects/api/admin") {
-            let is_admin = msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin");
+            let is_admin = helpers::is_admin(&msg);
             if !is_admin {
                 return ui::forbidden_response(&msg);
             }

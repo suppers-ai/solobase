@@ -1,7 +1,5 @@
 use super::{PURCHASES_COLLECTION, SUBSCRIPTIONS};
 use crate::blocks::helpers::hex_encode;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
 use std::collections::HashMap;
 use wafer_core::clients::{config, database as db, network};
 use wafer_core::interfaces::database::service::{Filter, FilterOp, ListOptions};
@@ -558,7 +556,7 @@ async fn fire_products_webhook(ctx: &dyn Context, event: &str, data: &serde_json
 
     // Sign with HMAC-SHA256 (same pattern as Stripe webhook verification)
     let signature = if !secret.is_empty() {
-        let sig = hmac_sha256(secret.as_bytes(), &payload);
+        let sig = hmac_sha256_local(secret.as_bytes(), &payload);
         format!("sha256={}", hex_encode(&sig))
     } else {
         String::new()
@@ -603,8 +601,6 @@ pub(super) fn urlencoding(s: &str) -> String {
 /// Verify Stripe webhook signature using HMAC-SHA256.
 /// Stripe sends `t=timestamp,v1=signature` in the Stripe-Signature header.
 fn verify_stripe_signature(payload: &[u8], sig_header: &str, secret: &str) -> bool {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     let mut timestamp = "";
     let mut expected_sig = "";
 
@@ -623,10 +619,7 @@ fn verify_stripe_signature(payload: &[u8], sig_header: &str, secret: &str) -> bo
 
     // Reject events with timestamps older than 5 minutes (replay protection)
     if let Ok(ts) = timestamp.parse::<u64>() {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = chrono::Utc::now().timestamp() as u64;
         if now.abs_diff(ts) > 300 {
             return false;
         }
@@ -640,29 +633,15 @@ fn verify_stripe_signature(payload: &[u8], sig_header: &str, secret: &str) -> bo
     // Use ring or hmac crate if available; fallback to manual HMAC-SHA256
     // For now, use the crypto service pattern — but since we don't have it here,
     // implement a constant-time comparison with the sha2/hmac approach
-    let computed = hmac_sha256(secret.as_bytes(), signed_payload.as_bytes());
+    let computed = hmac_sha256_local(secret.as_bytes(), signed_payload.as_bytes());
     let computed_hex = hex_encode(&computed);
 
     // Constant-time comparison
-    constant_time_eq(computed_hex.as_bytes(), expected_sig.as_bytes())
+    crate::crypto::constant_time_eq(computed_hex.as_bytes(), expected_sig.as_bytes())
 }
 
-fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
-    type HmacSha256 = Hmac<Sha256>;
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC key");
-    mac.update(data);
-    mac.finalize().into_bytes().into()
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut result = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        result |= x ^ y;
-    }
-    result == 0
+fn hmac_sha256_local(key: &[u8], data: &[u8]) -> Vec<u8> {
+    crate::crypto::hmac_sha256(data, key).unwrap_or_default()
 }
 
 /// Check if a user owns a product — either via an active subscription that
@@ -772,57 +751,52 @@ mod tests {
 
     #[test]
     fn test_constant_time_eq_equal() {
-        assert!(constant_time_eq(b"hello", b"hello"));
-        assert!(constant_time_eq(b"", b""));
+        assert!(crate::crypto::constant_time_eq(b"hello", b"hello"));
+        assert!(crate::crypto::constant_time_eq(b"", b""));
     }
 
     #[test]
     fn test_constant_time_eq_not_equal() {
-        assert!(!constant_time_eq(b"hello", b"world"));
-        assert!(!constant_time_eq(b"hello", b"hell"));
-        assert!(!constant_time_eq(b"a", b"b"));
+        assert!(!crate::crypto::constant_time_eq(b"hello", b"world"));
+        assert!(!crate::crypto::constant_time_eq(b"hello", b"hell"));
+        assert!(!crate::crypto::constant_time_eq(b"a", b"b"));
     }
 
     #[test]
     fn test_constant_time_eq_different_lengths() {
-        assert!(!constant_time_eq(b"short", b"longer"));
-        assert!(!constant_time_eq(b"", b"x"));
+        assert!(!crate::crypto::constant_time_eq(b"short", b"longer"));
+        assert!(!crate::crypto::constant_time_eq(b"", b"x"));
     }
 
     #[test]
     fn test_hmac_sha256_deterministic() {
-        let hash1 = hmac_sha256(b"secret", b"payload");
-        let hash2 = hmac_sha256(b"secret", b"payload");
+        let hash1 = hmac_sha256_local(b"secret", b"payload");
+        let hash2 = hmac_sha256_local(b"secret", b"payload");
         assert_eq!(hash1, hash2);
     }
 
     #[test]
     fn test_hmac_sha256_different_keys() {
-        let hash1 = hmac_sha256(b"key1", b"data");
-        let hash2 = hmac_sha256(b"key2", b"data");
+        let hash1 = hmac_sha256_local(b"key1", b"data");
+        let hash2 = hmac_sha256_local(b"key2", b"data");
         assert_ne!(hash1, hash2);
     }
 
     #[test]
     fn test_hmac_sha256_different_data() {
-        let hash1 = hmac_sha256(b"key", b"data1");
-        let hash2 = hmac_sha256(b"key", b"data2");
+        let hash1 = hmac_sha256_local(b"key", b"data1");
+        let hash2 = hmac_sha256_local(b"key", b"data2");
         assert_ne!(hash1, hash2);
     }
 
     #[test]
     fn test_verify_stripe_signature_valid() {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
         let secret = "whsec_test_secret";
         let payload = b"{\"type\":\"checkout.session.completed\"}";
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = chrono::Utc::now().timestamp() as u64;
 
         let signed_payload = format!("{}.{}", timestamp, String::from_utf8_lossy(payload));
-        let computed = hmac_sha256(secret.as_bytes(), signed_payload.as_bytes());
+        let computed = hmac_sha256_local(secret.as_bytes(), signed_payload.as_bytes());
         let computed_hex = hex_encode(&computed);
 
         let sig_header = format!("t={},v1={}", timestamp, computed_hex);
@@ -832,12 +806,7 @@ mod tests {
 
     #[test]
     fn test_verify_stripe_signature_invalid_sig() {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = chrono::Utc::now().timestamp() as u64;
 
         let sig_header = format!(
             "t={},v1=0000000000000000000000000000000000000000000000000000000000000000",
@@ -854,7 +823,7 @@ mod tests {
         let old_timestamp = 1000000; // way in the past
 
         let signed_payload = format!("{}.{}", old_timestamp, String::from_utf8_lossy(payload));
-        let computed = hmac_sha256(secret.as_bytes(), signed_payload.as_bytes());
+        let computed = hmac_sha256_local(secret.as_bytes(), signed_payload.as_bytes());
         let computed_hex = hex_encode(&computed);
 
         let sig_header = format!("t={},v1={}", old_timestamp, computed_hex);

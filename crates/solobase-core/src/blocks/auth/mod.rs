@@ -510,21 +510,13 @@ impl Block for AuthBlock {
         match (action.as_str(), path.as_str()) {
             // ── Admin settings ───────────────────────────────────────
             ("retrieve", "/auth/admin/settings") => {
-                if !msg
-                    .get_meta("auth.user_roles")
-                    .split(',')
-                    .any(|r| r.trim() == "admin")
-                {
+                if !crate::blocks::helpers::is_admin(&msg) {
                     return crate::ui::forbidden_response(&msg);
                 }
                 pages::settings_page(ctx, &msg).await
             }
             ("create", "/auth/admin/settings") => {
-                if !msg
-                    .get_meta("auth.user_roles")
-                    .split(',')
-                    .any(|r| r.trim() == "admin")
-                {
+                if !crate::blocks::helpers::is_admin(&msg) {
                     return crate::ui::forbidden_response(&msg);
                 }
                 pages::handle_save_settings(ctx, input).await

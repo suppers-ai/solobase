@@ -90,15 +90,20 @@ pub async fn request_to_message(
     let raw_query = if search.starts_with('?') {
         search[1..].to_string()
     } else {
-        search.clone()
+        search
     };
 
     // Read body bytes via ArrayBuffer.
+    const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10MB
     let body: Vec<u8> = {
         let promise = request.array_buffer()?;
         let ab_val = JsFuture::from(promise).await?;
         let ab: ArrayBuffer = ab_val.dyn_into()?;
-        Uint8Array::new(&ab).to_vec()
+        let arr = Uint8Array::new(&ab);
+        if arr.length() as usize > MAX_BODY_SIZE {
+            return Err(JsValue::from_str("Request body too large"));
+        }
+        arr.to_vec()
     };
 
     let mut msg = Message::new(format!("{}:{}", method, path));

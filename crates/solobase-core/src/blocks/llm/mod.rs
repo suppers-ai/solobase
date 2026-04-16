@@ -562,10 +562,7 @@ impl Block for LlmBlock {
 
         // UI pages require admin role
         if !is_api {
-            let is_admin = msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin");
+            let is_admin = helpers::is_admin(&msg);
             if !is_admin {
                 return crate::ui::forbidden_response(&msg);
             }

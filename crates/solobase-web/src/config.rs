@@ -95,7 +95,12 @@ fn seed_auto_generated() {
 
         // Generate a random 32-byte hex secret
         let mut bytes = [0u8; 32];
-        getrandom::getrandom(&mut bytes).expect("getrandom failed");
+        if let Err(e) = getrandom::getrandom(&mut bytes) {
+            web_sys::console::warn_1(
+                &format!("solobase: getrandom failed for {}: {e}", var.key).into(),
+            );
+            continue;
+        }
         let secret: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
 
         let id = format!("var_{}", uuid::Uuid::new_v4());

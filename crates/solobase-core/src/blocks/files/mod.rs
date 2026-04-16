@@ -13,7 +13,7 @@ pub(crate) const QUOTAS_COLLECTION: &str = "suppers_ai__files__cloud_quotas";
 pub(crate) const VIEWS_COLLECTION: &str = "suppers_ai__files__views";
 
 use super::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter};
-use crate::blocks::helpers::err_not_found;
+use crate::blocks::helpers::{self, err_not_found};
 use wafer_run::block::{Block, BlockInfo};
 use wafer_run::context::Context;
 use wafer_run::types::*;
@@ -109,10 +109,7 @@ impl Block for FilesBlock {
 
         // Admin SSR pages at /b/storage/admin/...
         if path.starts_with("/b/storage/admin") && msg.action() == "retrieve" {
-            let is_admin = msg
-                .get_meta("auth.user_roles")
-                .split(',')
-                .any(|r| r.trim() == "admin");
+            let is_admin = helpers::is_admin(&msg);
             if !is_admin {
                 return crate::ui::forbidden_response(&msg);
             }

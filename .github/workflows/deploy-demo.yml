@@ -32,7 +32,7 @@ jobs:
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
-          deploy_key: ${{ secrets.DEMO_DEPLOY_KEY }}
+          personal_token: ${{ secrets.DEMO_PAT }}
           external_repository: suppers-ai/solobase-demo
           publish_branch: gh-pages
           publish_dir: crates/solobase-web/pkg

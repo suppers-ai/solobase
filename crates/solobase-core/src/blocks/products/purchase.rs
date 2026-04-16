@@ -10,7 +10,7 @@ use wafer_sql_utils::value::sea_values_to_json;
 use wafer_sql_utils::Backend;
 
 use crate::blocks::helpers::{
-    err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
+    self, err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
 };
 
 pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -303,10 +303,7 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // Verify access: user can only view their own, admin can view all
     let purchase_user = purchase.str_field("user_id");
     if purchase_user != msg.user_id()
-        && !msg
-            .get_meta("auth.user_roles")
-            .split(',')
-            .any(|r| r.trim() == "admin")
+        && !helpers::is_admin(msg)
     {
         return err_forbidden("Access denied");
     }

@@ -7,14 +7,14 @@
 
 pub mod site_main;
 
-use wafer_run::Wafer;
+use wafer_run::{RuntimeError, Wafer};
 
 /// Register the site-main flow (used with suppers-ai/router).
 ///
 /// # Panics
 /// This function is called during startup. If the embedded flow JSON is invalid
 /// (which would be a build-time bug), it returns an error rather than panicking.
-pub fn register_site_main(w: &mut Wafer) -> Result<(), String> {
+pub fn register_site_main(w: &mut Wafer) -> Result<(), RuntimeError> {
     // Inject default routes into the router block config
     w.add_block_config(
         "wafer-run/router",
@@ -28,5 +28,4 @@ pub fn register_site_main(w: &mut Wafer) -> Result<(), String> {
     );
 
     w.add_flow_json(site_main::JSON)
-        .map_err(|e| format!("invalid flow JSON: {e}"))
 }
