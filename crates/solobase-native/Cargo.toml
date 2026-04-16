@@ -28,21 +28,21 @@ solobase = { path = "../solobase" }
 solobase-core = { path = "../solobase-core", default-features = false }
 
 # WAFER runtime
-wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false, features = ["full"] }
-wafer-core = { path = "../../../wafer-run/crates/wafer-core" }
+wafer-run = { workspace = true, features = ["full"] }
+wafer-core = { workspace = true }
 
 # Native service implementation crates
-wafer-block-sqlite = { path = "../../../wafer-run/crates/wafer-block-sqlite" }
-wafer-block-local-storage = { path = "../../../wafer-run/crates/wafer-block-local-storage" }
-wafer-block-config = { path = "../../../wafer-run/crates/wafer-block-config" }
-wafer-block-crypto = { path = "../../../wafer-run/crates/wafer-block-crypto" }
-wafer-block-network = { path = "../../../wafer-run/crates/wafer-block-network" }
-wafer-block-logger = { path = "../../../wafer-run/crates/wafer-block-logger" }
-wafer-block-http-listener = { path = "../../../wafer-run/crates/wafer-block-http-listener" }
+wafer-block-sqlite = { workspace = true }
+wafer-block-local-storage = { workspace = true }
+wafer-block-config = { workspace = true }
+wafer-block-crypto = { workspace = true }
+wafer-block-network = { workspace = true }
+wafer-block-logger = { workspace = true }
+wafer-block-http-listener = { workspace = true }
 
 # Optional backends
-wafer-block-s3 = { path = "../../../wafer-run/crates/wafer-block-s3", optional = true }
-wafer-block-postgres = { path = "../../../wafer-run/crates/wafer-block-postgres", optional = true }
+wafer-block-s3 = { workspace = true, optional = true }
+wafer-block-postgres = { workspace = true, optional = true }
 
 # Async runtime
 tokio = { workspace = true, features = ["full"] }

@@ -18,11 +18,11 @@ storage-s3 = ["dep:tokio"]
 
 [dependencies]
 # WAFER types (minimal — no full runtime)
-wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
+wafer-run = { workspace = true }
 # wafer-core for clients and interface traits
-wafer-core = { path = "../../../wafer-run/crates/wafer-core" }
+wafer-core = { workspace = true }
 # SQL utilities (query builders, value conversion)
-wafer-sql-utils = { path = "../../../wafer-run/crates/wafer-sql-utils" }
+wafer-sql-utils = { workspace = true }
 # SQL query builder (used via wafer-sql-utils, re-exported for complex conditions)
 sea-query = "0.32"
 

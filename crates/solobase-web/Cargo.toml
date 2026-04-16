@@ -26,9 +26,9 @@ serde_json = "1"
 chrono = { workspace = true }
 
 # WAFER runtime (no tokio, no wasmi, no reqwest)
-wafer-run = { path = "../../../wafer-run/crates/wafer-run", default-features = false }
-wafer-core = { path = "../../../wafer-run/crates/wafer-core" }
-wafer-block = { path = "../../../wafer-run/crates/wafer-block" }
+wafer-run = { workspace = true }
+wafer-core = { workspace = true }
+wafer-block = { workspace = true }
 
 # Solobase library (builder + flows + router)
 solobase = { path = "../solobase", default-features = false }
@@ -37,10 +37,10 @@ solobase = { path = "../solobase", default-features = false }
 solobase-core = { path = "../solobase-core", default-features = false }
 
 # Config service (needed for EnvConfigService::new() and ConfigService::set())
-wafer-block-config = { path = "../../../wafer-run/crates/wafer-block-config" }
+wafer-block-config = { workspace = true }
 
 # Crypto service (pure-Rust JWT via hmac+sha2+base64ct — wasm32-compatible, needed for BrowserCryptoService)
-wafer-block-crypto = { path = "../../../wafer-run/crates/wafer-block-crypto" }
+wafer-block-crypto = { workspace = true }
 
 # Async traits
 async-trait = "0.1"
