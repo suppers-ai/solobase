@@ -1,0 +1,39 @@
+name: Deploy Browser Demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/solobase-web/**'
+      - 'crates/solobase/**'
+      - 'crates/solobase-core/**'
+      - '.github/workflows/deploy-demo.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build WASM
+        run: cd crates/solobase-web && make build
+
+      - name: Add CNAME
+        run: echo "demo.solobase.dev" > crates/solobase-web/pkg/CNAME
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.DEMO_DEPLOY_KEY }}
+          external_repository: suppers-ai/solobase-demo
+          publish_branch: gh-pages
+          publish_dir: crates/solobase-web/pkg
+          force_orphan: true
