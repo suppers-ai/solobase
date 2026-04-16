@@ -1,15 +1,13 @@
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
-use crate::blocks::helpers::{
-    err_bad_request, err_internal, err_not_found, ok_json,
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
 };
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::VARIABLES_COLLECTION as COLLECTION;
+use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json};
 
 pub async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let mut filters = Vec::new();

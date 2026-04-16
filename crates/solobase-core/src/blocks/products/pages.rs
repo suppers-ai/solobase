@@ -1,16 +1,17 @@
 //! SSR pages for the products block (admin + user views).
 
-use crate::blocks::helpers::{ok_json, RecordExt};
-use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
 use maud::{html, Markup, PreEscaped};
-use wafer_core::clients::config;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_core::clients::{
+    config, database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::{GROUPS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION};
+use crate::{
+    blocks::helpers::{ok_json, RecordExt},
+    ui::{self, components, icons, NavItem, SiteConfig, UserInfo},
+};
 
 /// Admin nav items.
 fn products_admin_nav() -> Vec<NavItem> {

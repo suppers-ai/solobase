@@ -3,12 +3,17 @@ pub mod pages;
 pub mod rest;
 pub mod service;
 
-use crate::blocks::helpers::{self, err_not_found};
-use crate::ui;
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
+use crate::{
+    blocks::helpers::{self, err_not_found},
+    ui,
+};
 
 pub struct MessagesBlock;
 
@@ -16,8 +21,7 @@ pub struct MessagesBlock;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for MessagesBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new(
             "suppers-ai/messages",
@@ -180,12 +184,7 @@ impl Block for MessagesBlock {
         vec![wafer_run::UiRoute::authenticated("/")]
     }
 
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let action = msg.action().to_string();
         let path = msg.path().to_string();
         let is_api = path.contains("/api/");
@@ -237,14 +236,12 @@ impl Block for MessagesBlock {
 
             // Entries within a context
             ("retrieve", _)
-                if path.starts_with("/b/messages/api/contexts/")
-                    && path.ends_with("/entries") =>
+                if path.starts_with("/b/messages/api/contexts/") && path.ends_with("/entries") =>
             {
                 rest::list_entries(ctx, &msg).await
             }
             ("create", _)
-                if path.starts_with("/b/messages/api/contexts/")
-                    && path.ends_with("/entries") =>
+                if path.starts_with("/b/messages/api/contexts/") && path.ends_with("/entries") =>
             {
                 rest::add_entry(ctx, &msg, input).await
             }

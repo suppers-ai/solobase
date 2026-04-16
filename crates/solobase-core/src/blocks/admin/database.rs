@@ -1,10 +1,10 @@
 use wafer_core::clients::database as db;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use wafer_sql_utils::{introspect, Backend};
 
-use crate::blocks::helpers::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json};
+use crate::blocks::helpers::{
+    err_bad_request, err_forbidden, err_internal, err_not_found, ok_json,
+};
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
@@ -164,10 +164,7 @@ async fn handle_query(ctx: &dyn Context, input: InputStream) -> OutputStream {
             let after_ok =
                 after_pos >= upper.len() || !upper.as_bytes()[after_pos].is_ascii_alphanumeric();
             if before_ok && after_ok {
-                return err_forbidden(&format!(
-                    "{} is not allowed in read-only queries",
-                    keyword
-                ));
+                return err_forbidden(&format!("{} is not allowed in read-only queries", keyword));
             }
             start = abs_pos + kw.len();
         }

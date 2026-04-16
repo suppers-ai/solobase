@@ -1,16 +1,13 @@
-use super::helpers::*;
-use super::{AuthBlock, USERS_COLLECTION};
+use std::{collections::HashMap, time::Duration};
+
+use sha2::{Digest, Sha256};
+use wafer_core::clients::{config, crypto, database as db, network};
+use wafer_run::{context::Context, types::*, OutputStream};
+
+use super::{helpers::*, AuthBlock, USERS_COLLECTION};
 use crate::blocks::helpers::{
     err_bad_request, err_forbidden, err_internal, json_map, ok_json, RecordExt, ResponseBuilder,
 };
-use sha2::{Digest, Sha256};
-use std::collections::HashMap;
-use std::time::Duration;
-use wafer_core::clients::database as db;
-use wafer_core::clients::{config, crypto, network};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
 
 /// Generate a PKCE code verifier (43-128 chars, URL-safe).
 fn generate_pkce_verifier() -> Result<String, String> {
@@ -67,10 +64,7 @@ impl AuthBlock {
         let client_id = match config::get(ctx, &client_id_key).await {
             Ok(id) => id,
             Err(_) => {
-                return err_bad_request(&format!(
-                    "OAuth provider '{}' not configured",
-                    provider
-                ))
+                return err_bad_request(&format!("OAuth provider '{}' not configured", provider))
             }
         };
 
@@ -351,9 +345,7 @@ impl AuthBlock {
                     let email_domain = email.split_once('@').map(|x| x.1).unwrap_or("");
                     let allowed = allowed_domains.split(',').any(|d| d.trim() == email_domain);
                     if !allowed {
-                        return err_forbidden(
-                            "Signups from this email domain are not allowed",
-                        );
+                        return err_forbidden("Signups from this email domain are not allowed");
                     }
                 }
 

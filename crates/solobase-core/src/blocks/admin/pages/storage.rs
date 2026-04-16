@@ -1,16 +1,15 @@
-use crate::ui::{components, icons, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
-use wafer_sql_utils::value::sea_values_to_json;
-use wafer_sql_utils::{query, Backend};
+use wafer_run::{context::Context, types::*, OutputStream};
+use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
 
 use super::admin_page;
-use crate::blocks::admin::{
-    STORAGE_ACCESS_LOGS_COLLECTION as STORAGE_ACCESS_LOGS,
-    STORAGE_RULES_COLLECTION as STORAGE_RULES,
+use crate::{
+    blocks::admin::{
+        STORAGE_ACCESS_LOGS_COLLECTION as STORAGE_ACCESS_LOGS,
+        STORAGE_RULES_COLLECTION as STORAGE_RULES,
+    },
+    ui::{components, icons, SiteConfig, UserInfo},
 };
 
 pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -78,7 +77,10 @@ async fn storage_logs_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
         STORAGE_ACCESS_LOGS,
         &["source_block", "operation", "path", "status", "created_at"],
         &ListOptions {
-            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            sort: vec![SortField {
+                field: "created_at".into(),
+                desc: true,
+            }],
             limit: 100,
             ..Default::default()
         },

@@ -1,13 +1,18 @@
 mod handlers;
 mod pages;
 
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
 use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
-use crate::blocks::helpers::{self, err_not_found};
-use crate::ui;
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use crate::{
+    blocks::helpers::{self, err_not_found},
+    ui,
+};
 
 pub(crate) const PROJECTS_COLLECTION: &str = "suppers_ai__projects__deployments";
 
@@ -33,8 +38,7 @@ impl ProjectsBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for ProjectsBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/projects", "0.0.1", "http-handler@v1", "Project management for users and admins")
             .instance_mode(InstanceMode::Singleton)

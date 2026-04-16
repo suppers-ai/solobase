@@ -1,15 +1,19 @@
 pub mod pages;
 
+use wafer_core::clients::{
+    config, database as db,
+    database::{Filter, FilterOp, ListOptions},
+};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
 use crate::blocks::helpers::{
     self, err_bad_request, err_internal, err_not_found, json_map, ok_json,
 };
-use wafer_core::clients::config;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
 pub struct LlmBlock;
 
@@ -204,21 +208,31 @@ impl LlmBlock {
 
         // 3. Determine provider and model
         // Priority: per-thread override → request override → default config
-        let (provider_block, model) =
-            self.resolve_provider(ctx, &thread_id, body.provider.as_deref(), body.model.as_deref())
-                .await;
+        let (provider_block, model) = self
+            .resolve_provider(
+                ctx,
+                &thread_id,
+                body.provider.as_deref(),
+                body.model.as_deref(),
+            )
+            .await;
 
         // Need a default provider_id — look up first enabled provider from provider-llm
         let provider_id = self.get_default_provider_id(ctx).await;
 
         // 4. Call provider
-        let (content, actual_model) =
-            match provider_chat(ctx, &provider_block, provider_messages, &model, &provider_id)
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => return err_internal(&format!("Provider error: {e}")),
-            };
+        let (content, actual_model) = match provider_chat(
+            ctx,
+            &provider_block,
+            provider_messages,
+            &model,
+            &provider_id,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => return err_internal(&format!("Provider error: {e}")),
+        };
 
         // 5. Write assistant response to messages block
         let saved = messages_create(ctx, msg, &thread_id, "assistant", &content).await;
@@ -270,7 +284,8 @@ impl LlmBlock {
             .or_else(|| req_model.map(|s| s.to_string()))
             .unwrap_or_default();
 
-        let default_provider = config::get_default(ctx, DEFAULT_PROVIDER_VAR, DEFAULT_PROVIDER).await;
+        let default_provider =
+            config::get_default(ctx, DEFAULT_PROVIDER_VAR, DEFAULT_PROVIDER).await;
         let default_model = config::get_default(ctx, DEFAULT_MODEL_VAR, "").await;
 
         let final_provider = if provider_block.is_empty() {
@@ -323,7 +338,12 @@ impl LlmBlock {
             ..Default::default()
         };
         match db::list(ctx, PROVIDERS_COLLECTION, &opts).await {
-            Ok(r) => r.records.into_iter().next().map(|rec| rec.id).unwrap_or_default(),
+            Ok(r) => r
+                .records
+                .into_iter()
+                .next()
+                .map(|rec| rec.id)
+                .unwrap_or_default(),
             Err(_) => String::new(),
         }
     }
@@ -340,11 +360,7 @@ impl LlmBlock {
         }))
     }
 
-    async fn handle_post_config(
-        &self,
-        ctx: &dyn Context,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn handle_post_config(&self, ctx: &dyn Context, input: InputStream) -> OutputStream {
         #[derive(serde::Deserialize)]
         struct ConfigUpdate {
             thread_id: Option<String>,
@@ -477,8 +493,7 @@ impl LlmBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for LlmBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new(
             "suppers-ai/llm",
@@ -533,8 +548,12 @@ impl Block for LlmBlock {
                 DEFAULT_PROVIDER,
             )
             .name("Default Provider"),
-            ConfigVar::new(DEFAULT_MODEL_VAR, "Default model to use (empty = provider default)", "")
-                .name("Default Model"),
+            ConfigVar::new(
+                DEFAULT_MODEL_VAR,
+                "Default model to use (empty = provider default)",
+                "",
+            )
+            .name("Default Model"),
         ])
         .can_disable(true)
         .default_enabled(true)
@@ -544,12 +563,7 @@ impl Block for LlmBlock {
         vec![wafer_run::UiRoute::authenticated("/")]
     }
 
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let action = msg.action();
         let path = msg.path();
         let is_api = path.contains("/api/");
@@ -570,9 +584,7 @@ impl Block for LlmBlock {
 
         match (action, path) {
             // UI pages
-            ("retrieve", "/b/llm/") | ("retrieve", "/b/llm") => {
-                pages::chat_page(ctx, &msg).await
-            }
+            ("retrieve", "/b/llm/") | ("retrieve", "/b/llm") => pages::chat_page(ctx, &msg).await,
             ("retrieve", _) if path.starts_with("/b/llm/threads/") => {
                 pages::thread_page(ctx, &msg).await
             }

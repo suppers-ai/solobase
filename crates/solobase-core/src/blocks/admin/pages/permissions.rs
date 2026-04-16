@@ -1,17 +1,14 @@
-use crate::ui::{components, icons, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database as db;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
+use wafer_run::{context::Context, types::*, OutputStream};
 
-use super::admin_page;
-use super::network::network_rules_tab;
-use super::storage::storage_rules_tab;
-use crate::blocks::admin::{
-    NETWORK_RULES_COLLECTION as NETWORK_RULES,
-    STORAGE_RULES_COLLECTION as STORAGE_RULES,
-    WRAP_GRANTS_COLLECTION as WRAP_GRANTS,
+use super::{admin_page, network::network_rules_tab, storage::storage_rules_tab};
+use crate::{
+    blocks::admin::{
+        NETWORK_RULES_COLLECTION as NETWORK_RULES, STORAGE_RULES_COLLECTION as STORAGE_RULES,
+        WRAP_GRANTS_COLLECTION as WRAP_GRANTS,
+    },
+    ui::{components, icons, SiteConfig, UserInfo},
 };
 
 pub async fn grants_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -428,10 +425,7 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
             } else {
                 "can read"
             };
-            let sentence = format!(
-                "{} {} {}' {}",
-                grantee, verb, block.name, grant.resource
-            );
+            let sentence = format!("{} {} {}' {}", grantee, verb, block.name, grant.resource);
             all_rows.push((type_label, sentence, "code".into(), block.name.clone(), 1));
         }
     }
@@ -514,11 +508,7 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
             .get("access")
             .and_then(|v| v.as_str())
             .unwrap_or("readwrite");
-        let source_display = if source == "*" {
-            "All blocks"
-        } else {
-            source
-        };
+        let source_display = if source == "*" { "All blocks" } else { source };
         let verb = if rule_type == "block" {
             "is blocked from"
         } else {

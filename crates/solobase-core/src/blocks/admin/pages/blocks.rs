@@ -1,14 +1,13 @@
-use crate::ui::{self, components, icons, SiteConfig, UserInfo};
 use maud::html;
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
-use wafer_sql_utils::value::sea_values_to_json;
-use wafer_sql_utils::{query, upsert, Backend};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_sql_utils::{query, upsert, value::sea_values_to_json, Backend};
 
 use super::admin_page;
-use crate::blocks::admin::BLOCK_SETTINGS_COLLECTION as BLOCK_SETTINGS;
+use crate::{
+    blocks::admin::BLOCK_SETTINGS_COLLECTION as BLOCK_SETTINGS,
+    ui::{self, components, icons, SiteConfig, UserInfo},
+};
 
 pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
@@ -24,10 +23,9 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let registered_blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
 
     // Load block enabled/disabled state from block_settings table
-    let block_settings_rows =
-        db::list_all(ctx, BLOCK_SETTINGS, vec![])
-            .await
-            .unwrap_or_default();
+    let block_settings_rows = db::list_all(ctx, BLOCK_SETTINGS, vec![])
+        .await
+        .unwrap_or_default();
 
     let block_enabled: std::collections::HashMap<String, bool> = block_settings_rows
         .iter()
@@ -221,7 +219,11 @@ pub async fn handle_toggle_feature(
         BLOCK_SETTINGS,
         &["enabled"],
         &ListOptions {
-            filters: vec![Filter { field: "block_name".into(), operator: FilterOp::Equal, value: serde_json::json!(block_name) }],
+            filters: vec![Filter {
+                field: "block_name".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(block_name),
+            }],
             ..Default::default()
         },
         None,
@@ -263,7 +265,8 @@ pub async fn handle_toggle_feature(
     } else {
         "block.disable"
     };
-    super::super::logs::audit_log(ctx, &admin_id, action, &format!("blocks/{block_name}"), &ip).await;
+    super::super::logs::audit_log(ctx, &admin_id, action, &format!("blocks/{block_name}"), &ip)
+        .await;
 
     // Re-render the blocks page
     blocks_page(ctx, msg).await
@@ -283,7 +286,11 @@ pub async fn handle_block_detail(
         BLOCK_SETTINGS,
         &["enabled"],
         &ListOptions {
-            filters: vec![Filter { field: "block_name".into(), operator: FilterOp::Equal, value: serde_json::json!(block_name) }],
+            filters: vec![Filter {
+                field: "block_name".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(block_name),
+            }],
             ..Default::default()
         },
         None,

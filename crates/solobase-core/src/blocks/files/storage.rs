@@ -1,16 +1,16 @@
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_core::clients::storage as store;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+    storage as store,
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+
+use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION as OBJECTS_META_COLLECTION};
 use crate::blocks::helpers::{
     self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, ResponseBuilder,
 };
-
-use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION as OBJECTS_META_COLLECTION};
 
 pub async fn handle(ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
     let action = msg.action();
@@ -397,8 +397,7 @@ async fn handle_upload_object(
         }
         Err(e) => {
             // Upload failed — delete the pending record so it doesn't block quota.
-            if let Err(del_err) =
-                db::delete(ctx, OBJECTS_META_COLLECTION, &pending_record.id).await
+            if let Err(del_err) = db::delete(ctx, OBJECTS_META_COLLECTION, &pending_record.id).await
             {
                 tracing::warn!("Failed to clean up pending record: {del_err}");
             }

@@ -35,7 +35,6 @@ impl InfraConfig {
             storage_root: env_or("SOLOBASE_STORAGE_ROOT", "data/storage"),
         }
     }
-
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -124,7 +123,9 @@ pub fn load_block_settings(db_path: &str) -> BlockSettings {
 
     // Read all settings
     let mut map = HashMap::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT block_name, enabled FROM suppers_ai__admin__block_settings") {
+    if let Ok(mut stmt) =
+        conn.prepare("SELECT block_name, enabled FROM suppers_ai__admin__block_settings")
+    {
         let rows = stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)? != 0))
         });
@@ -155,9 +156,9 @@ pub fn load_wrap_grants(db_path: &str) -> Vec<wafer_run::ResourceGrant> {
         Ok(s) => s,
         Err(_) => {
             // Fall back to query without resource_type (column may not exist yet)
-            let mut stmt = match conn.prepare(
-                "SELECT grantee, resource, write FROM suppers_ai__admin__wrap_grants",
-            ) {
+            let mut stmt = match conn
+                .prepare("SELECT grantee, resource, write FROM suppers_ai__admin__wrap_grants")
+            {
                 Ok(s) => s,
                 Err(_) => return Vec::new(),
             };

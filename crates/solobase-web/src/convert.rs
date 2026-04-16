@@ -1,16 +1,19 @@
 use js_sys::{ArrayBuffer, Uint8Array};
+use wafer_block::{
+    meta::{
+        META_REQ_ACTION, META_REQ_CLIENT_IP, META_REQ_CONTENT_TYPE, META_REQ_QUERY_PREFIX,
+        META_REQ_RESOURCE, META_RESP_CONTENT_TYPE, META_RESP_COOKIE_PREFIX,
+        META_RESP_HEADER_PREFIX, META_RESP_STATUS,
+    },
+    streams::{
+        input::InputStream,
+        output::{OutputStream, TerminalNotResponse},
+    },
+    ErrorCode, Message, MetaAccess,
+};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, ResponseInit};
-
-use wafer_block::meta::{
-    META_REQ_ACTION, META_REQ_CLIENT_IP, META_REQ_CONTENT_TYPE, META_REQ_QUERY_PREFIX,
-    META_REQ_RESOURCE, META_RESP_CONTENT_TYPE, META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX,
-    META_RESP_STATUS,
-};
-use wafer_block::streams::input::InputStream;
-use wafer_block::streams::output::{OutputStream, TerminalNotResponse};
-use wafer_block::{ErrorCode, Message, MetaAccess};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -117,7 +120,8 @@ pub async fn request_to_message(
     // Collect headers into meta.
     let headers: Headers = request.headers();
     // Iterate the headers JS iterator.
-    let iter = js_sys::try_iter(&headers)?.ok_or_else(|| JsValue::from_str("headers not iterable"))?;
+    let iter =
+        js_sys::try_iter(&headers)?.ok_or_else(|| JsValue::from_str("headers not iterable"))?;
     let mut content_type = String::new();
     let mut host = String::new();
     for item in iter {
@@ -166,10 +170,7 @@ pub async fn request_to_message(
 /// Apply response meta entries to a `web_sys::Headers` object.
 ///
 /// Mirrors `apply_response_meta()` from the native listener.
-fn apply_response_meta(
-    headers: &Headers,
-    meta: &[wafer_block::MetaEntry],
-) -> Result<(), JsValue> {
+fn apply_response_meta(headers: &Headers, meta: &[wafer_block::MetaEntry]) -> Result<(), JsValue> {
     for entry in meta {
         let k = entry.key.as_str();
         let v = &entry.value;
@@ -229,7 +230,11 @@ fn get_error_status_code(
 
 /// Build a `web_sys::Response` from raw bytes, a status code, and a
 /// `web_sys::Headers` object.
-fn make_response(body: Vec<u8>, status: u16, headers: Headers) -> Result<web_sys::Response, JsValue> {
+fn make_response(
+    body: Vec<u8>,
+    status: u16,
+    headers: Headers,
+) -> Result<web_sys::Response, JsValue> {
     let init = ResponseInit::new();
     init.set_status(status);
     init.set_headers(&headers);
@@ -241,10 +246,7 @@ fn make_response(body: Vec<u8>, status: u16, headers: Headers) -> Result<web_sys
         let arr = Uint8Array::new_with_length(body.len() as u32);
         arr.copy_from(&body);
         let ab: ArrayBuffer = arr.buffer();
-        web_sys::Response::new_with_opt_buffer_source_and_init(
-            Some(&ab.into()),
-            &init,
-        )
+        web_sys::Response::new_with_opt_buffer_source_and_init(Some(&ab.into()), &init)
     }
 }
 

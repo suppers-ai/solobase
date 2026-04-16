@@ -1,18 +1,19 @@
-use crate::blocks::helpers::{
-    self, err_bad_request, err_forbidden, err_internal, parse_form_body, RecordExt, ResponseBuilder,
-};
-use crate::ui::{self, components, icons, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::admin_page;
-use crate::blocks::admin::{
-    ROLES_COLLECTION, USER_ROLES_COLLECTION,
+use crate::{
+    blocks::{
+        admin::{ROLES_COLLECTION, USER_ROLES_COLLECTION},
+        auth::{API_KEYS_COLLECTION as API_KEYS, USERS_COLLECTION as USERS},
+        helpers::{
+            self, err_bad_request, err_forbidden, err_internal, parse_form_body, RecordExt,
+            ResponseBuilder,
+        },
+    },
+    ui::{self, components, icons, SiteConfig, UserInfo},
 };
-use crate::blocks::auth::{API_KEYS_COLLECTION as API_KEYS, USERS_COLLECTION as USERS};
 
 pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
@@ -108,15 +109,7 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
             field: "created_at".into(),
             desc: true,
         }];
-        db::paginated_list(
-            ctx,
-            USERS,
-            page as i64,
-            page_size as i64,
-            filters,
-            sort,
-        )
-        .await
+        db::paginated_list(ctx, USERS, page as i64, page_size as i64, filters, sort).await
     };
 
     html! {
@@ -323,11 +316,7 @@ async fn user_row_fragment(ctx: &dyn Context, user_id: &str) -> Markup {
 }
 
 /// POST /b/admin/users/{id}/disable
-pub async fn handle_user_disable(
-    ctx: &dyn Context,
-    msg: &Message,
-    user_id: &str,
-) -> OutputStream {
+pub async fn handle_user_disable(ctx: &dyn Context, msg: &Message, user_id: &str) -> OutputStream {
     let admin_id = msg.user_id().to_string();
     if admin_id == user_id {
         return err_bad_request("Cannot disable your own account");
@@ -352,11 +341,7 @@ pub async fn handle_user_disable(
 }
 
 /// POST /b/admin/users/{id}/enable
-pub async fn handle_user_enable(
-    ctx: &dyn Context,
-    msg: &Message,
-    user_id: &str,
-) -> OutputStream {
+pub async fn handle_user_enable(ctx: &dyn Context, msg: &Message, user_id: &str) -> OutputStream {
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
     let mut data = std::collections::HashMap::new();
@@ -378,11 +363,7 @@ pub async fn handle_user_enable(
 }
 
 /// DELETE /b/admin/users/{id}
-pub async fn handle_user_delete(
-    ctx: &dyn Context,
-    msg: &Message,
-    user_id: &str,
-) -> OutputStream {
+pub async fn handle_user_delete(ctx: &dyn Context, msg: &Message, user_id: &str) -> OutputStream {
     let admin_id = msg.user_id().to_string();
     if admin_id == user_id {
         return err_bad_request("Cannot delete your own account");
@@ -432,7 +413,8 @@ pub async fn handle_create_role(
     if let Err(e) = db::create(ctx, ROLES_COLLECTION, data).await {
         return err_internal(&format!("Failed: {}", e.message));
     }
-    super::super::logs::audit_log(ctx, &admin_id, "role.create", &format!("roles/{name}"), &ip).await;
+    super::super::logs::audit_log(ctx, &admin_id, "role.create", &format!("roles/{name}"), &ip)
+        .await;
 
     // Return the updated roles tab + close modal + toast
     let content = roles_tab(ctx).await;
@@ -445,11 +427,7 @@ pub async fn handle_create_role(
         )
 }
 
-pub async fn handle_delete_role(
-    ctx: &dyn Context,
-    msg: &Message,
-    role_id: &str,
-) -> OutputStream {
+pub async fn handle_delete_role(ctx: &dyn Context, msg: &Message, role_id: &str) -> OutputStream {
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
     // Check if system role

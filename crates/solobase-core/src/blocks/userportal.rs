@@ -1,13 +1,20 @@
-use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
-use crate::blocks::helpers::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json};
-use crate::ui::{self, components, icons, sidebar::nav_icon, NavItem, SiteConfig, UserInfo};
 use maud::{html, PreEscaped};
-use wafer_core::clients::database::{ListOptions, SortField};
-use wafer_core::clients::{config, database as db};
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_core::clients::{
+    config, database as db,
+    database::{ListOptions, SortField},
+};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
+use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
+use crate::{
+    blocks::helpers::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json},
+    ui::{self, components, icons, sidebar::nav_icon, NavItem, SiteConfig, UserInfo},
+};
 
 const BUTTONS_COLLECTION: &str = "suppers_ai__userportal__buttons";
 
@@ -69,12 +76,7 @@ impl Block for UserPortalBlock {
         vec![wafer_run::UiRoute::authenticated("/")]
     }
 
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let path = msg.path().to_string();
         let action = msg.action().to_string();
 
@@ -82,7 +84,10 @@ impl Block for UserPortalBlock {
             return self.handle_config(ctx).await;
         }
 
-        let sub = path.strip_prefix("/b/userportal").unwrap_or("/").to_string();
+        let sub = path
+            .strip_prefix("/b/userportal")
+            .unwrap_or("/")
+            .to_string();
 
         // Admin routes — require admin role
         if sub.starts_with("/admin/") {
@@ -259,7 +264,9 @@ async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
 
     // Load user details
-    let user_record = db::get(ctx, crate::blocks::auth::USERS_COLLECTION, &user_id).await.ok();
+    let user_record = db::get(ctx, crate::blocks::auth::USERS_COLLECTION, &user_id)
+        .await
+        .ok();
     let display_name = user_record
         .as_ref()
         .map(|r| r.str_field("name").to_string())
@@ -628,11 +635,7 @@ async fn handle_edit_button_form(ctx: &dyn Context, id: &str) -> OutputStream {
     ui::html_response(markup)
 }
 
-async fn handle_update_button(
-    ctx: &dyn Context,
-    input: InputStream,
-    id: &str,
-) -> OutputStream {
+async fn handle_update_button(ctx: &dyn Context, input: InputStream, id: &str) -> OutputStream {
     let raw = input.collect_to_bytes().await;
     let body = parse_form_body(&raw);
 

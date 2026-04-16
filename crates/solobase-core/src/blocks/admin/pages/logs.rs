@@ -1,14 +1,14 @@
-use crate::blocks::helpers::RecordExt;
-use crate::ui::{components, icons, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, Filter, FilterOp, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
+use wafer_run::{context::Context, types::*, OutputStream};
 
 use super::admin_page;
-use crate::blocks::admin::{
-    AUDIT_LOGS_COLLECTION as AUDIT_LOGS, REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
+use crate::{
+    blocks::{
+        admin::{AUDIT_LOGS_COLLECTION as AUDIT_LOGS, REQUEST_LOGS_COLLECTION as REQUEST_LOGS},
+        helpers::RecordExt,
+    },
+    ui::{components, icons, SiteConfig, UserInfo},
 };
 
 pub async fn logs_page(ctx: &dyn Context, msg: &Message) -> OutputStream {

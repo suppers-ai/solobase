@@ -9,12 +9,15 @@ mod variables;
 #[cfg(test)]
 mod tests;
 
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
 use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
 use crate::blocks::helpers::{self, err_not_found};
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
 pub(crate) const PRODUCTS_COLLECTION: &str = "suppers_ai__products__products";
 pub(crate) const GROUPS_COLLECTION: &str = "suppers_ai__products__groups";
@@ -49,8 +52,7 @@ impl ProductsBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for ProductsBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/products", "0.0.1", "http-handler@v1", "Products, pricing, purchases, and payment integration")
             .instance_mode(InstanceMode::Singleton)
@@ -179,7 +181,12 @@ impl Block for ProductsBlock {
         ]
     }
 
-    async fn handle(&self, ctx: &dyn Context, mut msg: Message, input: InputStream) -> OutputStream {
+    async fn handle(
+        &self,
+        ctx: &dyn Context,
+        mut msg: Message,
+        input: InputStream,
+    ) -> OutputStream {
         let path = msg.path().to_string();
         let action = msg.action().to_string();
 
@@ -227,7 +234,9 @@ impl Block for ProductsBlock {
 
         // Per-user rate limiting for authenticated endpoints
         // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
-        if let RateLimitOutcome::Limited(out) = check_user_rate_limit(&self.limiter, ctx, &msg).await {
+        if let RateLimitOutcome::Limited(out) =
+            check_user_rate_limit(&self.limiter, ctx, &msg).await
+        {
             return out;
         }
 

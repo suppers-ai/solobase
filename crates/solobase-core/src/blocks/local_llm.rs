@@ -1,7 +1,9 @@
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
 
 use crate::blocks::helpers::{err_not_found, ResponseBuilder};
 
@@ -11,27 +13,27 @@ pub struct LocalLlmBlock;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for LocalLlmBlock {
     fn info(&self) -> BlockInfo {
-        BlockInfo::new("suppers-ai/local-llm", "0.0.1", "http-handler@v1", "Local LLM inference via WebLLM (browser only)")
-            .instance_mode(InstanceMode::Singleton)
-            .category(wafer_run::BlockCategory::Feature)
-            .can_disable(true)
-            .default_enabled(false)
-            .description("Local LLM inference via WebLLM. Browser-only — requires WebGPU.")
-            .endpoints(vec![
-                BlockEndpoint::post("/b/local-llm/api/chat").summary("Chat with local model"),
-                BlockEndpoint::get("/b/local-llm/api/models").summary("List available models"),
-                BlockEndpoint::post("/b/local-llm/api/load").summary("Download and load a model"),
-                BlockEndpoint::post("/b/local-llm/api/unload").summary("Unload model from VRAM"),
-                BlockEndpoint::get("/b/local-llm/api/status").summary("Model load status"),
-            ])
+        BlockInfo::new(
+            "suppers-ai/local-llm",
+            "0.0.1",
+            "http-handler@v1",
+            "Local LLM inference via WebLLM (browser only)",
+        )
+        .instance_mode(InstanceMode::Singleton)
+        .category(wafer_run::BlockCategory::Feature)
+        .can_disable(true)
+        .default_enabled(false)
+        .description("Local LLM inference via WebLLM. Browser-only — requires WebGPU.")
+        .endpoints(vec![
+            BlockEndpoint::post("/b/local-llm/api/chat").summary("Chat with local model"),
+            BlockEndpoint::get("/b/local-llm/api/models").summary("List available models"),
+            BlockEndpoint::post("/b/local-llm/api/load").summary("Download and load a model"),
+            BlockEndpoint::post("/b/local-llm/api/unload").summary("Unload model from VRAM"),
+            BlockEndpoint::get("/b/local-llm/api/status").summary("Model load status"),
+        ])
     }
 
-    async fn handle(
-        &self,
-        _ctx: &dyn Context,
-        msg: Message,
-        _input: InputStream,
-    ) -> OutputStream {
+    async fn handle(&self, _ctx: &dyn Context, msg: Message, _input: InputStream) -> OutputStream {
         let action = msg.action();
         let path = msg.path();
 
@@ -52,7 +54,11 @@ impl Block for LocalLlmBlock {
         }
     }
 
-    async fn lifecycle(&self, _ctx: &dyn Context, _event: LifecycleEvent) -> std::result::Result<(), WaferError> {
+    async fn lifecycle(
+        &self,
+        _ctx: &dyn Context,
+        _event: LifecycleEvent,
+    ) -> std::result::Result<(), WaferError> {
         Ok(())
     }
 }

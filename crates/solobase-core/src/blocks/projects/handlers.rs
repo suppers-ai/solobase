@@ -1,14 +1,16 @@
+use std::collections::HashMap;
+
+use wafer_core::clients::{
+    config, database as db,
+    database::{Filter, FilterOp, Record, SortField},
+    network,
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+
 use super::PROJECTS_COLLECTION;
 use crate::blocks::helpers::{
     err_bad_request, err_conflict, err_forbidden, err_internal, err_not_found, ok_json, RecordExt,
 };
-use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, Record, SortField};
-use wafer_core::clients::{config, network};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
 /// Reserved subdomains that cannot be used as project names.
 const RESERVED_SUBDOMAINS: &[&str] = &[
@@ -136,11 +138,7 @@ async fn update_status(ctx: &dyn Context, id: &str, status: &str) {
     let _ = db::update(ctx, PROJECTS_COLLECTION, id, data).await;
 }
 
-pub async fn handle_admin(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+pub async fn handle_admin(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
@@ -157,11 +155,7 @@ pub async fn handle_admin(
     }
 }
 
-pub async fn handle_user(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+pub async fn handle_user(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
@@ -169,9 +163,7 @@ pub async fn handle_user(
         ("retrieve", "/b/projects") => handle_list(ctx, msg).await,
         ("retrieve", _) if path.starts_with("/b/projects/") => handle_get(ctx, msg).await,
         ("create", "/b/projects") => handle_create(ctx, msg, input).await,
-        ("update", _) if path.starts_with("/b/projects/") => {
-            handle_update(ctx, msg, input).await
-        }
+        ("update", _) if path.starts_with("/b/projects/") => handle_update(ctx, msg, input).await,
         ("delete", _) if path.starts_with("/b/projects/") => handle_delete(ctx, msg).await,
         _ => err_not_found("not found"),
     }
@@ -237,11 +229,7 @@ async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 }
 
-async fn handle_create(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
         return err_forbidden("Authentication required");
@@ -332,11 +320,7 @@ async fn handle_create(
     ok_json(&record)
 }
 
-async fn handle_update(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+async fn handle_update(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
         return err_forbidden("Authentication required");
@@ -360,9 +344,7 @@ async fn handle_update(
             }
             record
         }
-        Err(e) if e.code == ErrorCode::NotFound => {
-            return err_not_found("Deployment not found")
-        }
+        Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Deployment not found"),
         Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
@@ -505,11 +487,7 @@ async fn handle_activate(
 
 /// Deactivate an active project: set status to inactive, set grace period.
 /// Does NOT delete CF resources -- they stay alive during the 30-day grace period.
-async fn handle_deactivate(
-    ctx: &dyn Context,
-    id: &str,
-    record: &Record,
-) -> OutputStream {
+async fn handle_deactivate(ctx: &dyn Context, id: &str, record: &Record) -> OutputStream {
     let status = record.str_field("status");
     if status != "active" {
         return err_bad_request(&format!(
@@ -578,9 +556,7 @@ async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
             }
             record
         }
-        Err(e) if e.code == ErrorCode::NotFound => {
-            return err_not_found("Deployment not found")
-        }
+        Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Deployment not found"),
         Err(e) => return err_internal(&format!("Database error: {e}")),
     };
 
@@ -684,11 +660,7 @@ async fn handle_admin_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 }
 
-async fn handle_admin_update(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+async fn handle_admin_update(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let path = msg.path();
     let id = path.strip_prefix("/admin/b/projects/").unwrap_or("");
     if id.is_empty() {

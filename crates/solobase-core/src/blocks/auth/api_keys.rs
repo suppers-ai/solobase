@@ -1,16 +1,16 @@
-use super::AuthBlock;
-use super::API_KEYS_COLLECTION;
+use std::collections::HashMap;
+
+use wafer_core::clients::{
+    crypto, database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+
+use super::{AuthBlock, API_KEYS_COLLECTION};
 use crate::blocks::helpers::{
     self, err_bad_request, err_forbidden, err_internal, err_not_found, hex_encode, ok_json,
     sha256_hex, RecordExt,
 };
-use std::collections::HashMap;
-use wafer_core::clients::crypto;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
 impl AuthBlock {
     pub(super) async fn handle_api_keys_list(
@@ -132,9 +132,7 @@ impl AuthBlock {
             Err(_) => return err_not_found("API key not found"),
         };
         let key_owner = key.str_field("user_id");
-        if key_owner != user_id
-            && !helpers::is_admin(msg)
-        {
+        if key_owner != user_id && !helpers::is_admin(msg) {
             return err_forbidden("Cannot revoke another user's API key");
         }
 
@@ -165,9 +163,7 @@ impl AuthBlock {
             Err(_) => return err_not_found("API key not found"),
         };
         let key_owner = key.str_field("user_id");
-        if key_owner != user_id
-            && !helpers::is_admin(msg)
-        {
+        if key_owner != user_id && !helpers::is_admin(msg) {
             return err_forbidden("Cannot delete another user's API key");
         }
 

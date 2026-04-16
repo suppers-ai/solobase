@@ -1,6 +1,7 @@
+use std::collections::HashMap;
+
 use super::mock_context::*;
 use crate::blocks::products::pricing::evaluate_formula;
-use std::collections::HashMap;
 
 // ============================================================
 // Basic arithmetic
@@ -336,7 +337,11 @@ async fn calculate_price_with_formula() {
         "price_formula".to_string(),
         serde_json::json!("base * rate"),
     );
-    ctx.seed("suppers_ai__products__pricing_templates", "tmpl_1", template_data);
+    ctx.seed(
+        "suppers_ai__products__pricing_templates",
+        "tmpl_1",
+        template_data,
+    );
 
     // Create a product referencing the template
     let mut product_data = HashMap::new();

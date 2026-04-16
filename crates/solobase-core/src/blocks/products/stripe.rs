@@ -1,16 +1,16 @@
-use super::{PURCHASES_COLLECTION, SUBSCRIPTIONS};
-use crate::blocks::helpers::hex_encode;
 use std::collections::HashMap;
-use wafer_core::clients::{config, database as db, network};
-use wafer_core::interfaces::database::service::{Filter, FilterOp, ListOptions};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
-use wafer_sql_utils::value::sea_values_to_json;
-use wafer_sql_utils::Backend;
 
+use wafer_core::{
+    clients::{config, database as db, network},
+    interfaces::database::service::{Filter, FilterOp, ListOptions},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_sql_utils::{value::sea_values_to_json, Backend};
+
+use super::{PURCHASES_COLLECTION, SUBSCRIPTIONS};
 use crate::blocks::helpers::{
-    err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
+    err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, hex_encode,
+    ok_json,
 };
 
 pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -67,12 +67,20 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
 
     if let Ok(items) = &line_items {
         for item in items {
-            let product_id = item.data.get("product_id").and_then(|v| v.as_str()).unwrap_or("");
+            let product_id = item
+                .data
+                .get("product_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if product_id.is_empty() {
                 continue;
             }
             if let Ok(product) = db::get(ctx, super::PRODUCTS_COLLECTION, product_id).await {
-                let requires = product.data.get("requires").and_then(|v| v.as_str()).unwrap_or("");
+                let requires = product
+                    .data
+                    .get("requires")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if !requires.is_empty() {
                     let has_required = user_owns_product(ctx, purchase_user, requires).await;
                     if !has_required {
@@ -90,20 +98,29 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
         PURCHASES_COLLECTION,
         &[
             ("status".to_string(), serde_json::json!("checkout_started")),
-            ("updated_at".to_string(), serde_json::json!(chrono::Utc::now().to_rfc3339())),
+            (
+                "updated_at".to_string(),
+                serde_json::json!(chrono::Utc::now().to_rfc3339()),
+            ),
         ],
         &[
-            Filter { field: "id".into(), operator: FilterOp::Equal, value: serde_json::json!(body.purchase_id) },
-            Filter { field: "status".into(), operator: FilterOp::Equal, value: serde_json::json!("pending") },
+            Filter {
+                field: "id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(body.purchase_id),
+            },
+            Filter {
+                field: "status".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!("pending"),
+            },
         ],
         Backend::Sqlite,
     );
     let args = sea_values_to_json(vals);
     let rows = db::exec_raw(ctx, &sql, &args).await.unwrap_or(0);
     if rows == 0 {
-        return err_bad_request(
-            "Purchase is not in pending state or is already being processed",
-        );
+        return err_bad_request("Purchase is not in pending state or is already being processed");
     }
 
     let currency = purchase
@@ -177,18 +194,32 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
             PURCHASES_COLLECTION,
             &[
                 ("status".to_string(), serde_json::json!("pending")),
-                ("updated_at".to_string(), serde_json::json!(chrono::Utc::now().to_rfc3339())),
+                (
+                    "updated_at".to_string(),
+                    serde_json::json!(chrono::Utc::now().to_rfc3339()),
+                ),
             ],
             &[
-                Filter { field: "id".into(), operator: FilterOp::Equal, value: serde_json::json!(body.purchase_id) },
-                Filter { field: "status".into(), operator: FilterOp::Equal, value: serde_json::json!("checkout_started") },
+                Filter {
+                    field: "id".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(body.purchase_id),
+                },
+                Filter {
+                    field: "status".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!("checkout_started"),
+                },
             ],
             Backend::Sqlite,
         );
         let revert_args = sea_values_to_json(revert_vals);
         let _ = db::exec_raw(ctx, &revert_sql, &revert_args).await;
         let err_body = String::from_utf8_lossy(&resp.body);
-        return err_internal(&format!("Stripe error ({}): {}", resp.status_code, err_body));
+        return err_internal(&format!(
+            "Stripe error ({}): {}",
+            resp.status_code, err_body
+        ));
     }
 
     let session: serde_json::Value = match serde_json::from_slice(&resp.body) {
@@ -276,13 +307,24 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                     PURCHASES_COLLECTION,
                     &[
                         ("status".to_string(), serde_json::json!("completed")),
-                        ("provider_payment_intent_id".to_string(), serde_json::json!(payment_intent)),
+                        (
+                            "provider_payment_intent_id".to_string(),
+                            serde_json::json!(payment_intent),
+                        ),
                         ("approved_at".to_string(), serde_json::json!(&now)),
                         ("updated_at".to_string(), serde_json::json!(&now)),
                     ],
                     &[
-                        Filter { field: "id".into(), operator: FilterOp::Equal, value: serde_json::json!(purchase_id) },
-                        Filter { field: "status".into(), operator: FilterOp::In, value: serde_json::json!(["checkout_started", "pending"]) },
+                        Filter {
+                            field: "id".into(),
+                            operator: FilterOp::Equal,
+                            value: serde_json::json!(purchase_id),
+                        },
+                        Filter {
+                            field: "status".into(),
+                            operator: FilterOp::In,
+                            value: serde_json::json!(["checkout_started", "pending"]),
+                        },
                     ],
                     Backend::Sqlite,
                 );
@@ -323,15 +365,27 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                     &[
                         ("id".to_string(), serde_json::json!(sub_id)),
                         ("user_id".to_string(), serde_json::json!(user_id)),
-                        ("stripe_customer_id".to_string(), serde_json::json!(stripe_customer_id)),
-                        ("stripe_subscription_id".to_string(), serde_json::json!(stripe_sub_id)),
+                        (
+                            "stripe_customer_id".to_string(),
+                            serde_json::json!(stripe_customer_id),
+                        ),
+                        (
+                            "stripe_subscription_id".to_string(),
+                            serde_json::json!(stripe_sub_id),
+                        ),
                         ("plan".to_string(), serde_json::json!(plan)),
                         ("status".to_string(), serde_json::json!("active")),
                         ("created_at".to_string(), serde_json::json!(&now)),
                         ("updated_at".to_string(), serde_json::json!(&now)),
                     ],
                     &["user_id"],
-                    &["stripe_customer_id", "stripe_subscription_id", "plan", "status", "updated_at"],
+                    &[
+                        "stripe_customer_id",
+                        "stripe_subscription_id",
+                        "plan",
+                        "status",
+                        "updated_at",
+                    ],
                     Backend::Sqlite,
                 );
                 let args = sea_values_to_json(vals);
@@ -361,9 +415,11 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
             let now = chrono::Utc::now().to_rfc3339();
 
             {
-                let sub_filter = vec![
-                    Filter { field: "stripe_subscription_id".into(), operator: FilterOp::Equal, value: serde_json::json!(stripe_sub_id) },
-                ];
+                let sub_filter = vec![Filter {
+                    field: "stripe_subscription_id".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(stripe_sub_id),
+                }];
                 let mut data: Vec<(String, serde_json::Value)> = vec![
                     ("status".to_string(), serde_json::json!(status)),
                     ("updated_at".to_string(), serde_json::json!(&now)),
@@ -417,12 +473,17 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                     SUBSCRIPTIONS,
                     &[
                         ("status".to_string(), serde_json::json!("past_due")),
-                        ("grace_period_end".to_string(), serde_json::json!(&grace_end)),
+                        (
+                            "grace_period_end".to_string(),
+                            serde_json::json!(&grace_end),
+                        ),
                         ("updated_at".to_string(), serde_json::json!(&now)),
                     ],
-                    &[
-                        Filter { field: "stripe_subscription_id".into(), operator: FilterOp::Equal, value: serde_json::json!(stripe_sub_id) },
-                    ],
+                    &[Filter {
+                        field: "stripe_subscription_id".into(),
+                        operator: FilterOp::Equal,
+                        value: serde_json::json!(stripe_sub_id),
+                    }],
                     Backend::Sqlite,
                 );
                 let args = sea_values_to_json(vals);
@@ -447,9 +508,11 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                     ("addon_d1_bytes".to_string(), serde_json::json!(0)),
                     ("updated_at".to_string(), serde_json::json!(&now)),
                 ],
-                &[
-                    Filter { field: "stripe_subscription_id".into(), operator: FilterOp::Equal, value: serde_json::json!(stripe_sub_id) },
-                ],
+                &[Filter {
+                    field: "stripe_subscription_id".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(stripe_sub_id),
+                }],
                 Backend::Sqlite,
             );
             let args = sea_values_to_json(vals);
@@ -515,9 +578,11 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
 
 async fn get_user_for_stripe_sub(ctx: &dyn Context, stripe_sub_id: &str) -> Option<String> {
     let opts = ListOptions {
-        filters: vec![
-            Filter { field: "stripe_subscription_id".into(), operator: FilterOp::Equal, value: serde_json::json!(stripe_sub_id) },
-        ],
+        filters: vec![Filter {
+            field: "stripe_subscription_id".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::json!(stripe_sub_id),
+        }],
         limit: 1,
         ..Default::default()
     };
@@ -697,7 +762,8 @@ async fn sync_addon_totals_from_items(ctx: &dyn Context, user_id: &str, items: &
 
     if let Some(data) = items.get("data").and_then(|v| v.as_array()) {
         for item in data {
-            let meta = item.get("metadata")
+            let meta = item
+                .get("metadata")
                 .or_else(|| item.pointer("/price/metadata"));
             let meta = match meta {
                 Some(m) => m,
@@ -712,7 +778,11 @@ async fn sync_addon_totals_from_items(ctx: &dyn Context, user_id: &str, items: &
             let qty = item.get("quantity").and_then(|v| v.as_i64()).unwrap_or(1);
             let parse = |key: &str| -> i64 {
                 meta.get(key)
-                    .and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or_else(|| v.as_i64()))
+                    .and_then(|v| {
+                        v.as_str()
+                            .and_then(|s| s.parse().ok())
+                            .or_else(|| v.as_i64())
+                    })
                     .unwrap_or(0)
             };
             total_projects += parse("extra_projects") * qty;

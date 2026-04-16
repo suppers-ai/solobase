@@ -104,11 +104,7 @@ fn parse_rows(json: &str) -> Result<Vec<Record>, DatabaseError> {
     for row in rows {
         let obj = match row {
             serde_json::Value::Object(map) => map,
-            _ => {
-                return Err(DatabaseError::Internal(
-                    "expected row object".to_string(),
-                ))
-            }
+            _ => return Err(DatabaseError::Internal("expected row object".to_string())),
         };
 
         let mut data: HashMap<String, serde_json::Value> = HashMap::new();
@@ -302,8 +298,7 @@ fn existing_columns(table: &str) -> Vec<String> {
 
 /// Check whether a table exists in the sqlite_master catalog.
 fn table_exists_sync(name: &str) -> bool {
-    let sql =
-        "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?";
+    let sql = "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?";
     let params = params_to_json(&[serde_json::Value::String(name.to_string())]);
     let result = bridge::db_query_raw(sql, &params);
     let rows: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap_or_default();
@@ -332,10 +327,7 @@ impl DatabaseService for BrowserDatabaseService {
         let json = bridge::db_query_raw(&sql, &params);
 
         let records = parse_rows(&json)?;
-        records
-            .into_iter()
-            .next()
-            .ok_or(DatabaseError::NotFound)
+        records.into_iter().next().ok_or(DatabaseError::NotFound)
     }
 
     // ── list ─────────────────────────────────────────────────────────────────
@@ -374,11 +366,7 @@ impl DatabaseService for BrowserDatabaseService {
             .unwrap_or(0);
 
         // SELECT
-        let mut select_sql = format!(
-            "SELECT * FROM {} {}",
-            quote_ident(&table),
-            where_clause
-        );
+        let mut select_sql = format!("SELECT * FROM {} {}", quote_ident(&table), where_clause);
 
         if !opts.sort.is_empty() {
             let order_parts: Vec<String> = opts
@@ -443,10 +431,7 @@ impl DatabaseService for BrowserDatabaseService {
             );
         }
         if !data.contains_key("updated_at") {
-            data.insert(
-                "updated_at".to_string(),
-                serde_json::Value::String(now),
-            );
+            data.insert("updated_at".to_string(), serde_json::Value::String(now));
         }
 
         // Auto-create the table if it does not exist
@@ -552,10 +537,8 @@ impl DatabaseService for BrowserDatabaseService {
             set_clauses.join(", ")
         );
 
-        let mut params: Vec<serde_json::Value> = set_pairs
-            .iter()
-            .map(|(_, v)| coerce_param(v))
-            .collect();
+        let mut params: Vec<serde_json::Value> =
+            set_pairs.iter().map(|(_, v)| coerce_param(v)).collect();
         params.push(serde_json::Value::String(id.to_string()));
         let params_json = params_to_json(&params);
 
@@ -688,11 +671,7 @@ impl DatabaseService for BrowserDatabaseService {
         }
 
         let (where_clause, filter_params) = build_where(filters);
-        let sql = format!(
-            "DELETE FROM {} {}",
-            quote_ident(&table),
-            where_clause
-        );
+        let sql = format!("DELETE FROM {} {}", quote_ident(&table), where_clause);
         let params_json = params_to_json(&filter_params);
         bridge::db_exec_raw(&sql, &params_json);
 
@@ -734,10 +713,8 @@ impl DatabaseService for BrowserDatabaseService {
             where_clause
         );
 
-        let mut params: Vec<serde_json::Value> = set_pairs
-            .iter()
-            .map(|(_, v)| coerce_param(v))
-            .collect();
+        let mut params: Vec<serde_json::Value> =
+            set_pairs.iter().map(|(_, v)| coerce_param(v)).collect();
         params.extend(filter_params);
         let params_json = params_to_json(&params);
 

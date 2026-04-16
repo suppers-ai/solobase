@@ -1,17 +1,15 @@
-use crate::ui::{components, icons, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
-use wafer_sql_utils::value::sea_values_to_json;
-use wafer_sql_utils::{query, Backend};
+use wafer_run::{context::Context, types::*, OutputStream};
+use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
 
 use super::admin_page;
-use crate::blocks::admin::{
-    NETWORK_REQUEST_LOGS_COLLECTION as NETWORK_REQUEST_LOGS,
-    NETWORK_RULES_COLLECTION as NETWORK_RULES,
-    REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
+use crate::{
+    blocks::admin::{
+        NETWORK_REQUEST_LOGS_COLLECTION as NETWORK_REQUEST_LOGS,
+        NETWORK_RULES_COLLECTION as NETWORK_RULES, REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
+    },
+    ui::{components, icons, SiteConfig, UserInfo},
 };
 
 pub async fn network_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -200,13 +198,30 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
 
     let (sql, vals) = query::build_select_columns(
         REQUEST_LOGS,
-        &["status_code", "duration_ms", "client_ip", "user_id", "created_at"],
+        &[
+            "status_code",
+            "duration_ms",
+            "client_ip",
+            "user_id",
+            "created_at",
+        ],
         &ListOptions {
             filters: vec![
-                Filter { field: "method".into(), operator: FilterOp::Equal, value: serde_json::json!(&method) },
-                Filter { field: "path".into(), operator: FilterOp::Equal, value: serde_json::json!(&path) },
+                Filter {
+                    field: "method".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(&method),
+                },
+                Filter {
+                    field: "path".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(&path),
+                },
             ],
-            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            sort: vec![SortField {
+                field: "created_at".into(),
+                desc: true,
+            }],
             limit: limit + 1, // fetch one extra to detect "has more"
             offset,
             ..Default::default()
@@ -391,13 +406,30 @@ pub async fn network_outbound_detail(ctx: &dyn Context, msg: &Message) -> Output
 
     let (sql, vals) = query::build_select_columns(
         NETWORK_REQUEST_LOGS,
-        &["status_code", "duration_ms", "source_block", "error_message", "created_at"],
+        &[
+            "status_code",
+            "duration_ms",
+            "source_block",
+            "error_message",
+            "created_at",
+        ],
         &ListOptions {
             filters: vec![
-                Filter { field: "method".into(), operator: FilterOp::Equal, value: serde_json::json!(&method) },
-                Filter { field: "url".into(), operator: FilterOp::Equal, value: serde_json::json!(&url) },
+                Filter {
+                    field: "method".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(&method),
+                },
+                Filter {
+                    field: "url".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(&url),
+                },
             ],
-            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            sort: vec![SortField {
+                field: "created_at".into(),
+                desc: true,
+            }],
             limit: limit + 1,
             offset,
             ..Default::default()

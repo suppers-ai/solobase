@@ -6,15 +6,11 @@
 
 use std::sync::Arc;
 
-use wafer_core::interfaces::network::service::NetworkService;
-use wafer_run::block::Block;
-use wafer_run::context::Context;
-use wafer_run::streams::output::TerminalNotResponse;
-use wafer_run::types::*;
-use wafer_run::BlockInfo;
-use wafer_run::{InputStream, OutputStream};
-
-use wafer_core::clients::database as db;
+use wafer_core::{clients::database as db, interfaces::network::service::NetworkService};
+use wafer_run::{
+    block::Block, context::Context, streams::output::TerminalNotResponse, types::*, BlockInfo,
+    InputStream, OutputStream,
+};
 
 use super::helpers::{json_map, now_millis};
 
@@ -57,12 +53,7 @@ impl Block for SolobaseNetworkBlock {
         self.inner.info()
     }
 
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let source_block = ctx.caller_id().unwrap_or("unknown").to_string();
         let body = input.collect_to_bytes().await;
         let (method, url) = parse_request_info(&body);

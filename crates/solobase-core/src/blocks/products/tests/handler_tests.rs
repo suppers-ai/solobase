@@ -1,6 +1,7 @@
+use std::collections::HashMap;
+
 use super::mock_context::*;
 use crate::blocks::products::handlers;
-use std::collections::HashMap;
 
 // ============================================================
 // Admin Product CRUD
@@ -215,7 +216,10 @@ async fn admin_pricing_template_crud() {
     update.set_meta("auth.user_roles", "admin");
     let update_out = handlers::handle_admin(&ctx, &update, update_input).await;
     let update_body = output_to_json(update_out).await;
-    assert_eq!(update_body["data"]["price_formula"], "base * quantity * 0.85");
+    assert_eq!(
+        update_body["data"]["price_formula"],
+        "base * quantity * 0.85"
+    );
 
     // Delete
     let (mut del, del_input) = delete_msg(&format!("/admin/b/products/pricing/{}", id), "admin_1");

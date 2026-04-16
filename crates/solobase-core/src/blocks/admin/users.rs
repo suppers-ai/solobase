@@ -1,15 +1,16 @@
-use crate::blocks::helpers::{
-    self, err_bad_request, err_internal, err_not_found, ok_json, RecordExt,
-};
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::USER_ROLES_COLLECTION;
-use crate::blocks::auth::USERS_COLLECTION as COLLECTION;
+use crate::blocks::{
+    auth::USERS_COLLECTION as COLLECTION,
+    helpers::{self, err_bad_request, err_internal, err_not_found, ok_json, RecordExt},
+};
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
@@ -18,9 +19,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     match (action, path) {
         ("retrieve", "/admin/users") => handle_list(ctx, msg).await,
         ("retrieve", _) if path.starts_with("/admin/users/") => handle_get(ctx, msg).await,
-        ("update", _) if path.starts_with("/admin/users/") => {
-            handle_update(ctx, msg, input).await
-        }
+        ("update", _) if path.starts_with("/admin/users/") => handle_update(ctx, msg, input).await,
         ("delete", _) if path.starts_with("/admin/users/") => handle_delete(ctx, msg).await,
         _ => err_not_found("not found"),
     }
@@ -71,15 +70,16 @@ async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     }],
                     ..Default::default()
                 };
-                let roles: Vec<String> = match db::list(ctx, USER_ROLES_COLLECTION, &roles_opts).await {
-                    Ok(r) => r
-                        .records
-                        .iter()
-                        .map(|rec| rec.str_field("role").to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect(),
-                    Err(_) => Vec::new(),
-                };
+                let roles: Vec<String> =
+                    match db::list(ctx, USER_ROLES_COLLECTION, &roles_opts).await {
+                        Ok(r) => r
+                            .records
+                            .iter()
+                            .map(|rec| rec.str_field("role").to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect(),
+                        Err(_) => Vec::new(),
+                    };
                 record
                     .data
                     .insert("roles".to_string(), serde_json::json!(roles));
@@ -137,11 +137,7 @@ async fn get_user(ctx: &dyn Context, id: &str) -> OutputStream {
     }
 }
 
-async fn handle_update(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+async fn handle_update(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let path = msg.path();
     let id = msg.var("id");
     let id = if id.is_empty() {

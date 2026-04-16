@@ -1,16 +1,16 @@
-use super::{LINE_ITEMS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION};
-use crate::blocks::helpers::RecordExt;
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
-use wafer_sql_utils::value::sea_values_to_json;
-use wafer_sql_utils::Backend;
 
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_sql_utils::{value::sea_values_to_json, Backend};
+
+use super::{LINE_ITEMS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION};
 use crate::blocks::helpers::{
     self, err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
+    RecordExt,
 };
 
 pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -302,9 +302,7 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     // Verify access: user can only view their own, admin can view all
     let purchase_user = purchase.str_field("user_id");
-    if purchase_user != msg.user_id()
-        && !helpers::is_admin(msg)
-    {
+    if purchase_user != msg.user_id() && !helpers::is_admin(msg) {
         return err_forbidden("Access denied");
     }
 
@@ -370,8 +368,16 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream)
             ("updated_at".to_string(), serde_json::json!(&now)),
         ],
         &[
-            Filter { field: "id".into(), operator: FilterOp::Equal, value: serde_json::json!(&id) },
-            Filter { field: "status".into(), operator: FilterOp::Equal, value: serde_json::json!("completed") },
+            Filter {
+                field: "id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(&id),
+            },
+            Filter {
+                field: "status".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!("completed"),
+            },
         ],
         Backend::Sqlite,
     );

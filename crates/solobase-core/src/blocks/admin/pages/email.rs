@@ -1,12 +1,12 @@
-use crate::blocks::helpers::{err_bad_request, ok_json};
-use crate::ui::{components, icons, SiteConfig, UserInfo};
 use maud::{html, PreEscaped};
 use wafer_core::clients::config;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::admin_page;
+use crate::{
+    blocks::helpers::{err_bad_request, ok_json},
+    ui::{components, icons, SiteConfig, UserInfo},
+};
 
 const EMAIL_SETTINGS_KEYS: &[(&str, &str, &str, &str, bool)] = &[
     (

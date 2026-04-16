@@ -1,17 +1,22 @@
 mod pages;
 
+use std::collections::HashMap;
+
+use wafer_core::clients::{
+    config, database as db,
+    database::{ListOptions, SortField},
+    network,
+};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
 use crate::blocks::helpers::{
     self, err_bad_request, err_internal, err_not_found, json_map, ok_json,
 };
-use std::collections::HashMap;
-use wafer_core::clients::config;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{ListOptions, SortField};
-use wafer_core::clients::network;
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
 pub struct ProviderLlmBlock;
 
@@ -55,9 +60,7 @@ impl ProviderLlmBlock {
         // Load provider record
         let provider = match db::get(ctx, PROVIDERS_COLLECTION, &body.provider_id).await {
             Ok(r) => r,
-            Err(e) if e.code == ErrorCode::NotFound => {
-                return err_not_found("Provider not found")
-            }
+            Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Provider not found"),
             Err(e) => return err_internal(&format!("Database error: {e}")),
         };
 
@@ -110,10 +113,7 @@ impl ProviderLlmBlock {
 
         if provider_type == "anthropic" {
             headers.insert("x-api-key".to_string(), api_key);
-            headers.insert(
-                "anthropic-version".to_string(),
-                "2023-06-01".to_string(),
-            );
+            headers.insert("anthropic-version".to_string(), "2023-06-01".to_string());
         } else {
             headers.insert("Authorization".to_string(), format!("Bearer {api_key}"));
         }
@@ -126,10 +126,7 @@ impl ProviderLlmBlock {
 
         if resp.status_code < 200 || resp.status_code >= 300 {
             let body_str = String::from_utf8_lossy(&resp.body);
-            return err_internal(&format!(
-                "LLM API error {}: {}",
-                resp.status_code, body_str
-            ));
+            return err_internal(&format!("LLM API error {}: {}", resp.status_code, body_str));
         }
 
         let resp_json: serde_json::Value = match serde_json::from_slice(&resp.body) {
@@ -200,11 +197,7 @@ impl ProviderLlmBlock {
         }
     }
 
-    async fn handle_create_provider(
-        &self,
-        ctx: &dyn Context,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn handle_create_provider(&self, ctx: &dyn Context, input: InputStream) -> OutputStream {
         #[derive(serde::Deserialize)]
         struct CreateProvider {
             name: String,
@@ -329,8 +322,7 @@ impl ProviderLlmBlock {
                 .and_then(|v| v.as_str())
                 .unwrap_or("[]");
 
-            let model_ids: Vec<String> =
-                serde_json::from_str(models_json).unwrap_or_default();
+            let model_ids: Vec<String> = serde_json::from_str(models_json).unwrap_or_default();
 
             for model_id in model_ids {
                 models.push(serde_json::json!({
@@ -396,8 +388,7 @@ impl ProviderLlmBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for ProviderLlmBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new(
             "suppers-ai/provider-llm",
@@ -423,8 +414,7 @@ impl Block for ProviderLlmBlock {
             "Manage remote LLM API providers (OpenAI, Anthropic) and route chat completions.",
         )
         .endpoints(vec![
-            BlockEndpoint::post("/b/provider-llm/api/chat")
-                .summary("Chat completion via provider"),
+            BlockEndpoint::post("/b/provider-llm/api/chat").summary("Chat completion via provider"),
             BlockEndpoint::get("/b/provider-llm/api/providers")
                 .summary("List providers")
                 .auth(AuthLevel::Admin),
@@ -443,13 +433,9 @@ impl Block for ProviderLlmBlock {
                 .auth(AuthLevel::Admin),
         ])
         .config_keys(vec![
-            ConfigVar::new(
-                "SUPPERS_AI__PROVIDER_LLM__OPENAI_KEY",
-                "OpenAI API key",
-                "",
-            )
-            .name("OpenAI API Key")
-            .input_type(InputType::Password),
+            ConfigVar::new("SUPPERS_AI__PROVIDER_LLM__OPENAI_KEY", "OpenAI API key", "")
+                .name("OpenAI API Key")
+                .input_type(InputType::Password),
             ConfigVar::new(
                 "SUPPERS_AI__PROVIDER_LLM__ANTHROPIC_KEY",
                 "Anthropic API key",
@@ -463,12 +449,7 @@ impl Block for ProviderLlmBlock {
         .default_enabled(true)
     }
 
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let action = msg.action();
         let path = msg.path();
         let user_id = msg.user_id().to_string();

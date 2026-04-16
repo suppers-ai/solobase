@@ -1,7 +1,7 @@
-use super::mock_context::*;
-use crate::blocks::products::handlers;
-use crate::blocks::products::purchase;
 use std::collections::HashMap;
+
+use super::mock_context::*;
+use crate::blocks::products::{handlers, purchase};
 
 // ============================================================
 // Purchase creation — happy path

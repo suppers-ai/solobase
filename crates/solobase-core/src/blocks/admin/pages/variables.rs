@@ -1,15 +1,15 @@
-use crate::blocks::helpers::{
-    self, err_bad_request, err_internal, err_not_found, parse_form_body, RecordExt,
-};
-use crate::ui::{self, components, icons, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, ListOptions};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::admin_page;
-use crate::blocks::admin::VARIABLES_COLLECTION as VARIABLES;
+use crate::{
+    blocks::{
+        admin::VARIABLES_COLLECTION as VARIABLES,
+        helpers::{self, err_bad_request, err_internal, err_not_found, parse_form_body, RecordExt},
+    },
+    ui::{self, components, icons, SiteConfig, UserInfo},
+};
 
 pub async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
@@ -187,7 +187,8 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
         .collect();
 
     // Collect blocks that have config_keys
-    let blocks_with_config: Vec<_> = blocks.iter()
+    let blocks_with_config: Vec<_> = blocks
+        .iter()
         .filter(|b| !b.config_keys.is_empty())
         .collect();
 

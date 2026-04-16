@@ -1,25 +1,23 @@
-use super::helpers::*;
-use super::{AuthBlock, USERS_COLLECTION};
-use crate::blocks::errors::{error_response, ErrorCode};
-use crate::blocks::helpers::{
-    err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, hex_encode,
-    json_map, ok_json, RecordExt, ResponseBuilder,
-};
-use crate::ui;
-use maud::{html, PreEscaped};
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::{config, crypto};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+
+use maud::{html, PreEscaped};
+use wafer_core::clients::{config, crypto, database as db};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+
+use super::{helpers::*, AuthBlock, USERS_COLLECTION};
+use crate::{
+    blocks::{
+        errors::{error_response, ErrorCode},
+        helpers::{
+            err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized,
+            hex_encode, json_map, ok_json, RecordExt, ResponseBuilder,
+        },
+    },
+    ui,
+};
 
 impl AuthBlock {
-    pub(super) async fn handle_login(
-        &self,
-        ctx: &dyn Context,
-        input: InputStream,
-    ) -> OutputStream {
+    pub(super) async fn handle_login(&self, ctx: &dyn Context, input: InputStream) -> OutputStream {
         #[derive(serde::Deserialize)]
         struct LoginReq {
             email: String,
@@ -55,12 +53,7 @@ impl AuthBlock {
 
         let user = match user {
             Ok(u) if password_ok => u,
-            _ => {
-                return error_response(
-                    ErrorCode::InvalidCredentials,
-                    "Invalid email or password",
-                )
-            }
+            _ => return error_response(ErrorCode::InvalidCredentials, "Invalid email or password"),
         };
 
         // Check if user is disabled
@@ -202,10 +195,7 @@ impl AuthBlock {
         .await
         .is_ok()
         {
-            return error_response(
-                ErrorCode::EmailAlreadyExists,
-                "Email already registered",
-            );
+            return error_response(ErrorCode::EmailAlreadyExists, "Email already registered");
         }
 
         // Hash password
@@ -252,16 +242,14 @@ impl AuthBlock {
         if require_verification {
             send_verification_email(ctx, &email_lower, &verification_token).await;
             // Do NOT issue tokens before email is verified
-            return ResponseBuilder::new()
-                .status(201)
-                .json(&serde_json::json!({
-                    "email_verified": false,
-                    "message": "Account created. Please verify your email before signing in.",
-                    "user": {
-                        "id": user.id,
-                        "email": email_lower,
-                    }
-                }));
+            return ResponseBuilder::new().status(201).json(&serde_json::json!({
+                "email_verified": false,
+                "message": "Account created. Please verify your email before signing in.",
+                "user": {
+                    "id": user.id,
+                    "email": email_lower,
+                }
+            }));
         }
 
         // Generate tokens (only when email verification is NOT required)
@@ -312,10 +300,7 @@ impl AuthBlock {
         let claims = match crypto::verify(ctx, &body.refresh_token).await {
             Ok(c) => c,
             Err(_) => {
-                return error_response(
-                    ErrorCode::InvalidToken,
-                    "Invalid or expired refresh token",
-                )
+                return error_response(ErrorCode::InvalidToken, "Invalid or expired refresh token")
             }
         };
 
@@ -348,12 +333,7 @@ impl AuthBlock {
         };
         match db::list(ctx, super::TOKENS_COLLECTION, &token_opts).await {
             Ok(result) if !result.records.is_empty() => {} // Token exists — proceed
-            _ => {
-                return error_response(
-                    ErrorCode::InvalidToken,
-                    "Refresh token has been revoked",
-                )
-            }
+            _ => return error_response(ErrorCode::InvalidToken, "Refresh token has been revoked"),
         }
 
         // Get user and verify account is still active
@@ -673,24 +653,23 @@ impl AuthBlock {
         }
 
         // Find user by verification token
-        let user = match db::get_by_field(
-            ctx,
-            USERS_COLLECTION,
-            "verification_token",
-            serde_json::Value::String(token.clone()),
-        )
-        .await
-        {
-            Ok(u) => u,
-            Err(_) => {
-                return html_respond(
+        let user =
+            match db::get_by_field(
+                ctx,
+                USERS_COLLECTION,
+                "verification_token",
+                serde_json::Value::String(token.clone()),
+            )
+            .await
+            {
+                Ok(u) => u,
+                Err(_) => return html_respond(
                     "Invalid Link",
                     "This verification link is invalid or has expired. Please request a new one.",
                     false,
                     &logo_url,
-                )
-            }
-        };
+                ),
+            };
 
         if user.bool_field("email_verified") {
             return html_respond(
@@ -975,10 +954,7 @@ async function handleReset(e){
         {
             Ok(u) => u,
             Err(_) => {
-                return error_response(
-                    ErrorCode::InvalidToken,
-                    "Invalid or expired reset token",
-                )
+                return error_response(ErrorCode::InvalidToken, "Invalid or expired reset token")
             }
         };
 

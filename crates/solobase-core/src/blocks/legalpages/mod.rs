@@ -1,17 +1,25 @@
 mod pages;
 
-use crate::blocks::helpers::{
-    self, err_bad_request, err_internal, err_not_found, json_map, ok_json, ResponseBuilder,
-};
-use crate::ui::{self, SiteConfig};
-use maud::{html, Markup, PreEscaped, DOCTYPE};
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+
+use maud::{html, Markup, PreEscaped, DOCTYPE};
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
+use crate::{
+    blocks::helpers::{
+        self, err_bad_request, err_internal, err_not_found, json_map, ok_json, ResponseBuilder,
+    },
+    ui::{self, SiteConfig},
+};
 
 pub struct LegalPagesBlock;
 
@@ -34,11 +42,7 @@ fn extract_doc_id(msg: &Message) -> &str {
 }
 
 impl LegalPagesBlock {
-    async fn handle_get_public(
-        &self,
-        ctx: &dyn Context,
-        doc_type: &str,
-    ) -> OutputStream {
+    async fn handle_get_public(&self, ctx: &dyn Context, doc_type: &str) -> OutputStream {
         use wafer_core::clients::config;
 
         let site = SiteConfig::load(ctx).await;
@@ -98,8 +102,10 @@ impl LegalPagesBlock {
                 1,
                 "<p>No document has been published yet.</p>",
             );
-            return ResponseBuilder::new()
-                .body(markup.into_string().into_bytes(), "text/html; charset=utf-8");
+            return ResponseBuilder::new().body(
+                markup.into_string().into_bytes(),
+                "text/html; charset=utf-8",
+            );
         }
 
         let record = &result.records[0];
@@ -137,8 +143,10 @@ impl LegalPagesBlock {
         };
 
         let markup = public_page(&page_config, title, &meta, version, &content);
-        ResponseBuilder::new()
-            .body(markup.into_string().into_bytes(), "text/html; charset=utf-8")
+        ResponseBuilder::new().body(
+            markup.into_string().into_bytes(),
+            "text/html; charset=utf-8",
+        )
     }
 
     async fn handle_admin_list(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -249,9 +257,7 @@ impl LegalPagesBlock {
         // Get current document
         let doc = match db::get(ctx, COLLECTION, id).await {
             Ok(r) => r,
-            Err(e) if e.code == ErrorCode::NotFound => {
-                return err_not_found("Document not found")
-            }
+            Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Document not found"),
             Err(e) => return err_internal(&format!("Database error: {e}")),
         };
 
@@ -504,8 +510,7 @@ fn sanitize_html(input: &str) -> String {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for LegalPagesBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/legalpages", "0.0.1", "http-handler@v1", "Legal pages management with versioning and publishing")
             .instance_mode(InstanceMode::Singleton)
@@ -547,21 +552,14 @@ impl Block for LegalPagesBlock {
             .default_enabled(false)
     }
 
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let action = msg.action().to_string();
         let path = msg.path().to_string();
 
         match (action.as_str(), path.as_str()) {
             // Public endpoints
             ("retrieve", "/b/legalpages/terms") => self.handle_get_public(ctx, "terms").await,
-            ("retrieve", "/b/legalpages/privacy") => {
-                self.handle_get_public(ctx, "privacy").await
-            }
+            ("retrieve", "/b/legalpages/privacy") => self.handle_get_public(ctx, "privacy").await,
 
             // Admin UI pages (SSR)
             ("retrieve", "/b/legalpages/admin") | ("retrieve", "/b/legalpages/admin/privacy") => {

@@ -8,12 +8,13 @@
 //! and `wafer-run/config` for MAILGUN_API_KEY, MAILGUN_DOMAIN, MAILGUN_FROM.
 
 use serde::{Deserialize, Serialize};
-
 use wafer_core::clients::config;
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
 
 use crate::blocks::helpers::{err_bad_request, err_not_found, ok_json};
 
@@ -41,12 +42,7 @@ impl Block for EmailBlock {
             ])
     }
 
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         match msg.kind.as_str() {
             "email.send" => handle_send(ctx, input).await,
             "email.send_template" => handle_send_template(ctx, input).await,
@@ -115,18 +111,20 @@ async fn handle_send_template(ctx: &dyn Context, input: InputStream) -> OutputSt
         Err(e) => return err_bad_request(&format!("invalid email.send_template: {e}")),
     };
 
-    let base_url = config::get_default(ctx, "SOLOBASE_SHARED__FRONTEND_URL", "http://localhost:5173").await;
-    let site_url = config::get_default(ctx, "SOLOBASE_SHARED__SITE_URL", "https://solobase.dev").await;
+    let base_url = config::get_default(
+        ctx,
+        "SOLOBASE_SHARED__FRONTEND_URL",
+        "http://localhost:5173",
+    )
+    .await;
+    let site_url =
+        config::get_default(ctx, "SOLOBASE_SHARED__SITE_URL", "https://solobase.dev").await;
     let app_name = config::get_default(ctx, "SOLOBASE_SHARED__APP_NAME", "Solobase").await;
 
     let (subject, html, text) = match req.template.as_str() {
         "verification" => {
             let token = req.token.as_deref().unwrap_or("");
-            let url = format!(
-                "{}/b/auth/api/verify?token={}",
-                base_url,
-                url_encode(token)
-            );
+            let url = format!("{}/b/auth/api/verify?token={}", base_url, url_encode(token));
             (
                 format!("Verify your {app_name} email"),
                 format!(
@@ -225,16 +223,10 @@ async fn send_email(
     html: &str,
     text: Option<&str>,
 ) -> bool {
-    let api_key =
-        config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_API_KEY", "")
-            .await;
-    let domain =
-        config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_DOMAIN", "")
-            .await;
+    let api_key = config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_API_KEY", "").await;
+    let domain = config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_DOMAIN", "").await;
     let from = {
-        let f =
-            config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_FROM", "")
-                .await;
+        let f = config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_FROM", "").await;
         if f.is_empty() {
             format!("Solobase <noreply@{domain}>")
         } else {
@@ -254,9 +246,7 @@ async fn send_email(
         format!("subject={}", url_encode(subject)),
         format!("html={}", url_encode(html)),
     ];
-    let reply_to =
-        config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO", "")
-            .await;
+    let reply_to = config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO", "").await;
     if !reply_to.is_empty() {
         parts.push(format!("h:Reply-To={}", url_encode(&reply_to)));
     }

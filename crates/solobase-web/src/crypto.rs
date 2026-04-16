@@ -10,8 +10,7 @@
 //! Since browser data is local-only (no sync to native), hash format
 //! differences don't matter.
 
-use std::collections::HashMap;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use wafer_core::interfaces::crypto::service::{CryptoError, CryptoService};
 

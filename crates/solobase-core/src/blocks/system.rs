@@ -1,10 +1,14 @@
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
 
-use crate::blocks::helpers::{err_not_found, ok_json, ResponseBuilder};
-use crate::ui;
+use crate::{
+    blocks::helpers::{err_not_found, ok_json, ResponseBuilder},
+    ui,
+};
 
 pub struct SystemBlock;
 
@@ -23,12 +27,7 @@ impl Block for SystemBlock {
             ])
     }
 
-    async fn handle(
-        &self,
-        _ctx: &dyn Context,
-        msg: Message,
-        _input: InputStream,
-    ) -> OutputStream {
+    async fn handle(&self, _ctx: &dyn Context, msg: Message, _input: InputStream) -> OutputStream {
         let path = msg.path();
 
         match path {

@@ -22,20 +22,16 @@
 
 use std::sync::Arc;
 
-use wafer_core::interfaces::storage::service::StorageService;
-use wafer_run::block::Block;
-use wafer_run::context::Context;
-use wafer_run::streams::output::TerminalNotResponse;
-use wafer_run::types::*;
-use wafer_run::BlockInfo;
-use wafer_run::ResourceGrant;
-use wafer_run::ResourceType;
-use wafer_run::{InputStream, OutputStream};
+use wafer_core::{clients::database as db, interfaces::storage::service::StorageService};
+use wafer_run::{
+    block::Block, context::Context, streams::output::TerminalNotResponse, types::*, BlockInfo,
+    InputStream, OutputStream, ResourceGrant, ResourceType,
+};
 
-use wafer_core::clients::database as db;
-
-use super::admin::STORAGE_ACCESS_LOGS_COLLECTION;
-use super::helpers::{json_map, now_millis};
+use super::{
+    admin::STORAGE_ACCESS_LOGS_COLLECTION,
+    helpers::{json_map, now_millis},
+};
 
 /// A storage block that enforces per-block path isolation and WRAP-based
 /// cross-block access control.
@@ -180,12 +176,7 @@ impl Block for SolobaseStorageBlock {
         self.inner.info()
     }
 
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let caller = ctx.caller_id().unwrap_or("unknown").to_string();
 
         // Validate caller name is safe for storage paths
@@ -267,7 +258,9 @@ impl Block for SolobaseStorageBlock {
                 let s = format!("ERROR: {}", e.message);
                 (s, OutputStream::error(e))
             }
-            Err(TerminalNotResponse::Drop) => ("ERROR: dropped".into(), OutputStream::drop_request()),
+            Err(TerminalNotResponse::Drop) => {
+                ("ERROR: dropped".into(), OutputStream::drop_request())
+            }
             Err(TerminalNotResponse::Continue(m)) => {
                 ("ERROR: continue".into(), OutputStream::continue_with(m))
             }
@@ -321,7 +314,10 @@ async fn log_storage_access(
 ///
 /// After the runtime starts, call `update_wrap_grants()` to inject the
 /// collected grants for cross-block access checks.
-pub fn create(service: Arc<dyn StorageService>, admin_block: Arc<String>) -> Arc<SolobaseStorageBlock> {
+pub fn create(
+    service: Arc<dyn StorageService>,
+    admin_block: Arc<String>,
+) -> Arc<SolobaseStorageBlock> {
     Arc::new(SolobaseStorageBlock::new(service, admin_block))
 }
 

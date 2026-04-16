@@ -18,16 +18,15 @@ pub use blocks::*;
 pub use dashboard::*;
 pub use email::*;
 pub use logs::*;
+use maud::Markup;
 pub use network::*;
 pub use permissions::*;
 pub use storage::*;
 pub use users::*;
 pub use variables::*;
+use wafer_run::{types::*, OutputStream};
 
 use crate::ui::{self, NavItem, SiteConfig, UserInfo};
-use maud::Markup;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
 
 /// Admin nav items for the sidebar.
 pub(crate) fn admin_nav() -> Vec<NavItem> {

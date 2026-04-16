@@ -1,12 +1,11 @@
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
-
-use crate::blocks::helpers::{err_internal, err_not_found, ok_json};
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, SortField},
+};
+use wafer_run::{context::Context, types::*, OutputStream};
 
 use super::{AUDIT_LOGS_COLLECTION as COLLECTION, REQUEST_LOGS_COLLECTION};
+use crate::blocks::helpers::{err_internal, err_not_found, ok_json};
 
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let action = msg.action();

@@ -1,17 +1,12 @@
-use std::collections::HashMap;
-use std::time::Duration;
-use wafer_core::clients::crypto;
-use wafer_core::clients::database as db;
-use wafer_core::clients::storage as store;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
+use std::{collections::HashMap, time::Duration};
 
+use wafer_core::clients::{crypto, database as db, storage as store};
+use wafer_run::{context::Context, types::*, OutputStream};
+
+use super::{ACCESS_LOGS_COLLECTION, SHARES_COLLECTION};
 use crate::blocks::helpers::{
     err_bad_request, err_forbidden, err_internal, err_not_found, ResponseBuilder,
 };
-
-use super::{ACCESS_LOGS_COLLECTION, SHARES_COLLECTION};
 
 pub async fn generate_share_token(
     ctx: &dyn Context,

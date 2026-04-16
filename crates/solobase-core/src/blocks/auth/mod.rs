@@ -3,18 +3,24 @@ mod login;
 mod oauth;
 mod pages;
 
-use super::helpers::{hex_encode, json_map};
-use super::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter};
+use std::{collections::HashMap, time::Duration};
+
+use wafer_core::clients::{
+    config, crypto, database as db,
+    database::{Filter, FilterOp, ListOptions},
+};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
+use super::{
+    helpers::{hex_encode, json_map},
+    rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter},
+};
 use crate::blocks::helpers::err_not_found;
-use std::collections::HashMap;
-use std::time::Duration;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
-use wafer_core::clients::{config, crypto};
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
 pub const AUTH_BLOCK_ID: &str = "suppers-ai/auth";
 
@@ -282,8 +288,7 @@ pub async fn seed_admin_user(ctx: &dyn Context) {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for AuthBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new(AUTH_BLOCK_ID, "0.0.1", "http-handler@v1", "Authentication: login, signup, JWT, refresh tokens, OAuth, API keys")
             .instance_mode(InstanceMode::Singleton)
@@ -393,12 +398,7 @@ impl Block for AuthBlock {
         ]
     }
 
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         let action = msg.action().to_string();
         // Normalize: /b/auth/... → /auth/...
         let raw_path = msg.path().to_string();
@@ -435,14 +435,9 @@ impl Block for AuthBlock {
                     ip
                 };
                 // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
-                if let RateLimitOutcome::Limited(r) = check_rate_limit(
-                    &self.limiter,
-                    ctx,
-                    &identity,
-                    "refresh",
-                    RateLimit::REFRESH,
-                )
-                .await
+                if let RateLimitOutcome::Limited(r) =
+                    check_rate_limit(&self.limiter, ctx, &identity, "refresh", RateLimit::REFRESH)
+                        .await
                 {
                     return r;
                 }
@@ -569,9 +564,7 @@ impl Block for AuthBlock {
             }
             ("create", "/auth/api/reset-password") => self.handle_reset_password(ctx, input).await,
             // OAuth API
-            ("retrieve", "/auth/api/oauth/providers") => {
-                self.handle_oauth_providers(ctx).await
-            }
+            ("retrieve", "/auth/api/oauth/providers") => self.handle_oauth_providers(ctx).await,
             ("create", "/auth/api/oauth/sync-user") => {
                 self.handle_sync_user(ctx, &msg, input).await
             }
@@ -602,9 +595,10 @@ pub async fn authenticate_api_key(
     api_key: &str,
     msg: &mut wafer_run::types::Message,
 ) {
-    use crate::blocks::helpers::{sha256_hex, RecordExt};
     use wafer_core::clients::database as db;
     use wafer_run::meta::*;
+
+    use crate::blocks::helpers::{sha256_hex, RecordExt};
 
     let key_hash = sha256_hex(api_key.as_bytes());
 

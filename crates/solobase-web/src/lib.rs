@@ -7,13 +7,11 @@
 //!   browser `Request` into a WAFER `Message`, dispatches it through the
 //!   `site-main` flow, and returns a browser `Response`.
 
-use std::cell::RefCell;
-use std::sync::Arc;
-
-use wasm_bindgen::prelude::*;
+use std::{cell::RefCell, sync::Arc};
 
 use solobase::builder::{self, SolobaseBuilder};
 use wafer_core::interfaces::config::service::ConfigService;
+use wasm_bindgen::prelude::*;
 
 pub mod bridge;
 pub mod config;
@@ -154,4 +152,3 @@ pub async fn handle_request(request: web_sys::Request) -> Result<web_sys::Respon
 
     convert::output_to_response(output).await
 }
-

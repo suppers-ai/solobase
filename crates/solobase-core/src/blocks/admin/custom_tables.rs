@@ -1,12 +1,13 @@
-use super::sanitize_ident;
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+
+use wafer_core::clients::{
+    database as db,
+    database::{ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use wafer_sql_utils::{ddl, introspect, Backend};
 
+use super::sanitize_ident;
 use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json};
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -24,9 +25,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
         // Record CRUD
         ("retrieve", _) if path.contains("/records") => handle_list_records(ctx, msg).await,
         ("create", _) if path.contains("/records") => handle_create_record(ctx, msg, input).await,
-        ("update", _) if path.contains("/records/") => {
-            handle_update_record(ctx, msg, input).await
-        }
+        ("update", _) if path.contains("/records/") => handle_update_record(ctx, msg, input).await,
         ("delete", _) if path.contains("/records/") => handle_delete_record(ctx, msg).await,
         _ => err_not_found("not found"),
     }

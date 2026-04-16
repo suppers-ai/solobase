@@ -6,16 +6,16 @@
 //! `wafer-run/infra`, but routing, feature gates, admin checks, and JWT validation
 //! are handled by the shared pipeline.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
 
-use crate::features::FeatureConfig;
-use crate::routing::BlockId;
+use crate::{features::FeatureConfig, routing::BlockId};
 
 /// Block factory that returns shared block instances (same Arc across requests).
 ///
@@ -86,12 +86,7 @@ impl Block for SolobaseRouterBlock {
         Ok(()) // No-op — individual blocks handle their own lifecycle
     }
 
-    async fn handle(
-        &self,
-        ctx: &dyn Context,
-        msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         // Resolve auth token from Authorization header or auth_token cookie.
         let auth_header = msg.header("authorization");
         let auth_value = if !auth_header.is_empty() {

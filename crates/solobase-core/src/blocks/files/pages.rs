@@ -1,15 +1,17 @@
 //! SSR admin pages for the files block.
 
-use crate::blocks::helpers::RecordExt;
-use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
 use maud::{html, Markup};
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, OutputStream};
 
 use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION};
+use crate::{
+    blocks::helpers::RecordExt,
+    ui::{self, components, icons, NavItem, SiteConfig, UserInfo},
+};
 
 fn files_admin_nav() -> Vec<NavItem> {
     vec![

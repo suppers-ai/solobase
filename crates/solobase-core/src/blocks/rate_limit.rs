@@ -1,17 +1,15 @@
-use std::time::Duration;
-use wafer_core::clients::config;
-use wafer_run::context::Context;
-use wafer_run::OutputStream;
-
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashMap;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Mutex;
+use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
+use wafer_core::clients::config;
 #[cfg(target_arch = "wasm32")]
 use wafer_core::clients::database as db;
+use wafer_run::{context::Context, OutputStream};
 
 /// Per-user rate limiter using fixed-window counters.
 ///
@@ -193,24 +191,37 @@ impl UserRateLimiter {
         );
 
         let id = super::helpers::sha256_hex(format!("rl:{key}:{now}").as_bytes());
-        let _ = db::exec_raw(ctx, &sql, &[
-            serde_json::json!(id),
-            serde_json::json!(key),
-            serde_json::json!(now),
-            serde_json::json!(window_start),
-        ]).await;
+        let _ = db::exec_raw(
+            ctx,
+            &sql,
+            &[
+                serde_json::json!(id),
+                serde_json::json!(key),
+                serde_json::json!(now),
+                serde_json::json!(window_start),
+            ],
+        )
+        .await;
 
         // Read back the current count
-        use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
         use wafer_core::interfaces::database::service::{Filter, FilterOp, ListOptions};
+        use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
 
         let (sql, vals) = query::build_select_columns(
             RATE_LIMITS,
             &["count"],
             &ListOptions {
                 filters: vec![
-                    Filter { field: "key".into(), operator: FilterOp::Equal, value: serde_json::json!(key) },
-                    Filter { field: "window_start".into(), operator: FilterOp::GreaterEqual, value: serde_json::json!(window_start) },
+                    Filter {
+                        field: "key".into(),
+                        operator: FilterOp::Equal,
+                        value: serde_json::json!(key),
+                    },
+                    Filter {
+                        field: "window_start".into(),
+                        operator: FilterOp::GreaterEqual,
+                        value: serde_json::json!(window_start),
+                    },
                 ],
                 ..Default::default()
             },
@@ -220,7 +231,8 @@ impl UserRateLimiter {
         let args = sea_values_to_json(vals);
         let rows = db::query_raw(ctx, &sql, &args).await.unwrap_or_default();
 
-        let count = rows.first()
+        let count = rows
+            .first()
             .and_then(|r| r.data.get("count"))
             .and_then(|v| v.as_i64())
             .unwrap_or(0) as u32;
@@ -333,10 +345,9 @@ pub async fn check_user_rate_limit(
 
 #[cfg(test)]
 mod tests {
+    use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
+
     use super::*;
-    use wafer_run::context::Context;
-    use wafer_run::types::Message;
-    use wafer_run::{InputStream, OutputStream};
 
     struct TestCtx;
 

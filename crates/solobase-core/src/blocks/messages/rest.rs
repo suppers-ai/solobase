@@ -2,15 +2,18 @@
 //!
 //! Thin layer: parse HTTP request → call service → format JSON response.
 
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+
 use super::service::{self, ListContextsParams, ListEntriesParams};
 use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
 /// Convert empty string to None (msg.query() returns "" for missing params).
 fn non_empty(s: &str) -> Option<String> {
-    if s.is_empty() { None } else { Some(s.to_string()) }
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -25,9 +28,7 @@ fn extract_context_id(msg: &Message) -> &str {
         return var;
     }
     let path = msg.path();
-    let suffix = path
-        .strip_prefix("/b/messages/api/contexts/")
-        .unwrap_or("");
+    let suffix = path.strip_prefix("/b/messages/api/contexts/").unwrap_or("");
     suffix.split('/').next().unwrap_or("")
 }
 
@@ -38,9 +39,7 @@ fn extract_entry_id(msg: &Message) -> &str {
         return var;
     }
     let path = msg.path();
-    let suffix = path
-        .strip_prefix("/b/messages/api/entries/")
-        .unwrap_or("");
+    let suffix = path.strip_prefix("/b/messages/api/entries/").unwrap_or("");
     suffix.split('/').next().unwrap_or("")
 }
 
@@ -111,11 +110,7 @@ pub async fn get_context(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 }
 
-pub async fn update_context(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+pub async fn update_context(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let id = extract_context_id(msg);
     if id.is_empty() {
         return err_bad_request("Missing context ID");
@@ -166,11 +161,7 @@ pub async fn list_entries(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 }
 
-pub async fn add_entry(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+pub async fn add_entry(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let context_id = extract_context_id(msg);
     if context_id.is_empty() {
         return err_bad_request("Missing context ID");

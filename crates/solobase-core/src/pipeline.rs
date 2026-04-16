@@ -4,15 +4,16 @@
 //! converting their platform-specific HTTP types into a WAFER Message.
 
 use wafer_core::clients::database as db;
-use wafer_run::context::Context;
-use wafer_run::meta::*;
-use wafer_run::streams::output::TerminalNotResponse;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{
+    context::Context, meta::*, streams::output::TerminalNotResponse, types::*, InputStream,
+    OutputStream,
+};
 
-use crate::blocks::helpers::ResponseBuilder;
-use crate::features::FeatureConfig;
-use crate::routing::{self, BlockFactory};
+use crate::{
+    blocks::helpers::ResponseBuilder,
+    features::FeatureConfig,
+    routing::{self, BlockFactory},
+};
 
 /// Handle a solobase request.
 ///

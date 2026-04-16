@@ -2,16 +2,15 @@
 //!
 //! Provides a simple admin UI for managing LLM providers (OpenAI, Anthropic, etc.).
 
-use crate::blocks::helpers::RecordExt;
-use crate::ui::{self, icons, NavItem, SiteConfig, UserInfo};
 use maud::{html, Markup};
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::ListOptions;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
+use wafer_core::clients::{database as db, database::ListOptions};
+use wafer_run::{context::Context, types::*, OutputStream};
 
 use super::PROVIDERS_COLLECTION;
+use crate::{
+    blocks::helpers::RecordExt,
+    ui::{self, icons, NavItem, SiteConfig, UserInfo},
+};
 
 // ---------------------------------------------------------------------------
 // Navigation

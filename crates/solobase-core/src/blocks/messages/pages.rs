@@ -4,15 +4,15 @@
 //! - Context list page (`GET /b/messages/`)
 //! - Context detail page (`GET /b/messages/contexts/{id}`)
 
-use crate::blocks::helpers::{err_internal, RecordExt};
-use crate::ui::{self, components, NavItem, SiteConfig, UserInfo};
 use maud::{html, Markup};
 use wafer_core::clients::database as db;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
+use wafer_run::{context::Context, types::*, OutputStream};
 
 use super::service::{self, ListContextsParams, ListEntriesParams};
+use crate::{
+    blocks::helpers::{err_internal, RecordExt},
+    ui::{self, components, NavItem, SiteConfig, UserInfo},
+};
 
 fn nav() -> Vec<NavItem> {
     vec![NavItem {
@@ -31,8 +31,7 @@ fn messages_page(
     msg: &Message,
 ) -> OutputStream {
     let is_fragment = ui::is_htmx(msg);
-    let markup =
-        ui::layout::block_shell(title, config, &nav(), user, path, content, is_fragment);
+    let markup = ui::layout::block_shell(title, config, &nav(), user, path, content, is_fragment);
     ui::html_response(markup)
 }
 
@@ -62,10 +61,7 @@ pub fn entry_card(record: &db::Record) -> Markup {
                 "background:#eff6ff;border-left:3px solid #3b82f6",
                 "badge-info",
             ),
-            "agent" | "assistant" => (
-                "background:#f8fafc;border-left:3px solid #94a3b8",
-                "badge",
-            ),
+            "agent" | "assistant" => ("background:#f8fafc;border-left:3px solid #94a3b8", "badge"),
             "system" => (
                 "background:#fefce8;border-left:3px solid #eab308",
                 "badge-warning",

@@ -1,17 +1,16 @@
-use crate::ui::{components, icons, SiteConfig, UserInfo};
 use maud::html;
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
-use wafer_sql_utils::value::sea_values_to_json;
-use wafer_sql_utils::{aggregate, query, Backend};
+use wafer_run::{context::Context, types::*, OutputStream};
+use wafer_sql_utils::{aggregate, query, value::sea_values_to_json, Backend};
 
 use super::admin_page;
-use crate::blocks::admin::{
-    AUDIT_LOGS_COLLECTION as AUDIT_LOGS, REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
+use crate::{
+    blocks::{
+        admin::{AUDIT_LOGS_COLLECTION as AUDIT_LOGS, REQUEST_LOGS_COLLECTION as REQUEST_LOGS},
+        auth::USERS_COLLECTION as USERS,
+    },
+    ui::{components, icons, SiteConfig, UserInfo},
 };
-use crate::blocks::auth::USERS_COLLECTION as USERS;
 
 pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
@@ -42,55 +41,91 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (sql, vals) = aggregate::build_count(
         USERS,
         &[
-            Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null },
-            Filter { field: "created_at".into(), operator: FilterOp::GreaterEqual, value: serde_json::json!(&today_start) },
+            Filter {
+                field: "deleted_at".into(),
+                operator: FilterOp::IsNull,
+                value: serde_json::Value::Null,
+            },
+            Filter {
+                field: "created_at".into(),
+                operator: FilterOp::GreaterEqual,
+                value: serde_json::json!(&today_start),
+            },
         ],
         Backend::Sqlite,
     );
     let new_users_today = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
         .await
         .ok()
-        .and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64())))
+        .and_then(|r| {
+            r.first()
+                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+        })
         .unwrap_or(0);
 
     // Requests today
     let (sql, vals) = aggregate::build_count(
         REQUEST_LOGS,
-        &[Filter { field: "created_at".into(), operator: FilterOp::GreaterEqual, value: serde_json::json!(&today_start) }],
+        &[Filter {
+            field: "created_at".into(),
+            operator: FilterOp::GreaterEqual,
+            value: serde_json::json!(&today_start),
+        }],
         Backend::Sqlite,
     );
     let requests_today = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
         .await
         .ok()
-        .and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64())))
+        .and_then(|r| {
+            r.first()
+                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+        })
         .unwrap_or(0);
 
     // Errors today
     let (sql, vals) = aggregate::build_count(
         REQUEST_LOGS,
         &[
-            Filter { field: "status".into(), operator: FilterOp::Equal, value: serde_json::json!("ERROR") },
-            Filter { field: "created_at".into(), operator: FilterOp::GreaterEqual, value: serde_json::json!(&today_start) },
+            Filter {
+                field: "status".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!("ERROR"),
+            },
+            Filter {
+                field: "created_at".into(),
+                operator: FilterOp::GreaterEqual,
+                value: serde_json::json!(&today_start),
+            },
         ],
         Backend::Sqlite,
     );
     let errors_today = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
         .await
         .ok()
-        .and_then(|r| r.first().and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64())))
+        .and_then(|r| {
+            r.first()
+                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+        })
         .unwrap_or(0);
 
     // Avg response time today
     let (sql, vals) = aggregate::build_avg(
         REQUEST_LOGS,
         "duration_ms",
-        &[Filter { field: "created_at".into(), operator: FilterOp::GreaterEqual, value: serde_json::json!(&today_start) }],
+        &[Filter {
+            field: "created_at".into(),
+            operator: FilterOp::GreaterEqual,
+            value: serde_json::json!(&today_start),
+        }],
         Backend::Sqlite,
     );
     let avg_ms = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
         .await
         .ok()
-        .and_then(|r| r.first().and_then(|r| r.data.get("avg_val").and_then(|v| v.as_f64())))
+        .and_then(|r| {
+            r.first()
+                .and_then(|r| r.data.get("avg_val").and_then(|v| v.as_f64()))
+        })
         .unwrap_or(0.0);
 
     // Recent users (last 5 logins)
@@ -98,29 +133,43 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         USERS,
         &["id", "email", "created_at"],
         &ListOptions {
-            filters: vec![Filter { field: "deleted_at".into(), operator: FilterOp::IsNull, value: serde_json::Value::Null }],
-            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            filters: vec![Filter {
+                field: "deleted_at".into(),
+                operator: FilterOp::IsNull,
+                value: serde_json::Value::Null,
+            }],
+            sort: vec![SortField {
+                field: "created_at".into(),
+                desc: true,
+            }],
             limit: 5,
             ..Default::default()
         },
         None,
         Backend::Sqlite,
     );
-    let recent_users = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await.unwrap_or_default();
+    let recent_users = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .unwrap_or_default();
 
     // Recent audit logs (last 5)
     let (sql, vals) = query::build_select_columns(
         AUDIT_LOGS,
         &["action", "resource", "user_id", "created_at"],
         &ListOptions {
-            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            sort: vec![SortField {
+                field: "created_at".into(),
+                desc: true,
+            }],
             limit: 5,
             ..Default::default()
         },
         None,
         Backend::Sqlite,
     );
-    let recent_audit = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await.unwrap_or_default();
+    let recent_audit = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .unwrap_or_default();
 
     // Recent errors (last 5)
     let or_cond = sea_query::Cond::any()
@@ -130,14 +179,19 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         REQUEST_LOGS,
         &["status_code", "method", "path", "duration_ms", "created_at"],
         &ListOptions {
-            sort: vec![SortField { field: "created_at".into(), desc: true }],
+            sort: vec![SortField {
+                field: "created_at".into(),
+                desc: true,
+            }],
             limit: 5,
             ..Default::default()
         },
         Some(or_cond),
         Backend::Sqlite,
     );
-    let recent_errors = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await.unwrap_or_default();
+    let recent_errors = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .unwrap_or_default();
 
     let content = html! {
         (components::page_header("Dashboard", Some("System overview"), None))

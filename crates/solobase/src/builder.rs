@@ -4,21 +4,21 @@
 //! service implementations and calls the builder. The builder handles all
 //! common registration: service blocks, middleware, feature blocks, router, flow.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use solobase_core::blocks::storage::SolobaseStorageBlock;
-use solobase_core::features::{BlockSettings, FeatureConfig};
-use wafer_core::interfaces::config::service::ConfigService;
-use wafer_core::interfaces::crypto::service::CryptoService;
-use wafer_core::interfaces::database::service::DatabaseService;
-use wafer_core::interfaces::logger::service::LoggerService;
-use wafer_core::interfaces::network::service::NetworkService;
-use wafer_core::interfaces::storage::service::StorageService;
-use wafer_run::block::Block;
-use wafer_run::{RuntimeError, Wafer};
-
-use solobase_core::blocks::router::{NativeBlockFactory, SolobaseRouterBlock};
+use solobase_core::{
+    blocks::{
+        router::{NativeBlockFactory, SolobaseRouterBlock},
+        storage::SolobaseStorageBlock,
+    },
+    features::{BlockSettings, FeatureConfig},
+};
+use wafer_core::interfaces::{
+    config::service::ConfigService, crypto::service::CryptoService,
+    database::service::DatabaseService, logger::service::LoggerService,
+    network::service::NetworkService, storage::service::StorageService,
+};
+use wafer_run::{block::Block, RuntimeError, Wafer};
 
 pub struct SolobaseBuilder {
     database: Option<Arc<dyn DatabaseService>>,
@@ -30,6 +30,12 @@ pub struct SolobaseBuilder {
     block_settings: BlockSettings,
     block_configs: Vec<(String, serde_json::Value)>,
     extra_blocks: Vec<(String, Arc<dyn Block>)>,
+}
+
+impl Default for SolobaseBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SolobaseBuilder {
@@ -102,7 +108,9 @@ impl SolobaseBuilder {
         let logger = self.logger.ok_or("logger service required")?;
 
         // 2. Read JWT secret before registering config block
-        let jwt_secret = config.get("SUPPERS_AI__AUTH__JWT_SECRET").unwrap_or_default();
+        let jwt_secret = config
+            .get("SUPPERS_AI__AUTH__JWT_SECRET")
+            .unwrap_or_default();
 
         // 3. Create runtime
         let mut wafer = Wafer::new();
@@ -145,9 +153,8 @@ impl SolobaseBuilder {
         }
 
         // 6. Create and register feature blocks
-        let shared_blocks = solobase_core::blocks::create_blocks(|name| {
-            self.block_settings.is_enabled(name)
-        });
+        let shared_blocks =
+            solobase_core::blocks::create_blocks(|name| self.block_settings.is_enabled(name));
         solobase_core::blocks::register_shared_blocks(&mut wafer, &shared_blocks)?;
 
         // 7. Email block (always on, not feature-gated)
@@ -174,8 +181,11 @@ impl SolobaseBuilder {
         #[cfg(feature = "wasm")]
         {
             use std::sync::Arc;
-            use wafer_run::discovery::{discover_flows, discover_wasm_blocks};
-            use wafer_run::wasm::WasmiBlock;
+
+            use wafer_run::{
+                discovery::{discover_flows, discover_wasm_blocks},
+                wasm::WasmiBlock,
+            };
 
             let cwd = std::env::current_dir()
                 .map_err(|e| format!("failed to get current directory: {e}"))?;
@@ -199,7 +209,8 @@ impl SolobaseBuilder {
                 };
                 let name = block.info().name.clone();
                 tracing::info!(name = %name, path = %wasm_path.display(), "discovered WASM block");
-                wafer.register_block(&name, Arc::new(block))
+                wafer
+                    .register_block(&name, Arc::new(block))
                     .map_err(|e| format!("auto-discovered block '{name}': {e}"))?;
             }
 

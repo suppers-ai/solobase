@@ -1,12 +1,15 @@
+use std::collections::HashMap;
+
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use wafer_core::clients::database::Record;
-use wafer_run::meta::{
-    META_RESP_CONTENT_TYPE, META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX, META_RESP_STATUS,
+use wafer_run::{
+    meta::{
+        META_RESP_CONTENT_TYPE, META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX, META_RESP_STATUS,
+    },
+    types::{ErrorCode, MetaEntry, WaferError},
+    OutputStream,
 };
-use wafer_run::types::{ErrorCode, MetaEntry, WaferError};
-use wafer_run::OutputStream;
 
 /// Current UTC time as RFC 3339 string.
 pub fn now_rfc3339() -> String {

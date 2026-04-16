@@ -3,16 +3,16 @@
 //! Uses maud for compile-time HTML generation. Settings are read from
 //! the `variables` table at render time.
 
-use crate::blocks::helpers::{err_bad_request, ok_json, RecordExt};
-use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
-use maud::{html, Markup, PreEscaped};
 use std::collections::HashMap;
-use wafer_core::clients::config;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::ListOptions;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+
+use maud::{html, Markup, PreEscaped};
+use wafer_core::clients::{config, database as db, database::ListOptions};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+
+use crate::{
+    blocks::helpers::{err_bad_request, ok_json, RecordExt},
+    ui::{self, components, icons, NavItem, SiteConfig, UserInfo},
+};
 
 /// Read all key-value pairs from the variables table.
 async fn load_variables(ctx: &dyn Context) -> HashMap<String, String> {

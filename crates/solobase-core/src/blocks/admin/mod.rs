@@ -20,14 +20,15 @@ pub(crate) const VARIABLES_COLLECTION: &str = "suppers_ai__admin__variables";
 pub(crate) const NETWORK_RULES_COLLECTION: &str = "suppers_ai__admin__network_rules";
 pub(crate) const WRAP_GRANTS_COLLECTION: &str = "suppers_ai__admin__wrap_grants";
 
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+pub(crate) use wafer_sql_utils::ident::sanitize_ident;
 
 use crate::blocks::helpers::{err_not_found, ok_json};
-
-pub(crate) use wafer_sql_utils::ident::sanitize_ident;
 
 pub struct AdminBlock;
 
@@ -35,8 +36,7 @@ pub struct AdminBlock;
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for AdminBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/admin", "0.0.1", "http-handler@v1", "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables")
             .instance_mode(InstanceMode::Singleton)
@@ -325,10 +325,7 @@ impl Block for AdminBlock {
                 return handle_create_wrap_grant(ctx, msg, input).await;
             }
             if action == "delete" && sub.starts_with("/grants/rules/") {
-                let rule_id = sub
-                    .strip_prefix("/grants/rules/")
-                    .unwrap_or("")
-                    .to_string();
+                let rule_id = sub.strip_prefix("/grants/rules/").unwrap_or("").to_string();
                 if !rule_id.is_empty() {
                     return handle_delete_wrap_grant(ctx, msg, &rule_id).await;
                 }
@@ -347,7 +344,10 @@ impl Block for AdminBlock {
                 return pages::handle_custom_block_upload(ctx, &msg, input).await;
             }
             if action == "delete" && sub.starts_with("/custom-blocks/") {
-                let encoded = sub.strip_prefix("/custom-blocks/").unwrap_or("").to_string();
+                let encoded = sub
+                    .strip_prefix("/custom-blocks/")
+                    .unwrap_or("")
+                    .to_string();
                 if !encoded.is_empty() {
                     let block_name = encoded.replace("--", "/");
                     return pages::handle_custom_block_delete(ctx, &msg, &block_name).await;
@@ -390,8 +390,9 @@ impl Block for AdminBlock {
 // WRAP grant handlers
 // ---------------------------------------------------------------------------
 
-use crate::blocks::helpers::parse_form_body;
 use wafer_core::clients::database as db;
+
+use crate::blocks::helpers::parse_form_body;
 
 async fn handle_create_wrap_grant(
     ctx: &dyn Context,
@@ -416,10 +417,7 @@ async fn handle_create_wrap_grant(
     let mut data = std::collections::HashMap::new();
     data.insert("grantee".into(), serde_json::json!(grantee));
     data.insert("resource".into(), serde_json::json!(resource));
-    data.insert(
-        "write".into(),
-        serde_json::json!(if write { 1 } else { 0 }),
-    );
+    data.insert("write".into(), serde_json::json!(if write { 1 } else { 0 }));
     data.insert("resource_type".into(), serde_json::json!(resource_type));
     data.insert("description".into(), serde_json::json!(description));
     let _ = db::create(ctx, WRAP_GRANTS_COLLECTION, data).await;

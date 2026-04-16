@@ -2,8 +2,7 @@
 //!
 //! Works on both native and wasm32 targets (uses `getrandom` for RNG).
 
-use std::collections::HashMap;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 // ---------------------------------------------------------------------------
 // Password hashing (argon2id)

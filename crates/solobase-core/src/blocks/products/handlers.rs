@@ -1,19 +1,22 @@
+use std::collections::HashMap;
+
+use wafer_core::clients::{
+    config, database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+
 use super::{
     GROUPS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION,
     SUBSCRIPTIONS, TYPES_COLLECTION,
 };
-use crate::blocks::crud;
-use crate::blocks::helpers::{
-    err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized,
-    field_as_string, ok_json, RecordExt,
+use crate::blocks::{
+    crud,
+    helpers::{
+        err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized,
+        field_as_string, ok_json, RecordExt,
+    },
 };
-use std::collections::HashMap;
-use wafer_core::clients::config;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
 async fn user_products_enabled(ctx: &dyn Context) -> bool {
     config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS", "false").await == "true"
@@ -163,7 +166,9 @@ pub async fn handle_user(ctx: &dyn Context, msg: &Message, input: InputStream) -
         ("create", "/b/products/calculate-price") => {
             super::pricing::handle_calculate(ctx, input).await
         }
-        ("create", "/b/products/purchases") => super::purchase::handle_create(ctx, msg, input).await,
+        ("create", "/b/products/purchases") => {
+            super::purchase::handle_create(ctx, msg, input).await
+        }
         ("retrieve", "/b/products/purchases") => super::purchase::handle_list_user(ctx, msg).await,
         ("retrieve", _) if path.starts_with("/b/products/purchases/") => {
             super::purchase::handle_get(ctx, msg).await
@@ -215,22 +220,58 @@ async fn handle_list_products(ctx: &dyn Context, msg: &Message) -> OutputStream 
 }
 
 async fn handle_get_product(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_get(ctx, msg, PRODUCTS_COLLECTION, "/admin/b/products/products/", "Product").await
+    crud::crud_get(
+        ctx,
+        msg,
+        PRODUCTS_COLLECTION,
+        "/admin/b/products/products/",
+        "Product",
+    )
+    .await
 }
 
-async fn handle_create_product(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+async fn handle_create_product(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let mut defaults = HashMap::new();
-    defaults.insert("status".to_string(), serde_json::Value::String("draft".to_string()));
-    defaults.insert("created_by".to_string(), serde_json::Value::String(msg.user_id().to_string()));
+    defaults.insert(
+        "status".to_string(),
+        serde_json::Value::String("draft".to_string()),
+    );
+    defaults.insert(
+        "created_by".to_string(),
+        serde_json::Value::String(msg.user_id().to_string()),
+    );
     crud::crud_create(ctx, msg, input, PRODUCTS_COLLECTION, defaults).await
 }
 
-async fn handle_update_product(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    crud::crud_update(ctx, msg, input, PRODUCTS_COLLECTION, "/admin/b/products/products/", "Product").await
+async fn handle_update_product(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
+    crud::crud_update(
+        ctx,
+        msg,
+        input,
+        PRODUCTS_COLLECTION,
+        "/admin/b/products/products/",
+        "Product",
+    )
+    .await
 }
 
 async fn handle_delete_product(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_delete(ctx, msg, PRODUCTS_COLLECTION, "/admin/b/products/products/", "Product").await
+    crud::crud_delete(
+        ctx,
+        msg,
+        PRODUCTS_COLLECTION,
+        "/admin/b/products/products/",
+        "Product",
+    )
+    .await
 }
 
 // --- Groups ---
@@ -241,16 +282,34 @@ async fn handle_list_groups(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
 async fn handle_create_group(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let mut defaults = HashMap::new();
-    defaults.insert("user_id".to_string(), serde_json::Value::String(msg.user_id().to_string()));
+    defaults.insert(
+        "user_id".to_string(),
+        serde_json::Value::String(msg.user_id().to_string()),
+    );
     crud::crud_create(ctx, msg, input, GROUPS_COLLECTION, defaults).await
 }
 
 async fn handle_update_group(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    crud::crud_update(ctx, msg, input, GROUPS_COLLECTION, "/admin/b/products/groups/", "Group").await
+    crud::crud_update(
+        ctx,
+        msg,
+        input,
+        GROUPS_COLLECTION,
+        "/admin/b/products/groups/",
+        "Group",
+    )
+    .await
 }
 
 async fn handle_delete_group(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_delete(ctx, msg, GROUPS_COLLECTION, "/admin/b/products/groups/", "Group").await
+    crud::crud_delete(
+        ctx,
+        msg,
+        GROUPS_COLLECTION,
+        "/admin/b/products/groups/",
+        "Group",
+    )
+    .await
 }
 
 // --- Types ---
@@ -264,7 +323,14 @@ async fn handle_create_type(ctx: &dyn Context, msg: &Message, input: InputStream
 }
 
 async fn handle_delete_type(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_delete(ctx, msg, TYPES_COLLECTION, "/admin/b/products/types/", "Type").await
+    crud::crud_delete(
+        ctx,
+        msg,
+        TYPES_COLLECTION,
+        "/admin/b/products/types/",
+        "Type",
+    )
+    .await
 }
 
 // --- Pricing Templates ---
@@ -273,16 +339,39 @@ async fn handle_list_pricing(ctx: &dyn Context, msg: &Message) -> OutputStream {
     crud::crud_list(ctx, msg, PRICING_COLLECTION, vec![]).await
 }
 
-async fn handle_create_pricing(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+async fn handle_create_pricing(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     crud::crud_create(ctx, msg, input, PRICING_COLLECTION, HashMap::new()).await
 }
 
-async fn handle_update_pricing(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    crud::crud_update(ctx, msg, input, PRICING_COLLECTION, "/admin/b/products/pricing/", "Pricing template").await
+async fn handle_update_pricing(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
+    crud::crud_update(
+        ctx,
+        msg,
+        input,
+        PRICING_COLLECTION,
+        "/admin/b/products/pricing/",
+        "Pricing template",
+    )
+    .await
 }
 
 async fn handle_delete_pricing(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_delete(ctx, msg, PRICING_COLLECTION, "/admin/b/products/pricing/", "Pricing template").await
+    crud::crud_delete(
+        ctx,
+        msg,
+        PRICING_COLLECTION,
+        "/admin/b/products/pricing/",
+        "Pricing template",
+    )
+    .await
 }
 
 // --- Public catalog ---
@@ -411,7 +500,11 @@ async fn handle_user_get_product(ctx: &dyn Context, msg: &Message) -> OutputStre
     }
 }
 
-async fn handle_user_create_product(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+async fn handle_user_create_product(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
         return err_unauthorized("Not authenticated");
@@ -462,10 +555,17 @@ async fn handle_user_create_product(ctx: &dyn Context, msg: &Message, input: Inp
     }
 }
 
-async fn handle_user_update_product(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+async fn handle_user_update_product(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let user_id = msg.user_id().to_string();
     let path = msg.path();
-    let id = path.strip_prefix("/b/products/products/").unwrap_or("").to_string();
+    let id = path
+        .strip_prefix("/b/products/products/")
+        .unwrap_or("")
+        .to_string();
     if id.is_empty() {
         return err_bad_request("Missing product ID");
     }
@@ -501,7 +601,10 @@ async fn handle_user_update_product(ctx: &dyn Context, msg: &Message, input: Inp
 async fn handle_user_delete_product(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
     let path = msg.path();
-    let id = path.strip_prefix("/b/products/products/").unwrap_or("").to_string();
+    let id = path
+        .strip_prefix("/b/products/products/")
+        .unwrap_or("")
+        .to_string();
     if id.is_empty() {
         return err_bad_request("Missing product ID");
     }
@@ -570,7 +673,11 @@ async fn handle_user_get_group(ctx: &dyn Context, msg: &Message) -> OutputStream
     }
 }
 
-async fn handle_user_create_group(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+async fn handle_user_create_group(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
         return err_unauthorized("Not authenticated");
@@ -596,10 +703,17 @@ async fn handle_user_create_group(ctx: &dyn Context, msg: &Message, input: Input
     }
 }
 
-async fn handle_user_update_group(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
+async fn handle_user_update_group(
+    ctx: &dyn Context,
+    msg: &Message,
+    input: InputStream,
+) -> OutputStream {
     let user_id = msg.user_id().to_string();
     let path = msg.path();
-    let id = path.strip_prefix("/b/products/groups/").unwrap_or("").to_string();
+    let id = path
+        .strip_prefix("/b/products/groups/")
+        .unwrap_or("")
+        .to_string();
     if id.is_empty() {
         return err_bad_request("Missing group ID");
     }
@@ -631,7 +745,10 @@ async fn handle_user_update_group(ctx: &dyn Context, msg: &Message, input: Input
 async fn handle_user_delete_group(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
     let path = msg.path();
-    let id = path.strip_prefix("/b/products/groups/").unwrap_or("").to_string();
+    let id = path
+        .strip_prefix("/b/products/groups/")
+        .unwrap_or("")
+        .to_string();
     if id.is_empty() {
         return err_bad_request("Missing group ID");
     }
@@ -721,13 +838,15 @@ async fn handle_subscription(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let rows = db::query_raw(
         ctx,
-        &format!("SELECT id, plan, status, stripe_subscription_id, grace_period_end, \
+        &format!(
+            "SELECT id, plan, status, stripe_subscription_id, grace_period_end, \
                 COALESCE(addon_projects, 0) as addon_projects, \
                 COALESCE(addon_requests, 0) as addon_requests, \
                 COALESCE(addon_r2_bytes, 0) as addon_r2_bytes, \
                 COALESCE(addon_d1_bytes, 0) as addon_d1_bytes, \
                 created_at, updated_at \
-         FROM {SUBSCRIPTIONS} WHERE user_id = ?1"),
+         FROM {SUBSCRIPTIONS} WHERE user_id = ?1"
+        ),
         &[serde_json::Value::String(user_id)],
     )
     .await;

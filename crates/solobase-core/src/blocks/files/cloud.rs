@@ -1,15 +1,15 @@
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+
+use super::{ACCESS_LOGS_COLLECTION, BUCKETS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION};
 use crate::blocks::helpers::{
     self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json,
 };
-
-use super::{ACCESS_LOGS_COLLECTION, BUCKETS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION};
 
 pub async fn handle(ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
     let action = msg.action();
@@ -57,11 +57,7 @@ async fn handle_list_shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 }
 
-async fn handle_create_share(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct Req {
         bucket: String,
@@ -263,11 +259,7 @@ async fn handle_admin_quotas(ctx: &dyn Context, _msg: &Message) -> OutputStream 
     }
 }
 
-async fn handle_update_quota(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+async fn handle_update_quota(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let path = msg.path();
     let user_id = path
         .strip_prefix("/admin/b/cloudstorage/quotas/")

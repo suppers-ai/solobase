@@ -5,17 +5,18 @@
 //! - Thread page (`GET /b/llm/threads/{id}`) — focused thread view
 //! - Settings page (`GET /b/llm/settings`) — default provider/model config
 
-use crate::blocks::helpers::{err_internal, RecordExt};
-use crate::ui::{self, components, icons, NavItem, SiteConfig, UserInfo};
 use maud::{html, Markup};
-use wafer_core::clients::config;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::OutputStream;
+use wafer_core::clients::{
+    config, database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, OutputStream};
 
 use super::SETTINGS_COLLECTION;
+use crate::{
+    blocks::helpers::{err_internal, RecordExt},
+    ui::{self, components, icons, NavItem, SiteConfig, UserInfo},
+};
 
 const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
 const DEFAULT_MODEL_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_MODEL";
@@ -455,8 +456,7 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
 
-    let default_provider =
-        config::get_default(ctx, DEFAULT_PROVIDER_VAR, DEFAULT_PROVIDER).await;
+    let default_provider = config::get_default(ctx, DEFAULT_PROVIDER_VAR, DEFAULT_PROVIDER).await;
     let default_model = config::get_default(ctx, DEFAULT_MODEL_VAR, "").await;
 
     // Load per-thread overrides
@@ -612,8 +612,7 @@ async fn load_models(ctx: &dyn Context) -> Vec<serde_json::Value> {
     for provider in &providers {
         let provider_name = provider.str_field("name");
         let models_json = provider.str_field("models");
-        let model_ids: Vec<String> =
-            serde_json::from_str(models_json).unwrap_or_default();
+        let model_ids: Vec<String> = serde_json::from_str(models_json).unwrap_or_default();
         for model_id in model_ids {
             models.push(serde_json::json!({
                 "id": model_id,

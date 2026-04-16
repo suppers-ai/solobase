@@ -6,13 +6,9 @@
 
 use std::sync::Arc;
 
-use wafer_run::block::Block;
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{block::Block, context::Context, types::*, InputStream, OutputStream};
 
-use crate::blocks::helpers;
-use crate::features::FeatureConfig;
+use crate::{blocks::helpers, features::FeatureConfig};
 
 /// Block identifier for the routing table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

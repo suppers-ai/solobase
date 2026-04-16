@@ -1,15 +1,16 @@
+use std::collections::HashMap;
+
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, FilterOp, ListOptions, SortField},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+
+use super::{PERMISSIONS_COLLECTION, ROLES_COLLECTION, USER_ROLES_COLLECTION};
 use crate::blocks::helpers::{
     self, err_bad_request, err_conflict, err_forbidden, err_internal, err_not_found, json_map,
     ok_json, RecordExt,
 };
-use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
-
-use super::{PERMISSIONS_COLLECTION, ROLES_COLLECTION, USER_ROLES_COLLECTION};
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
@@ -81,11 +82,7 @@ async fn handle_create_role(ctx: &dyn Context, input: InputStream) -> OutputStre
     }
 }
 
-async fn handle_update_role(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+async fn handle_update_role(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let path = msg.path();
     let id = path.strip_prefix("/admin/iam/roles/").unwrap_or("");
     if id.is_empty() {
@@ -222,11 +219,7 @@ async fn handle_list_user_roles(ctx: &dyn Context, msg: &Message) -> OutputStrea
     }
 }
 
-async fn handle_assign_role(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+async fn handle_assign_role(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct Req {
         user_id: String,
@@ -300,9 +293,7 @@ async fn handle_remove_role(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match db::delete(ctx, USER_ROLES_COLLECTION, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
-        Err(e) if e.code == ErrorCode::NotFound => {
-            err_not_found("User-role assignment not found")
-        }
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("User-role assignment not found"),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }

@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{atomic::AtomicU64, Arc, Mutex},
+};
+
 use wafer_core::clients::database::{Record, RecordList};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 /// In-memory database: collection name → Vec<Record>
 type Db = HashMap<String, Vec<Record>>;
@@ -315,7 +315,10 @@ impl MockContext {
         let mut set_fields: HashMap<String, serde_json::Value> = HashMap::new();
 
         // Parse SET clause fields: field = ?N or field = 'literal'
-        if let Some(set_start) = normalized.find(" SET ").or_else(|| normalized.find(" set ")) {
+        if let Some(set_start) = normalized
+            .find(" SET ")
+            .or_else(|| normalized.find(" set "))
+        {
             let after_set = &normalized[set_start + 5..];
             let where_pos = after_set
                 .to_uppercase()
@@ -549,12 +552,7 @@ fn compare_json_values(
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Context for MockContext {
-    async fn call_block(
-        &self,
-        block_name: &str,
-        msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn call_block(&self, block_name: &str, msg: Message, input: InputStream) -> OutputStream {
         let kind = msg.kind.clone();
         let data = input.collect_to_bytes().await;
 
@@ -608,20 +606,12 @@ pub fn get_msg(path: &str, user_id: &str) -> (Message, InputStream) {
 }
 
 /// Build a POST/create request.
-pub fn create_msg(
-    path: &str,
-    user_id: &str,
-    body: serde_json::Value,
-) -> (Message, InputStream) {
+pub fn create_msg(path: &str, user_id: &str, body: serde_json::Value) -> (Message, InputStream) {
     request_msg("create", path, user_id, body)
 }
 
 /// Build a PATCH/update request.
-pub fn update_msg(
-    path: &str,
-    user_id: &str,
-    body: serde_json::Value,
-) -> (Message, InputStream) {
+pub fn update_msg(path: &str, user_id: &str, body: serde_json::Value) -> (Message, InputStream) {
     request_msg("update", path, user_id, body)
 }
 

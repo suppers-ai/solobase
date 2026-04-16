@@ -12,12 +12,15 @@ pub(crate) const ACCESS_LOGS_COLLECTION: &str = "suppers_ai__files__cloud_access
 pub(crate) const QUOTAS_COLLECTION: &str = "suppers_ai__files__cloud_quotas";
 pub(crate) const VIEWS_COLLECTION: &str = "suppers_ai__files__views";
 
+use wafer_run::{
+    block::{Block, BlockInfo},
+    context::Context,
+    types::*,
+    InputStream, OutputStream,
+};
+
 use super::rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter};
 use crate::blocks::helpers::{self, err_not_found};
-use wafer_run::block::{Block, BlockInfo};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
 pub struct FilesBlock {
     limiter: UserRateLimiter,
@@ -41,8 +44,7 @@ impl FilesBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for FilesBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::types::CollectionSchema;
-        use wafer_run::AuthLevel;
+        use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/files", "0.0.1", "http-handler@v1", "File storage, sharing, quotas, and access logging")
             .instance_mode(InstanceMode::Singleton)
@@ -198,12 +200,20 @@ impl Block for FilesBlock {
 
 /// Admin storage delegation — called from the Admin block's API section.
 /// Expects msg path already normalized to `/admin/storage/...`.
-pub async fn handle_admin_storage(ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
+pub async fn handle_admin_storage(
+    ctx: &dyn Context,
+    msg: Message,
+    input: InputStream,
+) -> OutputStream {
     storage::handle_admin(ctx, msg, input).await
 }
 
 /// Admin cloud storage delegation — called from the Admin block's API section.
 /// Expects msg path already normalized to `/admin/b/cloudstorage/...`.
-pub async fn handle_admin_cloud(ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
+pub async fn handle_admin_cloud(
+    ctx: &dyn Context,
+    msg: Message,
+    input: InputStream,
+) -> OutputStream {
     cloud::handle(ctx, msg, input).await
 }

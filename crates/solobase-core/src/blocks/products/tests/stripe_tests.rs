@@ -1,10 +1,11 @@
-use super::mock_context::*;
-use crate::blocks::helpers::hex_encode;
-use crate::blocks::products::stripe;
+use std::collections::HashMap;
+
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use std::collections::HashMap;
-use wafer_run::{InputStream, types::Message};
+use wafer_run::{types::Message, InputStream};
+
+use super::mock_context::*;
+use crate::blocks::{helpers::hex_encode, products::stripe};
 
 // ============================================================
 // Helpers

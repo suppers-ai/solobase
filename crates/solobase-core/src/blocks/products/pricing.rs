@@ -1,13 +1,10 @@
-use super::{PRICING_COLLECTION, PRODUCTS_COLLECTION};
-use crate::blocks::helpers::RecordExt;
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_run::context::Context;
-use wafer_run::{InputStream, OutputStream};
 
-use crate::blocks::helpers::{
-    err_bad_request, err_internal, err_not_found, ok_json,
-};
+use wafer_core::clients::database as db;
+use wafer_run::{context::Context, InputStream, OutputStream};
+
+use super::{PRICING_COLLECTION, PRODUCTS_COLLECTION};
+use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json, RecordExt};
 
 pub async fn handle_calculate(ctx: &dyn Context, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]

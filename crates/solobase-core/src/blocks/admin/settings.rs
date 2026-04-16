@@ -1,14 +1,16 @@
+use std::collections::HashMap;
+
+use wafer_core::clients::{database as db, database::ListOptions};
+use wafer_run::{
+    context::Context,
+    types::{self, *},
+    InputStream, OutputStream,
+};
+
+use super::VARIABLES_COLLECTION as COLLECTION;
 use crate::blocks::helpers::{
     self, err_bad_request, err_internal, err_not_found, json_map, ok_json, RecordExt,
 };
-use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::ListOptions;
-use wafer_run::context::Context;
-use wafer_run::types::{self, *};
-use wafer_run::{InputStream, OutputStream};
-
-use super::VARIABLES_COLLECTION as COLLECTION;
 const MASKED_VALUE: &str = "********";
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -23,9 +25,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
         {
             handle_get(ctx, msg).await
         }
-        ("update", _) if path.starts_with("/admin/settings/") => {
-            handle_set(ctx, msg, input).await
-        }
+        ("update", _) if path.starts_with("/admin/settings/") => handle_set(ctx, msg, input).await,
         ("create", "/admin/settings") => handle_create(ctx, msg, input).await,
         ("delete", _) if path.starts_with("/admin/settings/") => handle_delete(ctx, msg).await,
         _ => err_not_found("not found"),
@@ -52,9 +52,7 @@ fn validate_url_value(value: &str) -> Result<(), String> {
     // Must be https:// or http://localhost for dev
     let is_localhost = value.starts_with("http://localhost");
     if !value.starts_with("https://") && !is_localhost {
-        return Err(
-            "URL must use HTTPS (or http://localhost for development)".to_string(),
-        );
+        return Err("URL must use HTTPS (or http://localhost for development)".to_string());
     }
     // Extract hostname and check for private/internal IPs
     let host = value
@@ -77,24 +75,20 @@ fn validate_url_value(value: &str) -> Result<(), String> {
                 let is_blocked = v4.is_private()       // 10.x, 172.16-31.x, 192.168.x
                     || v4.is_loopback()                // 127.x
                     || v4.is_link_local()              // 169.254.x
-                    || v4.octets()[0] == 0;            // 0.0.0.0/8
+                    || v4.octets()[0] == 0; // 0.0.0.0/8
                 if is_blocked && !is_localhost {
-                    return Err(
-                        "URL must not point to private/internal IP addresses".to_string(),
-                    );
+                    return Err("URL must not point to private/internal IP addresses".to_string());
                 }
             }
             std::net::IpAddr::V6(v6) => {
                 if v6.is_loopback() {
-                    return Err(
-                        "URL must not point to loopback address".to_string(),
-                    );
+                    return Err("URL must not point to loopback address".to_string());
                 }
                 // Block IPv4-mapped IPv6 addresses (::ffff:10.x.x.x etc.)
                 if let Some(v4) = v6.to_ipv4_mapped() {
                     if v4.is_private() || v4.is_loopback() || v4.is_link_local() {
                         return Err(
-                            "URL must not point to private/internal IP addresses".to_string(),
+                            "URL must not point to private/internal IP addresses".to_string()
                         );
                     }
                 }
@@ -262,11 +256,7 @@ async fn handle_set(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     }
 }
 
-async fn handle_create(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
+async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct Req {
         key: String,

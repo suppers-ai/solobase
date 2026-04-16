@@ -4,14 +4,16 @@
 //! so each handler reduces to a one-liner for pure-CRUD operations.
 
 use std::collections::HashMap;
-use wafer_core::clients::database as db;
-use wafer_core::clients::database::{Filter, SortField};
-use wafer_run::context::Context;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream};
 
-use super::helpers::{err_bad_request, err_internal, err_not_found, ok_json, stamp_created,
-    stamp_updated};
+use wafer_core::clients::{
+    database as db,
+    database::{Filter, SortField},
+};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+
+use super::helpers::{
+    err_bad_request, err_internal, err_not_found, ok_json, stamp_created, stamp_updated,
+};
 
 // ---------------------------------------------------------------------------
 // CRUD helpers
@@ -29,8 +31,15 @@ pub async fn crud_list(
         field: "created_at".to_string(),
         desc: true,
     }];
-    match db::paginated_list(ctx, collection, page as i64, page_size as i64, extra_filters, sort)
-        .await
+    match db::paginated_list(
+        ctx,
+        collection,
+        page as i64,
+        page_size as i64,
+        extra_filters,
+        sort,
+    )
+    .await
     {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal(&format!("Database error: {e}")),
