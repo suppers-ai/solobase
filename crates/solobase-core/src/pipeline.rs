@@ -97,13 +97,11 @@ pub async fn handle_request(
                 .find(|m| m.key == META_RESP_STATUS || m.key == "http.status")
                 .and_then(|m| m.value.parse::<i64>().ok())
                 .unwrap_or(200);
-            let body = buf.body.clone();
-            let meta = buf.meta.clone();
             (
                 "OK",
                 code,
                 String::new(),
-                replay_buffered(body, meta),
+                replay_buffered(buf.body, buf.meta),
             )
         }
         Err(TerminalNotResponse::Error(err)) => {

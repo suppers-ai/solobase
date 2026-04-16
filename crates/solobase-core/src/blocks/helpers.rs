@@ -131,15 +131,20 @@ pub fn parse_form_body(data: &[u8]) -> HashMap<String, String> {
 
 // ---------------------------------------------------------------------------
 // Response construction helpers for the streaming block protocol.
-// These replace the old wafer_run::helpers::* functions (json_respond, err_*)
-// that were deleted in the migration to the streaming protocol.
 // ---------------------------------------------------------------------------
 
-/// Serialize `value` to JSON and return a successful `OutputStream`.
+/// Serialize `value` to JSON and return a successful `OutputStream`
+/// with `Content-Type: application/json`.
 /// Returns `OutputStream::error(Internal)` if serialization fails.
 pub fn ok_json<T: Serialize>(value: &T) -> OutputStream {
     match serde_json::to_vec(value) {
-        Ok(body) => OutputStream::respond(body),
+        Ok(body) => OutputStream::respond_with_meta(
+            body,
+            vec![MetaEntry {
+                key: META_RESP_CONTENT_TYPE.to_string(),
+                value: "application/json".to_string(),
+            }],
+        ),
         Err(e) => OutputStream::error(WaferError {
             code: ErrorCode::Internal,
             message: format!("serialize failed: {}", e),
@@ -208,8 +213,7 @@ pub fn err_internal(message: &str) -> OutputStream {
 }
 
 // ---------------------------------------------------------------------------
-// ResponseBuilder — streaming replacement for wafer_run::helpers::ResponseBuilder
-// Builds an OutputStream with custom status, headers, cookies, and body/JSON.
+// ResponseBuilder — builds an OutputStream with status, headers, cookies, and body/JSON.
 // ---------------------------------------------------------------------------
 
 /// Build a response `OutputStream` with custom status, headers, and cookies.
@@ -263,7 +267,7 @@ impl ResponseBuilder {
                     key: META_RESP_CONTENT_TYPE.to_string(),
                     value: "application/json".to_string(),
                 });
-                respond_with_meta(body, self.meta)
+                OutputStream::respond_with_meta(body, self.meta)
             }
             Err(e) => err_internal(&format!("serialize failed: {}", e)),
         }
@@ -277,12 +281,12 @@ impl ResponseBuilder {
                 value: content_type.to_string(),
             });
         }
-        respond_with_meta(bytes, self.meta)
+        OutputStream::respond_with_meta(bytes, self.meta)
     }
 
     /// Emit an empty body (headers / cookies only).
     pub fn empty(self) -> OutputStream {
-        respond_with_meta(Vec::new(), self.meta)
+        OutputStream::respond_with_meta(Vec::new(), self.meta)
     }
 }
 
@@ -290,13 +294,6 @@ impl Default for ResponseBuilder {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Internal helper: create an `OutputStream` that emits `body` then completes
-/// with `meta` as trailing metadata. Delegates to `OutputStream::respond_with_meta`
-/// so we don't need a direct `tokio` dependency.
-fn respond_with_meta(body: Vec<u8>, meta: Vec<MetaEntry>) -> OutputStream {
-    OutputStream::respond_with_meta(body, meta)
 }
 
 #[cfg(test)]
