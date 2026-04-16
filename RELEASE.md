@@ -49,14 +49,24 @@ The [Release workflow](../../actions/workflows/release.yml) will automatically:
 
 ## Hotfix Process
 
-If a critical bug is found in a release:
+Branch protection prevents pushing directly to `main` — hotfixes follow the same PR flow:
 
-1. Fix the bug on `main` via a normal PR
-2. Once merged and CI passes, tag the patch release:
-   ```bash
-   git tag v0.2.1
-   git push origin v0.2.1
-   ```
+```bash
+# 1. Create a hotfix branch
+git checkout main && git pull
+git checkout -b hotfix/v0.2.1
+
+# 2. Fix the bug, commit, push
+git push -u origin hotfix/v0.2.1
+
+# 3. Open a PR — CI must pass, 1 approval required
+gh pr create --title "fix: critical bug description"
+
+# 4. After merge, tag the patch release
+git checkout main && git pull
+git tag v0.2.1
+git push origin v0.2.1
+```
 
 ## Undoing a Release
 
