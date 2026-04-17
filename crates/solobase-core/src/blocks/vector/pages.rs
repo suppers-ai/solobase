@@ -127,6 +127,9 @@ async fn create_index(ctx: &dyn Context, input: InputStream) -> OutputStream {
     if body.name.is_empty() {
         return err_bad_request("index name is required");
     }
+    if let Err(e) = service::validate_index_name(&body.name) {
+        return err_bad_request(&e.message);
+    }
 
     let model_id = body
         .model
@@ -252,6 +255,9 @@ async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
     if name.is_empty() {
         return err_bad_request("index name is required");
     }
+    if let Err(e) = service::validate_index_name(name) {
+        return err_bad_request(&e.message);
+    }
 
     let prefixed = service::prefixed_index_name(name);
     match vclient::delete_index(ctx, &prefixed).await {
@@ -312,6 +318,9 @@ async fn upsert(ctx: &dyn Context, input: InputStream) -> OutputStream {
     if body.index.is_empty() {
         return err_bad_request("index is required");
     }
+    if let Err(e) = service::validate_index_name(&body.index) {
+        return err_bad_request(&e.message);
+    }
 
     let prefixed = service::prefixed_index_name(&body.index);
     match vclient::upsert(ctx, &prefixed, body.entries).await {
@@ -335,6 +344,9 @@ async fn delete_single(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
     if id.is_empty() {
         return err_bad_request("id is required");
+    }
+    if let Err(e) = service::validate_index_name(index) {
+        return err_bad_request(&e.message);
     }
 
     let prefixed = service::prefixed_index_name(index);
@@ -426,6 +438,9 @@ async fn query(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     if body.index.is_empty() {
         return err_bad_request("index is required");
+    }
+    if let Err(e) = service::validate_index_name(&body.index) {
+        return err_bad_request(&e.message);
     }
 
     let prefixed = service::prefixed_index_name(&body.index);
@@ -591,6 +606,9 @@ async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     if body.index.is_empty() {
         return err_bad_request("index is required");
+    }
+    if let Err(e) = service::validate_index_name(&body.index) {
+        return err_bad_request(&e.message);
     }
     if body.document_id.is_empty() {
         return err_bad_request("document_id is required");
