@@ -34,16 +34,19 @@
 //! route wins; only after that do we fall through to the generic
 //! `{index}/{id}` handler.
 
-use wafer_core::clients::database as db;
-use wafer_core::clients::vector as vclient;
-use wafer_core::interfaces::vector::service::VectorEntry;
-use wafer_core::interfaces::vector::{
-    get_model, DistanceMetric, MetadataFilter, SearchMode, VectorIndexConfig, DEFAULT_MODEL,
+use wafer_core::{
+    clients::{database as db, vector as vclient},
+    interfaces::vector::{
+        get_model, service::VectorEntry, DistanceMetric, MetadataFilter, SearchMode,
+        VectorIndexConfig, DEFAULT_MODEL,
+    },
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO};
-use super::service::{self, TABLE_PREFIX};
+use super::{
+    ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO},
+    service::{self, TABLE_PREFIX},
+};
 use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json};
 
 /// Per-index metadata registry table.
@@ -131,11 +134,7 @@ async fn create_index(ctx: &dyn Context, input: InputStream) -> OutputStream {
         return err_bad_request(&e.message);
     }
 
-    let model_id = body
-        .model
-        .as_deref()
-        .unwrap_or(DEFAULT_MODEL)
-        .to_string();
+    let model_id = body.model.as_deref().unwrap_or(DEFAULT_MODEL).to_string();
     let model = match get_model(&model_id) {
         Some(m) => m,
         None => return err_bad_request(&format!("unknown embedding model: {model_id}")),
@@ -197,7 +196,9 @@ async fn create_index(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
 /// Idempotently create the registry table.
 async fn ensure_registry(ctx: &dyn Context) -> Result<(), WaferError> {
-    db::exec_raw(ctx, REGISTRY_CREATE_SQL, &[]).await.map(|_| ())
+    db::exec_raw(ctx, REGISTRY_CREATE_SQL, &[])
+        .await
+        .map(|_| ())
 }
 
 // ---------------------------------------------------------------------------
@@ -230,11 +231,7 @@ async fn discover_indexes(ctx: &dyn Context) -> Result<Vec<String>, WaferError> 
 
     let mut indexes: Vec<String> = Vec::with_capacity(rows.len());
     for row in rows {
-        let table = row
-            .data
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let table = row.data.get("name").and_then(|v| v.as_str()).unwrap_or("");
         if let Some(stored) = table.strip_suffix("_meta") {
             if let Some(user_name) = stored.strip_prefix(TABLE_PREFIX) {
                 if !user_name.is_empty() {
@@ -370,10 +367,7 @@ fn extract_index_and_id(msg: &Message) -> (&str, &str) {
         return (index, id);
     }
 
-    let rest = msg
-        .path()
-        .strip_prefix("/b/vector/api/")
-        .unwrap_or("");
+    let rest = msg.path().strip_prefix("/b/vector/api/").unwrap_or("");
     let mut parts = rest.split('/');
     let index_part = parts.next().unwrap_or("");
     let id_part = parts.next().unwrap_or("");
@@ -492,7 +486,17 @@ async fn query(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     let top_k = body.top_k.unwrap_or(DEFAULT_TOP_K);
 
-    match vclient::query(ctx, &prefixed, vector, top_k, body.filter, mode, keyword_query).await {
+    match vclient::query(
+        ctx,
+        &prefixed,
+        vector,
+        top_k,
+        body.filter,
+        mode,
+        keyword_query,
+    )
+    .await
+    {
         Ok(matches) => ok_json(&serde_json::json!({ "matches": matches })),
         Err(e) if e.code == ErrorCode::NotFound => {
             err_not_found(&format!("index not found: {}", body.index))

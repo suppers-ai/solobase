@@ -64,8 +64,8 @@ impl FastembedBlock {
         if let Some(svc) = self.service.get() {
             return Ok(svc.as_ref());
         }
-        let built = FastembedService::default_model()
-            .map_err(|e| format!("fastembed init failed: {e}"))?;
+        let built =
+            FastembedService::default_model().map_err(|e| format!("fastembed init failed: {e}"))?;
         let arc = Arc::new(built);
         match self.service.set(arc) {
             Ok(()) => Ok(self.service.get().expect("just set").as_ref()),

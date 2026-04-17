@@ -291,10 +291,7 @@ pub fn post_start(wafer: &Wafer, storage_block: &SolobaseStorageBlock) {
 /// the `suppers-ai/vector` feature block registration in `solobase-core` is
 /// gated by the same feature so the two stay in sync.
 #[cfg(feature = "native-embedding")]
-fn register_vector_block(
-    wafer: &mut Wafer,
-    db_path: Option<&str>,
-) -> Result<(), RuntimeError> {
+fn register_vector_block(wafer: &mut Wafer, db_path: Option<&str>) -> Result<(), RuntimeError> {
     use wafer_block_fastembed::FastembedService;
     use wafer_block_sqlite::vector::SqliteVecService;
     use wafer_core::interfaces::vector::service::{EmbeddingService, VectorService};
