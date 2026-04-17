@@ -13,8 +13,9 @@
 //! being passed to the `wafer-run/vector` runtime block. The prefix is
 //! stripped on the way out in list/stats responses.
 //!
-//! Remaining routes (ingest, embed) still resolve to `Unimplemented`;
-//! they land in Task 19.
+//! Task 19 implements ingest and embed:
+//!   - `POST   /b/vector/api/ingest`            → chunk + embed + upsert
+//!   - `POST   /b/vector/api/embed`             → raw text → vectors
 //!
 //! ### Registry table
 //!
@@ -41,6 +42,7 @@ use wafer_core::interfaces::vector::{
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
+use super::ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO};
 use super::service::{self, TABLE_PREFIX};
 use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json};
 
@@ -80,6 +82,8 @@ pub async fn route(ctx: &dyn Context, msg: &Message, input: InputStream) -> Outp
         ("retrieve", "/b/vector/api/indexes") => list_indexes(ctx).await,
         ("create", "/b/vector/api/upsert") => upsert(ctx, input).await,
         ("create", "/b/vector/api/query") => query(ctx, input).await,
+        ("create", "/b/vector/api/ingest") => ingest(ctx, input).await,
+        ("create", "/b/vector/api/embed") => embed(ctx, input).await,
         ("retrieve", "/b/vector/api/stats") => stats(ctx).await,
         // NOTE: the `indexes/` guard must come before the generic
         // `{index}/{id}` guard so `/indexes/foo` resolves to `delete_index`
@@ -547,4 +551,190 @@ async fn load_index_metadata(
 /// `model_id` so different models dispatch to different embedding blocks.
 fn embedding_block_for_model(_model_id: &str) -> &'static str {
     "suppers-ai/fastembed"
+}
+
+// ---------------------------------------------------------------------------
+// POST /b/vector/api/ingest — chunk + (optionally add context) + embed + upsert
+// ---------------------------------------------------------------------------
+
+/// Request body for ingest. Shape matches the plan; only `index`,
+/// `document_id`, and `text` are required — `metadata` and `contextual` are
+/// optional and default to "no metadata" / "no context summary".
+#[derive(serde::Deserialize)]
+struct IngestBody {
+    index: String,
+    document_id: String,
+    text: String,
+    #[serde(default)]
+    metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    contextual: bool,
+}
+
+#[derive(serde::Serialize)]
+struct IngestResponse {
+    chunks_created: usize,
+}
+
+/// Handle `POST /b/vector/api/ingest`.
+///
+/// Flow: prefix the index, look up the embedding model, clear any prior
+/// chunks for this `document_id` (re-ingestion safety), chunk the text,
+/// optionally add context summaries, embed, and upsert. The response tells
+/// the caller how many chunks landed.
+async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body: IngestBody = match serde_json::from_slice(&raw) {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
+    };
+
+    if body.index.is_empty() {
+        return err_bad_request("index is required");
+    }
+    if body.document_id.is_empty() {
+        return err_bad_request("document_id is required");
+    }
+
+    let prefixed = service::prefixed_index_name(&body.index);
+
+    // We need the index's model so we can re-embed the chunks with the same
+    // one that was declared at create_index time. `load_index_metadata`
+    // falls back to DEFAULT_MODEL for pre-registry indexes — same as the
+    // query route does.
+    let (model_id, _keyword_search) = match load_index_metadata(ctx, &prefixed).await {
+        Ok(m) => m,
+        Err(e) => return err_internal(&format!("load index metadata failed: {e}")),
+    };
+
+    // Re-ingestion safety: wipe any chunks we previously wrote for this
+    // document_id before we add the new ones. If the metadata table isn't
+    // there yet (first-ever ingest, or fresh index) the query fails and we
+    // take that as "no prior chunks", not as a fatal error.
+    if let Ok(rows) = db::query_raw(
+        ctx,
+        &format!(
+            "SELECT id FROM {prefixed}_meta WHERE json_extract(metadata, '$.document_id') = ?1"
+        ),
+        &[serde_json::Value::String(body.document_id.clone())],
+    )
+    .await
+    {
+        let prior_ids: Vec<String> = rows
+            .into_iter()
+            .filter_map(|r| r.data.get("id").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+        if !prior_ids.is_empty() {
+            if let Err(e) = vclient::delete(ctx, &prefixed, prior_ids).await {
+                return err_internal(&format!("failed to clear prior chunks: {e}"));
+            }
+        }
+    }
+
+    // Split into chunks. Empty / whitespace-only text produces no chunks;
+    // return early rather than inventing an empty entry.
+    let mut chunks = ingestion::chunk(&body.text, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO);
+    if body.contextual {
+        match ingestion::add_context(ctx, &body.text, chunks).await {
+            Ok(c) => chunks = c,
+            Err(e) => return err_internal(&format!("add_context failed: {e}")),
+        }
+    }
+    if chunks.is_empty() {
+        return ok_json(&IngestResponse { chunks_created: 0 });
+    }
+
+    // Embed via the right block for this model. On native today that's
+    // always `suppers-ai/fastembed`; see `embedding_block_for_model`.
+    let (_model_name, _dims, vectors) =
+        match vclient::embed(ctx, embedding_block_for_model(&model_id), chunks.clone()).await {
+            Ok(tuple) => tuple,
+            Err(e) => return err_internal(&format!("embed failed: {e}")),
+        };
+
+    if vectors.len() != chunks.len() {
+        // Sanity check — embedding block violated its contract. Surface
+        // the mismatch instead of silently upserting a truncated set.
+        return err_internal(&format!(
+            "embedding returned {} vectors for {} chunks",
+            vectors.len(),
+            chunks.len()
+        ));
+    }
+
+    // Build VectorEntry list. Ids are `{document_id}:{i}` so re-ingestion
+    // of the same document is idempotent at the row level too (overwrites
+    // the same ids). Metadata carries `document_id` and `chunk_index` so
+    // the SELECT-by-document_id query above keeps working on re-ingest.
+    let entries: Vec<VectorEntry> = chunks
+        .into_iter()
+        .zip(vectors.into_iter())
+        .enumerate()
+        .map(|(i, (chunk_text, vector))| VectorEntry {
+            id: format!("{}:{}", body.document_id, i),
+            vector,
+            metadata: Some(serde_json::json!({
+                "document_id": body.document_id,
+                "chunk_index": i,
+                "user_metadata": body.metadata,
+            })),
+            text: Some(chunk_text),
+        })
+        .collect();
+
+    let n = entries.len();
+    match vclient::upsert(ctx, &prefixed, entries).await {
+        Ok(()) => ok_json(&IngestResponse { chunks_created: n }),
+        Err(e) if e.code == ErrorCode::NotFound => {
+            err_not_found(&format!("index not found: {}", body.index))
+        }
+        Err(e) if e.code == ErrorCode::InvalidArgument => err_bad_request(&e.message),
+        Err(e) => err_internal(&format!("upsert failed: {e}")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// POST /b/vector/api/embed — generate embeddings for raw text
+// ---------------------------------------------------------------------------
+
+/// Request body for embed. `model` is optional — missing defaults to
+/// `DEFAULT_MODEL` (the catalog default).
+#[derive(serde::Deserialize)]
+struct EmbedBody {
+    #[serde(default)]
+    model: Option<String>,
+    texts: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+struct EmbedResponse {
+    model: String,
+    dimensions: u32,
+    vectors: Vec<Vec<f32>>,
+}
+
+/// Handle `POST /b/vector/api/embed`.
+///
+/// Thin shim over `vclient::embed` — we look up which block serves the
+/// requested model on this runtime and dispatch. Empty `texts` is allowed
+/// (the embedding block returns an empty vector list).
+async fn embed(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body: EmbedBody = match serde_json::from_slice(&raw) {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
+    };
+
+    let model = body.model.unwrap_or_else(|| DEFAULT_MODEL.to_string());
+    let block = embedding_block_for_model(&model);
+
+    match vclient::embed(ctx, block, body.texts).await {
+        Ok((model, dimensions, vectors)) => ok_json(&EmbedResponse {
+            model,
+            dimensions,
+            vectors,
+        }),
+        Err(e) if e.code == ErrorCode::InvalidArgument => err_bad_request(&e.message),
+        Err(e) => err_internal(&format!("embed failed: {e}")),
+    }
 }

@@ -15,6 +15,11 @@ sqlite = []
 postgres = ["dep:tokio"]
 storage-local = []
 storage-s3 = ["dep:tokio"]
+# Native ONNX-backed embedding block (suppers-ai/fastembed). Pulls in
+# wafer-block-fastembed which depends on fastembed-rs / ONNX Runtime —
+# heavy native-only dep, so gate it behind a feature so consumers that
+# don't need local embeddings don't pay the build cost.
+native-embedding = ["dep:wafer-block-fastembed"]
 
 [dependencies]
 # WAFER types (minimal — no full runtime)
@@ -25,6 +30,8 @@ wafer-core = { workspace = true }
 wafer-sql-utils = { workspace = true }
 # SQL query builder (used via wafer-sql-utils, re-exported for complex conditions)
 sea-query = "0.32"
+# Native ONNX embeddings (optional — gated behind `native-embedding`).
+wafer-block-fastembed = { workspace = true, optional = true }
 
 # Serialization
 serde = { workspace = true }

@@ -11,6 +11,11 @@ use wafer_run::{block::Block, context::Context, types::*, InputStream, OutputStr
 use crate::{blocks::helpers, features::FeatureConfig};
 
 /// Block identifier for the routing table.
+///
+/// Most variants map to an HTTP route prefix in [`ROUTES`]; some (e.g. the
+/// embedding blocks) are pure service blocks with no HTTP surface — they
+/// still have a `BlockId` so they flow through the same `create_blocks` /
+/// `register_shared_blocks` pipeline as feature blocks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BlockId {
     System,
@@ -27,6 +32,9 @@ pub enum BlockId {
     ProviderLlm,
     LocalLlm,
     Vector,
+    /// Native ONNX embedding service (no HTTP routes). Feature-gated
+    /// behind `native-embedding` — see `blocks::fastembed`.
+    Fastembed,
 }
 
 /// A single route entry.
@@ -183,6 +191,7 @@ fn block_id_short_name(id: BlockId) -> &'static str {
         BlockId::ProviderLlm => "provider-llm",
         BlockId::LocalLlm => "local-llm",
         BlockId::Vector => "vector",
+        BlockId::Fastembed => "fastembed",
     }
 }
 

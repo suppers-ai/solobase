@@ -3,6 +3,8 @@ pub mod auth;
 pub mod crud;
 pub mod email;
 pub mod errors;
+#[cfg(feature = "native-embedding")]
+pub mod fastembed;
 pub mod files;
 pub mod helpers;
 pub mod legalpages;
@@ -28,23 +30,39 @@ use wafer_run::block::Block;
 use crate::routing::BlockId;
 
 /// Mapping from short block name to BlockId for registration.
-const SOLOBASE_BLOCKS: &[(&str, BlockId)] = &[
-    ("system", BlockId::System),
-    ("userportal", BlockId::UserPortal),
-    ("legalpages", BlockId::LegalPages),
-    ("auth", BlockId::Auth),
-    ("admin", BlockId::Admin),
-    ("files", BlockId::Files),
-    ("products", BlockId::Products),
-    ("projects", BlockId::Projects),
-    ("messages", BlockId::Messages),
-    ("llm", BlockId::Llm),
-    ("provider-llm", BlockId::ProviderLlm),
-    ("local-llm", BlockId::LocalLlm),
-    ("vector", BlockId::Vector),
-];
+///
+/// The `Fastembed` entry is only present when the `native-embedding` feature
+/// is enabled — it pulls in the ONNX runtime via `wafer-block-fastembed`
+/// which we don't want to force on every consumer.
+fn solobase_blocks() -> Vec<(&'static str, BlockId)> {
+    #[cfg_attr(not(feature = "native-embedding"), allow(unused_mut))]
+    let mut v = vec![
+        ("system", BlockId::System),
+        ("userportal", BlockId::UserPortal),
+        ("legalpages", BlockId::LegalPages),
+        ("auth", BlockId::Auth),
+        ("admin", BlockId::Admin),
+        ("files", BlockId::Files),
+        ("products", BlockId::Products),
+        ("projects", BlockId::Projects),
+        ("messages", BlockId::Messages),
+        ("llm", BlockId::Llm),
+        ("provider-llm", BlockId::ProviderLlm),
+        ("local-llm", BlockId::LocalLlm),
+        ("vector", BlockId::Vector),
+    ];
+    #[cfg(feature = "native-embedding")]
+    v.push(("fastembed", BlockId::Fastembed));
+    v
+}
 
 /// Create a block instance for a given BlockId.
+///
+/// Returns `None` only for `BlockId::Inspector`, which is served by the
+/// runtime's built-in inspector block rather than one of ours. A missing
+/// feature gate (`Fastembed` without `native-embedding`) is a caller bug —
+/// that variant can't be constructed unless the feature is on, because
+/// `solobase_blocks()` is the only place that produces it.
 fn make_block(id: BlockId) -> Arc<dyn Block> {
     match id {
         BlockId::System => Arc::new(system::SystemBlock),
@@ -60,6 +78,13 @@ fn make_block(id: BlockId) -> Arc<dyn Block> {
         BlockId::ProviderLlm => Arc::new(provider_llm::ProviderLlmBlock),
         BlockId::LocalLlm => Arc::new(local_llm::LocalLlmBlock),
         BlockId::Vector => Arc::new(vector::VectorBlock),
+        #[cfg(feature = "native-embedding")]
+        BlockId::Fastembed => Arc::new(fastembed::FastembedBlock::new()),
+        #[cfg(not(feature = "native-embedding"))]
+        BlockId::Fastembed => unreachable!(
+            "BlockId::Fastembed requires the `native-embedding` feature \
+             — solobase_blocks() only emits it when that feature is on"
+        ),
         BlockId::Inspector => unreachable!("inspector dispatched via ctx.call_block"),
     }
 }
@@ -72,7 +97,7 @@ fn make_block(id: BlockId) -> Arc<dyn Block> {
 /// request dispatch), ensuring state is shared.
 pub fn create_blocks(filter: impl Fn(&str) -> bool) -> HashMap<BlockId, Arc<dyn Block>> {
     let mut map = HashMap::new();
-    for &(name, id) in SOLOBASE_BLOCKS {
+    for (name, id) in solobase_blocks() {
         if filter(name) {
             map.insert(id, make_block(id));
         }
@@ -110,6 +135,7 @@ fn block_id_to_name(id: BlockId) -> &'static str {
         BlockId::ProviderLlm => "provider-llm",
         BlockId::LocalLlm => "local-llm",
         BlockId::Vector => "vector",
+        BlockId::Fastembed => "fastembed",
         BlockId::Inspector => "inspector",
     }
 }
@@ -122,7 +148,7 @@ fn block_id_to_name(id: BlockId) -> &'static str {
 /// before block registration.
 pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
     let mut infos = Vec::new();
-    for &(_name, id) in SOLOBASE_BLOCKS {
+    for (_name, id) in solobase_blocks() {
         infos.push(make_block(id).info());
     }
     // Email block is always registered (not feature-gated)
