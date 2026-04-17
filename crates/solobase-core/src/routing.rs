@@ -143,6 +143,66 @@ pub const ROUTES: &[Route] = &[
         requires_admin: false,
         block_id: BlockId::LocalLlm,
     },
+    // Vector — similarity search, hybrid retrieval, RAG ingestion.
+    //
+    // Each endpoint from `VectorBlock::info().endpoints` is registered as a
+    // separate entry so the inspector's routes document reflects the
+    // granularity the block exposes. The prefix matcher uses `starts_with`,
+    // so entries are ordered most-specific-first:
+    //   - `DELETE /b/vector/api/indexes/{name}` must be listed BEFORE the
+    //     generic `DELETE /b/vector/api/{index}/{id}` entry so the specific
+    //     "delete index" route wins over the generic "delete vector" route.
+    // All entries dispatch to `BlockId::Vector`; per-method path-param
+    // matching happens inside the block's `pages::route` dispatcher.
+    Route {
+        prefix: "/b/vector/api/indexes/{name}",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    Route {
+        prefix: "/b/vector/api/indexes",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    Route {
+        prefix: "/b/vector/api/upsert",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    Route {
+        prefix: "/b/vector/api/query",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    Route {
+        prefix: "/b/vector/api/ingest",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    Route {
+        prefix: "/b/vector/api/embed",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    Route {
+        prefix: "/b/vector/api/stats",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    // Generic `DELETE /b/vector/api/{index}/{id}` — MUST come after the
+    // more specific `/b/vector/api/indexes/{name}` entry above so that
+    // path-prefix ordering routes index-deletes to the correct handler.
+    Route {
+        prefix: "/b/vector/api/{index}/{id}",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    // SSR pages and any other /b/vector/* paths.
+    Route {
+        prefix: "/b/vector/",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
 ];
 
 /// Check if a block's feature is enabled.
