@@ -11,6 +11,11 @@ use wafer_run::{block::Block, context::Context, types::*, InputStream, OutputStr
 use crate::{blocks::helpers, features::FeatureConfig};
 
 /// Block identifier for the routing table.
+///
+/// Most variants map to an HTTP route prefix in [`ROUTES`]; some (e.g. the
+/// embedding blocks) are pure service blocks with no HTTP surface — they
+/// still have a `BlockId` so they flow through the same `create_blocks` /
+/// `register_shared_blocks` pipeline as feature blocks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BlockId {
     System,
@@ -26,6 +31,10 @@ pub enum BlockId {
     Llm,
     ProviderLlm,
     LocalLlm,
+    Vector,
+    /// Native ONNX embedding service (no HTTP routes). Feature-gated
+    /// behind `native-embedding` — see `blocks::fastembed`.
+    Fastembed,
 }
 
 /// A single route entry.
@@ -134,6 +143,66 @@ pub const ROUTES: &[Route] = &[
         requires_admin: false,
         block_id: BlockId::LocalLlm,
     },
+    // Vector — similarity search, hybrid retrieval, RAG ingestion.
+    //
+    // Each endpoint from `VectorBlock::info().endpoints` is registered as a
+    // separate entry so the inspector's routes document reflects the
+    // granularity the block exposes. The prefix matcher uses `starts_with`,
+    // so entries are ordered most-specific-first:
+    //   - `DELETE /b/vector/api/indexes/{name}` must be listed BEFORE the
+    //     generic `DELETE /b/vector/api/{index}/{id}` entry so the specific
+    //     "delete index" route wins over the generic "delete vector" route.
+    // All entries dispatch to `BlockId::Vector`; per-method path-param
+    // matching happens inside the block's `pages::route` dispatcher.
+    Route {
+        prefix: "/b/vector/api/indexes/{name}",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    Route {
+        prefix: "/b/vector/api/indexes",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    Route {
+        prefix: "/b/vector/api/upsert",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    Route {
+        prefix: "/b/vector/api/query",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    Route {
+        prefix: "/b/vector/api/ingest",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    Route {
+        prefix: "/b/vector/api/embed",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    Route {
+        prefix: "/b/vector/api/stats",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    // Generic `DELETE /b/vector/api/{index}/{id}` — MUST come after the
+    // more specific `/b/vector/api/indexes/{name}` entry above so that
+    // path-prefix ordering routes index-deletes to the correct handler.
+    Route {
+        prefix: "/b/vector/api/{index}/{id}",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
+    // SSR pages and any other /b/vector/* paths.
+    Route {
+        prefix: "/b/vector/",
+        requires_admin: false,
+        block_id: BlockId::Vector,
+    },
 ];
 
 /// Check if a block's feature is enabled.
@@ -181,6 +250,8 @@ fn block_id_short_name(id: BlockId) -> &'static str {
         BlockId::Llm => "llm",
         BlockId::ProviderLlm => "provider-llm",
         BlockId::LocalLlm => "local-llm",
+        BlockId::Vector => "vector",
+        BlockId::Fastembed => "fastembed",
     }
 }
 

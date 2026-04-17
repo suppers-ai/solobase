@@ -35,6 +35,7 @@ wafer-block-security-headers = { git = "https://github.com/wafer-run/wafer-run",
 wafer-block-sqlite = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 wafer-block-web = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 wafer-block-postgres = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
+wafer-block-fastembed = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
 
 # Core
 async-trait = "0.1"
@@ -53,6 +54,34 @@ uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
 dotenvy = "0.15"
 rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Local development override: redirect git-pinned wafer-run crates to the
+# sibling `wafer-run` workspace on disk while the vector-integration branch
+# lives only locally. Remove once the branch is pushed and the git pin catches
+# up.
+[patch."https://github.com/wafer-run/wafer-run"]
+wafer-run = { path = "../wafer-run/crates/wafer-run" }
+wafer-block = { path = "../wafer-run/crates/wafer-block" }
+wafer-core = { path = "../wafer-run/crates/wafer-core" }
+wafer-sql-utils = { path = "../wafer-run/crates/wafer-sql-utils" }
+wafer-block-auth-validator = { path = "../wafer-run/crates/wafer-block-auth-validator" }
+wafer-block-config = { path = "../wafer-run/crates/wafer-block-config" }
+wafer-block-cors = { path = "../wafer-run/crates/wafer-block-cors" }
+wafer-block-crypto = { path = "../wafer-run/crates/wafer-block-crypto" }
+wafer-block-http-listener = { path = "../wafer-run/crates/wafer-block-http-listener" }
+wafer-block-iam-guard = { path = "../wafer-run/crates/wafer-block-iam-guard" }
+wafer-block-inspector = { path = "../wafer-run/crates/wafer-block-inspector" }
+wafer-block-local-storage = { path = "../wafer-run/crates/wafer-block-local-storage" }
+wafer-block-logger = { path = "../wafer-run/crates/wafer-block-logger" }
+wafer-block-network = { path = "../wafer-run/crates/wafer-block-network" }
+wafer-block-readonly-guard = { path = "../wafer-run/crates/wafer-block-readonly-guard" }
+wafer-block-router = { path = "../wafer-run/crates/wafer-block-router" }
+wafer-block-s3 = { path = "../wafer-run/crates/wafer-block-s3" }
+wafer-block-security-headers = { path = "../wafer-run/crates/wafer-block-security-headers" }
+wafer-block-sqlite = { path = "../wafer-run/crates/wafer-block-sqlite" }
+wafer-block-web = { path = "../wafer-run/crates/wafer-block-web" }
+wafer-block-postgres = { path = "../wafer-run/crates/wafer-block-postgres" }
+wafer-block-fastembed = { path = "../wafer-run/crates/wafer-block-fastembed" }
 
 [profile.release]
 opt-level = "z"

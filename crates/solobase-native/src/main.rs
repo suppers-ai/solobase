@@ -88,6 +88,10 @@ async fn main() {
         ))
         .logger(Arc::new(wafer_block_logger::service::TracingLogger))
         .block_settings(features)
+        // Hand the SQLite path to the builder so the `native-embedding`
+        // feature can open a dedicated connection for `SqliteVecService`.
+        // Ignored when the feature is off.
+        .sqlite_db_path(&infra.db_path)
         .build()
         .expect("failed to build solobase runtime");
 
