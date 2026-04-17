@@ -1,3 +1,4 @@
+pub mod ingestion;
 pub mod pages;
 pub mod service;
 
