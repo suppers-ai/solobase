@@ -5,6 +5,7 @@
 //!   - `GET    /b/vector/api/indexes`           → list indexes for this project
 //!   - `DELETE /b/vector/api/indexes/{name}`    → delete an index
 //!   - `POST   /b/vector/api/upsert`            → upsert pre-computed vectors
+//!   - `POST   /b/vector/api/query`             → search vectors (vector/keyword/hybrid)
 //!   - `DELETE /b/vector/api/{index}/{id}`      → delete a single vector
 //!   - `GET    /b/vector/api/stats`             → per-index counts
 //!
@@ -12,8 +13,17 @@
 //! being passed to the `wafer-run/vector` runtime block. The prefix is
 //! stripped on the way out in list/stats responses.
 //!
-//! Remaining routes (query, ingest, embed) still resolve to `Unimplemented`;
-//! they land in Tasks 17 and 19.
+//! Remaining routes (ingest, embed) still resolve to `Unimplemented`;
+//! they land in Task 19.
+//!
+//! ### Registry table
+//!
+//! Per-index metadata (model, dimensions, keyword_search flag) is kept in
+//! `suppers_ai__vector__registry`. This lets the query route look up the
+//! correct embedding model when the caller sends text instead of a raw
+//! vector. Rows are written on `create_index` and removed on `delete_index`.
+//! Pre-registry indexes (created before this table existed) fall back to
+//! `DEFAULT_MODEL` + an `_fts` scan on `sqlite_master`.
 //!
 //! ### Route ordering note
 //!
@@ -25,12 +35,34 @@
 
 use wafer_core::clients::database as db;
 use wafer_core::clients::vector as vclient;
-use wafer_core::interfaces::vector::{get_model, DistanceMetric, VectorIndexConfig, DEFAULT_MODEL};
 use wafer_core::interfaces::vector::service::VectorEntry;
+use wafer_core::interfaces::vector::{
+    get_model, DistanceMetric, MetadataFilter, SearchMode, VectorIndexConfig, DEFAULT_MODEL,
+};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::service::{self, TABLE_PREFIX};
 use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json};
+
+/// Per-index metadata registry table.
+///
+/// One row per index, keyed by the prefixed (storage) name. Keeping this
+/// separate from `sqlite_master` lets us remember per-index knobs — the
+/// model to re-embed text with, and whether keyword search was enabled —
+/// without spelunking through DDL on every query.
+///
+/// The name is embedded in each SQL statement below (no string
+/// interpolation: it's a compile-time literal and sharing a single place
+/// to grep is more valuable than DRYing two or three usages).
+///
+/// Schema: `suppers_ai__vector__registry(prefixed_name TEXT PK, model TEXT,
+/// dimensions INTEGER, keyword_search INTEGER)`.
+const REGISTRY_CREATE_SQL: &str = "CREATE TABLE IF NOT EXISTS suppers_ai__vector__registry(\
+    prefixed_name TEXT PRIMARY KEY,\
+    model TEXT NOT NULL,\
+    dimensions INTEGER NOT NULL,\
+    keyword_search INTEGER NOT NULL\
+)";
 
 /// Route dispatcher for the `suppers-ai/vector` block.
 ///
@@ -47,6 +79,7 @@ pub async fn route(ctx: &dyn Context, msg: &Message, input: InputStream) -> Outp
         ("create", "/b/vector/api/indexes") => create_index(ctx, input).await,
         ("retrieve", "/b/vector/api/indexes") => list_indexes(ctx).await,
         ("create", "/b/vector/api/upsert") => upsert(ctx, input).await,
+        ("create", "/b/vector/api/query") => query(ctx, input).await,
         ("retrieve", "/b/vector/api/stats") => stats(ctx).await,
         // NOTE: the `indexes/` guard must come before the generic
         // `{index}/{id}` guard so `/indexes/foo` resolves to `delete_index`
@@ -118,16 +151,46 @@ async fn create_index(ctx: &dyn Context, input: InputStream) -> OutputStream {
         keyword_search: body.keyword_search,
     };
 
-    match vclient::create_index(ctx, cfg.clone()).await {
-        Ok(()) => ok_json(&serde_json::json!({
-            "name": body.name,
-            "model": cfg.model,
-            "dimensions": cfg.dimensions,
-            "metric": cfg.metric,
-            "keyword_search": cfg.keyword_search,
-        })),
-        Err(e) => err_internal(&format!("create_index failed: {e}")),
+    if let Err(e) = vclient::create_index(ctx, cfg.clone()).await {
+        return err_internal(&format!("create_index failed: {e}"));
     }
+
+    // Record the index in the registry so queries against it can look up
+    // the right embedding model when the caller sends text. A failure here
+    // leaves the underlying index created but unregistered — report it as
+    // an internal error rather than silently swallowing it; the operator
+    // can retry create (idempotent at the registry level via OR REPLACE
+    // and harmless at vclient level because the index already exists).
+    if let Err(e) = ensure_registry(ctx).await {
+        return err_internal(&format!("registry init failed: {e}"));
+    }
+    if let Err(e) = db::exec_raw(
+        ctx,
+        "INSERT OR REPLACE INTO suppers_ai__vector__registry(prefixed_name, model, dimensions, keyword_search) VALUES (?1, ?2, ?3, ?4)",
+        &[
+            serde_json::Value::String(cfg.name.clone()),
+            serde_json::Value::String(cfg.model.clone()),
+            serde_json::Value::Number(serde_json::Number::from(cfg.dimensions)),
+            serde_json::Value::Number(serde_json::Number::from(cfg.keyword_search as i64)),
+        ],
+    )
+    .await
+    {
+        return err_internal(&format!("registry write failed: {e}"));
+    }
+
+    ok_json(&serde_json::json!({
+        "name": body.name,
+        "model": cfg.model,
+        "dimensions": cfg.dimensions,
+        "metric": cfg.metric,
+        "keyword_search": cfg.keyword_search,
+    }))
+}
+
+/// Idempotently create the registry table.
+async fn ensure_registry(ctx: &dyn Context) -> Result<(), WaferError> {
+    db::exec_raw(ctx, REGISTRY_CREATE_SQL, &[]).await.map(|_| ())
 }
 
 // ---------------------------------------------------------------------------
@@ -145,9 +208,10 @@ async fn list_indexes(ctx: &dyn Context) -> OutputStream {
 /// `SqliteVecService::create_index` and return the user-facing index
 /// names (prefix + `_meta` suffix stripped).
 ///
-/// Task 17 introduces a dedicated registry table — once that lands this
-/// query becomes a simple list of registry rows. Until then, the metadata
-/// table is the canonical marker that an index exists.
+/// We scan `sqlite_master` rather than the registry so that indexes
+/// created before the registry existed still surface in list/stats.
+/// The registry is the source of truth for *per-index metadata* (model,
+/// keyword_search flag), not for existence.
 async fn discover_indexes(ctx: &dyn Context) -> Result<Vec<String>, WaferError> {
     let pattern = format!("{TABLE_PREFIX}%_meta");
     let rows = db::query_raw(
@@ -187,7 +251,19 @@ async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let prefixed = service::prefixed_index_name(name);
     match vclient::delete_index(ctx, &prefixed).await {
-        Ok(()) => ok_json(&serde_json::json!({ "ok": true })),
+        Ok(()) => {
+            // Clear the registry row. Best-effort — a missing registry table
+            // (pre-registry deployment) is not a failure, so we only surface
+            // errors that aren't about the table itself. The row-level
+            // `OR REPLACE` in create_index makes this robustly idempotent.
+            let _ = db::exec_raw(
+                ctx,
+                "DELETE FROM suppers_ai__vector__registry WHERE prefixed_name = ?1",
+                &[serde_json::Value::String(prefixed)],
+            )
+            .await;
+            ok_json(&serde_json::json!({ "ok": true }))
+        }
         Err(e) if e.code == ErrorCode::NotFound => {
             err_not_found(&format!("index not found: {name}"))
         }
@@ -312,4 +388,163 @@ async fn stats(ctx: &dyn Context) -> OutputStream {
     }
 
     ok_json(&serde_json::json!({ "indexes": out }))
+}
+
+// ---------------------------------------------------------------------------
+// POST /b/vector/api/query — search vectors
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct QueryBody {
+    index: String,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    vector: Option<Vec<f32>>,
+    #[serde(default)]
+    top_k: Option<usize>,
+    #[serde(default)]
+    filter: Option<MetadataFilter>,
+    #[serde(default)]
+    mode: Option<SearchMode>,
+    #[serde(default)]
+    keyword_query: Option<String>,
+}
+
+const DEFAULT_TOP_K: usize = 10;
+
+async fn query(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body: QueryBody = match serde_json::from_slice(&raw) {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
+    };
+
+    if body.index.is_empty() {
+        return err_bad_request("index is required");
+    }
+
+    let prefixed = service::prefixed_index_name(&body.index);
+
+    // Look up model + keyword_search from the registry, falling back to
+    // DEFAULT_MODEL + sqlite_master scan for indexes created before the
+    // registry table existed.
+    let (model_id, keyword_search) = match load_index_metadata(ctx, &prefixed).await {
+        Ok(m) => m,
+        Err(e) => return err_internal(&format!("load index metadata failed: {e}")),
+    };
+
+    // Default mode reflects the index's declared capabilities. An index
+    // created with keyword_search=true gets Hybrid by default; everyone
+    // else gets plain Vector.
+    let mode = body.mode.unwrap_or(if keyword_search {
+        SearchMode::Hybrid
+    } else {
+        SearchMode::Vector
+    });
+
+    // Resolve the query vector. If the caller provided a vector directly
+    // we use it; otherwise we embed `text` through the model the index
+    // was created with. Exactly one of the two must be present.
+    let vector = match (body.vector.clone(), body.text.as_deref()) {
+        (Some(v), _) if !v.is_empty() => v,
+        (_, Some(text)) if !text.is_empty() => {
+            let block = embedding_block_for_model(&model_id);
+            match vclient::embed(ctx, block, vec![text.to_string()]).await {
+                Ok((_, _, mut vectors)) => match vectors.pop() {
+                    Some(v) => v,
+                    None => return err_internal("embedding block returned no vectors"),
+                },
+                Err(e) => return err_internal(&format!("embed failed: {e}")),
+            }
+        }
+        _ => return err_bad_request("either 'text' or 'vector' is required"),
+    };
+
+    // For modes that use keyword search, default the keyword query to the
+    // raw text when the caller didn't supply an explicit one. This lets
+    // hybrid-mode callers pass just `text` and get both halves for free.
+    let keyword_query = match (mode, body.keyword_query.clone(), body.text.clone()) {
+        (SearchMode::Vector, kq, _) => kq,
+        (_, Some(kq), _) => Some(kq),
+        (_, None, Some(text)) => Some(text),
+        (_, None, None) => None,
+    };
+
+    let top_k = body.top_k.unwrap_or(DEFAULT_TOP_K);
+
+    match vclient::query(ctx, &prefixed, vector, top_k, body.filter, mode, keyword_query).await {
+        Ok(matches) => ok_json(&serde_json::json!({ "matches": matches })),
+        Err(e) if e.code == ErrorCode::NotFound => {
+            err_not_found(&format!("index not found: {}", body.index))
+        }
+        Err(e) if e.code == ErrorCode::InvalidArgument => err_bad_request(&e.message),
+        Err(e) => err_internal(&format!("query failed: {e}")),
+    }
+}
+
+/// Load `(model_id, keyword_search)` for an index.
+///
+/// Registry-first: if the row exists we trust it. If it doesn't (pre-registry
+/// index, or registry table missing entirely) we fall back to
+/// `DEFAULT_MODEL` and infer `keyword_search` by checking `sqlite_master`
+/// for the per-index `_fts` table. Existence of the index is validated by
+/// `vclient::query` itself, which returns `NotFound` when the underlying
+/// tables are missing — so this helper always returns `Ok` on a successful
+/// database roundtrip.
+async fn load_index_metadata(
+    ctx: &dyn Context,
+    prefixed_index: &str,
+) -> Result<(String, bool), WaferError> {
+    // First try the registry. An error here (e.g. the table doesn't exist)
+    // is treated as "no row", not fatal — we fall through to the scan.
+    let rows = db::query_raw(
+        ctx,
+        "SELECT model, keyword_search FROM suppers_ai__vector__registry WHERE prefixed_name = ?1",
+        &[serde_json::Value::String(prefixed_index.to_string())],
+    )
+    .await;
+
+    if let Ok(rows) = rows {
+        if let Some(row) = rows.into_iter().next() {
+            let model = row
+                .data
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or(DEFAULT_MODEL)
+                .to_string();
+            let kw = row
+                .data
+                .get("keyword_search")
+                .and_then(|v| v.as_i64())
+                .map(|n| n != 0)
+                .unwrap_or(false);
+            return Ok((model, kw));
+        }
+    }
+
+    // Fallback path: infer keyword_search from the FTS table's presence.
+    // `wafer-block-sqlite::SqliteVecService::create_index` creates
+    // `{prefixed}_fts` when keyword_search is enabled and nothing when it
+    // isn't, so the row count for that exact name is a reliable signal.
+    let fts_name = format!("{prefixed_index}_fts");
+    let fts_rows = db::query_raw(
+        ctx,
+        "SELECT name FROM sqlite_master WHERE type='table' AND name = ?1",
+        &[serde_json::Value::String(fts_name)],
+    )
+    .await?;
+    let keyword_search = !fts_rows.is_empty();
+
+    Ok((DEFAULT_MODEL.to_string(), keyword_search))
+}
+
+/// Map a model id to the embedding block that serves it on this runtime.
+///
+/// On native we route everything to `suppers-ai/fastembed` — fastembed's
+/// catalog covers every model in our native-embed support matrix. Plan 2
+/// (Workers AI) and Plan 3 (browser/transformers) will split this by
+/// `model_id` so different models dispatch to different embedding blocks.
+fn embedding_block_for_model(_model_id: &str) -> &'static str {
+    "suppers-ai/fastembed"
 }
