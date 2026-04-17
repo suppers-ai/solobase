@@ -1,20 +1,32 @@
 //! HTTP route dispatcher for suppers-ai/vector.
 //!
-//! Task 15 implements the first three routes:
-//!   - `POST /b/vector/api/indexes` → create an index
-//!   - `GET  /b/vector/api/indexes` → list indexes for this project
-//!   - `DELETE /b/vector/api/indexes/{name}` → delete an index
+//! Implemented routes:
+//!   - `POST   /b/vector/api/indexes`           → create an index
+//!   - `GET    /b/vector/api/indexes`           → list indexes for this project
+//!   - `DELETE /b/vector/api/indexes/{name}`    → delete an index
+//!   - `POST   /b/vector/api/upsert`            → upsert pre-computed vectors
+//!   - `DELETE /b/vector/api/{index}/{id}`      → delete a single vector
+//!   - `GET    /b/vector/api/stats`             → per-index counts
 //!
 //! User-facing index names are prefixed with `suppers_ai__vector__` before
 //! being passed to the `wafer-run/vector` runtime block. The prefix is
-//! stripped on the way out in the list response.
+//! stripped on the way out in list/stats responses.
 //!
-//! Remaining routes (upsert, query, ingest, embed, delete, stats) are left
-//! returning `Unimplemented`; they land in Tasks 16, 17, and 19.
+//! Remaining routes (query, ingest, embed) still resolve to `Unimplemented`;
+//! they land in Tasks 17 and 19.
+//!
+//! ### Route ordering note
+//!
+//! `DELETE /b/vector/api/indexes/{name}` and `DELETE /b/vector/api/{index}/{id}`
+//! both map to the `delete` action and both live under `/b/vector/api/`.
+//! The dispatcher checks the `indexes/` prefix first so the more specific
+//! route wins; only after that do we fall through to the generic
+//! `{index}/{id}` handler.
 
 use wafer_core::clients::database as db;
 use wafer_core::clients::vector as vclient;
 use wafer_core::interfaces::vector::{get_model, DistanceMetric, VectorIndexConfig, DEFAULT_MODEL};
+use wafer_core::interfaces::vector::service::VectorEntry;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::service::{self, TABLE_PREFIX};
@@ -34,7 +46,15 @@ pub async fn route(ctx: &dyn Context, msg: &Message, input: InputStream) -> Outp
     match (action, path) {
         ("create", "/b/vector/api/indexes") => create_index(ctx, input).await,
         ("retrieve", "/b/vector/api/indexes") => list_indexes(ctx).await,
+        ("create", "/b/vector/api/upsert") => upsert(ctx, input).await,
+        ("retrieve", "/b/vector/api/stats") => stats(ctx).await,
+        // NOTE: the `indexes/` guard must come before the generic
+        // `{index}/{id}` guard so `/indexes/foo` resolves to `delete_index`
+        // rather than being matched as `index=indexes, id=foo`.
         ("delete", p) if p.starts_with("/b/vector/api/indexes/") => delete_index(ctx, msg).await,
+        ("delete", p) if p.starts_with("/b/vector/api/") && p != "/b/vector/api/" => {
+            delete_single(ctx, msg).await
+        }
         _ => OutputStream::error(WaferError {
             code: ErrorCode::Unimplemented,
             message: format!("vector route not yet implemented: {action} {path}"),
@@ -115,22 +135,27 @@ async fn create_index(ctx: &dyn Context, input: InputStream) -> OutputStream {
 // ---------------------------------------------------------------------------
 
 async fn list_indexes(ctx: &dyn Context) -> OutputStream {
-    // Scan sqlite_master for the per-index `_meta` tables created by
-    // `SqliteVecService::create_index`. Task 17 introduces a dedicated
-    // registry table — once that lands this query becomes a simple list
-    // of registry rows. Until then, the metadata table is the canonical
-    // marker that an index exists.
+    match discover_indexes(ctx).await {
+        Ok(indexes) => ok_json(&serde_json::json!({ "indexes": indexes })),
+        Err(e) => err_internal(&format!("list indexes failed: {e}")),
+    }
+}
+
+/// Scan sqlite_master for the per-index `_meta` tables created by
+/// `SqliteVecService::create_index` and return the user-facing index
+/// names (prefix + `_meta` suffix stripped).
+///
+/// Task 17 introduces a dedicated registry table — once that lands this
+/// query becomes a simple list of registry rows. Until then, the metadata
+/// table is the canonical marker that an index exists.
+async fn discover_indexes(ctx: &dyn Context) -> Result<Vec<String>, WaferError> {
     let pattern = format!("{TABLE_PREFIX}%_meta");
-    let rows = match db::query_raw(
+    let rows = db::query_raw(
         ctx,
         "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE ? ORDER BY name",
         &[serde_json::Value::String(pattern)],
     )
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => return err_internal(&format!("list indexes failed: {e}")),
-    };
+    .await?;
 
     let mut indexes: Vec<String> = Vec::with_capacity(rows.len());
     for row in rows {
@@ -147,8 +172,7 @@ async fn list_indexes(ctx: &dyn Context) -> OutputStream {
             }
         }
     }
-
-    ok_json(&serde_json::json!({ "indexes": indexes }))
+    Ok(indexes)
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +188,7 @@ async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let prefixed = service::prefixed_index_name(name);
     match vclient::delete_index(ctx, &prefixed).await {
         Ok(()) => ok_json(&serde_json::json!({ "ok": true })),
-        Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
+        Err(e) if e.code == ErrorCode::NotFound => {
             err_not_found(&format!("index not found: {name}"))
         }
         Err(e) => err_internal(&format!("delete_index failed: {e}")),
@@ -186,4 +210,106 @@ fn extract_index_name(msg: &Message) -> &str {
         .split('/')
         .next()
         .unwrap_or("")
+}
+
+// ---------------------------------------------------------------------------
+// POST /b/vector/api/upsert — upsert pre-computed vectors
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct UpsertBody {
+    index: String,
+    entries: Vec<VectorEntry>,
+}
+
+async fn upsert(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body: UpsertBody = match serde_json::from_slice(&raw) {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
+    };
+
+    if body.index.is_empty() {
+        return err_bad_request("index is required");
+    }
+
+    let prefixed = service::prefixed_index_name(&body.index);
+    match vclient::upsert(ctx, &prefixed, body.entries).await {
+        Ok(()) => ok_json(&serde_json::json!({ "ok": true })),
+        Err(e) if e.code == ErrorCode::NotFound => {
+            err_not_found(&format!("index not found: {}", body.index))
+        }
+        Err(e) if e.code == ErrorCode::InvalidArgument => err_bad_request(&e.message),
+        Err(e) => err_internal(&format!("upsert failed: {e}")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /b/vector/api/{index}/{id} — delete a single vector by ID
+// ---------------------------------------------------------------------------
+
+async fn delete_single(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    let (index, id) = extract_index_and_id(msg);
+    if index.is_empty() {
+        return err_bad_request("index is required");
+    }
+    if id.is_empty() {
+        return err_bad_request("id is required");
+    }
+
+    let prefixed = service::prefixed_index_name(index);
+    match vclient::delete(ctx, &prefixed, vec![id.to_string()]).await {
+        Ok(()) => ok_json(&serde_json::json!({ "ok": true })),
+        Err(e) if e.code == ErrorCode::NotFound => {
+            err_not_found(&format!("index not found: {index}"))
+        }
+        Err(e) => err_internal(&format!("delete failed: {e}")),
+    }
+}
+
+/// Extract `{index}` and `{id}` from `/b/vector/api/{index}/{id}`.
+///
+/// Prefers the router-populated path variables when available, falling back
+/// to string-splitting for direct handler invocation (e.g. in tests).
+fn extract_index_and_id(msg: &Message) -> (&str, &str) {
+    let index = msg.var("index");
+    let id = msg.var("id");
+    if !index.is_empty() && !id.is_empty() {
+        return (index, id);
+    }
+
+    let rest = msg
+        .path()
+        .strip_prefix("/b/vector/api/")
+        .unwrap_or("");
+    let mut parts = rest.split('/');
+    let index_part = parts.next().unwrap_or("");
+    let id_part = parts.next().unwrap_or("");
+    (index_part, id_part)
+}
+
+// ---------------------------------------------------------------------------
+// GET /b/vector/api/stats — per-index counts
+// ---------------------------------------------------------------------------
+
+async fn stats(ctx: &dyn Context) -> OutputStream {
+    let indexes = match discover_indexes(ctx).await {
+        Ok(v) => v,
+        Err(e) => return err_internal(&format!("stats failed: {e}")),
+    };
+
+    let mut out: Vec<serde_json::Value> = Vec::with_capacity(indexes.len());
+    for name in indexes {
+        let prefixed = service::prefixed_index_name(&name);
+        // If count fails for a single index (e.g. table was dropped between
+        // discovery and count), fall back to 0 and keep going — stats should
+        // not 500 on a transient partial-state issue.
+        let count = vclient::count(ctx, &prefixed).await.unwrap_or(0);
+        out.push(serde_json::json!({
+            "name": name,
+            "count": count,
+        }));
+    }
+
+    ok_json(&serde_json::json!({ "indexes": out }))
 }
