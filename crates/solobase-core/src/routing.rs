@@ -26,6 +26,7 @@ pub enum BlockId {
     Llm,
     ProviderLlm,
     LocalLlm,
+    Vector,
 }
 
 /// A single route entry.
@@ -181,6 +182,7 @@ fn block_id_short_name(id: BlockId) -> &'static str {
         BlockId::Llm => "llm",
         BlockId::ProviderLlm => "provider-llm",
         BlockId::LocalLlm => "local-llm",
+        BlockId::Vector => "vector",
     }
 }
 

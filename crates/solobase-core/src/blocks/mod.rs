@@ -19,6 +19,7 @@ pub mod router;
 pub mod storage;
 pub mod system;
 pub mod userportal;
+pub mod vector;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -40,6 +41,7 @@ const SOLOBASE_BLOCKS: &[(&str, BlockId)] = &[
     ("llm", BlockId::Llm),
     ("provider-llm", BlockId::ProviderLlm),
     ("local-llm", BlockId::LocalLlm),
+    ("vector", BlockId::Vector),
 ];
 
 /// Create a block instance for a given BlockId.
@@ -57,6 +59,7 @@ fn make_block(id: BlockId) -> Arc<dyn Block> {
         BlockId::Llm => Arc::new(llm::LlmBlock),
         BlockId::ProviderLlm => Arc::new(provider_llm::ProviderLlmBlock),
         BlockId::LocalLlm => Arc::new(local_llm::LocalLlmBlock),
+        BlockId::Vector => Arc::new(vector::VectorBlock),
         BlockId::Inspector => unreachable!("inspector dispatched via ctx.call_block"),
     }
 }
@@ -106,6 +109,7 @@ fn block_id_to_name(id: BlockId) -> &'static str {
         BlockId::Llm => "llm",
         BlockId::ProviderLlm => "provider-llm",
         BlockId::LocalLlm => "local-llm",
+        BlockId::Vector => "vector",
         BlockId::Inspector => "inspector",
     }
 }
