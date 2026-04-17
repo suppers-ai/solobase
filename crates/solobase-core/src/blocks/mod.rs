@@ -31,9 +31,12 @@ use crate::routing::BlockId;
 
 /// Mapping from short block name to BlockId for registration.
 ///
-/// The `Fastembed` entry is only present when the `native-embedding` feature
-/// is enabled — it pulls in the ONNX runtime via `wafer-block-fastembed`
-/// which we don't want to force on every consumer.
+/// The `Fastembed` and `Vector` entries are only present when the
+/// `native-embedding` feature is enabled. Fastembed pulls in ONNX runtime
+/// via `wafer-block-fastembed`, and Vector declares
+/// `requires=["wafer-run/vector"]` which can only be satisfied by the
+/// feature-gated runtime registration in `solobase::builder`. Registering
+/// either without the feature would fail dependency resolution at startup.
 fn solobase_blocks() -> Vec<(&'static str, BlockId)> {
     #[cfg_attr(not(feature = "native-embedding"), allow(unused_mut))]
     let mut v = vec![
@@ -49,10 +52,12 @@ fn solobase_blocks() -> Vec<(&'static str, BlockId)> {
         ("llm", BlockId::Llm),
         ("provider-llm", BlockId::ProviderLlm),
         ("local-llm", BlockId::LocalLlm),
-        ("vector", BlockId::Vector),
     ];
     #[cfg(feature = "native-embedding")]
-    v.push(("fastembed", BlockId::Fastembed));
+    {
+        v.push(("vector", BlockId::Vector));
+        v.push(("fastembed", BlockId::Fastembed));
+    }
     v
 }
 
@@ -60,9 +65,9 @@ fn solobase_blocks() -> Vec<(&'static str, BlockId)> {
 ///
 /// Returns `None` only for `BlockId::Inspector`, which is served by the
 /// runtime's built-in inspector block rather than one of ours. A missing
-/// feature gate (`Fastembed` without `native-embedding`) is a caller bug —
-/// that variant can't be constructed unless the feature is on, because
-/// `solobase_blocks()` is the only place that produces it.
+/// feature gate (`Fastembed` or `Vector` without `native-embedding`) is a
+/// caller bug — those variants can't be constructed unless the feature is
+/// on, because `solobase_blocks()` is the only place that produces them.
 fn make_block(id: BlockId) -> Arc<dyn Block> {
     match id {
         BlockId::System => Arc::new(system::SystemBlock),
@@ -77,7 +82,13 @@ fn make_block(id: BlockId) -> Arc<dyn Block> {
         BlockId::Llm => Arc::new(llm::LlmBlock),
         BlockId::ProviderLlm => Arc::new(provider_llm::ProviderLlmBlock),
         BlockId::LocalLlm => Arc::new(local_llm::LocalLlmBlock),
+        #[cfg(feature = "native-embedding")]
         BlockId::Vector => Arc::new(vector::VectorBlock),
+        #[cfg(not(feature = "native-embedding"))]
+        BlockId::Vector => unreachable!(
+            "BlockId::Vector requires the `native-embedding` feature \
+             — solobase_blocks() only emits it when that feature is on"
+        ),
         #[cfg(feature = "native-embedding")]
         BlockId::Fastembed => Arc::new(fastembed::FastembedBlock::new()),
         #[cfg(not(feature = "native-embedding"))]

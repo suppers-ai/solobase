@@ -30,6 +30,13 @@ pub struct SolobaseBuilder {
     block_settings: BlockSettings,
     block_configs: Vec<(String, serde_json::Value)>,
     extra_blocks: Vec<(String, Arc<dyn Block>)>,
+    /// Filesystem path to the SQLite database.
+    ///
+    /// Only used by the `native-embedding` feature to open a dedicated
+    /// `rusqlite::Connection` for `SqliteVecService`. Kept as `Option<String>`
+    /// (rather than feature-gated) so platforms can always pass it; the
+    /// field is simply ignored when the feature is off.
+    sqlite_db_path: Option<String>,
 }
 
 impl Default for SolobaseBuilder {
@@ -50,6 +57,7 @@ impl SolobaseBuilder {
             block_settings: BlockSettings::from_map(HashMap::new()),
             block_configs: Vec::new(),
             extra_blocks: Vec::new(),
+            sqlite_db_path: None,
         }
     }
 
@@ -98,6 +106,19 @@ impl SolobaseBuilder {
         self
     }
 
+    /// Set the filesystem path to the SQLite database file.
+    ///
+    /// Only consumed by the `native-embedding` feature to open a second
+    /// `rusqlite::Connection` for the `SqliteVecService` backing
+    /// `wafer-run/vector`. SQLite supports multi-connection access in WAL
+    /// mode, so sharing the underlying file is safe. Without this path,
+    /// `native-embedding` cannot register the vector runtime block — the
+    /// `build()` call will return an error.
+    pub fn sqlite_db_path(mut self, path: impl Into<String>) -> Self {
+        self.sqlite_db_path = Some(path.into());
+        self
+    }
+
     pub fn build(self) -> Result<(Wafer, Arc<SolobaseStorageBlock>), RuntimeError> {
         // 1. Validate required services
         let database = self.database.ok_or("database service required")?;
@@ -132,6 +153,13 @@ impl SolobaseBuilder {
         wafer.register_block("wafer-run/network", network_block)?;
 
         wafer_core::service_blocks::logger::register_with(&mut wafer, logger)?;
+
+        // 4b. Register the `wafer-run/vector` runtime block when the
+        // `native-embedding` feature is on. `suppers-ai/vector` declares
+        // `requires=["wafer-run/vector"]`, so without this registration
+        // dependency resolution fails at startup.
+        #[cfg(feature = "native-embedding")]
+        register_vector_block(&mut wafer, self.sqlite_db_path.as_deref())?;
 
         // 5. Register ALL middleware blocks
         wafer_block_auth_validator::register(&mut wafer)?;
@@ -246,4 +274,63 @@ impl SolobaseBuilder {
 /// collected WRAP grants into the storage block for cross-block access control.
 pub fn post_start(wafer: &Wafer, storage_block: &SolobaseStorageBlock) {
     storage_block.update_wrap_grants(wafer.wrap_grants());
+}
+
+/// Register the `wafer-run/vector` runtime block backed by native
+/// `SqliteVecService` + `FastembedService`.
+///
+/// - Opens a dedicated `rusqlite::Connection` at `db_path`. SQLite supports
+///   multi-connection access with WAL, so sharing the DB file with the
+///   platform's `DatabaseService` connection is safe.
+/// - `FastembedService::default_model()` triggers an ONNX model download on
+///   first run. Failure is logged but does not abort startup — the vector
+///   runtime block simply won't be registered, and any attempt to use it
+///   will fail via the normal dependency-resolution path.
+///
+/// This function is only compiled when the `native-embedding` feature is on;
+/// the `suppers-ai/vector` feature block registration in `solobase-core` is
+/// gated by the same feature so the two stay in sync.
+#[cfg(feature = "native-embedding")]
+fn register_vector_block(
+    wafer: &mut Wafer,
+    db_path: Option<&str>,
+) -> Result<(), RuntimeError> {
+    use wafer_block_fastembed::FastembedService;
+    use wafer_block_sqlite::vector::SqliteVecService;
+    use wafer_core::interfaces::vector::service::{EmbeddingService, VectorService};
+
+    let Some(db_path) = db_path else {
+        return Err(RuntimeError::from(
+            "native-embedding feature is enabled but no sqlite_db_path was \
+             provided to SolobaseBuilder — call .sqlite_db_path(...) before \
+             .build()"
+                .to_string(),
+        ));
+    };
+
+    // Dedicated connection for the vector service — see module docs on
+    // `sqlite_db_path` for why a second connection is fine.
+    let vec_conn = rusqlite::Connection::open(db_path).map_err(|e| {
+        RuntimeError::from(format!(
+            "failed to open SQLite connection at '{db_path}' for vector service: {e}"
+        ))
+    })?;
+    let vec_svc: Arc<dyn VectorService> = Arc::new(SqliteVecService::new(vec_conn));
+
+    let emb_svc: Arc<dyn EmbeddingService> = match FastembedService::default_model() {
+        Ok(svc) => Arc::new(svc),
+        Err(e) => {
+            // Model download can fail offline or on first-run with restricted
+            // egress. Log and skip registration so the rest of the runtime
+            // boots; `suppers-ai/vector` registration will fail dep resolution
+            // with a clearer error than a half-wired block would.
+            tracing::warn!(
+                error = ?e,
+                "fastembed model unavailable — skipping wafer-run/vector registration"
+            );
+            return Ok(());
+        }
+    };
+
+    wafer_core::service_blocks::vector::register_with(wafer, vec_svc, emb_svc)
 }

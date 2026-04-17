@@ -21,6 +21,11 @@ otel = [
 ]
 storage-s3 = ["solobase-core/storage-s3", "dep:wafer-block-s3"]
 postgres = ["solobase-core/postgres", "dep:wafer-block-postgres"]
+# Native ONNX-backed embedding + SQLite vector service. Propagates to the
+# solobase library so `SolobaseBuilder::build()` will register the
+# `wafer-run/vector` runtime block and the `suppers-ai/vector` feature
+# block at startup.
+native-embedding = ["solobase/native-embedding"]
 
 [dependencies]
 # Solobase library (platform-agnostic builder + flows + router)

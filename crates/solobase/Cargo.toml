@@ -10,8 +10,21 @@ name = "solobase"
 path = "src/lib.rs"
 
 [features]
+default = []
 # Enable WASM block loading via the wasmi interpreter for auto-discovery.
 wasm = ["wafer-run/wasm"]
+# Native ONNX-backed embedding + SQLite vector service. Pulls in
+# wafer-block-fastembed (ONNX Runtime) and enables the `vectors` feature
+# of wafer-block-sqlite (sqlite-vec). Required to register the
+# `suppers-ai/vector` feature block, which declares
+# `requires=["wafer-run/vector"]` — without this feature neither the
+# runtime nor the feature block is registered.
+native-embedding = [
+    "solobase-core/native-embedding",
+    "dep:wafer-block-fastembed",
+    "dep:wafer-block-sqlite",
+    "dep:rusqlite",
+]
 
 [dependencies]
 # WAFER runtime (minimal — types + clients only, no tokio/wasmi/reqwest)
@@ -31,6 +44,14 @@ wafer-block-web = { workspace = true }
 # Service block config (needed by builder for ConfigService trait)
 wafer-block-config = { workspace = true }
 wafer-block-crypto = { workspace = true }
+
+# Native ONNX embeddings + SQLite vector service (optional — gated behind
+# `native-embedding`). Both are required together: the vector service
+# needs a sqlite-vec-enabled connection, and the embedding service is the
+# only way to fulfil the `wafer-run/vector` block's EmbeddingService slot.
+wafer-block-fastembed = { workspace = true, optional = true }
+wafer-block-sqlite = { workspace = true, optional = true, features = ["vectors"] }
+rusqlite = { workspace = true, optional = true }
 
 # Solobase shared core (routing, crypto, features, pipeline, backend blocks)
 solobase-core = { path = "../solobase-core", default-features = false }
