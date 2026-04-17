@@ -58,15 +58,16 @@ impl Block for VectorBlock {
         .default_enabled(true)
     }
 
-    async fn handle(&self, ctx: &dyn Context, msg: Message, _input: InputStream) -> OutputStream {
-        // All endpoints require authentication. Real route handlers land in
-        // Tasks 15-17 and 19; for now every request resolves to the stub.
+    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
+        // All endpoints require authentication. Task 15 fills in the indexes
+        // CRUD routes; remaining routes (upsert, query, ingest, embed, stats,
+        // delete-vector) still resolve to `Unimplemented` in `pages::route`.
         let user_id = msg.user_id().to_string();
         if user_id.is_empty() {
             return helpers::err_unauthorized("authentication required");
         }
 
-        pages::route(ctx, &msg).await
+        pages::route(ctx, &msg, input).await
     }
 
     async fn lifecycle(
