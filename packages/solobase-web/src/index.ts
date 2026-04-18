@@ -11,6 +11,9 @@ const DEFAULT_ROUTES = ['/b/', '/health', '/openapi.json', '/.well-known/agent.j
  * Register a Service Worker that runs the Solobase WASM backend.
  * All matching requests are intercepted and handled by the WASM runtime.
  */
+export { registerWithUpdates } from './update';
+export type { UpdateHandle } from './update';
+
 export async function setupSolobase(config?: SolobaseConfig): Promise<void> {
   if (!('serviceWorker' in navigator)) {
     throw new Error('Service Workers are not supported in this browser');
