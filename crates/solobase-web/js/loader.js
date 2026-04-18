@@ -9,6 +9,7 @@ async function boot() {
         const registration = await navigator.serviceWorker.register('/sw.js', {
             type: 'module',
             scope: '/',
+            updateViaCache: 'none',
         });
         const sw = registration.installing || registration.waiting || registration.active;
         if (sw && sw.state !== 'activated') {
