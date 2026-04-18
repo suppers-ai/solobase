@@ -121,6 +121,12 @@ jobs:
       - name: Checkout wafer-run (for local dependency)
         run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
 
+      - name: Build wafer-client-js (file: dep needs dist for tsc)
+        working-directory: ../wafer-run/packages/wafer-client-js
+        run: |
+          npm ci
+          npm run build
+
       - name: Install and build SDK
         working-directory: packages/solobase-js
         run: |
