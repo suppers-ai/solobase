@@ -29,6 +29,9 @@ jobs:
       - name: Add CNAME
         run: echo "demo.solobase.dev" > crates/solobase-web/pkg/CNAME
 
+      - name: Remove wasm-pack .gitignore (blocks gh-pages deploy)
+        run: rm -f crates/solobase-web/pkg/.gitignore
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
