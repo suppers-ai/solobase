@@ -17,10 +17,15 @@ const HASHED_ASSETS: &[(&str, &str)] = &[
 ];
 
 /// Cross-references inside hashed files that we rewrite after renaming.
-/// (source-logical, quote-char, target-logical)
-const REWRITES: &[(&str, char, &str)] = &[
-    ("solobase_web.js", '\'', "solobase_web_bg.wasm"),
-    ("sql-wasm-esm.js", '"', "sql-wasm.wasm"),
+/// (source-logical, quote-char, target-logical, replace-all)
+///
+/// `replace_all = true` — the UMD bundle embeds the path multiple times.
+/// `replace_all = false` — wasm-bindgen glue has exactly one reference.
+const REWRITES: &[(&str, char, &str, bool)] = &[
+    ("solobase_web.js", '\'', "solobase_web_bg.wasm", false),
+    // sql.js is a minified UMD bundle that contains several copies of the
+    // WASM filename (locateFile fallback + inline checks). Replace them all.
+    ("sql-wasm-esm.js", '"', "sql-wasm.wasm", true),
 ];
 
 pub fn run(pkg_dir: &Path, repo_dir: &Path, dev: bool) -> Result<()> {
@@ -41,7 +46,7 @@ pub fn run(pkg_dir: &Path, repo_dir: &Path, dev: bool) -> Result<()> {
     }
 
     // 2. Rewrite cross-references.
-    for (source_logical, quote, target_logical) in REWRITES {
+    for (source_logical, quote, target_logical, replace_all) in REWRITES {
         let source_path = renamed
             .get(*source_logical)
             .ok_or_else(|| anyhow::anyhow!("missing renamed source: {source_logical}"))?;
@@ -59,7 +64,11 @@ pub fn run(pkg_dir: &Path, repo_dir: &Path, dev: bool) -> Result<()> {
             .into_owned();
         let old_literal = format!("{quote}{old_name}{quote}");
         let new_literal = format!("{quote}{new_name}{quote}");
-        rename::rewrite_literal(source_path, &old_literal, &new_literal)?;
+        if *replace_all {
+            rename::rewrite_all(source_path, &old_literal, &new_literal)?;
+        } else {
+            rename::rewrite_literal(source_path, &old_literal, &new_literal)?;
+        }
     }
 
     // 3. buildId.
