@@ -42,4 +42,7 @@ Thumbs.db
 build/
 .bin/
 
+# Git worktrees
+.worktrees/
+
 # Package locks should be committed for reproducible builds
