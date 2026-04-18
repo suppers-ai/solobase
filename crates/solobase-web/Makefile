@@ -18,21 +18,21 @@ pkg/sql-wasm-esm.js: pkg/sql-wasm.js
 	@cat pkg/sql-wasm.js >> pkg/sql-wasm-esm.js
 	@printf '\n  return module.exports.default || module.exports;\n})();\nexport default _sqlJs;\n' >> pkg/sql-wasm-esm.js
 
-# Build for production
+# Build for production (content-hashes assets, renders templates)
 build: pkg/sql-wasm-esm.js
 	wasm-pack build --target web --release --out-dir pkg
-	cp js/sw.js pkg/
-	cp js/loader.js pkg/
-	cp js/ai-bridge.js pkg/
-	cp js/index.html pkg/
+	cp js/sw.js.tmpl pkg/
+	cp js/index.html.tmpl pkg/
+	cp js/loader.js js/ai-bridge.js js/manifest.json pkg/
+	cargo run -p solobase-web-bundle --release -- pkg/ --repo-dir $(CURDIR)/../..
 
-# Build for development
+# Build for development (no hashing; canonical filenames)
 dev: pkg/sql-wasm-esm.js
 	wasm-pack build --target web --dev --out-dir pkg
-	cp js/sw.js pkg/
-	cp js/loader.js pkg/
-	cp js/ai-bridge.js pkg/
-	cp js/index.html pkg/
+	cp js/sw.js.tmpl pkg/
+	cp js/index.html.tmpl pkg/
+	cp js/loader.js js/ai-bridge.js js/manifest.json pkg/
+	cargo run -p solobase-web-bundle --release -- pkg/ --repo-dir $(CURDIR)/../.. --dev
 
 # Serve locally for testing (localhost is exempt from HTTPS requirement for SW)
 serve: dev

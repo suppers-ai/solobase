@@ -34,6 +34,20 @@ pub fn rewrite_literal(path: &Path, from: &str, to: &str) -> Result<()> {
     Ok(())
 }
 
+/// Replace all occurrences of `from` with `to` in a UTF-8 file.
+/// Fails if `from` is not present at all.
+pub fn rewrite_all(path: &Path, from: &str, to: &str) -> Result<()> {
+    let body = std::fs::read_to_string(path)
+        .with_context(|| format!("reading {}", path.display()))?;
+    let count = body.matches(from).count();
+    if count == 0 {
+        bail!("literal {:?} not found in {}", from, path.display());
+    }
+    let replaced = body.replace(from, to);
+    std::fs::write(path, replaced).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,5 +99,25 @@ mod tests {
         fs::write(&p, "foo foo").unwrap();
         let err = rewrite_literal(&p, "foo", "bar").unwrap_err();
         assert!(err.to_string().contains("expected exactly one"));
+    }
+
+    #[test]
+    fn rewrite_all_replaces_every_occurrence() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("a.js");
+        // Simulate sql.js UMD bundle with multiple references to the wasm path.
+        fs::write(&p, r#""sql-wasm.wasm" || "sql-wasm.wasm" ? "sql-wasm.wasm" : B"#).unwrap();
+        rewrite_all(&p, "\"sql-wasm.wasm\"", "\"sql-wasm-abc123.wasm\"").unwrap();
+        let body = fs::read_to_string(&p).unwrap();
+        assert_eq!(body, r#""sql-wasm-abc123.wasm" || "sql-wasm-abc123.wasm" ? "sql-wasm-abc123.wasm" : B"#);
+    }
+
+    #[test]
+    fn rewrite_all_fails_when_literal_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("a.js");
+        fs::write(&p, "unrelated content").unwrap();
+        let err = rewrite_all(&p, "MISSING", "X").unwrap_err();
+        assert!(err.to_string().contains("not found"));
     }
 }
