@@ -5,6 +5,7 @@ members = [
     "crates/solobase-core",
     "crates/solobase-native",
     "crates/solobase-web",
+    "crates/solobase-web-bundle",
 ]
 
 [workspace.package]
