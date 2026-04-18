@@ -91,9 +91,11 @@ impl LoadAssetCallback for SwAssetLoader {
             }
         };
 
+        // ai-bridge.js only posts "ready" (on success) or "failed" (on any
+        // error). No resumable/pending protocol exists today — if it's added
+        // later, add a "pending" arm here.
         match reply.status.as_str() {
             "ready" => AssetLoadStatus::Ready,
-            "pending" => AssetLoadStatus::Pending,
             _ => AssetLoadStatus::Failed(AssetLoadError::Unknown(
                 reply.error.unwrap_or_else(|| "load-asset failed".into()),
             )),
