@@ -1,0 +1,17 @@
+[package]
+name = "solobase-web-bundle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Post-processor for solobase-web/pkg: content-hashes assets and renders SW/HTML templates"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+sha2 = "0.10"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
