@@ -145,7 +145,7 @@ export class DatabaseService extends BaseService {
    */
   from<T = DatabaseRecord>(collection: string): QueryBuilder<T> {
     const self = this;
-    let queryParams: QueryOptions = {};
+    const queryParams: QueryOptions = {};
     let selectedFields: string[] = [];
 
     const builder: QueryBuilder<T> = {

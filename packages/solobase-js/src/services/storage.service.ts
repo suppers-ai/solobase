@@ -2,9 +2,6 @@ import { BaseService } from "./base.service";
 import {
   StorageObject,
   Bucket,
-  UploadOptions,
-  QueryOptions,
-  PaginatedResponse,
   StorageObjectMetadata,
 } from "../types";
 

@@ -31,7 +31,7 @@ export class AuthService extends BaseService {
    */
   async signUp(options: SignUpOptions): Promise<User> {
     // Signup returns just the user, need to login after
-    const user = await this.request<User>({
+    await this.request<User>({
       method: "POST",
       url: "/b/auth/api/signup",
       data: options,

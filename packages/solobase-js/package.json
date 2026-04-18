@@ -10,7 +10,7 @@
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "test": "ts-node --project tsconfig.test.json test/test-all.ts",
     "test:watch": "nodemon --exec ts-node test/test-all.ts",
-    "lint": "eslint src",
+    "lint": "eslint 'src/**/*.ts'",
     "format": "prettier --write src"
   },
   "keywords": ["solobase", "sdk", "api", "client", "typescript"],

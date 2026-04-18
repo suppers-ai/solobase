@@ -1,0 +1,42 @@
+# Local development override for wafer-run crates.
+#
+# Copy this file to `.cargo/config.toml` (which is gitignored) to build
+# solobase against a sibling `wafer-run` checkout instead of the git-pinned
+# version in Cargo.toml. Removing the copy reverts to the git source — no
+# changes to Cargo.toml are needed.
+#
+# Expected layout:
+#   workspace/
+#     solobase/       <- this repo
+#     wafer-run/      <- sibling checkout
+#
+# Uses `[patch]` in config (stable since Cargo 1.84) rather than the
+# `paths = [...]` override, because our wafer-run crates have internal
+# cross-dependencies that `paths` cannot re-resolve cleanly — Cargo warns
+# and will eventually hard-error on that pattern.
+#
+# Docs: https://doc.rust-lang.org/cargo/reference/config.html#patch
+
+[patch."https://github.com/wafer-run/wafer-run"]
+wafer-run = { path = "../wafer-run/crates/wafer-run" }
+wafer-block = { path = "../wafer-run/crates/wafer-block" }
+wafer-core = { path = "../wafer-run/crates/wafer-core" }
+wafer-sql-utils = { path = "../wafer-run/crates/wafer-sql-utils" }
+wafer-block-auth-validator = { path = "../wafer-run/crates/wafer-block-auth-validator" }
+wafer-block-config = { path = "../wafer-run/crates/wafer-block-config" }
+wafer-block-cors = { path = "../wafer-run/crates/wafer-block-cors" }
+wafer-block-crypto = { path = "../wafer-run/crates/wafer-block-crypto" }
+wafer-block-http-listener = { path = "../wafer-run/crates/wafer-block-http-listener" }
+wafer-block-iam-guard = { path = "../wafer-run/crates/wafer-block-iam-guard" }
+wafer-block-inspector = { path = "../wafer-run/crates/wafer-block-inspector" }
+wafer-block-local-storage = { path = "../wafer-run/crates/wafer-block-local-storage" }
+wafer-block-logger = { path = "../wafer-run/crates/wafer-block-logger" }
+wafer-block-network = { path = "../wafer-run/crates/wafer-block-network" }
+wafer-block-readonly-guard = { path = "../wafer-run/crates/wafer-block-readonly-guard" }
+wafer-block-router = { path = "../wafer-run/crates/wafer-block-router" }
+wafer-block-s3 = { path = "../wafer-run/crates/wafer-block-s3" }
+wafer-block-security-headers = { path = "../wafer-run/crates/wafer-block-security-headers" }
+wafer-block-sqlite = { path = "../wafer-run/crates/wafer-block-sqlite" }
+wafer-block-web = { path = "../wafer-run/crates/wafer-block-web" }
+wafer-block-postgres = { path = "../wafer-run/crates/wafer-block-postgres" }
+wafer-block-fastembed = { path = "../wafer-run/crates/wafer-block-fastembed" }

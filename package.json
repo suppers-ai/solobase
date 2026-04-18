@@ -1,9 +1,5 @@
 {
   "name": "solobase-monorepo",
   "version": "1.0.0",
-  "private": true,
-  "workspaces": [
-    "packages/solobase-js",
-    "packages/solobase-site"
-  ]
+  "private": true
 }
