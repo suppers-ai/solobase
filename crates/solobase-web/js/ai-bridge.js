@@ -98,15 +98,81 @@ export async function chat(messages, onChunk) {
 window.solobaseAI = { getAvailableModels, getStatus, loadModel, unloadModel, chat };
 
 // ---------------------------------------------------------------------------
+// External asset loader registry
+// ---------------------------------------------------------------------------
+// Plan A ships an empty registry. Plan C registers concrete loaders
+// (ffmpeg.wasm, etc) via registerLoader(). Each loader takes the fetched
+// bytes + the asset's manifest and returns an opaque handle (kept in
+// _loadedAssets so subsequent loads of the same id are idempotent).
+
+const _loaderRegistry = new Map(); // loader name -> async (bytes, manifest) => handle
+const _loadedAssets = new Map();   // assetId -> handle
+
+export function registerLoader(name, fn) {
+    _loaderRegistry.set(name, fn);
+}
+
+async function _loadAssetInternal(manifest) {
+    if (_loadedAssets.has(manifest.id)) return _loadedAssets.get(manifest.id);
+
+    const loader = _loaderRegistry.get(manifest.loader);
+    if (!loader) throw new Error(`unknown loader: ${manifest.loader}`);
+
+    const resp = await fetch(manifest.url);
+    if (!resp.ok) throw new Error(`fetch ${manifest.url}: ${resp.status}`);
+    const bytes = new Uint8Array(await resp.arrayBuffer());
+
+    if (manifest.sha256) {
+        const digest = await crypto.subtle.digest('SHA-256', bytes);
+        const hex = Array.from(new Uint8Array(digest))
+            .map((b) => b.toString(16).padStart(2, '0'))
+            .join('');
+        if (hex !== manifest.sha256) {
+            throw new Error(`sha256 mismatch for ${manifest.id}: expected ${manifest.sha256}, got ${hex}`);
+        }
+    }
+
+    const handle = await loader(bytes, manifest);
+    _loadedAssets.set(manifest.id, handle);
+    return handle;
+}
+
+// Expose for chat page JS / tests that want to seed the registry without
+// importing this module.
+window.solobaseAI.registerLoader = registerLoader;
+
+// ---------------------------------------------------------------------------
 // Service Worker message bridge
 // ---------------------------------------------------------------------------
-// The SW forwards /b/local-llm/api/* requests here via postMessage.
-// We call the appropriate function and send the result back.
+// The SW forwards /b/local-llm/api/* requests + external-asset load
+// requests here via postMessage. We call the appropriate function and
+// send the result back. Both message types share the single SW listener.
 
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', async (event) => {
         const msg = event.data;
-        if (!msg || msg.type !== 'local-llm-request') return;
+        if (!msg) return;
+
+        if (msg.type === 'load-asset-request') {
+            try {
+                await _loadAssetInternal(msg.manifest);
+                navigator.serviceWorker.controller?.postMessage({
+                    type: 'load-asset-response',
+                    id: msg.id,
+                    ok: true,
+                });
+            } catch (e) {
+                navigator.serviceWorker.controller?.postMessage({
+                    type: 'load-asset-response',
+                    id: msg.id,
+                    ok: false,
+                    error: String(e?.message ?? e),
+                });
+            }
+            return;
+        }
+
+        if (msg.type !== 'local-llm-request') return;
 
         const { id, action, body } = msg;
 

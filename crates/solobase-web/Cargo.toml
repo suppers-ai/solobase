@@ -45,6 +45,10 @@ wafer-block-crypto = { workspace = true }
 # Async traits
 async-trait = "0.1"
 
+# JS ↔ Rust value conversion (used by SwAssetLoader to deserialize the
+# load-asset reply object returned by the bridge).
+serde-wasm-bindgen = "0.6"
+
 # Utils
 hex = "0.4"
 

@@ -39,12 +39,28 @@ const pendingLocalLlm = new Map(); // requestId -> { resolve, reject }
 
 self.addEventListener('message', (event) => {
     const msg = event.data;
-    if (msg && msg.type === 'local-llm-response') {
+    if (!msg) return;
+
+    if (msg.type === 'local-llm-response') {
         const pending = pendingLocalLlm.get(msg.id);
         if (pending) {
             pendingLocalLlm.delete(msg.id);
             pending.resolve(msg);
         }
+        return;
+    }
+
+    // Asset loader bridge: route reply to bridge.js's pending-load map.
+    // bridge.js exposes the resolver on globalThis because this script
+    // (sw.js) doesn't import the wasm-bindgen-generated bridge module.
+    if (msg.type === 'load-asset-response') {
+        if (typeof globalThis.__solobaseCompleteAssetLoad === 'function') {
+            globalThis.__solobaseCompleteAssetLoad(msg.id, {
+                status: msg.ok ? 'ready' : 'failed',
+                error: msg.ok ? undefined : msg.error,
+            });
+        }
+        return;
     }
 });
 

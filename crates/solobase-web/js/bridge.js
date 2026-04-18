@@ -234,6 +234,71 @@ export async function storageListFolders() {
     return JSON.stringify(folders);
 }
 
+// ─── Asset loader bridge (SW → main thread) ─────────────────────────────────
+//
+// The Rust SwAssetLoader (running inside this SW) calls loadAsset() to ask the
+// main thread to fetch + verify + init an external asset (ffmpeg.wasm, etc).
+// We postMessage a 'load-asset-request' to the first window client, then wait
+// for the matching 'load-asset-response' to arrive at sw.js's message listener.
+// sw.js routes the response back here via globalThis.__solobaseCompleteAssetLoad.
+
+const _pendingAssetLoads = new Map(); // correlationId -> resolve fn
+
+/**
+ * Load an external asset by id by postMessaging the main thread.
+ * @param {string} assetId
+ * @param {string} manifestJson - JSON-serialised ExternalAsset {id, loader, version, url, sha256}
+ * @returns {Promise<{status: 'ready'|'pending'|'failed', error?: string}>}
+ */
+export async function loadAsset(assetId, manifestJson) {
+    const manifest = JSON.parse(manifestJson);
+
+    // Find any window client. If none, fail fast — no point waiting.
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
+    if (clients.length === 0) {
+        return { status: 'failed', error: 'no active page — open the app in a tab to load assets' };
+    }
+
+    const correlationId = `asset-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const replyPromise = new Promise((resolve) => {
+        _pendingAssetLoads.set(correlationId, resolve);
+        // Bound the wait so a misbehaving page can't block the SW forever.
+        setTimeout(() => {
+            if (_pendingAssetLoads.has(correlationId)) {
+                _pendingAssetLoads.delete(correlationId);
+                resolve({ status: 'failed', error: 'load-asset timed out' });
+            }
+        }, 120_000);
+    });
+
+    clients[0].postMessage({
+        type: 'load-asset-request',
+        id: correlationId,
+        manifest,
+    });
+
+    return await replyPromise;
+}
+
+/**
+ * Resolve a pending loadAsset() call. Called from sw.js's message handler
+ * when a 'load-asset-response' arrives from the main thread. Exposed on
+ * globalThis so sw.js (a separate top-level script) can reach it without
+ * importing this module — wasm-bindgen owns the import path here.
+ *
+ * @param {string} correlationId
+ * @param {{status: 'ready'|'pending'|'failed', error?: string}} reply
+ */
+export function _completeAssetLoad(correlationId, reply) {
+    const resolve = _pendingAssetLoads.get(correlationId);
+    if (resolve) {
+        _pendingAssetLoads.delete(correlationId);
+        resolve(reply);
+    }
+}
+
+globalThis.__solobaseCompleteAssetLoad = _completeAssetLoad;
+
 // ─── Network (fetch) ─────────────────────────────────────────────────────────
 
 /**

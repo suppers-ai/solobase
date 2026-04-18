@@ -13,6 +13,7 @@ use solobase::builder::{self, SolobaseBuilder};
 use wafer_core::interfaces::config::service::ConfigService;
 use wasm_bindgen::prelude::*;
 
+pub mod asset_loader;
 pub mod bridge;
 pub mod config;
 pub mod convert;
@@ -98,6 +99,11 @@ pub async fn initialize() -> Result<(), JsValue> {
         }))
         .build()
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    // 6b. Register the SW-side external-asset loader before start so any
+    // block init that triggers an asset load sees the real loader (not the
+    // NoopAssetLoader default).
+    wafer.set_asset_loader(Arc::new(asset_loader::SwAssetLoader::new()));
 
     // 7. Start runtime.
     wafer
