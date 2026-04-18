@@ -42,7 +42,11 @@ declare const self: ServiceWorkerGlobalScope;
 
 if (typeof ServiceWorkerGlobalScope !== 'undefined') {
   self.addEventListener('install', (event) => {
-    event.waitUntil(initialize().then(() => self.skipWaiting()));
+    event.waitUntil(initialize());
+    // NOTE: no skipWaiting here. Consumers opt in by posting
+    // { type: 'skip-waiting' } from the main thread when they want to
+    // apply an update. The standalone pkg/ site uses its own sw.js
+    // which does call skipWaiting.
   });
 
   self.addEventListener('activate', (event) => {
@@ -50,6 +54,10 @@ if (typeof ServiceWorkerGlobalScope !== 'undefined') {
   });
 
   self.addEventListener('message', (event) => {
+    if (event.data?.type === 'skip-waiting') {
+      self.skipWaiting();
+      return;
+    }
     if (event.data?.type === 'solobase:config' && Array.isArray(event.data.routes)) {
       routes = event.data.routes;
     }
