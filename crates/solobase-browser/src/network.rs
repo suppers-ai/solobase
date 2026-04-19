@@ -55,6 +55,7 @@ impl NetworkService for BrowserNetworkService {
     }
 }
 
-pub fn make_network_service() -> std::sync::Arc<dyn wafer_core::interfaces::network::service::NetworkService> {
+pub fn make_network_service(
+) -> std::sync::Arc<dyn wafer_core::interfaces::network::service::NetworkService> {
     std::sync::Arc::new(BrowserNetworkService)
 }
