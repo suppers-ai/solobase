@@ -45,6 +45,12 @@ wafer-block-crypto = { workspace = true }
 # Async traits
 async-trait = "0.1"
 
+# Futures utilities (BoxStream + stream helpers for the LlmService impl)
+futures = "0.3"
+
+# CancellationToken — used by the LlmService trait signatures
+tokio-util = { version = "0.7", default-features = false }
+
 # JS ↔ Rust value conversion (used by SwAssetLoader to deserialize the
 # load-asset reply object returned by the bridge).
 serde-wasm-bindgen = "0.6"
