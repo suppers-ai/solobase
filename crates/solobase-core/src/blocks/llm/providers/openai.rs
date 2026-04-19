@@ -282,6 +282,289 @@ fn encode_response_format(r: &ResponseFormat) -> OpenAiResponseFormat<'_> {
     }
 }
 
+// ===========================================================================
+// SSE decoder
+// ===========================================================================
+
+use wafer_core::interfaces::llm::service::{
+    ChatChunk, ChunkDelta, FinishReason, TokenUsage,
+};
+
+/// Stateful line-by-line SSE decoder. Feed it successive chunks of response
+/// body bytes (they may split inside a frame); it buffers until a blank-line
+/// terminator and emits zero-or-more `ChatChunk`s per chunk of input.
+///
+/// Handles:
+///  - `data: {json}\n\n` frames with a choice containing `delta.content` /
+///    `delta.tool_calls[]` / `finish_reason`.
+///  - `data: [DONE]` terminal sentinel — decoded as `DecodedFrame::Done`.
+///  - Top-level `usage` object (emitted by OpenAI when
+///    `stream_options.include_usage=true`) — becomes a meta-only chunk with
+///    `TokenUsage`.
+///  - Malformed / unknown frames are skipped silently; tracing::warn logs them
+///    so operators can notice.
+pub struct OpenAiSseDecoder {
+    buf: String,
+    /// Tool-call index -> in-flight id. OpenAI streams tool_calls with
+    /// `index` + optional `id` + partial `function.name` + partial
+    /// `function.arguments`. We emit `ToolCallStart` on first sight of
+    /// `id`+`name`, then `ToolCallArguments` per arg delta, and
+    /// `ToolCallComplete` only when the stream terminates.
+    started: Vec<String>,
+}
+
+/// `ChatChunk` / `ChunkDelta` are `#[non_exhaustive]` in wafer-core, so we
+/// can't build them via struct literals from outside the crate. Until
+/// wafer-core grows explicit constructors for the tool-call variants, we
+/// build them through serde — the wire shape is stable and already covered
+/// by tests in the wafer-core crate.
+fn build_chunk(delta_json: serde_json::Value) -> ChatChunk {
+    let v = serde_json::json!({ "delta": delta_json });
+    serde_json::from_value(v).expect("ChatChunk wire shape should round-trip")
+}
+
+fn tool_call_start_chunk(id: &str, name: &str) -> ChatChunk {
+    build_chunk(serde_json::json!({ "ToolCallStart": { "id": id, "name": name } }))
+}
+
+fn tool_call_arguments_chunk(id: &str, arguments_delta: &str) -> ChatChunk {
+    build_chunk(serde_json::json!({
+        "ToolCallArguments": {
+            "id": id,
+            "arguments_delta": arguments_delta,
+        }
+    }))
+}
+
+fn tool_call_complete_chunk(id: &str) -> ChatChunk {
+    build_chunk(serde_json::json!({ "ToolCallComplete": { "id": id } }))
+}
+
+fn usage_chunk(usage: TokenUsage) -> ChatChunk {
+    let v = serde_json::json!({
+        "delta": "Empty",
+        "usage": usage,
+    });
+    serde_json::from_value(v).expect("ChatChunk wire shape should round-trip")
+}
+
+impl OpenAiSseDecoder {
+    pub fn new() -> Self {
+        Self {
+            buf: String::new(),
+            started: Vec::new(),
+        }
+    }
+
+    /// Feed more bytes. Returns the decoded chunks + whether the stream
+    /// terminated (`[DONE]` seen). Tool-call `Complete` frames for any
+    /// in-flight ids are emitted on terminal.
+    pub fn push(&mut self, bytes: &[u8]) -> DecodeBatch {
+        let text = match std::str::from_utf8(bytes) {
+            Ok(s) => s,
+            Err(_) => {
+                tracing::warn!("openai sse: non-utf8 bytes — dropping");
+                return DecodeBatch::default();
+            }
+        };
+        self.buf.push_str(text);
+
+        let mut out = Vec::new();
+        let mut done = false;
+
+        // A complete frame ends with `\n\n`. Split off whole frames, leave the
+        // tail for next push.
+        while let Some(sep) = self.buf.find("\n\n") {
+            let frame = self.buf[..sep].to_string();
+            self.buf.drain(..=sep + 1);
+            if let Some(outcome) = self.decode_frame(&frame) {
+                match outcome {
+                    FrameOutcome::Chunks(cs) => out.extend(cs),
+                    FrameOutcome::Done => {
+                        done = true;
+                        for id in std::mem::take(&mut self.started) {
+                            out.push(tool_call_complete_chunk(&id));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        DecodeBatch { chunks: out, done }
+    }
+
+    fn decode_frame(&mut self, frame: &str) -> Option<FrameOutcome> {
+        // Each frame is one or more `key: value` lines. OpenAI uses `data:`.
+        let mut data_payload = String::new();
+        for line in frame.lines() {
+            let line = line.trim_start_matches('\u{feff}'); // BOM guard
+            if let Some(rest) = line.strip_prefix("data:") {
+                let rest = rest.trim_start();
+                if !data_payload.is_empty() {
+                    data_payload.push('\n');
+                }
+                data_payload.push_str(rest);
+            }
+            // Other SSE fields (event:, id:, retry:) — ignored, OpenAI doesn't use them for chat.
+        }
+        if data_payload.is_empty() {
+            return None;
+        }
+        if data_payload == "[DONE]" {
+            return Some(FrameOutcome::Done);
+        }
+        match serde_json::from_str::<OpenAiStreamFrame>(&data_payload) {
+            Ok(frame) => Some(FrameOutcome::Chunks(self.translate(frame))),
+            Err(e) => {
+                tracing::warn!(error = %e, payload = %data_payload, "openai sse: decode failed");
+                None
+            }
+        }
+    }
+
+    fn translate(&mut self, frame: OpenAiStreamFrame) -> Vec<ChatChunk> {
+        let mut out = Vec::new();
+
+        // OpenAI's usage frame has no choices but populates `usage`.
+        if let Some(u) = frame.usage {
+            let mut usage = TokenUsage::default();
+            usage.input_tokens = u.prompt_tokens;
+            usage.output_tokens = u.completion_tokens;
+            usage.cached_tokens = u
+                .prompt_tokens_details
+                .as_ref()
+                .and_then(|d| d.cached_tokens);
+            usage.reasoning_tokens = u
+                .completion_tokens_details
+                .as_ref()
+                .and_then(|d| d.reasoning_tokens);
+            out.push(usage_chunk(usage));
+        }
+
+        for choice in frame.choices.into_iter() {
+            if let Some(content) = choice.delta.content {
+                if !content.is_empty() {
+                    out.push(ChatChunk::text(content));
+                }
+            }
+            for tc in choice.delta.tool_calls.into_iter() {
+                // First sighting with id + name ⇒ ToolCallStart.
+                if let (Some(id), Some(name)) = (
+                    tc.id.clone(),
+                    tc.function.as_ref().and_then(|f| f.name.clone()),
+                ) {
+                    if !self.started.contains(&id) {
+                        self.started.push(id.clone());
+                        out.push(tool_call_start_chunk(&id, &name));
+                        continue;
+                    }
+                }
+                // Subsequent frames carry argument deltas. OpenAI omits id
+                // after the first frame but always supplies the index.
+                if let Some(f) = tc.function {
+                    if let Some(args) = f.arguments {
+                        // `started` is a parallel array keyed on insertion order.
+                        let id = self
+                            .started
+                            .get(tc.index as usize)
+                            .cloned()
+                            .or_else(|| tc.id.clone());
+                        if let Some(id) = id {
+                            out.push(tool_call_arguments_chunk(&id, &args));
+                        }
+                    }
+                }
+            }
+            if let Some(reason) = choice.finish_reason {
+                out.push(ChatChunk::finish(map_finish_reason(&reason), None));
+            }
+        }
+        out
+    }
+}
+
+impl Default for OpenAiSseDecoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Result of feeding one chunk of bytes to the decoder.
+#[derive(Debug, Default, PartialEq)]
+pub struct DecodeBatch {
+    pub chunks: Vec<ChatChunk>,
+    /// True if a `[DONE]` sentinel was observed in this batch or a prior one.
+    /// Callers should stop feeding the decoder once this is set.
+    pub done: bool,
+}
+
+enum FrameOutcome {
+    Chunks(Vec<ChatChunk>),
+    Done,
+}
+
+#[derive(Deserialize)]
+struct OpenAiStreamFrame {
+    #[serde(default)]
+    choices: Vec<OpenAiStreamChoice>,
+    usage: Option<OpenAiUsage>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiStreamChoice {
+    #[serde(default)]
+    delta: OpenAiStreamDelta,
+    finish_reason: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+struct OpenAiStreamDelta {
+    content: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<OpenAiStreamToolCall>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiStreamToolCall {
+    #[serde(default)]
+    index: u32,
+    id: Option<String>,
+    function: Option<OpenAiStreamToolCallFunction>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiStreamToolCallFunction {
+    name: Option<String>,
+    arguments: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiUsage {
+    #[serde(default)]
+    prompt_tokens: u32,
+    #[serde(default)]
+    completion_tokens: u32,
+    prompt_tokens_details: Option<OpenAiUsageDetails>,
+    completion_tokens_details: Option<OpenAiUsageDetails>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiUsageDetails {
+    cached_tokens: Option<u32>,
+    reasoning_tokens: Option<u32>,
+}
+
+fn map_finish_reason(s: &str) -> FinishReason {
+    match s {
+        "stop" => FinishReason::Stop,
+        "length" => FinishReason::Length,
+        "tool_calls" => FinishReason::ToolCall,
+        "content_filter" => FinishReason::ContentFilter,
+        _ => FinishReason::Error,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use wafer_core::interfaces::llm::service::{
@@ -393,5 +676,122 @@ mod tests {
             encode_chat_request(&req, &openai_provider(), None),
             Err(EncodeError::MissingApiKey)
         ));
+    }
+
+    // ---------- SSE decoder ----------
+
+    use wafer_core::interfaces::llm::service::{ChunkDelta, FinishReason};
+
+    fn decode_all(input: &str) -> Vec<ChatChunk> {
+        let mut decoder = OpenAiSseDecoder::new();
+        decoder.push(input.as_bytes()).chunks
+    }
+
+    #[test]
+    fn decodes_simple_text_delta() {
+        let frame = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n";
+        let chunks = decode_all(frame);
+        assert_eq!(chunks.len(), 1);
+        assert!(matches!(&chunks[0].delta, ChunkDelta::Text(t) if t == "hello"));
+    }
+
+    #[test]
+    fn decodes_sequence_of_text_deltas() {
+        let stream = "\
+            data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\n\
+            data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n\
+            data: {\"choices\":[{\"delta\":{\"content\":\" wo\"}}]}\n\n\
+            data: {\"choices\":[{\"delta\":{\"content\":\"rld\"}}]}\n\n\
+        ";
+        let chunks = decode_all(stream);
+        let texts: Vec<_> = chunks
+            .iter()
+            .filter_map(|c| match &c.delta {
+                ChunkDelta::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, vec!["hel", "lo", " wo", "rld"]);
+    }
+
+    #[test]
+    fn done_sentinel_terminates() {
+        let stream = "\
+            data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n\
+            data: [DONE]\n\n\
+        ";
+        let mut decoder = OpenAiSseDecoder::new();
+        let batch = decoder.push(stream.as_bytes());
+        assert!(batch.done);
+    }
+
+    #[test]
+    fn decodes_split_frames_across_pushes() {
+        let mut decoder = OpenAiSseDecoder::new();
+        let part1 = "data: {\"choices\":[{\"delta\":{\"content\":";
+        let part2 = "\"hello\"}}]}\n\n";
+        assert_eq!(decoder.push(part1.as_bytes()).chunks, vec![]);
+        let chunks = decoder.push(part2.as_bytes()).chunks;
+        assert_eq!(chunks.len(), 1);
+        assert!(matches!(&chunks[0].delta, ChunkDelta::Text(t) if t == "hello"));
+    }
+
+    #[test]
+    fn decodes_finish_reason_on_terminal_choice() {
+        let frame = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n";
+        let chunks = decode_all(frame);
+        assert!(chunks.iter().any(|c| c.finish_reason == Some(FinishReason::Stop)));
+    }
+
+    #[test]
+    fn decodes_usage_frame_as_terminal_meta_chunk() {
+        let frame = "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":42}}\n\n";
+        let chunks = decode_all(frame);
+        let usage = chunks.iter().find_map(|c| c.usage.as_ref()).unwrap();
+        assert_eq!(usage.input_tokens, 10);
+        assert_eq!(usage.output_tokens, 42);
+    }
+
+    #[test]
+    fn decodes_tool_call_start_and_arguments_stream() {
+        let stream = "\
+            data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"lookup\"}}]}}]}\n\n\
+            data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"x\\\":\"}}]}}]}\n\n\
+            data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"1}\"}}]}}]}\n\n\
+            data: [DONE]\n\n\
+        ";
+        let mut decoder = OpenAiSseDecoder::new();
+        let batch = decoder.push(stream.as_bytes());
+        assert!(batch.done);
+
+        let starts = batch
+            .chunks
+            .iter()
+            .filter(|c| matches!(&c.delta, ChunkDelta::ToolCallStart { .. }))
+            .count();
+        let args = batch
+            .chunks
+            .iter()
+            .filter(|c| matches!(&c.delta, ChunkDelta::ToolCallArguments { .. }))
+            .count();
+        let completes = batch
+            .chunks
+            .iter()
+            .filter(|c| matches!(&c.delta, ChunkDelta::ToolCallComplete { .. }))
+            .count();
+        assert_eq!(starts, 1, "exactly one ToolCallStart");
+        assert_eq!(args, 2, "two ToolCallArguments deltas");
+        assert_eq!(completes, 1, "ToolCallComplete on terminal");
+    }
+
+    #[test]
+    fn malformed_frame_is_skipped() {
+        let stream = "\
+            data: not-valid-json\n\n\
+            data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n\
+        ";
+        let chunks = decode_all(stream);
+        assert_eq!(chunks.len(), 1);
+        assert!(matches!(&chunks[0].delta, ChunkDelta::Text(t) if t == "ok"));
     }
 }
