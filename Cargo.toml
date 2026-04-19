@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/solobase",
+    "crates/solobase-browser",
     "crates/solobase-core",
     "crates/solobase-native",
     "crates/solobase-web",
