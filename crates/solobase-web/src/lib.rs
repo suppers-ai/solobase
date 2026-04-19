@@ -19,6 +19,7 @@ pub mod config;
 pub mod convert;
 pub mod crypto;
 pub mod database;
+pub mod llm;
 pub mod logger;
 pub mod network;
 pub mod storage;
