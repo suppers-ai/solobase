@@ -1,5 +1,6 @@
 pub mod pages;
 pub mod providers;
+pub mod routes;
 pub mod schema;
 
 use std::sync::Arc;
@@ -27,6 +28,11 @@ use crate::blocks::helpers::{
 /// router. Provider CRUD, discovery, and the `lifecycle(Init)` configure
 /// step use the held `provider_svc` handle directly.
 pub struct LlmBlock {
+    /// Held for Phase B tasks 15–17 (provider CRUD + models endpoint).
+    /// Not yet read outside of `LlmBlock::new` — silence the `dead_code`
+    /// lint until those handlers land rather than force a premature public
+    /// API shape.
+    #[allow(dead_code)]
     pub(crate) provider_svc: Arc<ProviderLlmService>,
 }
 
@@ -40,14 +46,14 @@ pub(crate) const SETTINGS_COLLECTION: &str = "suppers_ai__llm__settings";
 
 const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
 const DEFAULT_MODEL_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_MODEL";
-const DEFAULT_PROVIDER: &str = "suppers-ai/provider-llm";
+pub(super) const DEFAULT_PROVIDER: &str = "suppers-ai/provider-llm";
 
 // ---------------------------------------------------------------------------
 // Inter-block call helpers
 // ---------------------------------------------------------------------------
 
 /// Call the messages block to create an entry in a context.
-async fn messages_create(
+pub(super) async fn messages_create(
     ctx: &dyn Context,
     original_msg: &Message,
     context_id: &str,
@@ -92,7 +98,7 @@ async fn messages_create(
 }
 
 /// Call the messages block to list entries in a context.
-async fn messages_list(
+pub(super) async fn messages_list(
     ctx: &dyn Context,
     original_msg: &Message,
     context_id: &str,
@@ -125,156 +131,13 @@ async fn messages_list(
     vec![]
 }
 
-/// Call a provider block (provider-llm or local-llm) with a chat request.
-async fn provider_chat(
-    ctx: &dyn Context,
-    provider_block: &str,
-    messages: Vec<serde_json::Value>,
-    model: &str,
-    provider_id: &str,
-) -> Result<(String, String), String> {
-    let body = serde_json::to_vec(&serde_json::json!({
-        "messages": messages,
-        "model": model,
-        "provider_id": provider_id,
-    }))
-    .map_err(|e| e.to_string())?;
-
-    let resource = "/b/provider-llm/api/chat";
-    let mut msg = Message::new(format!("create:{resource}"));
-    msg.set_meta("req.action", "create");
-    msg.set_meta("req.resource", resource);
-    msg.set_meta("http.method", "POST");
-    msg.set_meta("http.path", resource);
-    msg.set_meta("req.content_type", "application/json");
-
-    let out = ctx
-        .call_block(provider_block, msg, InputStream::from_bytes(body))
-        .await;
-    match out.collect_buffered().await {
-        Ok(buf) => {
-            let v: serde_json::Value =
-                serde_json::from_slice(&buf.body).map_err(|e| e.to_string())?;
-            let content = v
-                .get("content")
-                .and_then(|c| c.as_str())
-                .unwrap_or("")
-                .to_string();
-            let actual_model = v
-                .get("model")
-                .and_then(|m| m.as_str())
-                .unwrap_or(model)
-                .to_string();
-            Ok((content, actual_model))
-        }
-        Err(e) => Err(format!("Provider error: {:?}", e)),
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Handler implementations
 // ---------------------------------------------------------------------------
 
 impl LlmBlock {
-    // --- Chat ---
-
-    async fn handle_chat(
-        &self,
-        ctx: &dyn Context,
-        msg: &Message,
-        input: InputStream,
-    ) -> OutputStream {
-        #[derive(serde::Deserialize)]
-        struct ChatRequest {
-            thread_id: String,
-            message: String,
-            provider: Option<String>,
-            model: Option<String>,
-        }
-
-        let raw = input.collect_to_bytes().await;
-        let body: ChatRequest = match serde_json::from_slice(&raw) {
-            Ok(b) => b,
-            Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
-        };
-
-        let thread_id = body.thread_id.clone();
-
-        // 1. Write user message to messages block
-        let _ = messages_create(ctx, msg, &thread_id, "user", &body.message).await;
-
-        // 2. Read thread history
-        let history = messages_list(ctx, msg, &thread_id).await;
-
-        // Convert stored messages to the format providers expect
-        let provider_messages: Vec<serde_json::Value> = history
-            .iter()
-            .filter_map(|m| {
-                let role = m
-                    .get("data")
-                    .and_then(|d| d.get("role"))
-                    .or_else(|| m.get("role"))
-                    .and_then(|r| r.as_str())?;
-                let content = m
-                    .get("data")
-                    .and_then(|d| d.get("content"))
-                    .or_else(|| m.get("content"))
-                    .and_then(|c| c.as_str())
-                    .unwrap_or("");
-                Some(serde_json::json!({ "role": role, "content": content }))
-            })
-            .collect();
-
-        // 3. Determine provider and model
-        // Priority: per-thread override → request override → default config
-        let (provider_block, model) = self
-            .resolve_provider(
-                ctx,
-                &thread_id,
-                body.provider.as_deref(),
-                body.model.as_deref(),
-            )
-            .await;
-
-        // Need a default provider_id — look up first enabled provider from provider-llm
-        let provider_id = self.get_default_provider_id(ctx).await;
-
-        // 4. Call provider
-        let (content, actual_model) = match provider_chat(
-            ctx,
-            &provider_block,
-            provider_messages,
-            &model,
-            &provider_id,
-        )
-        .await
-        {
-            Ok(r) => r,
-            Err(e) => return err_internal(&format!("Provider error: {e}")),
-        };
-
-        // 5. Write assistant response to messages block
-        let saved = messages_create(ctx, msg, &thread_id, "assistant", &content).await;
-        let message_id = saved
-            .as_ref()
-            .and_then(|v| {
-                v.get("id")
-                    .or_else(|| v.get("data").and_then(|d| d.get("id")))
-            })
-            .and_then(|id| id.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        // 6. Return response
-        ok_json(&serde_json::json!({
-            "content": content,
-            "message_id": message_id,
-            "model": actual_model,
-        }))
-    }
-
     /// Resolve which provider block and model to use for a request.
-    async fn resolve_provider(
+    pub(super) async fn resolve_provider(
         &self,
         ctx: &dyn Context,
         thread_id: &str,
@@ -343,7 +206,12 @@ impl LlmBlock {
     }
 
     /// Get the first enabled provider ID from the provider-llm block DB.
-    async fn get_default_provider_id(&self, ctx: &dyn Context) -> String {
+    ///
+    /// Retained for use by other admin/aggregation handlers (Phase B tasks
+    /// 15–16). The current chat handlers resolve backend IDs directly
+    /// against `suppers_ai__llm__providers` via `routes::resolve_backend_id`.
+    #[allow(dead_code)]
+    pub(super) async fn get_default_provider_id(&self, ctx: &dyn Context) -> String {
         use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
 
         const PROVIDERS_COLLECTION: &str = "suppers_ai__provider_llm__providers";
@@ -523,7 +391,7 @@ impl Block for LlmBlock {
         .instance_mode(InstanceMode::Singleton)
         .requires(vec![
             "suppers-ai/messages".into(),
-            "suppers-ai/provider-llm".into(),
+            "wafer-run/llm".into(),
             "wafer-run/database".into(),
             "wafer-run/config".into(),
         ])
@@ -540,6 +408,9 @@ impl Block for LlmBlock {
         .endpoints(vec![
             BlockEndpoint::post("/b/llm/api/chat")
                 .summary("Send a chat message")
+                .auth(AuthLevel::Authenticated),
+            BlockEndpoint::post("/b/llm/api/chat/stream")
+                .summary("Send a chat message (SSE streaming)")
                 .auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/llm/api/providers")
                 .summary("List available LLM providers")
@@ -610,7 +481,10 @@ impl Block for LlmBlock {
             ("retrieve", "/b/llm/settings") => pages::settings_page(ctx, &msg).await,
 
             // Chat API
-            ("create", "/b/llm/api/chat") => self.handle_chat(ctx, &msg, input).await,
+            ("create", "/b/llm/api/chat") => routes::handle_chat(self, ctx, &msg, input).await,
+            ("create", "/b/llm/api/chat/stream") => {
+                routes::handle_chat_stream(self, ctx, &msg, input).await
+            }
 
             // Aggregation
             ("retrieve", "/b/llm/api/providers") => self.handle_list_providers(ctx, &msg).await,
