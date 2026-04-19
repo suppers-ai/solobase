@@ -2,12 +2,15 @@
 //! bundler to content-hash assets and render templates. Invoked from
 //! consumer Makefiles after `wasm-pack build`.
 //!
-//! Usage: `export-assets <pkg-dir> [--repo-dir <path>] [--dev]`
+//! Usage: `export-assets <pkg-dir> [--repo-dir <path>] [--dev]
+//!             [--app-name <name>] [--app-title <title>]
+//!             [--boot-redirect <url>]`
 
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
+use solobase_browser::tools::bundle::AppConfig;
 
 #[derive(Parser)]
 #[command(name = "export-assets")]
@@ -24,6 +27,21 @@ struct Cli {
     /// Skip asset hashing; render templates with canonical filenames.
     #[arg(long)]
     dev: bool,
+
+    /// Log prefix shown in sw.js / loader.js console messages.
+    /// Defaults to the discovered wasm-pack base name (e.g. `solobase_web`).
+    #[arg(long)]
+    app_name: Option<String>,
+
+    /// Title rendered into `<title>` and `<h1>` in index.html.
+    /// Defaults to the base name with underscores replaced by spaces.
+    #[arg(long)]
+    app_title: Option<String>,
+
+    /// URL the loader navigates to after the Service Worker activates.
+    /// Defaults to `/`.
+    #[arg(long)]
+    boot_redirect: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -38,7 +56,14 @@ fn main() -> Result<()> {
         .clone()
         .or_else(|| cli.pkg_dir.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| cli.pkg_dir.clone());
-    solobase_browser::tools::bundle::run(&cli.pkg_dir, &repo, cli.dev)?;
+
+    let app = AppConfig {
+        app_name: cli.app_name,
+        app_title: cli.app_title,
+        boot_redirect: cli.boot_redirect,
+    };
+
+    solobase_browser::tools::bundle::run(&cli.pkg_dir, &repo, cli.dev, app)?;
 
     Ok(())
 }

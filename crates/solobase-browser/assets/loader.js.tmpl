@@ -21,15 +21,15 @@ async function boot() {
             });
         }
         if (!navigator.serviceWorker.controller) {
-            status.textContent = 'First-time setup complete. Loading Solobase...';
+            status.textContent = 'First-time setup complete. Loading __APP_NAME__...';
             window.location.reload();
             return;
         }
-        status.textContent = 'Loading Solobase...';
-        window.location.href = '/b/system/';
+        status.textContent = 'Loading __APP_NAME__...';
+        window.location.href = '__BOOT_REDIRECT__';
     } catch (error) {
         status.textContent = 'Error: ' + error.message;
-        console.error('[solobase-web] Boot error:', error);
+        console.error('[__APP_NAME__] Boot error:', error);
     }
 }
 boot();
