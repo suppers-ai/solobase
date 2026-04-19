@@ -1,9 +1,17 @@
 use std::{fs, path::PathBuf};
 
-use solobase_browser::tools::bundle::run;
+use solobase_browser::tools::bundle::{run, AppConfig};
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/bundle_fixtures/pkg-in")
+}
+
+fn default_app() -> AppConfig {
+    AppConfig {
+        app_name: None,
+        app_title: None,
+        boot_redirect: None,
+    }
 }
 
 #[test]
@@ -11,12 +19,12 @@ fn end_to_end_renames_rewrites_and_templates() {
     let tmp = tempfile::tempdir().unwrap();
     copy_dir(&fixture_path(), tmp.path());
 
-    run(tmp.path(), tmp.path(), /* dev */ false).expect("bundler ok");
+    run(tmp.path(), tmp.path(), /* dev */ false, default_app()).expect("bundler ok");
 
     let manifest_body = fs::read_to_string(tmp.path().join("asset-manifest.json")).unwrap();
     assert!(manifest_body.contains("\"buildId\""));
-    assert!(manifest_body.contains("\"solobase_web.js\""));
-    assert!(manifest_body.contains("\"solobase_web_bg.wasm\""));
+    assert!(manifest_body.contains("\"app.js\""));
+    assert!(manifest_body.contains("\"app_bg.wasm\""));
 
     let entries: Vec<String> = fs::read_dir(tmp.path())
         .unwrap()
@@ -25,28 +33,28 @@ fn end_to_end_renames_rewrites_and_templates() {
     assert!(
         entries
             .iter()
-            .any(|n| n.starts_with("solobase_web-") && n.ends_with(".js")),
+            .any(|n| n.starts_with("app-") && n.ends_with(".js")),
         "missing hashed JS in {:?}",
         entries
     );
     assert!(entries
         .iter()
-        .any(|n| n.starts_with("solobase_web_bg-") && n.ends_with(".wasm")));
-    assert!(!entries.iter().any(|n| n == "solobase_web.js"));
-    assert!(!entries.iter().any(|n| n == "solobase_web_bg.wasm"));
+        .any(|n| n.starts_with("app_bg-") && n.ends_with(".wasm")));
+    assert!(!entries.iter().any(|n| n == "app.js"));
+    assert!(!entries.iter().any(|n| n == "app_bg.wasm"));
 
     let sw = fs::read_to_string(tmp.path().join("sw.js")).unwrap();
-    assert!(sw.contains("from '/solobase_web-"), "sw.js = {sw}");
+    assert!(sw.contains("from '/app-"), "sw.js = {sw}");
     assert!(!sw.contains("__WASM_JS__"));
     assert!(!sw.contains("__BUILD_ID__"));
 
     let glue_name = entries
         .iter()
-        .find(|n| n.starts_with("solobase_web-") && n.ends_with(".js"))
+        .find(|n| n.starts_with("app-") && n.ends_with(".js"))
         .unwrap();
     let glue = fs::read_to_string(tmp.path().join(glue_name)).unwrap();
-    assert!(glue.contains("solobase_web_bg-"), "glue = {glue}");
-    assert!(!glue.contains("'solobase_web_bg.wasm'"));
+    assert!(glue.contains("app_bg-"), "glue = {glue}");
+    assert!(!glue.contains("'app_bg.wasm'"));
 }
 
 #[test]
@@ -55,8 +63,8 @@ fn deterministic_across_runs() {
     let tmp2 = tempfile::tempdir().unwrap();
     copy_dir(&fixture_path(), tmp1.path());
     copy_dir(&fixture_path(), tmp2.path());
-    solobase_browser::tools::bundle::run(tmp1.path(), tmp1.path(), false).unwrap();
-    solobase_browser::tools::bundle::run(tmp2.path(), tmp2.path(), false).unwrap();
+    solobase_browser::tools::bundle::run(tmp1.path(), tmp1.path(), false, default_app()).unwrap();
+    solobase_browser::tools::bundle::run(tmp2.path(), tmp2.path(), false, default_app()).unwrap();
 
     let m1 = fs::read_to_string(tmp1.path().join("asset-manifest.json")).unwrap();
     let m2 = fs::read_to_string(tmp2.path().join("asset-manifest.json")).unwrap();

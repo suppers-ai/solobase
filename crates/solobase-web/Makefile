@@ -4,13 +4,22 @@
 build:
 	wasm-pack build --target web --release --out-dir pkg
 	cp js/manifest.json pkg/
-	cargo run -p solobase-browser --release --bin export-assets -- pkg/ --repo-dir $(CURDIR)/../..
+	cargo run -p solobase-browser --release --bin export-assets -- pkg/ \
+		--repo-dir $(CURDIR)/../.. \
+		--app-name solobase-web \
+		--app-title Solobase \
+		--boot-redirect /b/system/
 
 # Build for development (no hashing; canonical filenames)
 dev:
 	wasm-pack build --target web --dev --out-dir pkg
 	cp js/manifest.json pkg/
-	cargo run -p solobase-browser --release --bin export-assets -- pkg/ --repo-dir $(CURDIR)/../.. --dev
+	cargo run -p solobase-browser --release --bin export-assets -- pkg/ \
+		--repo-dir $(CURDIR)/../.. \
+		--dev \
+		--app-name solobase-web \
+		--app-title Solobase \
+		--boot-redirect /b/system/
 
 # Serve locally for testing (localhost is exempt from HTTPS requirement for SW)
 serve: dev

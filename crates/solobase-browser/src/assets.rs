@@ -31,8 +31,8 @@ const ASSETS: &[Asset] = &[
         bytes: include_bytes!("../assets/sw.js.tmpl"),
     },
     Asset {
-        path: "loader.js",
-        bytes: include_bytes!("../assets/loader.js"),
+        path: "loader.js.tmpl",
+        bytes: include_bytes!("../assets/loader.js.tmpl"),
     },
     Asset {
         path: "index.html.tmpl",
@@ -56,7 +56,7 @@ mod tests {
     fn static_assets_is_non_empty_and_has_expected_paths() {
         let paths: Vec<&str> = static_assets().iter().map(|a| a.path).collect();
         assert!(paths.contains(&"sw.js.tmpl"));
-        assert!(paths.contains(&"loader.js"));
+        assert!(paths.contains(&"loader.js.tmpl"));
         assert!(paths.contains(&"index.html.tmpl"));
         assert!(paths.contains(&"vendor/sql-wasm-esm.js"));
         assert!(paths.contains(&"vendor/sql-wasm.wasm"));
