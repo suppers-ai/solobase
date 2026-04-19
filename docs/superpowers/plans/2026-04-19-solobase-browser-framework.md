@@ -70,8 +70,14 @@
 ### Preserved files
 
 - `crates/solobase-web/src/config.rs` (app-specific: reads variables, feature flags)
+- `crates/solobase-web/src/llm.rs` (BrowserLlmService — app-specific for this sub-project; see spec "Non-Goals")
 - `crates/solobase-web/js/ai-bridge.js` (Solobase-specific local-LLM integration)
+- `crates/solobase-web/js/webllm-engine.js` (WebLLM JS bridge, co-located with llm.rs)
 - `crates/solobase-web/js/manifest.json` (PWA manifest, app-specific)
+
+### Pre-implementation note
+
+The plan was written against a branch that is a few commits behind `origin/main` (Phase C/D LLM work landed after the plan's base point). Before starting implementation, **rebase `feat/solobase-browser-framework` onto `origin/main`** so the migration picks up the `llm.rs` + `webllm-engine.js` additions + `futures`/`tokio-util` deps. The plan's "Preserved files" list already reflects the rebased state; no task text changes needed beyond the rebase itself.
 
 ---
 
@@ -1130,29 +1136,28 @@ solobase-browser = { path = "../solobase-browser" }
 
 Delete these entries from `[dependencies]` (all are pulled in via `solobase-browser`):
 
-- `wasm-bindgen`
-- `wasm-bindgen-futures`
-- `web-sys`
-- `js-sys`
-- `async-trait`
-- `serde-wasm-bindgen`
 - `hex`
 - `pbkdf2`
 - `hkdf`
 - `sha2`
 - `hmac`
 - `base64ct`
-- `chrono` (workspace — keep only if solobase-web's remaining code uses it directly; check after Task 17)
-- `wafer-block-config`
+- `serde-wasm-bindgen`
 - `wafer-block-crypto`
 
-Keep:
+Keep (all needed by `llm.rs`, `config.rs`, the new `lib.rs`, or transitively by `solobase-browser`'s public API at the call sites):
 
-- `serde`, `serde_json` (used by app-specific code)
-- `wafer-run`, `wafer-core`, `wafer-block` (used by register fn block types)
-- `solobase`, `solobase-core` (app-specific)
+- `wasm-bindgen`, `wasm-bindgen-futures`, `web-sys`, `js-sys` (used by the cdylib entrypoints and `llm.rs` extern blocks)
+- `async-trait` (used by `llm.rs`'s `#[async_trait(?Send)]` impl)
+- `futures` (used by `llm.rs` for mpsc + BoxStream)
+- `tokio-util` (used by `llm.rs` for `CancellationToken`)
+- `chrono` (keep if used anywhere in the remaining code; check with `cargo check` after Task 17)
+- `serde`, `serde_json`
+- `wafer-run`, `wafer-core`, `wafer-block`
+- `wafer-block-config` (used by `lib.rs` for `EnvConfigService`)
+- `solobase`, `solobase-core`
 
-Also delete the `[target.'cfg(target_arch = "wasm32")'.dependencies]` block (moved to `solobase-browser`).
+Keep the `[target.'cfg(target_arch = "wasm32")'.dependencies]` block — `llm.rs` still runs under wasm32 and may rely on `getrandom`/`uuid` transitively.
 
 Keep the `[package.metadata.wasm-pack.profile.*]` sections (consumer-level wasm-pack config).
 
@@ -1186,7 +1191,7 @@ Replace `crates/solobase-web/src/lib.rs` with:
 //!
 //! Thin wasm-bindgen wrapper around the `solobase-browser` framework. Uses
 //! `SolobaseBuilder` (from the `solobase` crate) to wire up the full Solobase
-//! block suite.
+//! block suite + the app-specific `BrowserLlmService`.
 
 use std::sync::Arc;
 
@@ -1195,6 +1200,7 @@ use wafer_core::interfaces::config::service::ConfigService;
 use wasm_bindgen::prelude::*;
 
 pub mod config;
+pub mod llm;
 
 const SOLOBASE_CSP: &str = concat!(
     "default-src 'self'; ",
@@ -1239,7 +1245,11 @@ pub async fn initialize() -> Result<(), JsValue> {
         config_svc.set(key, value);
     }
 
-    // 6. Build WAFER runtime via SolobaseBuilder, using framework service factories.
+    // 6. App-specific LLM service (WebLLM-backed).
+    let browser_llm: Arc<dyn wafer_core::interfaces::llm::service::LlmService> =
+        Arc::new(llm::BrowserLlmService::new());
+
+    // 7. Build WAFER runtime via SolobaseBuilder, using framework service factories.
     let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(solobase_browser::make_database_service())
         .storage(solobase_browser::make_storage_service())
@@ -1247,6 +1257,7 @@ pub async fn initialize() -> Result<(), JsValue> {
         .crypto(solobase_browser::make_crypto_service(jwt_secret))
         .network(solobase_browser::make_network_service())
         .logger(solobase_browser::make_console_logger())
+        .llm_service("browser", browser_llm)
         .block_settings(features)
         .block_config(
             "wafer-run/security-headers",
@@ -1255,21 +1266,21 @@ pub async fn initialize() -> Result<(), JsValue> {
         .build()
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-    // 6b. Register the SW-side external-asset loader.
+    // 7b. Register the SW-side external-asset loader.
     wafer.set_asset_loader(solobase_browser::make_sw_asset_loader());
 
-    // 7. Start runtime.
+    // 8. Start runtime.
     wafer
         .start_without_bind()
         .await
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-    // 8. Inject WRAP grants.
+    // 9. Inject WRAP grants.
     builder::post_start(&wafer, &storage_block);
 
     web_sys::console::log_1(&"solobase: WAFER runtime started".into());
 
-    // 9. Store in framework's thread_local.
+    // 10. Store in framework's thread_local.
     solobase_browser::store_wafer(wafer);
 
     Ok(())
@@ -1280,6 +1291,8 @@ pub async fn handle_request(request: web_sys::Request) -> Result<web_sys::Respon
     solobase_browser::dispatch_request(request).await
 }
 ```
+
+Spot-check before writing: open `crates/solobase-web/src/lib.rs` from the rebased base and transfer any additional steps that aren't shown here (e.g., if main has a step we missed). The new `lib.rs` should contain every app-specific step from the pre-refactor `initialize()`, with each `Arc::new(<service>)` call replaced by the appropriate `solobase_browser::make_*_service(...)` call.
 
 This preserves every step of the current flow and their comments. The only changes are: (a) factory calls replace inline `Arc::new(database::BrowserDatabaseService)` etc., (b) `store_wafer` replaces the thread_local manipulation, (c) `dispatch_request` replaces the hand-written dispatch path.
 
@@ -1341,6 +1354,7 @@ git commit -m "refactor(solobase-web): delete modules now provided by solobase-b
 
 Preserved:
 - `crates/solobase-web/js/ai-bridge.js` — Solobase-specific local-LLM bridge
+- `crates/solobase-web/js/webllm-engine.js` — WebLLM JS bridge (co-located with `src/llm.rs`)
 - `crates/solobase-web/js/manifest.json` — PWA manifest
 
 - [ ] **Step 1: Remove the files**
@@ -1384,17 +1398,21 @@ Replace both `build` and `dev` with:
 # Build for production (framework provides assets + hashing)
 build:
 	wasm-pack build --target web --release --out-dir pkg
-	cp js/ai-bridge.js js/manifest.json pkg/
+	cp js/manifest.json pkg/
 	cargo run -p solobase-browser --release --bin export-assets -- pkg/ --repo-dir $(CURDIR)/../..
 
 # Build for development (no hashing; canonical filenames)
 dev:
 	wasm-pack build --target web --dev --out-dir pkg
-	cp js/ai-bridge.js js/manifest.json pkg/
+	cp js/manifest.json pkg/
 	cargo run -p solobase-browser --release --bin export-assets -- pkg/ --repo-dir $(CURDIR)/../.. --dev
 ```
 
 Also remove the now-unused `SQL_JS_VERSION := 1.11.0` line and the `pkg/sql-wasm.wasm pkg/sql-wasm.js` and `pkg/sql-wasm-esm.js: pkg/sql-wasm.js` rules — sql.js is now vendored in `solobase-browser/assets/vendor/` and written by `export-assets`.
+
+Note: `ai-bridge.js` is NOT copied. Current `main`'s Makefile doesn't copy it either (a comment in `src/asset_loader.rs` notes it was removed); the file lingers in `js/` but is unreferenced. Leave it alone — untouched by this sub-project, its eventual deletion is a separate cleanup.
+
+`webllm-engine.js` is handled by wasm-pack's snippets mechanism via `src/llm.rs`'s `#[wasm_bindgen(module = "/js/webllm-engine.js")]`, the same way `bridge.js` is handled. It does not need an explicit `cp`.
 
 The `serve` and `clean` targets are unchanged.
 
