@@ -16,7 +16,7 @@ use solobase_core::{
 };
 use wafer_core::interfaces::{
     config::service::ConfigService, crypto::service::CryptoService,
-    database::service::DatabaseService, logger::service::LoggerService,
+    database::service::DatabaseService, llm::service::LlmService, logger::service::LoggerService,
     network::service::NetworkService, storage::service::StorageService,
 };
 use wafer_run::{block::Block, RuntimeError, Wafer};
@@ -31,6 +31,14 @@ pub struct SolobaseBuilder {
     block_settings: BlockSettings,
     block_configs: Vec<(String, serde_json::Value)>,
     extra_blocks: Vec<(String, Arc<dyn Block>)>,
+    /// Additional LLM backends to register on the `MultiBackendLlmService`
+    /// router backing `wafer-run/llm`. Each entry is `(label, service)` and
+    /// follows the same order semantics as `MultiBackendLlmService::register`:
+    /// first match on `claims_backend` wins. On native builds with the `llm`
+    /// feature enabled, `"provider"` is auto-registered first, so HTTP
+    /// providers (OpenAI/Anthropic/etc.) take precedence over any backend
+    /// added here for overlapping `backend_id`s.
+    extra_llm_services: Vec<(String, Arc<dyn LlmService>)>,
     /// Routes registered by downstream projects via `add_route`. Checked
     /// after built-in `ROUTES` — built-ins always win on prefix collision.
     extra_routes: Vec<ExtraRoute>,
@@ -61,6 +69,7 @@ impl SolobaseBuilder {
             block_settings: BlockSettings::from_map(HashMap::new()),
             block_configs: Vec::new(),
             extra_blocks: Vec::new(),
+            extra_llm_services: Vec::new(),
             extra_routes: Vec::new(),
             sqlite_db_path: None,
         }
@@ -103,6 +112,27 @@ impl SolobaseBuilder {
 
     pub fn extra_block(mut self, name: &str, block: Arc<dyn Block>) -> Self {
         self.extra_blocks.push((name.to_string(), block));
+        self
+    }
+
+    /// Register an additional `LlmService` backend on the router backing
+    /// `wafer-run/llm`. The `label` is used in log/tracing output and must be
+    /// unique across registrations (collision is not enforced — later
+    /// registrations simply lose to earlier ones on overlapping
+    /// `backend_id`s). The backend itself decides which `backend_id`s it
+    /// claims via `claims_backend`.
+    ///
+    /// On native builds with the `llm` feature enabled, the built-in
+    /// `"provider"` backend is registered first (in `build()`) and therefore
+    /// takes precedence over services added via this method for overlapping
+    /// `backend_id`s. This is the expected ordering: HTTP providers win over
+    /// browser-only backends on native.
+    ///
+    /// On wasm32 builds (where the `llm` feature is off), the router is still
+    /// created and the `wafer-run/llm` service block is still registered —
+    /// it just contains only the backends passed in via this setter.
+    pub fn llm_service(mut self, label: impl Into<String>, service: Arc<dyn LlmService>) -> Self {
+        self.extra_llm_services.push((label.into(), service));
         self
     }
 
@@ -190,19 +220,33 @@ impl SolobaseBuilder {
         //     go through `ctx.call_block("wafer-run/llm", ...)`, which hits
         //     the `MultiBackendLlmService` router registered here.
         //
-        //     Phase A provider service spawns reqwest futures that are not
-        //     Send on wasm32-unknown-unknown — gate the whole wiring behind
-        //     the `llm` feature so browser builds compile clean. Browser LLM
-        //     support arrives in Phase C via a separate `BrowserLlmService`.
+        //     On native (`llm` feature on) the HTTP `ProviderLlmService` is
+        //     auto-registered under `"provider"` first — reqwest-based
+        //     providers aren't Send-safe on wasm32, so the `llm` feature
+        //     gates them. Additional backends passed via
+        //     `.llm_service(label, svc)` are registered after `"provider"`
+        //     and lose to it on overlapping `backend_id`s.
+        //
+        //     On wasm32 (`llm` feature off) the router is built empty and
+        //     populated purely from `.llm_service(...)` entries (typically a
+        //     `BrowserLlmService` from `solobase-web`). If no backends are
+        //     registered, the router is still installed — its
+        //     `claims_backend` returns false for all ids and produces clean
+        //     `unknown backend_id` errors via the standard router dispatch.
+        let mut llm_router = wafer_core::interfaces::llm::router::MultiBackendLlmService::new();
+
         #[cfg(feature = "llm")]
-        let provider_llm_svc =
-            Arc::new(solobase_core::blocks::llm::providers::ProviderLlmService::new());
-        #[cfg(feature = "llm")]
-        {
-            let mut llm_router = wafer_core::interfaces::llm::router::MultiBackendLlmService::new();
-            llm_router.register("provider", provider_llm_svc.clone());
-            wafer_core::service_blocks::llm::register_with(&mut wafer, Arc::new(llm_router))?;
+        let provider_llm_svc = {
+            let svc = Arc::new(solobase_core::blocks::llm::providers::ProviderLlmService::new());
+            llm_router.register("provider", svc.clone());
+            svc
+        };
+
+        for (label, svc) in self.extra_llm_services {
+            llm_router.register(label, svc);
         }
+
+        wafer_core::service_blocks::llm::register_with(&mut wafer, Arc::new(llm_router))?;
 
         // 4b. Register the `wafer-run/vector` runtime block when the
         // `native-embedding` feature is on. `suppers-ai/vector` declares

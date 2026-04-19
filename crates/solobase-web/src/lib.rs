@@ -76,6 +76,15 @@ pub async fn initialize() -> Result<(), JsValue> {
     }
 
     // 6. Build WAFER runtime via SolobaseBuilder.
+    //
+    // `BrowserLlmService` is registered on the shared `wafer-run/llm` router
+    // under the label `"browser"`. On wasm32 the `llm` feature is off, so no
+    // `ProviderLlmService` is auto-registered — the router dispatches all
+    // LLM requests (from `suppers-ai/llm` feature block) to WebLLM via this
+    // service. See `crates/solobase-web/src/llm.rs`.
+    let browser_llm: Arc<dyn wafer_core::interfaces::llm::service::LlmService> =
+        Arc::new(llm::BrowserLlmService::new());
+
     let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(Arc::new(database::BrowserDatabaseService))
         .storage(Arc::new(storage::BrowserStorageService))
@@ -83,6 +92,7 @@ pub async fn initialize() -> Result<(), JsValue> {
         .crypto(Arc::new(crypto::BrowserCryptoService::new(jwt_secret)))
         .network(Arc::new(network::BrowserNetworkService))
         .logger(Arc::new(logger::ConsoleLogger))
+        .llm_service("browser", browser_llm)
         .block_settings(features)
         .block_config("wafer-run/security-headers", serde_json::json!({
             "csp": concat!(
