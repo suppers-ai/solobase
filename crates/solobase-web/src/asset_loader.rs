@@ -1,8 +1,10 @@
 //! Implements `wafer_run::asset_loader::LoadAssetCallback` for the
 //! solobase-web service-worker host by postMessage-bridging to the main
-//! thread through `bridge::load_asset`. The main thread (via
-//! `ai-bridge.js`) does the actual fetch, sha256 verification, and
-//! named-loader init.
+//! thread through `bridge::load_asset`. A main-thread listener does the
+//! actual fetch, sha256 verification, and named-loader init; that
+//! listener is currently not shipped (ai-bridge.js was removed in the
+//! LLM refactor; no block in-tree declares external_assets, so
+//! `load_asset` is never invoked today).
 //!
 //! See `docs/superpowers/specs/2026-04-18-gizza-ai-design.md` §
 //! "External asset loading (host side)".
@@ -46,7 +48,7 @@ struct ManifestForJs {
 }
 
 /// Reply from `bridge::load_asset`. Mirrors the `{status, error?}` JS
-/// object posted back from `ai-bridge.js` via `sw.js`.
+/// object the (not-yet-shipped) main-thread listener posts back via `sw.js`.
 #[derive(Deserialize)]
 struct LoadAssetReply {
     status: String,
@@ -91,9 +93,9 @@ impl LoadAssetCallback for SwAssetLoader {
             }
         };
 
-        // ai-bridge.js only posts "ready" (on success) or "failed" (on any
-        // error). No resumable/pending protocol exists today — if it's added
-        // later, add a "pending" arm here.
+        // The main-thread listener only posts "ready" (on success) or
+        // "failed" (on any error). No resumable/pending protocol exists
+        // today — if it's added later, add a "pending" arm here.
         match reply.status.as_str() {
             "ready" => AssetLoadStatus::Ready,
             _ => AssetLoadStatus::Failed(AssetLoadError::Unknown(

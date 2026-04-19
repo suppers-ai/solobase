@@ -10,13 +10,10 @@ pub mod helpers;
 pub mod legalpages;
 #[cfg(feature = "llm")]
 pub mod llm;
-pub mod llm_backend;
-pub mod local_llm;
 pub mod messages;
 pub mod network;
 pub mod products;
 pub mod projects;
-pub mod provider_llm;
 pub mod rate_limit;
 pub mod router;
 pub mod storage;
@@ -53,8 +50,6 @@ fn solobase_blocks() -> Vec<(&'static str, BlockId)> {
         ("products", BlockId::Products),
         ("projects", BlockId::Projects),
         ("messages", BlockId::Messages),
-        ("provider-llm", BlockId::ProviderLlm),
-        ("local-llm", BlockId::LocalLlm),
     ];
     #[cfg(feature = "llm")]
     {
@@ -96,8 +91,6 @@ fn make_block(
             "BlockId::Llm requires the `llm` feature \
              — solobase_blocks() only emits it when that feature is on"
         ),
-        BlockId::ProviderLlm => Arc::new(provider_llm::ProviderLlmBlock),
-        BlockId::LocalLlm => Arc::new(local_llm::LocalLlmBlock),
         #[cfg(feature = "native-embedding")]
         BlockId::Vector => Arc::new(vector::VectorBlock),
         #[cfg(not(feature = "native-embedding"))]
@@ -165,8 +158,6 @@ fn block_id_to_name(id: BlockId) -> &'static str {
         BlockId::Projects => "projects",
         BlockId::Messages => "messages",
         BlockId::Llm => "llm",
-        BlockId::ProviderLlm => "provider-llm",
-        BlockId::LocalLlm => "local-llm",
         BlockId::Vector => "vector",
         BlockId::Fastembed => "fastembed",
         BlockId::Inspector => "inspector",

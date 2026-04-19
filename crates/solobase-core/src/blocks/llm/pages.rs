@@ -199,8 +199,6 @@ pub async fn chat_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         style { "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} @keyframes blink{0%,100%{opacity:1}50%{opacity:0}} .typing-cursor{display:inline-block;width:0.5em;height:1.1em;background:var(--text-primary,#333);vertical-align:text-bottom;margin-left:2px;animation:blink 0.8s step-end infinite}" }
         // Load marked.js for markdown rendering
         script src="https://cdn.jsdelivr.net/npm/marked@14/marked.min.js" {}
-        // Load ai-bridge.js for local model inference
-        script type="module" src="/ai-bridge.js" {}
 
         // Shared JS (markdown, message rendering, model management, chat logic)
         script {
@@ -400,8 +398,6 @@ pub async fn thread_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         style { "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} @keyframes blink{0%,100%{opacity:1}50%{opacity:0}} .typing-cursor{display:inline-block;width:0.5em;height:1.1em;background:var(--text-primary,#333);vertical-align:text-bottom;margin-left:2px;animation:blink 0.8s step-end infinite}" }
         // Load marked.js for markdown rendering
         script src="https://cdn.jsdelivr.net/npm/marked@14/marked.min.js" {}
-        // Load ai-bridge.js for local model inference
-        script type="module" src="/ai-bridge.js" {}
 
         // Pass initial messages to JS
         script {
