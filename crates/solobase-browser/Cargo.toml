@@ -54,3 +54,7 @@ wasm-opt = false
 
 [package.metadata.wasm-pack.profile.dev]
 wasm-opt = false
+
+[[bin]]
+name = "export-assets"
+path = "bin/export-assets.rs"
