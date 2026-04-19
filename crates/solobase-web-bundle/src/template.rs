@@ -1,11 +1,15 @@
+use std::{collections::BTreeMap, path::Path};
+
 use anyhow::{bail, Context, Result};
-use std::collections::BTreeMap;
-use std::path::Path;
 
 /// Render a template by substituting `__KEY__` tokens with values from `vars`.
 /// Fails if the rendered output still contains any `__…__` token, catching
 /// missed placeholders before they reach the browser.
-pub fn render_to_file(template_src: &Path, out: &Path, vars: &BTreeMap<String, String>) -> Result<()> {
+pub fn render_to_file(
+    template_src: &Path,
+    out: &Path,
+    vars: &BTreeMap<String, String>,
+) -> Result<()> {
     let body = std::fs::read_to_string(template_src)
         .with_context(|| format!("reading template {}", template_src.display()))?;
     let mut rendered = body;
@@ -14,7 +18,11 @@ pub fn render_to_file(template_src: &Path, out: &Path, vars: &BTreeMap<String, S
         rendered = rendered.replace(&token, value);
     }
     if let Some(stray) = find_unresolved_placeholder(&rendered) {
-        bail!("unresolved placeholder {:?} in {}", stray, template_src.display());
+        bail!(
+            "unresolved placeholder {:?} in {}",
+            stray,
+            template_src.display()
+        );
     }
     std::fs::write(out, rendered).with_context(|| format!("writing {}", out.display()))?;
     Ok(())
@@ -50,7 +58,11 @@ fn find_unresolved_placeholder(body: &str) -> Option<String> {
                 // Accept only if inner is non-empty and every byte is
                 // [A-Z0-9_] with no lowercase letters (rejects wbg_init etc.)
                 let is_placeholder = !inner.is_empty()
-                    && inner.iter().all(|&b| b == b'_' || (b as char).is_ascii_uppercase() || (b as char).is_ascii_digit());
+                    && inner.iter().all(|&b| {
+                        b == b'_'
+                            || (b as char).is_ascii_uppercase()
+                            || (b as char).is_ascii_digit()
+                    });
                 if is_placeholder {
                     return Some(String::from_utf8_lossy(&bytes[i..close + 2]).into_owned());
                 }
@@ -68,20 +80,28 @@ fn find_unresolved_placeholder(body: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn write(p: &Path, body: &str) { std::fs::write(p, body).unwrap(); }
+    fn write(p: &Path, body: &str) {
+        std::fs::write(p, body).unwrap();
+    }
 
     #[test]
     fn substitutes_known_placeholders() {
         let tmp = tempfile::tempdir().unwrap();
         let src = tmp.path().join("in.tmpl");
         let out = tmp.path().join("out");
-        write(&src, "import x from '__WASM_JS__';\n// build: __BUILD_ID__\n");
+        write(
+            &src,
+            "import x from '__WASM_JS__';\n// build: __BUILD_ID__\n",
+        );
         let mut vars = BTreeMap::new();
         vars.insert("WASM_JS".into(), "/solobase_web-abcd1234.js".into());
         vars.insert("BUILD_ID".into(), "abcd1234".into());
         render_to_file(&src, &out, &vars).unwrap();
         let body = std::fs::read_to_string(&out).unwrap();
-        assert_eq!(body, "import x from '/solobase_web-abcd1234.js';\n// build: abcd1234\n");
+        assert_eq!(
+            body,
+            "import x from '/solobase_web-abcd1234.js';\n// build: abcd1234\n"
+        );
     }
 
     #[test]

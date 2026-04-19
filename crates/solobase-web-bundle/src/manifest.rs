@@ -1,7 +1,7 @@
+use std::{collections::BTreeMap, path::Path};
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AssetManifest {
@@ -13,8 +13,7 @@ pub struct AssetManifest {
 
 impl AssetManifest {
     pub fn write(&self, path: &Path) -> Result<()> {
-        let body = serde_json::to_string_pretty(self)
-            .context("serialising asset manifest")?;
+        let body = serde_json::to_string_pretty(self).context("serialising asset manifest")?;
         std::fs::write(path, body).context("writing asset-manifest.json")?;
         Ok(())
     }
@@ -30,7 +29,10 @@ mod tests {
         let path = tmp.path().join("asset-manifest.json");
         let mut assets = BTreeMap::new();
         assets.insert("solobase_web.js".into(), "/solobase_web-a1b2c3d4.js".into());
-        let m = AssetManifest { build_id: "a1b2c3d4".into(), assets };
+        let m = AssetManifest {
+            build_id: "a1b2c3d4".into(),
+            assets,
+        };
         m.write(&path).unwrap();
 
         let contents = std::fs::read_to_string(&path).unwrap();
@@ -45,7 +47,10 @@ mod tests {
         let mut assets = BTreeMap::new();
         assets.insert("z.wasm".into(), "/z.wasm".into());
         assets.insert("a.js".into(), "/a.js".into());
-        let m = AssetManifest { build_id: "x".into(), assets };
+        let m = AssetManifest {
+            build_id: "x".into(),
+            assets,
+        };
         m.write(&path).unwrap();
         let body = std::fs::read_to_string(&path).unwrap();
         let a_pos = body.find("\"a.js\"").unwrap();

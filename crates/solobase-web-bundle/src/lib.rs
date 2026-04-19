@@ -4,9 +4,9 @@ pub mod manifest;
 pub mod rename;
 pub mod template;
 
+use std::{collections::BTreeMap, path::Path};
+
 use anyhow::{Context, Result};
-use std::collections::BTreeMap;
-use std::path::Path;
 
 /// Input files we content-hash. Keys are logical names used by templates.
 const HASHED_ASSETS: &[(&str, &str)] = &[
