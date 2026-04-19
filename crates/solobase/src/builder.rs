@@ -189,12 +189,20 @@ impl SolobaseBuilder {
         //     configure. Chat/model-listing requests from the feature block
         //     go through `ctx.call_block("wafer-run/llm", ...)`, which hits
         //     the `MultiBackendLlmService` router registered here.
-        let provider_llm_svc = Arc::new(
-            solobase_core::blocks::llm::providers::ProviderLlmService::new(),
-        );
-        let mut llm_router = wafer_core::interfaces::llm::router::MultiBackendLlmService::new();
-        llm_router.register("provider", provider_llm_svc.clone());
-        wafer_core::service_blocks::llm::register_with(&mut wafer, Arc::new(llm_router))?;
+        //
+        //     Phase A provider service spawns reqwest futures that are not
+        //     Send on wasm32-unknown-unknown — gate the whole wiring behind
+        //     the `llm` feature so browser builds compile clean. Browser LLM
+        //     support arrives in Phase C via a separate `BrowserLlmService`.
+        #[cfg(feature = "llm")]
+        let provider_llm_svc =
+            Arc::new(solobase_core::blocks::llm::providers::ProviderLlmService::new());
+        #[cfg(feature = "llm")]
+        {
+            let mut llm_router = wafer_core::interfaces::llm::router::MultiBackendLlmService::new();
+            llm_router.register("provider", provider_llm_svc.clone());
+            wafer_core::service_blocks::llm::register_with(&mut wafer, Arc::new(llm_router))?;
+        }
 
         // 4b. Register the `wafer-run/vector` runtime block when the
         // `native-embedding` feature is on. `suppers-ai/vector` declares
@@ -224,10 +232,14 @@ impl SolobaseBuilder {
 
         // 6. Create and register feature blocks. `LlmBlock` receives the
         //    `provider_llm_svc` Arc we built in step 4c.
+        #[cfg(feature = "llm")]
         let shared_blocks = solobase_core::blocks::create_blocks(
             |name| self.block_settings.is_enabled(name),
             &provider_llm_svc,
         );
+        #[cfg(not(feature = "llm"))]
+        let shared_blocks =
+            solobase_core::blocks::create_blocks(|name| self.block_settings.is_enabled(name));
         solobase_core::blocks::register_shared_blocks(&mut wafer, &shared_blocks)?;
 
         // 7. Email block (always on, not feature-gated)
