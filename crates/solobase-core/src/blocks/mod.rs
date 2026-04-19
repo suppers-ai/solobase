@@ -68,7 +68,10 @@ fn solobase_blocks() -> Vec<(&'static str, BlockId)> {
 /// feature gate (`Fastembed` or `Vector` without `native-embedding`) is a
 /// caller bug — those variants can't be constructed unless the feature is
 /// on, because `solobase_blocks()` is the only place that produces them.
-fn make_block(id: BlockId, provider_llm_svc: &Arc<llm::providers::ProviderLlmService>) -> Arc<dyn Block> {
+fn make_block(
+    id: BlockId,
+    provider_llm_svc: &Arc<llm::providers::ProviderLlmService>,
+) -> Arc<dyn Block> {
     match id {
         BlockId::System => Arc::new(system::SystemBlock),
         BlockId::UserPortal => Arc::new(userportal::UserPortalBlock),
