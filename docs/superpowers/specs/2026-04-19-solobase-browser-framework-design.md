@@ -33,6 +33,7 @@ Consequences:
 - Unifying `App` into a target-agnostic `solobase::App` facade. Deferred until both browser and native frameworks exist.
 - Changes to the npm package `packages/solobase-web/`.
 - Feature-block extraction. `solobase-core` feature blocks stay in `solobase-core`; the framework does not depend on them.
+- **LLM service extraction.** `BrowserLlmService` (`crates/solobase-web/src/llm.rs`) and its JS bridge `webllm-engine.js` stay in `solobase-web`. A future sub-project (likely paired with gizza-ai's migration) moves them into `solobase-browser` once the second consumer's needs are known.
 
 ## Chosen Approach
 
@@ -93,12 +94,17 @@ After migration:
 crates/solobase-web/
 ├── Cargo.toml             — depends on solobase-browser + solobase-core
 ├── src/
-│   ├── lib.rs             — thin wasm-bindgen wrappers + app's register() fn
-│   └── config.rs          — app-specific config (kept)
+│   ├── lib.rs             — thin wasm-bindgen wrappers + explicit composition
+│   ├── config.rs          — app-specific config (kept)
+│   └── llm.rs             — BrowserLlmService (kept; see "Out of scope" below)
 ├── js/
-│   └── ai-bridge.js       — Solobase's local-LLM integration (kept)
+│   ├── ai-bridge.js       — Solobase's local-LLM integration (kept)
+│   ├── webllm-engine.js   — WebLLM JS bridge (kept with llm.rs)
+│   └── manifest.json      — PWA manifest (kept)
 └── Makefile               — invokes solobase-browser's export-assets binary
 ```
+
+`llm.rs` (BrowserLlmService) and its JS bridge `webllm-engine.js` are *also* browser-platform services in principle, and a future sub-project should likely move them into the framework so gizza-ai can consume them without copy-pasting. For this sub-project we keep them in `solobase-web` to hold the scope tight — the LLM migration is its own concern with its own dep footprint (`futures`, `tokio-util`, WebLLM's JS shape), and extracting it belongs alongside gizza-ai's migration where the real second consumer exists to validate the framework contract.
 
 The app's `src/lib.rs` becomes roughly (preserves the existing 9-step init flow; every step stays, but platform-service construction and SW plumbing go through the framework's factory helpers):
 
@@ -109,6 +115,7 @@ use wafer_core::interfaces::config::service::ConfigService;
 use wasm_bindgen::prelude::*;
 
 mod config; // app-specific: seed_and_load_variables, load_block_settings
+mod llm;    // app-specific: BrowserLlmService (WebLLM integration)
 
 #[wasm_bindgen]
 pub async fn initialize() -> Result<(), JsValue> {
@@ -125,6 +132,9 @@ pub async fn initialize() -> Result<(), JsValue> {
     let config_svc = wafer_block_config::service::EnvConfigService::new();
     for (k, v) in &vars { config_svc.set(k, v); }
 
+    let browser_llm: Arc<dyn wafer_core::interfaces::llm::service::LlmService> =
+        Arc::new(llm::BrowserLlmService::new());
+
     let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(solobase_browser::make_database_service())
         .storage(solobase_browser::make_storage_service())
@@ -132,6 +142,7 @@ pub async fn initialize() -> Result<(), JsValue> {
         .crypto(solobase_browser::make_crypto_service(jwt))
         .network(solobase_browser::make_network_service())
         .logger(solobase_browser::make_console_logger())
+        .llm_service("browser", browser_llm)
         .block_settings(features)
         .block_config("wafer-run/security-headers", serde_json::json!({ "csp": SOLOBASE_CSP }))
         .build()
