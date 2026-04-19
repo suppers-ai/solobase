@@ -26,7 +26,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use wafer_core::interfaces::llm::service::{
-    ChatChunk, ChatRequest, LlmError, LlmService, ModelInfo, ModelState, ModelStatus,
+    ChatChunk, ChatRequest, LlmError, LlmService, ModelInfo, ModelStatus,
 };
 
 use self::config::{ProviderConfig, ProviderProtocol};
@@ -87,10 +87,9 @@ impl ProviderLlmService {
     pub async fn discover_models(&self, provider_name: &str) -> Result<Vec<ModelInfo>, LlmError> {
         let (endpoint, protocol, api_key, models_explicit) = {
             let inner = self.inner.read().expect("provider svc lock poisoned");
-            let p = inner
-                .providers
-                .get(provider_name)
-                .ok_or_else(|| LlmError::InvalidRequest(format!("unknown provider: {provider_name}")))?;
+            let p = inner.providers.get(provider_name).ok_or_else(|| {
+                LlmError::InvalidRequest(format!("unknown provider: {provider_name}"))
+            })?;
             (
                 p.endpoint.clone(),
                 p.protocol,
@@ -142,7 +141,9 @@ impl ProviderLlmService {
 
         // Cache for aggregated list_models.
         let mut inner = self.inner.write().expect("provider svc lock poisoned");
-        inner.cached_models.insert(provider_name.to_string(), models.clone());
+        inner
+            .cached_models
+            .insert(provider_name.to_string(), models.clone());
         Ok(models)
     }
 
@@ -190,32 +191,25 @@ impl LlmService for ProviderLlmService {
         req: ChatRequest,
         cancel: CancellationToken,
     ) -> BoxStream<'static, Result<ChatChunk, LlmError>> {
-        let snap = match self.provider_snapshot(&req.backend_id) {
-            Some(s) => s,
-            None => {
-                let id = req.backend_id.clone();
-                return Box::pin(futures::stream::once(async move {
-                    Err(LlmError::InvalidRequest(format!("unknown backend: {id}")))
-                }));
-            }
+        let Some(snap) = self.provider_snapshot(&req.backend_id) else {
+            let id = req.backend_id;
+            return Box::pin(futures::stream::once(async move {
+                Err(LlmError::InvalidRequest(format!("unknown backend: {id}")))
+            }));
         };
         let http = self.http.clone();
 
         // Build the provider-specific request up front so any encode error is
         // surfaced synchronously before we start streaming.
         let encoded = match snap.config.protocol {
-            ProviderProtocol::OpenAi => openai::encode_chat_request(
-                &req,
-                &snap.config,
-                snap.resolved_key.as_deref(),
-            )
-            .map_err(map_openai_encode_error),
-            ProviderProtocol::Anthropic => anthropic::encode_chat_request(
-                &req,
-                &snap.config,
-                snap.resolved_key.as_deref(),
-            )
-            .map_err(map_anthropic_encode_error),
+            ProviderProtocol::OpenAi => {
+                openai::encode_chat_request(&req, &snap.config, snap.resolved_key.as_deref())
+                    .map_err(map_openai_encode_error)
+            }
+            ProviderProtocol::Anthropic => {
+                anthropic::encode_chat_request(&req, &snap.config, snap.resolved_key.as_deref())
+                    .map_err(map_anthropic_encode_error)
+            }
             ProviderProtocol::OpenAiCompatible => openai_compatible::encode_chat_request(
                 &req,
                 &snap.config,
@@ -230,8 +224,8 @@ impl LlmService for ProviderLlmService {
         let protocol = snap.config.protocol;
 
         let (tx, rx) = mpsc::channel::<Result<ChatChunk, LlmError>>(16);
-        let tx_err = tx.clone();
         tokio::spawn(async move {
+            let tx_err = tx;
             let mut builder = http.post(&url);
             for (k, v) in headers {
                 builder = builder.header(k, v);
@@ -318,7 +312,6 @@ impl LlmService for ProviderLlmService {
                 }
             }
         });
-        let _ = tx; // original tx moved only into err path; drop explicit copy
         Box::pin(ReceiverStream::new(rx))
     }
 
@@ -336,11 +329,7 @@ impl LlmService for ProviderLlmService {
         Ok(all)
     }
 
-    async fn status(
-        &self,
-        backend_id: &str,
-        _model_id: &str,
-    ) -> Result<ModelStatus, LlmError> {
+    async fn status(&self, backend_id: &str, _model_id: &str) -> Result<ModelStatus, LlmError> {
         let inner = self.inner.read().expect("provider svc lock poisoned");
         let cfg = inner
             .providers
@@ -385,6 +374,8 @@ fn map_anthropic_encode_error(e: anthropic::EncodeError) -> LlmError {
 
 #[cfg(test)]
 mod tests {
+    use wafer_core::interfaces::llm::service::ModelState;
+
     use super::*;
 
     fn openai_cfg() -> ProviderConfig {
@@ -486,8 +477,7 @@ mod tests {
             "https://api.openai.com/v1",
         );
         svc.configure(vec![cfg]);
-        let req =
-            ChatRequest::new("openai-main", "gpt-4o", vec![ChatMessage::user("hi")]);
+        let req = ChatRequest::new("openai-main", "gpt-4o", vec![ChatMessage::user("hi")]);
         let stream = svc.chat_stream(req, CancellationToken::new()).await;
         let items: Vec<_> = stream.collect().await;
         assert_eq!(items.len(), 1);
