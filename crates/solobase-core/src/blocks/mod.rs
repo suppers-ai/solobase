@@ -8,6 +8,7 @@ pub mod fastembed;
 pub mod files;
 pub mod helpers;
 pub mod legalpages;
+#[cfg(feature = "llm")]
 pub mod llm;
 pub mod llm_backend;
 pub mod local_llm;
@@ -38,7 +39,10 @@ use crate::routing::BlockId;
 /// feature-gated runtime registration in `solobase::builder`. Registering
 /// either without the feature would fail dependency resolution at startup.
 fn solobase_blocks() -> Vec<(&'static str, BlockId)> {
-    #[cfg_attr(not(feature = "native-embedding"), allow(unused_mut))]
+    #[cfg_attr(
+        not(any(feature = "native-embedding", feature = "llm")),
+        allow(unused_mut)
+    )]
     let mut v = vec![
         ("system", BlockId::System),
         ("userportal", BlockId::UserPortal),
@@ -49,10 +53,13 @@ fn solobase_blocks() -> Vec<(&'static str, BlockId)> {
         ("products", BlockId::Products),
         ("projects", BlockId::Projects),
         ("messages", BlockId::Messages),
-        ("llm", BlockId::Llm),
         ("provider-llm", BlockId::ProviderLlm),
         ("local-llm", BlockId::LocalLlm),
     ];
+    #[cfg(feature = "llm")]
+    {
+        v.push(("llm", BlockId::Llm));
+    }
     #[cfg(feature = "native-embedding")]
     {
         v.push(("vector", BlockId::Vector));
@@ -70,7 +77,7 @@ fn solobase_blocks() -> Vec<(&'static str, BlockId)> {
 /// on, because `solobase_blocks()` is the only place that produces them.
 fn make_block(
     id: BlockId,
-    provider_llm_svc: &Arc<llm::providers::ProviderLlmService>,
+    #[cfg(feature = "llm")] provider_llm_svc: &Arc<llm::providers::ProviderLlmService>,
 ) -> Arc<dyn Block> {
     match id {
         BlockId::System => Arc::new(system::SystemBlock),
@@ -82,7 +89,13 @@ fn make_block(
         BlockId::Products => Arc::new(products::ProductsBlock::new()),
         BlockId::Projects => Arc::new(projects::ProjectsBlock::new()),
         BlockId::Messages => Arc::new(messages::MessagesBlock),
+        #[cfg(feature = "llm")]
         BlockId::Llm => Arc::new(llm::LlmBlock::new(provider_llm_svc.clone())),
+        #[cfg(not(feature = "llm"))]
+        BlockId::Llm => unreachable!(
+            "BlockId::Llm requires the `llm` feature \
+             — solobase_blocks() only emits it when that feature is on"
+        ),
         BlockId::ProviderLlm => Arc::new(provider_llm::ProviderLlmBlock),
         BlockId::LocalLlm => Arc::new(local_llm::LocalLlmBlock),
         #[cfg(feature = "native-embedding")]
@@ -111,12 +124,15 @@ fn make_block(
 /// request dispatch), ensuring state is shared.
 pub fn create_blocks(
     filter: impl Fn(&str) -> bool,
-    provider_llm_svc: &Arc<llm::providers::ProviderLlmService>,
+    #[cfg(feature = "llm")] provider_llm_svc: &Arc<llm::providers::ProviderLlmService>,
 ) -> HashMap<BlockId, Arc<dyn Block>> {
     let mut map = HashMap::new();
     for (name, id) in solobase_blocks() {
         if filter(name) {
+            #[cfg(feature = "llm")]
             map.insert(id, make_block(id, provider_llm_svc));
+            #[cfg(not(feature = "llm"))]
+            map.insert(id, make_block(id));
         }
     }
     map
@@ -167,10 +183,14 @@ pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
     // `info()` is declarative — no runtime state needed. A throwaway
     // `ProviderLlmService` is fine here; the real one is constructed by
     // `SolobaseBuilder::build()`.
+    #[cfg(feature = "llm")]
     let throwaway_llm_svc = Arc::new(llm::providers::ProviderLlmService::new());
     let mut infos = Vec::new();
     for (_name, id) in solobase_blocks() {
+        #[cfg(feature = "llm")]
         infos.push(make_block(id, &throwaway_llm_svc).info());
+        #[cfg(not(feature = "llm"))]
+        infos.push(make_block(id).info());
     }
     // Email block is always registered (not feature-gated)
     infos.push(Arc::new(email::EmailBlock).info());
