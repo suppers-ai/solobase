@@ -68,7 +68,7 @@ fn solobase_blocks() -> Vec<(&'static str, BlockId)> {
 /// feature gate (`Fastembed` or `Vector` without `native-embedding`) is a
 /// caller bug — those variants can't be constructed unless the feature is
 /// on, because `solobase_blocks()` is the only place that produces them.
-fn make_block(id: BlockId) -> Arc<dyn Block> {
+fn make_block(id: BlockId, provider_llm_svc: &Arc<llm::providers::ProviderLlmService>) -> Arc<dyn Block> {
     match id {
         BlockId::System => Arc::new(system::SystemBlock),
         BlockId::UserPortal => Arc::new(userportal::UserPortalBlock),
@@ -79,7 +79,7 @@ fn make_block(id: BlockId) -> Arc<dyn Block> {
         BlockId::Products => Arc::new(products::ProductsBlock::new()),
         BlockId::Projects => Arc::new(projects::ProjectsBlock::new()),
         BlockId::Messages => Arc::new(messages::MessagesBlock),
-        BlockId::Llm => Arc::new(llm::LlmBlock),
+        BlockId::Llm => Arc::new(llm::LlmBlock::new(provider_llm_svc.clone())),
         BlockId::ProviderLlm => Arc::new(provider_llm::ProviderLlmBlock),
         BlockId::LocalLlm => Arc::new(local_llm::LocalLlmBlock),
         #[cfg(feature = "native-embedding")]
@@ -106,11 +106,14 @@ fn make_block(id: BlockId) -> Arc<dyn Block> {
 /// The same Arc instances should be registered with the WAFER runtime
 /// (for lifecycle hooks) and passed to the `NativeBlockFactory` (for
 /// request dispatch), ensuring state is shared.
-pub fn create_blocks(filter: impl Fn(&str) -> bool) -> HashMap<BlockId, Arc<dyn Block>> {
+pub fn create_blocks(
+    filter: impl Fn(&str) -> bool,
+    provider_llm_svc: &Arc<llm::providers::ProviderLlmService>,
+) -> HashMap<BlockId, Arc<dyn Block>> {
     let mut map = HashMap::new();
     for (name, id) in solobase_blocks() {
         if filter(name) {
-            map.insert(id, make_block(id));
+            map.insert(id, make_block(id, provider_llm_svc));
         }
     }
     map
@@ -158,9 +161,13 @@ fn block_id_to_name(id: BlockId) -> &'static str {
 /// Used by `collect_all_config_vars()` to discover declared config variables
 /// before block registration.
 pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
+    // `info()` is declarative — no runtime state needed. A throwaway
+    // `ProviderLlmService` is fine here; the real one is constructed by
+    // `SolobaseBuilder::build()`.
+    let throwaway_llm_svc = Arc::new(llm::providers::ProviderLlmService::new());
     let mut infos = Vec::new();
     for (_name, id) in solobase_blocks() {
-        infos.push(make_block(id).info());
+        infos.push(make_block(id, &throwaway_llm_svc).info());
     }
     // Email block is always registered (not feature-gated)
     infos.push(Arc::new(email::EmailBlock).info());
