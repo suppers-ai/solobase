@@ -10,11 +10,17 @@ name = "solobase_core"
 path = "src/lib.rs"
 
 [features]
-default = ["sqlite", "storage-local"]
+default = ["sqlite", "storage-local", "llm"]
 sqlite = []
 postgres = []
 storage-local = []
 storage-s3 = []
+# LLM feature block (`suppers-ai/llm`) + its `ProviderLlmService`.
+# Phase A's provider service uses `tokio::spawn` + `reqwest::Response`
+# futures that are not Send on wasm32-unknown-unknown. Browser LLM
+# support arrives in Phase C via a separate `BrowserLlmService`.
+# Gate the whole block module off so wasm32 builds compile clean.
+llm = ["dep:tokio", "dep:tokio-stream", "dep:reqwest"]
 # Native ONNX-backed embedding block (suppers-ai/fastembed). Pulls in
 # wafer-block-fastembed which depends on fastembed-rs / ONNX Runtime —
 # heavy native-only dep, so gate it behind a feature so consumers that
@@ -50,12 +56,17 @@ chrono = { workspace = true }
 
 # Async
 async-trait = { workspace = true }
-tokio = { workspace = true }
-tokio-stream = "0.1"
 futures = "0.3"
 tokio-util = "0.7"
 thiserror = "2"
-reqwest = { workspace = true, features = ["stream"] }
+# tokio / tokio-stream / reqwest are only used by the LLM providers
+# module (native HTTP streaming + `tokio::spawn`). That module is gated
+# behind the `llm` feature — keep these deps optional so wasm32 builds
+# that turn the feature off don't pull in the `rt-multi-thread` tokio
+# feature (forbidden on wasm) or the native `reqwest` stack.
+tokio = { workspace = true, optional = true }
+tokio-stream = { version = "0.1", optional = true }
+reqwest = { workspace = true, features = ["stream"], optional = true }
 
 # HTML sanitization
 ammonia = "4"

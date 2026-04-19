@@ -10,9 +10,15 @@ name = "solobase"
 path = "src/lib.rs"
 
 [features]
-default = []
+default = ["llm"]
 # Enable WASM block loading via the wasmi interpreter for auto-discovery.
 wasm = ["wafer-run/wasm"]
+# LLM feature block + native `ProviderLlmService` wiring. The Phase A
+# service uses `tokio::spawn` with reqwest futures that are not Send on
+# wasm32 — gate the whole thing so browser builds compile clean.
+# Forwarded to solobase-core so the block module is excluded at the
+# source.
+llm = ["solobase-core/llm"]
 # Native ONNX-backed embedding + SQLite vector service. Pulls in
 # wafer-block-fastembed (ONNX Runtime) and enables the `vectors` feature
 # of wafer-block-sqlite (sqlite-vec). Required to register the
