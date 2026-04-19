@@ -1,0 +1,81 @@
+//! Static assets shipped with the framework crate, exposed as a typed
+//! `Asset` slice plus a `write_to(dir)` convenience.
+
+use std::path::Path;
+
+pub struct Asset {
+    /// Path relative to the target directory, using forward slashes. E.g.
+    /// `"sw.js.tmpl"` or `"vendor/sql-wasm.wasm"`.
+    pub path: &'static str,
+    pub bytes: &'static [u8],
+}
+
+pub fn static_assets() -> &'static [Asset] {
+    &ASSETS
+}
+
+pub fn write_to(dir: &Path) -> std::io::Result<()> {
+    for asset in static_assets() {
+        let out = dir.join(asset.path);
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&out, asset.bytes)?;
+    }
+    Ok(())
+}
+
+const ASSETS: &[Asset] = &[
+    Asset {
+        path: "sw.js.tmpl",
+        bytes: include_bytes!("../assets/sw.js.tmpl"),
+    },
+    Asset {
+        path: "loader.js",
+        bytes: include_bytes!("../assets/loader.js"),
+    },
+    Asset {
+        path: "index.html.tmpl",
+        bytes: include_bytes!("../assets/index.html.tmpl"),
+    },
+    Asset {
+        path: "vendor/sql-wasm-esm.js",
+        bytes: include_bytes!("../assets/vendor/sql-wasm-esm.js"),
+    },
+    Asset {
+        path: "vendor/sql-wasm.wasm",
+        bytes: include_bytes!("../assets/vendor/sql-wasm.wasm"),
+    },
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn static_assets_is_non_empty_and_has_expected_paths() {
+        let paths: Vec<&str> = static_assets().iter().map(|a| a.path).collect();
+        assert!(paths.contains(&"sw.js.tmpl"));
+        assert!(paths.contains(&"loader.js"));
+        assert!(paths.contains(&"index.html.tmpl"));
+        assert!(paths.contains(&"vendor/sql-wasm-esm.js"));
+        assert!(paths.contains(&"vendor/sql-wasm.wasm"));
+    }
+
+    #[test]
+    fn every_asset_has_non_empty_bytes() {
+        for asset in static_assets() {
+            assert!(!asset.bytes.is_empty(), "asset {:?} has empty bytes", asset.path);
+        }
+    }
+
+    #[test]
+    fn write_to_writes_all_files_with_correct_bytes() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_to(tmp.path()).unwrap();
+        for asset in static_assets() {
+            let got = std::fs::read(tmp.path().join(asset.path)).unwrap();
+            assert_eq!(got, asset.bytes, "mismatched bytes for {:?}", asset.path);
+        }
+    }
+}
