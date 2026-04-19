@@ -29,8 +29,6 @@ pub enum BlockId {
     UserPortal,
     Messages,
     Llm,
-    ProviderLlm,
-    LocalLlm,
     Vector,
     /// Native ONNX embedding service (no HTTP routes). Feature-gated
     /// behind `native-embedding` — see `blocks::fastembed`.
@@ -166,19 +164,6 @@ pub const ROUTES: &[Route] = &[
         requires_admin: false,
         block_id: BlockId::Llm,
     },
-    // Provider LLM — remote API providers
-    // Route is open; block enforces admin for UI/config, authenticated for chat API
-    Route {
-        prefix: "/b/provider-llm",
-        requires_admin: false,
-        block_id: BlockId::ProviderLlm,
-    },
-    // Local LLM — WebLLM browser inference
-    Route {
-        prefix: "/b/local-llm",
-        requires_admin: false,
-        block_id: BlockId::LocalLlm,
-    },
     // Vector — similarity search, hybrid retrieval, RAG ingestion.
     //
     // Each endpoint from `VectorBlock::info().endpoints` is registered as a
@@ -284,8 +269,6 @@ fn block_id_short_name(id: BlockId) -> &'static str {
         BlockId::UserPortal => "userportal",
         BlockId::Messages => "messages",
         BlockId::Llm => "llm",
-        BlockId::ProviderLlm => "provider-llm",
-        BlockId::LocalLlm => "local-llm",
         BlockId::Vector => "vector",
         BlockId::Fastembed => "fastembed",
     }
