@@ -44,6 +44,42 @@ pub struct Route {
     pub block_id: BlockId,
 }
 
+/// Access tier for a runtime-added [`ExtraRoute`].
+///
+/// Checked by [`route_to_block`] before dispatching to the target block.
+///
+/// Built-in [`Route`]s still use the `requires_admin: bool` field —
+/// migrating those to `RouteAccess` would be a wider refactor with no
+/// behavioural change, so the two systems coexist: built-ins as booleans,
+/// extras as declarative tiers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteAccess {
+    /// No auth check. Anyone can hit this route.
+    Public,
+    /// `msg.user_id()` must be non-empty, or the request is rejected with 403.
+    Authenticated,
+    /// User must have the `admin` role (per [`helpers::is_admin`]) or 403.
+    Admin,
+}
+
+/// A runtime-added route registered by a downstream project via
+/// `SolobaseBuilder::add_route`.
+///
+/// Dispatches by block name string (not [`BlockId`]) since projects supply
+/// these at build time and cannot extend the closed `BlockId` enum.
+///
+/// # Priority
+///
+/// Built-in [`ROUTES`] always win. An extra route with the same prefix as a
+/// built-in is ignored. To disable a built-in route, disable its feature
+/// flag — do not try to override it.
+#[derive(Debug, Clone)]
+pub struct ExtraRoute {
+    pub prefix: String,
+    pub access: RouteAccess,
+    pub block_name: String,
+}
+
 /// The shared routing table. Order matters — more specific prefixes before general ones.
 ///
 /// All block routes live under `/b/{block_name}/...`. SSR pages and JSON API
@@ -265,6 +301,7 @@ pub async fn route_to_block(
     input: InputStream,
     features: &dyn FeatureConfig,
     _factory: &dyn BlockFactory,
+    extra_routes: &[ExtraRoute],
 ) -> OutputStream {
     let path = msg.path().to_string();
 
@@ -290,6 +327,31 @@ pub async fn route_to_block(
         }
         let block_name = format!("suppers-ai/{}", block_id_short_name(route.block_id));
         return ctx.call_block(&block_name, msg, input).await;
+    }
+
+    // Fall back to project-registered extra routes. Built-ins above win on
+    // prefix collision — this loop only runs when no built-in matched.
+    for route in extra_routes {
+        let matches = path == route.prefix || path.starts_with(&route.prefix);
+        if !matches {
+            continue;
+        }
+
+        match route.access {
+            RouteAccess::Public => {}
+            RouteAccess::Authenticated => {
+                if msg.user_id().is_empty() {
+                    return crate::ui::forbidden_response(&msg);
+                }
+            }
+            RouteAccess::Admin => {
+                if !helpers::is_admin(&msg) {
+                    return crate::ui::forbidden_response(&msg);
+                }
+            }
+        }
+
+        return ctx.call_block(&route.block_name, msg, input).await;
     }
 
     crate::ui::not_found_response(&msg)

@@ -36,15 +36,60 @@ self.addEventListener('activate', (event) => {
 // postMessage and waits for the response.
 
 const pendingLocalLlm = new Map(); // requestId -> { resolve, reject }
+const pendingLocalLlmStreams = new Map(); // requestId -> { controller, closed }
 
 self.addEventListener('message', (event) => {
     const msg = event.data;
-    if (msg && msg.type === 'local-llm-response') {
+    if (!msg) return;
+
+    if (msg.type === 'local-llm-stream-event') {
+        const stream = pendingLocalLlmStreams.get(msg.id);
+        if (!stream || stream.closed) return;
+        const { type, ...data } = msg.event;
+        const sseFrame = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
+        stream.controller.enqueue(new TextEncoder().encode(sseFrame));
+        if (type === 'done') {
+            stream.closed = true;
+            pendingLocalLlmStreams.delete(msg.id);
+            stream.controller.close();
+        }
+        return;
+    }
+
+    if (msg.type === 'local-llm-response') {
+        // If this id corresponds to a streaming request (error teardown path),
+        // close the SSE stream instead of the one-shot resolver.
+        const stream = pendingLocalLlmStreams.get(msg.id);
+        if (stream && !stream.closed) {
+            stream.closed = true;
+            pendingLocalLlmStreams.delete(msg.id);
+            if (msg.error) {
+                const errFrame = `event: error\ndata: ${JSON.stringify({ error: msg.error, status: msg.status ?? 500 })}\n\n`;
+                stream.controller.enqueue(new TextEncoder().encode(errFrame));
+            }
+            stream.controller.close();
+            return;
+        }
+        // One-shot path:
         const pending = pendingLocalLlm.get(msg.id);
         if (pending) {
             pendingLocalLlm.delete(msg.id);
             pending.resolve(msg);
         }
+        return;
+    }
+
+    // Asset loader bridge: route reply to bridge.js's pending-load map.
+    // bridge.js exposes the resolver on globalThis because this script
+    // (sw.js) doesn't import the wasm-bindgen-generated bridge module.
+    if (msg.type === 'load-asset-response') {
+        if (typeof globalThis.__solobaseCompleteAssetLoad === 'function') {
+            globalThis.__solobaseCompleteAssetLoad(msg.id, {
+                status: msg.ok ? 'ready' : 'failed',
+                error: msg.ok ? undefined : msg.error,
+            });
+        }
+        return;
     }
 });
 
@@ -53,6 +98,62 @@ let llmRequestId = 0;
 async function handleLocalLlm(request) {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    // Streaming endpoint — SSE response. Drive a separate stream-state map so
+    // one-shot state doesn't collide.
+    if (path === '/b/local-llm/api/chat_stream') {
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
+        if (clients.length === 0) {
+            return new Response(
+                JSON.stringify({ error: 'no_client', message: 'No active page — open the app to use local LLM' }),
+                { status: 503, headers: { 'Content-Type': 'application/json' } }
+            );
+        }
+
+        let body = null;
+        try { body = await request.json(); } catch (_) { body = {}; }
+
+        const id = ++llmRequestId;
+
+        const sseStream = new ReadableStream({
+            start(controller) {
+                pendingLocalLlmStreams.set(id, { controller, closed: false });
+                setTimeout(() => {
+                    const stream = pendingLocalLlmStreams.get(id);
+                    if (stream && !stream.closed) {
+                        stream.closed = true;
+                        pendingLocalLlmStreams.delete(id);
+                        const frame = `event: error\ndata: ${JSON.stringify({ error: 'timeout' })}\n\n`;
+                        stream.controller.enqueue(new TextEncoder().encode(frame));
+                        stream.controller.close();
+                    }
+                }, 300_000); // 5 min, matches one-shot timeout
+            },
+            cancel() {
+                const stream = pendingLocalLlmStreams.get(id);
+                if (stream) {
+                    stream.closed = true;
+                    pendingLocalLlmStreams.delete(id);
+                }
+            },
+        });
+
+        clients[0].postMessage({
+            type: 'local-llm-request',
+            id,
+            action: 'chat_stream',
+            body,
+        });
+
+        return new Response(sseStream, {
+            status: 200,
+            headers: {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+            },
+        });
+    }
 
     // Determine the action from the path
     let action;

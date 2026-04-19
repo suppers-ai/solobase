@@ -97,16 +97,145 @@ export async function chat(messages, onChunk) {
 // Make available globally for the chat page JS
 window.solobaseAI = { getAvailableModels, getStatus, loadModel, unloadModel, chat };
 
+// Test hook — lets ad-hoc harnesses inject a fake engine. Not for production.
+export function _testSetEngine(e) { engine = e; currentModel = 'test'; }
+
+/**
+ * Stream chat completion with tool-call support.
+ *
+ * @param {Array} messages OpenAI-format messages.
+ * @param {Array} tools    OpenAI-format tools array (may be empty). When
+ *                         empty, no tools field is sent to WebLLM.
+ * @param {string} modelId WebLLM model id; engine must already be loaded
+ *                         and currentModel must match.
+ * @yields {{type:'token',delta:string} |
+ *          {type:'tool_call',id:string,name:string,arguments:string} |
+ *          {type:'done',finishReason:string}}
+ */
+export async function* inferStream(messages, tools, modelId) {
+    if (!engine) throw new Error('No model loaded');
+    if (currentModel !== modelId) throw new Error(`Model mismatch: have ${currentModel}, asked for ${modelId}`);
+
+    const completion = engine.chat.completions.create({
+        messages,
+        tools: (tools && tools.length) ? tools : undefined,
+        stream: true,
+    });
+
+    const buffers = new Map(); // index -> { id, name, arguments }
+    let finishReason = null;
+
+    for await (const chunk of completion) {
+        const choice = chunk.choices?.[0];
+        if (!choice) continue;
+        const delta = choice.delta || {};
+
+        if (delta.content) {
+            yield { type: 'token', delta: delta.content };
+        }
+
+        if (Array.isArray(delta.tool_calls)) {
+            for (const tc of delta.tool_calls) {
+                const idx = tc.index ?? 0;
+                let buf = buffers.get(idx);
+                if (!buf) { buf = { id: '', name: '', arguments: '' }; buffers.set(idx, buf); }
+                if (tc.id) buf.id = tc.id;
+                if (tc.function?.name) buf.name = tc.function.name;
+                if (tc.function?.arguments) buf.arguments += tc.function.arguments;
+            }
+        }
+
+        if (choice.finish_reason) {
+            finishReason = choice.finish_reason;
+        }
+    }
+
+    const indices = [...buffers.keys()].sort((a, b) => a - b);
+    for (const idx of indices) {
+        const buf = buffers.get(idx);
+        yield { type: 'tool_call', id: buf.id, name: buf.name, arguments: buf.arguments };
+    }
+    yield { type: 'done', finishReason: finishReason ?? 'stop' };
+}
+
+window.solobaseAI.inferStream = inferStream;
+
+// ---------------------------------------------------------------------------
+// External asset loader registry
+// ---------------------------------------------------------------------------
+// Plan A ships an empty registry. Plan C registers concrete loaders
+// (ffmpeg.wasm, etc) via registerLoader(). Each loader takes the fetched
+// bytes + the asset's manifest and returns an opaque handle (kept in
+// _loadedAssets so subsequent loads of the same id are idempotent).
+
+const _loaderRegistry = new Map(); // loader name -> async (bytes, manifest) => handle
+const _loadedAssets = new Map();   // assetId -> handle
+
+export function registerLoader(name, fn) {
+    _loaderRegistry.set(name, fn);
+}
+
+async function _loadAssetInternal(manifest) {
+    if (_loadedAssets.has(manifest.id)) return _loadedAssets.get(manifest.id);
+
+    const loader = _loaderRegistry.get(manifest.loader);
+    if (!loader) throw new Error(`unknown loader: ${manifest.loader}`);
+
+    const resp = await fetch(manifest.url);
+    if (!resp.ok) throw new Error(`fetch ${manifest.url}: ${resp.status}`);
+    const bytes = new Uint8Array(await resp.arrayBuffer());
+
+    if (manifest.sha256) {
+        const digest = await crypto.subtle.digest('SHA-256', bytes);
+        const hex = Array.from(new Uint8Array(digest))
+            .map((b) => b.toString(16).padStart(2, '0'))
+            .join('');
+        if (hex !== manifest.sha256) {
+            throw new Error(`sha256 mismatch for ${manifest.id}: expected ${manifest.sha256}, got ${hex}`);
+        }
+    }
+
+    const handle = await loader(bytes, manifest);
+    _loadedAssets.set(manifest.id, handle);
+    return handle;
+}
+
+// Expose for chat page JS / tests that want to seed the registry without
+// importing this module.
+window.solobaseAI.registerLoader = registerLoader;
+
 // ---------------------------------------------------------------------------
 // Service Worker message bridge
 // ---------------------------------------------------------------------------
-// The SW forwards /b/local-llm/api/* requests here via postMessage.
-// We call the appropriate function and send the result back.
+// The SW forwards /b/local-llm/api/* requests + external-asset load
+// requests here via postMessage. We call the appropriate function and
+// send the result back. Both message types share the single SW listener.
 
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', async (event) => {
         const msg = event.data;
-        if (!msg || msg.type !== 'local-llm-request') return;
+        if (!msg) return;
+
+        if (msg.type === 'load-asset-request') {
+            try {
+                await _loadAssetInternal(msg.manifest);
+                navigator.serviceWorker.controller?.postMessage({
+                    type: 'load-asset-response',
+                    id: msg.id,
+                    ok: true,
+                });
+            } catch (e) {
+                navigator.serviceWorker.controller?.postMessage({
+                    type: 'load-asset-response',
+                    id: msg.id,
+                    ok: false,
+                    error: String(e?.message ?? e),
+                });
+            }
+            return;
+        }
+
+        if (msg.type !== 'local-llm-request') return;
 
         const { id, action, body } = msg;
 
@@ -159,6 +288,22 @@ if ('serviceWorker' in navigator) {
                     }
                     const result = await chat(body.messages);
                     reply(result);
+                    break;
+                }
+
+                case 'chat_stream': {
+                    if (!body?.messages) { replyError('Missing messages', 400); break; }
+                    try {
+                        for await (const evt of inferStream(body.messages, body.tools || [], currentModel)) {
+                            navigator.serviceWorker.controller?.postMessage({
+                                type: 'local-llm-stream-event',
+                                id,
+                                event: evt,
+                            });
+                        }
+                    } catch (e) {
+                        replyError(String(e?.message ?? e));
+                    }
                     break;
                 }
 

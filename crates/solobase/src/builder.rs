@@ -12,6 +12,7 @@ use solobase_core::{
         storage::SolobaseStorageBlock,
     },
     features::{BlockSettings, FeatureConfig},
+    ExtraRoute, RouteAccess,
 };
 use wafer_core::interfaces::{
     config::service::ConfigService, crypto::service::CryptoService,
@@ -30,6 +31,9 @@ pub struct SolobaseBuilder {
     block_settings: BlockSettings,
     block_configs: Vec<(String, serde_json::Value)>,
     extra_blocks: Vec<(String, Arc<dyn Block>)>,
+    /// Routes registered by downstream projects via `add_route`. Checked
+    /// after built-in `ROUTES` — built-ins always win on prefix collision.
+    extra_routes: Vec<ExtraRoute>,
     /// Filesystem path to the SQLite database.
     ///
     /// Only used by the `native-embedding` feature to open a dedicated
@@ -57,6 +61,7 @@ impl SolobaseBuilder {
             block_settings: BlockSettings::from_map(HashMap::new()),
             block_configs: Vec::new(),
             extra_blocks: Vec::new(),
+            extra_routes: Vec::new(),
             sqlite_db_path: None,
         }
     }
@@ -103,6 +108,30 @@ impl SolobaseBuilder {
 
     pub fn block_config(mut self, name: &str, config: serde_json::Value) -> Self {
         self.block_configs.push((name.to_string(), config));
+        self
+    }
+
+    /// Register a downstream-project route that dispatches to a custom block.
+    ///
+    /// Built-in solobase routes take priority — an extra route with the same
+    /// prefix as a built-in (e.g. `/b/auth/`) is ignored. To disable a
+    /// built-in route, turn off its feature flag.
+    ///
+    /// `access` declares the auth tier:
+    /// - [`RouteAccess::Public`] — no auth check.
+    /// - [`RouteAccess::Authenticated`] — rejects empty user_id with 403.
+    /// - [`RouteAccess::Admin`] — requires the `admin` role or 403.
+    pub fn add_route(
+        mut self,
+        prefix: impl Into<String>,
+        block_name: impl Into<String>,
+        access: RouteAccess,
+    ) -> Self {
+        self.extra_routes.push(ExtraRoute {
+            prefix: prefix.into(),
+            block_name: block_name.into(),
+            access,
+        });
         self
     }
 
@@ -199,7 +228,12 @@ impl SolobaseBuilder {
         // 9. Build and register the solobase router
         let feature_config: Arc<dyn FeatureConfig> = Arc::new(self.block_settings);
         let factory = NativeBlockFactory::new(shared_blocks);
-        let router = SolobaseRouterBlock::new(jwt_secret, feature_config, factory);
+        let router = SolobaseRouterBlock::with_extra_routes(
+            jwt_secret,
+            feature_config,
+            factory,
+            self.extra_routes,
+        );
         wafer.register_block("suppers-ai/router", Arc::new(router))?;
         wafer.add_block_config("suppers-ai/router", solobase_core::routing::routes_config());
 

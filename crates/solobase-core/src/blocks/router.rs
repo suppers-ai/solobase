@@ -15,7 +15,10 @@ use wafer_run::{
     InputStream, OutputStream,
 };
 
-use crate::{features::FeatureConfig, routing::BlockId};
+use crate::{
+    features::FeatureConfig,
+    routing::{BlockId, ExtraRoute},
+};
 
 /// Block factory that returns shared block instances (same Arc across requests).
 ///
@@ -48,18 +51,34 @@ pub struct SolobaseRouterBlock {
     jwt_secret: String,
     features: Arc<dyn FeatureConfig>,
     factory: NativeBlockFactory,
+    /// Runtime-added routes from downstream projects (see `SolobaseBuilder::add_route`).
+    /// Built-in `ROUTES` take priority — see `routing::route_to_block`.
+    extra_routes: Arc<Vec<ExtraRoute>>,
 }
 
 impl SolobaseRouterBlock {
+    /// Construct a router with no extra routes (backward-compatible).
     pub fn new(
         jwt_secret: String,
         features: Arc<dyn FeatureConfig>,
         factory: NativeBlockFactory,
     ) -> Self {
+        Self::with_extra_routes(jwt_secret, features, factory, Vec::new())
+    }
+
+    /// Construct a router with project-registered extra routes appended after
+    /// the built-in `ROUTES` table.
+    pub fn with_extra_routes(
+        jwt_secret: String,
+        features: Arc<dyn FeatureConfig>,
+        factory: NativeBlockFactory,
+        extra_routes: Vec<ExtraRoute>,
+    ) -> Self {
         Self {
             jwt_secret,
             features,
             factory,
+            extra_routes: Arc::new(extra_routes),
         }
     }
 }
@@ -108,6 +127,7 @@ impl Block for SolobaseRouterBlock {
             &self.jwt_secret,
             self.features.as_ref(),
             &self.factory,
+            &self.extra_routes,
         )
         .await
     }

@@ -64,4 +64,19 @@ extern "C" {
     /// Returns JSON string: `{ status, headers, body: number[] }`.
     #[wasm_bindgen(js_name = httpFetch)]
     pub async fn http_fetch(method: &str, url: &str, headers_json: &str, body: &[u8]) -> JsValue;
+
+    // ─── Asset loader bridge (SW → main thread) ───────────────────────────────
+
+    /// Load an external asset by id. Returns a Promise that resolves to an
+    /// `AssetLoadStatus`-shaped JS object: `{ status: "ready" | "failed",
+    /// error?: string }`.
+    ///
+    /// Called from `SwAssetLoader::load`. The id is the block's manifest
+    /// asset id; `manifest_json` is a serialised `ExternalAsset` (`{id,
+    /// loader, version, url, sha256}`) — the JS side does the actual fetch +
+    /// sha256 verification + named-loader init by postMessaging the main
+    /// thread (only place where `fetch`, `crypto.subtle`, and JS-level
+    /// loaders like ffmpeg.wasm are reachable).
+    #[wasm_bindgen(js_name = loadAsset)]
+    pub async fn load_asset(asset_id: &str, manifest_json: &str) -> JsValue;
 }

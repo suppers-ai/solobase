@@ -12,7 +12,7 @@ use wafer_run::{
 use crate::{
     blocks::helpers::ResponseBuilder,
     features::FeatureConfig,
-    routing::{self, BlockFactory},
+    routing::{self, BlockFactory, ExtraRoute},
 };
 
 /// Handle a solobase request.
@@ -33,6 +33,7 @@ pub async fn handle_request(
     jwt_secret: &str,
     features: &dyn FeatureConfig,
     factory: &dyn BlockFactory,
+    extra_routes: &[ExtraRoute],
 ) -> OutputStream {
     // 0. Discovery endpoints — public, no auth required
     let path = msg.path();
@@ -84,7 +85,7 @@ pub async fn handle_request(
     let start_ms = crate::blocks::helpers::now_millis();
 
     // 3. Route to block — collect the stream so we can log status/body metadata.
-    let stream = routing::route_to_block(ctx, msg, input, features, factory).await;
+    let stream = routing::route_to_block(ctx, msg, input, features, factory, extra_routes).await;
     let (status_label, status_code, error_message, reply): (
         &'static str,
         i64,
