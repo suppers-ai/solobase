@@ -1,5 +1,8 @@
 pub mod pages;
 pub mod providers;
+pub mod schema;
+
+use std::sync::Arc;
 
 use wafer_core::clients::{
     config, database as db,
@@ -12,11 +15,26 @@ use wafer_run::{
     InputStream, OutputStream,
 };
 
+use self::providers::ProviderLlmService;
 use crate::blocks::helpers::{
     self, err_bad_request, err_internal, err_not_found, json_map, ok_json,
 };
 
-pub struct LlmBlock;
+/// LLM feature block. Owns the provider admin UI + chat thread persistence.
+///
+/// Chat requests go through `ctx.call_block("wafer-run/llm", ...)` — the
+/// service block registered at app startup with a `MultiBackendLlmService`
+/// router. Provider CRUD, discovery, and the `lifecycle(Init)` configure
+/// step use the held `provider_svc` handle directly.
+pub struct LlmBlock {
+    pub(crate) provider_svc: Arc<ProviderLlmService>,
+}
+
+impl LlmBlock {
+    pub fn new(provider_svc: Arc<ProviderLlmService>) -> Self {
+        Self { provider_svc }
+    }
+}
 
 pub(crate) const SETTINGS_COLLECTION: &str = "suppers_ai__llm__settings";
 
