@@ -182,7 +182,14 @@ pub fn run(pkg_dir: &Path, repo_dir: &Path, dev: bool, app: AppConfig) -> Result
 
     // 5. Render templates.
     let base_name = pair.as_ref().map(|(b, _, _)| b.as_str()).unwrap_or("app");
-    let vars = build_template_vars(build_id, wasm_js_val, wasm_bin_val, wasm_js_prefix_val, base_name, &app);
+    let vars = build_template_vars(
+        build_id,
+        wasm_js_val,
+        wasm_bin_val,
+        wasm_js_prefix_val,
+        base_name,
+        &app,
+    );
     render_if_exists(pkg_dir, "sw.js.tmpl", "sw.js", &vars)?;
     render_if_exists(pkg_dir, "loader.js.tmpl", "loader.js", &vars)?;
     render_if_exists(pkg_dir, "index.html.tmpl", "index.html", &vars)?;
@@ -246,10 +253,7 @@ fn build_template_vars(
         .app_title
         .clone()
         .unwrap_or_else(|| base_to_title(base_name));
-    let boot_redirect = app
-        .boot_redirect
-        .clone()
-        .unwrap_or_else(|| "/".to_string());
+    let boot_redirect = app.boot_redirect.clone().unwrap_or_else(|| "/".to_string());
 
     let mut vars: BTreeMap<String, String> = BTreeMap::new();
     vars.insert("BUILD_ID".to_string(), build_id);
