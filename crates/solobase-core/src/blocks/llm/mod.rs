@@ -1,3 +1,4 @@
+pub mod migrations;
 pub mod pages;
 pub mod providers;
 pub mod routes;
@@ -525,9 +526,25 @@ impl Block for LlmBlock {
 
     async fn lifecycle(
         &self,
-        _ctx: &dyn Context,
-        _event: LifecycleEvent,
+        ctx: &dyn Context,
+        event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
+        if matches!(event.event_type, LifecycleType::Init) {
+            // One-shot migration from `suppers_ai__provider_llm__providers`.
+            // Idempotent: if the legacy table is gone, returns immediately.
+            // Any per-row failure is logged, not fatal — admins can inspect
+            // the log and fix individual rows.
+            if let Err(e) = migrations::migrate_legacy_providers(ctx, &self.provider_svc).await {
+                tracing::warn!("legacy provider migration reported error: {e}");
+            }
+            // Always load enabled providers into the in-memory service on
+            // startup so chat dispatch finds them without waiting for an
+            // admin CRUD write. Non-fatal if it fails — admins can trigger
+            // a reload via any provider write.
+            if let Err(e) = routes::reload_provider_service(self, ctx).await {
+                tracing::warn!("initial provider reload failed: {e}");
+            }
+        }
         Ok(())
     }
 }
