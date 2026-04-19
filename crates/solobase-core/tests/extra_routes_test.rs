@@ -173,8 +173,7 @@ async fn built_in_route_wins_over_extra_with_same_prefix() {
 
     let msg = make_msg("/b/auth/login");
     let input = InputStream::empty();
-    let stream =
-        routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
     let _ = stream.collect_buffered().await;
 
     let calls = ctx.calls();
@@ -199,8 +198,7 @@ async fn public_extra_route_dispatches_without_auth() {
     // No user_id set on the message — Public access should allow it through.
     let msg = make_msg("/b/chat/hello");
     let input = InputStream::empty();
-    let stream =
-        routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
     let status = response_status(stream).await;
     assert_eq!(status, 200);
 
@@ -221,8 +219,7 @@ async fn authenticated_extra_route_forbids_empty_user_id() {
 
     let msg = make_msg("/b/chat/hello"); // no user_id
     let input = InputStream::empty();
-    let stream =
-        routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
     let status = response_status(stream).await;
     assert_eq!(status, 403, "Authenticated + empty user_id should be 403");
 
@@ -245,8 +242,7 @@ async fn authenticated_extra_route_allows_user() {
 
     let msg = make_msg_with_user("/b/chat/hello", "user-123");
     let input = InputStream::empty();
-    let stream =
-        routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
     let status = response_status(stream).await;
     assert_eq!(status, 200);
 
@@ -267,8 +263,7 @@ async fn admin_extra_route_forbids_non_admin() {
     // User is authenticated but lacks the admin role.
     let msg = make_msg_with_user("/b/gizza-admin/dash", "user-123");
     let input = InputStream::empty();
-    let stream =
-        routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
     let status = response_status(stream).await;
     assert_eq!(status, 403, "Admin access + non-admin user should be 403");
 
@@ -288,8 +283,7 @@ async fn admin_extra_route_allows_admin() {
 
     let msg = make_msg_with_admin("/b/gizza-admin/dash", "admin-1");
     let input = InputStream::empty();
-    let stream =
-        routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
     let status = response_status(stream).await;
     assert_eq!(status, 200);
 
@@ -309,8 +303,7 @@ async fn unmatched_path_falls_through_to_not_found() {
 
     let msg = make_msg("/some/other/path");
     let input = InputStream::empty();
-    let stream =
-        routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
+    let stream = routing::route_to_block(&ctx, msg, input, &features, &factory, &extras).await;
     let status = response_status(stream).await;
     assert_eq!(status, 404);
 
