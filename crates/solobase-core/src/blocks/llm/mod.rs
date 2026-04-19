@@ -2,6 +2,7 @@ pub mod pages;
 pub mod providers;
 pub mod routes;
 pub mod schema;
+pub mod ui;
 
 use std::sync::Arc;
 
@@ -406,6 +407,12 @@ impl Block for LlmBlock {
             BlockEndpoint::get("/b/llm/settings")
                 .summary("LLM settings page")
                 .auth(AuthLevel::Admin),
+            BlockEndpoint::get("/b/llm/providers")
+                .summary("Providers admin")
+                .auth(AuthLevel::Admin),
+            BlockEndpoint::get("/b/llm/models")
+                .summary("Models admin")
+                .auth(AuthLevel::Admin),
         ])
         .config_keys(vec![
             ConfigVar::new(
@@ -426,7 +433,12 @@ impl Block for LlmBlock {
     }
 
     fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![wafer_run::UiRoute::authenticated("/")]
+        vec![
+            wafer_run::UiRoute::authenticated("/"),
+            wafer_run::UiRoute::admin("/settings"),
+            wafer_run::UiRoute::admin("/providers"),
+            wafer_run::UiRoute::admin("/models"),
+        ]
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
@@ -455,6 +467,8 @@ impl Block for LlmBlock {
                 pages::thread_page(ctx, &msg).await
             }
             ("retrieve", "/b/llm/settings") => pages::settings_page(ctx, &msg).await,
+            ("retrieve", "/b/llm/providers") => ui::providers_page(self, ctx, &msg).await,
+            ("retrieve", "/b/llm/models") => ui::models_page(self, ctx, &msg).await,
 
             // Chat API
             ("create", "/b/llm/api/chat") => routes::handle_chat(self, ctx, &msg, input).await,
