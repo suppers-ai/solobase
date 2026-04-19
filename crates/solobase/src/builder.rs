@@ -183,6 +183,19 @@ impl SolobaseBuilder {
 
         wafer_core::service_blocks::logger::register_with(&mut wafer, logger)?;
 
+        // 4c. Construct the LLM service + router and register `wafer-run/llm`.
+        //     The feature block `suppers-ai/llm` receives `provider_llm_svc`
+        //     via its constructor for admin CRUD and `lifecycle(Init)`
+        //     configure. Chat/model-listing requests from the feature block
+        //     go through `ctx.call_block("wafer-run/llm", ...)`, which hits
+        //     the `MultiBackendLlmService` router registered here.
+        let provider_llm_svc = Arc::new(
+            solobase_core::blocks::llm::providers::ProviderLlmService::new(),
+        );
+        let mut llm_router = wafer_core::interfaces::llm::router::MultiBackendLlmService::new();
+        llm_router.register("provider", provider_llm_svc.clone());
+        wafer_core::service_blocks::llm::register_with(&mut wafer, Arc::new(llm_router))?;
+
         // 4b. Register the `wafer-run/vector` runtime block when the
         // `native-embedding` feature is on. `suppers-ai/vector` declares
         // `requires=["wafer-run/vector"]`, so without this registration
@@ -209,9 +222,12 @@ impl SolobaseBuilder {
             wafer.add_block_config(&name, config);
         }
 
-        // 6. Create and register feature blocks
-        let shared_blocks =
-            solobase_core::blocks::create_blocks(|name| self.block_settings.is_enabled(name));
+        // 6. Create and register feature blocks. `LlmBlock` receives the
+        //    `provider_llm_svc` Arc we built in step 4c.
+        let shared_blocks = solobase_core::blocks::create_blocks(
+            |name| self.block_settings.is_enabled(name),
+            &provider_llm_svc,
+        );
         solobase_core::blocks::register_shared_blocks(&mut wafer, &shared_blocks)?;
 
         // 7. Email block (always on, not feature-gated)

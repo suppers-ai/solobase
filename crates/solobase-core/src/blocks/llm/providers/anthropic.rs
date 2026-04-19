@@ -362,9 +362,7 @@ impl AnthropicSseDecoder {
             "content_block_stop" => {
                 match serde_json::from_str::<AnthropicBlockStop>(&data_payload) {
                     Ok(s) => {
-                        if let Some(Some(id)) =
-                            self.tool_blocks.get(s.index as usize).cloned()
-                        {
+                        if let Some(Some(id)) = self.tool_blocks.get(s.index as usize).cloned() {
                             (vec![tool_call_complete_chunk(&id)], false)
                         } else {
                             (Vec::new(), false)
