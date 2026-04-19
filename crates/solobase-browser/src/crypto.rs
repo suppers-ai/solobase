@@ -100,8 +100,7 @@ impl CryptoService for BrowserCryptoService {
         pbkdf2::pbkdf2::<Hmac<Sha256>>(password.as_bytes(), &salt, iterations, &mut computed)
             .map_err(|e| CryptoError::VerifyError(e.to_string()))?;
 
-        // Constant-time comparison
-        use hmac::digest::CtOutput;
+        // Constant-time comparison via HMAC finalize + `CtOutput` equality.
         let a = Hmac::<Sha256>::new_from_slice(&computed)
             .map_err(|e| CryptoError::VerifyError(e.to_string()))?;
         let b = Hmac::<Sha256>::new_from_slice(&expected)
@@ -161,6 +160,8 @@ impl CryptoService for BrowserCryptoService {
 /// The secret is used for HMAC-based JWT signing. It is the caller's
 /// responsibility to source this secret (typically from an
 /// `SUPPERS_AI__AUTH__JWT_SECRET` config var).
-pub fn make_crypto_service(jwt_secret: String) -> std::sync::Arc<dyn wafer_core::interfaces::crypto::service::CryptoService> {
+pub fn make_crypto_service(
+    jwt_secret: String,
+) -> std::sync::Arc<dyn wafer_core::interfaces::crypto::service::CryptoService> {
     std::sync::Arc::new(BrowserCryptoService::new(jwt_secret))
 }

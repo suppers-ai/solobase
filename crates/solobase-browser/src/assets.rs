@@ -65,7 +65,11 @@ mod tests {
     #[test]
     fn every_asset_has_non_empty_bytes() {
         for asset in static_assets() {
-            assert!(!asset.bytes.is_empty(), "asset {:?} has empty bytes", asset.path);
+            assert!(
+                !asset.bytes.is_empty(),
+                "asset {:?} has empty bytes",
+                asset.path
+            );
         }
     }
 

@@ -35,6 +35,7 @@ impl LoggerService for ConsoleLogger {
     }
 }
 
-pub fn make_console_logger() -> std::sync::Arc<dyn wafer_core::interfaces::logger::service::LoggerService> {
+pub fn make_console_logger(
+) -> std::sync::Arc<dyn wafer_core::interfaces::logger::service::LoggerService> {
     std::sync::Arc::new(ConsoleLogger)
 }

@@ -18,9 +18,8 @@ const HASHED_ASSETS: &[(&str, &str)] = &[
 /// (source-logical, quote-char, target-logical, replace-all)
 ///
 /// `replace_all = false` — wasm-bindgen glue has exactly one reference.
-const REWRITES: &[(&str, char, &str, bool)] = &[
-    ("solobase_web.js", '\'', "solobase_web_bg.wasm", false),
-];
+const REWRITES: &[(&str, char, &str, bool)] =
+    &[("solobase_web.js", '\'', "solobase_web_bg.wasm", false)];
 
 pub fn run(pkg_dir: &Path, repo_dir: &Path, dev: bool) -> Result<()> {
     if dev {

@@ -6,6 +6,13 @@
 //! accidentally grows a dependency on `solobase` or `solobase-core`, or if
 //! the framework contract requires app-level types that non-solobase
 //! consumers won't have.
+//!
+//! The wasm-bindgen entrypoints are gated behind `#[cfg(target_arch =
+//! "wasm32")]` because they use `solobase_browser::{db_init, store_wafer,
+//! dispatch_request}` which are themselves wasm32-only. Native `cargo test
+//! --workspace` compiles this crate as an empty cdylib, which is fine.
+
+#![cfg(target_arch = "wasm32")]
 
 use wasm_bindgen::prelude::*;
 
@@ -15,22 +22,10 @@ pub async fn initialize() -> Result<(), JsValue> {
         return Ok(());
     }
 
-    // Init the sql.js + OPFS database before constructing services.
     solobase_browser::db_init().await;
 
-    // Build a bare Wafer using only the wafer-run public API.
-    // No SolobaseBuilder, no solobase-core, no solobase-specific blocks.
     let mut wafer = wafer_run::Wafer::new();
-
-    // Wire up the browser platform services from solobase-browser factories.
-    // These are the same factories solobase-web uses, but assembled directly
-    // without the SolobaseBuilder layer.
     wafer.set_asset_loader(solobase_browser::make_sw_asset_loader());
-
-    // Start the runtime (resolves block deps, snapshots introspection data).
-    // An empty Wafer with no flows is valid — dispatch_request returns a
-    // 503-shaped response when "site-main" is not found, which is the
-    // expected behaviour for this smoke-test binary.
     wafer
         .start_without_bind()
         .await

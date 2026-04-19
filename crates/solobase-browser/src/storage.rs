@@ -163,6 +163,7 @@ impl StorageService for BrowserStorageService {
     }
 }
 
-pub fn make_storage_service() -> std::sync::Arc<dyn wafer_core::interfaces::storage::service::StorageService> {
+pub fn make_storage_service(
+) -> std::sync::Arc<dyn wafer_core::interfaces::storage::service::StorageService> {
     std::sync::Arc::new(BrowserStorageService)
 }

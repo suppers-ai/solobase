@@ -48,9 +48,9 @@ fn coerce_param(v: &serde_json::Value) -> serde_json::Value {
 
 /// Build a WHERE clause and accompanying params from a filter slice.
 ///
-/// Returns `(where_clause_string, params_vec)` where the params_vec starts
-/// at index `start_idx` (1-based `?` placeholders are not used — sql.js uses
-/// positional `?` without numbering, so params are appended in order).
+/// Returns `(where_clause_string, params_vec)`. Placeholders are bare `?`
+/// (not numbered) because sql.js uses positional binding — params are
+/// appended to the vec in the same order they appear in the clause.
 fn build_where(filters: &[Filter]) -> (String, Vec<serde_json::Value>) {
     if filters.is_empty() {
         return (String::new(), Vec::new());
@@ -808,6 +808,7 @@ impl DatabaseService for BrowserDatabaseService {
 /// Factory: returns an `Arc<dyn DatabaseService>` backed by the
 /// browser's sql.js + OPFS integration. Call after `crate::db_init()`
 /// has completed.
-pub fn make_database_service() -> std::sync::Arc<dyn wafer_core::interfaces::database::service::DatabaseService> {
+pub fn make_database_service(
+) -> std::sync::Arc<dyn wafer_core::interfaces::database::service::DatabaseService> {
     std::sync::Arc::new(BrowserDatabaseService)
 }
