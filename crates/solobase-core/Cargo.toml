@@ -12,9 +12,9 @@ path = "src/lib.rs"
 [features]
 default = ["sqlite", "storage-local"]
 sqlite = []
-postgres = ["dep:tokio"]
+postgres = []
 storage-local = []
-storage-s3 = ["dep:tokio"]
+storage-s3 = []
 # Native ONNX-backed embedding block (suppers-ai/fastembed). Pulls in
 # wafer-block-fastembed which depends on fastembed-rs / ONNX Runtime —
 # heavy native-only dep, so gate it behind a feature so consumers that
@@ -50,10 +50,12 @@ chrono = { workspace = true }
 
 # Async
 async-trait = { workspace = true }
-tokio = { workspace = true, optional = true }
+tokio = { workspace = true }
+tokio-stream = "0.1"
 futures = "0.3"
 tokio-util = "0.7"
 thiserror = "2"
+reqwest = { workspace = true, features = ["stream"] }
 
 # HTML sanitization
 ammonia = "4"
