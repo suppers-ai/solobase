@@ -51,6 +51,9 @@ chrono = { workspace = true }
 # Async
 async-trait = { workspace = true }
 tokio = { workspace = true, optional = true }
+futures = "0.3"
+tokio-util = "0.7"
+thiserror = "2"
 
 # HTML sanitization
 ammonia = "4"
