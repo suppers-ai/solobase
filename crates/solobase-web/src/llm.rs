@@ -5,8 +5,9 @@
 //! - Task 20 — JS surface (`js/webllm-engine.js`) + `WebLlmEngineHandle`
 //!   wrapping the opaque MLCEngine `JsValue`.
 //! - Task 21 — `BrowserLlmService` scaffolding: holds a lazily-populated
-//!   engine handle and reports the fixed WebLLM model catalog from
-//!   `ai-bridge.js`. `list_models` + `claims_backend` are fully wired.
+//!   engine handle and reports a fixed WebLLM model catalog (see
+//!   `available_models()` below). `list_models` + `claims_backend` are
+//!   fully wired.
 //! - Task 22 — `chat_stream` drives `MLCEngine.chat.completions.create` via
 //!   the JS iterator bridge in `webllm-engine.js`, decoding OpenAI-format
 //!   chunks into `ChatChunk`s pushed through a `futures::channel::mpsc`.
@@ -143,12 +144,12 @@ pub(crate) fn js_error_to_string(err: &JsValue) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Model catalog (ported from js/ai-bridge.js AVAILABLE_MODELS)
+// Model catalog (WebLLM models with f32/f16 tiers)
 // ---------------------------------------------------------------------------
 
 /// Fixed WebLLM model catalog.
 ///
-/// Mirrors `AVAILABLE_MODELS` in `js/ai-bridge.js`. The `requires_f16` tier
+/// The `requires_f16` tier
 /// is surfaced via `ModelCapabilities` (we set a non-default capability
 /// marker; the admin UI / picker can check for f16 at runtime if it cares).
 /// For now we return all 7 models — GPU-capability gating is a browser-side
