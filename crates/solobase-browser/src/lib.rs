@@ -9,3 +9,4 @@
 //! in their own `#[wasm_bindgen]` entrypoints using any app-level builder.
 
 pub mod tools;
+pub mod assets;
