@@ -394,7 +394,10 @@ fn provider_to_json(id: &str, cfg: &ProviderConfig) -> serde_json::Value {
 /// Errors are returned to the caller; callers translate to 500. We do not
 /// silently swallow — a failure here means the in-memory service is stale
 /// and the admin needs to know.
-async fn reload_provider_service(block: &LlmBlock, ctx: &dyn Context) -> Result<(), String> {
+pub(super) async fn reload_provider_service(
+    block: &LlmBlock,
+    ctx: &dyn Context,
+) -> Result<(), String> {
     let opts = db::ListOptions {
         limit: 200,
         ..Default::default()
