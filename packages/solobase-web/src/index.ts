@@ -24,7 +24,7 @@ export async function setupSolobase(config?: SolobaseConfig): Promise<void> {
 
   const registration = await navigator.serviceWorker.register(
     new URL('./worker.js', import.meta.url),
-    { scope, type: 'module' }
+    { scope, type: 'module', updateViaCache: 'none' }
   );
 
   // Wait for the SW to be active
