@@ -1,4 +1,5 @@
 pub mod pages;
+pub mod providers;
 
 use wafer_core::clients::{
     config, database as db,
