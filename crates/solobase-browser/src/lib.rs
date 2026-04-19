@@ -27,3 +27,10 @@ pub use logger::make_console_logger;
 pub use network::make_network_service;
 pub use runtime::{dispatch_request, is_initialized, store_wafer};
 pub use storage::make_storage_service;
+
+/// Load sql.js WASM and open (or create) the OPFS-backed database.
+/// Idempotent-safe to call once at startup, before constructing platform
+/// services. Wraps `bridge::dbInit()`.
+pub async fn db_init() {
+    bridge::dbInit().await;
+}
