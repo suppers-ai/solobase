@@ -624,6 +624,207 @@ pub(super) async fn delete_provider(
     ok_json(&serde_json::json!({ "deleted": true }))
 }
 
+// ---------------------------------------------------------------------------
+// Models endpoints (aggregated via wafer-run/llm service block)
+// ---------------------------------------------------------------------------
+//
+// The service block aggregates `list_models` across every registered
+// `LlmService` impl in its router. `status` / `load` / `unload` are
+// per-(backend_id, model_id) ops forwarded verbatim. These handlers only
+// marshal HTTP ⇄ service-block JSON — no business logic here.
+
+/// Request body for `llm.status`, `llm.load_model`, `llm.unload_model` on
+/// the service block. Mirrors the `StatusRequest` / `LoadModelRequest`
+/// / `UnloadModelRequest` structs in
+/// `wafer-core::interfaces::llm::handler`.
+#[derive(serde::Serialize)]
+struct BackendModelBody<'a> {
+    backend_id: &'a str,
+    model_id: &'a str,
+}
+
+/// Extract `(backend_id, model_id)` from
+/// `/b/llm/api/models/{backend_id}/{model_id}[/suffix]`.
+///
+/// Prefers the router-supplied path variables when available, falling back
+/// to splitting `msg.path()` on `/`. Both ids may contain
+/// backend-specific characters (`-`, `_`, `.`, but not `/`), so a single
+/// split-on-`/` round yields the right segments.
+fn extract_model_path(msg: &Message) -> (String, String) {
+    let backend_var = msg.var("backend_id");
+    let model_var = msg.var("model_id");
+    if !backend_var.is_empty() && !model_var.is_empty() {
+        return (backend_var.to_string(), model_var.to_string());
+    }
+    let path = msg.path();
+    let suffix = path.strip_prefix("/b/llm/api/models/").unwrap_or("");
+    let mut parts = suffix.splitn(3, '/');
+    let backend = parts.next().unwrap_or("").to_string();
+    let model = parts.next().unwrap_or("").to_string();
+    (backend, model)
+}
+
+/// Build a `Message` to dispatch an LLM-service op, forwarding auth metadata
+/// from the incoming HTTP request.
+fn build_llm_service_msg(original: &Message, kind: &'static str) -> Message {
+    let mut call_msg = Message::new(kind);
+    call_msg.set_meta("req.action", kind);
+    let user_id = original.user_id().to_string();
+    if !user_id.is_empty() {
+        call_msg.set_meta("auth.user_id", &user_id);
+    }
+    let user_roles = original.get_meta("auth.user_roles").to_string();
+    if !user_roles.is_empty() {
+        call_msg.set_meta("auth.user_roles", &user_roles);
+    }
+    call_msg
+}
+
+/// `GET /b/llm/api/models` — aggregated list across all registered LLM
+/// backends. Authenticated (any logged-in user).
+pub(super) async fn list_models(
+    _block: &LlmBlock,
+    ctx: &dyn Context,
+    _msg: &Message,
+) -> OutputStream {
+    let call_msg = build_llm_service_msg(_msg, wafer_run::common::ServiceOp::LLM_LIST_MODELS);
+    let out = ctx
+        .call_block("wafer-run/llm", call_msg, InputStream::empty())
+        .await;
+    let buf = match out.collect_buffered().await {
+        Ok(b) => b,
+        Err(e) => return err_internal(&format!("llm list_models failed: {e:?}")),
+    };
+    // The service block returns a bare `Vec<ModelInfo>` (see `to_output`
+    // in the handler). Re-parse opaquely and wrap in the UI-friendly envelope.
+    let models: serde_json::Value = match serde_json::from_slice(&buf.body) {
+        Ok(v) => v,
+        Err(e) => return err_internal(&format!("decode list_models: {e}")),
+    };
+    ok_json(&serde_json::json!({ "models": models }))
+}
+
+/// `GET /b/llm/api/models/:backend_id/:model_id/status` — per-(backend, model)
+/// status. Authenticated.
+pub(super) async fn model_status(
+    _block: &LlmBlock,
+    ctx: &dyn Context,
+    msg: &Message,
+) -> OutputStream {
+    let (backend_id, model_id) = extract_model_path(msg);
+    if backend_id.is_empty() || model_id.is_empty() {
+        return err_bad_request("Missing backend_id or model_id");
+    }
+    let body = match serde_json::to_vec(&BackendModelBody {
+        backend_id: &backend_id,
+        model_id: &model_id,
+    }) {
+        Ok(b) => b,
+        Err(e) => return err_internal(&format!("serialize status req: {e}")),
+    };
+
+    let call_msg = build_llm_service_msg(msg, wafer_run::common::ServiceOp::LLM_STATUS);
+    let out = ctx
+        .call_block("wafer-run/llm", call_msg, InputStream::from_bytes(body))
+        .await;
+    let buf = match out.collect_buffered().await {
+        Ok(b) => b,
+        Err(e) => return err_internal(&format!("llm status failed: {e:?}")),
+    };
+    let status: serde_json::Value = match serde_json::from_slice(&buf.body) {
+        Ok(v) => v,
+        Err(e) => return err_internal(&format!("decode status: {e}")),
+    };
+    ok_json(&serde_json::json!({ "status": status }))
+}
+
+/// `POST /b/llm/api/models/:backend_id/:model_id/load` — start a model
+/// load, streaming `LoadProgress` events as SSE. Admin-only.
+pub(super) async fn load_model(
+    _block: &LlmBlock,
+    ctx: &dyn Context,
+    msg: &Message,
+) -> OutputStream {
+    if !helpers::is_admin(msg) {
+        return err_forbidden("admin role required");
+    }
+    let (backend_id, model_id) = extract_model_path(msg);
+    if backend_id.is_empty() || model_id.is_empty() {
+        return err_bad_request("Missing backend_id or model_id");
+    }
+    let body = match serde_json::to_vec(&BackendModelBody {
+        backend_id: &backend_id,
+        model_id: &model_id,
+    }) {
+        Ok(b) => b,
+        Err(e) => return err_internal(&format!("serialize load req: {e}")),
+    };
+
+    let call_msg = build_llm_service_msg(msg, wafer_run::common::ServiceOp::LLM_LOAD_MODEL);
+    let out = ctx
+        .call_block("wafer-run/llm", call_msg, InputStream::from_bytes(body))
+        .await;
+
+    OutputStream::from_producer(move |sink, _cancel| async move {
+        let _ = sink
+            .send_meta(MetaEntry {
+                key: META_RESP_CONTENT_TYPE.to_string(),
+                value: "text/event-stream".to_string(),
+            })
+            .await;
+
+        let mut body_stream = Box::pin(out.body_stream_or_error());
+        while let Some(item) = body_stream.next().await {
+            let Ok(bytes) = item else {
+                let frame = b"event: error\ndata: {}\n\n".to_vec();
+                let _ = sink.send_chunk(frame).await;
+                return;
+            };
+            // `bytes` is already the JSON encoding of one `LoadProgress`.
+            let mut frame = Vec::with_capacity(bytes.len() + 8);
+            frame.extend_from_slice(b"data: ");
+            frame.extend_from_slice(&bytes);
+            frame.extend_from_slice(b"\n\n");
+            if sink.send_chunk(frame).await.is_err() {
+                return;
+            }
+        }
+        let _ = sink.send_chunk(b"data: [DONE]\n\n".to_vec()).await;
+    })
+}
+
+/// `POST /b/llm/api/models/:backend_id/:model_id/unload` — buffered unload.
+/// Admin-only.
+pub(super) async fn unload_model(
+    _block: &LlmBlock,
+    ctx: &dyn Context,
+    msg: &Message,
+) -> OutputStream {
+    if !helpers::is_admin(msg) {
+        return err_forbidden("admin role required");
+    }
+    let (backend_id, model_id) = extract_model_path(msg);
+    if backend_id.is_empty() || model_id.is_empty() {
+        return err_bad_request("Missing backend_id or model_id");
+    }
+    let body = match serde_json::to_vec(&BackendModelBody {
+        backend_id: &backend_id,
+        model_id: &model_id,
+    }) {
+        Ok(b) => b,
+        Err(e) => return err_internal(&format!("serialize unload req: {e}")),
+    };
+
+    let call_msg = build_llm_service_msg(msg, wafer_run::common::ServiceOp::LLM_UNLOAD_MODEL);
+    let out = ctx
+        .call_block("wafer-run/llm", call_msg, InputStream::from_bytes(body))
+        .await;
+    match out.collect_buffered().await {
+        Ok(_) => ok_json(&serde_json::json!({ "unloaded": true })),
+        Err(e) => err_internal(&format!("llm unload_model failed: {e:?}")),
+    }
+}
+
 /// `POST /b/llm/api/providers/:id/discover-models` — call the provider's
 /// `/v1/models` endpoint, persist the discovered list back to the row, and
 /// return the new model list. Admin-only.
@@ -1052,6 +1253,149 @@ mod tests {
         assert!(
             v.get("api_key").is_none(),
             "api_key must never appear in API output"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Models endpoints tests
+    // -----------------------------------------------------------------
+    //
+    // These cover the paths that don't need a live `wafer-run/llm`
+    // dispatch: admin-guard denial for `load`/`unload`, bad-request on
+    // missing path vars, and the path-extraction helper.
+
+    #[tokio::test]
+    async fn load_model_rejects_non_admin() {
+        let block = stub_block();
+        let ctx = PanicCtx;
+        let msg = user_msg("create", "/b/llm/api/models/openai/gpt-4o/load");
+
+        let out = load_model(&block, &ctx, &msg).await;
+        match out.collect_buffered().await {
+            Err(TerminalNotResponse::Error(e)) => {
+                assert_eq!(e.code, ErrorCode::PermissionDenied);
+            }
+            other => panic!("expected PermissionDenied, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn unload_model_rejects_non_admin() {
+        let block = stub_block();
+        let ctx = PanicCtx;
+        let msg = user_msg("create", "/b/llm/api/models/openai/gpt-4o/unload");
+
+        let out = unload_model(&block, &ctx, &msg).await;
+        match out.collect_buffered().await {
+            Err(TerminalNotResponse::Error(e)) => {
+                assert_eq!(e.code, ErrorCode::PermissionDenied);
+            }
+            other => panic!("expected PermissionDenied, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn load_model_requires_path_vars() {
+        let block = stub_block();
+        let ctx = PanicCtx;
+        // Admin but missing segments after the prefix.
+        let msg = admin_msg("create", "/b/llm/api/models//load");
+
+        let out = load_model(&block, &ctx, &msg).await;
+        match out.collect_buffered().await {
+            Err(TerminalNotResponse::Error(e)) => {
+                assert_eq!(e.code, ErrorCode::InvalidArgument);
+                assert!(
+                    e.message.contains("backend_id") || e.message.contains("model_id"),
+                    "got: {}",
+                    e.message
+                );
+            }
+            other => panic!("expected InvalidArgument, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn unload_model_requires_path_vars() {
+        let block = stub_block();
+        let ctx = PanicCtx;
+        let msg = admin_msg("create", "/b/llm/api/models/openai/");
+
+        let out = unload_model(&block, &ctx, &msg).await;
+        match out.collect_buffered().await {
+            Err(TerminalNotResponse::Error(e)) => {
+                assert_eq!(e.code, ErrorCode::InvalidArgument);
+            }
+            other => panic!("expected InvalidArgument, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn model_status_requires_path_vars() {
+        let block = stub_block();
+        let ctx = PanicCtx;
+        let msg = user_msg("retrieve", "/b/llm/api/models//status");
+
+        let out = model_status(&block, &ctx, &msg).await;
+        match out.collect_buffered().await {
+            Err(TerminalNotResponse::Error(e)) => {
+                assert_eq!(e.code, ErrorCode::InvalidArgument);
+            }
+            other => panic!("expected InvalidArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn extract_model_path_from_suffix() {
+        // Straight {backend_id}/{model_id}/status
+        let mut m = Message::new("retrieve:/b/llm/api/models/openai/gpt-4o/status");
+        m.set_meta(
+            wafer_run::meta::META_REQ_RESOURCE,
+            "/b/llm/api/models/openai/gpt-4o/status",
+        );
+        assert_eq!(
+            extract_model_path(&m),
+            ("openai".to_string(), "gpt-4o".to_string())
+        );
+
+        // Load sub-resource with a model id containing dots/dashes
+        let mut m2 = Message::new("create:/b/llm/api/models/webllm/llama-3.1-8b/load");
+        m2.set_meta(
+            wafer_run::meta::META_REQ_RESOURCE,
+            "/b/llm/api/models/webllm/llama-3.1-8b/load",
+        );
+        assert_eq!(
+            extract_model_path(&m2),
+            ("webllm".to_string(), "llama-3.1-8b".to_string())
+        );
+
+        // Missing model_id
+        let mut m3 = Message::new("create:/b/llm/api/models/openai/");
+        m3.set_meta(
+            wafer_run::meta::META_REQ_RESOURCE,
+            "/b/llm/api/models/openai/",
+        );
+        let (b, m_id) = extract_model_path(&m3);
+        assert_eq!(b, "openai");
+        assert_eq!(m_id, "");
+
+        // Router-provided path variables take precedence over the path string.
+        let mut m4 = Message::new("create:/b/llm/api/models/from-path/ignored/load");
+        m4.set_meta(
+            wafer_run::meta::META_REQ_RESOURCE,
+            "/b/llm/api/models/from-path/ignored/load",
+        );
+        m4.set_meta(
+            format!("{}backend_id", wafer_run::meta::META_REQ_PARAM_PREFIX),
+            "from-var",
+        );
+        m4.set_meta(
+            format!("{}model_id", wafer_run::meta::META_REQ_PARAM_PREFIX),
+            "var-model",
+        );
+        assert_eq!(
+            extract_model_path(&m4),
+            ("from-var".to_string(), "var-model".to_string())
         );
     }
 
