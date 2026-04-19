@@ -1,5 +1,4 @@
-use std::path::Path;
-use std::process::Command;
+use std::{path::Path, process::Command};
 
 /// Derives a build identifier for a `pkg/` directory.
 ///
@@ -31,7 +30,11 @@ fn git_short_sha(dir: &Path) -> Option<String> {
         return None;
     }
     let s = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    if s.is_empty() { None } else { Some(s) }
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
 fn git_is_dirty(dir: &Path) -> bool {

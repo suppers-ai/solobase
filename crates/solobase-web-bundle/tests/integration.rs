@@ -1,6 +1,6 @@
+use std::{fs, path::PathBuf};
+
 use solobase_web_bundle::run;
-use std::fs;
-use std::path::PathBuf;
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pkg-in")

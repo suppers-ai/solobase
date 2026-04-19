@@ -1,6 +1,7 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use clap::Parser;
-use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "solobase-web-bundle")]
@@ -20,7 +21,9 @@ struct Cli {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let repo = cli.repo_dir.clone()
+    let repo = cli
+        .repo_dir
+        .clone()
         .or_else(|| cli.pkg_dir.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| cli.pkg_dir.clone());
     solobase_web_bundle::run(&cli.pkg_dir, &repo, cli.dev)
