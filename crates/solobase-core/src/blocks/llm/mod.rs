@@ -319,31 +319,9 @@ impl LlmBlock {
         ok_json(&serde_json::json!({"updated": true}))
     }
 
-    // --- Models aggregation ---
-    //
-    // Provider listing now lives in `routes::list_providers` and reads from
-    // the local `suppers_ai__llm__providers` table (see Task 15). The models
-    // aggregation below still proxies the legacy `provider-llm` block until
-    // Task 16 ports it.
-
-    async fn handle_list_models(&self, ctx: &dyn Context) -> OutputStream {
-        let resource = "/b/provider-llm/api/models";
-        let mut call_msg = Message::new(format!("retrieve:{resource}"));
-        call_msg.set_meta("req.action", "retrieve");
-        call_msg.set_meta("req.resource", resource);
-        call_msg.set_meta("http.method", "GET");
-        call_msg.set_meta("http.path", resource);
-
-        let out = ctx
-            .call_block("suppers-ai/provider-llm", call_msg, InputStream::empty())
-            .await;
-        if let Ok(buf) = out.collect_buffered().await {
-            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&buf.body) {
-                return ok_json(&v);
-            }
-        }
-        ok_json(&serde_json::json!({ "models": [] }))
-    }
+    // Models aggregation now lives in `routes::list_models`, sourcing data
+    // from the `wafer-run/llm` service block via `ctx.call_block`. The
+    // legacy `/b/provider-llm/api/models` proxy was removed in Task 16.
 }
 
 // ---------------------------------------------------------------------------
@@ -405,8 +383,17 @@ impl Block for LlmBlock {
                 .summary("Discover provider models via /v1/models")
                 .auth(AuthLevel::Admin),
             BlockEndpoint::get("/b/llm/api/models")
-                .summary("List available models")
+                .summary("List available models (aggregated across backends)")
                 .auth(AuthLevel::Authenticated),
+            BlockEndpoint::get("/b/llm/api/models/{backend_id}/{model_id}/status")
+                .summary("Model status (ready / loading / unloaded)")
+                .auth(AuthLevel::Authenticated),
+            BlockEndpoint::post("/b/llm/api/models/{backend_id}/{model_id}/load")
+                .summary("Load a model (SSE progress)")
+                .auth(AuthLevel::Admin),
+            BlockEndpoint::post("/b/llm/api/models/{backend_id}/{model_id}/unload")
+                .summary("Unload a model")
+                .auth(AuthLevel::Admin),
             BlockEndpoint::get("/b/llm/api/config")
                 .summary("Get default provider/model config")
                 .auth(AuthLevel::Authenticated),
@@ -495,8 +482,24 @@ impl Block for LlmBlock {
                 routes::delete_provider(self, ctx, &msg).await
             }
 
-            // Models aggregation (still proxied — Task 16 will replace it)
-            ("retrieve", "/b/llm/api/models") => self.handle_list_models(ctx).await,
+            // Models endpoints — service-block-backed aggregation and
+            // per-(backend,model) ops. Sub-resource arms (`/status`,
+            // `/load`, `/unload`) must match BEFORE the generic
+            // `/b/llm/api/models` arm so suffix dispatch wins.
+            ("retrieve", _)
+                if path.starts_with("/b/llm/api/models/") && path.ends_with("/status") =>
+            {
+                routes::model_status(self, ctx, &msg).await
+            }
+            ("create", _) if path.starts_with("/b/llm/api/models/") && path.ends_with("/load") => {
+                routes::load_model(self, ctx, &msg).await
+            }
+            ("create", _)
+                if path.starts_with("/b/llm/api/models/") && path.ends_with("/unload") =>
+            {
+                routes::unload_model(self, ctx, &msg).await
+            }
+            ("retrieve", "/b/llm/api/models") => routes::list_models(self, ctx, &msg).await,
 
             // Config
             ("retrieve", "/b/llm/api/config") => self.handle_get_config(ctx).await,
