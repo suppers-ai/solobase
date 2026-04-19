@@ -7,3 +7,5 @@
 //! `db_init` helper, and thread_local SW runtime plumbing
 //! (`store_wafer`/`dispatch_request`/`is_initialized`). Consumers compose these
 //! in their own `#[wasm_bindgen]` entrypoints using any app-level builder.
+
+pub mod tools;
