@@ -16,7 +16,7 @@ use wafer_run::{
     InputStream, OutputStream,
 };
 
-use self::providers::ProviderLlmService;
+use self::{providers::ProviderLlmService, schema::providers_schema};
 use crate::blocks::helpers::{
     self, err_bad_request, err_internal, err_not_found, json_map, ok_json,
 };
@@ -28,11 +28,9 @@ use crate::blocks::helpers::{
 /// router. Provider CRUD, discovery, and the `lifecycle(Init)` configure
 /// step use the held `provider_svc` handle directly.
 pub struct LlmBlock {
-    /// Held for Phase B tasks 15–17 (provider CRUD + models endpoint).
-    /// Not yet read outside of `LlmBlock::new` — silence the `dead_code`
-    /// lint until those handlers land rather than force a premature public
-    /// API shape.
-    #[allow(dead_code)]
+    /// In-memory provider service the chat dispatcher routes to. The
+    /// providers CRUD endpoints reload it from the DB after each successful
+    /// write so the next chat call sees the updated configuration.
     pub(crate) provider_svc: Arc<ProviderLlmService>,
 }
 
@@ -321,36 +319,12 @@ impl LlmBlock {
         ok_json(&serde_json::json!({"updated": true}))
     }
 
-    // --- Providers / Models aggregation ---
-
-    async fn handle_list_providers(&self, ctx: &dyn Context, msg: &Message) -> OutputStream {
-        // Aggregate from provider-llm block
-        let resource = "/b/provider-llm/api/providers";
-        let mut call_msg = Message::new(format!("retrieve:{resource}"));
-        call_msg.set_meta("req.action", "retrieve");
-        call_msg.set_meta("req.resource", resource);
-        call_msg.set_meta("http.method", "GET");
-        call_msg.set_meta("http.path", resource);
-        // Forward auth
-        let user_id = msg.user_id().to_string();
-        if !user_id.is_empty() {
-            call_msg.set_meta("auth.user_id", &user_id);
-        }
-        let roles = msg.get_meta("auth.user_roles").to_string();
-        if !roles.is_empty() {
-            call_msg.set_meta("auth.user_roles", &roles);
-        }
-
-        let out = ctx
-            .call_block("suppers-ai/provider-llm", call_msg, InputStream::empty())
-            .await;
-        if let Ok(buf) = out.collect_buffered().await {
-            if let Ok(providers) = serde_json::from_slice::<serde_json::Value>(&buf.body) {
-                return ok_json(&serde_json::json!({ "providers": providers }));
-            }
-        }
-        ok_json(&serde_json::json!({ "providers": [] }))
-    }
+    // --- Models aggregation ---
+    //
+    // Provider listing now lives in `routes::list_providers` and reads from
+    // the local `suppers_ai__llm__providers` table (see Task 15). The models
+    // aggregation below still proxies the legacy `provider-llm` block until
+    // Task 16 ports it.
 
     async fn handle_list_models(&self, ctx: &dyn Context) -> OutputStream {
         let resource = "/b/provider-llm/api/models";
@@ -395,11 +369,14 @@ impl Block for LlmBlock {
             "wafer-run/database".into(),
             "wafer-run/config".into(),
         ])
-        .collections(vec![CollectionSchema::new(SETTINGS_COLLECTION)
-            .field("thread_id", "string")
-            .field_default("provider_block", "string", "")
-            .field_default("model", "string", "")
-            .index(&["thread_id"])])
+        .collections(vec![
+            CollectionSchema::new(SETTINGS_COLLECTION)
+                .field("thread_id", "string")
+                .field_default("provider_block", "string", "")
+                .field_default("model", "string", "")
+                .index(&["thread_id"]),
+            providers_schema(),
+        ])
         .category(wafer_run::BlockCategory::Feature)
         .description(
             "LLM orchestrator. Routes chat requests to provider-llm or local-llm backends, \
@@ -413,8 +390,20 @@ impl Block for LlmBlock {
                 .summary("Send a chat message (SSE streaming)")
                 .auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/llm/api/providers")
-                .summary("List available LLM providers")
-                .auth(AuthLevel::Authenticated),
+                .summary("List configured LLM providers")
+                .auth(AuthLevel::Admin),
+            BlockEndpoint::post("/b/llm/api/providers")
+                .summary("Create LLM provider")
+                .auth(AuthLevel::Admin),
+            BlockEndpoint::patch("/b/llm/api/providers/{id}")
+                .summary("Update LLM provider")
+                .auth(AuthLevel::Admin),
+            BlockEndpoint::delete("/b/llm/api/providers/{id}")
+                .summary("Delete LLM provider")
+                .auth(AuthLevel::Admin),
+            BlockEndpoint::post("/b/llm/api/providers/{id}/discover-models")
+                .summary("Discover provider models via /v1/models")
+                .auth(AuthLevel::Admin),
             BlockEndpoint::get("/b/llm/api/models")
                 .summary("List available models")
                 .auth(AuthLevel::Authenticated),
@@ -486,8 +475,27 @@ impl Block for LlmBlock {
                 routes::handle_chat_stream(self, ctx, &msg, input).await
             }
 
-            // Aggregation
-            ("retrieve", "/b/llm/api/providers") => self.handle_list_providers(ctx, &msg).await,
+            // Provider CRUD (admin-only — guard enforced inside handler).
+            // Sub-resource paths (`.../discover-models`) are matched first so
+            // the catch-all `update`/`delete` arms only fire for bare `:id`.
+            ("create", _)
+                if path.starts_with("/b/llm/api/providers/")
+                    && path.ends_with("/discover-models") =>
+            {
+                routes::discover_models(self, ctx, &msg).await
+            }
+            ("retrieve", "/b/llm/api/providers") => routes::list_providers(self, ctx, &msg).await,
+            ("create", "/b/llm/api/providers") => {
+                routes::create_provider(self, ctx, &msg, input).await
+            }
+            ("update", _) if path.starts_with("/b/llm/api/providers/") => {
+                routes::update_provider(self, ctx, &msg, input).await
+            }
+            ("delete", _) if path.starts_with("/b/llm/api/providers/") => {
+                routes::delete_provider(self, ctx, &msg).await
+            }
+
+            // Models aggregation (still proxied — Task 16 will replace it)
             ("retrieve", "/b/llm/api/models") => self.handle_list_models(ctx).await,
 
             // Config
