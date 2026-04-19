@@ -23,12 +23,18 @@ use super::config::ProviderConfig;
 /// Returns `Err` only if the configured provider is missing the required
 /// `api_key` — we never silently omit `Authorization` on the OpenAI native
 /// protocol, unlike `openai_compatible` which may.
+/// `(url, headers, body)` triple produced by the encoder.
+pub type EncodedRequest = (String, HashMap<String, String>, Vec<u8>);
+
 pub fn encode_chat_request(
     req: &ChatRequest,
     provider: &ProviderConfig,
     resolved_api_key: Option<&str>,
-) -> Result<(String, HashMap<String, String>, Vec<u8>), EncodeError> {
-    let url = format!("{}/chat/completions", provider.endpoint.trim_end_matches('/'));
+) -> Result<EncodedRequest, EncodeError> {
+    let url = format!(
+        "{}/chat/completions",
+        provider.endpoint.trim_end_matches('/')
+    );
 
     let mut headers = HashMap::new();
     headers.insert("Content-Type".into(), "application/json".into());
@@ -92,7 +98,11 @@ impl<'a> OpenAiRequest<'a> {
         } else {
             Some(req.params.stop_sequences.as_slice())
         };
-        let response_format = req.params.response_format.as_ref().map(encode_response_format);
+        let response_format = req
+            .params
+            .response_format
+            .as_ref()
+            .map(encode_response_format);
         let tools = req.tools.iter().map(encode_tool).collect::<Vec<_>>();
 
         Self {
@@ -183,7 +193,9 @@ enum OpenAiResponseFormat<'a> {
     #[serde(rename = "json_object")]
     Json,
     #[serde(rename = "json_schema")]
-    JsonSchema { json_schema: &'a serde_json::Value },
+    JsonSchema {
+        json_schema: &'a serde_json::Value,
+    },
 }
 
 // ---------- Translation helpers ----------
@@ -210,7 +222,8 @@ fn encode_message(m: &ChatMessage) -> OpenAiMessage<'_> {
         _ => None,
     };
     // Assistant messages invoking tools send `tool_calls` and may omit content.
-    let content = if content.is_some() && matches!(&m.content, ChatContent::Text(s) if s.is_empty())
+    let content = if content.is_some()
+        && matches!(&m.content, ChatContent::Text(s) if s.is_empty())
         && !m.tool_calls.is_empty()
     {
         None
@@ -286,9 +299,7 @@ fn encode_response_format(r: &ResponseFormat) -> OpenAiResponseFormat<'_> {
 // SSE decoder
 // ===========================================================================
 
-use wafer_core::interfaces::llm::service::{
-    ChatChunk, ChunkDelta, FinishReason, TokenUsage,
-};
+use wafer_core::interfaces::llm::service::{ChatChunk, FinishReason, TokenUsage};
 
 /// Stateful line-by-line SSE decoder. Feed it successive chunks of response
 /// body bytes (they may split inside a frame); it buffers until a blank-line
@@ -360,12 +371,9 @@ impl OpenAiSseDecoder {
     /// terminated (`[DONE]` seen). Tool-call `Complete` frames for any
     /// in-flight ids are emitted on terminal.
     pub fn push(&mut self, bytes: &[u8]) -> DecodeBatch {
-        let text = match std::str::from_utf8(bytes) {
-            Ok(s) => s,
-            Err(_) => {
-                tracing::warn!("openai sse: non-utf8 bytes — dropping");
-                return DecodeBatch::default();
-            }
+        let Ok(text) = std::str::from_utf8(bytes) else {
+            tracing::warn!("openai sse: non-utf8 bytes — dropping");
+            return DecodeBatch::default();
         };
         self.buf.push_str(text);
 
@@ -568,11 +576,13 @@ fn map_finish_reason(s: &str) -> FinishReason {
 #[cfg(test)]
 mod tests {
     use wafer_core::interfaces::llm::service::{
-        ChatMessage, ChatParams, ChatRequest, ChatRole, ToolDefinition,
+        ChatMessage, ChatParams, ChatRequest, ToolDefinition,
     };
 
-    use super::super::config::{ProviderConfig, ProviderProtocol};
-    use super::*;
+    use super::{
+        super::config::{ProviderConfig, ProviderProtocol},
+        *,
+    };
 
     fn openai_provider() -> ProviderConfig {
         ProviderConfig::new(
@@ -585,8 +595,8 @@ mod tests {
     #[test]
     fn encodes_simple_chat_request() {
         let req = ChatRequest::new("openai-main", "gpt-4o-mini", vec![ChatMessage::user("hi")]);
-        let (url, headers, body) = encode_chat_request(&req, &openai_provider(), Some("sk-test"))
-            .expect("encode");
+        let (url, headers, body) =
+            encode_chat_request(&req, &openai_provider(), Some("sk-test")).expect("encode");
         assert_eq!(url, "https://api.openai.com/v1/chat/completions");
         assert_eq!(
             headers.get("Authorization").map(String::as_str),
@@ -612,8 +622,7 @@ mod tests {
                 ChatMessage::user("now divide by 2"),
             ],
         );
-        let (_, _, body) =
-            encode_chat_request(&req, &openai_provider(), Some("sk")).unwrap();
+        let (_, _, body) = encode_chat_request(&req, &openai_provider(), Some("sk")).unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let msgs = json["messages"].as_array().unwrap();
         assert_eq!(msgs.len(), 4);
@@ -629,12 +638,10 @@ mod tests {
         params.top_p = Some(0.9);
         params.seed = Some(42);
         params.stop_sequences = vec!["END".into()];
-        let mut req =
-            ChatRequest::new("openai-main", "gpt-4o", vec![ChatMessage::user("hi")]);
+        let mut req = ChatRequest::new("openai-main", "gpt-4o", vec![ChatMessage::user("hi")]);
         req.params = params;
 
-        let (_, _, body) =
-            encode_chat_request(&req, &openai_provider(), Some("sk")).unwrap();
+        let (_, _, body) = encode_chat_request(&req, &openai_provider(), Some("sk")).unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["temperature"], 0.3);
         assert_eq!(json["max_tokens"], 512);
@@ -645,8 +652,7 @@ mod tests {
 
     #[test]
     fn encodes_tools() {
-        let mut req =
-            ChatRequest::new("openai-main", "gpt-4o", vec![ChatMessage::user("hi")]);
+        let mut req = ChatRequest::new("openai-main", "gpt-4o", vec![ChatMessage::user("hi")]);
         // ToolDefinition is #[non_exhaustive]; round-trip through serde.
         let tool: ToolDefinition = serde_json::from_value(serde_json::json!({
             "name": "lookup",
@@ -658,8 +664,7 @@ mod tests {
         }))
         .unwrap();
         req.tools = vec![tool];
-        let (_, _, body) =
-            encode_chat_request(&req, &openai_provider(), Some("sk")).unwrap();
+        let (_, _, body) = encode_chat_request(&req, &openai_provider(), Some("sk")).unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["tools"][0]["type"], "function");
         assert_eq!(json["tools"][0]["function"]["name"], "lookup");
@@ -689,7 +694,8 @@ mod tests {
 
     #[test]
     fn decodes_simple_text_delta() {
-        let frame = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n";
+        let frame =
+            "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n";
         let chunks = decode_all(frame);
         assert_eq!(chunks.len(), 1);
         assert!(matches!(&chunks[0].delta, ChunkDelta::Text(t) if t == "hello"));
@@ -740,12 +746,15 @@ mod tests {
     fn decodes_finish_reason_on_terminal_choice() {
         let frame = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n";
         let chunks = decode_all(frame);
-        assert!(chunks.iter().any(|c| c.finish_reason == Some(FinishReason::Stop)));
+        assert!(chunks
+            .iter()
+            .any(|c| c.finish_reason == Some(FinishReason::Stop)));
     }
 
     #[test]
     fn decodes_usage_frame_as_terminal_meta_chunk() {
-        let frame = "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":42}}\n\n";
+        let frame =
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":42}}\n\n";
         let chunks = decode_all(frame);
         let usage = chunks.iter().find_map(|c| c.usage.as_ref()).unwrap();
         assert_eq!(usage.input_tokens, 10);

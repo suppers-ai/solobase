@@ -12,18 +12,21 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use wafer_core::interfaces::llm::service::{
     ChatChunk, ChatContent, ChatMessage, ChatRequest, ChatRole, ContentPart, FinishReason,
-    TokenUsage, ToolCall, ToolDefinition,
+    TokenUsage, ToolDefinition,
 };
 
 use super::config::ProviderConfig;
 
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 
+/// `(url, headers, body)` triple produced by the encoder.
+pub type EncodedRequest = (String, HashMap<String, String>, Vec<u8>);
+
 pub fn encode_chat_request(
     req: &ChatRequest,
     provider: &ProviderConfig,
     resolved_api_key: Option<&str>,
-) -> Result<(String, HashMap<String, String>, Vec<u8>), EncodeError> {
+) -> Result<EncodedRequest, EncodeError> {
     let url = format!("{}/messages", provider.endpoint.trim_end_matches('/'));
 
     let mut headers = HashMap::new();
@@ -267,12 +270,9 @@ impl AnthropicSseDecoder {
     }
 
     pub fn push(&mut self, bytes: &[u8]) -> DecodeBatch {
-        let text = match std::str::from_utf8(bytes) {
-            Ok(s) => s,
-            Err(_) => {
-                tracing::warn!("anthropic sse: non-utf8 bytes — dropping");
-                return DecodeBatch::default();
-            }
+        let Ok(text) = std::str::from_utf8(bytes) else {
+            tracing::warn!("anthropic sse: non-utf8 bytes — dropping");
+            return DecodeBatch::default();
         };
         self.buf.push_str(text);
 
@@ -362,10 +362,8 @@ impl AnthropicSseDecoder {
             "content_block_stop" => {
                 match serde_json::from_str::<AnthropicBlockStop>(&data_payload) {
                     Ok(s) => {
-                        if let Some(Some(id)) = self
-                            .tool_blocks
-                            .get(s.index as usize)
-                            .map(|o| o.clone())
+                        if let Some(Some(id)) =
+                            self.tool_blocks.get(s.index as usize).cloned()
                         {
                             (vec![tool_call_complete_chunk(&id)], false)
                         } else {
@@ -375,24 +373,22 @@ impl AnthropicSseDecoder {
                     Err(_) => (Vec::new(), false),
                 }
             }
-            "message_delta" => {
-                match serde_json::from_str::<AnthropicMessageDelta>(&data_payload) {
-                    Ok(md) => {
-                        let mut chunks = Vec::new();
-                        if let Some(reason) = md.delta.stop_reason {
-                            chunks.push(ChatChunk::finish(map_stop_reason(&reason), None));
-                        }
-                        if let Some(u) = md.usage {
-                            let mut usage = TokenUsage::default();
-                            usage.input_tokens = u.input_tokens.unwrap_or(0);
-                            usage.output_tokens = u.output_tokens.unwrap_or(0);
-                            chunks.push(usage_chunk(usage));
-                        }
-                        (chunks, false)
+            "message_delta" => match serde_json::from_str::<AnthropicMessageDelta>(&data_payload) {
+                Ok(md) => {
+                    let mut chunks = Vec::new();
+                    if let Some(reason) = md.delta.stop_reason {
+                        chunks.push(ChatChunk::finish(map_stop_reason(&reason), None));
                     }
-                    Err(_) => (Vec::new(), false),
+                    if let Some(u) = md.usage {
+                        let mut usage = TokenUsage::default();
+                        usage.input_tokens = u.input_tokens.unwrap_or(0);
+                        usage.output_tokens = u.output_tokens.unwrap_or(0);
+                        chunks.push(usage_chunk(usage));
+                    }
+                    (chunks, false)
                 }
-            }
+                Err(_) => (Vec::new(), false),
+            },
             "message_stop" => (Vec::new(), true),
             _ => (Vec::new(), false),
         }
@@ -428,14 +424,21 @@ struct AnthropicBlockStart {
 #[derive(Deserialize)]
 #[serde(tag = "type")]
 enum AnthropicBlockStartContent {
+    // Wire variant carries a `text` field we don't currently emit — the
+    // content flows through `content_block_delta` events instead.
     #[serde(rename = "text")]
-    Text { text: String },
+    Text {
+        #[serde(default, rename = "text")]
+        _text: serde_json::Value,
+    },
     #[serde(rename = "tool_use")]
     ToolUse {
         id: String,
         name: String,
-        #[serde(default)]
-        input: serde_json::Value,
+        // Initial input (typically empty `{}`) — actual args arrive via
+        // input_json_delta frames.
+        #[serde(default, rename = "input")]
+        _input: serde_json::Value,
     },
 }
 
@@ -527,8 +530,10 @@ fn usage_chunk(usage: TokenUsage) -> ChatChunk {
 mod tests {
     use wafer_core::interfaces::llm::service::{ChatMessage, ChatParams, ChatRequest, ChunkDelta};
 
-    use super::super::config::{ProviderConfig, ProviderProtocol};
-    use super::*;
+    use super::{
+        super::config::{ProviderConfig, ProviderProtocol},
+        *,
+    };
 
     fn anthropic_provider() -> ProviderConfig {
         ProviderConfig::new(
@@ -557,7 +562,10 @@ mod tests {
         let (url, headers, body) =
             encode_chat_request(&req, &anthropic_provider(), Some("sk-ant-test")).unwrap();
         assert_eq!(url, "https://api.anthropic.com/v1/messages");
-        assert_eq!(headers.get("x-api-key").map(String::as_str), Some("sk-ant-test"));
+        assert_eq!(
+            headers.get("x-api-key").map(String::as_str),
+            Some("sk-ant-test")
+        );
         assert_eq!(
             headers.get("anthropic-version").map(String::as_str),
             Some(ANTHROPIC_VERSION)
@@ -601,8 +609,7 @@ mod tests {
             ChatMessage::user("what is the weather?"),
             ChatMessage::tool("call_1", "sunny, 72F"),
         ]);
-        let (_, _, body) =
-            encode_chat_request(&req, &anthropic_provider(), Some("sk")).unwrap();
+        let (_, _, body) = encode_chat_request(&req, &anthropic_provider(), Some("sk")).unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let msgs = json["messages"].as_array().unwrap();
         assert_eq!(msgs[1]["role"], "user");
@@ -679,7 +686,9 @@ mod tests {
             data: {\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":42}}\n\n\
         ";
         let chunks = decode_all(stream);
-        assert!(chunks.iter().any(|c| c.finish_reason == Some(FinishReason::Stop)));
+        assert!(chunks
+            .iter()
+            .any(|c| c.finish_reason == Some(FinishReason::Stop)));
         let usage = chunks.iter().find_map(|c| c.usage.as_ref()).unwrap();
         assert_eq!(usage.output_tokens, 42);
     }

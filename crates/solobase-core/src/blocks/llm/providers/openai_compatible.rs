@@ -9,8 +9,6 @@
 //! - `/v1/models` discovery responses can be sparse (some servers omit
 //!   `display_name`, `capabilities`, etc.). See `decode_models_response`.
 
-use std::collections::HashMap;
-
 use serde::Deserialize;
 use wafer_core::interfaces::llm::service::{ChatRequest, ModelInfo};
 
@@ -23,7 +21,7 @@ pub fn encode_chat_request(
     req: &ChatRequest,
     provider: &ProviderConfig,
     resolved_api_key: Option<&str>,
-) -> Result<(String, HashMap<String, String>, Vec<u8>), openai::EncodeError> {
+) -> Result<openai::EncodedRequest, openai::EncodeError> {
     match resolved_api_key {
         Some(_) => openai::encode_chat_request(req, provider, resolved_api_key),
         None => {
@@ -86,8 +84,10 @@ struct ModelEntry {
 mod tests {
     use wafer_core::interfaces::llm::service::ChatMessage;
 
-    use super::super::config::{ProviderConfig, ProviderProtocol};
-    use super::*;
+    use super::{
+        super::config::{ProviderConfig, ProviderProtocol},
+        *,
+    };
 
     fn local_provider() -> ProviderConfig {
         ProviderConfig::new(
@@ -99,11 +99,7 @@ mod tests {
 
     #[test]
     fn encodes_without_auth_header_when_api_key_missing() {
-        let req = ChatRequest::new(
-            "local-ollama",
-            "llama3",
-            vec![ChatMessage::user("hello")],
-        );
+        let req = ChatRequest::new("local-ollama", "llama3", vec![ChatMessage::user("hello")]);
         let (url, headers, body) = encode_chat_request(&req, &local_provider(), None).unwrap();
         assert_eq!(url, "http://localhost:11434/v1/chat/completions");
         assert!(
@@ -118,11 +114,7 @@ mod tests {
 
     #[test]
     fn encodes_with_auth_header_when_api_key_present() {
-        let req = ChatRequest::new(
-            "local-ollama",
-            "llama3",
-            vec![ChatMessage::user("hi")],
-        );
+        let req = ChatRequest::new("local-ollama", "llama3", vec![ChatMessage::user("hi")]);
         let (_, headers, _) =
             encode_chat_request(&req, &local_provider(), Some("shared-secret")).unwrap();
         assert_eq!(
