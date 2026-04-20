@@ -80,6 +80,7 @@ self.addEventListener('fetch', (event) => {
         url.pathname === '/loader.js' ||
         url.pathname === '/manifest.json' ||
         url.pathname === '/asset-manifest.json' ||
+        url.pathname === '/webllm-engine.js' ||
         url.pathname.startsWith('__WASM_JS_PREFIX__') ||
         url.pathname.startsWith('/snippets/') ||
         url.pathname.startsWith('/vendor/') ||
