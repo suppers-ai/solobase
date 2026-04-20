@@ -22,6 +22,12 @@ pub struct AppConfig {
     /// URL the loader navigates to after the Service Worker activates.
     /// Defaults to `"/"`.
     pub boot_redirect: Option<String>,
+    /// Additional URL path prefixes that the Service Worker's fetch handler
+    /// should bypass (let the origin serve directly). Each entry is
+    /// appended to the default bypass list in `sw.js.tmpl` as a
+    /// `url.pathname.startsWith(<prefix>)` clause via the `__EXTRA_BYPASS__`
+    /// placeholder.
+    pub extra_bypass_prefix: Vec<String>,
 }
 
 /// Discover the wasm-pack output pair (`{base}.js` + `{base}_bg.wasm`) in
@@ -255,6 +261,24 @@ fn build_template_vars(
         .unwrap_or_else(|| base_to_title(base_name));
     let boot_redirect = app.boot_redirect.clone().unwrap_or_else(|| "/".to_string());
 
+    // Render extra bypass prefixes into a chain of OR'd startsWith calls that
+    // slot into `sw.js.tmpl` via the `__EXTRA_BYPASS__` placeholder. When the
+    // list is empty we expand to the empty string, leaving the existing
+    // bypass expression intact. Each entry is quoted and escaped defensively
+    // against single quotes in the path.
+    let extra_bypass = if app.extra_bypass_prefix.is_empty() {
+        String::new()
+    } else {
+        let mut out = String::new();
+        for prefix in &app.extra_bypass_prefix {
+            let escaped = prefix.replace('\\', "\\\\").replace('\'', "\\'");
+            out.push_str(" || url.pathname.startsWith('");
+            out.push_str(&escaped);
+            out.push_str("')");
+        }
+        out
+    };
+
     let mut vars: BTreeMap<String, String> = BTreeMap::new();
     vars.insert("BUILD_ID".to_string(), build_id);
     vars.insert("WASM_JS".to_string(), wasm_js);
@@ -263,6 +287,7 @@ fn build_template_vars(
     vars.insert("APP_NAME".to_string(), app_name);
     vars.insert("APP_TITLE".to_string(), app_title);
     vars.insert("BOOT_REDIRECT".to_string(), boot_redirect);
+    vars.insert("EXTRA_BYPASS".to_string(), extra_bypass);
     vars
 }
 

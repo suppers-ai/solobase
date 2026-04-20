@@ -58,18 +58,23 @@ self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
     // Only intercept same-origin requests
     if (url.origin !== self.location.origin) return;
-    // Don't intercept requests for the SW's own script, the boot loader, or
-    // the wasm-pack / bundler output. `/` and `/index.html` are intentionally
-    // INTERCEPTED so the consumer's router can render a UI block at root.
-    // Consumers who want to serve a raw bootstrap shell at `/` should
-    // bootstrap from `/loader.js` at a different shell URL.
+    // Don't intercept requests for the SW's own script, the boot loader, the
+    // PWA manifest (which the browser fetches as metadata), or the wasm-pack /
+    // bundler output. `/` and `/index.html` are intentionally INTERCEPTED so
+    // the consumer's router can render a UI block at root.
+    //
+    // Consumers inject additional app-specific bypass prefixes through the
+    // `--extra-bypass-prefix` flag on `export-assets`, which expands into the
+    // `__EXTRA_BYPASS__` placeholder below. That's where app-level static
+    // assets (custom JS / CSS / branded manifests) should be listed.
     if (url.pathname === '/sw.js' ||
         url.pathname === '/loader.js' ||
+        url.pathname === '/manifest.json' ||
         url.pathname === '/asset-manifest.json' ||
         url.pathname.startsWith('__WASM_JS_PREFIX__') ||
         url.pathname.startsWith('/snippets/') ||
         url.pathname.startsWith('/vendor/') ||
-        url.pathname.startsWith('/sql-')) {
+        url.pathname.startsWith('/sql-')__EXTRA_BYPASS__) {
         return;
     }
     event.respondWith(handleFetch(event.request));

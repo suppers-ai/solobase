@@ -42,6 +42,16 @@ struct Cli {
     /// Defaults to `/`.
     #[arg(long)]
     boot_redirect: Option<String>,
+
+    /// Additional URL path prefixes that the Service Worker's fetch handler
+    /// should bypass (let the origin serve directly). Comma-separated. Each
+    /// entry is matched with `url.pathname.startsWith(...)`, so exact-match
+    /// paths like `/ai-bridge.js` work too (no path has that as a prefix
+    /// child). Use this for consumer-specific static assets referenced from
+    /// the UI (branded CSS, extra JS modules) that the WASM runtime's router
+    /// doesn't know about.
+    #[arg(long, value_delimiter = ',')]
+    extra_bypass_prefix: Vec<String>,
 }
 
 fn main() -> Result<()> {
@@ -61,6 +71,7 @@ fn main() -> Result<()> {
         app_name: cli.app_name,
         app_title: cli.app_title,
         boot_redirect: cli.boot_redirect,
+        extra_bypass_prefix: cli.extra_bypass_prefix,
     };
 
     solobase_browser::tools::bundle::run(&cli.pkg_dir, &repo, cli.dev, app)?;
