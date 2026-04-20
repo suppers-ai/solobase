@@ -46,6 +46,10 @@ const ASSETS: &[Asset] = &[
         path: "vendor/sql-wasm.wasm",
         bytes: include_bytes!("../assets/vendor/sql-wasm.wasm"),
     },
+    Asset {
+        path: "webllm-engine.js",
+        bytes: include_bytes!("../assets/webllm-engine.js"),
+    },
 ];
 
 #[cfg(test)]
@@ -60,6 +64,7 @@ mod tests {
         assert!(paths.contains(&"index.html.tmpl"));
         assert!(paths.contains(&"vendor/sql-wasm-esm.js"));
         assert!(paths.contains(&"vendor/sql-wasm.wasm"));
+        assert!(paths.contains(&"webllm-engine.js"));
     }
 
     #[test]
