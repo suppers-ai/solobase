@@ -14,12 +14,17 @@ use std::{collections::HashMap, time::Duration};
 
 use wafer_core::interfaces::crypto::service::{CryptoError, CryptoService};
 
-/// PBKDF2 iteration count.
-/// In a Service Worker (single-threaded WASM), 100K iterations is too slow.
-/// 10K iterations provides ~100-500ms in WASM — acceptable for a local-only
-/// browser app where the threat model is different (no remote attackers,
-/// data is per-origin in OPFS).
-const PBKDF2_ITERATIONS: u32 = 1_000;
+/// PBKDF2-HMAC-SHA256 iteration count.
+///
+/// OWASP's 2023 Password Storage Cheat Sheet recommends 600,000 iterations
+/// for PBKDF2-SHA256. NIST SP 800-132 sets 10,000 as the absolute floor.
+/// The previous value here (1,000) was below NIST's minimum.
+///
+/// 600,000 iterations runs in ~1-2 seconds in single-threaded WASM on a
+/// modern laptop. That's acceptable because PBKDF2 is invoked only on
+/// user-visible actions (login / password change) where the browser tab
+/// is already blocking for input — not on every request.
+const PBKDF2_ITERATIONS: u32 = 600_000;
 const PBKDF2_HASH_LEN: usize = 32;
 const PBKDF2_SALT_LEN: usize = 16;
 
