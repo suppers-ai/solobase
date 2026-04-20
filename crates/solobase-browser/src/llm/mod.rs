@@ -2,6 +2,7 @@
 //! SW↔page postMessage bridge. See `docs/superpowers/specs/2026-04-20-
 //! llm-service-extraction-design.md`.
 
+#[cfg(target_arch = "wasm32")]
 pub mod bridge;
 pub mod catalog;
 pub mod openai_codec;
