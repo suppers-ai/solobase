@@ -91,6 +91,74 @@ jobs:
       - name: Build WASM
         run: cd crates/solobase-web && wasm-pack build --target web --release
 
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout wafer-run
+        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: e2e
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build solobase-web (framework assets + hashed pkg/)
+        run: cd crates/solobase-web && make build
+
+      - name: Install Playwright
+        working-directory: crates/solobase-web
+        run: |
+          npm install
+          npx playwright install chromium --with-deps
+
+      - name: Serve pkg/ in background
+        working-directory: crates/solobase-web
+        run: |
+          python3 -m http.server 8080 -d pkg &
+          echo $! > /tmp/http-pid
+          # Wait for server to accept connections
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/sw.js > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run Playwright tests
+        working-directory: crates/solobase-web
+        run: npx playwright test --config=tests/playwright.config.ts tests/e2e/smoke.spec.ts
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f /tmp/http-pid ]; then
+            kill "$(cat /tmp/http-pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: crates/solobase-web/playwright-report/
+          retention-days: 7
+
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
