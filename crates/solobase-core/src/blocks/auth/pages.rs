@@ -83,6 +83,78 @@ fn pw_toggle_js() -> &'static str {
     r#"function togglePw(b){var i=b.parentElement.querySelector('input');if(i.type==='password'){i.type='text'}else{i.type='password'}}"#
 }
 
+/// JS that drives the login + forgot-password forms.
+///
+/// On browser (wasm32) targets, the server runs inside a Service Worker and
+/// browsers do not persist `Set-Cookie` from SW-synthetic responses. We set
+/// the auth cookie from the response body client-side in that case. On native
+/// targets the server's `Set-Cookie` already works, so we emit a version of
+/// this JS without the client-side assignment — no HttpOnly regression.
+fn login_script() -> &'static str {
+    #[cfg(target_arch = "wasm32")]
+    {
+        r#"
+var $=function(id){return document.getElementById(id)};
+function showErr(m){var e=$('error');e.textContent=m;e.style.display='flex';$('info').style.display='none'}
+function showInfo(m){var i=$('info');i.textContent=m;i.style.display='block';$('error').style.display='none'}
+async function handleLogin(ev){
+  ev.preventDefault();
+  var btn=$('btn');btn.disabled=true;btn.textContent='Signing in...';
+  $('error').style.display='none';$('info').style.display='none';
+  try{
+    var r=await fetch('/b/auth/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('email').value,password:$('password').value})});
+    var d=await r.json();
+    if(!r.ok||d.error){showErr((d.error&&d.error.message)||d.error||d.message||'Invalid credentials');btn.disabled=false;btn.textContent='Sign In';return false}
+    // Service-worker synthetic responses don't persist Set-Cookie, so set the
+    // auth cookie client-side from the response body.
+    if(d.access_token){
+      var secure=location.protocol==='https:'?'; Secure':'';
+      document.cookie='auth_token='+d.access_token+'; Path=/; SameSite=Lax; Max-Age=86400'+secure;
+    }
+    var redir=$('redirect').value||$('post_login').value||'/';
+    window.location.href=redir;
+  }catch(ex){showErr('Something went wrong');btn.disabled=false;btn.textContent='Sign In'}
+  return false;
+}
+async function handleForgot(){
+  var email=$('email').value.trim();
+  if(!email){showErr('Enter your email address first.');return}
+  $('error').style.display='none';$('info').style.display='none';
+  try{await fetch('/b/auth/api/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})})}catch(e){}
+  showInfo('If that email is registered, a password reset link has been sent.');
+}
+"#
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        r#"
+var $=function(id){return document.getElementById(id)};
+function showErr(m){var e=$('error');e.textContent=m;e.style.display='flex';$('info').style.display='none'}
+function showInfo(m){var i=$('info');i.textContent=m;i.style.display='block';$('error').style.display='none'}
+async function handleLogin(ev){
+  ev.preventDefault();
+  var btn=$('btn');btn.disabled=true;btn.textContent='Signing in...';
+  $('error').style.display='none';$('info').style.display='none';
+  try{
+    var r=await fetch('/b/auth/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('email').value,password:$('password').value})});
+    var d=await r.json();
+    if(!r.ok||d.error){showErr((d.error&&d.error.message)||d.error||d.message||'Invalid credentials');btn.disabled=false;btn.textContent='Sign In';return false}
+    var redir=$('redirect').value||$('post_login').value||'/';
+    window.location.href=redir;
+  }catch(ex){showErr('Something went wrong');btn.disabled=false;btn.textContent='Sign In'}
+  return false;
+}
+async function handleForgot(){
+  var email=$('email').value.trim();
+  if(!email){showErr('Enter your email address first.');return}
+  $('error').style.display='none';$('info').style.display='none';
+  try{await fetch('/b/auth/api/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})})}catch(e){}
+  showInfo('If that email is registered, a password reset link has been sent.');
+}
+"#
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Login page
 // ---------------------------------------------------------------------------
@@ -167,31 +239,7 @@ pub async fn login_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             }
 
             script { (PreEscaped(pw_toggle_js())) }
-            script { (PreEscaped(r#"
-var $=function(id){return document.getElementById(id)};
-function showErr(m){var e=$('error');e.textContent=m;e.style.display='flex';$('info').style.display='none'}
-function showInfo(m){var i=$('info');i.textContent=m;i.style.display='block';$('error').style.display='none'}
-async function handleLogin(ev){
-  ev.preventDefault();
-  var btn=$('btn');btn.disabled=true;btn.textContent='Signing in...';
-  $('error').style.display='none';$('info').style.display='none';
-  try{
-    var r=await fetch('/b/auth/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('email').value,password:$('password').value})});
-    var d=await r.json();
-    if(!r.ok||d.error){showErr((d.error&&d.error.message)||d.error||d.message||'Invalid credentials');btn.disabled=false;btn.textContent='Sign In';return false}
-    var redir=$('redirect').value||$('post_login').value||'/';
-    window.location.href=redir;
-  }catch(ex){showErr('Something went wrong');btn.disabled=false;btn.textContent='Sign In'}
-  return false;
-}
-async function handleForgot(){
-  var email=$('email').value.trim();
-  if(!email){showErr('Enter your email address first.');return}
-  $('error').style.display='none';$('info').style.display='none';
-  try{await fetch('/b/auth/api/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})})}catch(e){}
-  showInfo('If that email is registered, a password reset link has been sent.');
-}
-"#)) }
+            script { (PreEscaped(login_script())) }
         },
     );
 
