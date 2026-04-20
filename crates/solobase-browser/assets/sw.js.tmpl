@@ -48,6 +48,14 @@ self.addEventListener('message', (event) => {
         }
         return;
     }
+
+    // LLM bridge: route all llm-* replies from the page to bridge.js's handler.
+    if (typeof msg.type === 'string' && msg.type.startsWith('llm-')) {
+        if (typeof globalThis.__solobaseCompleteLlmMessage === 'function') {
+            globalThis.__solobaseCompleteLlmMessage(msg);
+        }
+        return;
+    }
 });
 
 // ---------------------------------------------------------------------------
