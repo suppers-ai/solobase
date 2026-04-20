@@ -63,10 +63,11 @@ self.addEventListener('fetch', (event) => {
     // bundler output. `/` and `/index.html` are intentionally INTERCEPTED so
     // the consumer's router can render a UI block at root.
     //
-    // Consumers inject additional app-specific bypass prefixes through the
-    // `--extra-bypass-prefix` flag on `export-assets`, which expands into the
-    // `__EXTRA_BYPASS__` placeholder below. That's where app-level static
-    // assets (custom JS / CSS / branded manifests) should be listed.
+    // Consumers inject additional app-specific bypass prefixes via the
+    // `--extra-bypass-prefix` flag on export-assets; those get appended to
+    // the last line of the `if` expression below as further `startsWith`
+    // clauses. That's where app-level static assets (custom JS / CSS)
+    // should be listed.
     if (url.pathname === '/sw.js' ||
         url.pathname === '/loader.js' ||
         url.pathname === '/manifest.json' ||
