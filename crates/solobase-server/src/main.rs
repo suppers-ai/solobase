@@ -74,13 +74,9 @@ async fn main() {
         .database(solobase_native::make_sqlite_database_service(&infra.db_path))
         .storage(solobase_native::make_local_storage_service(&infra.storage_root))
         .config(Arc::new(config_service))
-        .crypto(Arc::new(
-            wafer_block_crypto::service::Argon2JwtCryptoService::new(jwt_secret),
-        ))
-        .network(Arc::new(
-            wafer_block_network::service::HttpNetworkService::new(),
-        ))
-        .logger(Arc::new(wafer_block_logger::service::TracingLogger))
+        .crypto(solobase_native::make_jwt_crypto_service(jwt_secret))
+        .network(solobase_native::make_fetch_network_service())
+        .logger(solobase_native::make_tracing_logger())
         .block_settings(features)
         // Hand the SQLite path to the builder so the `native-embedding`
         // feature can open a dedicated connection for `SqliteVecService`.
