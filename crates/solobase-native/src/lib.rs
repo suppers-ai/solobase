@@ -19,6 +19,7 @@ pub mod serve;
 pub mod storage;
 
 pub use env::{collect_app_env_vars, load_dotenv, InfraConfig};
+pub use log_init::init_tracing;
 
 pub use crypto::make_jwt_crypto_service;
 

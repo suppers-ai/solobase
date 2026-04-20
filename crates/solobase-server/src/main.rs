@@ -22,8 +22,7 @@ use std::{collections::HashMap, sync::Arc};
 mod config;
 use config::{filter_to_declared_keys, load_block_settings, load_wrap_grants};
 use solobase::builder::{self, SolobaseBuilder};
-use solobase_native::{collect_app_env_vars, load_dotenv, InfraConfig};
-use tracing_subscriber::{fmt, EnvFilter};
+use solobase_native::{collect_app_env_vars, init_tracing, load_dotenv, InfraConfig};
 use wafer_core::interfaces::config::service::ConfigService;
 use wafer_run::Wafer;
 
@@ -251,74 +250,6 @@ fn seed_auto_generated(conn: &rusqlite::Connection) {
             tracing::warn!(key = %var.key, "auto-generated secret (not found in variables table)");
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Tracing init
-// ---------------------------------------------------------------------------
-
-fn init_tracing(log_format: &str) {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,wafer=debug,solobase=debug"));
-
-    #[cfg(feature = "otel")]
-    {
-        if std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok() {
-            init_tracing_with_otel(log_format, filter);
-            return;
-        }
-    }
-
-    if log_format == "json" {
-        fmt()
-            .json()
-            .with_env_filter(filter)
-            .with_target(true)
-            .with_thread_ids(false)
-            .init();
-    } else {
-        fmt()
-            .with_env_filter(filter)
-            .with_target(true)
-            .with_thread_ids(false)
-            .init();
-    }
-}
-
-#[cfg(feature = "otel")]
-fn init_tracing_with_otel(log_format: &str, filter: EnvFilter) {
-    use opentelemetry::trace::TracerProvider;
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
-
-    let exporter = opentelemetry_otlp::SpanExporter::builder()
-        .with_tonic()
-        .build()
-        .expect("failed to create OTLP span exporter");
-
-    let service_name = std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "solobase".into());
-    let provider = opentelemetry_sdk::trace::TracerProvider::builder()
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-        .with_resource(opentelemetry_sdk::Resource::new(vec![
-            opentelemetry::KeyValue::new("service.name", service_name),
-        ]))
-        .build();
-
-    let tracer = provider.tracer("solobase");
-    let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
-
-    let fmt_layer: Box<dyn Layer<_> + Send + Sync> = if log_format == "json" {
-        Box::new(fmt::layer().json().with_target(true).with_thread_ids(false))
-    } else {
-        Box::new(fmt::layer().with_target(true).with_thread_ids(false))
-    };
-
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt_layer)
-        .with(otel_layer)
-        .init();
-
-    tracing::info!("OpenTelemetry tracing enabled");
 }
 
 // ---------------------------------------------------------------------------
