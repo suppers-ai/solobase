@@ -32,13 +32,17 @@ impl Block for EmailBlock {
             .config_keys(vec![
                 ConfigVar::new("SUPPERS_AI__EMAIL__MAILGUN_API_KEY", "Mailgun API key", "")
                     .name("Mailgun API Key")
-                    .input_type(InputType::Password),
+                    .input_type(InputType::Password)
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__EMAIL__MAILGUN_DOMAIN", "Mailgun sending domain", "")
-                    .name("Mailgun Domain"),
+                    .name("Mailgun Domain")
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__EMAIL__MAILGUN_FROM", "From address for emails", "")
-                    .name("From Address"),
+                    .name("From Address")
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO", "Reply-to address", "")
-                    .name("Reply-To Address"),
+                    .name("Reply-To Address")
+                    .optional(),
             ])
     }
 
