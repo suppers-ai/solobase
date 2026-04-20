@@ -358,33 +358,44 @@ impl Block for AuthBlock {
                     .name("Require Email Verification")
                     .input_type(InputType::Toggle),
                 ConfigVar::new("SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS", "Restrict signup to specific email domains (comma-separated)", "")
-                    .name("Allowed Email Domains"),
+                    .name("Allowed Email Domains")
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__AUTH__ADMIN_EMAIL", "Email address that gets the admin role on signup", "")
-                    .name("Admin Email"),
+                    .name("Admin Email")
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_ID", "Google OAuth client ID", "")
-                    .name("Google Client ID"),
+                    .name("Google Client ID")
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_SECRET", "Google OAuth client secret", "")
                     .name("Google Client Secret")
-                    .input_type(InputType::Password),
+                    .input_type(InputType::Password)
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GITHUB_CLIENT_ID", "GitHub OAuth client ID", "")
-                    .name("GitHub Client ID"),
+                    .name("GitHub Client ID")
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GITHUB_CLIENT_SECRET", "GitHub OAuth client secret", "")
                     .name("GitHub Client Secret")
-                    .input_type(InputType::Password),
+                    .input_type(InputType::Password)
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_MICROSOFT_CLIENT_ID", "Microsoft OAuth client ID", "")
-                    .name("Microsoft Client ID"),
+                    .name("Microsoft Client ID")
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_MICROSOFT_CLIENT_SECRET", "Microsoft OAuth client secret", "")
                     .name("Microsoft Client Secret")
-                    .input_type(InputType::Password),
+                    .input_type(InputType::Password)
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__AUTH__ADMIN_PASSWORD", "Password for the default admin account", "")
                     .name("Admin Password")
-                    .input_type(InputType::Password),
+                    .input_type(InputType::Password)
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__AUTH__INTERNAL_SECRET", "Secret for internal API authentication", "")
                     .name("Internal Secret")
-                    .input_type(InputType::Password),
+                    .input_type(InputType::Password)
+                    .auto_generate(),
                 ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_REDIRECT_URI", "OAuth callback URL", "")
                     .name("OAuth Redirect URI")
-                    .input_type(InputType::Url),
+                    .input_type(InputType::Url)
+                    .optional(),
             ])
             .admin_url("/b/auth/admin/settings")
     }

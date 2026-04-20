@@ -149,16 +149,19 @@ impl Block for ProductsBlock {
             .config_keys(vec![
                 ConfigVar::new("SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY", "Stripe API secret key", "")
                     .name("Stripe Secret Key")
-                    .input_type(InputType::Password),
+                    .input_type(InputType::Password)
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET", "Stripe webhook signing secret", "")
                     .name("Stripe Webhook Secret")
-                    .input_type(InputType::Password),
+                    .input_type(InputType::Password)
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__PRODUCTS__STRIPE_API_URL", "Stripe API base URL", "https://api.stripe.com")
                     .name("Stripe API URL")
                     .input_type(InputType::Url),
                 ConfigVar::new("SUPPERS_AI__PRODUCTS__WEBHOOK_URL", "Webhook URL for billing events", "")
                     .name("Billing Webhook URL")
-                    .input_type(InputType::Url),
+                    .input_type(InputType::Url)
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__PRODUCTS__WEBHOOK_SECRET", "Webhook signing secret", "")
                     .name("Billing Webhook Secret")
                     .input_type(InputType::Password)
