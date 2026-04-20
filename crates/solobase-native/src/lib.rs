@@ -21,3 +21,7 @@ pub mod storage;
 pub use database::make_sqlite_database_service;
 #[cfg(feature = "postgres")]
 pub use database::make_postgres_database_service;
+
+pub use storage::make_local_storage_service;
+#[cfg(feature = "s3")]
+pub use storage::{make_s3_storage_service, S3Config};
