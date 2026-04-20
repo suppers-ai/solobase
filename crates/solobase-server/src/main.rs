@@ -72,10 +72,7 @@ async fn main() {
 
     let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(solobase_native::make_sqlite_database_service(&infra.db_path))
-        .storage(Arc::new(
-            wafer_block_local_storage::service::LocalStorageService::new(&infra.storage_root)
-                .expect("failed to create local storage service"),
-        ))
+        .storage(solobase_native::make_local_storage_service(&infra.storage_root))
         .config(Arc::new(config_service))
         .crypto(Arc::new(
             wafer_block_crypto::service::Argon2JwtCryptoService::new(jwt_secret),
