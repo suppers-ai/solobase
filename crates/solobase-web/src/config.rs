@@ -19,9 +19,12 @@ use solobase_browser::bridge;
 /// There are no env vars to seed from in the browser — only auto-generated
 /// secrets and previously-stored values.
 pub fn seed_and_load_variables() -> HashMap<String, String> {
-    // 1. Create variables table if it does not exist
+    // 1. Create the admin variables table if it does not exist.
+    //    Name matches `crate::blocks::admin::VARIABLES_COLLECTION` so the admin
+    //    block's CollectionSchema (run via wafer.start() migrations) finds the
+    //    same table and no-ops its CREATE TABLE IF NOT EXISTS.
     bridge::db_exec_raw(
-        "CREATE TABLE IF NOT EXISTS variables (
+        "CREATE TABLE IF NOT EXISTS suppers_ai__admin__variables (
             id TEXT PRIMARY KEY,
             key TEXT NOT NULL UNIQUE,
             name TEXT DEFAULT '',
@@ -36,7 +39,7 @@ pub fn seed_and_load_variables() -> HashMap<String, String> {
         "[]",
     );
     bridge::db_exec_raw(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_variables_key ON variables (key)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_suppers_ai__admin__variables_key ON suppers_ai__admin__variables (key)",
         "[]",
     );
 
@@ -44,12 +47,12 @@ pub fn seed_and_load_variables() -> HashMap<String, String> {
     //    Email: admin@solobase.local / Password: admin
     //    This is local-only (OPFS) so a simple default is acceptable.
     bridge::db_exec_raw(
-        "INSERT OR IGNORE INTO variables (id, key, name, description, value, sensitive, created_at, updated_at)
+        "INSERT OR IGNORE INTO suppers_ai__admin__variables (id, key, name, description, value, sensitive, created_at, updated_at)
          VALUES ('var_admin_email', 'SUPPERS_AI__AUTH__ADMIN_EMAIL', 'Admin Email', 'Admin account email', 'admin@solobase.local', 0, datetime('now'), datetime('now'))",
         "[]",
     );
     bridge::db_exec_raw(
-        "INSERT OR IGNORE INTO variables (id, key, name, description, value, sensitive, created_at, updated_at)
+        "INSERT OR IGNORE INTO suppers_ai__admin__variables (id, key, name, description, value, sensitive, created_at, updated_at)
          VALUES ('var_admin_pass', 'SUPPERS_AI__AUTH__ADMIN_PASSWORD', 'Admin Password', 'Admin account password', 'admin', 1, datetime('now'), datetime('now'))",
         "[]",
     );
@@ -57,7 +60,7 @@ pub fn seed_and_load_variables() -> HashMap<String, String> {
     // Inject the page-side WebLLM engine into every SSR-rendered page.
     // Native/server targets leave this var unset and skip the injection.
     bridge::db_exec_raw(
-        "INSERT OR IGNORE INTO variables (id, key, name, description, value, sensitive, created_at, updated_at)
+        "INSERT OR IGNORE INTO suppers_ai__admin__variables (id, key, name, description, value, sensitive, created_at, updated_at)
          VALUES ('var_embedded_scripts', 'SOLOBASE_SHARED__EMBEDDED_SCRIPTS', 'Embedded Scripts', 'Module-type script URLs embedded in every page', '/webllm-engine.js', 0, datetime('now'), datetime('now'))",
         "[]",
     );
@@ -66,7 +69,7 @@ pub fn seed_and_load_variables() -> HashMap<String, String> {
     seed_auto_generated();
 
     // 3. Load all variables
-    let json = bridge::db_query_raw("SELECT key, value FROM variables", "[]");
+    let json = bridge::db_query_raw("SELECT key, value FROM suppers_ai__admin__variables", "[]");
     let rows: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap_or_default();
 
     let mut vars = HashMap::new();
@@ -122,7 +125,7 @@ fn seed_auto_generated() {
             sensitive
         ]);
         bridge::db_exec_raw(
-            "INSERT OR IGNORE INTO variables (id, key, name, description, value, warning, sensitive, created_at, updated_at)
+            "INSERT OR IGNORE INTO suppers_ai__admin__variables (id, key, name, description, value, warning, sensitive, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
             &params.to_string(),
         );
