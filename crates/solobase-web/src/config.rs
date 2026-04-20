@@ -54,6 +54,14 @@ pub fn seed_and_load_variables() -> HashMap<String, String> {
         "[]",
     );
 
+    // Inject the page-side WebLLM engine into every SSR-rendered page.
+    // Native/server targets leave this var unset and skip the injection.
+    bridge::db_exec_raw(
+        "INSERT OR IGNORE INTO variables (id, key, name, description, value, sensitive, created_at, updated_at)
+         VALUES ('var_embedded_scripts', 'SOLOBASE_SHARED__EMBEDDED_SCRIPTS', 'Embedded Scripts', 'Module-type script URLs embedded in every page', '/webllm-engine.js', 0, datetime('now'), datetime('now'))",
+        "[]",
+    );
+
     // 3. Auto-generate secrets for config vars marked with auto_generate
     seed_auto_generated();
 

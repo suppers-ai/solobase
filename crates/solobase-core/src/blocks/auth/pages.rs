@@ -51,6 +51,12 @@ fn site_config(settings: &HashMap<String, String>) -> SiteConfig {
         },
         logo_icon_url: get(settings, "SOLOBASE_SHARED__LOGO_ICON_URL", "").to_string(),
         favicon_url: get(settings, "SOLOBASE_SHARED__FAVICON_URL", "").to_string(),
+        embedded_scripts: get(settings, "SOLOBASE_SHARED__EMBEDDED_SCRIPTS", "")
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect(),
     }
 }
 
