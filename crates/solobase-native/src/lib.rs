@@ -18,9 +18,14 @@ pub mod network;
 pub mod serve;
 pub mod storage;
 
+pub use crypto::make_jwt_crypto_service;
+
 pub use database::make_sqlite_database_service;
 #[cfg(feature = "postgres")]
 pub use database::make_postgres_database_service;
+
+pub use logger::make_tracing_logger;
+pub use network::make_fetch_network_service;
 
 pub use storage::make_local_storage_service;
 #[cfg(feature = "s3")]
