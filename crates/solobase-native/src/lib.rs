@@ -18,6 +18,8 @@ pub mod network;
 pub mod serve;
 pub mod storage;
 
+pub use env::{collect_app_env_vars, load_dotenv, InfraConfig};
+
 pub use crypto::make_jwt_crypto_service;
 
 pub use database::make_sqlite_database_service;
