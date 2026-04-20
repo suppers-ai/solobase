@@ -11,7 +11,6 @@ use wafer_core::interfaces::config::service::ConfigService;
 use wasm_bindgen::prelude::*;
 
 pub mod config;
-pub mod llm;
 
 const SOLOBASE_CSP: &str = concat!(
     "default-src 'self'; ",
@@ -52,7 +51,7 @@ pub async fn initialize() -> Result<(), JsValue> {
     }
 
     let browser_llm: Arc<dyn wafer_core::interfaces::llm::service::LlmService> =
-        Arc::new(llm::BrowserLlmService::new());
+        Arc::new(solobase_browser::llm::BrowserLlmService::new());
 
     let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(solobase_browser::make_database_service())
