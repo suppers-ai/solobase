@@ -17,17 +17,28 @@ pub struct SiteConfig {
     pub logo_url: String,
     pub logo_icon_url: String,
     pub favicon_url: String,
+    /// Extra module-type script URLs appended to every rendered page.
+    /// Browser targets populate this (e.g. `/webllm-engine.js` for the
+    /// page-side LLM engine); native targets leave it empty.
+    pub embedded_scripts: Vec<String>,
 }
 
 impl SiteConfig {
     /// Load site config from the WAFER config system (env vars / variables table).
     pub async fn load(ctx: &dyn wafer_run::context::Context) -> Self {
         use wafer_core::clients::config;
+        let scripts_raw = config::get_default(ctx, "SOLOBASE_SHARED__EMBEDDED_SCRIPTS", "").await;
         Self {
             app_name: config::get_default(ctx, "SOLOBASE_SHARED__APP_NAME", "Solobase").await,
             logo_url: config::get_default(ctx, "SOLOBASE_SHARED__LOGO_URL", "").await,
             logo_icon_url: config::get_default(ctx, "SOLOBASE_SHARED__LOGO_ICON_URL", "").await,
             favicon_url: config::get_default(ctx, "SOLOBASE_SHARED__FAVICON_URL", "").await,
+            embedded_scripts: scripts_raw
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect(),
         }
     }
 }

@@ -853,6 +853,7 @@ impl AuthBlock {
             logo_url: logo_url.clone(),
             logo_icon_url: String::new(),
             favicon_url: String::new(),
+            embedded_scripts: Vec::new(),
         };
 
         let markup = ui::layout::centered_page(
@@ -1023,6 +1024,7 @@ fn html_respond(title: &str, message: &str, success: bool, logo_url: &str) -> Ou
         logo_url: logo_url.to_string(),
         logo_icon_url: String::new(),
         favicon_url: String::new(),
+        embedded_scripts: Vec::new(),
     };
     let markup = ui::layout::centered_page(
         title,

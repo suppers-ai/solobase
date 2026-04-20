@@ -24,6 +24,9 @@ pub fn page(title: &str, config: &SiteConfig, body: Markup) -> Markup {
                 div #toast-container .toast-container {}
                 script { (PreEscaped(assets::toast_js())) }
                 script { (PreEscaped(assets::modal_js())) }
+                @for src in &config.embedded_scripts {
+                    script type="module" src=(src) {}
+                }
             }
         }
     }
