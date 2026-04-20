@@ -4624,6 +4624,32 @@ dependencies = [
 name = "solobase-native"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "dotenvy",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "wafer-block-crypto",
+ "wafer-block-http-listener",
+ "wafer-block-local-storage",
+ "wafer-block-logger",
+ "wafer-block-network",
+ "wafer-block-postgres",
+ "wafer-block-s3",
+ "wafer-block-sqlite",
+ "wafer-core",
+ "wafer-run",
+]
+
+[[package]]
+name = "solobase-server"
+version = "0.1.0"
+dependencies = [
  "chrono",
  "dotenvy",
  "getrandom 0.2.17",

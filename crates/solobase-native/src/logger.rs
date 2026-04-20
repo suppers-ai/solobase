@@ -1,0 +1,1 @@
+//! Logger platform-service factory.

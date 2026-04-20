@@ -1,0 +1,19 @@
+//! Native platform services and bootstrap helpers for WAFER-based server
+//! apps. Sibling to `solobase-browser`; provides the same shape (factory
+//! functions per service, lightweight bootstrap helpers, a runtime /
+//! serve layer) so a consumer's entrypoint looks structurally identical
+//! across both targets.
+//!
+//! The library contains zero solobase-app-specific knowledge — app-level
+//! schema work (reading/seeding `variables` tables, per-block config
+//! JSON, SolobaseBuilder composition) lives in the consumer's binary.
+
+pub mod crypto;
+pub mod database;
+pub mod env;
+pub mod hooks;
+pub mod log_init;
+pub mod logger;
+pub mod network;
+pub mod serve;
+pub mod storage;
