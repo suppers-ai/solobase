@@ -28,6 +28,8 @@ pub mod crypto;
 #[cfg(target_arch = "wasm32")]
 pub mod database;
 #[cfg(target_arch = "wasm32")]
+pub mod llm;
+#[cfg(target_arch = "wasm32")]
 pub mod logger;
 #[cfg(target_arch = "wasm32")]
 pub mod network;
