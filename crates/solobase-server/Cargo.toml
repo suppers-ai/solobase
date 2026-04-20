@@ -31,6 +31,7 @@ native-embedding = ["solobase/native-embedding"]
 # Solobase library (platform-agnostic builder + flows + router)
 solobase = { path = "../solobase" }
 solobase-core = { path = "../solobase-core", default-features = false }
+solobase-native = { path = "../solobase-native" }
 
 # WAFER runtime
 wafer-run = { workspace = true, features = ["full"] }

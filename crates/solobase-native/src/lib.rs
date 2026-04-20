@@ -17,3 +17,7 @@ pub mod logger;
 pub mod network;
 pub mod serve;
 pub mod storage;
+
+pub use database::make_sqlite_database_service;
+#[cfg(feature = "postgres")]
+pub use database::make_postgres_database_service;
