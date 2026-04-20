@@ -6,7 +6,9 @@
 pub mod bridge;
 pub mod catalog;
 pub mod openai_codec;
+#[cfg(target_arch = "wasm32")]
 pub mod service;
 
 pub use catalog::{default_catalog, ModelCatalog};
+#[cfg(target_arch = "wasm32")]
 pub use service::BrowserLlmService;
