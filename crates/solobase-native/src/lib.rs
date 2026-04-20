@@ -35,3 +35,5 @@ pub use network::make_fetch_network_service;
 pub use storage::make_local_storage_service;
 #[cfg(feature = "s3")]
 pub use storage::{make_s3_storage_service, S3Config};
+
+pub use serve::{register_http_listener, serve_until_shutdown};
