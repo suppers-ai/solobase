@@ -13,14 +13,9 @@ path = "src/main.rs"
 default = ["sqlite", "storage-local"]
 sqlite = ["solobase-core/sqlite"]
 storage-local = ["solobase-core/storage-local"]
-otel = [
-    "dep:opentelemetry",
-    "dep:opentelemetry_sdk",
-    "dep:opentelemetry-otlp",
-    "dep:tracing-opentelemetry",
-]
-storage-s3 = ["solobase-core/storage-s3", "dep:wafer-block-s3"]
-postgres = ["solobase-core/postgres", "dep:wafer-block-postgres"]
+otel = ["solobase-native/otel"]
+storage-s3 = ["solobase-core/storage-s3", "solobase-native/s3"]
+postgres = ["solobase-core/postgres", "solobase-native/postgres"]
 # Native ONNX-backed embedding + SQLite vector service. Propagates to the
 # solobase library so `SolobaseBuilder::build()` will register the
 # `wafer-run/vector` runtime block and the `suppers-ai/vector` feature
@@ -37,47 +32,24 @@ solobase-native = { path = "../solobase-native" }
 wafer-run = { workspace = true, features = ["full"] }
 wafer-core = { workspace = true }
 
-# Native service implementation crates
-wafer-block-sqlite = { workspace = true }
-wafer-block-local-storage = { workspace = true }
+# Native config service
 wafer-block-config = { workspace = true }
-wafer-block-crypto = { workspace = true }
-wafer-block-network = { workspace = true }
-wafer-block-logger = { workspace = true }
-wafer-block-http-listener = { workspace = true }
-
-# Optional backends
-wafer-block-s3 = { workspace = true, optional = true }
-wafer-block-postgres = { workspace = true, optional = true }
 
 # Async runtime
 tokio = { workspace = true, features = ["full"] }
 
 # Observability
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-opentelemetry = { workspace = true, optional = true }
-opentelemetry_sdk = { workspace = true, optional = true }
-opentelemetry-otlp = { workspace = true, optional = true }
-tracing-opentelemetry = { workspace = true, optional = true }
 
 # Config loading
-dotenvy = { workspace = true }
 rusqlite = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-# Crypto
-sha2 = { workspace = true }
-hmac = "0.12"
+# Random / UUIDs (used in variable seeding)
 getrandom = "0.2"
-
-# Time
-chrono = { workspace = true }
-
-# Utils
 uuid = { workspace = true }
 
 [lints]
