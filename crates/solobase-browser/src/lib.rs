@@ -16,6 +16,11 @@
 pub mod assets;
 pub mod tools;
 
+// Pure-Rust modules — available on all targets (native + wasm32).
+// openai_codec is pure Rust and tested on native; the rest of `llm` is too
+// (stubs today, real impls later behind wasm32 cfg inside the module).
+pub mod llm;
+
 // wasm32-only — use wasm-bindgen, web-sys, js-sys.
 #[cfg(target_arch = "wasm32")]
 pub mod asset_loader;
@@ -27,8 +32,6 @@ pub mod convert;
 pub mod crypto;
 #[cfg(target_arch = "wasm32")]
 pub mod database;
-#[cfg(target_arch = "wasm32")]
-pub mod llm;
 #[cfg(target_arch = "wasm32")]
 pub mod logger;
 #[cfg(target_arch = "wasm32")]
