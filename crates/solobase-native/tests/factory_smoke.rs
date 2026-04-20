@@ -44,11 +44,15 @@ fn collect_app_env_vars_excludes_solobase_prefix() {
     std::env::set_var("NATIVE_FACTORY_SMOKE_APP_Y", "2");
 
     let vars = solobase_native::collect_app_env_vars();
-    assert!(!vars.contains_key("SOLOBASE_NATIVE_FACTORY_SMOKE_INFRA_X"),
-        "SOLOBASE_-prefixed var leaked into collect_app_env_vars output");
-    assert_eq!(vars.get("NATIVE_FACTORY_SMOKE_APP_Y").map(String::as_str),
+    assert!(
+        !vars.contains_key("SOLOBASE_NATIVE_FACTORY_SMOKE_INFRA_X"),
+        "SOLOBASE_-prefixed var leaked into collect_app_env_vars output"
+    );
+    assert_eq!(
+        vars.get("NATIVE_FACTORY_SMOKE_APP_Y").map(String::as_str),
         Some("2"),
-        "non-SOLOBASE_ var missing from collect_app_env_vars output");
+        "non-SOLOBASE_ var missing from collect_app_env_vars output"
+    );
 
     std::env::remove_var("SOLOBASE_NATIVE_FACTORY_SMOKE_INFRA_X");
     std::env::remove_var("NATIVE_FACTORY_SMOKE_APP_Y");

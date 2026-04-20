@@ -73,8 +73,12 @@ async fn main() {
     }
 
     let (mut wafer, storage_block) = SolobaseBuilder::new()
-        .database(solobase_native::make_sqlite_database_service(&infra.db_path))
-        .storage(solobase_native::make_local_storage_service(&infra.storage_root))
+        .database(solobase_native::make_sqlite_database_service(
+            &infra.db_path,
+        ))
+        .storage(solobase_native::make_local_storage_service(
+            &infra.storage_root,
+        ))
         .config(Arc::new(config_service))
         .crypto(solobase_native::make_jwt_crypto_service(jwt_secret))
         .network(solobase_native::make_fetch_network_service())
@@ -246,4 +250,3 @@ fn seed_auto_generated(conn: &rusqlite::Connection) {
         }
     }
 }
-

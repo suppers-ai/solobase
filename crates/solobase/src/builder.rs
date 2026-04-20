@@ -205,6 +205,7 @@ impl SolobaseBuilder {
         wafer.register_block("wafer-run/storage", storage_block.clone())?;
         wafer.add_alias("storage", "wafer-run/storage");
 
+        let config_ref = config.clone();
         wafer_core::service_blocks::config::register_with(&mut wafer, config)?;
         wafer_core::service_blocks::crypto::register_with(&mut wafer, crypto)?;
 
@@ -297,7 +298,33 @@ impl SolobaseBuilder {
             wafer.register_block(&name, block)?;
         }
 
-        // 9. Build and register the solobase router
+        // 9. Inject feature block configs from the ConfigService.
+        //
+        // The WAFER runtime validates required config vars at start() time by
+        // checking `block_configs` (serde_json objects), not the ConfigService
+        // directly. Feature blocks don't have explicit block_configs — they read
+        // from the config service at lifecycle(Init) time. We bridge this gap by
+        // reading each declared config var from the ConfigService and injecting
+        // the non-empty values into the wafer block_configs so that the validator
+        // sees them as provided.
+        {
+            let block_infos = solobase_core::blocks::all_block_infos();
+            for info in &block_infos {
+                let mut obj = serde_json::Map::new();
+                for cv in &info.config_keys {
+                    if let Some(val) = config_ref.get(&cv.key) {
+                        if !val.is_empty() {
+                            obj.insert(cv.key.clone(), serde_json::Value::String(val));
+                        }
+                    }
+                }
+                if !obj.is_empty() {
+                    wafer.add_block_config(&info.name, serde_json::Value::Object(obj));
+                }
+            }
+        }
+
+        // 10. Build and register the solobase router
         let feature_config: Arc<dyn FeatureConfig> = Arc::new(self.block_settings);
         let factory = NativeBlockFactory::new(shared_blocks);
         let router = SolobaseRouterBlock::with_extra_routes(
@@ -309,7 +336,7 @@ impl SolobaseBuilder {
         wafer.register_block("suppers-ai/router", Arc::new(router))?;
         wafer.add_block_config("suppers-ai/router", solobase_core::routing::routes_config());
 
-        // 10. Auto-discover WASM blocks from cwd/blocks/**/target/block.wasm
+        // 11. Auto-discover WASM blocks from cwd/blocks/**/target/block.wasm
         //     and flow JSON files from cwd/flows/**/*.json.
         //     Only available when compiled with the `wasm` feature (wasmi interpreter).
         #[cfg(feature = "wasm")]
@@ -369,7 +396,7 @@ impl SolobaseBuilder {
             }
         }
 
-        // 11. Register site-main flow
+        // 12. Register site-main flow
         crate::flows::register_site_main(&mut wafer)?;
 
         Ok((wafer, storage_block))
