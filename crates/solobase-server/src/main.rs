@@ -19,9 +19,10 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-mod app_config;
-use app_config::{load_block_settings, InfraConfig};
+mod config;
+use config::{filter_to_declared_keys, load_block_settings, load_wrap_grants};
 use solobase::builder::{self, SolobaseBuilder};
+use solobase_native::{collect_app_env_vars, load_dotenv, InfraConfig};
 use tracing_subscriber::{fmt, EnvFilter};
 use wafer_core::interfaces::config::service::ConfigService;
 use wafer_run::Wafer;
@@ -50,8 +51,8 @@ async fn main() {
         "infrastructure config loaded"
     );
 
-    // 4. Collect app config vars from env (non-SOLOBASE_* prefixed)
-    let env_vars = collect_app_env_vars();
+    // 4. Collect app config vars from env (non-SOLOBASE_* prefixed, filtered to declared keys)
+    let env_vars = filter_to_declared_keys(collect_app_env_vars());
 
     // 5. Open SQLite directly, seed variables, read config
     let vars = seed_and_load_variables(&infra.db_path, &env_vars);
@@ -96,7 +97,7 @@ async fn main() {
     register_observability_hooks(&mut wafer);
 
     // 10. Load custom WRAP grants from DB
-    let db_grants = app_config::load_wrap_grants(&infra.db_path);
+    let db_grants = load_wrap_grants(&infra.db_path);
     if !db_grants.is_empty() {
         tracing::info!(
             count = db_grants.len(),
@@ -118,47 +119,6 @@ async fn main() {
     // 14. Graceful shutdown
     wafer.shutdown().await;
     tracing::info!("solobase shutdown complete");
-}
-
-// ---------------------------------------------------------------------------
-// .env loading
-// ---------------------------------------------------------------------------
-
-/// Auto-detect `.env` file or use `SOLOBASE_ENV_FILE` override.
-fn load_dotenv() {
-    // Check for explicit path override first
-    if let Ok(path) = std::env::var("SOLOBASE_ENV_FILE") {
-        match dotenvy::from_filename(&path) {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("warning: failed to load env file '{path}': {e}");
-            }
-        }
-        return;
-    }
-
-    // Auto-detect .env in current directory (standard behavior)
-    let _ = dotenvy::dotenv();
-}
-
-/// Collect app config env vars that match declared config variable keys.
-///
-/// Only seeds env vars that are actually declared in either:
-/// - `shared_config_vars()` — platform shared variables
-/// - Block `config_keys` — block-scoped variables
-///
-/// This prevents random env vars with `__` from polluting the variables table.
-fn collect_app_env_vars() -> Vec<(String, String)> {
-    // Collect all known config var keys from declarations
-    let block_infos = solobase_core::blocks::all_block_infos();
-    let all_vars = solobase_core::config_vars::collect_all_config_vars(&block_infos);
-
-    let known_keys: std::collections::HashSet<String> =
-        all_vars.iter().map(|v| v.key.clone()).collect();
-
-    std::env::vars()
-        .filter(|(key, _)| known_keys.contains(key))
-        .collect()
 }
 
 // ---------------------------------------------------------------------------

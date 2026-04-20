@@ -1,44 +1,25 @@
-//! Infrastructure and feature configuration for solobase instances.
+//! App-specific config loading (schema-aware, depends on solobase-core).
 //!
-//! All config comes from environment variables (loaded from `.env` on startup).
-//!
-//! - `SOLOBASE_*` prefix: infrastructure (process-only, never in variables table)
-//! - Unprefixed: app config (seeded into variables table, dashboard-editable)
+//! `filter_to_declared_keys` sits between the library's raw-env-var
+//! collection and the SQLite-backed variable seeding, preserving the
+//! prior behavior of only persisting env vars that match a declared
+//! block/shared config var key.
 
 use std::collections::HashMap;
 
 pub use solobase_core::features::BlockSettings;
 
-// ---------------------------------------------------------------------------
-// InfraConfig — read from SOLOBASE_* env vars
-// ---------------------------------------------------------------------------
-
-/// Infrastructure configuration read from `SOLOBASE_*` environment variables.
-#[derive(Debug)]
-pub struct InfraConfig {
-    pub listen: String,
-    pub db_type: String,
-    pub db_path: String,
-    pub db_url: Option<String>,
-    pub storage_type: String,
-    pub storage_root: String,
-}
-
-impl InfraConfig {
-    pub fn from_env() -> Self {
-        Self {
-            listen: env_or("SOLOBASE_LISTEN", "0.0.0.0:8090"),
-            db_type: env_or("SOLOBASE_DB_TYPE", "sqlite"),
-            db_path: env_or("SOLOBASE_DB_PATH", "data/solobase.db"),
-            db_url: std::env::var("SOLOBASE_DB_URL").ok(),
-            storage_type: env_or("SOLOBASE_STORAGE_TYPE", "local"),
-            storage_root: env_or("SOLOBASE_STORAGE_ROOT", "data/storage"),
-        }
-    }
-}
-
-fn env_or(key: &str, default: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| default.to_string())
+pub fn filter_to_declared_keys(
+    env_vars: HashMap<String, String>,
+) -> Vec<(String, String)> {
+    let block_infos = solobase_core::blocks::all_block_infos();
+    let all_vars = solobase_core::config_vars::collect_all_config_vars(&block_infos);
+    let known: std::collections::HashSet<String> =
+        all_vars.iter().map(|v| v.key.clone()).collect();
+    env_vars
+        .into_iter()
+        .filter(|(k, _)| known.contains(k))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
