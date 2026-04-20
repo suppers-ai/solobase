@@ -23,7 +23,8 @@ mod config;
 use config::{filter_to_declared_keys, load_block_settings, load_wrap_grants};
 use solobase::builder::{self, SolobaseBuilder};
 use solobase_native::{
-    collect_app_env_vars, init_tracing, load_dotenv, register_observability_hooks, InfraConfig,
+    collect_app_env_vars, init_tracing, load_dotenv, register_http_listener,
+    register_observability_hooks, serve_until_shutdown, InfraConfig,
 };
 use wafer_core::interfaces::config::service::ConfigService;
 
@@ -87,11 +88,7 @@ async fn main() {
         .expect("failed to build solobase runtime");
 
     // 8. Native-only: register http-listener
-    wafer_block_http_listener::register(&mut wafer).expect("register http-listener");
-    wafer.add_block_config(
-        "wafer-run/http-listener",
-        serde_json::json!({ "flow": "site-main", "listen": infra.listen }),
-    );
+    register_http_listener(&mut wafer, &infra.listen);
 
     // 9. Register observability hooks
     register_observability_hooks(&mut wafer);
@@ -113,11 +110,8 @@ async fn main() {
     builder::post_start(&wafer, &storage_block);
     tracing::info!("WAFER runtime started — all blocks resolved");
 
-    // 13. Wait for shutdown signal
-    shutdown_signal().await;
-
-    // 14. Graceful shutdown
-    wafer.shutdown().await;
+    // 13. Wait for shutdown signal, then graceful shutdown
+    serve_until_shutdown(&wafer).await;
     tracing::info!("solobase shutdown complete");
 }
 
@@ -253,30 +247,3 @@ fn seed_auto_generated(conn: &rusqlite::Connection) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Graceful shutdown
-// ---------------------------------------------------------------------------
-
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => tracing::info!("received Ctrl+C — shutting down"),
-        _ = terminate => tracing::info!("received SIGTERM — shutting down"),
-    }
-}
