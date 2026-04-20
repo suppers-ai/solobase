@@ -11,6 +11,7 @@ fn default_app() -> AppConfig {
         app_name: None,
         app_title: None,
         boot_redirect: None,
+        extra_bypass_prefix: Vec::new(),
     }
 }
 
