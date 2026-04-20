@@ -27,6 +27,8 @@ pub use database::make_sqlite_database_service;
 #[cfg(feature = "postgres")]
 pub use database::make_postgres_database_service;
 
+pub use hooks::register_observability_hooks;
+
 pub use logger::make_tracing_logger;
 pub use network::make_fetch_network_service;
 

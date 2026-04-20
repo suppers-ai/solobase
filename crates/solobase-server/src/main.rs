@@ -22,9 +22,10 @@ use std::{collections::HashMap, sync::Arc};
 mod config;
 use config::{filter_to_declared_keys, load_block_settings, load_wrap_grants};
 use solobase::builder::{self, SolobaseBuilder};
-use solobase_native::{collect_app_env_vars, init_tracing, load_dotenv, InfraConfig};
+use solobase_native::{
+    collect_app_env_vars, init_tracing, load_dotenv, register_observability_hooks, InfraConfig,
+};
 use wafer_core::interfaces::config::service::ConfigService;
-use wafer_run::Wafer;
 
 // ---------------------------------------------------------------------------
 // Main
@@ -250,34 +251,6 @@ fn seed_auto_generated(conn: &rusqlite::Connection) {
             tracing::warn!(key = %var.key, "auto-generated secret (not found in variables table)");
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Observability hooks
-// ---------------------------------------------------------------------------
-
-fn register_observability_hooks(wafer: &mut Wafer) {
-    wafer.hooks.on_flow_start(|flow_id, _msg| {
-        tracing::info_span!("flow", flow = %flow_id).in_scope(|| {});
-    });
-
-    wafer.hooks.on_block_end(|obs_ctx, duration| {
-        tracing::debug!(
-            flow   = %obs_ctx.flow_id,
-            block  = %obs_ctx.block_name,
-            trace  = %obs_ctx.trace_id,
-            ms     = duration.as_millis() as u64,
-            "block executed"
-        );
-    });
-
-    wafer.hooks.on_flow_end(|flow_id, duration| {
-        tracing::info!(
-            flow   = %flow_id,
-            ms     = duration.as_millis() as u64,
-            "flow completed"
-        );
-    });
 }
 
 // ---------------------------------------------------------------------------
