@@ -27,6 +27,8 @@ wafer-block = { workspace = true }
 wafer-block-config = { workspace = true }
 wafer-block-crypto = { workspace = true }
 async-trait = "0.1"
+futures = "0.3"
+tokio-util = { version = "0.7", default-features = false }
 serde-wasm-bindgen = "0.6"
 hex = "0.4"
 pbkdf2 = "0.12"
