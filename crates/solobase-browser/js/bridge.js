@@ -1,11 +1,13 @@
 // sql.js ESM wrapper is statically imported. Dynamic import() is forbidden in
-// Service Workers, so this must be a static import. The ESM wrapper is created
-// by the build (Makefile) from the UMD sql-wasm.js.
-import initSqlJs from '/sql-wasm-esm.js';
+// Service Workers, so this must be a static import. The wrapper is vendored
+// inside solobase-browser and written to `/vendor/sql-wasm-esm.js` by the
+// framework's `export-assets` bin; `/vendor/sql-wasm.wasm` is the matching
+// binary loaded by sql.js at runtime via its `locateFile` callback.
+import initSqlJs from '/vendor/sql-wasm-esm.js';
 
 // Module-level state
 let _db = null;
-const SQL_WASM_PATH = '/sql-wasm.wasm';
+const SQL_WASM_PATH = '/vendor/sql-wasm.wasm';
 const DB_FILENAME = 'solobase.db';
 
 // ─── Database (sql.js) ────────────────────────────────────────────────────────

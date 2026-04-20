@@ -58,15 +58,17 @@ self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
     // Only intercept same-origin requests
     if (url.origin !== self.location.origin) return;
-    // Don't intercept requests for static assets served from CDN
+    // Don't intercept requests for the SW's own script, the boot loader, or
+    // the wasm-pack / bundler output. `/` and `/index.html` are intentionally
+    // INTERCEPTED so the consumer's router can render a UI block at root.
+    // Consumers who want to serve a raw bootstrap shell at `/` should
+    // bootstrap from `/loader.js` at a different shell URL.
     if (url.pathname === '/sw.js' ||
         url.pathname === '/loader.js' ||
-        url.pathname === '/manifest.json' ||
-        url.pathname === '/index.html' ||
-        url.pathname === '/' ||
         url.pathname === '/asset-manifest.json' ||
         url.pathname.startsWith('__WASM_JS_PREFIX__') ||
         url.pathname.startsWith('/snippets/') ||
+        url.pathname.startsWith('/vendor/') ||
         url.pathname.startsWith('/sql-')) {
         return;
     }
