@@ -9,13 +9,10 @@ use std::collections::HashMap;
 
 pub use solobase_core::features::BlockSettings;
 
-pub fn filter_to_declared_keys(
-    env_vars: HashMap<String, String>,
-) -> Vec<(String, String)> {
+pub fn filter_to_declared_keys(env_vars: HashMap<String, String>) -> Vec<(String, String)> {
     let block_infos = solobase_core::blocks::all_block_infos();
     let all_vars = solobase_core::config_vars::collect_all_config_vars(&block_infos);
-    let known: std::collections::HashSet<String> =
-        all_vars.iter().map(|v| v.key.clone()).collect();
+    let known: std::collections::HashSet<String> = all_vars.iter().map(|v| v.key.clone()).collect();
     env_vars
         .into_iter()
         .filter(|(k, _)| known.contains(k))
