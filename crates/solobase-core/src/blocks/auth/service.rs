@@ -1,0 +1,167 @@
+//! AuthServiceImpl — implements the wafer-core `AuthService` trait.
+//!
+//! Extracts credentials from incoming [`Message`]s (Bearer header or
+//! `wafer_session` cookie), looks them up in the `suppers_ai__auth__sessions`
+//! or `suppers_ai__auth__personal_access_tokens` tables, and bumps
+//! `last_used_at`.
+//!
+//! See `docs/superpowers/specs/2026-04-21-auth-block-design.md` §4 for the
+//! cross-block contract and §6 for the bootstrap-token fallback.
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use sha2::{Digest, Sha256};
+use wafer_core::interfaces::auth::service::{
+    AuthError, AuthService, Role, TokenScope, UserId, UserProfile,
+};
+use wafer_run::{context::Context, types::Message};
+
+#[allow(unused_imports)]
+use super::repo::{pats, sessions, users};
+
+/// Per-block state captured at `register` time. Holds the [`Context`] handle
+/// so service methods can dispatch messages to `wafer-run/database` etc.
+#[derive(Clone)]
+pub struct BlockState {
+    /// The auth block's context. In production this is the `&dyn Context`
+    /// forwarded from `Block::handle`; in tests it's the in-memory sqlite
+    /// context. Stored as `Arc` so `AuthServiceImpl` can be cloned into
+    /// multiple call sites.
+    pub ctx: Arc<dyn Context>,
+}
+
+impl BlockState {
+    pub fn new(ctx: Arc<dyn Context>) -> Self {
+        Self { ctx }
+    }
+
+    /// Test-only constructor. Kept simple on purpose — takes the same
+    /// `Arc<dyn Context>` as production but exists so test setup reads
+    /// naturally and so the two entry points are clearly labelled.
+    pub fn for_test(ctx: Arc<dyn Context>) -> Self {
+        Self { ctx }
+    }
+}
+
+/// `AuthService` implementation backed by the auth block's repo layer.
+pub struct AuthServiceImpl {
+    state: BlockState,
+}
+
+impl AuthServiceImpl {
+    pub fn new(state: BlockState) -> Self {
+        Self { state }
+    }
+}
+
+/// sha256 of a raw token string. Exposed so tests and the (future) session
+/// issuance helper in Plan A2 agree on the hash format.
+pub fn hash_token(raw: &str) -> Vec<u8> {
+    Sha256::digest(raw.as_bytes()).to_vec()
+}
+
+/// Extract a Bearer token from the `Authorization` header.
+fn bearer_from(msg: &Message) -> Option<String> {
+    let v = msg.header("authorization");
+    if v.is_empty() {
+        return None;
+    }
+    v.strip_prefix("Bearer ").map(str::to_owned)
+}
+
+/// Extract the `wafer_session` cookie value, if any.
+fn session_cookie_from(msg: &Message) -> Option<String> {
+    let v = msg.cookie("wafer_session");
+    if v.is_empty() {
+        None
+    } else {
+        Some(v.to_owned())
+    }
+}
+
+fn now_iso() -> String {
+    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+/// Internal credential classification used by all three require_* methods.
+enum Creds {
+    Session(Vec<u8>),
+    Pat(Vec<u8>),
+}
+
+fn extract_creds(msg: &Message) -> Result<Creds, AuthError> {
+    if let Some(bearer) = bearer_from(msg) {
+        return Ok(Creds::Pat(hash_token(&bearer)));
+    }
+    if let Some(cookie) = session_cookie_from(msg) {
+        return Ok(Creds::Session(hash_token(&cookie)));
+    }
+    Err(AuthError::Unauthorized)
+}
+
+#[async_trait]
+impl AuthService for AuthServiceImpl {
+    async fn require_user(&self, msg: &Message) -> Result<UserId, AuthError> {
+        let ctx = self.state.ctx.as_ref();
+        match extract_creds(msg)? {
+            Creds::Session(h) => {
+                let row = sessions::find_by_token_hash(ctx, &h)
+                    .await
+                    .map_err(|e| AuthError::Internal(e.to_string()))?
+                    .ok_or(AuthError::Unauthorized)?;
+                if row.expires_at.as_str() < now_iso().as_str() {
+                    return Err(AuthError::Unauthorized);
+                }
+                sessions::touch_last_used(ctx, &h)
+                    .await
+                    .map_err(|e| AuthError::Internal(e.to_string()))?;
+                Ok(UserId(row.user_id))
+            }
+            Creds::Pat(h) => {
+                let row = pats::find_by_token_hash(ctx, &h)
+                    .await
+                    .map_err(|e| AuthError::Internal(e.to_string()))?
+                    .ok_or(AuthError::Unauthorized)?;
+                if let Some(exp) = row.expires_at.as_deref() {
+                    if exp < now_iso().as_str() {
+                        return Err(AuthError::Unauthorized);
+                    }
+                }
+                pats::touch_last_used(ctx, &h)
+                    .await
+                    .map_err(|e| AuthError::Internal(e.to_string()))?;
+                Ok(UserId(row.user_id))
+            }
+        }
+    }
+
+    // Stubs below — implemented in later tasks of Plan A1.
+    async fn require_token(&self, _msg: &Message, _scope: TokenScope) -> Result<UserId, AuthError> {
+        Err(AuthError::Internal(
+            "require_token: not yet implemented (Task 8)".into(),
+        ))
+    }
+
+    async fn require_role(&self, _msg: &Message, _role: Role) -> Result<UserId, AuthError> {
+        Err(AuthError::Internal(
+            "require_role: not yet implemented (Task 9)".into(),
+        ))
+    }
+
+    async fn verify_org_admin(
+        &self,
+        _user: UserId,
+        _provider: &str,
+        _org_ref: &str,
+    ) -> Result<bool, AuthError> {
+        // Lands in Plan C (org-ownership verification).
+        Ok(false)
+    }
+
+    async fn user_profile(&self, _user: UserId) -> Result<UserProfile, AuthError> {
+        Err(AuthError::Internal(
+            "user_profile: not yet implemented (Task 10)".into(),
+        ))
+    }
+}
