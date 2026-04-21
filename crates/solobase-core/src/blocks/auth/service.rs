@@ -136,11 +136,35 @@ impl AuthService for AuthServiceImpl {
         }
     }
 
-    // Stubs below — implemented in later tasks of Plan A1.
-    async fn require_token(&self, _msg: &Message, _scope: TokenScope) -> Result<UserId, AuthError> {
-        Err(AuthError::Internal(
-            "require_token: not yet implemented (Task 8)".into(),
-        ))
+    async fn require_token(&self, msg: &Message, scope: TokenScope) -> Result<UserId, AuthError> {
+        let ctx = self.state.ctx.as_ref();
+        let creds = extract_creds(msg)?;
+        // Scopes live exclusively on PATs. A session cookie presented here is
+        // a category error — treat it as Forbidden so the caller knows the
+        // credentials are valid but wrong type, not just missing.
+        let h = match creds {
+            Creds::Pat(h) => h,
+            Creds::Session(_) => return Err(AuthError::Forbidden),
+        };
+        let row = pats::find_by_token_hash(ctx, &h)
+            .await
+            .map_err(|e| AuthError::Internal(e.to_string()))?
+            .ok_or(AuthError::Unauthorized)?;
+        if let Some(exp) = row.expires_at.as_deref() {
+            if exp < now_iso().as_str() {
+                return Err(AuthError::Unauthorized);
+            }
+        }
+        let needed = match scope {
+            TokenScope::Publish => "publish",
+        };
+        if !row.scopes.iter().any(|s| s == needed) {
+            return Err(AuthError::Forbidden);
+        }
+        pats::touch_last_used(ctx, &h)
+            .await
+            .map_err(|e| AuthError::Internal(e.to_string()))?;
+        Ok(UserId(row.user_id))
     }
 
     async fn require_role(&self, _msg: &Message, _role: Role) -> Result<UserId, AuthError> {
