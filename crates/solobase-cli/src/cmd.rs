@@ -30,7 +30,8 @@ pub fn format_child_error(step: &str, cmd: &Command, exit_code: Option<i32>, std
 
 /// Run `cmd` inheriting stdio, and map non-zero exits to an `anyhow::Error`.
 /// The child's stderr streams directly to the parent, so the user sees it
-/// live. The error returned just names the step + command + exit code.
+/// live. The error returned uses the same format as `format_child_error`
+/// with a `(stderr streamed above)` placeholder instead of a captured tail.
 pub fn run(step: &str, mut cmd: Command) -> anyhow::Result<()> {
     let status = cmd
         .status()
@@ -38,23 +39,12 @@ pub fn run(step: &str, mut cmd: Command) -> anyhow::Result<()> {
     if status.success() {
         return Ok(());
     }
-    let program = cmd.get_program().to_string_lossy();
-    let args: Vec<String> = cmd
-        .get_args()
-        .map(|a| a.to_string_lossy().to_string())
-        .collect();
-    let cmd_line = if args.is_empty() {
-        program.to_string()
-    } else {
-        format!("{} {}", program, args.join(" "))
-    };
-    let code = status
-        .code()
-        .map(|c| c.to_string())
-        .unwrap_or_else(|| "<signal>".to_string());
-    Err(anyhow::anyhow!(
-        "error: {step} failed\n  command: {cmd_line}\n  exit code: {code}\n  (stderr streamed above)"
-    ))
+    Err(anyhow::Error::msg(format_child_error(
+        step,
+        &cmd,
+        status.code(),
+        "(stderr streamed above)",
+    )))
 }
 
 #[cfg(test)]
