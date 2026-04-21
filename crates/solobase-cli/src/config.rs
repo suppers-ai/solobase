@@ -56,6 +56,36 @@ pub fn parse(toml_text: &str) -> Result<Config, toml::de::Error> {
     toml::from_str(toml_text)
 }
 
+use std::path::{Path, PathBuf};
+
+/// Walk up from `start` looking for `solobase.toml`; parse and return
+/// `(config, repo_root)` where `repo_root` is the directory that contains
+/// the file.
+pub fn find_and_load(start: &Path) -> anyhow::Result<(Config, PathBuf)> {
+    let start = start
+        .canonicalize()
+        .map_err(|e| anyhow::anyhow!("canonicalize {start:?}: {e}"))?;
+    let mut cur: &Path = &start;
+    loop {
+        let candidate = cur.join("solobase.toml");
+        if candidate.is_file() {
+            let text = std::fs::read_to_string(&candidate)
+                .map_err(|e| anyhow::anyhow!("read {candidate:?}: {e}"))?;
+            let cfg = parse(&text)
+                .map_err(|e| anyhow::anyhow!("parse {candidate:?}: {e}"))?;
+            return Ok((cfg, cur.to_path_buf()));
+        }
+        match cur.parent() {
+            Some(p) => cur = p,
+            None => {
+                return Err(anyhow::anyhow!(
+                    "no solobase.toml found in {start:?} or any parent directory"
+                ));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,5 +164,39 @@ extra_bypass_prefix = []
         let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("app"), "expected error to mention 'app', got: {msg}");
+    }
+
+    #[test]
+    fn find_config_walks_up() {
+        use std::fs;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::write(
+            root.join("solobase.toml"),
+            r#"
+[app]
+name = "x"
+title = "y"
+boot_redirect = "/"
+"#,
+        )
+        .unwrap();
+        let nested = root.join("sub/dir");
+        fs::create_dir_all(&nested).unwrap();
+
+        let (cfg, repo_root) = find_and_load(&nested).unwrap();
+        assert_eq!(cfg.app.name, "x");
+        assert_eq!(
+            repo_root.canonicalize().unwrap(),
+            root.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn find_config_not_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = find_and_load(tmp.path()).unwrap_err().to_string();
+        assert!(err.contains("solobase.toml"));
+        assert!(err.contains("no"));
     }
 }
