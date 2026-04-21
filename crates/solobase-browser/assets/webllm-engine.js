@@ -77,6 +77,12 @@ async function handleChatStream(msg) {
 function handleCancel(msg) {
     const ac = _activeStreams.get(msg.id);
     if (ac) ac.abort();
+    // WebLLM's chat.completions iterator doesn't accept an AbortSignal, but
+    // `interruptGenerate()` sets an internal flag the token loop checks —
+    // this is the only way to actually stop GPU work mid-generation.
+    if (_engine && typeof _engine.interruptGenerate === 'function') {
+        _engine.interruptGenerate();
+    }
 }
 
 navigator.serviceWorker.addEventListener('message', (event) => {
