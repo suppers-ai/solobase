@@ -91,8 +91,10 @@ async fn main() {
         .build()
         .expect("failed to build solobase runtime");
 
-    // 8. Native-only: register http-listener
-    register_http_listener(&mut wafer, &infra.listen);
+    // 8. Native-only: register http-listener.
+    //    solobase dispatches all HTTP traffic through the `site-main` flow
+    //    (see crates/solobase/src/flows/site_main.rs).
+    register_http_listener(&mut wafer, &infra.listen, "site-main");
 
     // 9. Register observability hooks
     register_observability_hooks(&mut wafer);

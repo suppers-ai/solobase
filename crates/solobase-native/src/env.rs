@@ -26,9 +26,47 @@ pub fn load_dotenv() {
 /// match declared config var keys) should apply their own filter on top
 /// of this result.
 pub fn collect_app_env_vars() -> HashMap<String, String> {
-    std::env::vars()
+    filter_app_env_vars(std::env::vars())
+}
+
+/// Pure filter: drops any pair whose key starts with `SOLOBASE_`.
+///
+/// Split out so tests can exercise the filter without mutating the
+/// process environment (which is `unsafe` in Rust 2024 and races with
+/// parallel test runs).
+pub(crate) fn filter_app_env_vars<I>(iter: I) -> HashMap<String, String>
+where
+    I: IntoIterator<Item = (String, String)>,
+{
+    iter.into_iter()
         .filter(|(k, _)| !k.starts_with("SOLOBASE_"))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filter_app_env_vars_excludes_solobase_prefix() {
+        let input = vec![
+            ("SOLOBASE_INFRA_X".to_string(), "1".to_string()),
+            ("APP_Y".to_string(), "2".to_string()),
+            ("SOLOBASE_SHARED__FOO".to_string(), "3".to_string()),
+            ("PATH".to_string(), "/usr/bin".to_string()),
+        ];
+        let out = filter_app_env_vars(input);
+        assert!(!out.contains_key("SOLOBASE_INFRA_X"));
+        assert!(!out.contains_key("SOLOBASE_SHARED__FOO"));
+        assert_eq!(out.get("APP_Y").map(String::as_str), Some("2"));
+        assert_eq!(out.get("PATH").map(String::as_str), Some("/usr/bin"));
+    }
+
+    #[test]
+    fn filter_app_env_vars_empty_iterator_returns_empty_map() {
+        let out = filter_app_env_vars(std::iter::empty());
+        assert!(out.is_empty());
+    }
 }
 
 /// Infrastructure config read from `SOLOBASE_*` env vars.

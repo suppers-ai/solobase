@@ -37,23 +37,7 @@ fn infra_config_reads_defaults_when_env_unset() {
     let _cfg = solobase_native::InfraConfig::from_env();
 }
 
-#[test]
-fn collect_app_env_vars_excludes_solobase_prefix() {
-    // Use a unique test-key prefix so parallel test runs don't collide.
-    std::env::set_var("SOLOBASE_NATIVE_FACTORY_SMOKE_INFRA_X", "1");
-    std::env::set_var("NATIVE_FACTORY_SMOKE_APP_Y", "2");
-
-    let vars = solobase_native::collect_app_env_vars();
-    assert!(
-        !vars.contains_key("SOLOBASE_NATIVE_FACTORY_SMOKE_INFRA_X"),
-        "SOLOBASE_-prefixed var leaked into collect_app_env_vars output"
-    );
-    assert_eq!(
-        vars.get("NATIVE_FACTORY_SMOKE_APP_Y").map(String::as_str),
-        Some("2"),
-        "non-SOLOBASE_ var missing from collect_app_env_vars output"
-    );
-
-    std::env::remove_var("SOLOBASE_NATIVE_FACTORY_SMOKE_INFRA_X");
-    std::env::remove_var("NATIVE_FACTORY_SMOKE_APP_Y");
-}
+// The env-filter logic is tested as a unit test against the pure
+// `filter_app_env_vars` inner function (see `src/env.rs`). Running it as an
+// integration test would have to mutate the process environment, which is
+// `unsafe` in Rust 2024 and races with parallel test runs.
