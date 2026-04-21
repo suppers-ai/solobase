@@ -62,10 +62,10 @@ pub(crate) fn clear_cookie_header() -> String {
 /// a [`StatePayload`]. Rejects non-base64url input and JSON that doesn't
 /// match the payload shape.
 pub(crate) fn parse_cookie_value(raw: &str) -> Result<StatePayload, StateCookieError> {
-    let bytes = Base64UrlUnpadded::decode_vec(raw)
-        .map_err(|e| StateCookieError::Decode(e.to_string()))?;
-    let payload: StatePayload = serde_json::from_slice(&bytes)
-        .map_err(|e| StateCookieError::Parse(e.to_string()))?;
+    let bytes =
+        Base64UrlUnpadded::decode_vec(raw).map_err(|e| StateCookieError::Decode(e.to_string()))?;
+    let payload: StatePayload =
+        serde_json::from_slice(&bytes).map_err(|e| StateCookieError::Parse(e.to_string()))?;
     Ok(payload)
 }
 
