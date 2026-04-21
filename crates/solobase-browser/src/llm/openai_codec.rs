@@ -5,9 +5,10 @@
 //! `ChatChunk`s.
 
 use std::collections::HashMap;
+
 use wafer_core::interfaces::llm::service::{
-    ChatChunk, ChatContent, ChatMessage, ChatRole, ChunkDelta, FinishReason, LlmError,
-    ToolDefinition, TokenUsage,
+    ChatChunk, ChatContent, ChatMessage, ChatRole, ChunkDelta, FinishReason, LlmError, TokenUsage,
+    ToolDefinition,
 };
 
 // ---------- Encoding ----------
@@ -30,11 +31,7 @@ pub fn encode_request_body(
             ChatRole::User => "user",
             ChatRole::Assistant => "assistant",
             ChatRole::Tool => "tool",
-            _ => {
-                return Err(LlmError::BackendError(
-                    "webllm: unknown chat role".into(),
-                ))
-            }
+            _ => return Err(LlmError::BackendError("webllm: unknown chat role".into())),
         };
 
         let content_val = match &msg.content {
@@ -56,10 +53,7 @@ pub fn encode_request_body(
         m.insert("content".into(), content_val);
 
         if let Some(id) = &msg.tool_call_id {
-            m.insert(
-                "tool_call_id".into(),
-                serde_json::Value::String(id.clone()),
-            );
+            m.insert("tool_call_id".into(), serde_json::Value::String(id.clone()));
         }
 
         if !msg.tool_calls.is_empty() {
@@ -67,7 +61,8 @@ pub fn encode_request_body(
                 .tool_calls
                 .iter()
                 .map(|tc| {
-                    let args_str = serde_json::to_string(&tc.arguments).unwrap_or_else(|_| "{}".into());
+                    let args_str =
+                        serde_json::to_string(&tc.arguments).unwrap_or_else(|_| "{}".into());
                     serde_json::json!({
                         "id": tc.id,
                         "type": "function",
@@ -146,7 +141,10 @@ impl StreamingDecoder {
             let delta = choice.get("delta");
 
             // Text content
-            if let Some(content) = delta.and_then(|d| d.get("content")).and_then(|c| c.as_str()) {
+            if let Some(content) = delta
+                .and_then(|d| d.get("content"))
+                .and_then(|c| c.as_str())
+            {
                 if !content.is_empty() {
                     out.push(ChatChunk::text(content));
                 }
@@ -158,10 +156,7 @@ impl StreamingDecoder {
                 .and_then(|t| t.as_array())
             {
                 for entry in tc_arr {
-                    let index = entry
-                        .get("index")
-                        .and_then(|i| i.as_u64())
-                        .unwrap_or(0);
+                    let index = entry.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
 
                     let entry_id = entry.get("id").and_then(|v| v.as_str());
                     let func_name = entry
@@ -192,9 +187,7 @@ impl StreamingDecoder {
                             .get(&index)
                             .map(|tc| tc.id.clone())
                             .ok_or_else(|| {
-                                LlmError::BackendError(
-                                    "tool-call arguments before start".into(),
-                                )
+                                LlmError::BackendError("tool-call arguments before start".into())
                             })?;
                         out.push(ChatChunk::delta(ChunkDelta::ToolCallArguments {
                             id,
@@ -205,9 +198,7 @@ impl StreamingDecoder {
             }
 
             // Finish reason
-            let finish_reason_str = choice
-                .get("finish_reason")
-                .and_then(|f| f.as_str());
+            let finish_reason_str = choice.get("finish_reason").and_then(|f| f.as_str());
 
             // Usage (may appear top-level or mid-stream)
             let usage = v.get("usage").and_then(parse_usage);
@@ -268,10 +259,11 @@ pub fn parse_usage(v: &serde_json::Value) -> Option<TokenUsage> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use wafer_core::interfaces::llm::service::{
         ChatContent, ChatMessage, ChatRole, ToolCall, ToolDefinition,
     };
+
+    use super::*;
 
     // ---- encode_request_body ----
 
@@ -310,9 +302,12 @@ mod tests {
 
     #[test]
     fn encode_forwards_tool_calls() {
-        let tc = ToolCall::new("call_abc", "get_weather", serde_json::json!({"city": "Paris"}));
-        let msg = ChatMessage::assistant("")
-            .with_tool_calls(vec![tc]);
+        let tc = ToolCall::new(
+            "call_abc",
+            "get_weather",
+            serde_json::json!({"city": "Paris"}),
+        );
+        let msg = ChatMessage::assistant("").with_tool_calls(vec![tc]);
         let body = encode_request_body(&[msg], &[]).unwrap();
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
         let tc = &v["messages"][0]["tool_calls"][0];
@@ -344,7 +339,10 @@ mod tests {
     fn encode_omits_tools_when_empty() {
         let body = encode_request_body(&[ChatMessage::user("hi")], &[]).unwrap();
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert!(v.get("tools").is_none(), "tools key should be absent when empty");
+        assert!(
+            v.get("tools").is_none(),
+            "tools key should be absent when empty"
+        );
     }
 
     // ---- StreamingDecoder ----
@@ -364,7 +362,9 @@ mod tests {
     fn decoder_empty_content_is_noop() {
         let mut dec = StreamingDecoder::new();
         let chunks = dec
-            .feed(r#"{"choices":[{"delta":{"content":"","role":"assistant"},"finish_reason":null}]}"#)
+            .feed(
+                r#"{"choices":[{"delta":{"content":"","role":"assistant"},"finish_reason":null}]}"#,
+            )
             .unwrap();
         assert!(chunks.is_empty());
     }
@@ -461,7 +461,9 @@ mod tests {
         assert_eq!(chunks.len(), 2);
         assert_eq!(
             chunks[0].delta,
-            ChunkDelta::ToolCallComplete { id: "call_x".into() }
+            ChunkDelta::ToolCallComplete {
+                id: "call_x".into()
+            }
         );
         assert_eq!(chunks[1].finish_reason, Some(FinishReason::ToolCall));
         assert_eq!(chunks[1].delta, ChunkDelta::Empty);
@@ -471,7 +473,10 @@ mod tests {
     fn finish_reason_maps_standard_values() {
         assert_eq!(parse_finish_reason("stop"), Some(FinishReason::Stop));
         assert_eq!(parse_finish_reason("length"), Some(FinishReason::Length));
-        assert_eq!(parse_finish_reason("tool_calls"), Some(FinishReason::ToolCall));
+        assert_eq!(
+            parse_finish_reason("tool_calls"),
+            Some(FinishReason::ToolCall)
+        );
         assert_eq!(
             parse_finish_reason("content_filter"),
             Some(FinishReason::ContentFilter)

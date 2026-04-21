@@ -19,11 +19,17 @@ fn js_err(e: wasm_bindgen::JsValue) -> LlmError {
 }
 
 pub async fn create_engine(model_id: &str) -> Result<(), LlmError> {
-    llm_create_engine(model_id).await.map(|_| ()).map_err(js_err)
+    llm_create_engine(model_id)
+        .await
+        .map(|_| ())
+        .map_err(js_err)
 }
 
 pub async fn unload_engine(model_id: &str) -> Result<(), LlmError> {
-    llm_unload_engine(model_id).await.map(|_| ()).map_err(js_err)
+    llm_unload_engine(model_id)
+        .await
+        .map(|_| ())
+        .map_err(js_err)
 }
 
 pub async fn start_chat_stream(body_json: &str) -> Result<String, LlmError> {
