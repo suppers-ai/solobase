@@ -4,11 +4,16 @@ mod config;
 mod serve;
 mod skills;
 
-use clap::{Parser, Subcommand};
 use std::process::ExitCode;
 
+use clap::{Parser, Subcommand};
+
 #[derive(Parser)]
-#[command(name = "solobase", about = "Build / dev / serve for solobase-browser consumers", version)]
+#[command(
+    name = "solobase",
+    about = "Build / dev / serve for solobase-browser consumers",
+    version
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

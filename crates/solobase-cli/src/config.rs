@@ -71,8 +71,7 @@ pub fn find_and_load(start: &Path) -> anyhow::Result<(Config, PathBuf)> {
         if candidate.is_file() {
             let text = std::fs::read_to_string(&candidate)
                 .map_err(|e| anyhow::anyhow!("read {candidate:?}: {e}"))?;
-            let cfg = parse(&text)
-                .map_err(|e| anyhow::anyhow!("parse {candidate:?}: {e}"))?;
+            let cfg = parse(&text).map_err(|e| anyhow::anyhow!("parse {candidate:?}: {e}"))?;
             return Ok((cfg, cur.to_path_buf()));
         }
         match cur.parent() {
@@ -152,7 +151,10 @@ color = "red"
 "#;
         let err = parse(input).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("color"), "expected error to mention 'color', got: {msg}");
+        assert!(
+            msg.contains("color"),
+            "expected error to mention 'color', got: {msg}"
+        );
     }
 
     #[test]
@@ -163,7 +165,10 @@ extra_bypass_prefix = []
 "#;
         let err = parse(input).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("app"), "expected error to mention 'app', got: {msg}");
+        assert!(
+            msg.contains("app"),
+            "expected error to mention 'app', got: {msg}"
+        );
     }
 
     #[test]
