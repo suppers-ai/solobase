@@ -54,6 +54,9 @@ getrandom = "0.2"
 # Time
 chrono = { workspace = true }
 
+# Unique IDs for repo row generation
+uuid = { workspace = true }
+
 # Async
 async-trait = { workspace = true }
 futures = "0.3"

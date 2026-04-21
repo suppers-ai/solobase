@@ -3,3 +3,4 @@
 mod common;
 mod migrations_001;
 mod migrations_002;
+mod repo_users;

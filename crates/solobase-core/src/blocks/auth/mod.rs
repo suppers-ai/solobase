@@ -3,6 +3,7 @@ mod login;
 pub mod migrations;
 mod oauth;
 mod pages;
+pub mod repo;
 
 use std::{collections::HashMap, time::Duration};
 
