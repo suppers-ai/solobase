@@ -72,6 +72,9 @@ tokio = { workspace = true, optional = true }
 tokio-stream = { version = "0.1", optional = true }
 reqwest = { workspace = true, features = ["stream"], optional = true }
 
+# URL parsing/building for OAuth authorize_url assembly.
+url = "2"
+
 # HTML sanitization
 ammonia = "4"
 
@@ -94,6 +97,8 @@ async-trait = { workspace = true }
 # a real axum server on an ephemeral port using reqwest as the client.
 axum = "0.8"
 reqwest = { workspace = true }
+# Mock upstream OAuth providers in integration tests.
+wiremock = "0.6"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
