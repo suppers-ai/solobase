@@ -12,13 +12,17 @@ use std::sync::Arc;
 use wafer_run::Wafer;
 
 /// Register the `wafer-run/http-listener` block on `wafer` and configure
-/// it to bind `listen_addr` and dispatch through the `site-main` flow.
-/// Must be called before `wafer.start()`.
-pub fn register_http_listener(wafer: &mut Wafer, listen_addr: &str) {
+/// it to bind `listen_addr` and dispatch through `flow_id`. Must be called
+/// before `wafer.start()`.
+///
+/// `flow_id` is the flow the listener hands requests to (e.g. `"site-main"`
+/// for solobase-server, but downstream consumers of this library pick their
+/// own flow name).
+pub fn register_http_listener(wafer: &mut Wafer, listen_addr: &str, flow_id: &str) {
     wafer_block_http_listener::register(wafer).expect("register http-listener block");
     wafer.add_block_config(
         "wafer-run/http-listener",
-        serde_json::json!({ "flow": "site-main", "listen": listen_addr }),
+        serde_json::json!({ "flow": flow_id, "listen": listen_addr }),
     );
 }
 
