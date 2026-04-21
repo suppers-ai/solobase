@@ -29,6 +29,7 @@ use super::{
     config::AuthConfig,
     handlers::{self, HttpReply},
     migrations,
+    providers::registry::ProviderRegistry,
     service::{AuthServiceImpl, BlockState},
 };
 
@@ -38,11 +39,34 @@ use super::{
 pub struct SolobaseAuthBlock {
     service: Arc<dyn AuthService>,
     config: AuthConfig,
+    /// OAuth providers enabled for this instance. Populated at construction
+    /// or explicitly via [`SolobaseAuthBlock::with_providers`]; an empty
+    /// registry causes `/auth/oauth/{provider}/…` to 404.
+    providers: ProviderRegistry,
 }
 
 impl SolobaseAuthBlock {
     pub fn new(service: Arc<dyn AuthService>, config: AuthConfig) -> Self {
-        Self { service, config }
+        Self {
+            service,
+            config,
+            providers: ProviderRegistry::empty(),
+        }
+    }
+
+    /// Construct with an explicit [`ProviderRegistry`]. Used by the
+    /// registration helper that populates it from env at startup, and by
+    /// integration tests that need a fake provider.
+    pub fn with_providers(
+        service: Arc<dyn AuthService>,
+        config: AuthConfig,
+        providers: ProviderRegistry,
+    ) -> Self {
+        Self {
+            service,
+            config,
+            providers,
+        }
     }
 
     /// List of `{METHOD} {PATH}` strings this block responds to. Test-only
@@ -55,6 +79,8 @@ impl SolobaseAuthBlock {
             "GET /auth/tokens",
             "POST /auth/tokens",
             "DELETE /auth/tokens/{id}",
+            "GET /auth/oauth/{provider}/start",
+            "GET /auth/oauth/{provider}/callback",
         ]
     }
 }
@@ -80,6 +106,23 @@ fn tokens_id(path: &str) -> Option<&str> {
     } else {
         Some(rest)
     }
+}
+
+/// Extract the `{provider}` segment from `/auth/oauth/{provider}/{action}`.
+/// Returns `None` for any path that doesn't match exactly four segments with
+/// a non-empty provider and a recognised action.
+fn oauth_route(path: &str) -> Option<(&str, &str)> {
+    let rest = path.strip_prefix("/auth/oauth/")?;
+    let mut parts = rest.splitn(2, '/');
+    let provider = parts.next()?;
+    let action = parts.next()?;
+    if provider.is_empty() || action.is_empty() || action.contains('/') {
+        return None;
+    }
+    if action != "start" && action != "callback" {
+        return None;
+    }
+    Some((provider, action))
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -120,6 +163,34 @@ impl Block for SolobaseAuthBlock {
             ("delete", p) if tokens_id(p).is_some() => {
                 let id = tokens_id(p).expect("guarded by match arm").to_string();
                 Some(handlers::tokens::delete_token(ctx, self.service.as_ref(), &msg, &id).await)
+            }
+            ("retrieve", p) if oauth_route(p).is_some() => {
+                let (provider, action) = oauth_route(p).expect("guarded by match arm");
+                match action {
+                    "start" => {
+                        let next = msg.query("next");
+                        let next = if next.is_empty() { None } else { Some(next) };
+                        Some(handlers::oauth::get_start(&self.providers, provider, next).await)
+                    }
+                    "callback" => {
+                        let code = msg.query("code");
+                        let state = msg.query("state");
+                        let cookie = msg.cookie(handlers::oauth_state::COOKIE_NAME);
+                        Some(
+                            handlers::oauth::get_callback(
+                                ctx,
+                                &self.config,
+                                &self.providers,
+                                provider,
+                                code,
+                                state,
+                                cookie,
+                            )
+                            .await,
+                        )
+                    }
+                    _ => unreachable!("oauth_route only yields start|callback"),
+                }
             }
             _ => None,
         };
@@ -166,14 +237,20 @@ pub fn register(
 
 /// Register with an explicit [`AuthConfig`]. Tests use this to inject
 /// bootstrap env values without touching a real `wafer-run/config` block.
+///
+/// Reads `SOLOBASE_SHARED__AUTH__{GITHUB,GOOGLE,MICROSOFT}__*` from the
+/// process env to decide which OAuth providers are enabled. Missing
+/// providers simply 404 at request time.
 pub fn register_with_config(
     registry: &mut dyn BlockRegistry,
     ctx: Arc<dyn Context>,
     config: AuthConfig,
 ) -> Result<(), RuntimeError> {
+    let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+    let providers = super::providers::registry::build_providers(&env);
     let svc: Arc<dyn AuthService> = Arc::new(AuthServiceImpl::new(BlockState::new(ctx)));
     registry.register_block(
         "suppers-ai/auth",
-        Arc::new(SolobaseAuthBlock::new(svc, config)),
+        Arc::new(SolobaseAuthBlock::with_providers(svc, config, providers)),
     )
 }

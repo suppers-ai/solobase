@@ -19,18 +19,31 @@ use super::microsoft::MicrosoftProvider;
 use super::OAuthProvider;
 
 /// Runtime-visible map of enabled providers, keyed by `provider.name()`.
-pub(crate) struct ProviderRegistry {
+pub struct ProviderRegistry {
     inner: HashMap<&'static str, Arc<dyn OAuthProvider>>,
 }
 
 impl ProviderRegistry {
+    /// Construct directly from a map. Used by [`build_providers`] at startup
+    /// and by integration tests that want to register a fake provider.
+    pub fn from_map(inner: HashMap<&'static str, Arc<dyn OAuthProvider>>) -> Self {
+        Self { inner }
+    }
+
+    /// Empty registry — no providers enabled. Callbacks return 404.
+    pub fn empty() -> Self {
+        Self {
+            inner: HashMap::new(),
+        }
+    }
+
     /// Look up a provider by its stable name (`"github"`, `"google"`, …).
-    pub(crate) fn get(&self, name: &str) -> Option<Arc<dyn OAuthProvider>> {
+    pub fn get(&self, name: &str) -> Option<Arc<dyn OAuthProvider>> {
         self.inner.get(name).cloned()
     }
 
     /// List names of currently-enabled providers. Order is unspecified.
-    pub(crate) fn enabled_names(&self) -> Vec<&'static str> {
+    pub fn enabled_names(&self) -> Vec<&'static str> {
         self.inner.keys().copied().collect()
     }
 }
@@ -53,7 +66,7 @@ fn triple_from(env: &HashMap<String, String>, key: &str) -> Option<(String, Stri
 /// Build a [`ProviderRegistry`] from an env-var snapshot. Caller is
 /// responsible for constructing `env` (e.g. from
 /// `std::env::vars().collect()` or the config block).
-pub(crate) fn build_providers(env: &HashMap<String, String>) -> ProviderRegistry {
+pub fn build_providers(env: &HashMap<String, String>) -> ProviderRegistry {
     let mut inner: HashMap<&'static str, Arc<dyn OAuthProvider>> = HashMap::new();
     if let Some((c, s, r)) = triple_from(env, "GITHUB") {
         inner.insert("github", Arc::new(GithubProvider::new(c, s, r)));

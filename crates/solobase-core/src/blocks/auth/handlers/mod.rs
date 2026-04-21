@@ -12,6 +12,7 @@
 
 pub mod login;
 pub mod me;
+pub mod oauth;
 pub mod oauth_resolve;
 pub mod oauth_state;
 pub mod tokens;
