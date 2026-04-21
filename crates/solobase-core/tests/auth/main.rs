@@ -4,6 +4,7 @@ mod block_dispatch;
 mod common;
 mod migrations_001;
 mod migrations_002;
+mod pat_issue;
 mod repo_pats;
 mod repo_sessions;
 mod repo_users;
