@@ -2,6 +2,7 @@ mod api_keys;
 pub mod block;
 pub mod bootstrap;
 pub mod config;
+pub mod handlers;
 mod login;
 pub mod migrations;
 mod oauth;

@@ -118,6 +118,19 @@ pub async fn touch_last_used(ctx: &dyn Context, hash: &[u8]) -> Result<(), RepoE
     Ok(())
 }
 
+/// Deletes the session row identified by `token_hash`. Returns the number of
+/// affected rows (0 if no such row exists).
+pub async fn delete_by_token_hash(ctx: &dyn Context, hash: &[u8]) -> Result<u64, RepoError> {
+    let affected = db::exec_raw(
+        ctx,
+        &format!("DELETE FROM {TABLE} WHERE token_hash = ?"),
+        &[json!(hash)],
+    )
+    .await
+    .map_err(|e| RepoError::Db(format!("session delete: {e}")))?;
+    Ok(affected.max(0) as u64)
+}
+
 /// Deletes rows whose `expires_at < cutoff`. Returns the number deleted.
 ///
 /// `cutoff` is compared as an ISO-8601 string; the migration schema stores
