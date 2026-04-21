@@ -1,5 +1,6 @@
 //! Integration test crate for the `suppers-ai/auth` block.
 
+mod block_dispatch;
 mod common;
 mod migrations_001;
 mod migrations_002;

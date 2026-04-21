@@ -1,4 +1,5 @@
 mod api_keys;
+pub mod block;
 mod login;
 pub mod migrations;
 mod oauth;
