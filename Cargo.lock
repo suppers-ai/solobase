@@ -4638,6 +4638,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "wafer-block-fastembed",
+ "wafer-block-sqlite",
  "wafer-core",
  "wafer-run",
  "wafer-sql-utils",

@@ -1,5 +1,6 @@
 mod api_keys;
 mod login;
+pub mod migrations;
 mod oauth;
 mod pages;
 
