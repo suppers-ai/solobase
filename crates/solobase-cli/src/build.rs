@@ -52,6 +52,70 @@ pub fn export_assets_args(
     out
 }
 
+use std::path::PathBuf;
+use std::process::Command;
+
+/// Run the full build pipeline for `cfg`. `repo_root` is the directory that
+/// contains `solobase.toml`.
+///
+/// Steps:
+/// 1. Skill-block auto-discovery — runs `wafer build` in each `blocks/*/`.
+/// 2. `wasm-pack build ...`.
+/// 3. `cargo run -p solobase-browser --release --bin export-assets -- ...`.
+/// 4. Apply `[[assets.overlay]]` — copy each `from` → `<dist>/<to>`.
+///
+/// On success prints a one-line summary to stdout.
+pub fn run(cfg: &Config, repo_root: &PathBuf, profile: BuildProfile) -> anyhow::Result<()> {
+    // 1. Skill blocks.
+    crate::skills::build_all(repo_root)?;
+
+    // 2. wasm-pack.
+    let mut wp = Command::new("wasm-pack");
+    wp.args(wasm_pack_args(cfg, profile)).current_dir(repo_root);
+    crate::cmd::run("wasm-pack build", wp)?;
+
+    // 3. export-assets.
+    let dist_dir = repo_root.join(&cfg.wasm.out_dir);
+    let mut ea = Command::new("cargo");
+    ea.args([
+        "run",
+        "-p",
+        "solobase-browser",
+        "--release",
+        "--bin",
+        "export-assets",
+        "--",
+    ])
+    .args(export_assets_args(cfg, repo_root, &dist_dir, profile))
+    .current_dir(repo_root);
+    crate::cmd::run("export-assets", ea)?;
+
+    // 4. Overlays.
+    for overlay in &cfg.assets.overlay {
+        let src = repo_root.join(&overlay.from);
+        let dst = dist_dir.join(&overlay.to);
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| anyhow::anyhow!("create dir {parent:?}: {e}"))?;
+        }
+        std::fs::copy(&src, &dst)
+            .map_err(|e| anyhow::anyhow!("overlay {src:?} → {dst:?}: {e}"))?;
+    }
+
+    // 5. Summary.
+    let profile_label = match profile {
+        BuildProfile::Dev => "dev",
+        BuildProfile::Release => "release",
+    };
+    println!(
+        "built {} ({}) → {}",
+        cfg.app.name,
+        profile_label,
+        cfg.wasm.out_dir
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
