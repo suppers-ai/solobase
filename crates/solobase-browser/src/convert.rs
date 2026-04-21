@@ -142,6 +142,18 @@ pub async fn request_to_message(
     msg.set_meta("http.content_type", content_type.clone());
     msg.set_meta("http.host", host);
 
+    // Re-inject the `Cookie` header from the SW's CookieStore.
+    // `FetchEvent.request.headers` filters `Cookie` out per the SW spec, so
+    // the header-iteration loop above never sees it even though the browser
+    // sends cookies on same-origin requests. CookieStore is the only way to
+    // read them back inside the SW.
+    let cookie_val = crate::bridge::read_cookie_header().await;
+    if let Some(s) = cookie_val.as_string() {
+        if !s.is_empty() {
+            msg.set_meta("http.header.cookie", s);
+        }
+    }
+
     // Normalised request meta.
     msg.set_meta(META_REQ_ACTION, http_method_to_action(&method));
     msg.set_meta(META_REQ_RESOURCE, path.clone());

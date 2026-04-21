@@ -447,6 +447,34 @@ export function _completeLlmMessage(msg) {
 
 globalThis.__solobaseCompleteLlmMessage = _completeLlmMessage;
 
+// ─── Cookies (readable from SW via CookieStore API) ─────────────────────────
+//
+// The Service-Worker spec filters the `Cookie` header out of
+// `FetchEvent.request.headers`: the SW cannot read it back from a Request.
+// The cookies ARE sent over the wire for same-origin requests and are
+// readable via `self.cookieStore.getAll()` (available in Chromium-based
+// browsers; Firefox behind a flag). We surface them to Rust so
+// `convert::request_to_message` can inject a synthetic `http.header.cookie`
+// meta; downstream consumers (e.g. `wafer-block-auth-validator`) then see
+// the cookie exactly as they would on a native deployment.
+
+/**
+ * Read all cookies from the SW's CookieStore and format as a Cookie header.
+ * Returns an empty string if CookieStore isn't available or no cookies exist.
+ * @returns {Promise<string>}
+ */
+export async function readCookieHeader() {
+    if (typeof self.cookieStore === 'undefined' || !self.cookieStore.getAll) {
+        return '';
+    }
+    try {
+        const cookies = await self.cookieStore.getAll();
+        return cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+    } catch (_e) {
+        return '';
+    }
+}
+
 // ─── Network (fetch) ─────────────────────────────────────────────────────────
 
 /**

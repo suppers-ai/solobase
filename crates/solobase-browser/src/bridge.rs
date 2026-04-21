@@ -56,6 +56,17 @@ extern "C" {
     #[wasm_bindgen(js_name = storageListFolders)]
     pub async fn storage_list_folders() -> JsValue;
 
+    // ─── Cookies (read from SW via CookieStore API) ──────────────────────────
+
+    /// Read all cookies via `self.cookieStore.getAll()` and return them
+    /// formatted as a `Cookie` header value (e.g., `auth_token=xyz; foo=bar`).
+    /// Empty string if CookieStore isn't available or no cookies exist.
+    ///
+    /// Workaround for the SW spec filtering the `Cookie` header out of
+    /// `FetchEvent.request.headers`. See `bridge.js::readCookieHeader`.
+    #[wasm_bindgen(js_name = readCookieHeader)]
+    pub async fn read_cookie_header() -> JsValue;
+
     // ─── Network (fetch) ──────────────────────────────────────────────────────
 
     /// Execute an HTTP fetch request.
