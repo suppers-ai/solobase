@@ -5,6 +5,7 @@
 //! by migration 001. Errors collapse into the [`RepoError`] enum so higher
 //! layers don't have to reason about the underlying `db` client's error type.
 
+pub mod bootstrap_tokens;
 pub mod pats;
 pub mod sessions;
 pub mod users;

@@ -17,7 +17,6 @@ use wafer_core::interfaces::auth::service::{
 };
 use wafer_run::{context::Context, types::Message};
 
-#[allow(unused_imports)]
 use super::repo::{pats, sessions, users};
 
 /// Per-block state captured at `register` time. Holds the [`Context`] handle
@@ -167,10 +166,41 @@ impl AuthService for AuthServiceImpl {
         Ok(UserId(row.user_id))
     }
 
-    async fn require_role(&self, _msg: &Message, _role: Role) -> Result<UserId, AuthError> {
-        Err(AuthError::Internal(
-            "require_role: not yet implemented (Task 9)".into(),
-        ))
+    async fn require_role(&self, msg: &Message, role: Role) -> Result<UserId, AuthError> {
+        let ctx = self.state.ctx.as_ref();
+
+        // Bootstrap-token fast path: if the caller presents a Bearer token
+        // that matches an unexpired row in `bootstrap_tokens`, grant Admin.
+        // Bootstrap tokens are not tied to a user — use a sentinel id.
+        // Admin-gated handlers read `role`, not id, at this stage (user-id
+        // coupling lands in Plan A2 when bootstrap consumption creates the
+        // first real admin user).
+        if matches!(role, Role::Admin) {
+            if let Some(bearer) = bearer_from(msg) {
+                let h = hash_token(&bearer);
+                let valid = super::repo::bootstrap_tokens::is_valid(ctx, &h)
+                    .await
+                    .map_err(|e| AuthError::Internal(e.to_string()))?;
+                if valid {
+                    return Ok(UserId("bootstrap".to_string()));
+                }
+            }
+        }
+
+        let uid = self.require_user(msg).await?;
+        let row = users::find_by_id(ctx, &uid.0)
+            .await
+            .map_err(|e| AuthError::Internal(e.to_string()))?
+            .ok_or(AuthError::NotFound)?;
+        let has = match role {
+            Role::Admin => row.role == "admin",
+            Role::User => true, // any authenticated user
+        };
+        if has {
+            Ok(uid)
+        } else {
+            Err(AuthError::Forbidden)
+        }
     }
 
     async fn verify_org_admin(
