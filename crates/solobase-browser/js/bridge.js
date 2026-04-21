@@ -409,7 +409,13 @@ export async function llmNextChunk(id) {
 export async function llmCancelStream(id) {
     const stream = _activeLlmStreams.get(id);
     if (stream) {
+        // Terminate any pending awaiter with an error frame (no-op if the
+        // Rust side has already broken out of its loop).
         stream.closeErr('cancelled');
+        // Remove the entry now rather than waiting for the (possibly never
+        // called) next llmNextChunk to notice the terminal frame — the Rust
+        // side breaks its loop immediately after calling cancel_stream.
+        _activeLlmStreams.delete(id);
     }
     await _postToWindowClient({ type: 'llm-stream-cancel', id });
 }
