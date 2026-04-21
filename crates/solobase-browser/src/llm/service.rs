@@ -166,7 +166,22 @@ impl LlmService for BrowserLlmService {
             if cancel.is_cancelled() {
                 return;
             }
-            match bridge::create_engine(&model_id).await {
+            let result = bridge::create_engine(&model_id).await;
+            // Re-check cancellation AFTER the await — model downloads run for
+            // tens of seconds and the consumer may have abandoned the load.
+            // We don't tell the page-side engine to abort (WebLLM has no
+            // cancel-load primitive), but we must avoid writing stale state
+            // and avoid sending on a channel whose receiver is gone.
+            if cancel.is_cancelled() {
+                // If the load happened to succeed, unload it so the page
+                // doesn't sit on an engine nobody asked for. Best-effort —
+                // ignore errors.
+                if result.is_ok() {
+                    let _ = bridge::unload_engine(&model_id).await;
+                }
+                return;
+            }
+            match result {
                 Ok(()) => {
                     *loaded_model.borrow_mut() = Some(model_id.clone());
                     let _ = tx.send(Ok(LoadProgress::new("ready"))).await;
