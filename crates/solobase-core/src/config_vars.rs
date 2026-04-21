@@ -104,6 +104,15 @@ pub fn shared_config_vars() -> Vec<ConfigVar> {
         )
         .name("Dispatcher Binding")
         .input_type(InputType::Toggle),
+        ConfigVar::new(
+            "SOLOBASE_SHARED__EMBEDDED_SCRIPTS",
+            "Comma-separated module-script URLs injected into every SSR page \
+             (e.g. /webllm-engine.js for browser WebLLM). Native deployments \
+             leave this empty.",
+            "",
+        )
+        .name("Embedded Scripts")
+        .input_type(InputType::Text),
     ]
 }
 
