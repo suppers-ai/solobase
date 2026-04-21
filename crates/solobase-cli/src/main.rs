@@ -21,13 +21,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Build the consumer app. Release profile by default.
+    /// Build the consumer app. Release profile unless --dev is given.
     Build {
-        /// Use the release profile (default). Mutually exclusive with --dev.
-        #[arg(long, default_value_t = false)]
-        release: bool,
         /// Use the dev profile (skips wasm-opt + content-hashing).
-        #[arg(long, default_value_t = false, conflicts_with = "release")]
+        /// Equivalent to the `dev` subcommand.
+        #[arg(long, default_value_t = false)]
         dev: bool,
     },
     /// Alias for `build --dev`.
@@ -45,7 +43,7 @@ fn run() -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let (cfg, repo_root) = config::find_and_load(&cwd)?;
     match cli.command {
-        Commands::Build { release: _, dev } => {
+        Commands::Build { dev } => {
             let profile = if dev {
                 build::BuildProfile::Dev
             } else {
