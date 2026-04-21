@@ -1,9 +1,14 @@
 //! Shared test helpers for the `suppers-ai/auth` integration tests.
 //!
-//! `MigrationTestCtx` routes `call_block("wafer-run/database", ...)` to a real
-//! `DatabaseBlock` wrapping an in-memory SQLite service. Any other block call
-//! returns `NotFound` — including `wafer-run/config`, which makes
-//! `config::get_default(..., "sqlite")` fall back to the default.
+//! `MigrationTestCtx` routes:
+//! - `call_block("wafer-run/database", ...)` to a real `DatabaseBlock` wrapping
+//!   an in-memory SQLite service.
+//! - `call_block("wafer-run/crypto", ...)` to a real `CryptoBlock` wrapping
+//!   `Argon2JwtCryptoService`, so tests exercising `crypto::random_bytes` and
+//!   `crypto::hash` see the same wire contract as production.
+//!
+//! Any other block call returns `NotFound` — including `wafer-run/config`,
+//! which makes `config::get_default(..., "sqlite")` fall back to the default.
 
 use std::sync::Arc;
 
@@ -16,6 +21,7 @@ use wafer_run::{
 
 pub struct MigrationTestCtx {
     db_block: Arc<dyn Block>,
+    crypto_block: Arc<dyn Block>,
 }
 
 impl MigrationTestCtx {
@@ -27,20 +33,29 @@ impl MigrationTestCtx {
         let db_block: Arc<dyn Block> = Arc::new(
             wafer_core::service_blocks::database::DatabaseBlock::new(svc),
         );
-        Self { db_block }
+        let crypto_svc = Arc::new(wafer_block_crypto::service::Argon2JwtCryptoService::new(
+            "test-jwt-secret".to_string(),
+        ));
+        let crypto_block: Arc<dyn Block> = Arc::new(
+            wafer_core::service_blocks::crypto::CryptoBlock::new(crypto_svc),
+        );
+        Self {
+            db_block,
+            crypto_block,
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl Context for MigrationTestCtx {
     async fn call_block(&self, block_name: &str, msg: Message, input: InputStream) -> OutputStream {
-        if block_name == "wafer-run/database" {
-            self.db_block.handle(self, msg, input).await
-        } else {
-            OutputStream::error(WaferError::new(
+        match block_name {
+            "wafer-run/database" => self.db_block.handle(self, msg, input).await,
+            "wafer-run/crypto" => self.crypto_block.handle(self, msg, input).await,
+            _ => OutputStream::error(WaferError::new(
                 wafer_run::types::ErrorCode::NOT_FOUND,
                 format!("block '{block_name}' not registered in test ctx"),
-            ))
+            )),
         }
     }
 

@@ -6,6 +6,7 @@ mod oauth;
 mod pages;
 pub mod repo;
 pub mod service;
+pub mod session;
 
 use std::{collections::HashMap, time::Duration};
 
