@@ -66,6 +66,27 @@ use std::process::Command;
 ///
 /// On success prints a one-line summary to stdout.
 pub fn run(cfg: &Config, repo_root: &PathBuf, profile: BuildProfile) -> anyhow::Result<()> {
+    if std::env::var("SOLOBASE_CLI_DRY_RUN").as_deref() == Ok("1") {
+        // Emit a machine-readable summary instead of spawning children.
+        // Used by integration tests that can't assume wasm-pack / cargo /
+        // wafer are available in the sandbox.
+        let skills = crate::skills::discover(repo_root)?;
+        let wp = wasm_pack_args(cfg, profile);
+        let dist_dir = repo_root.join(&cfg.wasm.out_dir);
+        let ea = export_assets_args(cfg, repo_root, &dist_dir, profile);
+        let overlays: Vec<String> = cfg
+            .assets
+            .overlay
+            .iter()
+            .map(|o| format!("{}->{}", o.from, o.to))
+            .collect();
+        println!(
+            "DRY_RUN\napp={}\nprofile={:?}\nskills={}\nwasm_pack={:?}\nexport_assets={:?}\noverlays={:?}",
+            cfg.app.name, profile, skills.len(), wp, ea, overlays
+        );
+        return Ok(());
+    }
+
     // 1. Skill blocks.
     crate::skills::build_all(repo_root)?;
 
