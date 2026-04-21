@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::config::Config;
 
@@ -6,6 +6,27 @@ use crate::config::Config;
 pub enum BuildProfile {
     Dev,
     Release,
+}
+
+/// Resolve `[solobase] manifest_path` relative to `repo_root` (the dir
+/// containing `solobase.toml`). Accepts either a directory (in which case
+/// we append `Cargo.toml`) or a full path ending in `Cargo.toml`.
+pub fn resolve_manifest_path(repo_root: &Path, manifest_path: &str) -> PathBuf {
+    let p = Path::new(manifest_path);
+    let absolute = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        repo_root.join(p)
+    };
+    if absolute
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.eq_ignore_ascii_case("Cargo.toml"))
+    {
+        absolute
+    } else {
+        absolute.join("Cargo.toml")
+    }
 }
 
 /// Construct the `wasm-pack build` arg vector.
@@ -53,7 +74,7 @@ pub fn export_assets_args(
     out
 }
 
-use std::{path::PathBuf, process::Command};
+use std::process::Command;
 
 /// Run the full build pipeline for `cfg`. `repo_root` is the directory that
 /// contains `solobase.toml`.
@@ -98,8 +119,16 @@ pub fn run(cfg: &Config, repo_root: &PathBuf, profile: BuildProfile) -> anyhow::
     // 3. export-assets.
     let dist_dir = repo_root.join(&cfg.wasm.out_dir);
     let mut ea = Command::new("cargo");
+    ea.arg("run");
+    // External consumers (e.g. gizza-ai) path-depend on solobase from a
+    // sibling directory; their workspace doesn't include `solobase-browser`.
+    // `[solobase] manifest_path` points cargo at the solobase workspace so
+    // `-p solobase-browser` resolves.
+    if let Some(mp) = &cfg.solobase.manifest_path {
+        let resolved = resolve_manifest_path(repo_root, mp);
+        ea.arg("--manifest-path").arg(resolved);
+    }
     ea.args([
-        "run",
         "-p",
         "solobase-browser",
         "--release",
@@ -221,5 +250,55 @@ extra_bypass_prefix = ["/gizza-app.js", "/gizza.css"]
             .unwrap();
         assert_eq!(args[bp_ix + 1], "/gizza-app.js,/gizza.css");
         assert!(args.contains(&"--dev".to_string()));
+    }
+
+    #[test]
+    fn resolve_manifest_path_relative_directory() {
+        let repo = Path::new("/home/me/gizza-ai");
+        let resolved = resolve_manifest_path(repo, "../solobase");
+        assert_eq!(
+            resolved,
+            Path::new("/home/me/gizza-ai/../solobase/Cargo.toml")
+        );
+    }
+
+    #[test]
+    fn resolve_manifest_path_relative_cargo_toml() {
+        let repo = Path::new("/home/me/gizza-ai");
+        let resolved = resolve_manifest_path(repo, "../solobase/Cargo.toml");
+        assert_eq!(
+            resolved,
+            Path::new("/home/me/gizza-ai/../solobase/Cargo.toml")
+        );
+    }
+
+    #[test]
+    fn resolve_manifest_path_absolute_directory() {
+        let repo = Path::new("/home/me/gizza-ai");
+        let resolved = resolve_manifest_path(repo, "/opt/solobase");
+        assert_eq!(resolved, Path::new("/opt/solobase/Cargo.toml"));
+    }
+
+    #[test]
+    fn config_parses_solobase_manifest_path() {
+        let cfg = crate::config::parse(
+            r#"
+[app]
+name = "gizza-ai"
+title = "Gizza AI"
+boot_redirect = "/"
+
+[solobase]
+manifest_path = "../solobase"
+"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.solobase.manifest_path.as_deref(), Some("../solobase"));
+    }
+
+    #[test]
+    fn config_defaults_solobase_manifest_path_to_none() {
+        let cfg = minimal_cfg();
+        assert!(cfg.solobase.manifest_path.is_none());
     }
 }
