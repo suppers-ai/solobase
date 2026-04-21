@@ -9,6 +9,7 @@ mod handlers_me;
 mod handlers_tokens_create;
 mod handlers_tokens_delete;
 mod handlers_tokens_list;
+mod login_flow;
 mod migrations_001;
 mod migrations_002;
 mod pat_issue;
