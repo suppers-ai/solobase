@@ -7,6 +7,27 @@ pub struct Config {
     pub assets: AssetsConfig,
     #[serde(default)]
     pub wasm: WasmConfig,
+    #[serde(default)]
+    pub solobase: SolobaseConfig,
+}
+
+/// Points at the solobase workspace when the consumer repo isn't part of it.
+///
+/// For repos that ARE inside the solobase workspace (e.g. `solobase-web` at
+/// `crates/solobase-web/`) this stays at the default — cargo resolves
+/// `-p solobase-browser` from the enclosing workspace. For external
+/// consumers (e.g. gizza-ai that path-depends on solobase from a sibling
+/// directory) set `manifest_path = "../solobase"` so the CLI passes
+/// `--manifest-path ../solobase/Cargo.toml` to the `cargo run` that drives
+/// `export-assets`.
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct SolobaseConfig {
+    /// Path (absolute or relative to `solobase.toml`) to a directory that
+    /// contains the solobase workspace `Cargo.toml`, or to the `Cargo.toml`
+    /// file itself. `None` → no `--manifest-path` flag passed.
+    #[serde(default)]
+    pub manifest_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
