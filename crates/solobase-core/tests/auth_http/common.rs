@@ -21,7 +21,10 @@ use axum::{
     Router,
 };
 use solobase_core::blocks::auth::{
-    block, migrations,
+    block,
+    config::AuthConfig,
+    migrations,
+    providers::{registry::ProviderRegistry, OAuthProvider},
     repo::{local_credentials, users},
 };
 use wafer_block_http_listener::{http_to_message, wafer_output_to_response};
@@ -49,13 +52,33 @@ impl HttpHarness {
     /// listener is bound — subsequent `reqwest` calls against `base_url`
     /// will hit a live server.
     pub async fn start_with_auth() -> Self {
+        Self::start_with(None).await
+    }
+
+    /// Start a harness with an explicit OAuth [`ProviderRegistry`]. Lets
+    /// E2E tests inject a fake provider into the real HTTP dispatch path
+    /// without racing on `std::env`.
+    pub async fn start_with_providers(providers: ProviderRegistry) -> Self {
+        Self::start_with(Some(providers)).await
+    }
+
+    async fn start_with(providers: Option<ProviderRegistry>) -> Self {
         let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new());
         migrations::apply(ctx.as_ref())
             .await
             .expect("auth migrations");
 
         let mut registry = TestRegistry::default();
-        block::register(&mut registry, ctx.clone()).expect("register auth block");
+        match providers {
+            Some(p) => block::register_with_providers_for_test(
+                &mut registry,
+                ctx.clone(),
+                AuthConfig::from_env_for_test(&[]),
+                p,
+            )
+            .expect("register auth block"),
+            None => block::register(&mut registry, ctx.clone()).expect("register auth block"),
+        }
         let auth_block = registry
             .blocks
             .remove("suppers-ai/auth")
@@ -207,6 +230,17 @@ impl Context for MigrationTestCtx {
     fn config_get(&self, _key: &str) -> Option<&str> {
         None
     }
+}
+
+/// Build a one-entry [`ProviderRegistry`] keyed by `provider_name` for an
+/// `OAuthProvider` double.
+pub fn registry_with(
+    provider_name: &'static str,
+    provider: Arc<dyn OAuthProvider>,
+) -> ProviderRegistry {
+    let mut m: HashMap<&'static str, Arc<dyn OAuthProvider>> = HashMap::new();
+    m.insert(provider_name, provider);
+    ProviderRegistry::from_map(m)
 }
 
 #[derive(Default)]

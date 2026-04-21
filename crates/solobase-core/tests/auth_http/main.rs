@@ -8,4 +8,7 @@
 //! behaviour are all exercised end-to-end.
 
 mod common;
+#[path = "../auth/fake_github.rs"]
+mod fake_github;
 mod login;
+mod oauth;

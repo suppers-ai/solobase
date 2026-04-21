@@ -254,3 +254,20 @@ pub fn register_with_config(
         Arc::new(SolobaseAuthBlock::with_providers(svc, config, providers)),
     )
 }
+
+/// Register with an explicit [`AuthConfig`] and [`ProviderRegistry`]. Test
+/// helper for end-to-end HTTP tests that need a fake provider wired through
+/// the real HTTP dispatch path without touching `std::env` (which is racy
+/// when tests run in parallel).
+pub fn register_with_providers_for_test(
+    registry: &mut dyn BlockRegistry,
+    ctx: Arc<dyn Context>,
+    config: AuthConfig,
+    providers: ProviderRegistry,
+) -> Result<(), RuntimeError> {
+    let svc: Arc<dyn AuthService> = Arc::new(AuthServiceImpl::new(BlockState::new(ctx)));
+    registry.register_block(
+        "suppers-ai/auth",
+        Arc::new(SolobaseAuthBlock::with_providers(svc, config, providers)),
+    )
+}
