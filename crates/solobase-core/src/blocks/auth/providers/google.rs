@@ -216,7 +216,10 @@ mod tests {
             .mount(&server)
             .await;
 
-        let p = provider_for(&server).exchange_code("c", "ver").await.unwrap();
+        let p = provider_for(&server)
+            .exchange_code("c", "ver")
+            .await
+            .unwrap();
         assert_eq!(p.provider_ref, "google-42");
         assert_eq!(p.login, "alice@example.com");
         assert_eq!(p.email.as_deref(), Some("alice@example.com"));
