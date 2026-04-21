@@ -20,7 +20,7 @@ storage-s3 = []
 # futures that are not Send on wasm32-unknown-unknown. Browser LLM
 # support arrives in Phase C via a separate `BrowserLlmService`.
 # Gate the whole block module off so wasm32 builds compile clean.
-llm = ["dep:tokio", "dep:tokio-stream", "dep:reqwest"]
+llm = ["dep:tokio", "dep:tokio-stream"]
 # Native ONNX-backed embedding block (suppers-ai/fastembed). Pulls in
 # wafer-block-fastembed which depends on fastembed-rs / ONNX Runtime —
 # heavy native-only dep, so gate it behind a feature so consumers that
@@ -70,7 +70,10 @@ thiserror = "2"
 # feature (forbidden on wasm) or the native `reqwest` stack.
 tokio = { workspace = true, optional = true }
 tokio-stream = { version = "0.1", optional = true }
-reqwest = { workspace = true, features = ["stream"], optional = true }
+# HTTP client used by the OAuth provider implementations (always on) and
+# the LLM provider streaming service (gated behind `llm`). The `stream`
+# feature is required for SSE streaming in the LLM block.
+reqwest = { workspace = true, features = ["stream"] }
 
 # URL parsing/building for OAuth authorize_url assembly.
 url = "2"
@@ -95,8 +98,8 @@ wafer-block-http-listener = { workspace = true }
 async-trait = { workspace = true }
 # Layer-3 HTTP end-to-end tests (tests/auth_http) drive the block through
 # a real axum server on an ephemeral port using reqwest as the client.
+# (reqwest itself comes from the main `[dependencies]` section now.)
 axum = "0.8"
-reqwest = { workspace = true }
 # Mock upstream OAuth providers in integration tests.
 wiremock = "0.6"
 

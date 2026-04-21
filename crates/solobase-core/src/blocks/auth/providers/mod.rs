@@ -53,6 +53,12 @@ pub(crate) enum ProviderError {
     /// Upstream HTTP or parsing failure we couldn't attribute to user error.
     #[error("upstream OAuth provider failure: {0}")]
     Upstream(String),
+    /// The upstream response was successful (2xx) but the body failed to
+    /// parse into the expected shape. Distinct from [`Upstream`] so tests
+    /// and handlers can distinguish genuine upstream failure from a
+    /// schema drift.
+    #[error("bad response from provider: {0}")]
+    BadResponse(String),
     /// Callback's `state` parameter didn't match the cookie value — likely
     /// CSRF or expired session.
     #[error("state mismatch")]
