@@ -1,5 +1,6 @@
 mod api_keys;
 pub mod block;
+pub mod config;
 mod login;
 pub mod migrations;
 mod oauth;
@@ -12,8 +13,8 @@ pub mod session;
 use std::{collections::HashMap, time::Duration};
 
 use wafer_core::clients::{
-    config, crypto, database as db,
-    database::{Filter, FilterOp, ListOptions},
+    config as config_client, crypto,
+    database::{self as db, Filter, FilterOp, ListOptions},
 };
 use wafer_run::{
     block::{Block, BlockInfo},
@@ -73,7 +74,8 @@ mod helpers {
             .await
             .map_err(|e| format!("Failed to create user: {e}"))?;
 
-        let admin_email = config::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "").await;
+        let admin_email =
+            config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "").await;
         let user_email = user
             .data
             .get("email")
@@ -199,7 +201,8 @@ mod helpers {
     }
 
     pub(super) async fn build_auth_cookie(token: &str, max_age: u64, ctx: &dyn Context) -> String {
-        let env = config::get_default(ctx, "SOLOBASE_SHARED__ENVIRONMENT", "development").await;
+        let env =
+            config_client::get_default(ctx, "SOLOBASE_SHARED__ENVIRONMENT", "development").await;
         let secure = env.to_lowercase() != "development";
         format!(
             "auth_token={}; HttpOnly; Path=/; SameSite=Lax; Max-Age={}{}",
@@ -230,8 +233,9 @@ pub async fn seed_admin_user(ctx: &dyn Context) {
     }
 
     let admin_email =
-        config::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "admin@example.com").await;
-    let admin_password_env = config::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_PASSWORD", "").await;
+        config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "admin@example.com").await;
+    let admin_password_env =
+        config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_PASSWORD", "").await;
 
     let (password_to_use, was_randomly_generated) = if !admin_password_env.is_empty() {
         (admin_password_env, false)
@@ -402,7 +406,10 @@ impl Block for AuthBlock {
                     .name("OAuth Redirect URI")
                     .input_type(InputType::Url)
                     .optional(),
-            ])
+            ]
+            .into_iter()
+            .chain(crate::blocks::auth::config::auth_config_vars())
+            .collect::<Vec<_>>())
             .admin_url("/b/auth/admin/settings")
     }
 
