@@ -1,5 +1,7 @@
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 /// Return each absolute path to a skill-block crate under `<repo_root>/blocks/`.
 /// A skill block is a directory directly under `blocks/` that contains a
@@ -11,8 +13,8 @@ pub fn discover(repo_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
-    for entry in std::fs::read_dir(&blocks_dir)
-        .map_err(|e| anyhow::anyhow!("read {blocks_dir:?}: {e}"))?
+    for entry in
+        std::fs::read_dir(&blocks_dir).map_err(|e| anyhow::anyhow!("read {blocks_dir:?}: {e}"))?
     {
         let entry = entry.map_err(|e| anyhow::anyhow!("read_dir entry: {e}"))?;
         let path = entry.path();
@@ -44,8 +46,9 @@ pub fn build_all(repo_root: &Path) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
+    use super::*;
 
     #[test]
     fn no_blocks_dir_returns_empty() {

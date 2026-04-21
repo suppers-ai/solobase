@@ -1,7 +1,6 @@
-use crate::build::BuildProfile;
-use crate::config::Config;
-use std::path::PathBuf;
-use std::process::Command;
+use std::{path::PathBuf, process::Command};
+
+use crate::{build::BuildProfile, config::Config};
 
 pub fn run(cfg: &Config, repo_root: &PathBuf, port: u16) -> anyhow::Result<()> {
     // Dev build first.

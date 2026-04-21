@@ -9,7 +9,12 @@ use std::process::Command;
 ///   --- stderr ---
 ///   <child stderr>
 /// ```
-pub fn format_child_error(step: &str, cmd: &Command, exit_code: Option<i32>, stderr: &str) -> String {
+pub fn format_child_error(
+    step: &str,
+    cmd: &Command,
+    exit_code: Option<i32>,
+    stderr: &str,
+) -> String {
     let program = cmd.get_program().to_string_lossy();
     let args: Vec<String> = cmd
         .get_args()

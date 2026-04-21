@@ -1,5 +1,7 @@
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 fn cli_path() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_solobase"))
@@ -39,7 +41,11 @@ fn solobase_web_style_dry_run() {
 #[test]
 fn gizza_ai_style_dry_run() {
     let (stdout, stderr, code) = run_in(&fixture("gizza-ai-style"), &["dev"]);
-    assert_eq!(code, Some(0), "expected success, got {code:?}\nstderr={stderr}");
+    assert_eq!(
+        code,
+        Some(0),
+        "expected success, got {code:?}\nstderr={stderr}"
+    );
     assert!(stdout.contains("DRY_RUN"));
     assert!(stdout.contains("app=gizza-ai"));
     assert!(stdout.contains("skills=1"));

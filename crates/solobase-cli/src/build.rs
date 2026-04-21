@@ -1,5 +1,6 @@
-use crate::config::Config;
 use std::path::Path;
+
+use crate::config::Config;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildProfile {
@@ -52,8 +53,7 @@ pub fn export_assets_args(
     out
 }
 
-use std::path::PathBuf;
-use std::process::Command;
+use std::{path::PathBuf, process::Command};
 
 /// Run the full build pipeline for `cfg`. `repo_root` is the directory that
 /// contains `solobase.toml`.
@@ -119,8 +119,7 @@ pub fn run(cfg: &Config, repo_root: &PathBuf, profile: BuildProfile) -> anyhow::
             std::fs::create_dir_all(parent)
                 .map_err(|e| anyhow::anyhow!("create dir {parent:?}: {e}"))?;
         }
-        std::fs::copy(&src, &dst)
-            .map_err(|e| anyhow::anyhow!("overlay {src:?} → {dst:?}: {e}"))?;
+        std::fs::copy(&src, &dst).map_err(|e| anyhow::anyhow!("overlay {src:?} → {dst:?}: {e}"))?;
     }
 
     // 5. Summary.
@@ -130,17 +129,16 @@ pub fn run(cfg: &Config, repo_root: &PathBuf, profile: BuildProfile) -> anyhow::
     };
     println!(
         "built {} ({}) → {}",
-        cfg.app.name,
-        profile_label,
-        cfg.wasm.out_dir
+        cfg.app.name, profile_label, cfg.wasm.out_dir
     );
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::path::PathBuf;
+
+    use super::*;
 
     fn minimal_cfg() -> Config {
         crate::config::parse(
@@ -210,9 +208,17 @@ extra_bypass_prefix = ["/gizza-app.js", "/gizza.css"]
 "#,
         )
         .unwrap();
-        let args = export_assets_args(&cfg, Path::new("/repo"), Path::new("dist"), BuildProfile::Dev);
+        let args = export_assets_args(
+            &cfg,
+            Path::new("/repo"),
+            Path::new("dist"),
+            BuildProfile::Dev,
+        );
         assert_eq!(args[0], "dist/");
-        let bp_ix = args.iter().position(|a| a == "--extra-bypass-prefix").unwrap();
+        let bp_ix = args
+            .iter()
+            .position(|a| a == "--extra-bypass-prefix")
+            .unwrap();
         assert_eq!(args[bp_ix + 1], "/gizza-app.js,/gizza.css");
         assert!(args.contains(&"--dev".to_string()));
     }
