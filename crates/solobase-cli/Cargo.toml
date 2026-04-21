@@ -1,0 +1,23 @@
+[package]
+name = "solobase-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Build / dev / serve CLI for solobase-browser consumers"
+
+[[bin]]
+name = "solobase"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+glob = "0.3"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
