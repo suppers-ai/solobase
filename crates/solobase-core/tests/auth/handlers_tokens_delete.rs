@@ -92,15 +92,9 @@ async fn non_owner_gets_404_and_row_is_preserved() {
     migrations::apply(ctx.as_ref()).await.unwrap();
     let (uid_victim, _vc) = seed(ctx.as_ref(), "victim@b.c").await;
     let (_uid_attacker, cookie_attacker) = seed(ctx.as_ref(), "attacker@b.c").await;
-    let issued = pat::issue(
-        ctx.as_ref(),
-        &uid_victim,
-        "t",
-        &[TokenScope::Publish],
-        None,
-    )
-    .await
-    .unwrap();
+    let issued = pat::issue(ctx.as_ref(), &uid_victim, "t", &[TokenScope::Publish], None)
+        .await
+        .unwrap();
     let id = hex(&hash_token(&issued.raw_token));
 
     let service = svc(ctx.clone());

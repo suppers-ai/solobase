@@ -15,6 +15,7 @@ mod pat_issue;
 mod repo_pats;
 mod repo_sessions;
 mod repo_users;
+mod routes_mounted;
 mod service_require_role;
 mod service_require_token;
 mod service_require_user;

@@ -17,10 +17,7 @@ fn svc(ctx: Arc<dyn Context>) -> Arc<dyn AuthService> {
     Arc::new(AuthServiceImpl::new(BlockState::for_test(ctx)))
 }
 
-async fn seed_user_and_session(
-    ctx: &dyn Context,
-    email: &str,
-) -> (String, String) {
+async fn seed_user_and_session(ctx: &dyn Context, email: &str) -> (String, String) {
     let u = users::insert(
         ctx,
         users::NewUser {
@@ -87,15 +84,9 @@ async fn list_excludes_other_users_pats() {
     pat::issue(ctx.as_ref(), &uid_a, "mine", &[TokenScope::Publish], None)
         .await
         .unwrap();
-    pat::issue(
-        ctx.as_ref(),
-        &uid_b,
-        "theirs",
-        &[TokenScope::Publish],
-        None,
-    )
-    .await
-    .unwrap();
+    pat::issue(ctx.as_ref(), &uid_b, "theirs", &[TokenScope::Publish], None)
+        .await
+        .unwrap();
 
     let mut msg = Message::new("GET");
     msg.set_meta("http.header.cookie", format!("wafer_session={cookie_a}"));

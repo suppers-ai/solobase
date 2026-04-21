@@ -34,8 +34,9 @@ pub async fn get_me(service: &dyn AuthService, msg: &Message) -> HttpReply {
         Ok(p) => p,
         Err(AuthError::NotFound) => return unauthorized(),
         Err(e) => {
-            return HttpReply::new(500)
-                .json_body(&json!({ "error": "profile_lookup_failed", "detail": format!("{e:?}") }))
+            return HttpReply::new(500).json_body(
+                &json!({ "error": "profile_lookup_failed", "detail": format!("{e:?}") }),
+            )
         }
     };
 

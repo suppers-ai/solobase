@@ -39,11 +39,12 @@ pub(crate) async fn require_user_or_reply(
 ) -> Result<String, HttpReply> {
     match service.require_user(msg).await {
         Ok(u) => Ok(u.0),
-        Err(AuthError::Unauthorized)
-        | Err(AuthError::Forbidden)
-        | Err(AuthError::NotFound) => Err(unauthorized()),
-        Err(AuthError::ProviderDown(m)) => Err(HttpReply::new(503)
-            .json_body(&json!({ "error": "provider_down", "detail": m }))),
+        Err(AuthError::Unauthorized) | Err(AuthError::Forbidden) | Err(AuthError::NotFound) => {
+            Err(unauthorized())
+        }
+        Err(AuthError::ProviderDown(m)) => {
+            Err(HttpReply::new(503).json_body(&json!({ "error": "provider_down", "detail": m })))
+        }
         Err(AuthError::Internal(m)) => {
             Err(HttpReply::new(500).json_body(&json!({ "error": "internal", "detail": m })))
         }
@@ -225,12 +226,14 @@ pub async fn delete_token(
     let Some(hash) = unhex(id) else {
         return Ok(not_found());
     };
-    let deleted = pats::delete_by_id(ctx, &user_id, &hash).await.map_err(|e| {
-        WaferError::new(
-            wafer_run::types::ErrorCode::INTERNAL,
-            format!("pats delete: {e}"),
-        )
-    })?;
+    let deleted = pats::delete_by_id(ctx, &user_id, &hash)
+        .await
+        .map_err(|e| {
+            WaferError::new(
+                wafer_run::types::ErrorCode::INTERNAL,
+                format!("pats delete: {e}"),
+            )
+        })?;
     if deleted {
         Ok(HttpReply::new(204))
     } else {

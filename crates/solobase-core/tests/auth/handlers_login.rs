@@ -16,11 +16,7 @@ use wafer_run::types::Message;
 
 use crate::common::MigrationTestCtx;
 
-async fn seed_user_with_password(
-    ctx: &MigrationTestCtx,
-    email: &str,
-    password: &str,
-) -> String {
+async fn seed_user_with_password(ctx: &MigrationTestCtx, email: &str, password: &str) -> String {
     let u = users::insert(
         ctx,
         users::NewUser {
