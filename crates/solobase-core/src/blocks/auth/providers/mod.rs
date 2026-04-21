@@ -8,7 +8,11 @@
 use async_trait::async_trait;
 use thiserror::Error;
 
+pub(super) mod github;
+pub(super) mod google;
+pub(super) mod microsoft;
 pub(super) mod pkce;
+pub(crate) mod registry;
 
 /// Normalised profile returned by [`OAuthProvider::exchange_code`]. Upstream
 /// GitHub/Google/Microsoft shapes collapse into this single struct so the
