@@ -203,11 +203,44 @@ impl OAuthProvider for GithubProvider {
 
     async fn check_org_admin(
         &self,
-        _access_token: &str,
-        _org_ref: &str,
+        access_token: &str,
+        org_ref: &str,
     ) -> Result<bool, ProviderError> {
-        // Real implementation lands in Task 6.
-        Err(ProviderError::NotSupported)
+        let url = format!(
+            "{}/{}",
+            self.user_memberships_url.trim_end_matches('/'),
+            org_ref
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .header("Authorization", format!("token {access_token}"))
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+            .map_err(|e| ProviderError::Upstream(e.to_string()))?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(false);
+        }
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(ProviderError::Unauthorized);
+        }
+        if !status.is_success() {
+            return Err(ProviderError::Upstream(format!(
+                "memberships endpoint status {status}"
+            )));
+        }
+        #[derive(Deserialize)]
+        struct Membership {
+            state: String,
+            role: String,
+        }
+        let m: Membership = resp
+            .json()
+            .await
+            .map_err(|e| ProviderError::BadResponse(e.to_string()))?;
+        Ok(m.state == "active" && m.role == "admin")
     }
 }
 
@@ -333,5 +366,100 @@ mod tests {
         let profile = provider_for(&server).exchange_code("c", "v").await.unwrap();
         assert_eq!(profile.email.as_deref(), Some("bob@example.com"));
         assert!(!profile.email_verified);
+    }
+
+    #[tokio::test]
+    async fn check_org_admin_active_admin_is_true() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/user/memberships/orgs/acme"))
+            .and(header("authorization", "token tok"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "state": "active", "role": "admin"
+            })))
+            .mount(&server)
+            .await;
+
+        let got = provider_for(&server)
+            .check_org_admin("tok", "acme")
+            .await
+            .unwrap();
+        assert!(got);
+    }
+
+    #[tokio::test]
+    async fn check_org_admin_member_is_false() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/user/memberships/orgs/acme"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "state": "active", "role": "member"
+            })))
+            .mount(&server)
+            .await;
+        assert!(!provider_for(&server)
+            .check_org_admin("tok", "acme")
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn check_org_admin_pending_is_false() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/user/memberships/orgs/acme"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "state": "pending", "role": "admin"
+            })))
+            .mount(&server)
+            .await;
+        assert!(!provider_for(&server)
+            .check_org_admin("tok", "acme")
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn check_org_admin_404_is_false() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/user/memberships/orgs/acme"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        assert!(!provider_for(&server)
+            .check_org_admin("tok", "acme")
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn check_org_admin_401_is_unauthorized() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/user/memberships/orgs/acme"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+        let err = provider_for(&server)
+            .check_org_admin("tok", "acme")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ProviderError::Unauthorized));
+    }
+
+    #[tokio::test]
+    async fn check_org_admin_500_is_upstream() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/user/memberships/orgs/acme"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+        let err = provider_for(&server)
+            .check_org_admin("tok", "acme")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ProviderError::Upstream(_)));
     }
 }
