@@ -1,0 +1,4 @@
+[app]
+name = "solobase-web"
+title = "Solobase"
+boot_redirect = "/b/system/"
