@@ -85,3 +85,90 @@ pub async fn list_tokens(
 
     Ok(HttpReply::new(200).json_body(&Value::Array(view)))
 }
+
+// ---------------------------------------------------------------------------
+// Task 9: POST /auth/tokens
+// ---------------------------------------------------------------------------
+
+/// Parse a JSON create-token body into `(name, scopes, expires_at)`.
+///
+/// Returns `Err(HttpReply)` with a 422 if `name` is missing or empty — the
+/// row has a `NOT NULL` constraint on `name` and blank names make the PAT
+/// list unreadable.
+fn parse_create_body(
+    body: &[u8],
+) -> Result<
+    (
+        String,
+        Vec<wafer_core::interfaces::auth::service::TokenScope>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    ),
+    HttpReply,
+> {
+    use wafer_core::interfaces::auth::service::TokenScope;
+    let v: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    let name = v
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if name.is_empty() {
+        return Err(HttpReply::new(422).json_body(&json!({ "error": "name_required" })));
+    }
+    let scopes: Vec<TokenScope> = v
+        .get("scopes")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .filter_map(|s| match s {
+                    "publish" => Some(TokenScope::Publish),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let expires_at = v
+        .get("expires_at")
+        .and_then(Value::as_str)
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+    Ok((name, scopes, expires_at))
+}
+
+/// POST `/auth/tokens` — issue a new PAT. Returns the raw token exactly
+/// once in the response body; it is not retrievable again.
+pub async fn create_token(
+    ctx: &dyn Context,
+    service: &dyn AuthService,
+    msg: &Message,
+    body: &[u8],
+) -> Result<HttpReply, WaferError> {
+    use crate::blocks::auth::{pat, service::hash_token};
+
+    let user_id = match require_user_or_reply(service, msg).await {
+        Ok(u) => u,
+        Err(r) => return Ok(r),
+    };
+    let (name, scopes, expires_at) = match parse_create_body(body) {
+        Ok(t) => t,
+        Err(r) => return Ok(r),
+    };
+
+    let issued = pat::issue(ctx, &user_id, &name, &scopes, expires_at).await?;
+    let scopes_str: Vec<&str> = scopes
+        .iter()
+        .map(|s| match s {
+            wafer_core::interfaces::auth::service::TokenScope::Publish => "publish",
+        })
+        .collect();
+    let payload = json!({
+        "id": hex(&hash_token(&issued.raw_token)),
+        "name": name,
+        "scopes": scopes_str,
+        "token": issued.raw_token,
+        "expires_at": issued.expires_at.map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+    });
+    Ok(HttpReply::new(201).json_body(&payload))
+}
