@@ -9,16 +9,9 @@
 //! falls back to `"sqlite"` because we intentionally don't register
 //! `wafer-run/config` — the fallback keeps the test self-contained.
 
-use std::sync::Arc;
-
+use crate::common::MigrationTestCtx;
 use solobase_core::blocks::auth::migrations;
 use wafer_core::clients::database as db;
-use wafer_run::{
-    block::Block,
-    context::Context,
-    types::{Message, WaferError},
-    InputStream, OutputStream,
-};
 
 const EXPECTED_TABLES: &[&str] = &[
     "suppers_ai__auth__users",
@@ -30,49 +23,6 @@ const EXPECTED_TABLES: &[&str] = &[
     "suppers_ai__auth__cli_exchange_codes",
     "suppers_ai__auth__bootstrap_tokens",
 ];
-
-/// Minimal `Context` that routes `call_block("wafer-run/database", ...)` to a
-/// real `DatabaseBlock` wrapping an in-memory SQLite service. Any other block
-/// call returns `NotFound` — including `wafer-run/config`, which makes
-/// `config::get_default(..., "sqlite")` fall back to the default.
-struct MigrationTestCtx {
-    db_block: Arc<dyn Block>,
-}
-
-impl MigrationTestCtx {
-    fn new() -> Self {
-        let svc = Arc::new(
-            wafer_block_sqlite::service::SQLiteDatabaseService::open_in_memory()
-                .expect("open in-memory sqlite"),
-        );
-        let db_block: Arc<dyn Block> = Arc::new(
-            wafer_core::service_blocks::database::DatabaseBlock::new(svc),
-        );
-        Self { db_block }
-    }
-}
-
-#[async_trait::async_trait]
-impl Context for MigrationTestCtx {
-    async fn call_block(&self, block_name: &str, msg: Message, input: InputStream) -> OutputStream {
-        if block_name == "wafer-run/database" {
-            self.db_block.handle(self, msg, input).await
-        } else {
-            OutputStream::error(WaferError::new(
-                wafer_run::types::ErrorCode::NOT_FOUND,
-                format!("block '{block_name}' not registered in test ctx"),
-            ))
-        }
-    }
-
-    fn is_cancelled(&self) -> bool {
-        false
-    }
-
-    fn config_get(&self, _key: &str) -> Option<&str> {
-        None
-    }
-}
 
 #[tokio::test]
 async fn migration_001_creates_all_tables() {
