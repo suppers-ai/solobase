@@ -172,3 +172,68 @@ pub async fn create_token(
     });
     Ok(HttpReply::new(201).json_body(&payload))
 }
+
+// ---------------------------------------------------------------------------
+// Task 10: DELETE /auth/tokens/{id}
+// ---------------------------------------------------------------------------
+
+fn not_found() -> HttpReply {
+    HttpReply::new(404).json_body(&json!({ "error": "not_found" }))
+}
+
+/// Decode a hex-encoded id back to its raw token-hash bytes. Returns `None`
+/// if the input is not valid hex.
+fn unhex(id: &str) -> Option<Vec<u8>> {
+    if id.is_empty() || id.len() % 2 != 0 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(id.len() / 2);
+    let bytes = id.as_bytes();
+    for i in (0..bytes.len()).step_by(2) {
+        let hi = char_to_nib(bytes[i])?;
+        let lo = char_to_nib(bytes[i + 1])?;
+        out.push((hi << 4) | lo);
+    }
+    Some(out)
+}
+
+fn char_to_nib(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// DELETE `/auth/tokens/{id}` — revoke a PAT owned by the caller.
+///
+/// Returns 204 on success, 404 if the id is malformed, doesn't exist, or
+/// belongs to someone else. The not-found-vs-not-owned distinction is
+/// intentionally collapsed so the endpoint doesn't leak "this token exists
+/// on another account" to probes.
+pub async fn delete_token(
+    ctx: &dyn Context,
+    service: &dyn AuthService,
+    msg: &Message,
+    id: &str,
+) -> Result<HttpReply, WaferError> {
+    let user_id = match require_user_or_reply(service, msg).await {
+        Ok(u) => u,
+        Err(r) => return Ok(r),
+    };
+    let Some(hash) = unhex(id) else {
+        return Ok(not_found());
+    };
+    let deleted = pats::delete_by_id(ctx, &user_id, &hash).await.map_err(|e| {
+        WaferError::new(
+            wafer_run::types::ErrorCode::INTERNAL,
+            format!("pats delete: {e}"),
+        )
+    })?;
+    if deleted {
+        Ok(HttpReply::new(204))
+    } else {
+        Ok(not_found())
+    }
+}

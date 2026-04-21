@@ -7,6 +7,7 @@ mod common;
 mod handlers_login;
 mod handlers_me;
 mod handlers_tokens_create;
+mod handlers_tokens_delete;
 mod handlers_tokens_list;
 mod migrations_001;
 mod migrations_002;

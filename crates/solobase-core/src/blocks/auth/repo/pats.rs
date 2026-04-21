@@ -146,6 +146,28 @@ pub async fn find_by_token_hash(
     }
 }
 
+/// Delete the PAT identified by `token_hash`, iff it belongs to `user_id`.
+///
+/// Returns `true` when exactly one row was deleted. A `false` result covers
+/// three cases — no row, wrong owner, or already-deleted — because the
+/// public `/auth/tokens/{id}` endpoint collapses all three into a 404 (so
+/// probes can't distinguish "this token belongs to someone else" from "no
+/// such token").
+pub async fn delete_by_id(
+    ctx: &dyn Context,
+    user_id: &str,
+    token_hash: &[u8],
+) -> Result<bool, RepoError> {
+    let affected = db::exec_raw(
+        ctx,
+        &format!("DELETE FROM {TABLE} WHERE token_hash = ? AND user_id = ?"),
+        &[json!(token_hash), json!(user_id)],
+    )
+    .await
+    .map_err(|e| RepoError::Db(format!("pat delete: {e}")))?;
+    Ok(affected > 0)
+}
+
 /// Bumps `last_used_at` for the row identified by `hash`. Silently no-ops if
 /// the row is missing.
 pub async fn touch_last_used(ctx: &dyn Context, hash: &[u8]) -> Result<(), RepoError> {
