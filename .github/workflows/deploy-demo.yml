@@ -23,8 +23,12 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-      - name: Build WASM
-        run: cd crates/solobase-web && make build
+      - name: Install solobase CLI
+        run: cargo install --path crates/solobase-cli --locked
+
+      - name: Build solobase-web
+        working-directory: crates/solobase-web
+        run: solobase build
 
       - name: Add CNAME
         run: echo "demo.solobase.dev" > crates/solobase-web/pkg/CNAME

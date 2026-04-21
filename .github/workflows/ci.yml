@@ -118,8 +118,12 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install solobase CLI
+        run: cargo install --path crates/solobase-cli --locked
+
       - name: Build solobase-web (framework assets + hashed pkg/)
-        run: cd crates/solobase-web && make build
+        working-directory: crates/solobase-web
+        run: solobase build
 
       - name: Install Playwright
         working-directory: crates/solobase-web
