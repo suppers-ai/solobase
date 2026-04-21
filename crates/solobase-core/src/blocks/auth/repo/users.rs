@@ -90,6 +90,22 @@ pub async fn find_by_email(ctx: &dyn Context, email: &str) -> Result<Option<User
     }
 }
 
+/// Returns the number of rows currently in `suppers_ai__auth__users`.
+///
+/// Used by the block's bootstrap logic to decide whether to create the first
+/// admin user. A non-zero count means "already bootstrapped — no-op".
+pub async fn count(ctx: &dyn Context) -> Result<u64, RepoError> {
+    let rows = db::query_raw(ctx, &format!("SELECT COUNT(*) AS n FROM {TABLE}"), &[])
+        .await
+        .map_err(|e| RepoError::Db(format!("users count: {e}")))?;
+    let n = rows
+        .first()
+        .and_then(|r| r.data.get("n"))
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| RepoError::Db("count returned no rows".into()))?;
+    Ok(n.max(0) as u64)
+}
+
 pub async fn find_by_id(ctx: &dyn Context, id: &str) -> Result<Option<UserRow>, RepoError> {
     let rows = db::query_raw(
         ctx,
