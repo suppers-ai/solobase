@@ -8,6 +8,8 @@
 use async_trait::async_trait;
 use thiserror::Error;
 
+pub(super) mod pkce;
+
 /// Normalised profile returned by [`OAuthProvider::exchange_code`]. Upstream
 /// GitHub/Google/Microsoft shapes collapse into this single struct so the
 /// callback handler (Cluster 3 Task 12) never has to branch on provider.
