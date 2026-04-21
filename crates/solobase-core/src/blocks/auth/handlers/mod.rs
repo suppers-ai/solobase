@@ -11,6 +11,7 @@
 //! without reaching for the full `ResponseBuilder` machinery every time.
 
 pub mod login;
+pub mod me;
 
 use wafer_run::{
     meta::{META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX, META_RESP_STATUS},

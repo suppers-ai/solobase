@@ -5,6 +5,7 @@ mod block_init_bootstrap;
 mod bootstrap_run;
 mod common;
 mod handlers_login;
+mod handlers_me;
 mod migrations_001;
 mod migrations_002;
 mod pat_issue;
