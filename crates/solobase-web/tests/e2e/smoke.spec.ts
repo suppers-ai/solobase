@@ -7,14 +7,17 @@ import { test, expect } from '@playwright/test';
  */
 test('service worker registers and controls the page', async ({ page }) => {
   await page.goto('/');
-  await page.waitForFunction(
-    () => navigator.serviceWorker.controller !== null,
+  // Read the controller scriptURL inside the waitForFunction predicate so the
+  // value is captured atomically. solobase-web's loader.js redirects to
+  // `/b/system/` as soon as the SW takes control, which would otherwise
+  // destroy the execution context between a separate `waitForFunction` +
+  // `evaluate` pair.
+  const handle = await page.waitForFunction(
+    () => navigator.serviceWorker.controller?.scriptURL ?? null,
     null,
     { timeout: 20_000 },
   );
-  const controllerURL = await page.evaluate(
-    () => navigator.serviceWorker.controller?.scriptURL ?? null,
-  );
+  const controllerURL = (await handle.jsonValue()) as string | null;
   expect(controllerURL).toMatch(/\/sw\.js$/);
 });
 
