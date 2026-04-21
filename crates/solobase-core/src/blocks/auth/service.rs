@@ -213,9 +213,23 @@ impl AuthService for AuthServiceImpl {
         Ok(false)
     }
 
-    async fn user_profile(&self, _user: UserId) -> Result<UserProfile, AuthError> {
-        Err(AuthError::Internal(
-            "user_profile: not yet implemented (Task 10)".into(),
-        ))
+    async fn user_profile(&self, user: UserId) -> Result<UserProfile, AuthError> {
+        let ctx = self.state.ctx.as_ref();
+        let row = users::find_by_id(ctx, &user.0)
+            .await
+            .map_err(|e| AuthError::Internal(e.to_string()))?
+            .ok_or(AuthError::NotFound)?;
+        let role = match row.role.as_str() {
+            "admin" => Role::Admin,
+            _ => Role::User,
+        };
+        Ok(UserProfile {
+            id: UserId(row.id),
+            email: row.email,
+            display_name: row.display_name,
+            avatar_url: row.avatar_url,
+            role,
+            orgs: Vec::new(), // populated by Plan C
+        })
     }
 }
