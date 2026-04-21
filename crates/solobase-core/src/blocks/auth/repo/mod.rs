@@ -8,6 +8,7 @@
 pub mod bootstrap_tokens;
 pub mod local_credentials;
 pub mod pats;
+pub mod provider_links;
 pub mod sessions;
 pub mod users;
 

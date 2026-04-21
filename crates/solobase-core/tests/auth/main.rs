@@ -15,6 +15,7 @@ mod migrations_002;
 mod pat_flow;
 mod pat_issue;
 mod repo_pats;
+mod repo_provider_links;
 mod repo_sessions;
 mod repo_users;
 mod routes_mounted;
