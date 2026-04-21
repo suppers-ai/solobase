@@ -1,0 +1,12 @@
+[app]
+name = "solobase-web"
+title = "Solobase"
+boot_redirect = "/b/system/"
+
+# solobase-web's PWA Web App Manifest. The file is app-specific (icons,
+# name, start_url); solobase-browser doesn't ship a default. Overlay it
+# into pkg/ after the framework assets land so the SW's /manifest.json
+# bypass can serve it.
+[[assets.overlay]]
+from = "js/manifest.json"
+to = "manifest.json"
