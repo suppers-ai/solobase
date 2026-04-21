@@ -85,10 +85,15 @@ tracing = "0.1"
 workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt", "time"] }
+tokio = { workspace = true, features = ["macros", "rt", "time", "net"] }
 wafer-block-sqlite = { workspace = true }
 wafer-block-crypto = { workspace = true }
+wafer-block-http-listener = { workspace = true }
 async-trait = { workspace = true }
+# Layer-3 HTTP end-to-end tests (tests/auth_http) drive the block through
+# a real axum server on an ephemeral port using reqwest as the client.
+axum = "0.8"
+reqwest = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
