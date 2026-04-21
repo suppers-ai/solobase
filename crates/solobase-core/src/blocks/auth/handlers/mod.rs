@@ -12,6 +12,7 @@
 
 pub mod login;
 pub mod me;
+pub mod tokens;
 
 use wafer_run::{
     meta::{META_RESP_COOKIE_PREFIX, META_RESP_HEADER_PREFIX, META_RESP_STATUS},

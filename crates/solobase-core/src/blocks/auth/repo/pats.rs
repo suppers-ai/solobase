@@ -113,6 +113,22 @@ pub async fn insert(ctx: &dyn Context, new: NewPat) -> Result<(), RepoError> {
     Ok(())
 }
 
+/// List every PAT belonging to `user_id`, newest first.
+///
+/// Ordering is by `created_at DESC` so the UI can render "most recent at the
+/// top". `token_hash` is returned on the row but API callers are expected to
+/// strip it before serialising to the client.
+pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<PatRow>, RepoError> {
+    let rows = db::query_raw(
+        ctx,
+        &format!("SELECT * FROM {TABLE} WHERE user_id = ? ORDER BY created_at DESC"),
+        &[json!(user_id)],
+    )
+    .await
+    .map_err(|e| RepoError::Db(format!("pat list: {e}")))?;
+    rows.iter().map(|r| row_from_map(&r.data)).collect()
+}
+
 pub async fn find_by_token_hash(
     ctx: &dyn Context,
     hash: &[u8],

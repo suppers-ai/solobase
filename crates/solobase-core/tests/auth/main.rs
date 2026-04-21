@@ -6,6 +6,7 @@ mod bootstrap_run;
 mod common;
 mod handlers_login;
 mod handlers_me;
+mod handlers_tokens_list;
 mod migrations_001;
 mod migrations_002;
 mod pat_issue;
