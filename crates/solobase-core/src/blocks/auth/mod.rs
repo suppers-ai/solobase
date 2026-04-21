@@ -8,7 +8,7 @@ pub mod migrations;
 mod oauth;
 mod pages;
 pub mod pat;
-pub(crate) mod providers;
+pub mod providers;
 pub mod repo;
 pub mod service;
 pub mod session;

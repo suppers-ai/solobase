@@ -12,16 +12,16 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{Deserialize, Serialize};
 
 /// Name of the cookie on both the wire and in lookups.
-pub(crate) const COOKIE_NAME: &str = "wafer_oauth_state";
+pub const COOKIE_NAME: &str = "wafer_oauth_state";
 
 /// Lifetime of the state cookie in seconds (10 minutes — the authorize→
 /// callback round-trip budget).
-pub(crate) const MAX_AGE_SECONDS: u32 = 600;
+pub const MAX_AGE_SECONDS: u32 = 600;
 
 /// Payload serialised into the cookie. `next` is optional so a login flow
 /// can omit it and fall back to the block's default post-login destination.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) struct StatePayload {
+pub struct StatePayload {
     pub state: String,
     pub pkce_verifier: String,
     pub next: Option<String>,
@@ -29,7 +29,7 @@ pub(crate) struct StatePayload {
 
 /// Errors returned by [`parse_cookie_value`] and [`set_cookie_header`].
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum StateCookieError {
+pub enum StateCookieError {
     #[error("serialize: {0}")]
     Serialize(#[from] serde_json::Error),
     #[error("base64 decode: {0}")]
@@ -43,7 +43,7 @@ pub(crate) enum StateCookieError {
 /// JSON → base64url(unpadded) → `wafer_oauth_state=<encoded>; …`. The JSON
 /// layer means tampered cookies fail the `serde_json::from_slice` step in
 /// [`parse_cookie_value`] rather than silently producing garbage.
-pub(crate) fn set_cookie_header(payload: &StatePayload) -> Result<String, StateCookieError> {
+pub fn set_cookie_header(payload: &StatePayload) -> Result<String, StateCookieError> {
     let json = serde_json::to_vec(payload)?;
     let encoded = Base64UrlUnpadded::encode_string(&json);
     Ok(format!(
@@ -54,14 +54,14 @@ pub(crate) fn set_cookie_header(payload: &StatePayload) -> Result<String, StateC
 /// Build a `Set-Cookie` header that clears the cookie (`Max-Age=0`). Emitted
 /// by the callback handler immediately on entry so a replayed callback URL
 /// can't be abused.
-pub(crate) fn clear_cookie_header() -> String {
+pub fn clear_cookie_header() -> String {
     format!("{COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0")
 }
 
 /// Parse a raw cookie value (the part after `wafer_oauth_state=`) back into
 /// a [`StatePayload`]. Rejects non-base64url input and JSON that doesn't
 /// match the payload shape.
-pub(crate) fn parse_cookie_value(raw: &str) -> Result<StatePayload, StateCookieError> {
+pub fn parse_cookie_value(raw: &str) -> Result<StatePayload, StateCookieError> {
     let bytes =
         Base64UrlUnpadded::decode_vec(raw).map_err(|e| StateCookieError::Decode(e.to_string()))?;
     let payload: StatePayload =

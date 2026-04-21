@@ -12,6 +12,7 @@ mod handlers_tokens_list;
 mod login_flow;
 mod migrations_001;
 mod migrations_002;
+mod oauth_resolve;
 mod pat_flow;
 mod pat_issue;
 mod repo_pats;

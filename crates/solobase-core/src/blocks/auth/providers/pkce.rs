@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 /// Generates a fresh PKCE code verifier: 32 random bytes encoded as
 /// base64url (unpadded) — 43 chars, within RFC 7636's 43–128 range and
 /// using only the [A-Za-z0-9\-_] alphabet.
-pub(super) fn new_verifier() -> String {
+pub fn new_verifier() -> String {
     let mut bytes = [0u8; 32];
     // `getrandom` is already a dep of solobase-core and used by the auth
     // block elsewhere; it pulls from the OS CSPRNG on native and
@@ -20,7 +20,7 @@ pub(super) fn new_verifier() -> String {
 
 /// S256 challenge: base64url(unpadded)(sha256(verifier)). The verifier is
 /// hashed as raw bytes of its ASCII representation per RFC 7636 §4.2.
-pub(super) fn challenge_for(verifier: &str) -> String {
+pub fn challenge_for(verifier: &str) -> String {
     let digest = Sha256::digest(verifier.as_bytes());
     Base64UrlUnpadded::encode_string(&digest)
 }

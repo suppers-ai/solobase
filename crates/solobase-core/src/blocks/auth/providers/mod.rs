@@ -11,14 +11,14 @@ use thiserror::Error;
 pub(super) mod github;
 pub(super) mod google;
 pub(super) mod microsoft;
-pub(super) mod pkce;
-pub(crate) mod registry;
+pub mod pkce;
+pub mod registry;
 
 /// Normalised profile returned by [`OAuthProvider::exchange_code`]. Upstream
 /// GitHub/Google/Microsoft shapes collapse into this single struct so the
 /// callback handler (Cluster 3 Task 12) never has to branch on provider.
 #[derive(Debug, Clone)]
-pub(crate) struct ProviderProfile {
+pub struct ProviderProfile {
     /// Stable per-provider identifier (e.g. GitHub numeric `id`, Google `sub`,
     /// Microsoft `oid`). Must be unique within the provider.
     pub provider_ref: String,
@@ -40,7 +40,7 @@ pub(crate) struct ProviderProfile {
 
 /// Error surface exposed by all provider implementations.
 #[derive(Debug, Error)]
-pub(crate) enum ProviderError {
+pub enum ProviderError {
     /// The operation isn't supported by this provider (e.g. calling
     /// `check_org_admin` on Google). Callers should treat as a definitive
     /// "no" without retry.
@@ -71,7 +71,7 @@ pub(crate) enum ProviderError {
 /// Abstraction over a single OAuth provider. The registry (Task 9) owns one
 /// `Arc<dyn OAuthProvider>` per enabled provider and hands them out by name.
 #[async_trait]
-pub(crate) trait OAuthProvider: Send + Sync {
+pub trait OAuthProvider: Send + Sync {
     /// Stable provider identifier as used in URLs and the registry map
     /// (e.g. `"github"`, `"google"`, `"microsoft"`).
     fn name(&self) -> &'static str;
