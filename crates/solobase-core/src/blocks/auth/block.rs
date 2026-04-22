@@ -114,8 +114,13 @@ impl SolobaseAuthBlock {
     /// introspection for Layer-2 "routes-mounted" checks.
     pub fn mounted_routes() -> &'static [&'static str] {
         &[
+            "GET /auth/login",
             "POST /auth/login",
             "POST /auth/logout",
+            "GET /auth/signup",
+            "POST /auth/signup",
+            "GET /auth/dashboard",
+            "GET /auth/cli-login",
             "GET /auth/me",
             "GET /auth/tokens",
             "POST /auth/tokens",
@@ -123,6 +128,7 @@ impl SolobaseAuthBlock {
             "GET /auth/oauth/{provider}/start",
             "GET /auth/oauth/{provider}/callback",
             "POST /auth/orgs/claim",
+            "GET /auth/orgs/{name}",
             "POST /auth/cli/issue",
             "POST /auth/cli/exchange",
         ]
@@ -146,6 +152,18 @@ fn normalise_action(a: &str) -> &'static str {
 fn tokens_id(path: &str) -> Option<&str> {
     let rest = path.strip_prefix("/auth/tokens/")?;
     if rest.is_empty() || rest.contains('/') {
+        None
+    } else {
+        Some(rest)
+    }
+}
+
+/// Extract the `{name}` segment from `/auth/orgs/{name}`. Returns `None`
+/// for the `claim` path (which is its own endpoint) and for multi-segment
+/// tails.
+fn org_detail_name(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix("/auth/orgs/")?;
+    if rest.is_empty() || rest.contains('/') || rest == "claim" {
         None
     } else {
         Some(rest)
@@ -189,8 +207,27 @@ impl Block for SolobaseAuthBlock {
         // Collect body once — `InputStream::collect_to_bytes` consumes self.
         let body = input.collect_to_bytes().await;
 
-        // HTTP endpoints — Plan A2 routes.
+        // HTTP endpoints — Plan A2 + Plan D routes.
         let http_reply: Option<Result<HttpReply, WaferError>> = match (action, path.as_str()) {
+            ("retrieve", "/auth/login") => {
+                Some(Ok(handlers::pages::get_login(&msg, &self.config).await))
+            }
+            ("retrieve", "/auth/signup") => {
+                Some(Ok(handlers::pages::get_signup(&msg, &self.config).await))
+            }
+            ("create", "/auth/signup") => {
+                Some(handlers::pages::post_signup(ctx, &self.config, &body).await)
+            }
+            ("retrieve", "/auth/dashboard") => {
+                Some(handlers::pages::get_dashboard(ctx, self.service.as_ref(), &msg).await)
+            }
+            ("retrieve", "/auth/cli-login") => {
+                Some(handlers::pages::get_cli_login(self.service.as_ref(), &msg).await)
+            }
+            ("retrieve", p) if org_detail_name(p).is_some() => {
+                let name = org_detail_name(p).expect("guarded").to_string();
+                Some(handlers::pages::get_org_detail(ctx, self.service.as_ref(), &msg, &name).await)
+            }
             ("create", "/auth/login") => {
                 Some(handlers::login::post_login(ctx, &self.config, &body).await)
             }
@@ -222,7 +259,14 @@ impl Block for SolobaseAuthBlock {
                 .await,
             ),
             ("create", "/auth/cli/issue") => {
-                Some(handlers::cli::post_issue(ctx, self.service.as_ref(), &msg).await)
+                if handlers::pages::prefers_html_fragment(&msg) {
+                    Some(
+                        handlers::pages::post_cli_issue_fragment(ctx, self.service.as_ref(), &msg)
+                            .await,
+                    )
+                } else {
+                    Some(handlers::cli::post_issue(ctx, self.service.as_ref(), &msg).await)
+                }
             }
             ("create", "/auth/cli/exchange") => {
                 Some(handlers::cli::post_exchange(ctx, &body).await)
@@ -346,4 +390,46 @@ pub fn register_with_providers_for_test(
             svc, config, providers, cache,
         )),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mounted_routes_cover_all_plan_d_pages() {
+        let routes: Vec<&str> = SolobaseAuthBlock::mounted_routes().to_vec();
+        for expected in [
+            "GET /auth/login",
+            "POST /auth/login",
+            "GET /auth/signup",
+            "POST /auth/signup",
+            "POST /auth/logout",
+            "GET /auth/dashboard",
+            "GET /auth/cli-login",
+            "POST /auth/cli/issue",
+            "POST /auth/cli/exchange",
+            "GET /auth/me",
+            "GET /auth/tokens",
+            "POST /auth/tokens",
+            "DELETE /auth/tokens/{id}",
+            "POST /auth/orgs/claim",
+            "GET /auth/orgs/{name}",
+        ] {
+            assert!(
+                routes.contains(&expected),
+                "mounted_routes missing {expected}: {routes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn org_detail_name_skips_claim_and_nested_paths() {
+        assert_eq!(org_detail_name("/auth/orgs/acme"), Some("acme"));
+        assert_eq!(org_detail_name("/auth/orgs/wafer-run"), Some("wafer-run"));
+        assert_eq!(org_detail_name("/auth/orgs/claim"), None);
+        assert_eq!(org_detail_name("/auth/orgs/"), None);
+        assert_eq!(org_detail_name("/auth/orgs/acme/x"), None);
+        assert_eq!(org_detail_name("/auth/tokens"), None);
+    }
 }
