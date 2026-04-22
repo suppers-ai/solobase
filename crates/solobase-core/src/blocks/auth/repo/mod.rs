@@ -6,6 +6,7 @@
 //! layers don't have to reason about the underlying `db` client's error type.
 
 pub mod bootstrap_tokens;
+pub mod cli_codes;
 pub mod local_credentials;
 pub mod orgs;
 pub mod pats;
