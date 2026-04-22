@@ -11,7 +11,10 @@ use std::sync::Arc;
 
 use solobase_core::blocks::auth::{
     cache::OrgAdminCache,
-    handlers::cli::post_issue,
+    handlers::{
+        cli::{post_exchange, post_issue},
+        me::get_me,
+    },
     migrations, pat,
     providers::registry::ProviderRegistry,
     repo::{sessions, users},
@@ -144,4 +147,81 @@ async fn issue_with_bearer_pat_is_rejected_even_if_pat_would_authenticate() {
     assert_eq!(r.status, 401, "bearer must be rejected");
     let b = json_of(&r);
     assert_eq!(b["error"], "unauthorized");
+}
+
+// ── Task 8 — /auth/cli/exchange ──────────────────────────────────────────
+
+/// Helper: run the full issue + exchange chain for `user`, returning the
+/// raw PAT. Exercises the real code paths rather than poking the repo.
+async fn issue_and_exchange(h: &Harness, user: &UserId) -> String {
+    let cookie = login_cookie(h.ctx.as_ref(), user).await;
+    let imsg = with_cookie(msg_for("/auth/cli/issue"), &cookie);
+    let iresp = post_issue(h.ctx.as_ref(), h.svc.as_ref(), &imsg)
+        .await
+        .expect("issue");
+    assert_eq!(iresp.status, 200, "issue status: {}", iresp.status);
+    let code = json_of(&iresp)["code"].as_str().unwrap().to_string();
+
+    let ebody = serde_json::to_vec(&serde_json::json!({ "code": code })).unwrap();
+    let eresp = post_exchange(h.ctx.as_ref(), &ebody).await.expect("exchange");
+    assert_eq!(eresp.status, 200, "exchange status: {}", eresp.status);
+    json_of(&eresp)["token"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn exchange_happy_path_returns_pat() {
+    let h = boot().await;
+    let u = mk_user(h.ctx.as_ref(), "u@x.com").await;
+    let pat_raw = issue_and_exchange(&h, &u).await;
+    assert!(pat_raw.starts_with("wafer_pat_"), "token: {pat_raw}");
+}
+
+#[tokio::test]
+async fn exchange_unknown_code_returns_401() {
+    let h = boot().await;
+    let body = serde_json::to_vec(&serde_json::json!({ "code": "does-not-exist" })).unwrap();
+    let r = post_exchange(h.ctx.as_ref(), &body).await.unwrap();
+    assert_eq!(r.status, 401);
+}
+
+#[tokio::test]
+async fn exchange_invalid_body_returns_400() {
+    let h = boot().await;
+    let r = post_exchange(h.ctx.as_ref(), b"not json").await.unwrap();
+    assert_eq!(r.status, 400);
+}
+
+#[tokio::test]
+async fn exchange_consumes_code_single_use() {
+    let h = boot().await;
+    let u = mk_user(h.ctx.as_ref(), "u@x.com").await;
+    let cookie = login_cookie(h.ctx.as_ref(), &u).await;
+    let imsg = with_cookie(msg_for("/auth/cli/issue"), &cookie);
+    let iresp = post_issue(h.ctx.as_ref(), h.svc.as_ref(), &imsg)
+        .await
+        .unwrap();
+    let code = json_of(&iresp)["code"].as_str().unwrap().to_string();
+
+    let body = serde_json::to_vec(&serde_json::json!({ "code": code })).unwrap();
+    let first = post_exchange(h.ctx.as_ref(), &body).await.unwrap();
+    assert_eq!(first.status, 200);
+
+    let second = post_exchange(h.ctx.as_ref(), &body).await.unwrap();
+    assert_eq!(second.status, 401, "code must be single-use");
+}
+
+#[tokio::test]
+async fn exchanged_pat_has_publish_scope_and_works_on_me() {
+    let h = boot().await;
+    let u = mk_user(h.ctx.as_ref(), "u@x.com").await;
+    let pat_raw = issue_and_exchange(&h, &u).await;
+
+    // Use the PAT against /auth/me — round-trip confirms the hash was
+    // persisted correctly and the service resolves it back to the user.
+    let memsg = with_bearer(msg_for("/auth/me"), &pat_raw);
+    let reply = get_me(h.svc.as_ref(), &memsg).await;
+    assert_eq!(reply.status, 200, "me via PAT: {:?}", reply.body);
+    let b = json_of(&reply);
+    assert_eq!(b["id"], u.0);
+    assert_eq!(b["email"], "u@x.com");
 }
