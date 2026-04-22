@@ -13,3 +13,4 @@ mod common;
 mod fake_github;
 mod login;
 mod oauth;
+mod pages_http;

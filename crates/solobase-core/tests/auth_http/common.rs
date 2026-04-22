@@ -22,10 +22,11 @@ use axum::{
 };
 use solobase_core::blocks::auth::{
     block,
-    config::AuthConfig,
+    config::{AuthConfig, PASSWORD_MIN_LENGTH_KEY, SIGNUP_ENABLED_KEY},
     migrations,
     providers::{registry::ProviderRegistry, OAuthProvider},
     repo::{local_credentials, users},
+    session,
 };
 use wafer_block_http_listener::{http_to_message, wafer_output_to_response};
 use wafer_core::clients::crypto as crypto_client;
@@ -52,17 +53,23 @@ impl HttpHarness {
     /// listener is bound — subsequent `reqwest` calls against `base_url`
     /// will hit a live server.
     pub async fn start_with_auth() -> Self {
-        Self::start_with(None).await
+        Self::start_with(None, AuthConfig::from_env_for_test(&[])).await
+    }
+
+    /// Builder for tests that need a non-default [`AuthConfig`] (signup
+    /// flag, password minimum length, …).
+    pub fn builder() -> HttpHarnessBuilder {
+        HttpHarnessBuilder::default()
     }
 
     /// Start a harness with an explicit OAuth [`ProviderRegistry`]. Lets
     /// E2E tests inject a fake provider into the real HTTP dispatch path
     /// without racing on `std::env`.
     pub async fn start_with_providers(providers: ProviderRegistry) -> Self {
-        Self::start_with(Some(providers)).await
+        Self::start_with(Some(providers), AuthConfig::from_env_for_test(&[])).await
     }
 
-    async fn start_with(providers: Option<ProviderRegistry>) -> Self {
+    async fn start_with(providers: Option<ProviderRegistry>, config: AuthConfig) -> Self {
         let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new());
         migrations::apply(ctx.as_ref())
             .await
@@ -70,14 +77,12 @@ impl HttpHarness {
 
         let mut registry = TestRegistry::default();
         match providers {
-            Some(p) => block::register_with_providers_for_test(
-                &mut registry,
-                ctx.clone(),
-                AuthConfig::from_env_for_test(&[]),
-                p,
-            )
-            .expect("register auth block"),
-            None => block::register(&mut registry, ctx.clone()).expect("register auth block"),
+            Some(p) => {
+                block::register_with_providers_for_test(&mut registry, ctx.clone(), config, p)
+                    .expect("register auth block")
+            }
+            None => block::register_with_config(&mut registry, ctx.clone(), config)
+                .expect("register auth block"),
         }
         let auth_block = registry
             .blocks
@@ -135,6 +140,59 @@ impl HttpHarness {
             .await
             .expect("insert credentials");
         u.id
+    }
+
+    /// Seed a user + issue a session and return the raw session-cookie
+    /// value. Callers send it as `Cookie: wafer_session=<value>`.
+    pub async fn seed_user_and_session(&self, email: &str, password: &str) -> String {
+        let user_id = self.seed_user_with_password(email, password).await;
+        let issued = session::issue_for(self.ctx.as_ref(), &user_id, 30)
+            .await
+            .expect("issue session");
+        issued.raw_token
+    }
+}
+
+/// Builder for [`HttpHarness`] — used by page-handler tests that need to
+/// flip `SIGNUP_ENABLED` or raise `PASSWORD_MIN_LENGTH`.
+#[derive(Default)]
+pub struct HttpHarnessBuilder {
+    signup_enabled: bool,
+    password_min_length: Option<u32>,
+    providers: Option<ProviderRegistry>,
+}
+
+impl HttpHarnessBuilder {
+    pub fn signup_enabled(mut self, v: bool) -> Self {
+        self.signup_enabled = v;
+        self
+    }
+
+    pub fn password_min_length(mut self, v: u32) -> Self {
+        self.password_min_length = Some(v);
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn providers(mut self, p: ProviderRegistry) -> Self {
+        self.providers = Some(p);
+        self
+    }
+
+    pub async fn spawn(self) -> HttpHarness {
+        let min_len = self
+            .password_min_length
+            .map(|n| n.to_string())
+            .unwrap_or_default();
+        let mut pairs: Vec<(&str, &str)> = Vec::new();
+        if self.signup_enabled {
+            pairs.push((SIGNUP_ENABLED_KEY, "true"));
+        }
+        if !min_len.is_empty() {
+            pairs.push((PASSWORD_MIN_LENGTH_KEY, min_len.as_str()));
+        }
+        let cfg = AuthConfig::from_env_for_test(&pairs);
+        HttpHarness::start_with(self.providers, cfg).await
     }
 }
 
