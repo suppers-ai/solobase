@@ -257,3 +257,33 @@ async fn get_org_missing_returns_404() {
         .expect("GET /auth/orgs/does-not-exist");
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn login_page_shows_signup_link_when_enabled() {
+    let h = HttpHarness::builder().signup_enabled(true).spawn().await;
+    let body = reqwest::get(h.url("/auth/login"))
+        .await
+        .expect("GET /auth/login")
+        .text()
+        .await
+        .expect("body");
+    assert!(
+        body.contains(r#"href="/auth/signup""#),
+        "signup link missing: {body}"
+    );
+}
+
+#[tokio::test]
+async fn login_page_hides_signup_link_when_disabled() {
+    let h = HttpHarness::start_with_auth().await;
+    let body = reqwest::get(h.url("/auth/login"))
+        .await
+        .expect("GET /auth/login")
+        .text()
+        .await
+        .expect("body");
+    assert!(
+        !body.contains(r#"href="/auth/signup""#),
+        "signup link leaked: {body}"
+    );
+}
