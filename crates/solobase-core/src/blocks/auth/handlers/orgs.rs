@@ -81,18 +81,16 @@ pub async fn post_claim(
 ) -> Result<HttpReply, WaferError> {
     let user_id = match service.require_user(msg).await {
         Ok(u) => u,
-        Err(AuthError::Unauthorized)
-        | Err(AuthError::Forbidden)
-        | Err(AuthError::NotFound) => return Ok(unauthorized()),
+        Err(AuthError::Unauthorized) | Err(AuthError::Forbidden) | Err(AuthError::NotFound) => {
+            return Ok(unauthorized())
+        }
         Err(AuthError::ProviderDown(m)) => {
             return Ok(
                 HttpReply::new(503).json_body(&json!({ "error": "provider_down", "detail": m }))
             )
         }
         Err(AuthError::Internal(m)) => {
-            return Ok(
-                HttpReply::new(500).json_body(&json!({ "error": "internal", "detail": m }))
-            )
+            return Ok(HttpReply::new(500).json_body(&json!({ "error": "internal", "detail": m })))
         }
     };
 
@@ -149,7 +147,10 @@ pub async fn post_claim(
         }
     };
 
-    let is_admin = match provider_impl.check_org_admin(&link.access_token, &name).await {
+    let is_admin = match provider_impl
+        .check_org_admin(&link.access_token, &name)
+        .await
+    {
         Ok(v) => v,
         Err(ProviderError::NotSupported) | Err(ProviderError::Unauthorized) => false,
         Err(ProviderError::Upstream(m)) => {

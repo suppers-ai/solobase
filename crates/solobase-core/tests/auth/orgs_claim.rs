@@ -73,11 +73,7 @@ impl OAuthProvider for ScriptedGithub {
     fn authorize_url(&self, _state: &str, _c: &str) -> String {
         "https://fake/authorize".into()
     }
-    async fn exchange_code(
-        &self,
-        _c: &str,
-        _v: &str,
-    ) -> Result<ProviderProfile, ProviderError> {
+    async fn exchange_code(&self, _c: &str, _v: &str) -> Result<ProviderProfile, ProviderError> {
         Err(ProviderError::NotSupported)
     }
     async fn check_org_admin(&self, token: &str, org: &str) -> Result<bool, ProviderError> {
@@ -210,7 +206,12 @@ async fn claim_happy_path_returns_201_and_warms_cache() {
 
     let msg = msg_with_cookie(Some(&cookie));
     let reply = call_claim(&h, &msg, &body("acme", "github")).await.unwrap();
-    assert_eq!(reply.status, 201, "body: {}", String::from_utf8_lossy(&reply.body));
+    assert_eq!(
+        reply.status,
+        201,
+        "body: {}",
+        String::from_utf8_lossy(&reply.body)
+    );
     let b = parse_body(&reply);
     assert_eq!(b["name"], "acme");
     assert_eq!(b["verified_via"], "github");
@@ -259,7 +260,9 @@ async fn claim_reserved_name_returns_409() {
     let cookie = login_cookie(h.ctx.as_ref(), &u).await;
     for reserved in ["wafer-run", "wafer", "suppers-ai", "solobase"] {
         let msg = msg_with_cookie(Some(&cookie));
-        let reply = call_claim(&h, &msg, &body(reserved, "github")).await.unwrap();
+        let reply = call_claim(&h, &msg, &body(reserved, "github"))
+            .await
+            .unwrap();
         assert_eq!(reply.status, 409, "reserved={reserved}");
         let b = parse_body(&reply);
         assert_eq!(b["error"], "reserved", "reserved={reserved}");
@@ -276,7 +279,13 @@ async fn claim_invalid_name_returns_400() {
 
     let long_name = "a".repeat(41);
     let bad = [
-        "Acme", "-acme", "1acme", "", "acme_org", "acme/corp", long_name.as_str(),
+        "Acme",
+        "-acme",
+        "1acme",
+        "",
+        "acme_org",
+        "acme/corp",
+        long_name.as_str(),
     ];
     for name in bad {
         let msg = msg_with_cookie(Some(&cookie));

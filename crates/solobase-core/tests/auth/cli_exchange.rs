@@ -130,15 +130,9 @@ async fn issue_with_bearer_pat_is_rejected_even_if_pat_would_authenticate() {
     // dodge revocation.
     let h = boot().await;
     let u = mk_user(h.ctx.as_ref(), "u@x.com").await;
-    let issued = pat::issue(
-        h.ctx.as_ref(),
-        &u.0,
-        "test",
-        &[TokenScope::Publish],
-        None,
-    )
-    .await
-    .expect("mint pat");
+    let issued = pat::issue(h.ctx.as_ref(), &u.0, "test", &[TokenScope::Publish], None)
+        .await
+        .expect("mint pat");
 
     let msg = with_bearer(msg_for("/auth/cli/issue"), &issued.raw_token);
     let r = post_issue(h.ctx.as_ref(), h.svc.as_ref(), &msg)
@@ -163,7 +157,9 @@ async fn issue_and_exchange(h: &Harness, user: &UserId) -> String {
     let code = json_of(&iresp)["code"].as_str().unwrap().to_string();
 
     let ebody = serde_json::to_vec(&serde_json::json!({ "code": code })).unwrap();
-    let eresp = post_exchange(h.ctx.as_ref(), &ebody).await.expect("exchange");
+    let eresp = post_exchange(h.ctx.as_ref(), &ebody)
+        .await
+        .expect("exchange");
     assert_eq!(eresp.status, 200, "exchange status: {}", eresp.status);
     json_of(&eresp)["token"].as_str().unwrap().to_string()
 }

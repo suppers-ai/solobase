@@ -28,7 +28,8 @@ fn cookie_pair(set_cookie: &str) -> String {
 #[tokio::test]
 async fn browser_issues_code_cli_exchanges_and_uses_pat() {
     let h = HttpHarness::start_with_auth().await;
-    h.seed_user_with_password("cli@x.com", "hunter2hunter2").await;
+    h.seed_user_with_password("cli@x.com", "hunter2hunter2")
+        .await;
 
     let browser = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -101,7 +102,10 @@ async fn browser_issues_code_cli_exchanges_and_uses_pat() {
         .expect("token present")
         .to_string();
     assert!(pat.starts_with("wafer_pat_"), "pat shape: {pat}");
-    assert!(exchange_body["expires_at"].is_null(), "CLI PATs don't expire");
+    assert!(
+        exchange_body["expires_at"].is_null(),
+        "CLI PATs don't expire"
+    );
 
     // 4) CLI uses the PAT against /auth/me.
     let me = cli
@@ -147,7 +151,9 @@ async fn cli_issue_with_bearer_pat_returns_401_over_http() {
     // Belt-and-braces HTTP repro of the unit test: a publish-scope PAT
     // cannot mint a fresh CLI token even over the real HTTP surface.
     let h = HttpHarness::start_with_auth().await;
-    let user_id = h.seed_user_with_password("cli@x.com", "hunter2hunter2").await;
+    let user_id = h
+        .seed_user_with_password("cli@x.com", "hunter2hunter2")
+        .await;
 
     // Mint a PAT directly through the block's pat helper so we exercise
     // only the /auth/cli/issue gate, not login+token-create.

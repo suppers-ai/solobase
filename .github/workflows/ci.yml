@@ -67,9 +67,13 @@ jobs:
       # SQLite only. A dual-backend matrix (sqlite + postgres) for the
       # `suppers_ai__auth__*` tables is deferred until a postgres-backed
       # test context lands in wafer-block-postgres — Plan A did not wire
-      # one, and Plan B's tests reuse the same MigrationTestCtx shape,
-      # so extending the harness is the right root-cause fix rather
-      # than bolting a separate job on here.
+      # one, and Plans B + C reuse the same MigrationTestCtx shape so
+      # the deferral still stands. In particular the partial unique
+      # index `orgs(verified_via, verified_ref) WHERE NOT is_reserved`
+      # introduced by migration 002 needs a postgres variant before it
+      # can be exercised in a real dual-backend CI matrix — extending
+      # the harness is the right root-cause fix rather than bolting a
+      # separate job on here.
       - name: Run tests
         run: cargo test --workspace --exclude solobase-web
 

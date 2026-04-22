@@ -69,18 +69,16 @@ pub async fn post_issue(
 
     let user_id = match service.require_user(msg).await {
         Ok(u) => u,
-        Err(AuthError::Unauthorized)
-        | Err(AuthError::Forbidden)
-        | Err(AuthError::NotFound) => return Ok(unauthorized("authentication required")),
+        Err(AuthError::Unauthorized) | Err(AuthError::Forbidden) | Err(AuthError::NotFound) => {
+            return Ok(unauthorized("authentication required"))
+        }
         Err(AuthError::ProviderDown(m)) => {
             return Ok(
                 HttpReply::new(503).json_body(&json!({ "error": "provider_down", "detail": m }))
             )
         }
         Err(AuthError::Internal(m)) => {
-            return Ok(
-                HttpReply::new(500).json_body(&json!({ "error": "internal", "detail": m }))
-            )
+            return Ok(HttpReply::new(500).json_body(&json!({ "error": "internal", "detail": m })))
         }
     };
 
@@ -108,9 +106,7 @@ pub async fn post_issue(
 
 fn parse_exchange(body: &[u8]) -> Option<String> {
     let v: Value = serde_json::from_slice(body).ok()?;
-    v.get("code")
-        .and_then(Value::as_str)
-        .map(|s| s.to_string())
+    v.get("code").and_then(Value::as_str).map(|s| s.to_string())
 }
 
 /// POST `/auth/cli/exchange` — UNAUTHENTICATED. The short-lived code IS the
@@ -132,12 +128,10 @@ pub async fn post_exchange(ctx: &dyn Context, body: &[u8]) -> Result<HttpReply, 
     {
         Some(r) => r,
         None => {
-            return Ok(
-                HttpReply::new(401).json_body(&json!({
-                    "error": "invalid_code",
-                    "detail": "unknown or expired code",
-                })),
-            )
+            return Ok(HttpReply::new(401).json_body(&json!({
+                "error": "invalid_code",
+                "detail": "unknown or expired code",
+            })))
         }
     };
 
