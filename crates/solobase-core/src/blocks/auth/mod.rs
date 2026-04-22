@@ -13,6 +13,7 @@ pub mod providers;
 pub mod repo;
 pub mod service;
 pub mod session;
+pub mod view_models;
 
 use std::{collections::HashMap, time::Duration};
 
