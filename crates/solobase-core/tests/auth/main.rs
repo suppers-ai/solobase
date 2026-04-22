@@ -29,3 +29,4 @@ mod service_require_token;
 mod service_require_user;
 mod service_user_profile;
 mod session_issue;
+mod verify_org_admin;

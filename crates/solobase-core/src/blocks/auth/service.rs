@@ -17,10 +17,14 @@ use wafer_core::interfaces::auth::service::{
 };
 use wafer_run::{context::Context, types::Message};
 
-use super::repo::{pats, sessions, users};
+use super::cache::OrgAdminCache;
+use super::providers::registry::ProviderRegistry;
+use super::repo::{orgs, pats, provider_links, sessions, users};
 
 /// Per-block state captured at `register` time. Holds the [`Context`] handle
-/// so service methods can dispatch messages to `wafer-run/database` etc.
+/// so service methods can dispatch messages to `wafer-run/database` etc.,
+/// along with the OAuth provider registry (for `verify_org_admin` lookups)
+/// and the shared `OrgAdminCache`.
 #[derive(Clone)]
 pub struct BlockState {
     /// The auth block's context. In production this is the `&dyn Context`
@@ -28,18 +32,44 @@ pub struct BlockState {
     /// context. Stored as `Arc` so `AuthServiceImpl` can be cloned into
     /// multiple call sites.
     pub ctx: Arc<dyn Context>,
+    /// OAuth provider registry. Defaults to empty — populated by
+    /// `with_providers` when the block registers. `verify_org_admin` uses
+    /// this to dispatch to `check_org_admin` for the caller's provider.
+    pub providers: Arc<ProviderRegistry>,
+    /// Shared in-process cache for `verify_org_admin` results. Cloned
+    /// cheaply (it's `Arc` internally) into the handler layer so the
+    /// logout handler can invalidate a user's entries.
+    pub org_admin_cache: OrgAdminCache,
 }
 
 impl BlockState {
     pub fn new(ctx: Arc<dyn Context>) -> Self {
-        Self { ctx }
+        Self {
+            ctx,
+            providers: Arc::new(ProviderRegistry::empty()),
+            org_admin_cache: OrgAdminCache::default(),
+        }
     }
 
     /// Test-only constructor. Kept simple on purpose — takes the same
     /// `Arc<dyn Context>` as production but exists so test setup reads
     /// naturally and so the two entry points are clearly labelled.
     pub fn for_test(ctx: Arc<dyn Context>) -> Self {
-        Self { ctx }
+        Self::new(ctx)
+    }
+
+    /// Attach an OAuth provider registry. Returns `self` for builder-style
+    /// chaining at block construction.
+    pub fn with_providers(mut self, providers: Arc<ProviderRegistry>) -> Self {
+        self.providers = providers;
+        self
+    }
+
+    /// Attach a shared [`OrgAdminCache`]. The production wiring uses this
+    /// so the logout handler and the service share the same cache instance.
+    pub fn with_org_admin_cache(mut self, cache: OrgAdminCache) -> Self {
+        self.org_admin_cache = cache;
+        self
     }
 }
 
@@ -81,6 +111,18 @@ fn session_cookie_from(msg: &Message) -> Option<String> {
 
 fn now_iso() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+/// Look up a user's provider link by `(user_id, provider)`. Thin wrapper
+/// around the repo helper; kept in service.rs because `verify_org_admin` is
+/// the only caller and the name is clearer at the call site than the
+/// full `provider_links::find_by_user_provider` path.
+async fn find_link_for_user(
+    ctx: &dyn Context,
+    user: &UserId,
+    provider: &str,
+) -> Result<Option<provider_links::ProviderLink>, super::repo::RepoError> {
+    provider_links::find_by_user_provider(ctx, &user.0, provider).await
 }
 
 /// Internal credential classification used by all three require_* methods.
@@ -205,12 +247,104 @@ impl AuthService for AuthServiceImpl {
 
     async fn verify_org_admin(
         &self,
-        _user: UserId,
-        _provider: &str,
-        _org_ref: &str,
+        user: UserId,
+        provider: &str,
+        org_ref: &str,
     ) -> Result<bool, AuthError> {
-        // Lands in Plan C (org-ownership verification).
-        Ok(false)
+        let cache = &self.state.org_admin_cache;
+
+        // 1) Cache hit? Cached values (both true and false) are authoritative
+        //    until TTL expires or the user logs out.
+        if let Some(cached) = cache.get(&user, provider, org_ref) {
+            return Ok(cached);
+        }
+
+        let ctx = self.state.ctx.as_ref();
+
+        // 2) Look up the org by name. No row → not an admin. Reserved orgs
+        //    are identified by name (migration 002 seeds them); claimed orgs
+        //    are keyed on name plus (verified_via, verified_ref).
+        let Some(org) = orgs::find_by_name(ctx, org_ref)
+            .await
+            .map_err(|e| AuthError::Internal(e.to_string()))?
+        else {
+            cache.insert(&user, provider, org_ref, false);
+            return Ok(false);
+        };
+
+        // 3) Reserved orgs (spec §3): site-admin only, no provider call.
+        if org.is_reserved {
+            let row = users::find_by_id(ctx, &user.0)
+                .await
+                .map_err(|e| AuthError::Internal(e.to_string()))?
+                .ok_or(AuthError::NotFound)?;
+            let is_admin = row.role == "admin";
+            cache.insert(&user, provider, org_ref, is_admin);
+            return Ok(is_admin);
+        }
+
+        // 4) Non-reserved org but the caller's provider doesn't match the
+        //    org's verified_via (e.g. google caller asking about a
+        //    github-verified org) → not an admin. Owner short-circuit only
+        //    applies when the provider matches.
+        if org.verified_via.as_deref() != Some(provider) {
+            cache.insert(&user, provider, org_ref, false);
+            return Ok(false);
+        }
+
+        // 5) Owner short-circuit: the original claimant is always an admin
+        //    and we don't need to ask the provider.
+        if org.owner_user_id.as_deref() == Some(user.0.as_str()) {
+            cache.insert(&user, provider, org_ref, true);
+            return Ok(true);
+        }
+
+        // 6) Ask the provider. Need the caller's access token from
+        //    provider_links — we look up by (provider, provider_ref) using
+        //    the user's rows. find_by_provider_ref is keyed on
+        //    (provider, provider_ref); we need a by-(user, provider) shape.
+        let link = find_link_for_user(ctx, &user, provider)
+            .await
+            .map_err(|e| AuthError::Internal(e.to_string()))?;
+        let Some(link) = link else {
+            cache.insert(&user, provider, org_ref, false);
+            return Ok(false);
+        };
+
+        // 7) Resolve the provider impl. An unknown provider name here means
+        //    the block was configured without the provider enabled — treat
+        //    as "not an admin" and cache it.
+        let Some(provider_impl) = self.state.providers.get(provider) else {
+            cache.insert(&user, provider, org_ref, false);
+            return Ok(false);
+        };
+
+        let verified_ref = org.verified_ref.as_deref().unwrap_or(org_ref);
+        match provider_impl
+            .check_org_admin(&link.access_token, verified_ref)
+            .await
+        {
+            Ok(is_admin) => {
+                cache.insert(&user, provider, org_ref, is_admin);
+                Ok(is_admin)
+            }
+            Err(super::providers::ProviderError::NotSupported) => {
+                cache.insert(&user, provider, org_ref, false);
+                Ok(false)
+            }
+            Err(super::providers::ProviderError::Unauthorized) => {
+                // Revoked / expired upstream token — not admin, cache the
+                // negative so a dashboard refresh loop doesn't retry.
+                cache.insert(&user, provider, org_ref, false);
+                Ok(false)
+            }
+            Err(super::providers::ProviderError::Upstream(msg)) => {
+                // Transient upstream failure — DO NOT cache. Let the caller
+                // decide whether to retry.
+                Err(AuthError::ProviderDown(msg))
+            }
+            Err(other) => Err(AuthError::Internal(other.to_string())),
+        }
     }
 
     async fn user_profile(&self, user: UserId) -> Result<UserProfile, AuthError> {

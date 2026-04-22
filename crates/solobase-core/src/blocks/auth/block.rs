@@ -39,10 +39,12 @@ use super::{
 pub struct SolobaseAuthBlock {
     service: Arc<dyn AuthService>,
     config: AuthConfig,
-    /// OAuth providers enabled for this instance. Populated at construction
-    /// or explicitly via [`SolobaseAuthBlock::with_providers`]; an empty
-    /// registry causes `/auth/oauth/{provider}/…` to 404.
-    providers: ProviderRegistry,
+    /// OAuth providers enabled for this instance. Shared `Arc` with the
+    /// `AuthServiceImpl` inside `service` so both sides see the same
+    /// registry — an empty registry causes `/auth/oauth/{provider}/…` to
+    /// 404 and `verify_org_admin` to return `Ok(false)` on unknown
+    /// providers.
+    providers: Arc<ProviderRegistry>,
 }
 
 impl SolobaseAuthBlock {
@@ -50,7 +52,7 @@ impl SolobaseAuthBlock {
         Self {
             service,
             config,
-            providers: ProviderRegistry::empty(),
+            providers: Arc::new(ProviderRegistry::empty()),
         }
     }
 
@@ -61,6 +63,21 @@ impl SolobaseAuthBlock {
         service: Arc<dyn AuthService>,
         config: AuthConfig,
         providers: ProviderRegistry,
+    ) -> Self {
+        Self {
+            service,
+            config,
+            providers: Arc::new(providers),
+        }
+    }
+
+    /// Variant that takes an already-shared registry. Used by the
+    /// registration helper so the service and block share the same `Arc`
+    /// and `verify_org_admin` can dispatch through it.
+    pub fn with_shared_providers(
+        service: Arc<dyn AuthService>,
+        config: AuthConfig,
+        providers: Arc<ProviderRegistry>,
     ) -> Self {
         Self {
             service,
@@ -247,11 +264,14 @@ pub fn register_with_config(
     config: AuthConfig,
 ) -> Result<(), RuntimeError> {
     let env: std::collections::HashMap<String, String> = std::env::vars().collect();
-    let providers = super::providers::registry::build_providers(&env);
-    let svc: Arc<dyn AuthService> = Arc::new(AuthServiceImpl::new(BlockState::new(ctx)));
+    let providers = Arc::new(super::providers::registry::build_providers(&env));
+    let state = BlockState::new(ctx).with_providers(providers.clone());
+    let svc: Arc<dyn AuthService> = Arc::new(AuthServiceImpl::new(state));
     registry.register_block(
         "suppers-ai/auth",
-        Arc::new(SolobaseAuthBlock::with_providers(svc, config, providers)),
+        Arc::new(SolobaseAuthBlock::with_shared_providers(
+            svc, config, providers,
+        )),
     )
 }
 
@@ -265,9 +285,13 @@ pub fn register_with_providers_for_test(
     config: AuthConfig,
     providers: ProviderRegistry,
 ) -> Result<(), RuntimeError> {
-    let svc: Arc<dyn AuthService> = Arc::new(AuthServiceImpl::new(BlockState::new(ctx)));
+    let providers = Arc::new(providers);
+    let state = BlockState::new(ctx).with_providers(providers.clone());
+    let svc: Arc<dyn AuthService> = Arc::new(AuthServiceImpl::new(state));
     registry.register_block(
         "suppers-ai/auth",
-        Arc::new(SolobaseAuthBlock::with_providers(svc, config, providers)),
+        Arc::new(SolobaseAuthBlock::with_shared_providers(
+            svc, config, providers,
+        )),
     )
 }

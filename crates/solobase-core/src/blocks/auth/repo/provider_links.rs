@@ -104,3 +104,31 @@ pub async fn find_by_provider_ref(
         None => Ok(None),
     }
 }
+
+/// Look up the most-recently-linked row for `(user_id, provider)`. A given
+/// user can only have at most one link per provider (enforced by the
+/// OAuth callback upserting on provider+provider_ref and users being
+/// unique per provider account), so there's at most one row in practice;
+/// the `ORDER BY linked_at DESC LIMIT 1` just makes that explicit.
+///
+/// Used by `AuthService::verify_org_admin` to retrieve the access token it
+/// needs to call into the provider's org-membership endpoint.
+pub async fn find_by_user_provider(
+    ctx: &dyn Context,
+    user_id: &str,
+    provider: &str,
+) -> Result<Option<ProviderLink>, RepoError> {
+    let rows = db::query_raw(
+        ctx,
+        &format!(
+            "SELECT * FROM {TABLE} WHERE user_id = ? AND provider = ? ORDER BY linked_at DESC LIMIT 1"
+        ),
+        &[json!(user_id), json!(provider)],
+    )
+    .await
+    .map_err(|e| RepoError::Db(format!("provider_links find_by_user_provider: {e}")))?;
+    match rows.first() {
+        Some(r) => Ok(Some(row_from_map(&r.data)?)),
+        None => Ok(None),
+    }
+}
