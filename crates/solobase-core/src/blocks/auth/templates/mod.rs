@@ -10,4 +10,5 @@ pub mod cli_code_fragment;
 pub mod cli_login;
 pub mod dashboard;
 pub mod login;
+pub mod orgs_detail;
 pub mod signup;
