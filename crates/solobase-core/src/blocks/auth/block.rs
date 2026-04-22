@@ -123,6 +123,8 @@ impl SolobaseAuthBlock {
             "GET /auth/oauth/{provider}/start",
             "GET /auth/oauth/{provider}/callback",
             "POST /auth/orgs/claim",
+            "POST /auth/cli/issue",
+            "POST /auth/cli/exchange",
         ]
     }
 }
@@ -219,6 +221,12 @@ impl Block for SolobaseAuthBlock {
                 )
                 .await,
             ),
+            ("create", "/auth/cli/issue") => {
+                Some(handlers::cli::post_issue(ctx, self.service.as_ref(), &msg).await)
+            }
+            ("create", "/auth/cli/exchange") => {
+                Some(handlers::cli::post_exchange(ctx, &body).await)
+            }
             ("retrieve", p) if oauth_route(p).is_some() => {
                 let (provider, action) = oauth_route(p).expect("guarded by match arm");
                 match action {

@@ -10,6 +10,7 @@
 //! [`OutputStream`] so handlers can express HTTP-status + headers + body
 //! without reaching for the full `ResponseBuilder` machinery every time.
 
+pub mod cli;
 pub mod login;
 pub mod me;
 pub mod oauth;

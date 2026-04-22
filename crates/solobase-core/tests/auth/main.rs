@@ -3,6 +3,7 @@
 mod block_dispatch;
 mod block_init_bootstrap;
 mod bootstrap_run;
+mod cli_exchange;
 mod common;
 mod fake_github;
 mod handlers_login;
