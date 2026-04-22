@@ -461,7 +461,7 @@ globalThis.__solobaseCompleteLlmMessage = _completeLlmMessage;
 // readable via `self.cookieStore.getAll()` (available in Chromium-based
 // browsers; Firefox behind a flag). We surface them to Rust so
 // `convert::request_to_message` can inject a synthetic `http.header.cookie`
-// meta; downstream consumers (e.g. `wafer-block-auth-validator`) then see
+// meta; downstream consumers (e.g. the `suppers-ai/auth` block) then see
 // the cookie exactly as they would on a native deployment.
 
 /**

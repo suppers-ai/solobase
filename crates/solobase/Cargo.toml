@@ -37,10 +37,11 @@ native-embedding = [
 wafer-run = { workspace = true }
 wafer-core = { workspace = true }
 
-# Middleware blocks (always registered by the builder)
-wafer-block-auth-validator = { workspace = true }
+# Middleware blocks (always registered by the builder).
+# Auth + IAM previously had standalone crates (wafer-block-auth-validator,
+# wafer-block-iam-guard); they are now absorbed into the suppers-ai/auth
+# block in solobase-core, so they no longer appear here.
 wafer-block-cors = { workspace = true }
-wafer-block-iam-guard = { workspace = true }
 wafer-block-inspector = { workspace = true }
 wafer-block-readonly-guard = { workspace = true }
 wafer-block-router = { workspace = true }

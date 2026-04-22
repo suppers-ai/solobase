@@ -256,10 +256,14 @@ impl SolobaseBuilder {
         #[cfg(feature = "native-embedding")]
         register_vector_block(&mut wafer, self.sqlite_db_path.as_deref())?;
 
-        // 5. Register ALL middleware blocks
-        wafer_block_auth_validator::register(&mut wafer)?;
+        // 5. Register ALL middleware blocks.
+        //
+        // Auth + IAM used to live in the standalone `wafer-block-auth-validator`
+        // and `wafer-block-iam-guard` crates. They are now absorbed into the
+        // `suppers-ai/auth` feature block in `solobase-core` (registered in
+        // step 6 via `create_blocks` + `register_shared_blocks`) and reached
+        // through `wafer_core::interfaces::auth::AuthService`.
         wafer_block_cors::register(&mut wafer)?;
-        wafer_block_iam_guard::register(&mut wafer)?;
         wafer_block_inspector::register(&mut wafer)?;
         wafer.add_block_config(
             "wafer-run/inspector",

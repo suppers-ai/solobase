@@ -4595,12 +4595,10 @@ dependencies = [
  "solobase-core",
  "tracing",
  "uuid",
- "wafer-block-auth-validator",
  "wafer-block-config",
  "wafer-block-cors",
  "wafer-block-crypto",
  "wafer-block-fastembed",
- "wafer-block-iam-guard",
  "wafer-block-inspector",
  "wafer-block-readonly-guard",
  "wafer-block-router",
@@ -5856,18 +5854,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wafer-block-auth-validator"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "serde_json",
- "tracing",
- "wafer-block",
- "wafer-core",
-]
-
-[[package]]
 name = "wafer-block-config"
 version = "0.1.0"
 dependencies = [
@@ -5929,17 +5915,6 @@ dependencies = [
  "tracing",
  "wafer-block",
  "wafer-run",
-]
-
-[[package]]
-name = "wafer-block-iam-guard"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "serde_json",
- "tracing",
- "wafer-block",
- "wafer-core",
 ]
 
 [[package]]
