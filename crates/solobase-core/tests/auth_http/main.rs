@@ -7,6 +7,7 @@
 //! parsing, header casing, status codes, JSON bodies, and redirect
 //! behaviour are all exercised end-to-end.
 
+mod cli_flow;
 mod common;
 #[path = "../auth/fake_github.rs"]
 mod fake_github;
