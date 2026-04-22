@@ -8,6 +8,7 @@
 //! behaviour are all exercised end-to-end.
 
 mod cli_flow;
+mod cli_login_htmx;
 mod common;
 #[path = "../auth/fake_github.rs"]
 mod fake_github;
