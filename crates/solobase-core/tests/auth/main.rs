@@ -17,6 +17,7 @@ mod oauth_integration;
 mod oauth_resolve;
 mod pat_flow;
 mod pat_issue;
+mod repo_orgs;
 mod repo_pats;
 mod repo_provider_links;
 mod repo_sessions;

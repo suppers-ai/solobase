@@ -1,0 +1,144 @@
+//! Row-level access over `suppers_ai__auth__orgs`.
+//!
+//! Migration 001 creates the table with `UNIQUE(name)` and a partial unique
+//! index over `(verified_via, verified_ref) WHERE is_reserved = 0` — this repo
+//! surfaces the two distinct conflicts as two distinct error variants so the
+//! HTTP layer (Plan C Cluster 2) can map each to its own 409.
+
+use std::collections::HashMap;
+
+use serde_json::{json, Value};
+use uuid::Uuid;
+use wafer_core::clients::database as db;
+use wafer_run::context::Context;
+
+pub const TABLE: &str = "suppers_ai__auth__orgs";
+
+/// Full row shape returned by [`find_by_name`] and [`upsert_claimed`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrgRow {
+    pub id: String,
+    pub name: String,
+    pub owner_user_id: Option<String>,
+    pub verified_via: Option<String>,
+    pub verified_ref: Option<String>,
+    pub is_reserved: bool,
+    pub created_at: String,
+}
+
+/// Errors surfaced by this repo. Two distinct unique-constraint violations
+/// produce two distinct variants — callers in Plan C Cluster 2 need to map
+/// each to its proper 409 message.
+#[derive(thiserror::Error, Debug)]
+pub enum OrgsRepoError {
+    #[error("org with that name already exists")]
+    NameTaken,
+    #[error("that provider org is already claimed by another user")]
+    AlreadyClaimed,
+    #[error("db: {0}")]
+    Db(String),
+}
+
+fn now_iso() -> String {
+    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+fn row_from_map(m: &HashMap<String, Value>) -> Result<OrgRow, OrgsRepoError> {
+    let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
+    let is_reserved = match m.get("is_reserved") {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
+        Some(Value::String(s)) => s == "1" || s.eq_ignore_ascii_case("true"),
+        _ => false,
+    };
+    Ok(OrgRow {
+        id: s("id").ok_or_else(|| OrgsRepoError::Db("missing id".into()))?,
+        name: s("name").ok_or_else(|| OrgsRepoError::Db("missing name".into()))?,
+        owner_user_id: s("owner_user_id"),
+        verified_via: s("verified_via"),
+        verified_ref: s("verified_ref"),
+        is_reserved,
+        created_at: s("created_at").unwrap_or_default(),
+    })
+}
+
+/// Look up a single org by its `name` column (UNIQUE). Returns `Ok(None)` if
+/// no such row exists.
+pub async fn find_by_name(ctx: &dyn Context, name: &str) -> Result<Option<OrgRow>, OrgsRepoError> {
+    let rows = db::query_raw(
+        ctx,
+        &format!("SELECT * FROM {TABLE} WHERE name = ?"),
+        &[json!(name)],
+    )
+    .await
+    .map_err(|e| OrgsRepoError::Db(format!("orgs find_by_name: {e}")))?;
+    match rows.first() {
+        Some(r) => Ok(Some(row_from_map(&r.data)?)),
+        None => Ok(None),
+    }
+}
+
+/// Payload for [`upsert_claimed`]. Borrowed fields — caller keeps ownership.
+#[derive(Debug, Clone, Copy)]
+pub struct NewClaim<'a> {
+    pub name: &'a str,
+    pub owner_user_id: &'a str,
+    pub verified_via: &'a str,
+    pub verified_ref: &'a str,
+}
+
+/// Insert a new claimed (non-reserved) org row. The two unique-constraint
+/// conflicts are distinguished by running pre-checks against the table before
+/// the INSERT: the `wafer-run/database` surface doesn't currently let us
+/// inspect the constraint name that fired, so we fail fast with the right
+/// variant instead of relying on the underlying error string shape.
+///
+/// Returns the inserted [`OrgRow`].
+pub async fn upsert_claimed(
+    ctx: &dyn Context,
+    claim: NewClaim<'_>,
+) -> Result<OrgRow, OrgsRepoError> {
+    // 1) (verified_via, verified_ref) already claimed → AlreadyClaimed.
+    let existing = db::query_raw(
+        ctx,
+        &format!(
+            "SELECT id FROM {TABLE} WHERE verified_via = ? AND verified_ref = ? AND is_reserved = 0"
+        ),
+        &[json!(claim.verified_via), json!(claim.verified_ref)],
+    )
+    .await
+    .map_err(|e| OrgsRepoError::Db(format!("orgs claim-check: {e}")))?;
+    if !existing.is_empty() {
+        return Err(OrgsRepoError::AlreadyClaimed);
+    }
+
+    // 2) `name` already taken (by any row, reserved or claimed) → NameTaken.
+    if find_by_name(ctx, claim.name).await?.is_some() {
+        return Err(OrgsRepoError::NameTaken);
+    }
+
+    // 3) Insert.
+    let id = Uuid::now_v7().to_string();
+    let now = now_iso();
+    db::exec_raw(
+        ctx,
+        &format!(
+            "INSERT INTO {TABLE} (id, name, owner_user_id, verified_via, verified_ref, is_reserved, created_at) \
+             VALUES (?, ?, ?, ?, ?, 0, ?)"
+        ),
+        &[
+            json!(id),
+            json!(claim.name),
+            json!(claim.owner_user_id),
+            json!(claim.verified_via),
+            json!(claim.verified_ref),
+            json!(now),
+        ],
+    )
+    .await
+    .map_err(|e| OrgsRepoError::Db(format!("orgs insert: {e}")))?;
+
+    find_by_name(ctx, claim.name)
+        .await?
+        .ok_or_else(|| OrgsRepoError::Db("insert returned no row".into()))
+}
