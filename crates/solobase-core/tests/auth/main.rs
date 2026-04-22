@@ -16,6 +16,7 @@ mod migrations_001;
 mod migrations_002;
 mod oauth_integration;
 mod oauth_resolve;
+mod orgs_claim;
 mod pat_flow;
 mod pat_issue;
 mod repo_cli_codes;

@@ -122,6 +122,7 @@ impl SolobaseAuthBlock {
             "DELETE /auth/tokens/{id}",
             "GET /auth/oauth/{provider}/start",
             "GET /auth/oauth/{provider}/callback",
+            "POST /auth/orgs/claim",
         ]
     }
 }
@@ -207,6 +208,17 @@ impl Block for SolobaseAuthBlock {
                 let id = tokens_id(p).expect("guarded by match arm").to_string();
                 Some(handlers::tokens::delete_token(ctx, self.service.as_ref(), &msg, &id).await)
             }
+            ("create", "/auth/orgs/claim") => Some(
+                handlers::orgs::post_claim(
+                    ctx,
+                    self.service.as_ref(),
+                    &self.providers,
+                    &self.org_admin_cache,
+                    &msg,
+                    &body,
+                )
+                .await,
+            ),
             ("retrieve", p) if oauth_route(p).is_some() => {
                 let (provider, action) = oauth_route(p).expect("guarded by match arm");
                 match action {

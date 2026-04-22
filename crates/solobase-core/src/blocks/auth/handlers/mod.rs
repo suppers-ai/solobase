@@ -15,6 +15,7 @@ pub mod me;
 pub mod oauth;
 pub mod oauth_resolve;
 pub mod oauth_state;
+pub mod orgs;
 pub mod tokens;
 
 use wafer_run::{
