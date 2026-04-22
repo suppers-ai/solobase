@@ -33,8 +33,24 @@ pub const BOOTSTRAP_ADMIN_PASSWORD_KEY: &str = "SOLOBASE_SHARED__AUTH__BOOTSTRAP
 /// the holder redeems it to create the first admin.
 pub const BOOTSTRAP_ADMIN_TOKEN_KEY: &str = "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_TOKEN";
 
+/// `SOLOBASE_SHARED__AUTH__SIGNUP_ENABLED` — gates the signup page and
+/// POST /auth/signup handler. When false the signup link is suppressed on
+/// the login page and the endpoints return 404.
+pub const SIGNUP_ENABLED_KEY: &str = "SOLOBASE_SHARED__AUTH__SIGNUP_ENABLED";
+
+/// `SOLOBASE_SHARED__AUTH__PASSWORD_MIN_LENGTH` — minimum password length
+/// enforced at signup. Existing accounts are not re-validated.
+pub const PASSWORD_MIN_LENGTH_KEY: &str = "SOLOBASE_SHARED__AUTH__PASSWORD_MIN_LENGTH";
+
 /// Default session lifetime when the config var is unset.
 pub const SESSION_LIFETIME_DAYS_DEFAULT: u32 = 30;
+
+/// Default value for [`SIGNUP_ENABLED_KEY`]. Signup is off by default —
+/// self-hosters must flip this explicitly.
+pub const SIGNUP_ENABLED_DEFAULT: bool = false;
+
+/// Default value for [`PASSWORD_MIN_LENGTH_KEY`].
+pub const PASSWORD_MIN_LENGTH_DEFAULT: u32 = 8;
 
 /// Config vars contributed by the Plan A2 auth block additions.
 ///
@@ -71,6 +87,19 @@ pub fn auth_config_vars() -> Vec<ConfigVar> {
         .name("Bootstrap Admin Token")
         .input_type(InputType::Password)
         .optional(),
+        ConfigVar::new(
+            SIGNUP_ENABLED_KEY,
+            "If true, GET /auth/signup and POST /auth/signup are enabled and a 'create account' link appears on the login page.",
+            "false",
+        )
+        .name("Signup Enabled")
+        .input_type(InputType::Toggle),
+        ConfigVar::new(
+            PASSWORD_MIN_LENGTH_KEY,
+            "Minimum password length enforced at signup. Existing accounts are not re-validated.",
+            &PASSWORD_MIN_LENGTH_DEFAULT.to_string(),
+        )
+        .name("Password Minimum Length"),
     ];
     vars.extend(oauth_provider_config_vars());
     vars
@@ -131,6 +160,8 @@ pub struct AuthConfig {
     pub bootstrap_admin_email: Option<String>,
     pub bootstrap_admin_password: Option<String>,
     pub bootstrap_admin_token: Option<String>,
+    pub signup_enabled: bool,
+    pub password_min_length: u32,
 }
 
 impl AuthConfig {
@@ -143,11 +174,21 @@ impl AuthConfig {
             .get(SESSION_LIFETIME_DAYS_KEY)
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(SESSION_LIFETIME_DAYS_DEFAULT);
+        let signup_enabled = env
+            .get(SIGNUP_ENABLED_KEY)
+            .map(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(SIGNUP_ENABLED_DEFAULT);
+        let password_min_length = env
+            .get(PASSWORD_MIN_LENGTH_KEY)
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(PASSWORD_MIN_LENGTH_DEFAULT);
         Self {
             session_lifetime_days,
             bootstrap_admin_email: non_empty(env.get(BOOTSTRAP_ADMIN_EMAIL_KEY)),
             bootstrap_admin_password: non_empty(env.get(BOOTSTRAP_ADMIN_PASSWORD_KEY)),
             bootstrap_admin_token: non_empty(env.get(BOOTSTRAP_ADMIN_TOKEN_KEY)),
+            signup_enabled,
+            password_min_length,
         }
     }
 
@@ -276,6 +317,59 @@ mod tests {
             assert!(var.is_sensitive(), "{key} must be sensitive");
             assert!(var.optional, "{key} must be optional");
         }
+    }
+
+    #[test]
+    fn auth_config_vars_declares_signup_enabled_and_password_min_length() {
+        let keys: Vec<String> = auth_config_vars().iter().map(|v| v.key.clone()).collect();
+        assert!(keys.contains(&SIGNUP_ENABLED_KEY.to_string()));
+        assert!(keys.contains(&PASSWORD_MIN_LENGTH_KEY.to_string()));
+    }
+
+    #[test]
+    fn signup_enabled_var_defaults_to_false_as_toggle() {
+        let var = auth_config_vars()
+            .into_iter()
+            .find(|v| v.key == SIGNUP_ENABLED_KEY)
+            .expect("signup_enabled declared");
+        assert_eq!(var.default, "false");
+        assert_eq!(var.input_type, InputType::Toggle);
+        assert!(!var.is_sensitive());
+    }
+
+    #[test]
+    fn password_min_length_var_defaults_to_eight() {
+        let var = auth_config_vars()
+            .into_iter()
+            .find(|v| v.key == PASSWORD_MIN_LENGTH_KEY)
+            .expect("password_min_length declared");
+        assert_eq!(var.default, "8");
+    }
+
+    #[test]
+    fn signup_enabled_parses_bool_from_map() {
+        let cfg = AuthConfig::from_env_for_test(&[(SIGNUP_ENABLED_KEY, "true")]);
+        assert!(cfg.signup_enabled);
+        let cfg = AuthConfig::from_env_for_test(&[(SIGNUP_ENABLED_KEY, "false")]);
+        assert!(!cfg.signup_enabled);
+    }
+
+    #[test]
+    fn signup_enabled_defaults_false_when_unset() {
+        let cfg = AuthConfig::from_env_for_test(&[]);
+        assert!(!cfg.signup_enabled);
+    }
+
+    #[test]
+    fn password_min_length_parses_int_from_map() {
+        let cfg = AuthConfig::from_env_for_test(&[(PASSWORD_MIN_LENGTH_KEY, "12")]);
+        assert_eq!(cfg.password_min_length, 12);
+    }
+
+    #[test]
+    fn password_min_length_defaults_to_eight_when_unset() {
+        let cfg = AuthConfig::from_env_for_test(&[]);
+        assert_eq!(cfg.password_min_length, 8);
     }
 
     #[test]
