@@ -26,6 +26,7 @@ use wafer_run::{
 
 use super::{
     bootstrap,
+    cache::OrgAdminCache,
     config::AuthConfig,
     handlers::{self, HttpReply},
     migrations,
@@ -45,6 +46,10 @@ pub struct SolobaseAuthBlock {
     /// 404 and `verify_org_admin` to return `Ok(false)` on unknown
     /// providers.
     providers: Arc<ProviderRegistry>,
+    /// Shared cache with the service's `BlockState`. The logout handler
+    /// calls `invalidate_user` on this so a user whose admin status was
+    /// revoked upstream doesn't retain it for up to 5 minutes.
+    org_admin_cache: OrgAdminCache,
 }
 
 impl SolobaseAuthBlock {
@@ -53,6 +58,7 @@ impl SolobaseAuthBlock {
             service,
             config,
             providers: Arc::new(ProviderRegistry::empty()),
+            org_admin_cache: OrgAdminCache::default(),
         }
     }
 
@@ -68,6 +74,7 @@ impl SolobaseAuthBlock {
             service,
             config,
             providers: Arc::new(providers),
+            org_admin_cache: OrgAdminCache::default(),
         }
     }
 
@@ -83,6 +90,23 @@ impl SolobaseAuthBlock {
             service,
             config,
             providers,
+            org_admin_cache: OrgAdminCache::default(),
+        }
+    }
+
+    /// Fully-specified constructor used by the registration helpers so the
+    /// service's `BlockState` and this block share the same cache instance.
+    pub fn with_shared_providers_and_cache(
+        service: Arc<dyn AuthService>,
+        config: AuthConfig,
+        providers: Arc<ProviderRegistry>,
+        org_admin_cache: OrgAdminCache,
+    ) -> Self {
+        Self {
+            service,
+            config,
+            providers,
+            org_admin_cache,
         }
     }
 
@@ -167,7 +191,9 @@ impl Block for SolobaseAuthBlock {
             ("create", "/auth/login") => {
                 Some(handlers::login::post_login(ctx, &self.config, &body).await)
             }
-            ("create", "/auth/logout") => Some(handlers::login::post_logout(ctx, &msg).await),
+            ("create", "/auth/logout") => {
+                Some(handlers::login::post_logout(ctx, &msg, &self.org_admin_cache).await)
+            }
             ("retrieve", "/auth/me") => {
                 Some(Ok(handlers::me::get_me(self.service.as_ref(), &msg).await))
             }
@@ -265,12 +291,15 @@ pub fn register_with_config(
 ) -> Result<(), RuntimeError> {
     let env: std::collections::HashMap<String, String> = std::env::vars().collect();
     let providers = Arc::new(super::providers::registry::build_providers(&env));
-    let state = BlockState::new(ctx).with_providers(providers.clone());
+    let cache = OrgAdminCache::default();
+    let state = BlockState::new(ctx)
+        .with_providers(providers.clone())
+        .with_org_admin_cache(cache.clone());
     let svc: Arc<dyn AuthService> = Arc::new(AuthServiceImpl::new(state));
     registry.register_block(
         "suppers-ai/auth",
-        Arc::new(SolobaseAuthBlock::with_shared_providers(
-            svc, config, providers,
+        Arc::new(SolobaseAuthBlock::with_shared_providers_and_cache(
+            svc, config, providers, cache,
         )),
     )
 }
@@ -286,12 +315,15 @@ pub fn register_with_providers_for_test(
     providers: ProviderRegistry,
 ) -> Result<(), RuntimeError> {
     let providers = Arc::new(providers);
-    let state = BlockState::new(ctx).with_providers(providers.clone());
+    let cache = OrgAdminCache::default();
+    let state = BlockState::new(ctx)
+        .with_providers(providers.clone())
+        .with_org_admin_cache(cache.clone());
     let svc: Arc<dyn AuthService> = Arc::new(AuthServiceImpl::new(state));
     registry.register_block(
         "suppers-ai/auth",
-        Arc::new(SolobaseAuthBlock::with_shared_providers(
-            svc, config, providers,
+        Arc::new(SolobaseAuthBlock::with_shared_providers_and_cache(
+            svc, config, providers, cache,
         )),
     )
 }

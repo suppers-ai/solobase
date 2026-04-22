@@ -11,6 +11,7 @@ mod handlers_tokens_create;
 mod handlers_tokens_delete;
 mod handlers_tokens_list;
 mod login_flow;
+mod logout_cache_invalidation;
 mod migrations_001;
 mod migrations_002;
 mod oauth_integration;

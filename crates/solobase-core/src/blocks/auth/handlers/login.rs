@@ -20,11 +20,13 @@ use wafer_run::{
 
 use super::HttpReply;
 use crate::blocks::auth::{
+    cache::OrgAdminCache,
     config::AuthConfig,
     repo::{local_credentials, sessions, users},
     service::hash_token,
     session,
 };
+use wafer_core::interfaces::auth::service::UserId;
 
 /// Pre-computed Argon2id hash used for timing equalisation when the user
 /// isn't found. The exact password it hashes doesn't matter — we never check
@@ -117,13 +119,29 @@ pub async fn post_login(
 }
 
 /// POST `/auth/logout` — delete the session row identified by the
-/// `wafer_session` cookie (if any) and clear the cookie on the client.
-pub async fn post_logout(ctx: &dyn Context, msg: &Message) -> Result<HttpReply, WaferError> {
+/// `wafer_session` cookie (if any), drop every `OrgAdminCache` entry for
+/// the session's user, and clear the cookie on the client.
+///
+/// Invalidating the cache here means a user whose upstream permissions
+/// were revoked during the session won't retain admin access for up to
+/// the cache's TTL after signing out.
+pub async fn post_logout(
+    ctx: &dyn Context,
+    msg: &Message,
+    org_admin_cache: &OrgAdminCache,
+) -> Result<HttpReply, WaferError> {
     let raw = msg.cookie(session::COOKIE_NAME);
     if !raw.is_empty() {
         let hash = hash_token(raw);
-        // Delete-by-token-hash. Missing row is fine: best-effort.
-        let _ = sessions::delete_by_token_hash(ctx, &hash).await;
+        // Look up the session owner before deleting so the cache key is
+        // recoverable. Missing row is fine: best-effort.
+        if let Ok(Some(row)) = sessions::find_by_token_hash(ctx, &hash).await {
+            let _ = sessions::delete_by_token_hash(ctx, &hash).await;
+            org_admin_cache.invalidate_user(&UserId(row.user_id));
+        } else {
+            // Row already gone (idempotent logout) — nothing to invalidate.
+            let _ = sessions::delete_by_token_hash(ctx, &hash).await;
+        }
     }
     let (cname, cval) = clear_cookie_header();
     Ok(HttpReply::new(204).header(cname, cval))

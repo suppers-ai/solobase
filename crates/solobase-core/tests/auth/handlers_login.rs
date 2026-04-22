@@ -4,6 +4,7 @@
 //! Argon2 crypto service, mirroring production wiring.
 
 use solobase_core::blocks::auth::{
+    cache::OrgAdminCache,
     config::AuthConfig,
     handlers::login::{post_login, post_logout},
     migrations,
@@ -112,7 +113,9 @@ async fn post_logout_clears_cookie_and_deletes_session() {
         format!("wafer_session={}", issued.raw_token),
     );
 
-    let reply = post_logout(&ctx, &msg).await.expect("logout ok");
+    let reply = post_logout(&ctx, &msg, &OrgAdminCache::default())
+        .await
+        .expect("logout ok");
     assert_eq!(reply.status, 204);
     let sc = reply
         .headers
@@ -132,7 +135,9 @@ async fn post_logout_without_cookie_is_idempotent() {
     migrations::apply(&ctx).await.expect("migrations");
 
     let msg = Message::new("POST");
-    let reply = post_logout(&ctx, &msg).await.expect("logout ok");
+    let reply = post_logout(&ctx, &msg, &OrgAdminCache::default())
+        .await
+        .expect("logout ok");
     assert_eq!(reply.status, 204);
     // Still emits the Max-Age=0 cookie so a stale cookie on the client is cleared.
     let sc = reply
