@@ -6,5 +6,6 @@
 //! from a stock vm.
 
 pub mod base;
+pub mod dashboard;
 pub mod login;
 pub mod signup;
