@@ -6,3 +6,4 @@
 //! from a stock vm.
 
 pub mod base;
+pub mod login;
