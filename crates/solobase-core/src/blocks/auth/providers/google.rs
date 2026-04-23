@@ -164,9 +164,12 @@ impl OAuthProvider for GoogleProvider {
 
 #[cfg(test)]
 mod tests {
+    use wiremock::{
+        matchers::{body_string_contains, method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
+
     use super::*;
-    use wiremock::matchers::{body_string_contains, method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn provider_for(server: &MockServer) -> GoogleProvider {
         GoogleProvider::with_endpoints(

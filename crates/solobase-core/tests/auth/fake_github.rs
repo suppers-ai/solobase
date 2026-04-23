@@ -4,8 +4,7 @@
 //! same shape the future registry integration tests will reuse — kept
 //! decoupled from any particular provider's wire contract.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
+use std::{collections::HashMap, sync::Mutex};
 
 use async_trait::async_trait;
 use solobase_core::blocks::auth::providers::{OAuthProvider, ProviderError, ProviderProfile};

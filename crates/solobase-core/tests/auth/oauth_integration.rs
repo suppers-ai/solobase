@@ -16,8 +16,7 @@ use solobase_core::blocks::auth::{
     repo::{provider_links, users},
 };
 
-use crate::common::MigrationTestCtx;
-use crate::fake_github::FakeGithub;
+use crate::{common::MigrationTestCtx, fake_github::FakeGithub};
 
 fn registry_with_fake(fake: Arc<FakeGithub>) -> ProviderRegistry {
     let mut m: HashMap<&'static str, Arc<dyn OAuthProvider>> = HashMap::new();

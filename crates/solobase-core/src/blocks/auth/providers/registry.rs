@@ -10,13 +10,11 @@
 //! A provider with *any* of its three vars missing is silently dropped —
 //! the callback handler surfaces this as a 404 at request time.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use super::github::GithubProvider;
-use super::google::GoogleProvider;
-use super::microsoft::MicrosoftProvider;
-use super::OAuthProvider;
+use super::{
+    github::GithubProvider, google::GoogleProvider, microsoft::MicrosoftProvider, OAuthProvider,
+};
 
 /// Runtime-visible map of enabled providers, keyed by `provider.name()`.
 pub struct ProviderRegistry {

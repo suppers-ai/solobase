@@ -100,8 +100,9 @@ pub trait OAuthProvider: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use async_trait::async_trait;
+
+    use super::*;
 
     struct MockProvider;
 

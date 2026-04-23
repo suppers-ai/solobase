@@ -13,8 +13,7 @@
 //! The fake GitHub provider is shared from Plan B (`tests/auth/fake_github.rs`)
 //! and extended with an error-injection knob.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use solobase_core::blocks::auth::{

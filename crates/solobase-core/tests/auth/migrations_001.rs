@@ -9,9 +9,10 @@
 //! falls back to `"sqlite"` because we intentionally don't register
 //! `wafer-run/config` — the fallback keeps the test self-contained.
 
-use crate::common::MigrationTestCtx;
 use solobase_core::blocks::auth::migrations;
 use wafer_core::clients::database as db;
+
+use crate::common::MigrationTestCtx;
 
 const EXPECTED_TABLES: &[&str] = &[
     "suppers_ai__auth__users",

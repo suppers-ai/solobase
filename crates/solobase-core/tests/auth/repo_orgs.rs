@@ -1,7 +1,6 @@
 //! Orgs repo — exercise `find_by_name` + `upsert_claimed` against in-memory
 //! SQLite after applying migration 001 (+ 002 which seeds reserved orgs).
 
-use crate::common::MigrationTestCtx;
 use solobase_core::blocks::auth::{
     migrations,
     repo::{
@@ -9,6 +8,8 @@ use solobase_core::blocks::auth::{
         users,
     },
 };
+
+use crate::common::MigrationTestCtx;
 
 async fn mk_user(ctx: &MigrationTestCtx, email: &str) -> String {
     users::insert(

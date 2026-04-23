@@ -1,11 +1,12 @@
 //! Provider-links repo — exercise upsert idempotency and find lookup
 //! against in-memory SQLite after applying migration 001.
 
-use crate::common::MigrationTestCtx;
 use solobase_core::blocks::auth::{
     migrations,
     repo::{provider_links, users},
 };
+
+use crate::common::MigrationTestCtx;
 
 async fn mk_user(ctx: &MigrationTestCtx, email: &str) -> String {
     users::insert(

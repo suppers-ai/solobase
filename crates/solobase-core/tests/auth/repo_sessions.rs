@@ -1,11 +1,12 @@
 //! Sessions repo — insert / find / touch / delete_expired against
 //! in-memory SQLite after applying migration 001.
 
-use crate::common::MigrationTestCtx;
 use solobase_core::blocks::auth::{
     migrations,
     repo::{sessions, users},
 };
+
+use crate::common::MigrationTestCtx;
 
 #[tokio::test]
 async fn insert_find_touch_delete_expired() {
