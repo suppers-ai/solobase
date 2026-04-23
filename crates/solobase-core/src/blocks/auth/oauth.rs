@@ -264,6 +264,12 @@ impl AuthBlock {
         let mut info_headers = HashMap::new();
         info_headers.insert("Authorization".to_string(), auth_header);
         info_headers.insert("Accept".to_string(), "application/json".to_string());
+        // GitHub's REST API rejects requests without a User-Agent header
+        // (returns 403 + an HTML error body). Other providers accept it.
+        info_headers.insert(
+            "User-Agent".to_string(),
+            concat!("solobase-auth/", env!("CARGO_PKG_VERSION")).to_string(),
+        );
 
         let info_resp =
             match network::do_request(ctx, "GET", &userinfo_url, &info_headers, None).await {
@@ -273,7 +279,16 @@ impl AuthBlock {
 
         let user_info: serde_json::Value = match serde_json::from_slice(&info_resp.body) {
             Ok(d) => d,
-            Err(_) => return err_internal("Failed to parse user info"),
+            Err(e) => {
+                let preview: String = String::from_utf8_lossy(&info_resp.body)
+                    .chars()
+                    .take(200)
+                    .collect();
+                return err_internal(&format!(
+                    "Failed to parse user info (status {}, parse: {}, body preview: {})",
+                    info_resp.status_code, e, preview
+                ));
+            }
         };
 
         let email = user_info
