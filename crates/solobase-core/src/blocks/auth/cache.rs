@@ -13,9 +13,11 @@
 //! traffic the lock contention is negligible; if that changes we can swap
 //! in `DashMap` behind the same surface without touching callers.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use wafer_core::interfaces::auth::service::UserId;
 

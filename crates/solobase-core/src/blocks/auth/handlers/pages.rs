@@ -7,8 +7,10 @@
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde_json::json;
-use wafer_core::clients::crypto;
-use wafer_core::interfaces::auth::service::{AuthError, AuthService};
+use wafer_core::{
+    clients::crypto,
+    interfaces::auth::service::{AuthError, AuthService},
+};
 use wafer_run::{
     context::Context,
     types::{ErrorCode, Message, WaferError},

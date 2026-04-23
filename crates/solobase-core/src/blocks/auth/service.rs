@@ -17,9 +17,11 @@ use wafer_core::interfaces::auth::service::{
 };
 use wafer_run::{context::Context, types::Message};
 
-use super::cache::OrgAdminCache;
-use super::providers::registry::ProviderRegistry;
-use super::repo::{orgs, pats, provider_links, sessions, users};
+use super::{
+    cache::OrgAdminCache,
+    providers::registry::ProviderRegistry,
+    repo::{orgs, pats, provider_links, sessions, users},
+};
 
 /// Per-block state captured at `register` time. Holds the [`Context`] handle
 /// so service methods can dispatch messages to `wafer-run/database` etc.,

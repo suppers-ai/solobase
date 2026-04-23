@@ -246,9 +246,12 @@ impl OAuthProvider for GithubProvider {
 
 #[cfg(test)]
 mod tests {
+    use wiremock::{
+        matchers::{body_string_contains, header, method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
+
     use super::*;
-    use wiremock::matchers::{body_string_contains, header, method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn provider_for(server: &MockServer) -> GithubProvider {
         GithubProvider::with_endpoints(

@@ -19,8 +19,10 @@
 use wafer_core::interfaces::auth::service::AuthError;
 use wafer_run::context::Context;
 
-use crate::blocks::auth::providers::ProviderProfile;
-use crate::blocks::auth::repo::{provider_links, users};
+use crate::blocks::auth::{
+    providers::ProviderProfile,
+    repo::{provider_links, users},
+};
 
 /// Outcome of [`resolve_user_for_profile`].
 ///

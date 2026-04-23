@@ -6,8 +6,10 @@ use std::sync::Arc;
 
 use solobase_core::blocks::auth::providers::{OAuthProvider, ProviderProfile};
 
-use crate::common::{registry_with, HttpHarness};
-use crate::fake_github::FakeGithub;
+use crate::{
+    common::{registry_with, HttpHarness},
+    fake_github::FakeGithub,
+};
 
 fn no_redirect_client() -> reqwest::Client {
     reqwest::Client::builder()

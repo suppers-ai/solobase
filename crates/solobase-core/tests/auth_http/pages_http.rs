@@ -4,8 +4,7 @@
 //! asserting status codes, cookies, redirect locations, and that the maud
 //! templates render the expected anchors/forms.
 
-use reqwest::redirect::Policy;
-use reqwest::StatusCode;
+use reqwest::{redirect::Policy, StatusCode};
 
 use crate::common::HttpHarness;
 

@@ -1,8 +1,9 @@
 //! Users repo — exercise insert / find_by_email / find_by_id against
 //! in-memory SQLite after applying migration 001.
 
-use crate::common::MigrationTestCtx;
 use solobase_core::blocks::auth::{migrations, repo::users};
+
+use crate::common::MigrationTestCtx;
 
 #[tokio::test]
 async fn insert_then_find_by_email_and_id() {

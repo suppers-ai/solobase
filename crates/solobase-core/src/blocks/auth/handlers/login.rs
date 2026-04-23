@@ -12,7 +12,7 @@
 //! `handlers::mod` converts them to `OutputStream`s.
 
 use serde_json::{json, Value};
-use wafer_core::clients::crypto;
+use wafer_core::{clients::crypto, interfaces::auth::service::UserId};
 use wafer_run::{
     context::Context,
     types::{ErrorCode, Message, WaferError},
@@ -26,7 +26,6 @@ use crate::blocks::auth::{
     service::hash_token,
     session,
 };
-use wafer_core::interfaces::auth::service::UserId;
 
 /// Pre-computed Argon2id hash used for timing equalisation when the user
 /// isn't found. The exact password it hashes doesn't matter — we never check

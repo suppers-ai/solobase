@@ -1,9 +1,10 @@
 //! Apply migrations through 002; verify the four reserved orgs are seeded and
 //! that re-applying doesn't error (idempotency).
 
-use crate::common::MigrationTestCtx;
 use solobase_core::blocks::auth::migrations;
 use wafer_core::clients::database as db;
+
+use crate::common::MigrationTestCtx;
 
 const EXPECTED_RESERVED: &[&str] = &["solobase", "suppers-ai", "wafer", "wafer-run"];
 

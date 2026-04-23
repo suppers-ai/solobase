@@ -14,15 +14,17 @@ use wafer_run::{
     types::{ErrorCode, WaferError},
 };
 
-use super::oauth_resolve::{resolve_user_for_profile, ResolveOutcome};
-use super::oauth_state::{
-    clear_cookie_header, parse_cookie_value, set_cookie_header, StatePayload,
+use super::{
+    oauth_resolve::{resolve_user_for_profile, ResolveOutcome},
+    oauth_state::{clear_cookie_header, parse_cookie_value, set_cookie_header, StatePayload},
+    HttpReply,
 };
-use super::HttpReply;
-use crate::blocks::auth::config::AuthConfig;
-use crate::blocks::auth::providers::{pkce, registry::ProviderRegistry};
-use crate::blocks::auth::repo::provider_links;
-use crate::blocks::auth::session;
+use crate::blocks::auth::{
+    config::AuthConfig,
+    providers::{pkce, registry::ProviderRegistry},
+    repo::provider_links,
+    session,
+};
 
 /// Generates a fresh 32-byte base64url state (43 chars, unpadded — within
 /// the OAuth 2.0 `state` parameter's allowed alphabet).

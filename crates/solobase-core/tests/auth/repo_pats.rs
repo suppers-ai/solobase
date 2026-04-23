@@ -1,11 +1,12 @@
 //! Personal access tokens repo — insert / find / touch against in-memory
 //! SQLite after applying migration 001.
 
-use crate::common::MigrationTestCtx;
 use solobase_core::blocks::auth::{
     migrations,
     repo::{pats, users},
 };
+
+use crate::common::MigrationTestCtx;
 
 #[tokio::test]
 async fn pat_insert_find_with_scopes() {

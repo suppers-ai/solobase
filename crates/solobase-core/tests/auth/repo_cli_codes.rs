@@ -1,10 +1,11 @@
 //! cli_exchange_codes repo — insert + atomic take.
 
-use crate::common::MigrationTestCtx;
 use solobase_core::blocks::auth::{
     migrations,
     repo::{cli_codes, users},
 };
+
+use crate::common::MigrationTestCtx;
 
 async fn mk_user(ctx: &MigrationTestCtx, email: &str) -> String {
     users::insert(
