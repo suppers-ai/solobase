@@ -150,7 +150,7 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 /// Derive a per-block JWT signing key from the master secret using HKDF-SHA256.
 /// This matches the derivation in `wafer-block-crypto::Argon2JwtCryptoService`.
-fn derive_block_jwt_key(master_secret: &str, block_id: &str) -> String {
+pub fn derive_block_jwt_key(master_secret: &str, block_id: &str) -> String {
     use hkdf::Hkdf;
     use sha2::Sha256;
 
