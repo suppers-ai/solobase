@@ -291,7 +291,7 @@ impl AuthBlock {
             }
         };
 
-        let email = user_info
+        let mut email = user_info
             .get("email")
             .and_then(|v| v.as_str())
             .unwrap_or("")
@@ -307,6 +307,54 @@ impl AuthBlock {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+
+        // GitHub's /user endpoint returns a null `email` for users who have
+        // their primary email set to private. The authoritative list lives at
+        // /user/emails — which is only returned when the `user:email` scope
+        // was granted. Pick the first primary verified address.
+        if email.is_empty() && provider == "github" {
+            let mut emails_headers = HashMap::new();
+            emails_headers.insert(
+                "Authorization".to_string(),
+                format!("token {}", access_token_oauth),
+            );
+            emails_headers.insert("Accept".to_string(), "application/json".to_string());
+            emails_headers.insert(
+                "User-Agent".to_string(),
+                concat!("solobase-auth/", env!("CARGO_PKG_VERSION")).to_string(),
+            );
+            if let Ok(emails_resp) = network::do_request(
+                ctx,
+                "GET",
+                "https://api.github.com/user/emails",
+                &emails_headers,
+                None,
+            )
+            .await
+            {
+                if let Ok(arr) = serde_json::from_slice::<serde_json::Value>(&emails_resp.body) {
+                    if let Some(entries) = arr.as_array() {
+                        // Prefer primary+verified; fall back to any verified.
+                        let pick = entries
+                            .iter()
+                            .find(|e| {
+                                e.get("primary").and_then(|v| v.as_bool()).unwrap_or(false)
+                                    && e.get("verified").and_then(|v| v.as_bool()).unwrap_or(false)
+                            })
+                            .or_else(|| {
+                                entries.iter().find(|e| {
+                                    e.get("verified").and_then(|v| v.as_bool()).unwrap_or(false)
+                                })
+                            });
+                        if let Some(e) = pick {
+                            if let Some(s) = e.get("email").and_then(|v| v.as_str()) {
+                                email = s.to_lowercase();
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         if email.is_empty() {
             return err_internal("No email returned by OAuth provider");
