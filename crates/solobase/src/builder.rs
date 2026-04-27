@@ -193,7 +193,7 @@ impl SolobaseBuilder {
             .unwrap_or_default();
 
         // 3. Create runtime
-        let mut wafer = Wafer::new();
+        let mut wafer = Wafer::new()?;
         wafer.set_admin_block("suppers-ai/admin");
 
         // 4. Register service blocks
