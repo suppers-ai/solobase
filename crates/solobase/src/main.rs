@@ -20,6 +20,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 mod config;
+use clap::{Parser, Subcommand};
 use config::{filter_to_declared_keys, load_block_settings, load_wrap_grants};
 use solobase_core::builder::{self, SolobaseBuilder};
 use solobase_native::{
@@ -29,11 +30,57 @@ use solobase_native::{
 use wafer_core::interfaces::config::service::ConfigService;
 
 // ---------------------------------------------------------------------------
+// CLI parser
+// ---------------------------------------------------------------------------
+
+#[derive(Parser)]
+#[command(name = "solobase")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Temporary: runs the legacy solobase-cli build pipeline (wasm-pack +
+    /// export-assets-equivalent) against the current dir. Used by CI until
+    /// Task 7 introduces the unified CLI's `build --target web`. To be
+    /// removed when that lands.
+    LegacyBuild,
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 #[tokio::main]
 async fn main() {
+    // Parse a subcommand. Bare `solobase` (no args) yields
+    // `Cli { command: None }` and falls through to server boot — preserves
+    // examples/run-tests.sh behavior. A parse error makes clap exit the
+    // process with help text, so any non-empty unknown args fail loudly.
+    let cli = Cli::parse();
+    if let Some(Commands::LegacyBuild) = cli.command {
+        let cwd = std::env::current_dir().expect("cwd");
+        let (cfg, repo_root) = match solobase::cli::legacy_config::find_and_load(&cwd) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        };
+        // Use Dev profile to match today's CI behavior (faster).
+        if let Err(e) = solobase::cli::legacy_build::run(
+            &cfg,
+            &repo_root,
+            solobase::cli::legacy_build::BuildProfile::Dev,
+        ) {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     // 1. Load .env file (before reading any env vars)
     load_dotenv();
 

@@ -27,7 +27,17 @@ fn solobase_web_style_pipeline() {
     assert!(cfg.assets.overlay.is_empty());
 
     let wp = legacy_build::wasm_pack_args(&cfg, legacy_build::BuildProfile::Release);
-    assert!(wp.iter().any(|s| s == "--release"));
+    assert_eq!(
+        wp,
+        vec![
+            "build".to_string(),
+            "--target".into(),
+            "web".into(),
+            "--release".into(),
+            "--out-dir".into(),
+            "pkg".into(),
+        ]
+    );
 
     let dist_dir = repo_root.join(&cfg.wasm.out_dir);
     let ea = legacy_build::export_assets_args(
@@ -36,8 +46,11 @@ fn solobase_web_style_pipeline() {
         &dist_dir,
         legacy_build::BuildProfile::Release,
     );
-    assert!(ea.iter().any(|s| s == "--app-name"));
-    assert!(ea.iter().any(|s| s == "solobase-web"));
+    let app_name_idx = ea
+        .iter()
+        .position(|s| s == "--app-name")
+        .expect("--app-name flag present");
+    assert_eq!(ea[app_name_idx + 1], "solobase-web");
 }
 
 #[test]
