@@ -15,17 +15,23 @@ sqlite = []
 postgres = []
 storage-local = []
 storage-s3 = []
+# Enable WASM block loading via the wasmi interpreter for auto-discovery.
+wasm = ["wafer-run/wasm"]
 # LLM feature block (`suppers-ai/llm`) + its `ProviderLlmService`.
 # Phase A's provider service uses `tokio::spawn` + `reqwest::Response`
 # futures that are not Send on wasm32-unknown-unknown. Browser LLM
 # support arrives in Phase C via a separate `BrowserLlmService`.
 # Gate the whole block module off so wasm32 builds compile clean.
 llm = ["dep:tokio", "dep:tokio-stream"]
-# Native ONNX-backed embedding block (suppers-ai/fastembed). Pulls in
-# wafer-block-fastembed which depends on fastembed-rs / ONNX Runtime —
-# heavy native-only dep, so gate it behind a feature so consumers that
-# don't need local embeddings don't pay the build cost.
-native-embedding = ["dep:wafer-block-fastembed"]
+# Native ONNX-backed embedding block (suppers-ai/fastembed) + SQLite
+# vector service. Pulls in wafer-block-fastembed (ONNX Runtime) and
+# enables the `vectors` feature of wafer-block-sqlite (sqlite-vec).
+# Required to register the `suppers-ai/vector` feature block.
+native-embedding = [
+    "dep:wafer-block-fastembed",
+    "dep:wafer-block-sqlite",
+    "dep:rusqlite",
+]
 
 [dependencies]
 # WAFER types + WASM interpreter (wasmi required for lockfile Path B loader)
@@ -38,6 +44,24 @@ wafer-sql-utils = { workspace = true }
 sea-query = "0.32"
 # Native ONNX embeddings (optional — gated behind `native-embedding`).
 wafer-block-fastembed = { workspace = true, optional = true }
+# SQLite vector service (optional — gated behind `native-embedding`).
+# Both deps required together: vector service needs a sqlite-vec-enabled
+# connection, embedding service is the only way to fulfil the
+# `wafer-run/vector` block's EmbeddingService slot.
+wafer-block-sqlite = { workspace = true, optional = true, features = ["vectors"] }
+rusqlite = { workspace = true, optional = true }
+
+# Middleware blocks (always registered by the builder).
+wafer-block-cors = { workspace = true }
+wafer-block-inspector = { workspace = true }
+wafer-block-readonly-guard = { workspace = true }
+wafer-block-router = { workspace = true }
+wafer-block-security-headers = { workspace = true }
+wafer-block-web = { workspace = true }
+
+# Service block config (needed by builder for ConfigService trait)
+wafer-block-config = { workspace = true }
+wafer-block-crypto = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
@@ -93,8 +117,10 @@ workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time", "net"] }
 tempfile = "3"
+# Dev-dep so integration tests can drive the SQLite database service even
+# when the `native-embedding` feature (which makes wafer-block-sqlite a
+# regular optional dep) is off.
 wafer-block-sqlite = { workspace = true }
-wafer-block-crypto = { workspace = true }
 wafer-block-http-listener = { workspace = true }
 async-trait = { workspace = true }
 # Layer-3 HTTP end-to-end tests (tests/auth_http) drive the block through

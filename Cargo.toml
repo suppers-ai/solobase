@@ -1,7 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/solobase",
     "crates/solobase-browser",
     "crates/solobase-cli",
     "crates/solobase-core",

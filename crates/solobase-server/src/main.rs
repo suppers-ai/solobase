@@ -21,7 +21,7 @@ use std::{collections::HashMap, sync::Arc};
 
 mod config;
 use config::{filter_to_declared_keys, load_block_settings, load_wrap_grants};
-use solobase::builder::{self, SolobaseBuilder};
+use solobase_core::builder::{self, SolobaseBuilder};
 use solobase_native::{
     collect_app_env_vars, init_tracing, load_dotenv, register_http_listener,
     register_observability_hooks, serve_until_shutdown, InfraConfig,

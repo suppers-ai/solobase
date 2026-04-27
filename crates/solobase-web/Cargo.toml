@@ -32,10 +32,8 @@ wafer-run = { workspace = true }
 wafer-core = { workspace = true }
 wafer-block = { workspace = true }
 
-# Solobase library (builder + flows + router)
-solobase = { path = "../solobase", default-features = false }
-
-# Solobase blocks
+# Solobase shared core (builder + flows + router + feature blocks).
+# Absorbed today's solobase (lib) crate.
 solobase-core = { path = "../solobase-core", default-features = false }
 
 # Config service (needed for EnvConfigService::new() and ConfigService::set())

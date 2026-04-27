@@ -6,7 +6,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use solobase_core::{
+use crate::{
     blocks::{router::SolobaseRouterBlock, storage::SolobaseStorageBlock},
     features::{BlockSettings, FeatureConfig},
     ExtraRoute, RouteAccess,
@@ -208,7 +208,7 @@ impl SolobaseBuilder {
         wafer.add_alias("db", "wafer-run/database");
 
         let admin_block_id = Arc::new("suppers-ai/admin".to_string());
-        let storage_block = solobase_core::blocks::storage::create(storage, admin_block_id);
+        let storage_block = crate::blocks::storage::create(storage, admin_block_id);
         wafer.register_block("wafer-run/storage", storage_block.clone())?;
         wafer.add_alias("storage", "wafer-run/storage");
 
@@ -216,7 +216,7 @@ impl SolobaseBuilder {
         wafer_core::service_blocks::config::register_with(&mut wafer, config)?;
         wafer_core::service_blocks::crypto::register_with(&mut wafer, crypto)?;
 
-        let network_block = solobase_core::blocks::network::create(network);
+        let network_block = crate::blocks::network::create(network);
         wafer.register_block("wafer-run/network", network_block)?;
 
         wafer_core::service_blocks::logger::register_with(&mut wafer, logger)?;
@@ -245,7 +245,7 @@ impl SolobaseBuilder {
 
         #[cfg(feature = "llm")]
         let provider_llm_svc = {
-            let svc = Arc::new(solobase_core::blocks::llm::providers::ProviderLlmService::new());
+            let svc = Arc::new(crate::blocks::llm::providers::ProviderLlmService::new());
             llm_router.register("provider", svc.clone());
             svc
         };
@@ -282,7 +282,7 @@ impl SolobaseBuilder {
         //    because its constructor takes Arc<ProviderLlmService>. All other solobase
         //    blocks self-register via register_static_block! at link time.
         #[cfg(feature = "llm")]
-        solobase_core::blocks::register_llm(&mut wafer, provider_llm_svc.clone())?;
+        crate::blocks::register_llm(&mut wafer, provider_llm_svc.clone())?;
 
         // 7. Extra platform-specific blocks
         for (name, block) in self.extra_blocks {
@@ -299,7 +299,7 @@ impl SolobaseBuilder {
         // the non-empty values into the wafer block_configs so that the validator
         // sees them as provided.
         {
-            let block_infos = solobase_core::blocks::all_block_infos();
+            let block_infos = crate::blocks::all_block_infos();
             for info in &block_infos {
                 let mut obj = serde_json::Map::new();
                 for cv in &info.config_keys {
@@ -329,7 +329,7 @@ impl SolobaseBuilder {
             self.extra_routes,
         );
         wafer.register_block("suppers-ai/router", Arc::new(router))?;
-        wafer.add_block_config("suppers-ai/router", solobase_core::routing::routes_config());
+        wafer.add_block_config("suppers-ai/router", crate::routing::routes_config());
 
         // 11. Auto-discover WASM blocks from cwd/blocks/**/target/block.wasm
         //     and flow JSON files from cwd/flows/**/*.json.

@@ -20,11 +20,11 @@ postgres = ["solobase-core/postgres", "solobase-native/postgres"]
 # solobase library so `SolobaseBuilder::build()` will register the
 # `wafer-run/vector` runtime block and the `suppers-ai/vector` feature
 # block at startup.
-native-embedding = ["solobase/native-embedding"]
+native-embedding = ["solobase-core/native-embedding"]
 
 [dependencies]
-# Solobase library (platform-agnostic builder + flows + router)
-solobase = { path = "../solobase" }
+# Solobase shared core (platform-agnostic builder + flows + router +
+# feature blocks). Absorbed today's solobase (lib) crate.
 solobase-core = { path = "../solobase-core", default-features = false }
 solobase-native = { path = "../solobase-native" }
 
