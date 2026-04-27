@@ -38,6 +38,18 @@ const ICON_OPTIONS: &[(&str, &str)] = &[
 
 pub struct UserPortalBlock;
 
+impl UserPortalBlock {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for UserPortalBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for UserPortalBlock {
@@ -811,4 +823,12 @@ async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputSt
         }
     }
     ok_json(&serde_json::json!({"message": "Settings saved"}))
+}
+
+::wafer_run::inventory::submit! {
+    ::wafer_run::StaticBlockRegistration {
+        name: "suppers-ai/userportal",
+        factory: || ::std::sync::Arc::new(UserPortalBlock::new())
+            as ::std::sync::Arc<dyn ::wafer_run::Block>,
+    }
 }

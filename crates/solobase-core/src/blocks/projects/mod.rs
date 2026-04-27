@@ -153,3 +153,11 @@ impl Block for ProjectsBlock {
         Ok(())
     }
 }
+
+::wafer_run::inventory::submit! {
+    ::wafer_run::StaticBlockRegistration {
+        name: "suppers-ai/projects",
+        factory: || ::std::sync::Arc::new(ProjectsBlock::new())
+            as ::std::sync::Arc<dyn ::wafer_run::Block>,
+    }
+}

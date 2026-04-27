@@ -32,6 +32,18 @@ use crate::blocks::helpers::{err_not_found, ok_json};
 
 pub struct AdminBlock;
 
+impl AdminBlock {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for AdminBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for AdminBlock {
@@ -434,4 +446,12 @@ async fn handle_delete_wrap_grant(
     let _ = db::delete(ctx, WRAP_GRANTS_COLLECTION, grant_id).await;
     msg.set_meta("req.query.tab", "database");
     pages::permissions_page(ctx, &msg).await
+}
+
+::wafer_run::inventory::submit! {
+    ::wafer_run::StaticBlockRegistration {
+        name: "suppers-ai/admin",
+        factory: || ::std::sync::Arc::new(AdminBlock::new())
+            as ::std::sync::Arc<dyn ::wafer_run::Block>,
+    }
 }

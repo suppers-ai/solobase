@@ -20,6 +20,18 @@ use crate::blocks::helpers::{err_bad_request, err_not_found, ok_json};
 
 pub struct EmailBlock;
 
+impl EmailBlock {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for EmailBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for EmailBlock {
@@ -384,5 +396,13 @@ impl<'a> std::io::Write for Base64Encoder<'a> {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+::wafer_run::inventory::submit! {
+    ::wafer_run::StaticBlockRegistration {
+        name: "suppers-ai/email",
+        factory: || ::std::sync::Arc::new(EmailBlock::new())
+            as ::std::sync::Arc<dyn ::wafer_run::Block>,
     }
 }

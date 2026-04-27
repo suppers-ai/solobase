@@ -111,3 +111,11 @@ impl Block for FastembedBlock {
         Ok(())
     }
 }
+
+::wafer_run::inventory::submit! {
+    ::wafer_run::StaticBlockRegistration {
+        name: "suppers-ai/fastembed",
+        factory: || ::std::sync::Arc::new(FastembedBlock::new())
+            as ::std::sync::Arc<dyn ::wafer_run::Block>,
+    }
+}

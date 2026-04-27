@@ -23,6 +23,18 @@ use crate::{
 
 pub struct LegalPagesBlock;
 
+impl LegalPagesBlock {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for LegalPagesBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub(crate) const COLLECTION: &str = "suppers_ai__legalpages__documents";
 
 /// Extract document ID from path like `/b/legalpages/api/documents/{id}` or
@@ -613,5 +625,13 @@ impl Block for LegalPagesBlock {
             self.seed_defaults(ctx).await;
         }
         Ok(())
+    }
+}
+
+::wafer_run::inventory::submit! {
+    ::wafer_run::StaticBlockRegistration {
+        name: "suppers-ai/legalpages",
+        factory: || ::std::sync::Arc::new(LegalPagesBlock::new())
+            as ::std::sync::Arc<dyn ::wafer_run::Block>,
     }
 }

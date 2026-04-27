@@ -217,3 +217,11 @@ pub async fn handle_admin_cloud(
 ) -> OutputStream {
     cloud::handle(ctx, msg, input).await
 }
+
+::wafer_run::inventory::submit! {
+    ::wafer_run::StaticBlockRegistration {
+        name: "suppers-ai/files",
+        factory: || ::std::sync::Arc::new(FilesBlock::new())
+            as ::std::sync::Arc<dyn ::wafer_run::Block>,
+    }
+}
