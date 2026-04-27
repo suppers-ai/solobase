@@ -13,7 +13,7 @@ use wafer_run::types::{ConfigVar, InputType};
 /// These are NOT owned by any block — they're platform-level settings.
 /// Blocks should NOT declare `SOLOBASE_SHARED__` vars in their `config_keys`.
 pub fn shared_config_vars() -> Vec<ConfigVar> {
-    vec![
+    let mut vars = vec![
         ConfigVar::new(
             "SOLOBASE_SHARED__APP_NAME",
             "Display name shown in UI and emails",
@@ -113,7 +113,12 @@ pub fn shared_config_vars() -> Vec<ConfigVar> {
         )
         .name("Embedded Scripts")
         .input_type(InputType::Text),
-    ]
+    ];
+    // Auth-scoped shared vars (suppers-ai/auth reads these; admin writes them).
+    // Declared here rather than in the auth block's BlockInfo::config_keys because
+    // SOLOBASE_SHARED__* vars must not be claimed by any single block.
+    vars.extend(crate::blocks::auth::config::auth_config_vars());
+    vars
 }
 
 /// Collect all known config variables: shared + all block-declared.

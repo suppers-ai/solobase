@@ -412,10 +412,7 @@ impl Block for AuthBlock {
                     .name("OAuth Redirect URI")
                     .input_type(InputType::Url)
                     .optional(),
-            ]
-            .into_iter()
-            .chain(crate::blocks::auth::config::auth_config_vars())
-            .collect::<Vec<_>>())
+            ])
             .admin_url("/b/auth/admin/settings")
     }
 
