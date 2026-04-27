@@ -24,7 +24,7 @@ pub async fn initialize() -> Result<(), JsValue> {
 
     solobase_browser::db_init().await;
 
-    let mut wafer = wafer_run::Wafer::new();
+    let mut wafer = wafer_run::Wafer::new().map_err(|e| JsValue::from_str(&e.to_string()))?;
     wafer.set_asset_loader(solobase_browser::make_sw_asset_loader());
     wafer
         .start_without_bind()
