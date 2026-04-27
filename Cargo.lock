@@ -4622,6 +4622,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "solobase"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "solobase-core",
+ "solobase-native",
+ "tokio",
+ "tracing",
+ "uuid",
+ "wafer-block-config",
+ "wafer-core",
+ "wafer-run",
+]
+
+[[package]]
 name = "solobase-browser"
 version = "0.1.0"
 dependencies = [
@@ -4735,24 +4753,6 @@ dependencies = [
  "wafer-block-postgres",
  "wafer-block-s3",
  "wafer-block-sqlite",
- "wafer-core",
- "wafer-run",
-]
-
-[[package]]
-name = "solobase-server"
-version = "0.1.0"
-dependencies = [
- "getrandom 0.2.17",
- "rusqlite",
- "serde",
- "serde_json",
- "solobase-core",
- "solobase-native",
- "tokio",
- "tracing",
- "uuid",
- "wafer-block-config",
  "wafer-core",
  "wafer-run",
 ]

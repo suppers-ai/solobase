@@ -5,7 +5,7 @@ members = [
     "crates/solobase-cli",
     "crates/solobase-core",
     "crates/solobase-native",
-    "crates/solobase-server",
+    "crates/solobase",
     "crates/solobase-web",
     "examples/minimal-browser",
 ]
