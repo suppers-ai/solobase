@@ -19,7 +19,7 @@ use crate::bridge;
 ///
 /// Asset → manifest resolution happens lazily per `load()` call by walking
 /// the runtime's currently-registered `BlockInfo::external_assets` (via
-/// `Wafer::registered_block_infos()`). This lets new blocks added after
+/// `Wafer::block_infos()`). This lets new blocks added after
 /// `SwAssetLoader` is constructed still resolve.
 pub struct SwAssetLoader;
 
@@ -116,7 +116,7 @@ fn lookup_manifest(asset_id: &str) -> Option<ExternalAsset> {
     crate::runtime::RUNTIME.with(|r| {
         let borrow = r.borrow();
         let wafer = borrow.as_ref()?;
-        for info in wafer.registered_block_infos() {
+        for info in wafer.block_infos() {
             for asset in info.external_assets {
                 if asset.id == asset_id {
                     return Some(asset);

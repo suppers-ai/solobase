@@ -7,10 +7,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use solobase_core::{
-    blocks::{
-        router::{NativeBlockFactory, SolobaseRouterBlock},
-        storage::SolobaseStorageBlock,
-    },
+    blocks::{router::SolobaseRouterBlock, storage::SolobaseStorageBlock},
     features::{BlockSettings, FeatureConfig},
     ExtraRoute, RouteAccess,
 };
@@ -260,8 +257,8 @@ impl SolobaseBuilder {
         //
         // Auth + IAM used to live in the standalone `wafer-block-auth-validator`
         // and `wafer-block-iam-guard` crates. They are now absorbed into the
-        // `suppers-ai/auth` feature block in `solobase-core` (registered in
-        // step 6 via `create_blocks` + `register_shared_blocks`) and reached
+        // `suppers-ai/auth` feature block in `solobase-core` (auto-registered
+        // via `inventory::submit!` in step 3's `Wafer::new()`) and reached
         // through `wafer_core::interfaces::auth::AuthService`.
         wafer_block_cors::register(&mut wafer)?;
         wafer_block_inspector::register(&mut wafer)?;
@@ -279,25 +276,13 @@ impl SolobaseBuilder {
             wafer.add_block_config(&name, config);
         }
 
-        // 6. Create and register feature blocks. `LlmBlock` receives the
-        //    `provider_llm_svc` Arc we built in step 4c.
+        // 6. Register LlmBlock — it can't self-register via inventory::submit! because
+        //    its constructor takes Arc<ProviderLlmService>. All other solobase blocks
+        //    (including EmailBlock) self-register via inventory::submit! in Wafer::new().
         #[cfg(feature = "llm")]
-        let shared_blocks = solobase_core::blocks::create_blocks(
-            |name| self.block_settings.is_enabled(name),
-            &provider_llm_svc,
-        );
-        #[cfg(not(feature = "llm"))]
-        let shared_blocks =
-            solobase_core::blocks::create_blocks(|name| self.block_settings.is_enabled(name));
-        solobase_core::blocks::register_shared_blocks(&mut wafer, &shared_blocks)?;
+        solobase_core::blocks::register_llm(&mut wafer, provider_llm_svc.clone())?;
 
-        // 7. Email block (always on, not feature-gated)
-        wafer.register_block(
-            "suppers-ai/email",
-            Arc::new(solobase_core::blocks::email::EmailBlock),
-        )?;
-
-        // 8. Extra platform-specific blocks
+        // 7. Extra platform-specific blocks
         for (name, block) in self.extra_blocks {
             wafer.register_block(&name, block)?;
         }
@@ -328,13 +313,17 @@ impl SolobaseBuilder {
             }
         }
 
-        // 10. Build and register the solobase router
+        // 10. Build and register the solobase router.
+        //     Collect BlockInfo from the registry AFTER all blocks are registered
+        //     so that the discovery endpoints (/openapi.json, /.well-known/agent.json)
+        //     see the full set. Wafer is the single source of truth — no parallel
+        //     HashMap needed.
         let feature_config: Arc<dyn FeatureConfig> = Arc::new(self.block_settings);
-        let factory = NativeBlockFactory::new(shared_blocks);
+        let block_infos = wafer.block_infos();
         let router = SolobaseRouterBlock::with_extra_routes(
             jwt_secret,
             feature_config,
-            factory,
+            block_infos,
             self.extra_routes,
         );
         wafer.register_block("suppers-ai/router", Arc::new(router))?;

@@ -6,7 +6,7 @@
 //! `wafer-run/infra`, but routing, feature gates, admin checks, and JWT validation
 //! are handled by the shared pipeline.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use wafer_run::{
     block::{Block, BlockInfo},
@@ -17,40 +17,18 @@ use wafer_run::{
 
 use crate::{
     features::FeatureConfig,
-    routing::{BlockId, ExtraRoute},
+    routing::ExtraRoute,
 };
-
-/// Block factory that returns shared block instances (same Arc across requests).
-///
-/// Unlike the CF adapter which creates fresh instances per request, the native
-/// factory keeps shared instances so that stateful blocks (e.g. AuthBlock with
-/// its in-memory rate limiter) maintain state across requests.
-pub struct NativeBlockFactory {
-    blocks: HashMap<BlockId, Arc<dyn Block>>,
-}
-
-impl NativeBlockFactory {
-    pub fn new(blocks: HashMap<BlockId, Arc<dyn Block>>) -> Self {
-        Self { blocks }
-    }
-}
-
-impl crate::BlockFactory for NativeBlockFactory {
-    fn create(&self, block_id: BlockId) -> Option<Arc<dyn Block>> {
-        self.blocks.get(&block_id).cloned()
-    }
-
-    fn all_block_infos(&self) -> Vec<wafer_run::BlockInfo> {
-        self.blocks.values().map(|b| b.info()).collect()
-    }
-}
 
 /// The solobase router block — dispatches all API requests via the shared
 /// `crate::handle_request()` pipeline.
 pub struct SolobaseRouterBlock {
     jwt_secret: String,
     features: Arc<dyn FeatureConfig>,
-    factory: NativeBlockFactory,
+    /// BlockInfo for all registered solobase blocks — used by the discovery
+    /// endpoints (`/openapi.json`, `/.well-known/agent.json`). Populated from
+    /// `Wafer::block_infos()` after all blocks are registered.
+    block_infos: Vec<BlockInfo>,
     /// Runtime-added routes from downstream projects (see `SolobaseBuilder::add_route`).
     /// Built-in `ROUTES` take priority — see `routing::route_to_block`.
     extra_routes: Arc<Vec<ExtraRoute>>,
@@ -61,9 +39,9 @@ impl SolobaseRouterBlock {
     pub fn new(
         jwt_secret: String,
         features: Arc<dyn FeatureConfig>,
-        factory: NativeBlockFactory,
+        block_infos: Vec<BlockInfo>,
     ) -> Self {
-        Self::with_extra_routes(jwt_secret, features, factory, Vec::new())
+        Self::with_extra_routes(jwt_secret, features, block_infos, Vec::new())
     }
 
     /// Construct a router with project-registered extra routes appended after
@@ -71,13 +49,13 @@ impl SolobaseRouterBlock {
     pub fn with_extra_routes(
         jwt_secret: String,
         features: Arc<dyn FeatureConfig>,
-        factory: NativeBlockFactory,
+        block_infos: Vec<BlockInfo>,
         extra_routes: Vec<ExtraRoute>,
     ) -> Self {
         Self {
             jwt_secret,
             features,
-            factory,
+            block_infos,
             extra_routes: Arc::new(extra_routes),
         }
     }
@@ -126,7 +104,7 @@ impl Block for SolobaseRouterBlock {
             auth_value.as_deref(),
             &self.jwt_secret,
             self.features.as_ref(),
-            &self.factory,
+            &self.block_infos,
             &self.extra_routes,
         )
         .await

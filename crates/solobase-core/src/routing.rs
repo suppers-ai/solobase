@@ -1,12 +1,10 @@
 //! Shared routing table — maps URL path prefixes to solobase blocks.
 //!
 //! Both Cloudflare and native adapters use this same routing logic.
-//! Block instantiation is provided by the caller via a factory function,
-//! keeping this crate free of solobase block dependencies.
+//! All solobase blocks are registered in the Wafer registry at boot; routing
+//! dispatches via `ctx.call_block` without any factory indirection.
 
-use std::sync::Arc;
-
-use wafer_run::{block::Block, context::Context, types::*, InputStream, OutputStream};
+use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::{blocks::helpers, features::FeatureConfig};
 
@@ -14,8 +12,7 @@ use crate::{blocks::helpers, features::FeatureConfig};
 ///
 /// Most variants map to an HTTP route prefix in [`ROUTES`]; some (e.g. the
 /// embedding blocks) are pure service blocks with no HTTP surface — they
-/// still have a `BlockId` so they flow through the same `create_blocks` /
-/// `register_shared_blocks` pipeline as feature blocks.
+/// still have a `BlockId` for feature-gating in the dispatch path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BlockId {
     System,
@@ -232,16 +229,6 @@ fn is_block_enabled(block_id: BlockId, features: &dyn FeatureConfig) -> bool {
     features.is_block_enabled(&full_name)
 }
 
-/// Block factory — the caller provides this to create block instances.
-///
-/// This keeps solobase-core decoupled from the actual block implementations.
-/// Implementations may return fresh instances (CF) or shared `Arc` clones (native).
-pub trait BlockFactory: wafer_run::MaybeSend + wafer_run::MaybeSync {
-    fn create(&self, block_id: BlockId) -> Option<Arc<dyn Block>>;
-    /// Return `BlockInfo` for all registered blocks (used for discovery documents).
-    fn all_block_infos(&self) -> Vec<wafer_run::BlockInfo>;
-}
-
 /// Generate the routing table as JSON config (same format as wafer-run/router).
 /// Used to expose routes to the inspector.
 pub fn routes_config() -> serde_json::Value {
@@ -276,14 +263,14 @@ fn block_id_short_name(id: BlockId) -> &'static str {
 
 /// Route a message to the appropriate solobase block based on request path.
 ///
-/// Checks feature flags and admin role. Uses the provided `factory` to
-/// instantiate the matched block.
+/// Checks feature flags and admin role. Dispatches via `ctx.call_block` — all
+/// solobase blocks are registered in the Wafer registry at boot (zero-arg
+/// blocks via `inventory::submit!`, LlmBlock via `register_llm()`).
 pub async fn route_to_block(
     ctx: &dyn Context,
     msg: Message,
     input: InputStream,
     features: &dyn FeatureConfig,
-    _factory: &dyn BlockFactory,
     extra_routes: &[ExtraRoute],
 ) -> OutputStream {
     let path = msg.path().to_string();
