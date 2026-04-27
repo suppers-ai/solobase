@@ -5,14 +5,18 @@
 
 use wafer_core::clients::database as db;
 use wafer_run::{
-    context::Context, meta::*, streams::output::TerminalNotResponse, types::*, InputStream,
-    OutputStream,
+    block::BlockInfo,
+    context::Context,
+    meta::*,
+    streams::output::TerminalNotResponse,
+    types::*,
+    InputStream, OutputStream,
 };
 
 use crate::{
     blocks::helpers::ResponseBuilder,
     features::FeatureConfig,
-    routing::{self, BlockFactory, ExtraRoute},
+    routing::{self, ExtraRoute},
 };
 
 /// Handle a solobase request.
@@ -32,22 +36,21 @@ pub async fn handle_request(
     auth_header: Option<&str>,
     jwt_secret: &str,
     features: &dyn FeatureConfig,
-    factory: &dyn BlockFactory,
+    block_infos: &[BlockInfo],
     extra_routes: &[ExtraRoute],
 ) -> OutputStream {
     // 0. Discovery endpoints — public, no auth required
     let path = msg.path();
     if path == "/openapi.json" || path == "/.well-known/agent.json" {
         let is_openapi = path == "/openapi.json";
-        let blocks = factory.all_block_infos();
         let host = msg.header("host").to_string();
         let server_url = format!("https://{}", host);
         let project_name = host.split('.').next().unwrap_or("Solobase Project");
 
         let body = if is_openapi {
-            wafer_core::discovery::generate_openapi(&blocks, project_name, "", &server_url)
+            wafer_core::discovery::generate_openapi(block_infos, project_name, "", &server_url)
         } else {
-            wafer_core::discovery::generate_agent_card(&blocks, project_name, "", &server_url)
+            wafer_core::discovery::generate_agent_card(block_infos, project_name, "", &server_url)
         };
 
         return ResponseBuilder::new()
@@ -85,7 +88,7 @@ pub async fn handle_request(
     let start_ms = crate::blocks::helpers::now_millis();
 
     // 3. Route to block — collect the stream so we can log status/body metadata.
-    let stream = routing::route_to_block(ctx, msg, input, features, factory, extra_routes).await;
+    let stream = routing::route_to_block(ctx, msg, input, features, extra_routes).await;
     let (status_label, status_code, error_message, reply): (
         &'static str,
         i64,

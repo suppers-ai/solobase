@@ -14,4 +14,4 @@ pub mod ui;
 
 pub use features::FeatureConfig;
 pub use pipeline::handle_request;
-pub use routing::{BlockFactory, ExtraRoute, RouteAccess};
+pub use routing::{ExtraRoute, RouteAccess};
