@@ -39,7 +39,7 @@ pub fn build_all(repo_root: &Path) -> anyhow::Result<()> {
         let step = format!("skill build failed: {short}");
         let mut cmd = Command::new("wafer");
         cmd.arg("build").current_dir(&block_dir);
-        crate::cmd::run(&step, cmd)?;
+        crate::cli::cmd::run(&step, cmd)?;
     }
     Ok(())
 }

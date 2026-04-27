@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 description = "Solobase native binary — standalone server with tokio, SQLite, local storage"
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "solobase"
 path = "src/main.rs"
@@ -51,6 +54,18 @@ serde_json = { workspace = true }
 # Random / UUIDs (used in variable seeding)
 getrandom = "0.2"
 uuid = { workspace = true }
+
+# Absorbed from solobase-cli (legacy_* CLI modules under src/cli/).
+# Task 7 of the unified-CLI plan replaces these with the new verb-based
+# CLI; until then they stay as a regression baseline (not currently
+# wired into the binary).
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+glob = "0.3"
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true

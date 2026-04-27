@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::config::Config;
+use crate::cli::legacy_config::Config;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildProfile {
@@ -91,7 +91,7 @@ pub fn run(cfg: &Config, repo_root: &PathBuf, profile: BuildProfile) -> anyhow::
         // Emit a machine-readable summary instead of spawning children.
         // Used by integration tests that can't assume wasm-pack / cargo /
         // wafer are available in the sandbox.
-        let skills = crate::skills::discover(repo_root)?;
+        let skills = crate::cli::skills::discover(repo_root)?;
         let wp = wasm_pack_args(cfg, profile);
         let dist_dir = repo_root.join(&cfg.wasm.out_dir);
         let ea = export_assets_args(cfg, repo_root, &dist_dir, profile);
@@ -109,12 +109,12 @@ pub fn run(cfg: &Config, repo_root: &PathBuf, profile: BuildProfile) -> anyhow::
     }
 
     // 1. Skill blocks.
-    crate::skills::build_all(repo_root)?;
+    crate::cli::skills::build_all(repo_root)?;
 
     // 2. wasm-pack.
     let mut wp = Command::new("wasm-pack");
     wp.args(wasm_pack_args(cfg, profile)).current_dir(repo_root);
-    crate::cmd::run("wasm-pack build", wp)?;
+    crate::cli::cmd::run("wasm-pack build", wp)?;
 
     // 3. export-assets.
     let dist_dir = repo_root.join(&cfg.wasm.out_dir);
@@ -138,7 +138,7 @@ pub fn run(cfg: &Config, repo_root: &PathBuf, profile: BuildProfile) -> anyhow::
     ])
     .args(export_assets_args(cfg, repo_root, &dist_dir, profile))
     .current_dir(repo_root);
-    crate::cmd::run("export-assets", ea)?;
+    crate::cli::cmd::run("export-assets", ea)?;
 
     // 4. Overlays.
     for overlay in &cfg.assets.overlay {
@@ -170,7 +170,7 @@ mod tests {
     use super::*;
 
     fn minimal_cfg() -> Config {
-        crate::config::parse(
+        crate::cli::legacy_config::parse(
             r#"
 [app]
 name = "solobase-web"
@@ -225,7 +225,7 @@ boot_redirect = "/b/system/"
 
     #[test]
     fn export_assets_with_bypass_and_dev() {
-        let cfg: Config = crate::config::parse(
+        let cfg: Config = crate::cli::legacy_config::parse(
             r#"
 [app]
 name = "gizza-ai"
@@ -281,7 +281,7 @@ extra_bypass_prefix = ["/gizza-app.js", "/gizza.css"]
 
     #[test]
     fn config_parses_solobase_manifest_path() {
-        let cfg = crate::config::parse(
+        let cfg = crate::cli::legacy_config::parse(
             r#"
 [app]
 name = "gizza-ai"

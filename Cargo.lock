@@ -4625,13 +4625,18 @@ dependencies = [
 name = "solobase"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "clap",
  "getrandom 0.2.17",
+ "glob",
  "rusqlite",
  "serde",
  "serde_json",
  "solobase-core",
  "solobase-native",
+ "tempfile",
  "tokio",
+ "toml",
  "tracing",
  "uuid",
  "wafer-block-config",
@@ -4669,18 +4674,6 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
-]
-
-[[package]]
-name = "solobase-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "glob",
- "serde",
- "tempfile",
- "toml",
 ]
 
 [[package]]

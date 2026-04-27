@@ -130,7 +130,7 @@ jobs:
           node-version: 20
 
       - name: Install solobase CLI
-        run: cargo install --path crates/solobase-cli --locked
+        run: cargo install --path crates/solobase --locked
 
       - name: Build solobase-web (framework assets + hashed pkg/)
         working-directory: crates/solobase-web
