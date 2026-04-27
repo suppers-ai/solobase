@@ -328,3 +328,11 @@ impl Block for ProductsBlock {
         Ok(())
     }
 }
+
+::wafer_run::inventory::submit! {
+    ::wafer_run::StaticBlockRegistration {
+        name: "suppers-ai/products",
+        factory: || ::std::sync::Arc::new(ProductsBlock::new())
+            as ::std::sync::Arc<dyn ::wafer_run::Block>,
+    }
+}

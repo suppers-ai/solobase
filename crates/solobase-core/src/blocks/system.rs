@@ -12,6 +12,18 @@ use crate::{
 
 pub struct SystemBlock;
 
+impl SystemBlock {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for SystemBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for SystemBlock {
@@ -62,5 +74,13 @@ impl Block for SystemBlock {
         _event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         Ok(())
+    }
+}
+
+::wafer_run::inventory::submit! {
+    ::wafer_run::StaticBlockRegistration {
+        name: "suppers-ai/system",
+        factory: || ::std::sync::Arc::new(SystemBlock::new())
+            as ::std::sync::Arc<dyn ::wafer_run::Block>,
     }
 }

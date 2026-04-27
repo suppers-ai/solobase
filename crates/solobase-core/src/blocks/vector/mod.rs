@@ -13,6 +13,18 @@ use crate::blocks::helpers;
 
 pub struct VectorBlock;
 
+impl VectorBlock {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for VectorBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for VectorBlock {
@@ -77,5 +89,13 @@ impl Block for VectorBlock {
         _event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         Ok(())
+    }
+}
+
+::wafer_run::inventory::submit! {
+    ::wafer_run::StaticBlockRegistration {
+        name: "suppers-ai/vector",
+        factory: || ::std::sync::Arc::new(VectorBlock::new())
+            as ::std::sync::Arc<dyn ::wafer_run::Block>,
     }
 }

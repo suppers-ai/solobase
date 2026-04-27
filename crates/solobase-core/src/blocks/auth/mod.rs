@@ -680,3 +680,11 @@ pub async fn authenticate_api_key(
     msg.set_meta(META_AUTH_USER_EMAIL, user.str_field("email"));
     msg.set_meta(META_AUTH_USER_ROLES, &roles_str);
 }
+
+::wafer_run::inventory::submit! {
+    ::wafer_run::StaticBlockRegistration {
+        name: "suppers-ai/auth",
+        factory: || ::std::sync::Arc::new(AuthBlock::new())
+            as ::std::sync::Arc<dyn ::wafer_run::Block>,
+    }
+}

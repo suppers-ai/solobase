@@ -17,6 +17,18 @@ use crate::{
 
 pub struct MessagesBlock;
 
+impl MessagesBlock {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for MessagesBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for MessagesBlock {
@@ -264,5 +276,13 @@ impl Block for MessagesBlock {
         _event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         Ok(())
+    }
+}
+
+::wafer_run::inventory::submit! {
+    ::wafer_run::StaticBlockRegistration {
+        name: "suppers-ai/messages",
+        factory: || ::std::sync::Arc::new(MessagesBlock::new())
+            as ::std::sync::Arc<dyn ::wafer_run::Block>,
     }
 }
