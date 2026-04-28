@@ -253,23 +253,21 @@ impl SolobaseBuilder {
         #[cfg(feature = "native-embedding")]
         register_vector_block(&mut wafer, self.sqlite_db_path.as_deref())?;
 
-        // 5. Register ALL middleware blocks.
+        // 5. Middleware blocks self-register at link time via inventory (wafer-run#23).
+        //
+        // cors, inspector, readonly-guard, router, security-headers, web — all 6
+        // are registered automatically by Wafer::new()? above. Their crate deps
+        // are kept in Cargo.toml so the linker pulls in the inventory entries.
         //
         // Auth + IAM used to live in the standalone `wafer-block-auth-validator`
         // and `wafer-block-iam-guard` crates. They are now absorbed into the
         // `suppers-ai/auth` feature block in `solobase-core` (auto-registered
         // via `inventory::submit!` in step 3's `Wafer::new()`) and reached
         // through `wafer_core::interfaces::auth::AuthService`.
-        wafer_block_cors::register(&mut wafer)?;
-        wafer_block_inspector::register(&mut wafer)?;
         wafer.add_block_config(
             "wafer-run/inspector",
             serde_json::json!({ "allow_anonymous": false }),
         );
-        wafer_block_readonly_guard::register(&mut wafer)?;
-        wafer_block_router::register(&mut wafer)?;
-        wafer_block_security_headers::register(&mut wafer)?;
-        wafer_block_web::register(&mut wafer)?;
 
         // 5b. Apply platform-specific block configs
         for (name, config) in self.block_configs {

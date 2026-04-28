@@ -19,7 +19,7 @@ use wafer_run::Wafer;
 /// for solobase-server, but downstream consumers of this library pick their
 /// own flow name).
 pub fn register_http_listener(wafer: &mut Wafer, listen_addr: &str, flow_id: &str) {
-    wafer_block_http_listener::register(wafer).expect("register http-listener block");
+    // wafer-run/http-listener self-registers via inventory at link time (wafer-run#23).
     wafer.add_block_config(
         "wafer-run/http-listener",
         serde_json::json!({ "flow": flow_id, "listen": listen_addr }),
