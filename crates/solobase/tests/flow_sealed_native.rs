@@ -1,7 +1,7 @@
 use std::fs;
-use tempfile::tempdir;
 
 use solobase::cli::flows::sealed_native;
+use tempfile::tempdir;
 
 #[tokio::test]
 async fn build_in_empty_dir_succeeds_with_no_work() {
@@ -18,6 +18,11 @@ async fn build_copies_frontend_to_data_storage_site() {
 
     sealed_native::build(tmp.path(), false).await.unwrap();
 
-    let copied = tmp.path().join("data/storage/wafer-run/web/site/index.html");
-    assert!(copied.is_file(), "expected frontend file copied to {copied:?}");
+    let copied = tmp
+        .path()
+        .join("data/storage/wafer-run/web/site/index.html");
+    assert!(
+        copied.is_file(),
+        "expected frontend file copied to {copied:?}"
+    );
 }

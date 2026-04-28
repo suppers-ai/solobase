@@ -10,7 +10,6 @@
 use std::process::ExitCode;
 
 use clap::Parser;
-
 use solobase::cli::{
     cli_args::{Cli, Command, Target},
     flows::{embed_native, embed_web, sealed_native, sealed_web},
@@ -50,7 +49,11 @@ async fn run() -> anyhow::Result<()> {
             let target = default_target(&ctx, target)?;
             dispatch_build(&ctx, target, release).await
         }
-        Command::Serve { target, release, port } => {
+        Command::Serve {
+            target,
+            release,
+            port,
+        } => {
             let target = default_target(&ctx, target)?;
             dispatch_serve(&ctx, target, release, port).await
         }

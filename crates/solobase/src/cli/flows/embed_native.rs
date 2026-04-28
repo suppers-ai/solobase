@@ -1,13 +1,13 @@
 //! Embed × native: cargo build the user's bin crate, then exec it.
 
-use std::path::Path;
-use std::process::Command;
+use std::{path::Path, process::Command};
 
 use anyhow::{anyhow, Result};
 
-use crate::cli::cmd;
-use crate::cli::helpers::{blocks, frontend};
-use crate::cli::config;
+use crate::cli::{
+    cmd, config,
+    helpers::{blocks, frontend},
+};
 
 const RUNTIME_SITE_REL: &str = "data/storage/wafer-run/web/site";
 

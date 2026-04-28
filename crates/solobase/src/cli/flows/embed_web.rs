@@ -1,14 +1,14 @@
 //! Embed × web: today's solobase-cli flow, with export-assets as a direct
 //! library call instead of a cargo subprocess.
 
-use std::path::Path;
-use std::process::Command;
+use std::{path::Path, process::Command};
 
 use anyhow::Result;
 
-use crate::cli::cmd;
-use crate::cli::helpers::{blocks, http_server, overlays};
-use crate::cli::config;
+use crate::cli::{
+    cmd, config,
+    helpers::{blocks, http_server, overlays},
+};
 
 pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     let (cfg, _) = config::find_and_load(repo_root)?;
@@ -19,7 +19,11 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     // 2. wasm-pack the user's cdylib.
     let mut wp = Command::new("wasm-pack");
     let mut args = vec!["build".to_string(), "--target".into(), "web".into()];
-    args.push(if release { "--release".into() } else { "--dev".into() });
+    args.push(if release {
+        "--release".into()
+    } else {
+        "--dev".into()
+    });
     args.push("--out-dir".into());
     args.push(cfg.wasm.out_dir.clone());
     wp.args(&args).current_dir(repo_root);

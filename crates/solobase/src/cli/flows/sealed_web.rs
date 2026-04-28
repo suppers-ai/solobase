@@ -5,8 +5,10 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 
-use crate::cli::helpers::{blocks, http_server, overlays, wasm};
-use crate::cli::config;
+use crate::cli::{
+    config,
+    helpers::{blocks, http_server, overlays, wasm},
+};
 
 pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     // 1. Discover and build user blocks (if any).
@@ -22,8 +24,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     // 3. Resolve and write the solobase-web wasm.
     let wasm_bytes = wasm::resolve_solobase_web_wasm()?;
     let wasm_path = dist.join("solobase-web.wasm");
-    std::fs::write(&wasm_path, &*wasm_bytes)
-        .map_err(|e| anyhow!("write {wasm_path:?}: {e}"))?;
+    std::fs::write(&wasm_path, &*wasm_bytes).map_err(|e| anyhow!("write {wasm_path:?}: {e}"))?;
 
     // 4. Run the bundler — content-hash assets + render templates.
     //    This calls solobase_browser::tools::bundle::run, which writes the

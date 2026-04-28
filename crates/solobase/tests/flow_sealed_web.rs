@@ -1,7 +1,7 @@
 use std::fs;
-use tempfile::tempdir;
 
 use solobase::cli::flows::sealed_web;
+use tempfile::tempdir;
 
 #[tokio::test]
 async fn build_emits_dist_with_wasm_and_index() {
@@ -16,7 +16,13 @@ async fn build_emits_dist_with_wasm_and_index() {
         .flatten()
         .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("wasm"))
         .collect();
-    assert!(!wasm_files.is_empty(), "expected at least one .wasm in dist/");
+    assert!(
+        !wasm_files.is_empty(),
+        "expected at least one .wasm in dist/"
+    );
 
-    assert!(dist.join("index.html").is_file(), "expected dist/index.html");
+    assert!(
+        dist.join("index.html").is_file(),
+        "expected dist/index.html"
+    );
 }

@@ -1,8 +1,10 @@
 use std::fs;
-use tempfile::tempdir;
 
-use solobase::cli::cli_args::Target;
-use solobase::cli::mode::{default_target, detect_mode, Mode, ModeContext};
+use solobase::cli::{
+    cli_args::Target,
+    mode::{default_target, detect_mode, Mode, ModeContext},
+};
+use tempfile::tempdir;
 
 #[test]
 fn no_cargo_toml_means_sealed() {
@@ -55,7 +57,8 @@ fn embed_cdylib_only_default_target_is_web() {
 fn embed_bin_only_default_target_is_native() {
     let tmp = tempdir().unwrap();
     fs::create_dir_all(tmp.path().join(".git")).unwrap();
-    let cargo = "[package]\nname=\"x\"\nversion=\"0.0.1\"\n[[bin]]\nname=\"x\"\npath=\"src/main.rs\"\n";
+    let cargo =
+        "[package]\nname=\"x\"\nversion=\"0.0.1\"\n[[bin]]\nname=\"x\"\npath=\"src/main.rs\"\n";
     fs::write(tmp.path().join("Cargo.toml"), cargo).unwrap();
     let ctx = ModeContext::scan(tmp.path()).unwrap();
     assert_eq!(default_target(&ctx, None).unwrap(), Target::Native);
@@ -66,5 +69,8 @@ fn explicit_target_wins_over_default() {
     let tmp = tempdir().unwrap();
     fs::create_dir_all(tmp.path().join(".git")).unwrap();
     let ctx = ModeContext::scan(tmp.path()).unwrap();
-    assert_eq!(default_target(&ctx, Some(Target::Web)).unwrap(), Target::Web);
+    assert_eq!(
+        default_target(&ctx, Some(Target::Web)).unwrap(),
+        Target::Web
+    );
 }

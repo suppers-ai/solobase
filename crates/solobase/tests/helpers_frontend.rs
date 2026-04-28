@@ -1,7 +1,7 @@
 use std::fs;
-use tempfile::tempdir;
 
 use solobase::cli::helpers::frontend::find_frontend_dir;
+use tempfile::tempdir;
 
 #[test]
 fn returns_none_when_no_dirs_present() {

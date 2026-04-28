@@ -13,11 +13,9 @@ pub fn apply_overlays(cfg: &Config, repo_root: &Path, dist_dir: &Path) -> Result
         let src = repo_root.join(&overlay.from);
         let dst = dist_dir.join(&overlay.to);
         if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| anyhow!("create dir {parent:?}: {e}"))?;
+            std::fs::create_dir_all(parent).map_err(|e| anyhow!("create dir {parent:?}: {e}"))?;
         }
-        std::fs::copy(&src, &dst)
-            .map_err(|e| anyhow!("overlay {src:?} → {dst:?}: {e}"))?;
+        std::fs::copy(&src, &dst).map_err(|e| anyhow!("overlay {src:?} → {dst:?}: {e}"))?;
     }
     Ok(())
 }

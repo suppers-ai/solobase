@@ -1,17 +1,14 @@
 //! Locates the precompiled solobase-web wasm in the workspace target dir
 //! and copies it into OUT_DIR for include_bytes! consumption from main.
 
-use std::env;
-use std::fs;
-use std::path::PathBuf;
+use std::{env, fs, path::PathBuf};
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR set by cargo"));
 
     // CARGO_MANIFEST_DIR is crates/solobase. Workspace root is two up.
-    let manifest_dir = PathBuf::from(
-        env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR set by cargo"),
-    );
+    let manifest_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR set by cargo"));
     let workspace_root = manifest_dir
         .parent()
         .and_then(|p| p.parent())
@@ -25,21 +22,18 @@ fn main() {
         workspace_root.join("target/wasm32-unknown-unknown/release/solobase_web.wasm"),
     ];
 
-    let src = candidates
-        .iter()
-        .find(|p| p.exists())
-        .unwrap_or_else(|| {
-            eprintln!(
-                "\nerror: solobase-web wasm not found. Tried:\n{}\n\nRun \"just build\" or:\n  \
+    let src = candidates.iter().find(|p| p.exists()).unwrap_or_else(|| {
+        eprintln!(
+            "\nerror: solobase-web wasm not found. Tried:\n{}\n\nRun \"just build\" or:\n  \
                  cargo build -p solobase-web --release --target wasm32-unknown-unknown\nfirst.\n",
-                candidates
-                    .iter()
-                    .map(|p| format!("  - {}", p.display()))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
-            std::process::exit(1);
-        });
+            candidates
+                .iter()
+                .map(|p| format!("  - {}", p.display()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        std::process::exit(1);
+    });
 
     let dst = out_dir.join("solobase-web.wasm");
     fs::copy(src, &dst)

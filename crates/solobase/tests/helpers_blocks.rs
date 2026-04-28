@@ -1,7 +1,7 @@
 use std::fs;
-use tempfile::tempdir;
 
 use solobase::cli::helpers::blocks::discover_blocks;
+use tempfile::tempdir;
 
 #[test]
 fn no_blocks_dir_returns_empty() {

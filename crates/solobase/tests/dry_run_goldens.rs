@@ -5,6 +5,7 @@
 //! / `cargo` of the user's project being available.
 
 use std::process::Command;
+
 use tempfile::tempdir;
 
 fn run_dry(args: &[&str], cwd: &std::path::Path) -> (String, std::process::ExitStatus) {

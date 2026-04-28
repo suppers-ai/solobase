@@ -11,9 +11,7 @@ pub fn discover_blocks(repo_root: &Path) -> Result<Vec<PathBuf>> {
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
-    for entry in std::fs::read_dir(&blocks_dir)
-        .map_err(|e| anyhow!("read {blocks_dir:?}: {e}"))?
-    {
+    for entry in std::fs::read_dir(&blocks_dir).map_err(|e| anyhow!("read {blocks_dir:?}: {e}"))? {
         let entry = entry.map_err(|e| anyhow!("read_dir entry: {e}"))?;
         let path = entry.path();
         if path.is_dir() && path.join("Cargo.toml").is_file() {

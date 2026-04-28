@@ -1,7 +1,7 @@
 use std::fs;
-use tempfile::tempdir;
 
 use solobase::cli::helpers::wasm::resolve_solobase_web_wasm;
+use tempfile::tempdir;
 
 // All sub-cases share `SOLOBASE_WEB_WASM` env state — combined into one
 // test to run sequentially without a serial-test dep.

@@ -6,11 +6,6 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{
-    blocks::{router::SolobaseRouterBlock, storage::SolobaseStorageBlock},
-    features::{BlockSettings, FeatureConfig},
-    ExtraRoute, RouteAccess,
-};
 // Force linker inclusion of wafer-block-* crates so their linkme
 // distributed-slice entries land in the binary. Without these `use as _`
 // anchors the linker excludes the crate's .o file entirely and the
@@ -27,6 +22,12 @@ use wafer_core::interfaces::{
     network::service::NetworkService, storage::service::StorageService,
 };
 use wafer_run::{block::Block, RuntimeError, Wafer};
+
+use crate::{
+    blocks::{router::SolobaseRouterBlock, storage::SolobaseStorageBlock},
+    features::{BlockSettings, FeatureConfig},
+    ExtraRoute, RouteAccess,
+};
 
 pub struct SolobaseBuilder {
     database: Option<Arc<dyn DatabaseService>>,

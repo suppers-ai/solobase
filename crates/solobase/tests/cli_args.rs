@@ -39,7 +39,12 @@ fn parses_serve_with_port() {
 fn bare_solobase_uses_serve_native_default() {
     // The actual fallback lives in main(); here we assert the Default impl.
     let cli = Cli::default();
-    if let Command::Serve { target, release, port } = cli.command {
+    if let Command::Serve {
+        target,
+        release,
+        port,
+    } = cli.command
+    {
         assert_eq!(target, Some(Target::Native));
         assert!(!release);
         assert_eq!(port, None);

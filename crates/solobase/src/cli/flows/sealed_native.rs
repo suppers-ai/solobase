@@ -7,8 +7,10 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::cli::helpers::{blocks, frontend, overlays};
-use crate::cli::config;
+use crate::cli::{
+    config,
+    helpers::{blocks, frontend, overlays},
+};
 
 const RUNTIME_SITE_REL: &str = "data/storage/wafer-run/web/site";
 
@@ -19,8 +21,7 @@ pub async fn build(repo_root: &Path, _release: bool) -> Result<()> {
     // 2. Frontend copy.
     if let Some(fe) = frontend::find_frontend_dir(repo_root) {
         let dst = repo_root.join(RUNTIME_SITE_REL);
-        frontend::copy_tree(&fe, &dst)
-            .map_err(|e| anyhow::anyhow!("copy frontend: {e}"))?;
+        frontend::copy_tree(&fe, &dst).map_err(|e| anyhow::anyhow!("copy frontend: {e}"))?;
     }
 
     // 3. Optional overlays from solobase.toml.

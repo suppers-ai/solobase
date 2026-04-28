@@ -104,12 +104,11 @@ fn parse_crate_types(cargo_toml: &Path) -> Result<CrateTypes> {
         .get("lib")
         .and_then(|v| v.get("crate-type"))
         .and_then(|v| v.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str())
-                .any(|s| s == "cdylib")
-        })
+        .map(|a| a.iter().filter_map(|v| v.as_str()).any(|s| s == "cdylib"))
         .unwrap_or(false);
 
-    Ok(CrateTypes { has_bin, has_cdylib })
+    Ok(CrateTypes {
+        has_bin,
+        has_cdylib,
+    })
 }

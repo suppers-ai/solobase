@@ -1,7 +1,6 @@
 //! Resolves the solobase-web wasm bytes for the sealed × web flow.
 
-use std::borrow::Cow;
-use std::path::PathBuf;
+use std::{borrow::Cow, path::PathBuf};
 
 use anyhow::{anyhow, Result};
 
@@ -16,8 +15,7 @@ pub fn resolve_solobase_web_wasm() -> Result<Cow<'static, [u8]>> {
                 "SOLOBASE_WEB_WASM points at {p:?} but the file does not exist"
             ));
         }
-        let bytes = std::fs::read(&path)
-            .map_err(|e| anyhow!("read {p:?}: {e}"))?;
+        let bytes = std::fs::read(&path).map_err(|e| anyhow!("read {p:?}: {e}"))?;
         return Ok(Cow::Owned(bytes));
     }
     Ok(Cow::Borrowed(crate::SOLOBASE_WEB_WASM))
