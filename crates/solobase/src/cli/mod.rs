@@ -10,6 +10,7 @@
 pub mod cli_args;
 pub mod cmd;
 pub mod flows;
+pub mod helpers;
 pub mod legacy_build;
 pub mod legacy_config;
 pub mod legacy_serve;
