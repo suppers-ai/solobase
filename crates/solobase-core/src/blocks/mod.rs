@@ -13,7 +13,6 @@ pub mod llm;
 pub mod messages;
 pub mod network;
 pub mod products;
-pub mod projects;
 pub mod rate_limit;
 pub mod router;
 pub mod storage;
@@ -67,7 +66,6 @@ pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
         legalpages::LegalPagesBlock::new().info(),
         messages::MessagesBlock::new().info(),
         products::ProductsBlock::new().info(),
-        projects::ProjectsBlock::new().info(),
         system::SystemBlock::new().info(),
         userportal::UserPortalBlock::new().info(),
         vector::VectorBlock::new().info(),

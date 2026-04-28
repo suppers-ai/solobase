@@ -121,7 +121,7 @@ pub fn nav_icon(name: &str) -> Markup {
         "file-text" | "logs" => icons::file_text(),
         "package" | "products" => icons::package(),
         "shopping-cart" => icons::shopping_cart(),
-        "server" | "projects" => icons::server(),
+        "server" => icons::server(),
         "folder" | "files" => icons::folder(),
         "user" | "account" => icons::user(),
         "globe" => icons::globe(),

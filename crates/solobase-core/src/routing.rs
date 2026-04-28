@@ -22,7 +22,6 @@ pub enum BlockId {
     Files,
     LegalPages,
     Products,
-    Projects,
     UserPortal,
     Messages,
     Llm,
@@ -138,11 +137,6 @@ pub const ROUTES: &[Route] = &[
         block_id: BlockId::LegalPages,
     },
     Route {
-        prefix: "/b/projects",
-        requires_admin: false,
-        block_id: BlockId::Projects,
-    },
-    Route {
         prefix: "/b/userportal",
         requires_admin: false,
         block_id: BlockId::UserPortal,
@@ -252,7 +246,6 @@ fn block_id_short_name(id: BlockId) -> &'static str {
         BlockId::Files => "files",
         BlockId::LegalPages => "legalpages",
         BlockId::Products => "products",
-        BlockId::Projects => "projects",
         BlockId::UserPortal => "userportal",
         BlockId::Messages => "messages",
         BlockId::Llm => "llm",
@@ -356,7 +349,6 @@ mod tests {
             ("/b/cloudstorage/shares", BlockId::Files),
             ("/b/products", BlockId::Products),
             ("/b/legalpages", BlockId::LegalPages),
-            ("/b/projects", BlockId::Projects),
             ("/b/userportal", BlockId::UserPortal),
         ];
 
@@ -418,7 +410,6 @@ mod tests {
             "/b/storage/",
             "/b/products",
             "/b/legalpages",
-            "/b/projects",
             "/b/userportal",
             "/b/cloudstorage/",
         ];
@@ -457,7 +448,6 @@ mod tests {
         assert!(is_block_enabled(BlockId::Admin, &all));
         assert!(is_block_enabled(BlockId::Files, &all));
         assert!(is_block_enabled(BlockId::Products, &all));
-        assert!(is_block_enabled(BlockId::Projects, &all));
         assert!(is_block_enabled(BlockId::LegalPages, &all));
         assert!(is_block_enabled(BlockId::UserPortal, &all));
     }
@@ -469,7 +459,6 @@ mod tests {
         assert!(!is_block_enabled(BlockId::Admin, &none));
         assert!(!is_block_enabled(BlockId::Files, &none));
         assert!(!is_block_enabled(BlockId::Products, &none));
-        assert!(!is_block_enabled(BlockId::Projects, &none));
         assert!(!is_block_enabled(BlockId::LegalPages, &none));
         assert!(!is_block_enabled(BlockId::UserPortal, &none));
     }

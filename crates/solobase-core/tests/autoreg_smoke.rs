@@ -30,7 +30,6 @@ fn all_zero_arg_blocks_auto_register() {
         "suppers-ai/legalpages",
         "suppers-ai/messages",
         "suppers-ai/products",
-        "suppers-ai/projects",
         "suppers-ai/system",
         "suppers-ai/userportal",
         "suppers-ai/vector",
