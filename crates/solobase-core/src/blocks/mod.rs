@@ -24,8 +24,8 @@ pub mod vector;
 /// Return `BlockInfo` for every solobase block.
 ///
 /// Sources:
-/// - Auto-registered (zero-arg) blocks via the `inventory` crate — same
-///   instances Wafer::new() will register at runtime.
+/// - Auto-registered (zero-arg) blocks via `linkme` — same instances
+///   Wafer::new() will register at runtime.
 /// - LlmBlock — constructed with a throwaway ProviderLlmService since its
 ///   info() is declarative and doesn't depend on the real service. Can't
 ///   auto-register because its constructor takes Arc<ProviderLlmService>.
@@ -35,7 +35,8 @@ pub mod vector;
 #[cfg(not(target_arch = "wasm32"))]
 pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
     #[cfg_attr(not(feature = "llm"), allow(unused_mut))]
-    let mut infos: Vec<_> = wafer_run::inventory::iter::<wafer_run::StaticBlockRegistration>()
+    let mut infos: Vec<_> = wafer_run::STATIC_BLOCK_REGISTRATIONS
+        .iter()
         .map(|reg| (reg.factory)().info())
         .collect();
 
@@ -49,9 +50,9 @@ pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
     infos
 }
 
-/// wasm32 fallback: inventory doesn't exist on wasm32 (wafer-run gates
+/// wasm32 fallback: linkme is not supported on wasm32 (wafer-run gates
 /// `StaticBlockRegistration` behind `cfg(not(target_arch = "wasm32"))`), so
-/// enumerate blocks manually. Same content the inventory iteration would
+/// enumerate blocks manually. Same content the linkme iteration would
 /// produce on native, plus LlmBlock under `feature = "llm"`.
 #[cfg(target_arch = "wasm32")]
 pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
@@ -87,7 +88,7 @@ pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
 
 /// Register the LLM feature block with the WAFER runtime.
 ///
-/// LlmBlock cannot self-register via `inventory::submit!` because its
+/// LlmBlock cannot self-register via `register_static_block!` because its
 /// constructor takes `Arc<ProviderLlmService>`. Call this after the LLM
 /// service router is registered in `SolobaseBuilder::build()`.
 #[cfg(feature = "llm")]

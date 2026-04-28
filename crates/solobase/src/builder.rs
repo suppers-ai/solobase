@@ -18,6 +18,17 @@ use wafer_core::interfaces::{
 };
 use wafer_run::{block::Block, RuntimeError, Wafer};
 
+// Force linker inclusion of wafer-block-* crates so their linkme
+// distributed-slice entries land in the binary. Without these `use as _`
+// anchors the linker excludes the crate's .o file entirely and the
+// register_static_block! entries never appear in STATIC_BLOCK_REGISTRATIONS.
+use wafer_block_cors as _;
+use wafer_block_inspector as _;
+use wafer_block_readonly_guard as _;
+use wafer_block_router as _;
+use wafer_block_security_headers as _;
+use wafer_block_web as _;
+
 pub struct SolobaseBuilder {
     database: Option<Arc<dyn DatabaseService>>,
     storage: Option<Arc<dyn StorageService>>,
@@ -253,32 +264,24 @@ impl SolobaseBuilder {
         #[cfg(feature = "native-embedding")]
         register_vector_block(&mut wafer, self.sqlite_db_path.as_deref())?;
 
-        // 5. Register ALL middleware blocks.
-        //
-        // Auth + IAM used to live in the standalone `wafer-block-auth-validator`
-        // and `wafer-block-iam-guard` crates. They are now absorbed into the
-        // `suppers-ai/auth` feature block in `solobase-core` (auto-registered
-        // via `inventory::submit!` in step 3's `Wafer::new()`) and reached
-        // through `wafer_core::interfaces::auth::AuthService`.
-        wafer_block_cors::register(&mut wafer)?;
-        wafer_block_inspector::register(&mut wafer)?;
+        // 5. All middleware blocks (cors, inspector, readonly-guard, router,
+        // security-headers, web) self-register via register_static_block! in
+        // their respective wafer-block-* crates. The `use wafer_block_xxx as _`
+        // anchors at the top of this file ensure the linker includes those crate
+        // .o files so the linkme distributed-slice entries land in the binary.
         wafer.add_block_config(
             "wafer-run/inspector",
             serde_json::json!({ "allow_anonymous": false }),
         );
-        wafer_block_readonly_guard::register(&mut wafer)?;
-        wafer_block_router::register(&mut wafer)?;
-        wafer_block_security_headers::register(&mut wafer)?;
-        wafer_block_web::register(&mut wafer)?;
 
         // 5b. Apply platform-specific block configs
         for (name, config) in self.block_configs {
             wafer.add_block_config(&name, config);
         }
 
-        // 6. Register LlmBlock — it can't self-register via inventory::submit! because
-        //    its constructor takes Arc<ProviderLlmService>. All other solobase blocks
-        //    (including EmailBlock) self-register via inventory::submit! in Wafer::new().
+        // 6. Register LlmBlock — it can't self-register via register_static_block!
+        //    because its constructor takes Arc<ProviderLlmService>. All other solobase
+        //    blocks self-register via register_static_block! at link time.
         #[cfg(feature = "llm")]
         solobase_core::blocks::register_llm(&mut wafer, provider_llm_svc.clone())?;
 
