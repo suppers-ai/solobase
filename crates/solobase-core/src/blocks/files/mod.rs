@@ -218,6 +218,7 @@ pub async fn handle_admin_cloud(
     cloud::handle(ctx, msg, input).await
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 ::wafer_run::inventory::submit! {
     ::wafer_run::StaticBlockRegistration {
         name: "suppers-ai/files",

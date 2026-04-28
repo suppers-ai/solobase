@@ -448,6 +448,7 @@ async fn handle_delete_wrap_grant(
     pages::permissions_page(ctx, &msg).await
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 ::wafer_run::inventory::submit! {
     ::wafer_run::StaticBlockRegistration {
         name: "suppers-ai/admin",

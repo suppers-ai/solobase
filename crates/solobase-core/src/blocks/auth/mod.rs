@@ -678,6 +678,7 @@ pub async fn authenticate_api_key(
     msg.set_meta(META_AUTH_USER_ROLES, &roles_str);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 ::wafer_run::inventory::submit! {
     ::wafer_run::StaticBlockRegistration {
         name: "suppers-ai/auth",
