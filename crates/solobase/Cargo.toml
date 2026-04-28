@@ -3,86 +3,73 @@ name = "solobase"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Solobase — self-hosted backend platform powered by the WAFER runtime"
+description = "Solobase native binary — standalone server with tokio, SQLite, local storage"
+build = "build.rs"
 
 [lib]
-name = "solobase"
 path = "src/lib.rs"
 
+[[bin]]
+name = "solobase"
+path = "src/main.rs"
+
 [features]
-default = ["llm"]
-# Enable WASM block loading via the wasmi interpreter for auto-discovery.
-wasm = ["wafer-run/wasm"]
-# LLM feature block + native `ProviderLlmService` wiring. The Phase A
-# service uses `tokio::spawn` with reqwest futures that are not Send on
-# wasm32 — gate the whole thing so browser builds compile clean.
-# Forwarded to solobase-core so the block module is excluded at the
-# source.
-llm = ["solobase-core/llm"]
-# Native ONNX-backed embedding + SQLite vector service. Pulls in
-# wafer-block-fastembed (ONNX Runtime) and enables the `vectors` feature
-# of wafer-block-sqlite (sqlite-vec). Required to register the
-# `suppers-ai/vector` feature block, which declares
-# `requires=["wafer-run/vector"]` — without this feature neither the
-# runtime nor the feature block is registered.
-native-embedding = [
-    "solobase-core/native-embedding",
-    "dep:wafer-block-fastembed",
-    "dep:wafer-block-sqlite",
-    "dep:rusqlite",
-]
+default = ["sqlite", "storage-local"]
+sqlite = ["solobase-core/sqlite"]
+storage-local = ["solobase-core/storage-local"]
+otel = ["solobase-native/otel"]
+storage-s3 = ["solobase-core/storage-s3", "solobase-native/s3"]
+postgres = ["solobase-core/postgres", "solobase-native/postgres"]
+# Native ONNX-backed embedding + SQLite vector service. Propagates to the
+# solobase library so `SolobaseBuilder::build()` will register the
+# `wafer-run/vector` runtime block and the `suppers-ai/vector` feature
+# block at startup.
+native-embedding = ["solobase-core/native-embedding"]
 
 [dependencies]
-# WAFER runtime (minimal — types + clients only, no tokio/wasmi/reqwest)
-wafer-run = { workspace = true }
+# Solobase shared core (platform-agnostic builder + flows + router +
+# feature blocks). Absorbed today's solobase (lib) crate.
+solobase-core = { path = "../solobase-core", default-features = false }
+solobase-native = { path = "../solobase-native" }
+# Browser-shell asset writer + bundle/template runner used by the
+# sealed × web and embed × web flows.
+solobase-browser = { path = "../solobase-browser" }
+
+# WAFER runtime
+wafer-run = { workspace = true, features = ["full"] }
 wafer-core = { workspace = true }
 
-# Middleware blocks (always registered by the builder).
-# Auth + IAM previously had standalone crates (wafer-block-auth-validator,
-# wafer-block-iam-guard); they are now absorbed into the suppers-ai/auth
-# block in solobase-core, so they no longer appear here.
-wafer-block-cors = { workspace = true }
-wafer-block-inspector = { workspace = true }
-wafer-block-readonly-guard = { workspace = true }
-wafer-block-router = { workspace = true }
-wafer-block-security-headers = { workspace = true }
-wafer-block-web = { workspace = true }
-
-# Service block config (needed by builder for ConfigService trait)
+# Native config service
 wafer-block-config = { workspace = true }
-wafer-block-crypto = { workspace = true }
 
-# Native ONNX embeddings + SQLite vector service (optional — gated behind
-# `native-embedding`). Both are required together: the vector service
-# needs a sqlite-vec-enabled connection, and the embedding service is the
-# only way to fulfil the `wafer-run/vector` block's EmbeddingService slot.
-wafer-block-fastembed = { workspace = true, optional = true }
-wafer-block-sqlite = { workspace = true, optional = true, features = ["vectors"] }
-rusqlite = { workspace = true, optional = true }
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
 
-# Solobase shared core (routing, crypto, features, pipeline, backend blocks)
-solobase-core = { path = "../solobase-core", default-features = false }
+# Observability
+tracing = { workspace = true }
 
-# Async
-async-trait = { workspace = true }
+# Config loading
+rusqlite = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-# Observability
-tracing = { workspace = true }
-
-# Crypto
-sha2 = { workspace = true }
-hmac = "0.12"
+# Random / UUIDs (used in variable seeding)
 getrandom = "0.2"
-
-# Time
-chrono = { workspace = true }
-
-# Utils
 uuid = { workspace = true }
+
+# Absorbed from solobase-cli (legacy_* CLI modules under src/cli/).
+# Task 7 of the unified-CLI plan replaces these with the new verb-based
+# CLI; until then they stay as a regression baseline (not currently
+# wired into the binary).
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+glob = "0.3"
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true

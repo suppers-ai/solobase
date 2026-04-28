@@ -1,10 +1,11 @@
-//! Solobase — self-hosted backend platform powered by the WAFER runtime.
+//! solobase — unified CLI binary.
 //!
-//! This library is platform-agnostic. It provides the `SolobaseBuilder` for
-//! unified runtime setup, flow definitions, and the router block. Platform-specific
-//! code (native binary, browser WASM, Cloudflare Workers) lives in separate crates
-//! that depend on this one.
+//! This crate's primary output is the `solobase` binary; the lib exists
+//! to expose the `cli` module to integration tests in `tests/`.
 
-pub mod builder;
-pub use solobase_core::blocks;
-pub mod flows;
+pub mod cli;
+
+/// Precompiled solobase-web wasm, baked at build time. The CLI's sealed
+/// × web flow uses this as the default when `SOLOBASE_WEB_WASM` is unset.
+pub static SOLOBASE_WEB_WASM: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/solobase-web.wasm"));

@@ -1,12 +1,12 @@
 //! Solobase app compiled to WASM for running in the browser via Service Worker.
 //!
 //! Thin wasm-bindgen wrapper around the `solobase-browser` framework. Uses
-//! `SolobaseBuilder` (from the `solobase` crate) to wire up the full Solobase
+//! `SolobaseBuilder` (from `solobase-core`) to wire up the full Solobase
 //! block suite + the app-specific `BrowserLlmService`.
 
 use std::sync::Arc;
 
-use solobase::builder::{self, SolobaseBuilder};
+use solobase_core::builder::{self, SolobaseBuilder};
 use wafer_core::interfaces::config::service::ConfigService;
 use wasm_bindgen::prelude::*;
 

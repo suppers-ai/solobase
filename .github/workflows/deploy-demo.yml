@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - 'crates/solobase-web/**'
-      - 'crates/solobase/**'
       - 'crates/solobase-core/**'
       - '.github/workflows/deploy-demo.yml'
   workflow_dispatch:
@@ -24,11 +23,14 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Install solobase CLI
-        run: cargo install --path crates/solobase-cli --locked
+        run: cargo install --path crates/solobase --locked
 
       - name: Build solobase-web
         working-directory: crates/solobase-web
-        run: solobase build
+        # Temporary: until Task 7 of the unified-CLI plan lands the new
+        # `build --target web` verb, the absorbed legacy pipeline is reachable
+        # via this transitional subcommand. Removed when Task 7 ships.
+        run: solobase legacy-build
 
       - name: Add CNAME
         run: echo "demo.solobase.dev" > crates/solobase-web/pkg/CNAME

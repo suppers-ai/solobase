@@ -37,9 +37,8 @@ sha2 = "0.10"
 hmac = "0.12"
 base64ct = { version = "1", features = ["alloc"] }
 
-# For the bundler module (tools/bundle) added in Task 2:
+# Used by the bundler module (tools/bundle):
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3"
@@ -56,7 +55,3 @@ wasm-opt = false
 
 [package.metadata.wasm-pack.profile.dev]
 wasm-opt = false
-
-[[bin]]
-name = "export-assets"
-path = "bin/export-assets.rs"

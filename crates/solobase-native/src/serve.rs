@@ -19,7 +19,7 @@ use wafer_run::Wafer;
 /// before `wafer.start()`.
 ///
 /// `flow_id` is the flow the listener hands requests to (e.g. `"site-main"`
-/// for solobase-server, but downstream consumers of this library pick their
+/// for solobase, but downstream consumers of this library pick their
 /// own flow name).
 pub fn register_http_listener(wafer: &mut Wafer, listen_addr: &str, flow_id: &str) {
     // wafer-run/http-listener self-registers via register_static_block! in

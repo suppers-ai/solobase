@@ -14,11 +14,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PORT="${TEST_PORT:-8091}"
 SUPPERS_AI__AUTH__JWT_SECRET="${SUPPERS_AI__AUTH__JWT_SECRET:-examples-test-secret-$(date +%s)}"
 
-# Build solobase binary (debug for speed)
+# Build solobase (release, includes solobase-web wasm bundling).
 echo "==> Building solobase..."
 cd "$REPO_ROOT"
-cargo build -p solobase 2>&1 | tail -1
-BINARY="$REPO_ROOT/target/debug/solobase"
+just build 2>&1 | tail -1
+BINARY="$REPO_ROOT/target/release/solobase"
 
 if [ ! -f "$BINARY" ]; then
   echo "ERROR: Binary not found at $BINARY"
@@ -99,6 +99,42 @@ for example in "${EXAMPLES[@]}"; do
   rm -rf "$EXAMPLE_DIR/data"
   sleep 1  # ensure port is released before next example
 done
+
+# After the native pass for each example, also exercise the sealed × web
+# build for `blog` as a proof-of-concept of the unified CLI's --target web
+# path. The web build emits a static `dist/` that the bundled solobase-web
+# wasm renders client-side. Other examples can opt in by adding a
+# tests/<name>-web.spec.ts in this directory.
+if [[ " ${EXAMPLES[*]} " == *" blog "* ]] && [ -d "$SCRIPT_DIR/blog" ]; then
+  echo ""
+  echo "============================================"
+  echo "  Testing: blog (web target)"
+  echo "============================================"
+  cd "$SCRIPT_DIR/blog"
+  "$BINARY" build --target web
+
+  WEB_PORT="${TEST_WEB_PORT:-8090}"
+  "$BINARY" serve --target web --port "$WEB_PORT" &
+  WEB_PID=$!
+
+  for i in $(seq 1 30); do
+    if curl -sf "http://127.0.0.1:$WEB_PORT/index.html" > /dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+
+  cd "$SCRIPT_DIR"
+  if TEST_WEB_PORT="$WEB_PORT" npx playwright test tests/blog-web.spec.ts --reporter=list; then
+    echo "==> blog (web): PASSED"
+  else
+    echo "==> blog (web): FAILED"
+    FAILED=1
+  fi
+
+  kill $WEB_PID 2>/dev/null || true
+  wait $WEB_PID 2>/dev/null || true
+fi
 
 echo ""
 if [ $FAILED -eq 0 ]; then
