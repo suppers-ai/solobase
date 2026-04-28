@@ -5,11 +5,7 @@
 
 use wafer_core::clients::database as db;
 use wafer_run::{
-    block::BlockInfo,
-    context::Context,
-    meta::*,
-    streams::output::TerminalNotResponse,
-    types::*,
+    block::BlockInfo, context::Context, meta::*, streams::output::TerminalNotResponse, types::*,
     InputStream, OutputStream,
 };
 
