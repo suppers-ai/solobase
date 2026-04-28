@@ -39,6 +39,12 @@ async fn run() -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let ctx = ModeContext::scan(&cwd)?;
 
+    // The native server-boot helper (`cli::server::run`) reads `.env` from
+    // the current working directory, so anchor cwd to ctx.cwd before
+    // dispatch. Flow functions take `repo_root` explicitly to avoid
+    // depending on cwd internally.
+    std::env::set_current_dir(&ctx.cwd)?;
+
     match cli.command {
         Command::Build { target, release } => {
             let target = default_target(&ctx, target)?;
@@ -52,11 +58,12 @@ async fn run() -> anyhow::Result<()> {
 }
 
 async fn dispatch_build(ctx: &ModeContext, target: Target, release: bool) -> anyhow::Result<()> {
+    let repo_root = &ctx.cwd;
     match (detect_mode(ctx), target) {
-        (Mode::Sealed, Target::Native) => sealed_native::build(release).await,
-        (Mode::Sealed, Target::Web) => sealed_web::build(release).await,
-        (Mode::Embed, Target::Native) => embed_native::build(release).await,
-        (Mode::Embed, Target::Web) => embed_web::build(release).await,
+        (Mode::Sealed, Target::Native) => sealed_native::build(repo_root, release).await,
+        (Mode::Sealed, Target::Web) => sealed_web::build(repo_root, release).await,
+        (Mode::Embed, Target::Native) => embed_native::build(repo_root, release).await,
+        (Mode::Embed, Target::Web) => embed_web::build(repo_root, release).await,
     }
 }
 
@@ -66,10 +73,11 @@ async fn dispatch_serve(
     release: bool,
     port: Option<u16>,
 ) -> anyhow::Result<()> {
+    let repo_root = &ctx.cwd;
     match (detect_mode(ctx), target) {
-        (Mode::Sealed, Target::Native) => sealed_native::serve(release, port).await,
-        (Mode::Sealed, Target::Web) => sealed_web::serve(release, port).await,
-        (Mode::Embed, Target::Native) => embed_native::serve(release, port).await,
-        (Mode::Embed, Target::Web) => embed_web::serve(release, port).await,
+        (Mode::Sealed, Target::Native) => sealed_native::serve(repo_root, release, port).await,
+        (Mode::Sealed, Target::Web) => sealed_web::serve(repo_root, release, port).await,
+        (Mode::Embed, Target::Native) => embed_native::serve(repo_root, release, port).await,
+        (Mode::Embed, Target::Web) => embed_web::serve(repo_root, release, port).await,
     }
 }
