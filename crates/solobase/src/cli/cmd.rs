@@ -37,7 +37,22 @@ pub fn format_child_error(
 /// The child's stderr streams directly to the parent, so the user sees it
 /// live. The error returned uses the same format as `format_child_error`
 /// with a `(stderr streamed above)` placeholder instead of a captured tail.
+///
+/// Dry-run: when `SOLOBASE_CLI_DRY_RUN=1`, the command is NOT spawned;
+/// instead a single line of the form
+/// `DRY_RUN step="..." cmd=<prog> args=[...]` is printed to stdout and
+/// the call returns Ok. Used by golden tests in
+/// `tests/dry_run_goldens.rs` to assert flow command construction.
 pub fn run(step: &str, mut cmd: Command) -> anyhow::Result<()> {
+    if std::env::var("SOLOBASE_CLI_DRY_RUN").as_deref() == Ok("1") {
+        let prog = cmd.get_program().to_string_lossy().into_owned();
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        println!("DRY_RUN step={step:?} cmd={prog} args={args:?}");
+        return Ok(());
+    }
     let status = cmd
         .status()
         .map_err(|e| anyhow::anyhow!("spawn {step}: {e}"))?;
