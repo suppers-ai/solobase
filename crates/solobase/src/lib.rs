@@ -4,3 +4,8 @@
 //! to expose the `cli` module to integration tests in `tests/`.
 
 pub mod cli;
+
+/// Precompiled solobase-web wasm, baked at build time. The CLI's sealed
+/// × web flow uses this as the default when `SOLOBASE_WEB_WASM` is unset.
+pub static SOLOBASE_WEB_WASM: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/solobase-web.wasm"));
