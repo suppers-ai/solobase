@@ -3,7 +3,6 @@
 //! deployment when the three `SOLOBASE_SHARED__AUTH__GITHUB__*` env vars
 //! are populated.
 
-use async_trait::async_trait;
 use serde::Deserialize;
 use url::Url;
 
@@ -62,10 +61,7 @@ impl GithubProvider {
             user_url,
             user_emails_url,
             user_memberships_url,
-            http: reqwest::Client::builder()
-                .user_agent(USER_AGENT)
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
+            http: super::oauth_http_client(USER_AGENT, std::time::Duration::from_secs(10))
                 .expect("reqwest client"),
         }
     }
@@ -96,7 +92,8 @@ struct EmailEntry {
     verified: bool,
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl OAuthProvider for GithubProvider {
     fn name(&self) -> &'static str {
         "github"

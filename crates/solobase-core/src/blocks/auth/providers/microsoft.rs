@@ -9,7 +9,6 @@
 //! accounts via `/common` are flagged as a later follow-up — see
 //! Plan B's noted decision.
 
-use async_trait::async_trait;
 use serde::Deserialize;
 use url::Url;
 
@@ -57,10 +56,7 @@ impl MicrosoftProvider {
             authorize_url_base,
             token_url,
             me_url,
-            http: reqwest::Client::builder()
-                .user_agent(USER_AGENT)
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
+            http: super::oauth_http_client(USER_AGENT, std::time::Duration::from_secs(10))
                 .expect("reqwest client"),
         }
     }
@@ -82,7 +78,8 @@ struct MeResponse {
     display_name: Option<String>,
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl OAuthProvider for MicrosoftProvider {
     fn name(&self) -> &'static str {
         "microsoft"

@@ -3,7 +3,6 @@
 //! are present. `check_org_admin` has no Google equivalent and returns
 //! [`ProviderError::NotSupported`] without a network call.
 
-use async_trait::async_trait;
 use serde::Deserialize;
 use url::Url;
 
@@ -51,10 +50,7 @@ impl GoogleProvider {
             authorize_url_base,
             token_url,
             userinfo_url,
-            http: reqwest::Client::builder()
-                .user_agent(USER_AGENT)
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
+            http: super::oauth_http_client(USER_AGENT, std::time::Duration::from_secs(10))
                 .expect("reqwest client"),
         }
     }
@@ -84,7 +80,8 @@ fn default_true() -> bool {
     true
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl OAuthProvider for GoogleProvider {
     fn name(&self) -> &'static str {
         "google"

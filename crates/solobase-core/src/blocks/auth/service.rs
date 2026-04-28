@@ -10,7 +10,6 @@
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use wafer_core::interfaces::auth::service::{
     AuthError, AuthService, Role, TokenScope, UserId, UserProfile,
@@ -143,7 +142,8 @@ fn extract_creds(msg: &Message) -> Result<Creds, AuthError> {
     Err(AuthError::Unauthorized)
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AuthService for AuthServiceImpl {
     async fn require_user(&self, msg: &Message) -> Result<UserId, AuthError> {
         let ctx = self.state.ctx.as_ref();
