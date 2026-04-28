@@ -825,6 +825,7 @@ async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputSt
     ok_json(&serde_json::json!({"message": "Settings saved"}))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 ::wafer_run::inventory::submit! {
     ::wafer_run::StaticBlockRegistration {
         name: "suppers-ai/userportal",

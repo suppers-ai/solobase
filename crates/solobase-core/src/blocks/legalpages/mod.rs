@@ -628,6 +628,7 @@ impl Block for LegalPagesBlock {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 ::wafer_run::inventory::submit! {
     ::wafer_run::StaticBlockRegistration {
         name: "suppers-ai/legalpages",

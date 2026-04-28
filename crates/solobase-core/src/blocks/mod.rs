@@ -32,6 +32,7 @@ pub mod vector;
 ///
 /// Used by `collect_all_config_vars()` to discover declared config
 /// variables before block registration runs.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
     #[cfg_attr(not(feature = "llm"), allow(unused_mut))]
     let mut infos: Vec<_> = wafer_run::inventory::iter::<wafer_run::StaticBlockRegistration>()
@@ -42,6 +43,42 @@ pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
     {
         use wafer_run::block::Block as _;
         let throwaway = std::sync::Arc::new(llm::providers::ProviderLlmService::new());
+        infos.push(llm::LlmBlock::new(throwaway).info());
+    }
+
+    infos
+}
+
+/// wasm32 fallback: inventory doesn't exist on wasm32 (wafer-run gates
+/// `StaticBlockRegistration` behind `cfg(not(target_arch = "wasm32"))`), so
+/// enumerate blocks manually. Same content the inventory iteration would
+/// produce on native, plus LlmBlock under `feature = "llm"`.
+#[cfg(target_arch = "wasm32")]
+pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
+    use wafer_run::block::Block as _;
+
+    #[cfg_attr(not(feature = "llm"), allow(unused_mut))]
+    let mut infos: Vec<wafer_run::block::BlockInfo> = vec![
+        admin::AdminBlock::new().info(),
+        auth::AuthBlock::new().info(),
+        email::EmailBlock::new().info(),
+        files::FilesBlock::new().info(),
+        legalpages::LegalPagesBlock::new().info(),
+        messages::MessagesBlock::new().info(),
+        products::ProductsBlock::new().info(),
+        projects::ProjectsBlock::new().info(),
+        system::SystemBlock::new().info(),
+        userportal::UserPortalBlock::new().info(),
+        vector::VectorBlock::new().info(),
+    ];
+
+    #[cfg(feature = "native-embedding")]
+    infos.push(fastembed::FastembedBlock::new().info());
+
+    #[cfg(feature = "llm")]
+    {
+        use std::sync::Arc;
+        let throwaway = Arc::new(llm::providers::ProviderLlmService::new());
         infos.push(llm::LlmBlock::new(throwaway).info());
     }
 
