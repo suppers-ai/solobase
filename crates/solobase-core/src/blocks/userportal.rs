@@ -153,7 +153,6 @@ impl UserPortalBlock {
                 "products": is_enabled("suppers-ai/products"),
                 "user_products": config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS", "false").await,
                 "legal_pages": is_enabled("suppers-ai/legalpages"),
-                "projects": is_enabled("suppers-ai/projects"),
                 "userportal": is_enabled("suppers-ai/userportal"),
             }
         });

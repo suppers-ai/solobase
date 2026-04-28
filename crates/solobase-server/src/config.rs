@@ -39,7 +39,6 @@ pub const BLOCK_DEFAULTS: &[BlockDefault] = &[
     ("suppers-ai/admin", true),
     ("suppers-ai/files", true),
     ("suppers-ai/products", true),
-    ("suppers-ai/projects", false),
     ("suppers-ai/legalpages", false),
     ("suppers-ai/userportal", false),
     ("suppers-ai/system", true),

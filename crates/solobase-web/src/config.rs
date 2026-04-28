@@ -158,7 +158,6 @@ pub fn load_block_settings() -> solobase_core::features::BlockSettings {
         ("suppers-ai/admin", true),
         ("suppers-ai/files", true),
         ("suppers-ai/products", true),
-        ("suppers-ai/projects", false),
         ("suppers-ai/legalpages", false),
         ("suppers-ai/userportal", false),
         ("suppers-ai/system", true),
