@@ -1,6 +1,6 @@
 //! Smoke test for inventory-based block auto-registration.
 //!
-//! Asserts that the 12 zero-arg suppers-ai/* blocks self-register at link
+//! Asserts that the 11 zero-arg suppers-ai/* blocks self-register at link
 //! time via #[inventory::submit!] (T4) and that LlmBlock — which has a
 //! non-zero-arg constructor — does NOT auto-register (it's manually
 //! registered by `solobase_core::blocks::register_llm()` from
@@ -18,9 +18,10 @@ use wafer_run::Wafer;
 fn all_zero_arg_blocks_auto_register() {
     let w = Wafer::new().expect("Wafer::new should succeed with no lockfile present");
 
-    // The 9 always-on zero-arg blocks. Feature-gated blocks (vector,
-    // fastembed under `native-embedding`; llm under `llm`) are checked
-    // in the cfg-gated test below.
+    // The 11 always-on zero-arg blocks. `vector` is unconditionally registered
+    // (its `pub mod vector;` in blocks/mod.rs has no cfg gate). Only `fastembed`
+    // is feature-gated under `native-embedding` and checked in the test below.
+    // `llm` requires a non-zero-arg constructor and is checked separately.
     let always_on = [
         "suppers-ai/admin",
         "suppers-ai/auth",
@@ -32,6 +33,7 @@ fn all_zero_arg_blocks_auto_register() {
         "suppers-ai/projects",
         "suppers-ai/system",
         "suppers-ai/userportal",
+        "suppers-ai/vector",
     ];
 
     for name in always_on {
@@ -51,8 +53,7 @@ fn all_zero_arg_blocks_auto_register() {
 
 #[cfg(feature = "native-embedding")]
 #[test]
-fn embedding_blocks_auto_register_when_feature_enabled() {
+fn fastembed_block_auto_registers_when_feature_enabled() {
     let w = Wafer::new().expect("Wafer::new with native-embedding feature");
-    assert!(w.has_block("suppers-ai/vector"));
     assert!(w.has_block("suppers-ai/fastembed"));
 }
