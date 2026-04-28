@@ -57,11 +57,23 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: test
+
+      # The solobase crate's build.rs `include_bytes!`s the solobase-web
+      # wasm; without it `cargo test --workspace` fails before any test
+      # runs. Build the wasm-pack output (preferred path in build.rs's
+      # candidate list) before invoking cargo test.
+      - name: Build solobase-web wasm (build.rs prereq)
+        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
 
       # Auth tests (tests/auth, tests/auth_http) run against in-memory
       # SQLite only. A dual-backend matrix (sqlite + postgres) for the
@@ -129,15 +141,22 @@ jobs:
         with:
           node-version: 20
 
+      # `cargo install --path crates/solobase` runs the solobase build.rs,
+      # which `include_bytes!`s the solobase-web wasm. Build it first so
+      # build.rs finds it in the canonical pkg/ location.
+      - name: Pre-build solobase-web wasm (build.rs prereq)
+        working-directory: crates/solobase-web
+        run: wasm-pack build --target web --release --out-dir pkg
+
       - name: Install solobase CLI
         run: cargo install --path crates/solobase --locked
 
+      # Embed × web flow (Cargo.toml + solobase.toml present): the unified
+      # CLI runs wasm-pack again, then `solobase_browser::tools::bundle::run`
+      # to drop sw.js / loader.js / index.html / hashed assets into pkg/.
       - name: Build solobase-web (framework assets + hashed pkg/)
         working-directory: crates/solobase-web
-        # Temporary: until Task 7 of the unified-CLI plan lands the new
-        # `build --target web` verb, the absorbed legacy pipeline is reachable
-        # via this transitional subcommand. Removed when Task 7 ships.
-        run: solobase legacy-build
+        run: solobase build --target web --release
 
       - name: Install Playwright
         working-directory: crates/solobase-web
