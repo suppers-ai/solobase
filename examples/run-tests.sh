@@ -14,11 +14,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PORT="${TEST_PORT:-8091}"
 SUPPERS_AI__AUTH__JWT_SECRET="${SUPPERS_AI__AUTH__JWT_SECRET:-examples-test-secret-$(date +%s)}"
 
-# Build solobase binary (debug for speed)
+# Build solobase (release, includes solobase-web wasm bundling).
 echo "==> Building solobase..."
 cd "$REPO_ROOT"
-cargo build -p solobase 2>&1 | tail -1
-BINARY="$REPO_ROOT/target/debug/solobase"
+just build 2>&1 | tail -1
+BINARY="$REPO_ROOT/target/release/solobase"
 
 if [ ! -f "$BINARY" ]; then
   echo "ERROR: Binary not found at $BINARY"
