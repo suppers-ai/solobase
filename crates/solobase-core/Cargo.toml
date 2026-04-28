@@ -28,8 +28,8 @@ llm = ["dep:tokio", "dep:tokio-stream"]
 native-embedding = ["dep:wafer-block-fastembed"]
 
 [dependencies]
-# WAFER types (minimal — no full runtime)
-wafer-run = { workspace = true }
+# WAFER types + WASM interpreter (wasmi required for lockfile Path B loader)
+wafer-run = { workspace = true, features = ["wasmi"] }
 # wafer-core for clients and interface traits
 wafer-core = { workspace = true }
 # SQL utilities (query builders, value conversion)
@@ -92,6 +92,7 @@ workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time", "net"] }
+tempfile = "3"
 wafer-block-sqlite = { workspace = true }
 wafer-block-crypto = { workspace = true }
 wafer-block-http-listener = { workspace = true }
