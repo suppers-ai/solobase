@@ -1,16 +1,16 @@
-//! Smoke test for inventory-based block auto-registration.
+//! Smoke test for linkme-based block auto-registration.
 //!
 //! Asserts that the 11 zero-arg suppers-ai/* blocks self-register at link
-//! time via #[inventory::submit!] (T4) and that LlmBlock — which has a
+//! time via register_static_block! and that LlmBlock — which has a
 //! non-zero-arg constructor — does NOT auto-register (it's manually
 //! registered by `solobase_core::blocks::register_llm()` from
 //! `solobase::SolobaseBuilder::build()`).
 
 // Force solobase_core's object files to be linked so that the
-// inventory::submit! static initialisers inside each block module are
-// included in the test binary.  Without this import the linker would
+// register_static_block! distributed-slice entries inside each block module
+// are included in the test binary.  Without this import the linker would
 // strip the crate's code entirely (no other symbols referenced) and
-// inventory::iter would return an empty set.
+// STATIC_BLOCK_REGISTRATIONS would be empty.
 use solobase_core as _;
 use wafer_run::Wafer;
 
@@ -39,7 +39,7 @@ fn all_zero_arg_blocks_auto_register() {
     for name in always_on {
         assert!(
             w.has_block(name),
-            "expected block {name} to be auto-registered via inventory"
+            "expected block {name} to be auto-registered via register_static_block!"
         );
     }
 

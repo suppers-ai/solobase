@@ -9,6 +9,9 @@
 
 use std::sync::Arc;
 
+// Force linker inclusion of wafer-block-http-listener so its
+// register_static_block! entry lands in STATIC_BLOCK_REGISTRATIONS.
+use wafer_block_http_listener as _;
 use wafer_run::Wafer;
 
 /// Register the `wafer-run/http-listener` block on `wafer` and configure
@@ -19,7 +22,10 @@ use wafer_run::Wafer;
 /// for solobase-server, but downstream consumers of this library pick their
 /// own flow name).
 pub fn register_http_listener(wafer: &mut Wafer, listen_addr: &str, flow_id: &str) {
-    wafer_block_http_listener::register(wafer).expect("register http-listener block");
+    // wafer-run/http-listener self-registers via register_static_block! in
+    // wafer-block-http-listener. The `use wafer_block_http_listener as _`
+    // above ensures the linker includes its .o file. We only need to set
+    // the block config here.
     wafer.add_block_config(
         "wafer-run/http-listener",
         serde_json::json!({ "flow": flow_id, "listen": listen_addr }),

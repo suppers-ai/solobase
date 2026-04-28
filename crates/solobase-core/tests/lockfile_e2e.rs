@@ -66,8 +66,8 @@ source = "registry+https://example.test/registry"
     //    dirs::home_dir() → tmp.path(), then construct Wafer via the
     //    builder's explicit lockfile path (avoids WAFER_LOCKFILE global).
     //
-    //    disable_inventory() prevents the solobase inventory blocks from
-    //    being registered — we want a clean runtime for this assertion.
+    //    disable_inventory() prevents the solobase register_static_block! blocks
+    //    from being registered — we want a clean runtime for this assertion.
     // -----------------------------------------------------------------------
     let prior_home = std::env::var("HOME").ok();
     std::env::set_var("HOME", tmp.path());

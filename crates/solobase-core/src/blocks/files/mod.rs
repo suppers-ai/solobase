@@ -219,10 +219,4 @@ pub async fn handle_admin_cloud(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::inventory::submit! {
-    ::wafer_run::StaticBlockRegistration {
-        name: "suppers-ai/files",
-        factory: || ::std::sync::Arc::new(FilesBlock::new())
-            as ::std::sync::Arc<dyn ::wafer_run::Block>,
-    }
-}
+::wafer_run::register_static_block!("suppers-ai/files", FilesBlock);

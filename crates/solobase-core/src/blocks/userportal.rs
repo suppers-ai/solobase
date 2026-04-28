@@ -826,10 +826,4 @@ async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputSt
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::inventory::submit! {
-    ::wafer_run::StaticBlockRegistration {
-        name: "suppers-ai/userportal",
-        factory: || ::std::sync::Arc::new(UserPortalBlock::new())
-            as ::std::sync::Arc<dyn ::wafer_run::Block>,
-    }
-}
+::wafer_run::register_static_block!("suppers-ai/userportal", UserPortalBlock);

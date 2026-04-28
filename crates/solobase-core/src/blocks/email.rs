@@ -400,10 +400,4 @@ impl<'a> std::io::Write for Base64Encoder<'a> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::inventory::submit! {
-    ::wafer_run::StaticBlockRegistration {
-        name: "suppers-ai/email",
-        factory: || ::std::sync::Arc::new(EmailBlock::new())
-            as ::std::sync::Arc<dyn ::wafer_run::Block>,
-    }
-}
+::wafer_run::register_static_block!("suppers-ai/email", EmailBlock);

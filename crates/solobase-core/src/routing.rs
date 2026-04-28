@@ -265,7 +265,7 @@ fn block_id_short_name(id: BlockId) -> &'static str {
 ///
 /// Checks feature flags and admin role. Dispatches via `ctx.call_block` — all
 /// solobase blocks are registered in the Wafer registry at boot (zero-arg
-/// blocks via `inventory::submit!`, LlmBlock via `register_llm()`).
+/// blocks via `register_static_block!`, LlmBlock via `register_llm()`).
 pub async fn route_to_block(
     ctx: &dyn Context,
     msg: Message,
