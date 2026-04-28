@@ -31,6 +31,9 @@ native-embedding = ["solobase-core/native-embedding"]
 # feature blocks). Absorbed today's solobase (lib) crate.
 solobase-core = { path = "../solobase-core", default-features = false }
 solobase-native = { path = "../solobase-native" }
+# Browser-shell asset writer + bundle/template runner used by the
+# sealed × web and embed × web flows.
+solobase-browser = { path = "../solobase-browser" }
 
 # WAFER runtime
 wafer-run = { workspace = true, features = ["full"] }

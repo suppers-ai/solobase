@@ -4643,6 +4643,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "solobase-browser",
  "solobase-core",
  "solobase-native",
  "tempfile",
