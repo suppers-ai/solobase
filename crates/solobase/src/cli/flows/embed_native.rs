@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 
 use crate::cli::cmd;
 use crate::cli::helpers::{blocks, frontend};
-use crate::cli::legacy_config;
+use crate::cli::config;
 
 const RUNTIME_SITE_REL: &str = "data/storage/wafer-run/web/site";
 
@@ -27,7 +27,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     if release {
         cargo.arg("--release");
     }
-    if let Ok((cfg, _)) = legacy_config::find_and_load(repo_root) {
+    if let Ok((cfg, _)) = config::find_and_load(repo_root) {
         if let Some(mp) = &cfg.solobase.manifest_path {
             cargo.arg("--manifest-path").arg(mp);
         }

@@ -1,11 +1,12 @@
-//! Re-exports of the asset-overlay logic from legacy_build for use by the
-//! new flows. The function is unchanged; only the name is.
+//! Asset-overlay logic shared by the four flow quadrants. Reads
+//! `[[assets.overlay]]` entries from `solobase.toml` and copies each
+//! `from` (relative to repo root) to `to` (relative to the dist dir).
 
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
 
-use crate::cli::legacy_config::Config;
+use crate::cli::config::Config;
 
 pub fn apply_overlays(cfg: &Config, repo_root: &Path, dist_dir: &Path) -> Result<()> {
     for overlay in &cfg.assets.overlay {
@@ -21,4 +22,4 @@ pub fn apply_overlays(cfg: &Config, repo_root: &Path, dist_dir: &Path) -> Result
     Ok(())
 }
 
-pub use crate::cli::legacy_config::OverlayEntry as Overlay;
+pub use crate::cli::config::OverlayEntry as Overlay;

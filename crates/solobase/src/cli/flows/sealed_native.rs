@@ -8,7 +8,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::cli::helpers::{blocks, frontend, overlays};
-use crate::cli::legacy_config;
+use crate::cli::config;
 
 const RUNTIME_SITE_REL: &str = "data/storage/wafer-run/web/site";
 
@@ -24,7 +24,7 @@ pub async fn build(repo_root: &Path, _release: bool) -> Result<()> {
     }
 
     // 3. Optional overlays from solobase.toml.
-    if let Ok((cfg, root)) = legacy_config::find_and_load(repo_root) {
+    if let Ok((cfg, root)) = config::find_and_load(repo_root) {
         let dst = root.join(RUNTIME_SITE_REL);
         overlays::apply_overlays(&cfg, &root, &dst)?;
     }

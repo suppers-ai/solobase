@@ -8,10 +8,10 @@ use anyhow::Result;
 
 use crate::cli::cmd;
 use crate::cli::helpers::{blocks, http_server, overlays};
-use crate::cli::legacy_config;
+use crate::cli::config;
 
 pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
-    let (cfg, _) = legacy_config::find_and_load(repo_root)?;
+    let (cfg, _) = config::find_and_load(repo_root)?;
 
     // 1. wafer build per block.
     blocks::build_all(repo_root)?;
@@ -47,7 +47,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
 pub async fn serve(repo_root: &Path, release: bool, port: Option<u16>) -> Result<()> {
     build(repo_root, release).await?;
     let port = port.unwrap_or(8080);
-    let cfg = legacy_config::find_and_load(repo_root)?.0;
+    let cfg = config::find_and_load(repo_root)?.0;
     let dist = repo_root.join(&cfg.wasm.out_dir);
     eprintln!("serving {} on http://127.0.0.1:{port}", dist.display());
     http_server::serve_static(&dist, port).await

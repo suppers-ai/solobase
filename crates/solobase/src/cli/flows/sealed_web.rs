@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 
 use crate::cli::helpers::{blocks, http_server, overlays, wasm};
-use crate::cli::legacy_config;
+use crate::cli::config;
 
 pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     // 1. Discover and build user blocks (if any).
@@ -28,7 +28,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     // 4. Run the bundler — content-hash assets + render templates.
     //    This calls solobase_browser::tools::bundle::run, which writes the
     //    static shell (index.html, sw.js, loader.js) into dist/.
-    let cfg = legacy_config::find_and_load(repo_root).ok();
+    let cfg = config::find_and_load(repo_root).ok();
     let app = match cfg.as_ref() {
         Some((c, _)) => solobase_browser::tools::bundle::AppConfig {
             app_name: Some(c.app.name.clone()),
