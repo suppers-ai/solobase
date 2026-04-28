@@ -11,13 +11,6 @@ use solobase_core::{
     features::{BlockSettings, FeatureConfig},
     ExtraRoute, RouteAccess,
 };
-use wafer_core::interfaces::{
-    config::service::ConfigService, crypto::service::CryptoService,
-    database::service::DatabaseService, llm::service::LlmService, logger::service::LoggerService,
-    network::service::NetworkService, storage::service::StorageService,
-};
-use wafer_run::{block::Block, RuntimeError, Wafer};
-
 // Force linker inclusion of wafer-block-* crates so their linkme
 // distributed-slice entries land in the binary. Without these `use as _`
 // anchors the linker excludes the crate's .o file entirely and the
@@ -28,6 +21,12 @@ use wafer_block_readonly_guard as _;
 use wafer_block_router as _;
 use wafer_block_security_headers as _;
 use wafer_block_web as _;
+use wafer_core::interfaces::{
+    config::service::ConfigService, crypto::service::CryptoService,
+    database::service::DatabaseService, llm::service::LlmService, logger::service::LoggerService,
+    network::service::NetworkService, storage::service::StorageService,
+};
+use wafer_run::{block::Block, RuntimeError, Wafer};
 
 pub struct SolobaseBuilder {
     database: Option<Arc<dyn DatabaseService>>,

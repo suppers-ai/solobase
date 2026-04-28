@@ -9,11 +9,10 @@
 
 use std::sync::Arc;
 
-use wafer_run::Wafer;
-
 // Force linker inclusion of wafer-block-http-listener so its
 // register_static_block! entry lands in STATIC_BLOCK_REGISTRATIONS.
 use wafer_block_http_listener as _;
+use wafer_run::Wafer;
 
 /// Register the `wafer-run/http-listener` block on `wafer` and configure
 /// it to bind `listen_addr` and dispatch through `flow_id`. Must be called
