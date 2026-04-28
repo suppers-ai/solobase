@@ -5,7 +5,6 @@
 //! (Cluster 3) dispatch to the trait via the [`registry::ProviderRegistry`]
 //! built at startup from env config.
 
-use async_trait::async_trait;
 use thiserror::Error;
 
 pub(super) mod github;
@@ -13,6 +12,26 @@ pub(super) mod google;
 pub(super) mod microsoft;
 pub mod pkce;
 pub mod registry;
+
+/// Build a reqwest client with a user-agent and a sensible default timeout on
+/// native targets.
+///
+/// On wasm32 the browser's fetch API controls timeouts — `ClientBuilder::timeout`
+/// is not available there, so the `timeout` argument is silently ignored.
+pub(super) fn oauth_http_client(
+    user_agent: &str,
+    timeout: std::time::Duration,
+) -> Result<reqwest::Client, reqwest::Error> {
+    #[allow(unused_mut)]
+    let mut builder = reqwest::Client::builder().user_agent(user_agent);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        builder = builder.timeout(timeout);
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = timeout;
+    builder.build()
+}
 
 /// Normalised profile returned by [`OAuthProvider::exchange_code`]. Upstream
 /// GitHub/Google/Microsoft shapes collapse into this single struct so the
@@ -70,8 +89,9 @@ pub enum ProviderError {
 
 /// Abstraction over a single OAuth provider. The registry (Task 9) owns one
 /// `Arc<dyn OAuthProvider>` per enabled provider and hands them out by name.
-#[async_trait]
-pub trait OAuthProvider: Send + Sync {
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+pub trait OAuthProvider: wafer_run::MaybeSend + wafer_run::MaybeSync {
     /// Stable provider identifier as used in URLs and the registry map
     /// (e.g. `"github"`, `"google"`, `"microsoft"`).
     fn name(&self) -> &'static str;
@@ -100,13 +120,12 @@ pub trait OAuthProvider: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use async_trait::async_trait;
-
     use super::*;
 
     struct MockProvider;
 
-    #[async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl OAuthProvider for MockProvider {
         fn name(&self) -> &'static str {
             "mock"
