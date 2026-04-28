@@ -15,10 +15,7 @@ use wafer_run::{
     InputStream, OutputStream,
 };
 
-use crate::{
-    features::FeatureConfig,
-    routing::ExtraRoute,
-};
+use crate::{features::FeatureConfig, routing::ExtraRoute};
 
 /// The solobase router block — dispatches all API requests via the shared
 /// `crate::handle_request()` pipeline.
