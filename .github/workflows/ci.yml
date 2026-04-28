@@ -31,9 +31,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: wasm32-unknown-unknown
 
       - name: Install nightly rustfmt
         run: rustup toolchain install nightly --component rustfmt
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -42,6 +46,11 @@ jobs:
 
       - name: Check formatting
         run: cargo +nightly fmt --all -- --check
+
+      # clippy compiles solobase, whose build.rs `include_bytes!`s the
+      # solobase-web wasm. Build it first so build.rs finds it.
+      - name: Build solobase-web wasm (build.rs prereq for clippy)
+        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
 
       - name: Run clippy
         run: cargo clippy --workspace --exclude solobase-web
