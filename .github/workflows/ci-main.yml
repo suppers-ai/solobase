@@ -31,9 +31,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: wasm32-unknown-unknown
 
       - name: Install nightly rustfmt
         run: rustup toolchain install nightly --component rustfmt
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -42,6 +46,11 @@ jobs:
 
       - name: Check formatting
         run: cargo +nightly fmt --all -- --check
+
+      # clippy compiles solobase, whose build.rs `include_bytes!`s the
+      # solobase-web wasm. Build it first so build.rs finds it.
+      - name: Build solobase-web wasm (build.rs prereq for clippy)
+        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
 
       - name: Run clippy
         run: cargo clippy --workspace --exclude solobase-web
@@ -57,11 +66,23 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: test
+
+      # The solobase crate's build.rs `include_bytes!`s the solobase-web
+      # wasm; without it `cargo test --workspace` fails before any test
+      # runs. Build the wasm-pack output (preferred path in build.rs's
+      # candidate list) before invoking cargo test.
+      - name: Build solobase-web wasm (build.rs prereq)
+        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
 
       - name: Run tests
         run: cargo test --workspace --exclude solobase-web
@@ -168,7 +189,10 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target }},wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -189,6 +213,11 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
 
+      # solobase's build.rs `include_bytes!`s the solobase-web wasm;
+      # build it (wasm32 regardless of host target) before cross-compile.
+      - name: Build solobase-web wasm (build.rs prereq)
+        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
+
       - name: Build
         run: cargo build -p solobase --release --target ${{ matrix.target }}
 
@@ -203,6 +232,11 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
@@ -211,6 +245,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: coverage
+
+      # solobase's build.rs `include_bytes!`s the solobase-web wasm;
+      # llvm-cov compiles the workspace, so build it first.
+      - name: Build solobase-web wasm (build.rs prereq)
+        run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
 
       - name: Generate coverage
         run: cargo llvm-cov --workspace --exclude solobase-web --lcov --output-path lcov.info
