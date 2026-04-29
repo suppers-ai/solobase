@@ -557,7 +557,8 @@ impl Block for LegalPagesBlock {
                     .name("Back Button URL")
                     .input_type(InputType::Url),
                 ConfigVar::new("SUPPERS_AI__LEGALPAGES__FOOTER", "Custom footer text (HTML allowed)", "")
-                    .name("Footer Text"),
+                    .name("Footer Text")
+                    .optional(),
             ])
             .admin_url("/b/legalpages/admin")
             .can_disable(true)
