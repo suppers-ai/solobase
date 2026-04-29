@@ -427,7 +427,8 @@ impl Block for LlmBlock {
                 "Default model to use (empty = provider default)",
                 "",
             )
-            .name("Default Model"),
+            .name("Default Model")
+            .optional(),
         ])
         .can_disable(true)
         .default_enabled(true)
