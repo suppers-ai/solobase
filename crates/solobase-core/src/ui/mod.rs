@@ -8,7 +8,10 @@ pub mod assets;
 pub mod components;
 pub mod icons;
 pub mod layout;
+pub mod palette;
+pub mod shell;
 pub mod sidebar;
+pub mod templates;
 
 /// Branding/site config loaded from environment variables.
 /// Passed through to layout and sidebar so every page renders consistently.
@@ -91,6 +94,8 @@ pub struct NavItem {
     pub href: String,
     pub icon: &'static str,
 }
+
+pub use sidebar::NavGroup;
 
 /// Check if the current request is an htmx partial request.
 pub fn is_htmx(msg: &wafer_run::types::Message) -> bool {

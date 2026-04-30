@@ -148,7 +148,7 @@ async fn system_logs_tab(ctx: &dyn Context, msg: &Message) -> Markup {
                 }
 
                 @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                (components::pagination(list.page as u32, total_pages, "/b/admin/logs", "#content"))
+                (components::pagination_v1(list.page as u32, total_pages, "/b/admin/logs", "#content"))
             }
             Err(e) => {
                 div .login-error { "Failed to load request logs: " (e.message) }
@@ -229,7 +229,7 @@ async fn audit_logs_tab(ctx: &dyn Context, msg: &Message) -> Markup {
                 }
 
                 @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                (components::pagination(list.page as u32, total_pages, "/b/admin/logs?tab=audit", "#content"))
+                (components::pagination_v1(list.page as u32, total_pages, "/b/admin/logs?tab=audit", "#content"))
             }
             Err(e) => {
                 div .login-error { "Failed to load audit logs: " (e.message) }

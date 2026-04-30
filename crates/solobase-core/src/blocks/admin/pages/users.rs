@@ -122,7 +122,7 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
                 (users_table(&list.records, ctx, current_user_id).await)
 
                 @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                (components::pagination(list.page as u32, total_pages, "/b/admin/users", "#users-tab-content"))
+                (components::pagination_v1(list.page as u32, total_pages, "/b/admin/users", "#users-tab-content"))
             }
             Err(e) => {
                 div .login-error { "Failed to load users: " (e.message) }

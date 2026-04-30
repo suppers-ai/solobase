@@ -1,0 +1,14 @@
+/* base.css — reset, html/body defaults, and global element rules */
+
+/* ===== Reset ===== */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+	height: 100%;
+	font-family: 'Itim', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+	background: var(--bg-secondary);
+	color: var(--text-primary);
+}
+input, textarea, select, [contenteditable="true"] {
+	-webkit-user-select: text !important;
+	user-select: text !important;
+}

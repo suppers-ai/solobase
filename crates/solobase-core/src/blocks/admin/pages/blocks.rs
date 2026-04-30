@@ -134,7 +134,7 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 }
 
                 @if filtered.is_empty() {
-                    (components::empty_state("No blocks", "No blocks registered in this category"))
+                    (components::empty_state_v1("No blocks", "No blocks registered in this category"))
                 }
 
                 div .cards style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px;align-items:start" {

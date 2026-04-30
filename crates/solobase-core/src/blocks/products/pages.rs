@@ -200,7 +200,7 @@ pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
                         }
                     }
                     @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                    (components::pagination(list.page as u32, total_pages, "/b/products/admin/manage", "#products-content"))
+                    (components::pagination_v1(list.page as u32, total_pages, "/b/products/admin/manage", "#products-content"))
                 }
                 Err(e) => { div .login-error { "Error: " (e.message) } }
             }
@@ -404,7 +404,7 @@ pub async fn purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
                         }
                     }
                     @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                    (components::pagination(list.page as u32, total_pages, "/b/products/admin/purchases", "#purchases-content"))
+                    (components::pagination_v1(list.page as u32, total_pages, "/b/products/admin/purchases", "#purchases-content"))
                 }
                 Err(e) => { div .login-error { "Error: " (e.message) } }
             }
@@ -495,7 +495,7 @@ pub async fn my_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
                         }
                     }
                     @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                    (components::pagination(list.page as u32, total_pages, "/b/products/my-products", "#my-products-content"))
+                    (components::pagination_v1(list.page as u32, total_pages, "/b/products/my-products", "#my-products-content"))
                 }
                 Err(e) => { div .login-error { "Error: " (e.message) } }
             }
@@ -584,7 +584,7 @@ pub async fn my_purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
                         }
                     }
                     @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                    (components::pagination(list.page as u32, total_pages, "/b/products/my-purchases", "#my-purchases-content"))
+                    (components::pagination_v1(list.page as u32, total_pages, "/b/products/my-purchases", "#my-purchases-content"))
                 }
                 Err(e) => { div .login-error { "Error: " (e.message) } }
             }
