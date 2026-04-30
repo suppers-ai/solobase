@@ -238,6 +238,29 @@ pub fn auth_split(brand: BrandPanel<'_>, form_card: Markup) -> Markup {
     }
 }
 
+/// Tiny template for `/`, 404, 403, 500 — auth-split-shaped, just an
+/// illustrated message + primary action. Replaces the inline 404/403
+/// markup currently in `ui/mod.rs`.
+pub fn status_page(
+    code: &str,         // "404", "403", "500", or "" for "/"
+    title: &str,
+    body: &str,
+    primary_action: Option<(String, String)>, // (label, href)
+) -> Markup {
+    html! {
+        div .status-page {
+            div .status-page__inner {
+                @if !code.is_empty() { div .status-page__code { (code) } }
+                h1 .status-page__title { (title) }
+                p .status-page__body { (body) }
+                @if let Some((label, href)) = primary_action {
+                    a .btn .btn--primary .btn--md href=(href) { (label) }
+                }
+            }
+        }
+    }
+}
+
 // Suppress unused warning until later phases consume `components`.
 #[allow(dead_code)]
 fn _components_keep_alive(_: components::BtnVariant) {}
@@ -396,5 +419,26 @@ mod tests {
         assert!(s.contains("auth-split__form"));
         assert!(s.contains("Welcome back"));
         assert!(s.contains("Sign in to continue."));
+    }
+
+    #[test]
+    fn status_page_404_renders_code_and_action() {
+        let s = status_page(
+            "404",
+            "Page not found",
+            "We couldn't find that page.",
+            Some(("Go home".to_string(), "/".to_string())),
+        ).into_string();
+        assert!(s.contains(">404<"));
+        assert!(s.contains("Page not found"));
+        assert!(s.contains("Go home"));
+        assert!(s.contains(r#"href="/""#));
+    }
+
+    #[test]
+    fn status_page_no_code_no_action() {
+        let s = status_page("", "Hello", "Welcome.", None).into_string();
+        assert!(!s.contains("status-page__code"));
+        assert!(!s.contains(r#"class="btn"#));
     }
 }

@@ -525,3 +525,11 @@
 .auth-split__tagline { font-size: var(--text-base); margin: 0; opacity: 0.9; }
 .auth-split__form { display: flex; align-items: center; justify-content: center; padding: var(--space-2xl) var(--spacing-md); background: var(--surface-2); }
 .auth-split__form > * { width: 100%; max-width: 400px; }
+
+/* ===== Status page ===== */
+.status-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: var(--spacing-xl); background: var(--surface-2); }
+.status-page__inner { text-align: center; max-width: 480px; display: flex; flex-direction: column; gap: var(--spacing-sm); align-items: center; }
+.status-page__code { font-size: 4rem; font-weight: 500; color: var(--text-muted); line-height: 1; }
+.status-page__title { font-size: var(--text-xl); font-weight: 500; margin: 0; }
+.status-page__body { font-size: var(--text-base); color: var(--text-secondary); margin: 0; }
+.status-page .btn { margin-top: var(--spacing-md); text-decoration: none; }
