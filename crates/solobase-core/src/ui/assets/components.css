@@ -533,3 +533,20 @@
 
 .btn--danger { background: var(--danger-color); color: #fff; }
 .btn--danger:hover:not(:disabled) { filter: brightness(0.92); }
+
+/* ===== Canonical form fields (Phase 1) ===== */
+.field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: var(--spacing-md); }
+.field__label { font-size: var(--text-sm); color: var(--text-primary); font-weight: 500; }
+.field__req { color: var(--danger-color); }
+.field__input {
+	font-family: inherit; font-size: var(--text-base);
+	padding: 0.5rem 0.75rem; border: 1px solid var(--border-color);
+	border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-primary);
+	transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.field__input:focus-visible { outline: none; box-shadow: var(--focus-ring); border-color: var(--primary-color); }
+.field__input:disabled { background: var(--bg-secondary); cursor: not-allowed; }
+.field__input--textarea { resize: vertical; min-height: 6rem; }
+.field__helper { font-size: var(--text-xs); color: var(--text-muted); }
+.field__error { font-size: var(--text-xs); color: var(--danger-color); }
+.field--error .field__input { border-color: var(--danger-color); }

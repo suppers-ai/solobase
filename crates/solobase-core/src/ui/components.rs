@@ -461,6 +461,96 @@ pub fn button(
     ))
 }
 
+// ---------------------------------------------------------------------------
+// Form-control components (Phase 1)
+// ---------------------------------------------------------------------------
+
+/// Common props for any labeled form control.
+#[derive(Default)]
+pub struct FieldProps<'a> {
+    pub label: &'a str,
+    pub name: &'a str,
+    pub helper: Option<&'a str>,
+    pub error: Option<&'a str>,
+    pub required: bool,
+    pub disabled: bool,
+}
+
+fn field_attrs(p: &FieldProps) -> String {
+    let mut s = format!(r#"name="{}""#, html_escape(p.name));
+    if p.required { s.push_str(" required"); }
+    if p.disabled { s.push_str(" disabled"); }
+    s
+}
+
+fn html_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn field_wrap(p: &FieldProps, control: maud::Markup) -> maud::Markup {
+    use maud::html;
+    let id = format!("field-{}", p.name);
+    let has_error = p.error.is_some();
+    html! {
+        div .field .(if has_error { "field--error" } else { "" }) {
+            @if !p.label.is_empty() {
+                label for=(id) .field__label { (p.label) @if p.required { span .field__req { " *" } } }
+            }
+            (control)
+            @if let Some(h) = p.helper { div .field__helper { (h) } }
+            @if let Some(e) = p.error { div .field__error { (e) } }
+        }
+    }
+}
+
+pub fn text_input<'a>(p: FieldProps<'a>, input_type: &'a str, value: &'a str) -> maud::Markup {
+    use maud::{html, PreEscaped};
+    let id = format!("field-{}", p.name);
+    let attrs = field_attrs(&p);
+    let v = html_escape(value);
+    let t = html_escape(input_type);
+    let inner = html! {
+        (PreEscaped(format!(
+            r#"<input id="{id}" type="{t}" value="{v}" class="field__input" {attrs} />"#,
+        )))
+    };
+    field_wrap(&p, inner)
+}
+
+pub fn textarea_input<'a>(p: FieldProps<'a>, value: &'a str, rows: u32) -> maud::Markup {
+    use maud::{html, PreEscaped};
+    let id = format!("field-{}", p.name);
+    let attrs = field_attrs(&p);
+    let v = html_escape(value);
+    let inner = html! {
+        (PreEscaped(format!(
+            r#"<textarea id="{id}" class="field__input field__input--textarea" rows="{rows}" {attrs}>{v}</textarea>"#,
+        )))
+    };
+    field_wrap(&p, inner)
+}
+
+pub fn select_input<'a>(
+    p: FieldProps<'a>,
+    options: &[(&'a str, &'a str)], // (value, label)
+    selected: &'a str,
+) -> maud::Markup {
+    use maud::html;
+    let id = format!("field-{}", p.name);
+    let inner = html! {
+        select id=(id) .field__input name=(p.name) required[p.required] disabled[p.disabled] {
+            @for (val, label) in options {
+                option value=(val) selected[*val == selected] { (label) }
+            }
+        }
+    };
+    field_wrap(&p, inner)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,5 +576,33 @@ mod tests {
         let s = m.into_string();
         assert!(s.contains(r#"hx-delete="/users/1""#), "extra attrs missing: {s}");
         assert!(s.contains("btn--danger"), "variant missing: {s}");
+    }
+
+    #[test]
+    fn text_input_renders_label_and_value() {
+        let p = FieldProps { label: "Email", name: "email", required: true, ..Default::default() };
+        let s = text_input(p, "email", "alice@example.com").into_string();
+        assert!(s.contains(r#"for="field-email""#));
+        assert!(s.contains("Email"));
+        assert!(s.contains(r#"value="alice@example.com""#));
+        assert!(s.contains("required"));
+        assert!(s.contains("field__req"));
+    }
+
+    #[test]
+    fn select_marks_selected_option() {
+        let p = FieldProps { label: "Role", name: "role", ..Default::default() };
+        let opts = [("user", "User"), ("admin", "Admin")];
+        let s = select_input(p, &opts, "admin").into_string();
+        assert!(s.contains(r#"value="admin" selected"#));
+        assert!(!s.contains(r#"value="user" selected"#));
+    }
+
+    #[test]
+    fn textarea_escapes_content() {
+        let p = FieldProps { label: "Bio", name: "bio", ..Default::default() };
+        let s = textarea_input(p, "<script>x</script>", 4).into_string();
+        assert!(s.contains("&lt;script&gt;"), "unescaped: {s}");
+        assert!(!s.contains("<script>x</script>"));
     }
 }
