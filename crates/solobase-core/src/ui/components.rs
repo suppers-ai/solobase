@@ -39,7 +39,7 @@ impl<'a> Default for TableOptions<'a> {
 }
 
 /// Render a data table from JSON rows.
-pub fn data_table(
+pub fn data_table_v1(
     columns: &[Column],
     rows: &[serde_json::Value],
     options: &TableOptions<'_>,
@@ -208,7 +208,7 @@ pub fn search_input_with_value(
 // ---------------------------------------------------------------------------
 
 /// Render pagination controls.
-pub fn pagination(current_page: u32, total_pages: u32, base_url: &str, hx_target: &str) -> Markup {
+pub fn pagination_v1(current_page: u32, total_pages: u32, base_url: &str, hx_target: &str) -> Markup {
     if total_pages <= 1 {
         return html! {};
     }
@@ -315,7 +315,7 @@ pub fn modal_with_footer(id: &str, title: &str, body: Markup, footer: Markup) ->
 // ---------------------------------------------------------------------------
 
 /// Render an empty state placeholder.
-pub fn empty_state(title: &str, description: &str) -> Markup {
+pub fn empty_state_v1(title: &str, description: &str) -> Markup {
     html! {
         div .empty-state {
             div .empty-state-icon { (icons::package()) }
@@ -552,6 +552,103 @@ pub fn select_input<'a>(
 }
 
 // ---------------------------------------------------------------------------
+// data_table, empty_state, pagination (Phase 1)
+// ---------------------------------------------------------------------------
+
+/// One column declaration for `data_table`.
+pub struct TableCol<'a> {
+    pub label: &'a str,
+    pub width: Option<&'a str>, // CSS width, e.g. "160px" or "30%"
+}
+
+/// `data_table` — caller passes pre-rendered cell markup per row.
+/// Sticky header. Optional row-link via `row_href` closure.
+///
+/// `rows` is a Vec because we need to know if it's empty. If empty, an
+/// `empty_state` is rendered in place of the table body.
+pub fn data_table<'a, F>(
+    columns: &[TableCol<'a>],
+    rows: Vec<Vec<maud::Markup>>,
+    row_href: Option<F>,
+    empty: maud::Markup,
+) -> maud::Markup
+where
+    F: Fn(usize) -> Option<String>,
+{
+    use maud::html;
+    if rows.is_empty() {
+        return html! { div .data-table__empty { (empty) } };
+    }
+    html! {
+        div .data-table {
+            table {
+                thead { tr {
+                    @for col in columns {
+                        @match col.width {
+                            Some(w) => th style=(format!("width:{w}")) { (col.label) },
+                            None => th { (col.label) },
+                        }
+                    }
+                } }
+                tbody {
+                    @for (i, cells) in rows.into_iter().enumerate() {
+                        @let href = row_href.as_ref().and_then(|f| f(i));
+                        tr .(if href.is_some() { "data-table__row data-table__row--linked" } else { "data-table__row" }) {
+                            @for cell in cells { td { (cell) } }
+                            @if let Some(h) = href {
+                                td .data-table__row-href { a href=(h) aria-label="Open" { "›" } }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn empty_state(
+    icon: maud::Markup,
+    title: &str,
+    body: &str,
+    action: Option<maud::Markup>,
+) -> maud::Markup {
+    use maud::html;
+    html! {
+        div .empty {
+            div .empty__icon { (icon) }
+            h3 .empty__title { (title) }
+            p .empty__body { (body) }
+            @if let Some(a) = action { div .empty__action { (a) } }
+        }
+    }
+}
+
+pub fn pagination(
+    page: u32,
+    per_page: u32,
+    total: u32,
+    base_href: &str,
+) -> maud::Markup {
+    use maud::{html, PreEscaped};
+    let total_pages = if total == 0 { 1 } else { (total + per_page - 1) / per_page };
+    let prev_disabled = page <= 1;
+    let next_disabled = page >= total_pages;
+    let join = if base_href.contains('?') { '&' } else { '?' };
+    let prev_href = format!("{}{}page={}", base_href, join, page.saturating_sub(1).max(1));
+    let next_href = format!("{}{}page={}", base_href, join, (page + 1).min(total_pages));
+    html! {
+        nav .pagination aria-label="Pagination" {
+            span .pagination__count { (format!("{} total", total)) }
+            a .pagination__prev .(if prev_disabled { "is-disabled" } else { "" })
+                href=(PreEscaped(&prev_href)) aria-disabled=(prev_disabled.to_string()) { "‹ Prev" }
+            span .pagination__page { (format!("{} / {}", page, total_pages)) }
+            a .pagination__next .(if next_disabled { "is-disabled" } else { "" })
+                href=(PreEscaped(&next_href)) aria-disabled=(next_disabled.to_string()) { "Next ›" }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Card, Badge, Avatar (Phase 1)
 // ---------------------------------------------------------------------------
 
@@ -711,5 +808,62 @@ mod tests {
         // Different seed → different style.
         let c = avatar("bob@example.com", CtrlSize::Md).into_string();
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn data_table_empty_renders_empty_slot() {
+        let cols = [TableCol { label: "Name", width: None }];
+        let empty = empty_state(maud::html! { "📭" }, "No users", "Invite someone to get started.", None);
+        let s = data_table::<fn(usize) -> Option<String>>(
+            &cols, Vec::new(), None, empty,
+        ).into_string();
+        assert!(s.contains("data-table__empty"));
+        assert!(s.contains("No users"));
+        assert!(!s.contains("<tbody>"));
+    }
+
+    #[test]
+    fn data_table_with_rows_renders_thead_and_tbody() {
+        let cols = [
+            TableCol { label: "Name", width: Some("200px") },
+            TableCol { label: "Role", width: None },
+        ];
+        let rows = vec![
+            vec![maud::html! { "alice" }, maud::html! { "admin" }],
+            vec![maud::html! { "bob" }, maud::html! { "user" }],
+        ];
+        let s = data_table::<fn(usize) -> Option<String>>(
+            &cols, rows, None,
+            empty_state(maud::html!{}, "", "", None),
+        ).into_string();
+        assert!(s.contains("<thead>"));
+        assert!(s.contains("<tbody>"));
+        assert!(s.contains("alice"));
+        assert!(s.contains(r#"style="width:200px""#));
+    }
+
+    #[test]
+    fn data_table_row_href_renders_link_cell() {
+        let cols = [TableCol { label: "Name", width: None }];
+        let rows = vec![vec![maud::html! { "alice" }]];
+        let s = data_table(&cols, rows, Some(|i: usize| Some(format!("/users/{i}"))),
+            empty_state(maud::html!{}, "", "", None)).into_string();
+        assert!(s.contains(r#"href="/users/0""#));
+        assert!(s.contains("data-table__row--linked"));
+    }
+
+    #[test]
+    fn pagination_clamps_prev_at_page_1() {
+        let s = pagination(1, 25, 100, "/users").into_string();
+        assert!(s.contains(r#"aria-disabled="true""#)); // prev disabled at page 1
+        assert!(s.contains("100 total"));
+        assert!(s.contains("1 / 4"));
+    }
+
+    #[test]
+    fn pagination_appends_query_correctly() {
+        let s = pagination(2, 10, 30, "/users?role=admin").into_string();
+        assert!(s.contains("/users?role=admin&page=1"));
+        assert!(s.contains("/users?role=admin&page=3"));
     }
 }

@@ -507,6 +507,28 @@
 .gap-4 { gap: 1rem; }
 .hidden { display: none; }
 
+/* ===== Data table ===== */
+.data-table { overflow-x: auto; border: 1px solid var(--border-light); border-radius: var(--radius-md); background: var(--surface-1); }
+.data-table table { width: 100%; border-collapse: collapse; }
+.data-table thead th { position: sticky; top: 0; background: var(--surface-3); text-align: left; padding: 0.55rem 0.75rem; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); font-weight: 500; }
+.data-table tbody td { padding: 0.55rem 0.75rem; font-size: var(--text-sm); border-bottom: 1px dashed var(--border-light); color: var(--text-primary); }
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table__row--linked:hover { background: var(--bg-hover); cursor: pointer; }
+.data-table__row-href { width: 1.5rem; text-align: right; color: var(--text-muted); }
+.data-table__empty { padding: var(--spacing-xl); }
+
+/* ===== Empty state ===== */
+.empty { text-align: center; padding: var(--spacing-xl) var(--spacing-md); color: var(--text-secondary); }
+.empty__icon { font-size: 2.4rem; color: var(--text-muted); margin-bottom: var(--spacing-md); }
+.empty__title { font-size: var(--text-lg); font-weight: 500; color: var(--text-primary); margin: 0 0 0.4rem; }
+.empty__body { font-size: var(--text-base); margin: 0 0 var(--spacing-md); }
+
+/* ===== Pagination ===== */
+.pagination { display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-md) 0; font-size: var(--text-sm); color: var(--text-secondary); }
+.pagination__count { margin-right: auto; }
+.pagination__prev, .pagination__next { color: var(--primary-color); text-decoration: none; }
+.pagination__prev.is-disabled, .pagination__next.is-disabled { color: var(--text-muted); pointer-events: none; }
+
 /* ===== Canonical buttons (Phase 1) ===== */
 .btn {
 	display: inline-flex; align-items: center; justify-content: center;
