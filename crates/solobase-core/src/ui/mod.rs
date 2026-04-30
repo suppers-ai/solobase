@@ -93,6 +93,8 @@ pub struct NavItem {
     pub icon: &'static str,
 }
 
+pub use sidebar::NavGroup;
+
 /// Check if the current request is an htmx partial request.
 pub fn is_htmx(msg: &wafer_run::types::Message) -> bool {
     !msg.get_meta("http.header.hx-request").is_empty()

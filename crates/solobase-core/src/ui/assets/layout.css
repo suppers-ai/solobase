@@ -533,3 +533,27 @@
 .status-page__title { font-size: var(--text-xl); font-weight: 500; margin: 0; }
 .status-page__body { font-size: var(--text-base); color: var(--text-secondary); margin: 0; }
 .status-page .btn { margin-top: var(--spacing-md); text-decoration: none; }
+
+/* ===== Sidebar groups (Phase 1) ===== */
+.sidebar__groups { display: flex; flex-direction: column; gap: var(--spacing-md); flex: 1; overflow-y: auto; }
+.sidebar__group { display: flex; flex-direction: column; gap: 2px; }
+.sidebar__group-label {
+	font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em;
+	color: var(--text-muted); padding: var(--spacing-sm) var(--spacing-sm) 0.25rem;
+}
+.sidebar__nav { list-style: none; padding: 0; margin: 0; }
+.sidebar__nav-item {
+	display: flex; align-items: center; gap: var(--spacing-sm);
+	padding: 0.4rem var(--spacing-sm); border-radius: var(--radius-md);
+	color: var(--text-secondary); text-decoration: none; font-size: var(--text-sm);
+}
+.sidebar__nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sidebar__nav-item.is-active { background: #fff1e6; color: var(--primary-color); font-weight: 500; }
+.sidebar__nav-icon { display: inline-flex; width: 16px; height: 16px; }
+.sidebar__user {
+	display: flex; align-items: center; gap: var(--spacing-sm);
+	padding: var(--spacing-sm); border-top: 1px solid var(--border-light);
+	font-size: var(--text-sm);
+}
+.sidebar__user-email { color: var(--text-primary); }
+.sidebar__user-role { color: var(--text-muted); font-size: var(--text-xs); }
