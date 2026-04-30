@@ -551,6 +551,80 @@ pub fn select_input<'a>(
     field_wrap(&p, inner)
 }
 
+// ---------------------------------------------------------------------------
+// Card, Badge, Avatar (Phase 1)
+// ---------------------------------------------------------------------------
+
+/// Card — wrapped panel with optional title and action slot.
+pub fn card(title: Option<&str>, body: maud::Markup, actions: Option<maud::Markup>) -> maud::Markup {
+    use maud::html;
+    html! {
+        section .card {
+            @if title.is_some() || actions.is_some() {
+                header .card__head {
+                    @if let Some(t) = title { h3 .card__title { (t) } }
+                    @if let Some(a) = actions { div .card__actions { (a) } }
+                }
+            }
+            div .card__body { (body) }
+        }
+    }
+}
+
+/// Badge — small status pill.
+#[derive(Debug, Clone, Copy)]
+pub enum BadgeVariant {
+    Neutral,
+    Admin,
+    User,
+    Success,
+    Warning,
+    Danger,
+}
+
+impl BadgeVariant {
+    fn class(self) -> &'static str {
+        match self {
+            BadgeVariant::Neutral => "badge badge--neutral",
+            BadgeVariant::Admin => "badge badge--admin",
+            BadgeVariant::User => "badge badge--user",
+            BadgeVariant::Success => "badge badge--success",
+            BadgeVariant::Warning => "badge badge--warning",
+            BadgeVariant::Danger => "badge badge--danger",
+        }
+    }
+}
+
+pub fn badge(variant: BadgeVariant, label: &str) -> maud::Markup {
+    use maud::html;
+    html! { span class=(variant.class()) { (label) } }
+}
+
+/// Avatar — gradient circle keyed off email hash. Deterministic.
+pub fn avatar(seed: &str, size: CtrlSize) -> maud::Markup {
+    use maud::{html, PreEscaped};
+    // FNV-1a 32-bit — small, deterministic, no deps.
+    let mut h: u32 = 0x811c_9dc5;
+    for b in seed.as_bytes() {
+        h ^= *b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    let hue = (h % 360) as i32;
+    let hue2 = (hue + 35) % 360;
+    let initial = seed.chars().next().unwrap_or('?').to_ascii_uppercase();
+    let size_class = match size {
+        CtrlSize::Sm => "avatar--sm",
+        CtrlSize::Md => "avatar--md",
+        CtrlSize::Lg => "avatar--lg",
+    };
+    let style = format!(
+        "background: linear-gradient(135deg, hsl({hue} 80% 70%), hsl({hue2} 75% 55%));"
+    );
+    html! {
+        span class={ "avatar " (size_class) } style=(PreEscaped(style)) { (initial) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -604,5 +678,38 @@ mod tests {
         let s = textarea_input(p, "<script>x</script>", 4).into_string();
         assert!(s.contains("&lt;script&gt;"), "unescaped: {s}");
         assert!(!s.contains("<script>x</script>"));
+    }
+
+    #[test]
+    fn card_renders_title_and_body() {
+        let body = maud::html! { p { "hello" } };
+        let s = card(Some("Recent activity"), body, None).into_string();
+        assert!(s.contains("card__title"));
+        assert!(s.contains("Recent activity"));
+        assert!(s.contains("hello"));
+    }
+
+    #[test]
+    fn card_omits_head_when_no_title_no_actions() {
+        let body = maud::html! { p { "x" } };
+        let s = card(None, body, None).into_string();
+        assert!(!s.contains("card__head"));
+    }
+
+    #[test]
+    fn badge_admin_has_class_and_label() {
+        let s = badge(BadgeVariant::Admin, "Admin").into_string();
+        assert!(s.contains("badge--admin"));
+        assert!(s.contains(">Admin</span>"));
+    }
+
+    #[test]
+    fn avatar_is_deterministic_per_seed() {
+        let a = avatar("alice@example.com", CtrlSize::Md).into_string();
+        let b = avatar("alice@example.com", CtrlSize::Md).into_string();
+        assert_eq!(a, b);
+        // Different seed → different style.
+        let c = avatar("bob@example.com", CtrlSize::Md).into_string();
+        assert_ne!(a, c);
     }
 }
