@@ -163,6 +163,42 @@ pub fn form_page(
     }
 }
 
+pub struct StatTile<'a> {
+    pub label: &'a str,
+    pub value: &'a str, // pre-formatted (caller decides rounding/units)
+    pub trend: Option<&'a str>, // e.g. "+12% 7d"
+}
+
+pub fn dashboard_page(
+    header: PageHeader<'_>,
+    stats: Vec<StatTile<'_>>,
+    primary_card: Markup,
+    secondary_card: Markup,
+    full_width_card: Option<Markup>,
+) -> Markup {
+    html! {
+        div .page .page--dashboard {
+            (render_header(&header))
+            @if !stats.is_empty() {
+                div .stats-grid {
+                    @for s in &stats {
+                        div .stat-tile {
+                            div .stat-tile__label { (s.label) }
+                            div .stat-tile__value { (s.value) }
+                            @if let Some(t) = s.trend { div .stat-tile__trend { (t) } }
+                        }
+                    }
+                }
+            }
+            div .dashboard-grid {
+                div .dashboard-grid__primary { (primary_card) }
+                div .dashboard-grid__secondary { (secondary_card) }
+            }
+            @if let Some(fw) = full_width_card { div .dashboard-wide { (fw) } }
+        }
+    }
+}
+
 // Suppress unused warning until later phases consume `components`.
 #[allow(dead_code)]
 fn _components_keep_alive(_: components::BtnVariant) {}
@@ -260,5 +296,24 @@ mod tests {
         assert!(!s.contains("form-grid--with-tabs"));
         assert!(s.contains("Account"));
         assert!(s.contains("Public info"));
+    }
+
+    #[test]
+    fn dashboard_renders_stats_and_cards() {
+        let header = PageHeader { title: "Dashboard", subtitle: None, primary_action: None };
+        let stats = vec![
+            StatTile { label: "Users", value: "142", trend: Some("+5 7d") },
+            StatTile { label: "Storage", value: "1.2 GB", trend: None },
+        ];
+        let primary = html! { section .card { "Quick actions" } };
+        let secondary = html! { section .card { "Recent activity" } };
+        let s = dashboard_page(header, stats, primary, secondary, None).into_string();
+        assert!(s.contains("stats-grid"));
+        assert!(s.contains(">Users<"));
+        assert!(s.contains("142"));
+        assert!(s.contains("+5 7d"));
+        assert!(s.contains("Quick actions"));
+        assert!(s.contains("Recent activity"));
+        assert!(!s.contains("dashboard-wide"));
     }
 }
