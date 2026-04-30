@@ -105,6 +105,64 @@ pub fn detail_page(
     }
 }
 
+/// One section of a form — a labeled group of fields.
+pub struct FormSection<'a> {
+    pub title: &'a str,
+    pub description: Option<&'a str>,
+    pub body: Markup,
+}
+
+/// `form_page` template.
+///
+/// `tabs` is an optional left-rail of section anchors (used by the admin
+/// Settings consolidation in Phase 3). Pass `None` for a single-column form.
+pub fn form_page(
+    header: PageHeader<'_>,
+    tabs: Option<Vec<(String, String, bool)>>, // (label, href, is_active)
+    sections: Vec<FormSection<'_>>,
+    submit_url: &str,
+    method: &str,
+    save_label: &str,
+) -> Markup {
+    let has_tabs = tabs.is_some();
+    html! {
+        div .page .page--form {
+            (render_header(&header))
+            form .form-page action=(submit_url) method=(method) {
+                div .(if has_tabs { "form-grid form-grid--with-tabs" } else { "form-grid" }) {
+                    @if let Some(t) = tabs {
+                        nav .form-tabs aria-label="Form sections" {
+                            ul {
+                                @for (label, href, active) in t {
+                                    li .(if active { "is-active" } else { "" }) {
+                                        a href=(href) aria-current=[active.then_some("page")] { (label) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    div .form-sections {
+                        @for sec in sections {
+                            section .form-section {
+                                header .form-section__head {
+                                    h2 .form-section__title { (sec.title) }
+                                    @if let Some(d) = sec.description {
+                                        p .form-section__desc { (d) }
+                                    }
+                                }
+                                div .form-section__body { (sec.body) }
+                            }
+                        }
+                    }
+                }
+                footer .form-bar {
+                    button type="submit" .btn .btn--primary .btn--md { (save_label) }
+                }
+            }
+        }
+    }
+}
+
 // Suppress unused warning until later phases consume `components`.
 #[allow(dead_code)]
 fn _components_keep_alive(_: components::BtnVariant) {}
@@ -176,5 +234,31 @@ mod tests {
         let hero = DetailHero { icon: None, title: "X", subtitle: None, badges: vec![], action_menu: None };
         let s = detail_page(hero, vec![], vec![]).into_string();
         assert!(!s.contains("detail-meta"));
+    }
+
+    #[test]
+    fn form_page_with_tabs_marks_active() {
+        let header = PageHeader { title: "Settings", subtitle: None, primary_action: None };
+        let tabs = Some(vec![
+            ("Email".to_string(), "/b/admin/settings/email".to_string(), false),
+            ("Network".to_string(), "/b/admin/settings/network".to_string(), true),
+        ]);
+        let sections = vec![FormSection { title: "Network", description: None, body: html! { "..." } }];
+        let s = form_page(header, tabs, sections, "/b/admin/settings/network", "post", "Save").into_string();
+        assert!(s.contains("form-grid--with-tabs"));
+        assert!(s.contains(r#"aria-current="page""#));
+        assert!(s.contains("is-active"));
+        assert!(s.contains(r#"action="/b/admin/settings/network""#));
+        assert!(s.contains(">Save</button>"));
+    }
+
+    #[test]
+    fn form_page_without_tabs_uses_single_column() {
+        let header = PageHeader { title: "Profile", subtitle: None, primary_action: None };
+        let sections = vec![FormSection { title: "Account", description: Some("Public info"), body: html! { "..." } }];
+        let s = form_page(header, None, sections, "/me", "post", "Update").into_string();
+        assert!(!s.contains("form-grid--with-tabs"));
+        assert!(s.contains("Account"));
+        assert!(s.contains("Public info"));
     }
 }
