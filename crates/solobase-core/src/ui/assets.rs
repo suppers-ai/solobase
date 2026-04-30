@@ -5,9 +5,24 @@
 
 use std::sync::OnceLock;
 
+const TOKENS_CSS: &str = include_str!("assets/tokens.css");
+const BASE_CSS: &str = include_str!("assets/base.css");
+const COMPONENTS_CSS: &str = include_str!("assets/components.css");
+const LAYOUT_CSS: &str = include_str!("assets/layout.css");
+
+/// Embedded CSS bundle — concatenation of tokens / base / components / layout.
+/// Served as one file at the URL returned by `css_url()` so a single
+/// `<link rel="stylesheet">` covers everything.
+pub fn css_bundle() -> String {
+    format!(
+        "{}\n{}\n{}\n{}\n",
+        TOKENS_CSS, BASE_CSS, COMPONENTS_CSS, LAYOUT_CSS
+    )
+}
+
 /// The main CSS stylesheet (all design system styles combined).
-pub fn css() -> &'static str {
-    include_str!("assets/app.css")
+pub fn css() -> String {
+    css_bundle()
 }
 
 /// htmx 2.x minified JS.
@@ -91,4 +106,16 @@ document.body.addEventListener("closeModal", function(e) {
     if (d.id) closeModal(d.id);
 });
 "#
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn css_bundle_includes_all_layers() {
+        let s = super::css_bundle();
+        assert!(s.contains("--primary-color"), "tokens layer missing");
+        assert!(s.contains("box-sizing"), "base layer missing");
+        assert!(s.contains(".btn") || s.contains(".button"), "components layer missing");
+        assert!(s.contains(".app-layout"), "layout layer missing");
+    }
 }
