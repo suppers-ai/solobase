@@ -208,7 +208,12 @@ pub fn search_input_with_value(
 // ---------------------------------------------------------------------------
 
 /// Render pagination controls.
-pub fn pagination_v1(current_page: u32, total_pages: u32, base_url: &str, hx_target: &str) -> Markup {
+pub fn pagination_v1(
+    current_page: u32,
+    total_pages: u32,
+    base_url: &str,
+    hx_target: &str,
+) -> Markup {
     if total_pages <= 1 {
         return html! {};
     }
@@ -478,8 +483,12 @@ pub struct FieldProps<'a> {
 
 fn field_attrs(p: &FieldProps) -> String {
     let mut s = format!(r#"name="{}""#, html_escape(p.name));
-    if p.required { s.push_str(" required"); }
-    if p.disabled { s.push_str(" disabled"); }
+    if p.required {
+        s.push_str(" required");
+    }
+    if p.disabled {
+        s.push_str(" disabled");
+    }
     s
 }
 
@@ -623,18 +632,22 @@ pub fn empty_state(
     }
 }
 
-pub fn pagination(
-    page: u32,
-    per_page: u32,
-    total: u32,
-    base_href: &str,
-) -> maud::Markup {
+pub fn pagination(page: u32, per_page: u32, total: u32, base_href: &str) -> maud::Markup {
     use maud::{html, PreEscaped};
-    let total_pages = if total == 0 { 1 } else { (total + per_page - 1) / per_page };
+    let total_pages = if total == 0 {
+        1
+    } else {
+        (total + per_page - 1) / per_page
+    };
     let prev_disabled = page <= 1;
     let next_disabled = page >= total_pages;
     let join = if base_href.contains('?') { '&' } else { '?' };
-    let prev_href = format!("{}{}page={}", base_href, join, page.saturating_sub(1).max(1));
+    let prev_href = format!(
+        "{}{}page={}",
+        base_href,
+        join,
+        page.saturating_sub(1).max(1)
+    );
     let next_href = format!("{}{}page={}", base_href, join, (page + 1).min(total_pages));
     html! {
         nav .pagination aria-label="Pagination" {
@@ -653,7 +666,11 @@ pub fn pagination(
 // ---------------------------------------------------------------------------
 
 /// Card — wrapped panel with optional title and action slot.
-pub fn card(title: Option<&str>, body: maud::Markup, actions: Option<maud::Markup>) -> maud::Markup {
+pub fn card(
+    title: Option<&str>,
+    body: maud::Markup,
+    actions: Option<maud::Markup>,
+) -> maud::Markup {
     use maud::html;
     html! {
         section .card {
@@ -714,9 +731,8 @@ pub fn avatar(seed: &str, size: CtrlSize) -> maud::Markup {
         CtrlSize::Md => "avatar--md",
         CtrlSize::Lg => "avatar--lg",
     };
-    let style = format!(
-        "background: linear-gradient(135deg, hsl({hue} 80% 70%), hsl({hue2} 75% 55%));"
-    );
+    let style =
+        format!("background: linear-gradient(135deg, hsl({hue} 80% 70%), hsl({hue2} 75% 55%));");
     html! {
         span class={ "avatar " (size_class) } style=(PreEscaped(style)) { (initial) }
     }
@@ -724,12 +740,18 @@ pub fn avatar(seed: &str, size: CtrlSize) -> maud::Markup {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use maud::PreEscaped;
+
+    use super::*;
 
     #[test]
     fn button_primary_md() {
-        let m = button(BtnVariant::Primary, CtrlSize::Md, "Save", PreEscaped(String::new()));
+        let m = button(
+            BtnVariant::Primary,
+            CtrlSize::Md,
+            "Save",
+            PreEscaped(String::new()),
+        );
         let s = m.into_string();
         assert!(s.contains("btn--primary"), "missing variant class: {s}");
         assert!(s.contains("btn--md"), "missing size class: {s}");
@@ -745,13 +767,21 @@ mod tests {
             PreEscaped(r#"hx-delete="/users/1" type="button""#.to_string()),
         );
         let s = m.into_string();
-        assert!(s.contains(r#"hx-delete="/users/1""#), "extra attrs missing: {s}");
+        assert!(
+            s.contains(r#"hx-delete="/users/1""#),
+            "extra attrs missing: {s}"
+        );
         assert!(s.contains("btn--danger"), "variant missing: {s}");
     }
 
     #[test]
     fn text_input_renders_label_and_value() {
-        let p = FieldProps { label: "Email", name: "email", required: true, ..Default::default() };
+        let p = FieldProps {
+            label: "Email",
+            name: "email",
+            required: true,
+            ..Default::default()
+        };
         let s = text_input(p, "email", "alice@example.com").into_string();
         assert!(s.contains(r#"for="field-email""#));
         assert!(s.contains("Email"));
@@ -762,7 +792,11 @@ mod tests {
 
     #[test]
     fn select_marks_selected_option() {
-        let p = FieldProps { label: "Role", name: "role", ..Default::default() };
+        let p = FieldProps {
+            label: "Role",
+            name: "role",
+            ..Default::default()
+        };
         let opts = [("user", "User"), ("admin", "Admin")];
         let s = select_input(p, &opts, "admin").into_string();
         assert!(s.contains(r#"value="admin" selected"#));
@@ -771,7 +805,11 @@ mod tests {
 
     #[test]
     fn textarea_escapes_content() {
-        let p = FieldProps { label: "Bio", name: "bio", ..Default::default() };
+        let p = FieldProps {
+            label: "Bio",
+            name: "bio",
+            ..Default::default()
+        };
         let s = textarea_input(p, "<script>x</script>", 4).into_string();
         assert!(s.contains("&lt;script&gt;"), "unescaped: {s}");
         assert!(!s.contains("<script>x</script>"));
@@ -812,11 +850,18 @@ mod tests {
 
     #[test]
     fn data_table_empty_renders_empty_slot() {
-        let cols = [TableCol { label: "Name", width: None }];
-        let empty = empty_state(maud::html! { "📭" }, "No users", "Invite someone to get started.", None);
-        let s = data_table::<fn(usize) -> Option<String>>(
-            &cols, Vec::new(), None, empty,
-        ).into_string();
+        let cols = [TableCol {
+            label: "Name",
+            width: None,
+        }];
+        let empty = empty_state(
+            maud::html! { "📭" },
+            "No users",
+            "Invite someone to get started.",
+            None,
+        );
+        let s =
+            data_table::<fn(usize) -> Option<String>>(&cols, Vec::new(), None, empty).into_string();
         assert!(s.contains("data-table__empty"));
         assert!(s.contains("No users"));
         assert!(!s.contains("<tbody>"));
@@ -825,17 +870,26 @@ mod tests {
     #[test]
     fn data_table_with_rows_renders_thead_and_tbody() {
         let cols = [
-            TableCol { label: "Name", width: Some("200px") },
-            TableCol { label: "Role", width: None },
+            TableCol {
+                label: "Name",
+                width: Some("200px"),
+            },
+            TableCol {
+                label: "Role",
+                width: None,
+            },
         ];
         let rows = vec![
             vec![maud::html! { "alice" }, maud::html! { "admin" }],
             vec![maud::html! { "bob" }, maud::html! { "user" }],
         ];
         let s = data_table::<fn(usize) -> Option<String>>(
-            &cols, rows, None,
-            empty_state(maud::html!{}, "", "", None),
-        ).into_string();
+            &cols,
+            rows,
+            None,
+            empty_state(maud::html! {}, "", "", None),
+        )
+        .into_string();
         assert!(s.contains("<thead>"));
         assert!(s.contains("<tbody>"));
         assert!(s.contains("alice"));
@@ -844,10 +898,18 @@ mod tests {
 
     #[test]
     fn data_table_row_href_renders_link_cell() {
-        let cols = [TableCol { label: "Name", width: None }];
+        let cols = [TableCol {
+            label: "Name",
+            width: None,
+        }];
         let rows = vec![vec![maud::html! { "alice" }]];
-        let s = data_table(&cols, rows, Some(|i: usize| Some(format!("/users/{i}"))),
-            empty_state(maud::html!{}, "", "", None)).into_string();
+        let s = data_table(
+            &cols,
+            rows,
+            Some(|i: usize| Some(format!("/users/{i}"))),
+            empty_state(maud::html! {}, "", "", None),
+        )
+        .into_string();
         assert!(s.contains(r#"href="/users/0""#));
         assert!(s.contains("data-table__row--linked"));
     }

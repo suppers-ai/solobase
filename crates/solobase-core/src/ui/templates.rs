@@ -54,10 +54,10 @@ pub fn list_page(
 
 /// Detail page hero — for a single resource.
 pub struct DetailHero<'a> {
-    pub icon: Option<Markup>,        // typically `components::avatar(...)` or an icon
+    pub icon: Option<Markup>, // typically `components::avatar(...)` or an icon
     pub title: &'a str,
     pub subtitle: Option<&'a str>,
-    pub badges: Vec<Markup>,         // typically `components::badge(...)` calls
+    pub badges: Vec<Markup>, // typically `components::badge(...)` calls
     pub action_menu: Option<Markup>, // dropdown / button group
 }
 
@@ -70,7 +70,7 @@ pub struct DetailMeta<'a> {
 /// `detail_page` template.
 pub fn detail_page(
     hero: DetailHero<'_>,
-    sections: Vec<Markup>,         // typically `components::card(...)` invocations
+    sections: Vec<Markup>, // typically `components::card(...)` invocations
     meta: Vec<DetailMeta<'_>>,
 ) -> Markup {
     html! {
@@ -165,7 +165,7 @@ pub fn form_page(
 
 pub struct StatTile<'a> {
     pub label: &'a str,
-    pub value: &'a str, // pre-formatted (caller decides rounding/units)
+    pub value: &'a str,         // pre-formatted (caller decides rounding/units)
     pub trend: Option<&'a str>, // e.g. "+12% 7d"
 }
 
@@ -242,7 +242,7 @@ pub fn auth_split(brand: BrandPanel<'_>, form_card: Markup) -> Markup {
 /// illustrated message + primary action. Replaces the inline 404/403
 /// markup currently in `ui/mod.rs`.
 pub fn status_page(
-    code: &str,         // "404", "403", "500", or "" for "/"
+    code: &str, // "404", "403", "500", or "" for "/"
     title: &str,
     body: &str,
     primary_action: Option<(String, String)>, // (label, href)
@@ -267,16 +267,22 @@ fn _components_keep_alive(_: components::BtnVariant) {}
 
 #[cfg(test)]
 mod tests {
+    use maud::PreEscaped;
+
     use super::*;
     use crate::ui::components::{button, BtnVariant, CtrlSize};
-    use maud::PreEscaped;
 
     #[test]
     fn list_page_renders_header_table_pagination() {
         let header = PageHeader {
             title: "Users",
             subtitle: Some("142 total"),
-            primary_action: Some(button(BtnVariant::Primary, CtrlSize::Md, "+ Invite", PreEscaped(String::new()))),
+            primary_action: Some(button(
+                BtnVariant::Primary,
+                CtrlSize::Md,
+                "+ Invite",
+                PreEscaped(String::new()),
+            )),
         };
         let table = html! { div .data-table { table {} } };
         let pagination = Some(html! { nav .pagination { "1/4" } });
@@ -291,7 +297,11 @@ mod tests {
 
     #[test]
     fn list_page_omits_optional_sections_when_absent() {
-        let header = PageHeader { title: "Empty", subtitle: None, primary_action: None };
+        let header = PageHeader {
+            title: "Empty",
+            subtitle: None,
+            primary_action: None,
+        };
         let table = html! { div .empty { "none" } };
         let s = list_page(header, None, table, None).into_string();
         assert!(!s.contains("page-filters"));
@@ -314,8 +324,14 @@ mod tests {
             html! { section .card { "Sessions" } },
         ];
         let meta = vec![
-            DetailMeta { key: "ID", value: html! { code { "u_42" } } },
-            DetailMeta { key: "Created", value: html! { "2026-01-12" } },
+            DetailMeta {
+                key: "ID",
+                value: html! { code { "u_42" } },
+            },
+            DetailMeta {
+                key: "Created",
+                value: html! { "2026-01-12" },
+            },
         ];
         let s = detail_page(hero, sections, meta).into_string();
         assert!(s.contains("detail-hero"));
@@ -329,20 +345,50 @@ mod tests {
 
     #[test]
     fn detail_page_omits_meta_aside_when_empty() {
-        let hero = DetailHero { icon: None, title: "X", subtitle: None, badges: vec![], action_menu: None };
+        let hero = DetailHero {
+            icon: None,
+            title: "X",
+            subtitle: None,
+            badges: vec![],
+            action_menu: None,
+        };
         let s = detail_page(hero, vec![], vec![]).into_string();
         assert!(!s.contains("detail-meta"));
     }
 
     #[test]
     fn form_page_with_tabs_marks_active() {
-        let header = PageHeader { title: "Settings", subtitle: None, primary_action: None };
+        let header = PageHeader {
+            title: "Settings",
+            subtitle: None,
+            primary_action: None,
+        };
         let tabs = Some(vec![
-            ("Email".to_string(), "/b/admin/settings/email".to_string(), false),
-            ("Network".to_string(), "/b/admin/settings/network".to_string(), true),
+            (
+                "Email".to_string(),
+                "/b/admin/settings/email".to_string(),
+                false,
+            ),
+            (
+                "Network".to_string(),
+                "/b/admin/settings/network".to_string(),
+                true,
+            ),
         ]);
-        let sections = vec![FormSection { title: "Network", description: None, body: html! { "..." } }];
-        let s = form_page(header, tabs, sections, "/b/admin/settings/network", "post", "Save").into_string();
+        let sections = vec![FormSection {
+            title: "Network",
+            description: None,
+            body: html! { "..." },
+        }];
+        let s = form_page(
+            header,
+            tabs,
+            sections,
+            "/b/admin/settings/network",
+            "post",
+            "Save",
+        )
+        .into_string();
         assert!(s.contains("form-grid--with-tabs"));
         assert!(s.contains(r#"aria-current="page""#));
         assert!(s.contains("is-active"));
@@ -352,8 +398,16 @@ mod tests {
 
     #[test]
     fn form_page_without_tabs_uses_single_column() {
-        let header = PageHeader { title: "Profile", subtitle: None, primary_action: None };
-        let sections = vec![FormSection { title: "Account", description: Some("Public info"), body: html! { "..." } }];
+        let header = PageHeader {
+            title: "Profile",
+            subtitle: None,
+            primary_action: None,
+        };
+        let sections = vec![FormSection {
+            title: "Account",
+            description: Some("Public info"),
+            body: html! { "..." },
+        }];
         let s = form_page(header, None, sections, "/me", "post", "Update").into_string();
         assert!(!s.contains("form-grid--with-tabs"));
         assert!(s.contains("Account"));
@@ -362,10 +416,22 @@ mod tests {
 
     #[test]
     fn dashboard_renders_stats_and_cards() {
-        let header = PageHeader { title: "Dashboard", subtitle: None, primary_action: None };
+        let header = PageHeader {
+            title: "Dashboard",
+            subtitle: None,
+            primary_action: None,
+        };
         let stats = vec![
-            StatTile { label: "Users", value: "142", trend: Some("+5 7d") },
-            StatTile { label: "Storage", value: "1.2 GB", trend: None },
+            StatTile {
+                label: "Users",
+                value: "142",
+                trend: Some("+5 7d"),
+            },
+            StatTile {
+                label: "Storage",
+                value: "1.2 GB",
+                trend: None,
+            },
         ];
         let primary = html! { section .card { "Quick actions" } };
         let secondary = html! { section .card { "Recent activity" } };
@@ -386,7 +452,8 @@ mod tests {
             html! { div { "messages" } },
             html! { textarea {} },
             Some(html! { div { "rail" } }),
-        ).into_string();
+        )
+        .into_string();
         assert!(s.contains("chat-threads"));
         assert!(s.contains("chat-main"));
         assert!(s.contains("chat-messages"));
@@ -402,7 +469,8 @@ mod tests {
             html! { div {} },
             html! { textarea {} },
             None,
-        ).into_string();
+        )
+        .into_string();
         assert!(!s.contains("chat-rail"));
     }
 
@@ -428,7 +496,8 @@ mod tests {
             "Page not found",
             "We couldn't find that page.",
             Some(("Go home".to_string(), "/".to_string())),
-        ).into_string();
+        )
+        .into_string();
         assert!(s.contains(">404<"));
         assert!(s.contains("Page not found"));
         assert!(s.contains("Go home"));

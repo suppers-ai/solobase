@@ -57,7 +57,10 @@ mod tests {
 
     #[test]
     fn palette_renders_entries_with_keywords() {
-        let entries = vec![entry("Users", "/b/admin/users"), entry("Logs", "/b/admin/logs")];
+        let entries = vec![
+            entry("Users", "/b/admin/users"),
+            entry("Logs", "/b/admin/logs"),
+        ];
         let s = palette(entries).into_string();
         assert!(s.contains(r#"id="cmdk""#));
         assert!(s.contains(r#"data-href="/b/admin/users""#));

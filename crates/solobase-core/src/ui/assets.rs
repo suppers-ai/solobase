@@ -200,7 +200,10 @@ mod tests {
         let s = super::css_bundle();
         assert!(s.contains("--primary-color"), "tokens layer missing");
         assert!(s.contains("box-sizing"), "base layer missing");
-        assert!(s.contains(".btn") || s.contains(".button"), "components layer missing");
+        assert!(
+            s.contains(".btn") || s.contains(".button"),
+            "components layer missing"
+        );
         assert!(s.contains(".app-layout"), "layout layer missing");
     }
 

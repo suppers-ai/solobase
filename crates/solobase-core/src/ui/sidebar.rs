@@ -208,7 +208,11 @@ mod tests {
     use crate::ui::NavItem;
 
     fn item(label: &str, href: &str) -> NavItem {
-        NavItem { label: label.to_string(), href: href.to_string(), icon: "circle" }
+        NavItem {
+            label: label.to_string(),
+            href: href.to_string(),
+            icon: "circle",
+        }
     }
 
     #[test]

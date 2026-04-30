@@ -4,8 +4,10 @@
 
 use maud::{html, Markup};
 
-use super::sidebar::{sidebar_grouped, NavGroup};
-use super::{NavItem, UserInfo};
+use super::{
+    sidebar::{sidebar_grouped, NavGroup},
+    NavItem, UserInfo,
+};
 
 /// One breadcrumb segment.
 pub struct Crumb<'a> {
@@ -23,7 +25,11 @@ pub struct Topbar<'a> {
 
 impl<'a> Default for Topbar<'a> {
     fn default() -> Self {
-        Self { crumbs: Vec::new(), primary_action: None, show_palette: true }
+        Self {
+            crumbs: Vec::new(),
+            primary_action: None,
+            show_palette: true,
+        }
     }
 }
 
@@ -98,12 +104,17 @@ pub fn one_group(items: Vec<NavItem>) -> Vec<NavGroup> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::ui::NavItem;
     use maud::html;
 
+    use super::*;
+    use crate::ui::NavItem;
+
     fn item(label: &str, href: &str) -> NavItem {
-        NavItem { label: label.to_string(), href: href.to_string(), icon: "circle" }
+        NavItem {
+            label: label.to_string(),
+            href: href.to_string(),
+            icon: "circle",
+        }
     }
 
     #[test]
@@ -111,8 +122,14 @@ mod tests {
         let groups = one_group(vec![item("Users", "/b/admin/users")]);
         let topbar = Topbar {
             crumbs: vec![
-                Crumb { label: "Workspace", href: Some("/b/admin") },
-                Crumb { label: "Users", href: None },
+                Crumb {
+                    label: "Workspace",
+                    href: Some("/b/admin"),
+                },
+                Crumb {
+                    label: "Users",
+                    href: None,
+                },
             ],
             primary_action: None,
             show_palette: true,
@@ -132,7 +149,10 @@ mod tests {
         let mut tb = Topbar::default();
         tb.show_palette = false;
         // Need at least one declared input to render the topbar at all.
-        tb.crumbs = vec![Crumb { label: "X", href: None }];
+        tb.crumbs = vec![Crumb {
+            label: "X",
+            href: None,
+        }];
         let s = shell(&groups, None, "/x", "", "", tb, html! {}).into_string();
         assert!(!s.contains("topbar__palette"));
         assert!(s.contains("topbar__crumbs"));
