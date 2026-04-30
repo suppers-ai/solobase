@@ -52,6 +52,59 @@ pub fn list_page(
     }
 }
 
+/// Detail page hero — for a single resource.
+pub struct DetailHero<'a> {
+    pub icon: Option<Markup>,        // typically `components::avatar(...)` or an icon
+    pub title: &'a str,
+    pub subtitle: Option<&'a str>,
+    pub badges: Vec<Markup>,         // typically `components::badge(...)` calls
+    pub action_menu: Option<Markup>, // dropdown / button group
+}
+
+/// One key/value row in the right-rail metadata panel.
+pub struct DetailMeta<'a> {
+    pub key: &'a str,
+    pub value: Markup,
+}
+
+/// `detail_page` template.
+pub fn detail_page(
+    hero: DetailHero<'_>,
+    sections: Vec<Markup>,         // typically `components::card(...)` invocations
+    meta: Vec<DetailMeta<'_>>,
+) -> Markup {
+    html! {
+        div .page .page--detail {
+            header .detail-hero {
+                @if let Some(icon) = hero.icon { div .detail-hero__icon { (icon) } }
+                div .detail-hero__text {
+                    h1 .detail-hero__title { (hero.title) }
+                    @if let Some(s) = hero.subtitle { p .detail-hero__subtitle { (s) } }
+                    @if !hero.badges.is_empty() {
+                        div .detail-hero__badges { @for b in &hero.badges { (b.clone()) } }
+                    }
+                }
+                @if let Some(a) = hero.action_menu { div .detail-hero__action { (a) } }
+            }
+            div .detail-body {
+                div .detail-body__main {
+                    @for s in sections { (s) }
+                }
+                @if !meta.is_empty() {
+                    aside .detail-meta {
+                        dl {
+                            @for row in &meta {
+                                dt { (row.key) }
+                                dd { (row.value.clone()) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Suppress unused warning until later phases consume `components`.
 #[allow(dead_code)]
 fn _components_keep_alive(_: components::BtnVariant) {}
@@ -89,5 +142,39 @@ mod tests {
         assert!(!s.contains("page-pagination"));
         assert!(!s.contains("page-header__action"));
         assert!(!s.contains("page-header__subtitle"));
+    }
+
+    #[test]
+    fn detail_page_renders_hero_sections_and_meta() {
+        let hero = DetailHero {
+            icon: Some(html! { span .av {} }),
+            title: "alice@example.com",
+            subtitle: Some("Member since Jan 2026"),
+            badges: vec![html! { span .badge { "Admin" } }],
+            action_menu: None,
+        };
+        let sections = vec![
+            html! { section .card { "Activity" } },
+            html! { section .card { "Sessions" } },
+        ];
+        let meta = vec![
+            DetailMeta { key: "ID", value: html! { code { "u_42" } } },
+            DetailMeta { key: "Created", value: html! { "2026-01-12" } },
+        ];
+        let s = detail_page(hero, sections, meta).into_string();
+        assert!(s.contains("detail-hero"));
+        assert!(s.contains("alice@example.com"));
+        assert!(s.contains("Admin"));
+        assert!(s.contains("Activity"));
+        assert!(s.contains("Sessions"));
+        assert!(s.contains("u_42"));
+        assert!(s.contains("Created"));
+    }
+
+    #[test]
+    fn detail_page_omits_meta_aside_when_empty() {
+        let hero = DetailHero { icon: None, title: "X", subtitle: None, badges: vec![], action_menu: None };
+        let s = detail_page(hero, vec![], vec![]).into_string();
+        assert!(!s.contains("detail-meta"));
     }
 }
