@@ -446,3 +446,14 @@
 	.login-container { padding: 2rem; }
 	.logo-image { height: 50px; }
 }
+
+/* ===== Page templates — Phase 1 ===== */
+.page { display: flex; flex-direction: column; gap: var(--spacing-lg); padding: var(--spacing-lg) var(--space-2xl); }
+.page-header { display: flex; align-items: flex-start; gap: var(--spacing-md); }
+.page-header__text { flex: 1; }
+.page-header__title { font-size: var(--text-xl); font-weight: 500; margin: 0; color: var(--text-primary); }
+.page-header__subtitle { font-size: var(--text-sm); color: var(--text-secondary); margin: 0.25rem 0 0; }
+.page-header__action { margin-left: auto; }
+.page-filters { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
+.page-body { min-height: 100px; }
+.page-pagination { padding-top: var(--spacing-sm); }

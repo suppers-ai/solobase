@@ -9,6 +9,7 @@ pub mod components;
 pub mod icons;
 pub mod layout;
 pub mod sidebar;
+pub mod templates;
 
 /// Branding/site config loaded from environment variables.
 /// Passed through to layout and sidebar so every page renders consistently.
