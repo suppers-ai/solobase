@@ -84,6 +84,91 @@ function toggleSidebar() {
 "#
 }
 
+/// Vanilla JS for the command palette — open/close, fuzzy filter,
+/// keyboard navigation. Embedded as a string the same way `toast_js()`
+/// and `modal_js()` are.
+pub fn palette_js() -> &'static str {
+    r#"
+(function () {
+  const el = document.getElementById('cmdk');
+  if (!el) return;
+  const input = document.getElementById('cmdk-input');
+  const list = document.getElementById('cmdk-list');
+
+  const items = () => Array.from(list.querySelectorAll('.palette__item'));
+  let selected = 0;
+
+  function open() {
+    el.dataset.open = 'true';
+    el.setAttribute('aria-hidden', 'false');
+    input.value = '';
+    apply('');
+    requestAnimationFrame(() => input.focus());
+  }
+  function close() {
+    el.dataset.open = 'false';
+    el.setAttribute('aria-hidden', 'true');
+  }
+  function visibleItems() { return items().filter(i => !i.classList.contains('is-hidden')); }
+
+  function apply(query) {
+    const q = query.trim().toLowerCase();
+    items().forEach(i => {
+      const k = (i.dataset.keywords || '').toLowerCase();
+      const match = !q || k.includes(q);
+      i.classList.toggle('is-hidden', !match);
+      i.setAttribute('aria-selected', 'false');
+    });
+    const vis = visibleItems();
+    selected = 0;
+    if (vis[0]) vis[0].setAttribute('aria-selected', 'true');
+  }
+
+  function move(delta) {
+    const vis = visibleItems();
+    if (!vis.length) return;
+    vis[selected]?.setAttribute('aria-selected', 'false');
+    selected = (selected + delta + vis.length) % vis.length;
+    vis[selected].setAttribute('aria-selected', 'true');
+    vis[selected].scrollIntoView({ block: 'nearest' });
+  }
+
+  function activate() {
+    const vis = visibleItems();
+    const sel = vis[selected];
+    if (sel?.dataset.href) { window.location.assign(sel.dataset.href); }
+  }
+
+  // Hotkeys
+  document.addEventListener('keydown', (e) => {
+    const isMod = e.metaKey || e.ctrlKey;
+    if (isMod && e.key.toLowerCase() === 'k') { e.preventDefault(); open(); return; }
+    if (el.dataset.open !== 'true') return;
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+    else if (e.key === 'Enter') { e.preventDefault(); activate(); }
+  });
+
+  // Click triggers
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-action]');
+    if (!t) return;
+    if (t.dataset.action === 'palette-open') { e.preventDefault(); open(); }
+    if (t.dataset.action === 'palette-close') { e.preventDefault(); close(); }
+  });
+
+  // Item click → navigate
+  list.addEventListener('click', (e) => {
+    const item = e.target.closest('.palette__item');
+    if (item?.dataset.href) { window.location.assign(item.dataset.href); }
+  });
+
+  input.addEventListener('input', (e) => apply(e.target.value));
+})();
+"#
+}
+
 /// Small inline JS for modal close (Escape key + overlay click).
 pub fn modal_js() -> &'static str {
     r#"
@@ -132,5 +217,13 @@ mod tests {
         ] {
             assert!(s.contains(tok), "missing token: {tok}");
         }
+    }
+
+    #[test]
+    fn palette_js_present_and_self_invoking() {
+        let js = super::palette_js();
+        assert!(js.contains("cmdk"));
+        assert!(js.contains("Meta+K") || js.contains("metaKey"));
+        assert!(js.starts_with("\n(function") || js.contains("(function "));
     }
 }
