@@ -398,3 +398,93 @@ pub fn toast_container() -> Markup {
         div #toast-container .toast-container {}
     }
 }
+
+// ---------------------------------------------------------------------------
+// Canonical button (Phase 1)
+// ---------------------------------------------------------------------------
+
+/// Visual variant for buttons.
+#[derive(Debug, Clone, Copy)]
+pub enum BtnVariant {
+    Primary,
+    Secondary,
+    Ghost,
+    Danger,
+}
+
+/// Size for buttons (and other form controls when adopted).
+#[derive(Debug, Clone, Copy)]
+pub enum CtrlSize {
+    Sm,
+    Md,
+    Lg,
+}
+
+impl BtnVariant {
+    fn class(self) -> &'static str {
+        match self {
+            BtnVariant::Primary => "btn btn--primary",
+            BtnVariant::Secondary => "btn btn--secondary",
+            BtnVariant::Ghost => "btn btn--ghost",
+            BtnVariant::Danger => "btn btn--danger",
+        }
+    }
+}
+
+impl CtrlSize {
+    fn class(self) -> &'static str {
+        match self {
+            CtrlSize::Sm => "btn--sm",
+            CtrlSize::Md => "btn--md",
+            CtrlSize::Lg => "btn--lg",
+        }
+    }
+}
+
+/// Canonical button. Use for every button on every new page.
+///
+/// `extra_attrs` is a maud `PreEscaped` block of additional attributes
+/// (e.g. `hx-post=...`, `type="submit"`, `disabled`). Pass
+/// `maud::PreEscaped(String::new())` if none.
+pub fn button(
+    variant: BtnVariant,
+    size: CtrlSize,
+    label: &str,
+    extra_attrs: maud::PreEscaped<String>,
+) -> maud::Markup {
+    use maud::PreEscaped;
+    let class = format!("{} {}", variant.class(), size.class());
+    let extra = extra_attrs.0;
+    let label_escaped = maud::html! { (label) }.into_string();
+    PreEscaped(format!(
+        r#"<button class="{class}" {extra}>{label_escaped}</button>"#,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maud::PreEscaped;
+
+    #[test]
+    fn button_primary_md() {
+        let m = button(BtnVariant::Primary, CtrlSize::Md, "Save", PreEscaped(String::new()));
+        let s = m.into_string();
+        assert!(s.contains("btn--primary"), "missing variant class: {s}");
+        assert!(s.contains("btn--md"), "missing size class: {s}");
+        assert!(s.contains(">Save</button>"), "missing label: {s}");
+    }
+
+    #[test]
+    fn button_extra_attrs_pass_through() {
+        let m = button(
+            BtnVariant::Danger,
+            CtrlSize::Sm,
+            "Delete",
+            PreEscaped(r#"hx-delete="/users/1" type="button""#.to_string()),
+        );
+        let s = m.into_string();
+        assert!(s.contains(r#"hx-delete="/users/1""#), "extra attrs missing: {s}");
+        assert!(s.contains("btn--danger"), "variant missing: {s}");
+    }
+}

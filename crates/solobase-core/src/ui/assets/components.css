@@ -506,3 +506,30 @@
 .gap-2 { gap: 0.5rem; }
 .gap-4 { gap: 1rem; }
 .hidden { display: none; }
+
+/* ===== Canonical buttons (Phase 1) ===== */
+.btn {
+	display: inline-flex; align-items: center; justify-content: center;
+	border: 1px solid transparent; border-radius: var(--radius-full);
+	font-family: inherit; font-weight: 400; line-height: 1;
+	cursor: pointer; transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+	text-decoration: none; white-space: nowrap;
+}
+.btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.btn--sm { padding: 0.25rem 0.7rem; font-size: var(--text-sm); }
+.btn--md { padding: 0.45rem 1rem; font-size: var(--text-base); }
+.btn--lg { padding: 0.6rem 1.4rem; font-size: var(--text-lg); }
+
+.btn--primary { background: var(--primary-button); color: #fff; }
+.btn--primary:hover:not(:disabled) { background: var(--primary-hover); }
+
+.btn--secondary { background: var(--surface-1); color: var(--text-primary); border-color: var(--border-color); }
+.btn--secondary:hover:not(:disabled) { background: var(--bg-hover); }
+
+.btn--ghost { background: transparent; color: var(--text-primary); }
+.btn--ghost:hover:not(:disabled) { background: var(--bg-hover); }
+
+.btn--danger { background: var(--danger-color); color: #fff; }
+.btn--danger:hover:not(:disabled) { filter: brightness(0.92); }
