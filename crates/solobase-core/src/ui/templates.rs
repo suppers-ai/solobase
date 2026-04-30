@@ -199,6 +199,26 @@ pub fn dashboard_page(
     }
 }
 
+pub fn chat_page(
+    thread_list: Markup,
+    messages: Markup,
+    composer: Markup,
+    right_rail: Option<Markup>,
+) -> Markup {
+    html! {
+        div .page--chat {
+            aside .chat-threads { (thread_list) }
+            section .chat-main {
+                div .chat-messages { (messages) }
+                div .chat-composer { (composer) }
+            }
+            @if let Some(r) = right_rail {
+                aside .chat-rail { (r) }
+            }
+        }
+    }
+}
+
 // Suppress unused warning until later phases consume `components`.
 #[allow(dead_code)]
 fn _components_keep_alive(_: components::BtnVariant) {}
@@ -315,5 +335,32 @@ mod tests {
         assert!(s.contains("Quick actions"));
         assert!(s.contains("Recent activity"));
         assert!(!s.contains("dashboard-wide"));
+    }
+
+    #[test]
+    fn chat_page_with_rail() {
+        let s = chat_page(
+            html! { div { "threads" } },
+            html! { div { "messages" } },
+            html! { textarea {} },
+            Some(html! { div { "rail" } }),
+        ).into_string();
+        assert!(s.contains("chat-threads"));
+        assert!(s.contains("chat-main"));
+        assert!(s.contains("chat-messages"));
+        assert!(s.contains("chat-composer"));
+        assert!(s.contains("chat-rail"));
+        assert!(s.contains(">rail<"));
+    }
+
+    #[test]
+    fn chat_page_no_rail_omits_aside() {
+        let s = chat_page(
+            html! { div { "threads" } },
+            html! { div {} },
+            html! { textarea {} },
+            None,
+        ).into_string();
+        assert!(!s.contains("chat-rail"));
     }
 }
