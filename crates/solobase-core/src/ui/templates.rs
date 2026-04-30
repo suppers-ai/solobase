@@ -219,6 +219,25 @@ pub fn chat_page(
     }
 }
 
+pub struct BrandPanel<'a> {
+    pub logo_html: Option<Markup>,
+    pub headline: &'a str,
+    pub tagline: Option<&'a str>,
+}
+
+pub fn auth_split(brand: BrandPanel<'_>, form_card: Markup) -> Markup {
+    html! {
+        div .auth-split {
+            aside .auth-split__brand {
+                @if let Some(l) = brand.logo_html { div .auth-split__logo { (l) } }
+                h1 .auth-split__headline { (brand.headline) }
+                @if let Some(t) = brand.tagline { p .auth-split__tagline { (t) } }
+            }
+            main .auth-split__form { (form_card) }
+        }
+    }
+}
+
 // Suppress unused warning until later phases consume `components`.
 #[allow(dead_code)]
 fn _components_keep_alive(_: components::BtnVariant) {}
@@ -362,5 +381,20 @@ mod tests {
             None,
         ).into_string();
         assert!(!s.contains("chat-rail"));
+    }
+
+    #[test]
+    fn auth_split_renders_brand_and_form() {
+        let brand = BrandPanel {
+            logo_html: Some(html! { div .logo {} }),
+            headline: "Welcome back",
+            tagline: Some("Sign in to continue."),
+        };
+        let form = html! { section .card { "form" } };
+        let s = auth_split(brand, form).into_string();
+        assert!(s.contains("auth-split__brand"));
+        assert!(s.contains("auth-split__form"));
+        assert!(s.contains("Welcome back"));
+        assert!(s.contains("Sign in to continue."));
     }
 }

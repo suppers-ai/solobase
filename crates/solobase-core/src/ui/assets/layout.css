@@ -515,3 +515,13 @@
 .chat-messages { flex: 1; overflow-y: auto; padding: var(--spacing-md) var(--spacing-lg); }
 .chat-composer { border-top: 1px solid var(--border-light); padding: var(--spacing-md); background: var(--surface-1); }
 .chat-rail { background: var(--surface-3); border-left: 1px solid var(--border-light); overflow-y: auto; padding: var(--spacing-md); }
+
+/* ===== Auth split ===== */
+.auth-split { display: grid; grid-template-columns: 1fr; min-height: 100vh; }
+@media (min-width: 768px) { .auth-split { grid-template-columns: minmax(280px, 480px) 1fr; } }
+.auth-split__brand { background: var(--primary-color); color: #fff; padding: var(--space-2xl) var(--spacing-xl); display: flex; flex-direction: column; justify-content: center; gap: var(--spacing-md); }
+.auth-split__logo { font-size: 2rem; }
+.auth-split__headline { font-size: var(--text-2xl); font-weight: 500; margin: 0; line-height: 1.2; }
+.auth-split__tagline { font-size: var(--text-base); margin: 0; opacity: 0.9; }
+.auth-split__form { display: flex; align-items: center; justify-content: center; padding: var(--space-2xl) var(--spacing-md); background: var(--surface-2); }
+.auth-split__form > * { width: 100%; max-width: 400px; }
