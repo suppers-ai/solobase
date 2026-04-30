@@ -51,4 +51,28 @@
 	--z-sidebar: 200;
 	--z-modal: 300;
 	--z-notification: 500;
+
+	/* New type scale — Phase 1, Solobase UI Cleanup */
+	--text-xs: 0.75rem;    /* 12px — labels */
+	--text-sm: 0.875rem;   /* 14px — table cells, secondary */
+	--text-base: 0.9375rem;/* 15px — body */
+	--text-lg: 1.125rem;   /* 18px — section headings */
+	--text-xl: 1.375rem;   /* 22px — page titles */
+	--text-2xl: 1.75rem;   /* 28px — dashboard hero numbers */
+
+	/* Page gutter, sits above existing --spacing-xl */
+	--space-2xl: 3rem;
+
+	/* Layered surfaces — same values the codebase already uses ad-hoc */
+	--surface-1: #ffffff;
+	--surface-2: #f0f0f0;
+	--surface-3: #fafafa;
+
+	/* Primary button color — bumped for WCAG AA at small sizes.
+	   Use this for button backgrounds; --primary-color stays for
+	   accent backgrounds, links, and large text. */
+	--primary-button: #e5571f;
+
+	/* Focus-visible ring */
+	--focus-ring: 0 0 0 2px var(--primary-color);
 }

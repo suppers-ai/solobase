@@ -118,4 +118,19 @@ mod tests {
         assert!(s.contains(".btn") || s.contains(".button"), "components layer missing");
         assert!(s.contains(".app-layout"), "layout layer missing");
     }
+
+    #[test]
+    fn tokens_include_new_scale() {
+        let s = super::css_bundle();
+        for tok in [
+            "--text-base",
+            "--text-2xl",
+            "--space-2xl",
+            "--surface-1",
+            "--primary-button",
+            "--focus-ring",
+        ] {
+            assert!(s.contains(tok), "missing token: {tok}");
+        }
+    }
 }
