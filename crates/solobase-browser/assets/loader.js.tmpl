@@ -20,8 +20,19 @@ async function boot() {
                 if (sw.state === 'activated') resolve();
             });
         }
+        // Auto-reload when a new SW takes control (subsequent updates).
+        // __solobaseReloading prevents a loop with the first-registration
+        // reload below (both fire window.location.reload()).
+        if (!window.__solobaseReloading) {
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (window.__solobaseReloading) return;
+                window.__solobaseReloading = true;
+                window.location.reload();
+            });
+        }
         if (!navigator.serviceWorker.controller) {
             status.textContent = 'First-time setup complete. Loading __APP_NAME__...';
+            window.__solobaseReloading = true;
             window.location.reload();
             return;
         }
