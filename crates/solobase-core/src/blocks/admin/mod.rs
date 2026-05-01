@@ -399,10 +399,7 @@ impl Block for AdminBlock {
                     if old_tab.is_empty() {
                         redirect_308("/b/admin/settings/permissions")
                     } else {
-                        redirect_308(&format!(
-                            "/b/admin/settings/permissions?subtab={}",
-                            old_tab
-                        ))
+                        redirect_308(&format!("/b/admin/settings/permissions?subtab={}", old_tab))
                     }
                 }
                 "/grants" => pages::grants_page(ctx, &msg).await,

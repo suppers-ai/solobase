@@ -110,7 +110,9 @@ pub async fn permissions_page(ctx: &dyn Context, msg: &Message) -> OutputStream 
         Some(tabs),
         vec![FormSection {
             title: "Permissions",
-            description: Some("Control which blocks can access other blocks' data, files, and services."),
+            description: Some(
+                "Control which blocks can access other blocks' data, files, and services.",
+            ),
             body,
         }],
         "/b/admin/settings/permissions",

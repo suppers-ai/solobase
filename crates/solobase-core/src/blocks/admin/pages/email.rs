@@ -2,8 +2,10 @@ use maud::{html, Markup, PreEscaped};
 use wafer_core::clients::config;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use crate::blocks::helpers::{err_bad_request, ok_json};
-use crate::ui::icons;
+use crate::{
+    blocks::helpers::{err_bad_request, ok_json},
+    ui::icons,
+};
 
 const EMAIL_SETTINGS_KEYS: &[(&str, &str, &str, &str, bool)] = &[
     (

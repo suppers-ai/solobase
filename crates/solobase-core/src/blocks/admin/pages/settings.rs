@@ -11,7 +11,7 @@ use wafer_run::{context::Context, types::*, OutputStream};
 use super::{admin_page, crumb, email, network, permissions, variables};
 use crate::ui::{
     shell::Topbar,
-    templates::{FormSection, PageHeader, form_page},
+    templates::{form_page, FormSection, PageHeader},
     SiteConfig, UserInfo,
 };
 
