@@ -104,6 +104,12 @@ pub const ROUTES: &[Route] = &[
         requires_admin: false,
         block_id: BlockId::Auth,
     },
+    // Admin settings — more specific prefix must come before the /b/admin/ catch-all
+    Route {
+        prefix: "/b/admin/settings",
+        requires_admin: true,
+        block_id: BlockId::Admin,
+    },
     // Admin — SSR pages + API under /b/admin/
     Route {
         prefix: "/b/admin/",
