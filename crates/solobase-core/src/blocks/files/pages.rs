@@ -10,53 +10,25 @@ use wafer_run::{context::Context, types::*, OutputStream};
 use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION};
 use crate::{
     blocks::helpers::RecordExt,
-    ui::{self, components, icons, NavItem, SiteConfig, UserInfo},
+    ui::{components, icons, nav_groups, shell::{Crumb, Topbar}, SiteConfig, UserInfo},
 };
 
-fn files_admin_nav() -> Vec<NavItem> {
-    vec![
-        NavItem {
-            label: "Overview".into(),
-            href: "/b/storage/admin/".into(),
-            icon: "bar-chart",
-        },
-        NavItem {
-            label: "Buckets".into(),
-            href: "/b/storage/admin/buckets".into(),
-            icon: "folder",
-        },
-        NavItem {
-            label: "Shares".into(),
-            href: "/b/storage/admin/shares".into(),
-            icon: "globe",
-        },
-        NavItem {
-            label: "Quotas".into(),
-            href: "/b/storage/admin/quotas".into(),
-            icon: "bar-chart",
-        },
-    ]
-}
-
-fn files_page(
+fn files_page<'a>(
     title: &str,
     config: &SiteConfig,
     path: &str,
     user: Option<&UserInfo>,
+    crumb_label: &'a str,
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
-    let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(
-        title,
-        config,
-        &files_admin_nav(),
-        user,
-        path,
-        content,
-        is_fragment,
-    );
-    ui::html_response(markup)
+    let groups = nav_groups::portal(path);
+    let topbar = Topbar {
+        crumbs: vec![Crumb { label: crumb_label, href: None }],
+        primary_action: None,
+        show_palette: true,
+    };
+    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +120,7 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/storage/admin/",
         user.as_ref(),
+        "Overview",
         content,
         msg,
     )
@@ -206,6 +179,7 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/storage/admin/buckets",
         user.as_ref(),
+        "Buckets",
         content,
         msg,
     )
@@ -275,6 +249,7 @@ pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/storage/admin/shares",
         user.as_ref(),
+        "Shares",
         content,
         msg,
     )
@@ -337,6 +312,7 @@ pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/storage/admin/quotas",
         user.as_ref(),
+        "Quotas",
         content,
         msg,
     )
