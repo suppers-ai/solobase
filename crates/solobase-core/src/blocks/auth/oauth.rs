@@ -429,11 +429,18 @@ impl AuthBlock {
         };
 
         let roles = get_user_roles(ctx, &user.id).await;
-        let (jwt_token, refresh_token, family) =
-            match generate_tokens(ctx, &user.id, &email, &roles).await {
-                Ok(t) => t,
-                Err(r) => return r,
-            };
+        let (jwt_token, refresh_token, family) = match generate_tokens(
+            ctx,
+            &user.id,
+            &email,
+            &roles,
+            &format!("oauth.{}", provider),
+        )
+        .await
+        {
+            Ok(t) => t,
+            Err(r) => return r,
+        };
         store_refresh_token(ctx, &user.id, &refresh_token, &family).await;
 
         // Redirect to frontend — token is set via HttpOnly cookie only (not URL)

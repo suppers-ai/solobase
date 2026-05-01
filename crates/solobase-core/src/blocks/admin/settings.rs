@@ -364,17 +364,27 @@ pub async fn seed_defaults(ctx: &dyn Context) {
                 data,
             )
             .await;
-        } else if !var.default.is_empty() {
-            let data = json_map(serde_json::json!({
-                "key": var.key,
-                "name": name,
-                "description": var.description,
-                "value": var.default,
-                "warning": var.warning,
-                "sensitive": sensitive,
-                "created_at": helpers::now_rfc3339()
-            }));
-            let _ = db::create(ctx, COLLECTION, data).await;
+        } else {
+            // Seed from process env when set (lets `.env` bootstrap a
+            // fresh deployment), otherwise fall back to the declared
+            // default. Empty env values are treated as unset so that
+            // `FOO=` doesn't accidentally clear a meaningful default.
+            let seed_value = std::env::var(&var.key)
+                .ok()
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| var.default.clone());
+            if !seed_value.is_empty() {
+                let data = json_map(serde_json::json!({
+                    "key": var.key,
+                    "name": name,
+                    "description": var.description,
+                    "value": seed_value,
+                    "warning": var.warning,
+                    "sensitive": sensitive,
+                    "created_at": helpers::now_rfc3339()
+                }));
+                let _ = db::create(ctx, COLLECTION, data).await;
+            }
         }
     }
 }
