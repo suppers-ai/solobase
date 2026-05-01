@@ -26,77 +26,29 @@ pub use users::*;
 pub use variables::*;
 use wafer_run::{types::*, OutputStream};
 
-use crate::ui::{self, NavItem, SiteConfig, UserInfo};
+use crate::ui::{
+    self,
+    nav_groups,
+    shell::{Crumb, Topbar},
+    SiteConfig, UserInfo,
+};
 
-/// Admin nav items for the sidebar.
-pub(crate) fn admin_nav() -> Vec<NavItem> {
-    vec![
-        NavItem {
-            label: "Dashboard".into(),
-            href: "/b/admin/".into(),
-            icon: "layout-dashboard",
-        },
-        NavItem {
-            label: "Users".into(),
-            href: "/b/admin/users".into(),
-            icon: "users",
-        },
-        NavItem {
-            label: "Config".into(),
-            href: "/b/admin/variables".into(),
-            icon: "settings",
-        },
-        NavItem {
-            label: "Network".into(),
-            href: "/b/admin/network".into(),
-            icon: "network",
-        },
-        NavItem {
-            label: "Storage".into(),
-            href: "/b/admin/storage".into(),
-            icon: "hard-drive",
-        },
-        NavItem {
-            label: "Permissions".into(),
-            href: "/b/admin/permissions".into(),
-            icon: "shield",
-        },
-        NavItem {
-            label: "Logs".into(),
-            href: "/b/admin/logs".into(),
-            icon: "file-text",
-        },
-        NavItem {
-            label: "Email".into(),
-            href: "/b/admin/email".into(),
-            icon: "globe",
-        },
-        NavItem {
-            label: "Blocks".into(),
-            href: "/b/admin/blocks".into(),
-            icon: "package",
-        },
-    ]
-}
-
-/// Wrap content in the admin shell (sidebar + layout), or return fragment for htmx.
+/// Wrap content in the admin shell. The caller passes a `Topbar` describing
+/// the page's breadcrumbs + optional primary action.
 pub(crate) fn admin_page(
     title: &str,
     config: &SiteConfig,
     path: &str,
     user: Option<&UserInfo>,
+    topbar: Topbar<'_>,
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
-    let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(
-        title,
-        config,
-        &admin_nav(),
-        user,
-        path,
-        content,
-        is_fragment,
-    );
-    ui::html_response(markup)
+    let groups = nav_groups::admin(path);
+    ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
+}
+
+/// Convenience: a single top-level breadcrumb with no link.
+pub(crate) fn crumb(label: &'static str) -> Vec<Crumb<'static>> {
+    vec![Crumb { label, href: None }]
 }

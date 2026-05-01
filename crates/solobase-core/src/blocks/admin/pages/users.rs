@@ -1,8 +1,8 @@
-use maud::{html, Markup};
+use maud::{html, Markup, PreEscaped};
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::admin_page;
+use super::{admin_page, crumb};
 use crate::{
     blocks::{
         admin::{ROLES_COLLECTION, USER_ROLES_COLLECTION},
@@ -12,7 +12,13 @@ use crate::{
             ResponseBuilder,
         },
     },
-    ui::{self, components, icons, SiteConfig, UserInfo},
+    ui::{
+        self,
+        components::{self, button, BtnVariant, CtrlSize},
+        icons,
+        shell::Topbar,
+        SiteConfig, UserInfo,
+    },
 };
 
 pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -67,6 +73,18 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/admin/users",
         user.as_ref(),
+        Topbar {
+            crumbs: crumb("Users"),
+            primary_action: Some(button(
+                BtnVariant::Primary,
+                CtrlSize::Md,
+                "+ Invite user",
+                PreEscaped(
+                    r##"hx-get="/b/admin/users/new" hx-target="#content""##.to_string(),
+                ),
+            )),
+            show_palette: true,
+        },
         content,
         msg,
     )

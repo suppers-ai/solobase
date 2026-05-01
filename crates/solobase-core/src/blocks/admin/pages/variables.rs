@@ -2,7 +2,8 @@ use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, ListOptions};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::admin_page;
+use super::{admin_page, crumb};
+use crate::ui::shell::Topbar;
 use crate::{
     blocks::{
         admin::VARIABLES_COLLECTION as VARIABLES,
@@ -92,6 +93,11 @@ pub async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/admin/variables",
         user.as_ref(),
+        Topbar {
+            crumbs: crumb("Variables"),
+            primary_action: None,
+            show_palette: true,
+        },
         content,
         msg,
     )

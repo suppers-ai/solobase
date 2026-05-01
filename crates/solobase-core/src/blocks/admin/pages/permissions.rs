@@ -2,7 +2,8 @@ use maud::{html, Markup};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, OutputStream};
 
-use super::{admin_page, network::network_rules_tab, storage::storage_rules_tab};
+use super::{admin_page, crumb, network::network_rules_tab, storage::storage_rules_tab};
+use crate::ui::shell::Topbar;
 use crate::{
     blocks::admin::{
         NETWORK_RULES_COLLECTION as NETWORK_RULES, STORAGE_RULES_COLLECTION as STORAGE_RULES,
@@ -80,6 +81,11 @@ pub async fn permissions_page(ctx: &dyn Context, msg: &Message) -> OutputStream 
         &config,
         "/b/admin/permissions",
         user.as_ref(),
+        Topbar {
+            crumbs: crumb("Permissions"),
+            primary_action: None,
+            show_palette: true,
+        },
         content,
         msg,
     )

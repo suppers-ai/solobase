@@ -2,7 +2,8 @@ use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, Filter, FilterOp, SortField};
 use wafer_run::{context::Context, types::*, OutputStream};
 
-use super::admin_page;
+use super::{admin_page, crumb};
+use crate::ui::shell::Topbar;
 use crate::{
     blocks::{
         admin::{AUDIT_LOGS_COLLECTION as AUDIT_LOGS, REQUEST_LOGS_COLLECTION as REQUEST_LOGS},
@@ -61,6 +62,11 @@ pub async fn logs_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/admin/logs",
         user.as_ref(),
+        Topbar {
+            crumbs: crumb("Logs"),
+            primary_action: None,
+            show_palette: true,
+        },
         content,
         msg,
     )
