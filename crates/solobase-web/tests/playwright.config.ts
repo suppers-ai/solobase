@@ -4,6 +4,7 @@ const PORT = process.env.TEST_PORT ? parseInt(process.env.TEST_PORT) : 8080;
 
 export default defineConfig({
   testDir: './e2e',
+  snapshotDir: '../../../.playwright-mcp',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
