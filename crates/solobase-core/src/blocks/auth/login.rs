@@ -4,7 +4,7 @@ use maud::{html, PreEscaped};
 use wafer_core::clients::{config, crypto, database as db};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{helpers::*, AuthBlock, USERS_COLLECTION};
+use super::{brand_panel, helpers::*, AuthBlock, USERS_COLLECTION};
 use crate::{
     blocks::{
         errors::{error_response, ErrorCode},
@@ -14,6 +14,7 @@ use crate::{
         },
     },
     ui,
+    ui::templates::auth_split,
 };
 
 impl AuthBlock {
@@ -856,10 +857,10 @@ impl AuthBlock {
             embedded_scripts: Vec::new(),
         };
 
-        let markup = ui::layout::centered_page(
+        let markup = ui::layout::page(
             "Reset Password",
             &config,
-            html! {
+            auth_split(brand_panel(&config), html! {
                 div .login-container {
                     div .login-logo {
                         @if !logo_url.is_empty() {
@@ -909,7 +910,7 @@ async function handleReset(e){
   return false;
 }
 "#)) }
-            },
+            }),
         );
 
         ui::html_response(markup)
@@ -1026,10 +1027,10 @@ fn html_respond(title: &str, message: &str, success: bool, logo_url: &str) -> Ou
         favicon_url: String::new(),
         embedded_scripts: Vec::new(),
     };
-    let markup = ui::layout::centered_page(
+    let markup = ui::layout::page(
         title,
         &config,
-        html! {
+        auth_split(brand_panel(&config), html! {
             div .login-container {
                 div .login-logo {
                     @if !logo_url.is_empty() {
@@ -1047,7 +1048,7 @@ fn html_respond(title: &str, message: &str, success: bool, logo_url: &str) -> Ou
                     }
                 }
             }
-        },
+        }),
     );
     ui::html_response(markup)
 }

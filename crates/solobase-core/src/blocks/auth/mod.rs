@@ -680,3 +680,19 @@ pub async fn authenticate_api_key(
 
 #[cfg(not(target_arch = "wasm32"))]
 ::wafer_run::register_static_block!("suppers-ai/auth", AuthBlock);
+
+use crate::ui::{templates::BrandPanel, SiteConfig};
+use maud::html;
+
+/// Shared brand panel used by login / signup / reset / OAuth pages.
+pub(crate) fn brand_panel(config: &SiteConfig) -> BrandPanel<'_> {
+    BrandPanel {
+        logo_html: if !config.logo_url.is_empty() {
+            Some(html! { img src=(config.logo_url) alt=(config.app_name); })
+        } else {
+            None
+        },
+        headline: &config.app_name,
+        tagline: Some("Sign in to continue."),
+    }
+}

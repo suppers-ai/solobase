@@ -10,8 +10,8 @@ use wafer_core::clients::{config, database as db, database::ListOptions};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::{
-    blocks::helpers::{err_bad_request, ok_json, RecordExt},
-    ui::{self, components, icons, nav_groups, shell::{Crumb, Topbar}, SiteConfig, UserInfo},
+    blocks::{auth::brand_panel, helpers::{err_bad_request, ok_json, RecordExt}},
+    ui::{self, components, icons, nav_groups, shell::{Crumb, Topbar}, templates::auth_split, SiteConfig, UserInfo},
 };
 
 /// Read all key-value pairs from the variables table.
@@ -190,10 +190,10 @@ pub async fn login_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         format!("?redirect={redirect}")
     };
 
-    let markup = ui::layout::centered_page(
+    let markup = ui::layout::page(
         "Sign In",
         &config,
-        html! {
+        auth_split(brand_panel(&config), html! {
             div .login-container {
                 div .login-logo {
                     @if !logo_url.is_empty() {
@@ -240,7 +240,7 @@ pub async fn login_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
             script { (PreEscaped(pw_toggle_js())) }
             script { (PreEscaped(login_script())) }
-        },
+        }),
     );
 
     ui::html_response(markup)
@@ -274,10 +274,10 @@ pub async fn signup_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         format!("?redirect={redirect}")
     };
 
-    let markup = ui::layout::centered_page(
+    let markup = ui::layout::page(
         "Sign Up",
         &config,
-        html! {
+        auth_split(brand_panel(&config), html! {
             div .login-container {
                 div .login-logo {
                     @if !logo_url.is_empty() {
@@ -346,7 +346,7 @@ async function handleSignup(ev){
   return false;
 }
 "#)) }
-        },
+        }),
     );
 
     ui::html_response(markup)
@@ -362,10 +362,10 @@ pub async fn change_password_page(ctx: &dyn Context, _msg: &Message) -> OutputSt
     let app_name = &config.app_name;
     let logo_url = &config.logo_url;
 
-    let markup = ui::layout::centered_page(
+    let markup = ui::layout::page(
         "Change Password",
         &config,
-        html! {
+        auth_split(brand_panel(&config), html! {
             div .login-container {
                 div .login-logo {
                     @if !logo_url.is_empty() {
@@ -431,7 +431,7 @@ async function handleChange(ev){
   return false;
 }
 "#)) }
-        },
+        }),
     );
 
     ui::html_response(markup)
