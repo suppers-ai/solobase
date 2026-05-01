@@ -269,6 +269,39 @@ impl SolobaseBuilder {
         // their respective wafer-block-* crates. The `use wafer_block_xxx as _`
         // anchors at the top of this file ensure the linker includes those crate
         // .o files so the linkme distributed-slice entries land in the binary.
+        //
+        // linkme's distributed_slice does not work on wasm32 (its link-section
+        // attributes only target ELF/Mach-O/PE — see linkme-impl/src/declaration.rs
+        // for the target_os match), so on wasm32 the auto-registration is a no-op.
+        // Register the six middleware blocks explicitly when targeting wasm32.
+        #[cfg(target_arch = "wasm32")]
+        {
+            wafer.register_block(
+                "wafer-run/cors",
+                Arc::new(wafer_block_cors::CorsBlock::new()),
+            )?;
+            wafer.register_block(
+                "wafer-run/inspector",
+                Arc::new(wafer_block_inspector::InspectorBlock::new()),
+            )?;
+            wafer.register_block(
+                "wafer-run/readonly-guard",
+                Arc::new(wafer_block_readonly_guard::ReadonlyGuardBlock::new()),
+            )?;
+            wafer.register_block(
+                "wafer-run/router",
+                Arc::new(wafer_block_router::RouterBlock::new()),
+            )?;
+            wafer.register_block(
+                "wafer-run/security-headers",
+                Arc::new(wafer_block_security_headers::SecurityHeadersBlock::new()),
+            )?;
+            wafer.register_block(
+                "wafer-run/web",
+                Arc::new(wafer_block_web::WebBlock::new()),
+            )?;
+        }
+
         wafer.add_block_config(
             "wafer-run/inspector",
             serde_json::json!({ "allow_anonymous": false }),
