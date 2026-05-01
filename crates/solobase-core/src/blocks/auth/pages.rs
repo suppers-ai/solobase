@@ -10,8 +10,16 @@ use wafer_core::clients::{config, database as db, database::ListOptions};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::{
-    blocks::helpers::{err_bad_request, ok_json, RecordExt},
-    ui::{self, components, icons, NavItem, SiteConfig, UserInfo},
+    blocks::{
+        auth::brand_panel,
+        helpers::{err_bad_request, ok_json, RecordExt},
+    },
+    ui::{
+        self, components, icons, nav_groups,
+        shell::{Crumb, Topbar},
+        templates::auth_split,
+        SiteConfig, UserInfo,
+    },
 };
 
 /// Read all key-value pairs from the variables table.
@@ -190,57 +198,60 @@ pub async fn login_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         format!("?redirect={redirect}")
     };
 
-    let markup = ui::layout::centered_page(
+    let markup = ui::layout::page(
         "Sign In",
         &config,
-        html! {
-            div .login-container {
-                div .login-logo {
-                    @if !logo_url.is_empty() {
-                        img .logo-image src=(logo_url) alt=(app_name);
-                    } @else {
-                        span .login-app-name { (app_name) }
-                    }
-                    p .login-subtitle { "Sign in to " (app_name) }
-                }
-
-                div #error .login-error style="display:none" {}
-                div #info style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:.75rem;margin-bottom:1.5rem;font-size:.813rem;color:#059669;display:none" {}
-
-                form #form .login-form onsubmit="return handleLogin(event)" {
-                    input type="hidden" #redirect value=(redirect);
-                    input type="hidden" #post_login value=(post_login);
-
-                    div .form-group {
-                        label .form-label for="email" { "Email" }
-                        input .form-input type="email" #email placeholder="you@example.com" required;
+        auth_split(
+            brand_panel(&config),
+            html! {
+                div .login-container {
+                    div .login-logo {
+                        @if !logo_url.is_empty() {
+                            img .logo-image src=(logo_url) alt=(app_name);
+                        } @else {
+                            span .login-app-name { (app_name) }
+                        }
+                        p .login-subtitle { "Sign in to " (app_name) }
                     }
 
-                    div .form-group {
-                        label .form-label for="password" { "Password" }
-                        (pw_field("password", "Enter your password", None))
+                    div #error .login-error style="display:none" {}
+                    div #info style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:.75rem;margin-bottom:1.5rem;font-size:.813rem;color:#059669;display:none" {}
+
+                    form #form .login-form onsubmit="return handleLogin(event)" {
+                        input type="hidden" #redirect value=(redirect);
+                        input type="hidden" #post_login value=(post_login);
+
+                        div .form-group {
+                            label .form-label for="email" { "Email" }
+                            input .form-input type="email" #email placeholder="you@example.com" required;
+                        }
+
+                        div .form-group {
+                            label .form-label for="password" { "Password" }
+                            (pw_field("password", "Enter your password", None))
+                        }
+
+                        div style="text-align:right;margin-bottom:1rem" {
+                            button type="button" class="btn btn-ghost btn-sm" onclick="handleForgot()" {
+                                "Forgot password?"
+                            }
+                        }
+
+                        button .login-button type="submit" #btn { "Sign In" }
                     }
 
-                    div style="text-align:right;margin-bottom:1rem" {
-                        button type="button" class="btn btn-ghost btn-sm" onclick="handleForgot()" {
-                            "Forgot password?"
+                    @if allow_signup {
+                        div .signup-link {
+                            "Don't have an account? "
+                            a href={"/b/auth/signup" (signup_redirect)} { "Sign up" }
                         }
                     }
-
-                    button .login-button type="submit" #btn { "Sign In" }
                 }
 
-                @if allow_signup {
-                    div .signup-link {
-                        "Don't have an account? "
-                        a href={"/b/auth/signup" (signup_redirect)} { "Sign up" }
-                    }
-                }
-            }
-
-            script { (PreEscaped(pw_toggle_js())) }
-            script { (PreEscaped(login_script())) }
-        },
+                script { (PreEscaped(pw_toggle_js())) }
+                script { (PreEscaped(login_script())) }
+            },
+        ),
     );
 
     ui::html_response(markup)
@@ -274,55 +285,57 @@ pub async fn signup_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         format!("?redirect={redirect}")
     };
 
-    let markup = ui::layout::centered_page(
+    let markup = ui::layout::page(
         "Sign Up",
         &config,
-        html! {
-            div .login-container {
-                div .login-logo {
-                    @if !logo_url.is_empty() {
-                        img .logo-image src=(logo_url) alt=(app_name);
-                    } @else {
-                        span .login-app-name { (app_name) }
-                    }
-                    p .login-subtitle { "Create your " (app_name) " account" }
-                }
-
-                div #error .login-error style="display:none" {}
-
-                div #success style="text-align:center;display:none" {
-                    div style="width:48px;height:48px;background:#ecfdf5;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:1.5rem;color:#10b981" { "✓" }
-                    h2 style="font-size:1.25rem;font-weight:700;margin:0 0 .5rem" { "Check your email" }
-                    p #verify-msg style="font-size:.875rem;color:#64748b;line-height:1.6;margin:0 0 1.5rem" {}
-                    a .login-button href={"/b/auth/login" (redirect_qs)} style="display:inline-block;width:auto;padding:.625rem 1.25rem;text-decoration:none" {
-                        "Back to Sign In"
-                    }
-                }
-
-                form #form .login-form onsubmit="return handleSignup(event)" {
-                    input type="hidden" #redirect value=(redirect);
-
-                    div .form-group {
-                        label .form-label for="email" { "Email" }
-                        input .form-input type="email" #email placeholder="you@example.com" required;
+        auth_split(
+            brand_panel(&config),
+            html! {
+                div .login-container {
+                    div .login-logo {
+                        @if !logo_url.is_empty() {
+                            img .logo-image src=(logo_url) alt=(app_name);
+                        } @else {
+                            span .login-app-name { (app_name) }
+                        }
+                        p .login-subtitle { "Create your " (app_name) " account" }
                     }
 
-                    div .form-group {
-                        label .form-label for="password" { "Password" }
-                        (pw_field("password", "Min 8 characters", Some("8")))
+                    div #error .login-error style="display:none" {}
+
+                    div #success style="text-align:center;display:none" {
+                        div style="width:48px;height:48px;background:#ecfdf5;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:1.5rem;color:#10b981" { "✓" }
+                        h2 style="font-size:1.25rem;font-weight:700;margin:0 0 .5rem" { "Check your email" }
+                        p #verify-msg style="font-size:.875rem;color:#64748b;line-height:1.6;margin:0 0 1.5rem" {}
+                        a .login-button href={"/b/auth/login" (redirect_qs)} style="display:inline-block;width:auto;padding:.625rem 1.25rem;text-decoration:none" {
+                            "Back to Sign In"
+                        }
                     }
 
-                    button .login-button type="submit" #btn { "Create Account" }
+                    form #form .login-form onsubmit="return handleSignup(event)" {
+                        input type="hidden" #redirect value=(redirect);
+
+                        div .form-group {
+                            label .form-label for="email" { "Email" }
+                            input .form-input type="email" #email placeholder="you@example.com" required;
+                        }
+
+                        div .form-group {
+                            label .form-label for="password" { "Password" }
+                            (pw_field("password", "Min 8 characters", Some("8")))
+                        }
+
+                        button .login-button type="submit" #btn { "Create Account" }
+                    }
+
+                    div #signin-link .signup-link {
+                        "Already have an account? "
+                        a href={"/b/auth/login" (redirect_qs)} { "Sign in" }
+                    }
                 }
 
-                div #signin-link .signup-link {
-                    "Already have an account? "
-                    a href={"/b/auth/login" (redirect_qs)} { "Sign in" }
-                }
-            }
-
-            script { (PreEscaped(pw_toggle_js())) }
-            script { (PreEscaped(r#"
+                script { (PreEscaped(pw_toggle_js())) }
+                script { (PreEscaped(r#"
 var $=function(id){return document.getElementById(id)};
 function showErr(m){var e=$('error');e.textContent=m;e.style.display='flex'}
 async function handleSignup(ev){
@@ -346,7 +359,8 @@ async function handleSignup(ev){
   return false;
 }
 "#)) }
-        },
+            },
+        ),
     );
 
     ui::html_response(markup)
@@ -362,57 +376,59 @@ pub async fn change_password_page(ctx: &dyn Context, _msg: &Message) -> OutputSt
     let app_name = &config.app_name;
     let logo_url = &config.logo_url;
 
-    let markup = ui::layout::centered_page(
+    let markup = ui::layout::page(
         "Change Password",
         &config,
-        html! {
-            div .login-container {
-                div .login-logo {
-                    @if !logo_url.is_empty() {
-                        img .logo-image src=(logo_url) alt=(app_name);
-                    } @else {
-                        span .login-app-name { (app_name) }
+        auth_split(
+            brand_panel(&config),
+            html! {
+                div .login-container {
+                    div .login-logo {
+                        @if !logo_url.is_empty() {
+                            img .logo-image src=(logo_url) alt=(app_name);
+                        } @else {
+                            span .login-app-name { (app_name) }
+                        }
+                        p .login-subtitle { "Change your password" }
                     }
-                    p .login-subtitle { "Change your password" }
+
+                    div #error .login-error style="display:none" {}
+
+                    div #success style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:1rem;text-align:center;display:none" {
+                        p style="font-size:.875rem;color:#16a34a;margin:0 0 1rem;font-weight:500" {
+                            "Password changed successfully!"
+                        }
+                        button .login-button onclick="history.back()" style="width:auto;display:inline-block;padding:.625rem 1.25rem" {
+                            "Go Back"
+                        }
+                    }
+
+                    form #form .login-form onsubmit="return handleChange(event)" {
+                        div .form-group {
+                            label .form-label for="current" { "Current Password" }
+                            (pw_field("current", "Enter your current password", None))
+                        }
+
+                        div .form-group {
+                            label .form-label for="newpw" { "New Password" }
+                            (pw_field("newpw", "Min 8 characters", Some("8")))
+                        }
+
+                        div .form-group {
+                            label .form-label for="confirm" { "Confirm New Password" }
+                            (pw_field("confirm", "Repeat new password", Some("8")))
+                        }
+
+                        button .login-button type="submit" #btn { "Change Password" }
+                    }
+
+                    div style="text-align:center;margin-top:1rem" {
+                        a .btn .btn-ghost href="javascript:history.back()" { "Cancel" }
+                    }
                 }
 
-                div #error .login-error style="display:none" {}
-
-                div #success style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:1rem;text-align:center;display:none" {
-                    p style="font-size:.875rem;color:#16a34a;margin:0 0 1rem;font-weight:500" {
-                        "Password changed successfully!"
-                    }
-                    button .login-button onclick="history.back()" style="width:auto;display:inline-block;padding:.625rem 1.25rem" {
-                        "Go Back"
-                    }
-                }
-
-                form #form .login-form onsubmit="return handleChange(event)" {
-                    div .form-group {
-                        label .form-label for="current" { "Current Password" }
-                        (pw_field("current", "Enter your current password", None))
-                    }
-
-                    div .form-group {
-                        label .form-label for="newpw" { "New Password" }
-                        (pw_field("newpw", "Min 8 characters", Some("8")))
-                    }
-
-                    div .form-group {
-                        label .form-label for="confirm" { "Confirm New Password" }
-                        (pw_field("confirm", "Repeat new password", Some("8")))
-                    }
-
-                    button .login-button type="submit" #btn { "Change Password" }
-                }
-
-                div style="text-align:center;margin-top:1rem" {
-                    a .btn .btn-ghost href="javascript:history.back()" { "Cancel" }
-                }
-            }
-
-            script { (PreEscaped(pw_toggle_js())) }
-            script { (PreEscaped(r#"
+                script { (PreEscaped(pw_toggle_js())) }
+                script { (PreEscaped(r#"
 var $=function(id){return document.getElementById(id)};
 function showErr(m){var e=$('error');e.textContent=m;e.style.display='flex'}
 async function handleChange(ev){
@@ -431,7 +447,8 @@ async function handleChange(ev){
   return false;
 }
 "#)) }
-        },
+            },
+        ),
     );
 
     ui::html_response(markup)
@@ -525,14 +542,6 @@ const SETTINGS_KEYS: &[(&str, &str, &str, &str, bool, &str)] = &[
     ),
 ];
 
-fn auth_admin_nav() -> Vec<NavItem> {
-    vec![NavItem {
-        label: "Settings".into(),
-        href: "/b/auth/admin/settings".into(),
-        icon: "settings",
-    }]
-}
-
 pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
@@ -581,17 +590,25 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         script { (PreEscaped(SETTINGS_JS)) }
     };
 
-    let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(
+    let groups = nav_groups::admin();
+    let topbar = Topbar {
+        crumbs: vec![Crumb {
+            label: "Auth Settings",
+            href: None,
+        }],
+        primary_action: None,
+        show_palette: true,
+    };
+    crate::ui::shelled_response(
+        msg,
         "Auth Settings",
         &site_config,
-        &auth_admin_nav(),
+        &groups,
         user.as_ref(),
         "/b/auth/admin/settings",
+        topbar,
         content,
-        is_fragment,
-    );
-    ui::html_response(markup)
+    )
 }
 
 const SETTINGS_JS: &str = r#"

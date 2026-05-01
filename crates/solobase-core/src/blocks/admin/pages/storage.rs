@@ -3,13 +3,13 @@ use wafer_core::clients::database::{self as db, ListOptions, SortField};
 use wafer_run::{context::Context, types::*, OutputStream};
 use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
 
-use super::admin_page;
+use super::{admin_page, crumb};
 use crate::{
     blocks::admin::{
         STORAGE_ACCESS_LOGS_COLLECTION as STORAGE_ACCESS_LOGS,
         STORAGE_RULES_COLLECTION as STORAGE_RULES,
     },
-    ui::{components, icons, SiteConfig, UserInfo},
+    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
 };
 
 pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -67,6 +67,11 @@ pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/admin/storage",
         user.as_ref(),
+        Topbar {
+            crumbs: crumb("Storage"),
+            primary_action: None,
+            show_palette: true,
+        },
         content,
         msg,
     )

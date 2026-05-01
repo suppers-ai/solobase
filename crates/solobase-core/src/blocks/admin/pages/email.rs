@@ -2,10 +2,10 @@ use maud::{html, PreEscaped};
 use wafer_core::clients::config;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::admin_page;
+use super::{admin_page, crumb};
 use crate::{
     blocks::helpers::{err_bad_request, ok_json},
-    ui::{components, icons, SiteConfig, UserInfo},
+    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
 };
 
 const EMAIL_SETTINGS_KEYS: &[(&str, &str, &str, &str, bool)] = &[
@@ -102,6 +102,11 @@ function submitEmailSettings(e) {
         &site_config,
         "/b/admin/email",
         user.as_ref(),
+        Topbar {
+            crumbs: crumb("Email"),
+            primary_action: None,
+            show_palette: true,
+        },
         content,
         msg,
     )

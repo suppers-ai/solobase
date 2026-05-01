@@ -28,8 +28,13 @@ pub const JSON: &str = r#"{
 /// Block SSR pages + API go through `suppers-ai/router`.
 /// Static assets are embedded and served by the system block via `/static/`.
 /// User's own site content is served by `wafer-run/web` as fallback.
+///
+/// `/` is routed explicitly to `suppers-ai/router` (not the `/**` fallback)
+/// so the root redirect handler in `routing::route_to_block` fires:
+/// anonymous → `/b/auth/login`, authenticated → `/b/auth/dashboard`.
 pub fn default_routes() -> serde_json::Value {
     serde_json::json!([
+        { "path": "/",                        "block": "suppers-ai/router" },
         { "path": "/b/**",                    "block": "suppers-ai/router" },
         { "path": "/health",                  "block": "suppers-ai/router" },
         { "path": "/openapi.json",            "block": "suppers-ai/router" },

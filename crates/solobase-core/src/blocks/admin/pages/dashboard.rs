@@ -3,13 +3,13 @@ use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, S
 use wafer_run::{context::Context, types::*, OutputStream};
 use wafer_sql_utils::{aggregate, query, value::sea_values_to_json, Backend};
 
-use super::admin_page;
+use super::{admin_page, crumb};
 use crate::{
     blocks::{
         admin::{AUDIT_LOGS_COLLECTION as AUDIT_LOGS, REQUEST_LOGS_COLLECTION as REQUEST_LOGS},
         auth::USERS_COLLECTION as USERS,
     },
-    ui::{components, icons, SiteConfig, UserInfo},
+    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
 };
 
 pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -309,6 +309,11 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/admin/",
         user.as_ref(),
+        Topbar {
+            crumbs: crumb("Dashboard"),
+            primary_action: None,
+            show_palette: true,
+        },
         content,
         msg,
     )

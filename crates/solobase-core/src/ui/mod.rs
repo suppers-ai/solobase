@@ -8,6 +8,7 @@ pub mod assets;
 pub mod components;
 pub mod icons;
 pub mod layout;
+pub mod nav_groups;
 pub mod palette;
 pub mod shell;
 pub mod sidebar;
@@ -110,76 +111,121 @@ pub fn html_response(markup: maud::Markup) -> wafer_run::OutputStream {
     )
 }
 
-/// Render a styled 404 page.
-pub fn not_found_page() -> maud::Markup {
-    use maud::{html, DOCTYPE};
-    html! {
-        (DOCTYPE)
-        html lang="en" {
-            head {
-                meta charset="utf-8";
-                meta name="viewport" content="width=device-width,initial-scale=1";
-                title { "Not Found" }
-                link rel="stylesheet" href=(assets::css_url());
-            }
-            body {
-                div .login-page {
-                    div .login-container style="text-align:center" {
-                        div style="font-size:4rem;font-weight:700;color:var(--text-muted);margin-bottom:0.5rem" { "404" }
-                        h1 style="font-size:1.25rem;font-weight:600;margin:0 0 0.5rem" { "Page not found" }
-                        p .login-subtitle style="margin-bottom:1.5rem" {
-                            "The page you're looking for doesn't exist."
-                        }
-                        a .login-button href="/" style="display:inline-block;width:auto;padding:.625rem 1.25rem;text-decoration:none" {
-                            "Go Home"
-                        }
-                    }
-                }
-            }
-        }
+/// Render a full page wrapping `body` in `shell()` + `page()`. Caller
+/// passes the audience's `nav_groups` (admin or portal) and a `Topbar`.
+/// Mounts the ⌘K palette modal at the bottom of the page when
+/// `topbar.show_palette` is true.
+pub fn shelled_page(
+    title: &str,
+    config: &SiteConfig,
+    groups: &[NavGroup],
+    user: Option<&UserInfo>,
+    current_path: &str,
+    topbar: shell::Topbar<'_>,
+    body: maud::Markup,
+) -> maud::Markup {
+    use maud::{html, PreEscaped};
+    let palette_markup = if topbar.show_palette {
+        palette::palette(nav_groups::palette_entries_from_groups(groups))
+    } else {
+        html! {}
+    };
+    layout::page(
+        title,
+        config,
+        html! {
+            (shell::shell(
+                groups,
+                user,
+                current_path,
+                &config.logo_url,
+                &config.logo_icon_url,
+                topbar,
+                body,
+            ))
+            (palette_markup)
+            script { (PreEscaped(assets::palette_js())) }
+        },
+    )
+}
+
+/// Same as `shelled_page`, but returns an `OutputStream`. Returns the
+/// raw `body` (no chrome) when the request is an htmx partial.
+pub fn shelled_response(
+    msg: &wafer_run::types::Message,
+    title: &str,
+    config: &SiteConfig,
+    groups: &[NavGroup],
+    user: Option<&UserInfo>,
+    current_path: &str,
+    topbar: shell::Topbar<'_>,
+    body: maud::Markup,
+) -> wafer_run::OutputStream {
+    if is_htmx(msg) {
+        return html_response(body);
+    }
+    html_response(shelled_page(
+        title,
+        config,
+        groups,
+        user,
+        current_path,
+        topbar,
+        body,
+    ))
+}
+
+/// Minimal `SiteConfig` used by the status-page helpers. They render
+/// before context is available, so they can't load real config; fixed
+/// branding + no embedded scripts is the right shape.
+fn minimal_config() -> SiteConfig {
+    SiteConfig {
+        app_name: "Solobase".to_string(),
+        logo_url: String::new(),
+        logo_icon_url: String::new(),
+        favicon_url: String::new(),
+        embedded_scripts: Vec::new(),
     }
 }
 
-/// Render a styled 403 page.
-pub fn forbidden_page() -> maud::Markup {
-    use maud::{html, DOCTYPE};
-    html! {
-        (DOCTYPE)
-        html lang="en" {
-            head {
-                meta charset="utf-8";
-                meta name="viewport" content="width=device-width,initial-scale=1";
-                title { "Access Denied" }
-                link rel="stylesheet" href=(assets::css_url());
-            }
-            body {
-                div .login-page {
-                    div .login-container style="text-align:center" {
-                        div style="font-size:4rem;font-weight:700;color:var(--text-muted);margin-bottom:0.5rem" { "403" }
-                        h1 style="font-size:1.25rem;font-weight:600;margin:0 0 0.5rem" { "Access denied" }
-                        p .login-subtitle style="margin-bottom:1.5rem" {
-                            "You don't have permission to access this page. Please sign in with an admin account."
-                        }
-                        a .login-button href="/b/auth/login" style="display:inline-block;width:auto;padding:.625rem 1.25rem;text-decoration:none" {
-                            "Sign In"
-                        }
-                    }
-                }
-            }
-        }
-    }
+/// Render the styled `status_page` body wrapped in `layout::page` and
+/// return it with the requested HTTP status. Used by 403/404/500 helpers.
+fn status_response(
+    status: u16,
+    page_title: &str,
+    code: &str,
+    title: &str,
+    body_text: &str,
+    primary_action: (&str, &str),
+) -> wafer_run::OutputStream {
+    let config = minimal_config();
+    let body = templates::status_page(
+        code,
+        title,
+        body_text,
+        Some((primary_action.0.to_string(), primary_action.1.to_string())),
+    );
+    let markup = layout::page(page_title, &config, body);
+    crate::blocks::helpers::ResponseBuilder::new()
+        .status(status)
+        .body(
+            markup.into_string().into_bytes(),
+            "text/html; charset=utf-8",
+        )
 }
 
 /// Return styled 403 for browser requests, JSON for API requests.
 pub fn forbidden_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
     if accept.contains("text/html") && !accept.contains("application/json") {
-        crate::blocks::helpers::ResponseBuilder::new()
-            .status(403)
-            .body(
-                forbidden_page().into_string().into_bytes(),
-                "text/html; charset=utf-8",
-            )
+        status_response(
+            403,
+            "Forbidden",
+            "403",
+            "Forbidden",
+            "You don't have access to this page.",
+            ("Sign in", "/b/auth/login"),
+        )
     } else {
         crate::blocks::helpers::err_forbidden("admin access required")
     }
@@ -189,14 +235,33 @@ pub fn forbidden_response(msg: &wafer_run::types::Message) -> wafer_run::OutputS
 pub fn not_found_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
     if accept.contains("text/html") && !accept.contains("application/json") {
-        crate::blocks::helpers::ResponseBuilder::new()
-            .status(404)
-            .body(
-                not_found_page().into_string().into_bytes(),
-                "text/html; charset=utf-8",
-            )
+        status_response(
+            404,
+            "Not found",
+            "404",
+            "Not found",
+            "We couldn't find that page.",
+            ("Go home", "/"),
+        )
     } else {
         crate::blocks::helpers::err_not_found("endpoint not found")
+    }
+}
+
+/// Return styled 500 for browser requests, JSON for API requests.
+pub fn server_error_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
+    let accept = msg.get_meta("http.header.accept");
+    if accept.contains("text/html") && !accept.contains("application/json") {
+        status_response(
+            500,
+            "Server error",
+            "500",
+            "Something went wrong",
+            "An unexpected error occurred. Please try again.",
+            ("Go home", "/"),
+        )
+    } else {
+        crate::blocks::helpers::err_internal("internal server error")
     }
 }
 
@@ -216,4 +281,101 @@ pub fn html_response_with_toast(
             markup.into_string().into_bytes(),
             "text/html; charset=utf-8",
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use maud::html;
+    use wafer_run::types::Message;
+
+    use super::*;
+    use crate::ui::shell::{Crumb, Topbar};
+
+    fn site_config() -> SiteConfig {
+        SiteConfig {
+            app_name: "TestApp".to_string(),
+            logo_url: String::new(),
+            logo_icon_url: String::new(),
+            favicon_url: String::new(),
+            embedded_scripts: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn shelled_page_full_render_includes_html_doctype_shell_and_body() {
+        let groups = nav_groups::admin();
+        let topbar = Topbar {
+            crumbs: vec![Crumb {
+                label: "Dashboard",
+                href: None,
+            }],
+            primary_action: None,
+            show_palette: true,
+        };
+        let body = html! { p { "hello" } };
+        let markup = shelled_page(
+            "Dashboard",
+            &site_config(),
+            &groups,
+            None,
+            "/b/admin/",
+            topbar,
+            body,
+        );
+        let s = markup.into_string();
+        assert!(s.contains("<!DOCTYPE html>"));
+        assert!(s.contains(r#"class="shell""#));
+        assert!(s.contains(r#"id="cmdk""#)); // palette mounted
+        assert!(s.contains("hello"));
+    }
+
+    #[tokio::test]
+    async fn not_found_response_uses_status_template() {
+        let mut msg = Message::new("http.request");
+        msg.set_meta("http.header.accept", "text/html");
+        let out = not_found_response(&msg);
+        let buf = out.collect_buffered().await.unwrap();
+        let body = String::from_utf8(buf.body).unwrap_or_default();
+        assert!(
+            body.contains("status-page"),
+            "body should contain status-page class"
+        );
+        assert!(body.contains(">404<"), "body should contain 404 code");
+        assert!(
+            body.contains("Go home"),
+            "body should contain Go home action"
+        );
+    }
+
+    #[tokio::test]
+    async fn forbidden_response_uses_status_template() {
+        let mut msg = Message::new("http.request");
+        msg.set_meta("http.header.accept", "text/html");
+        let out = forbidden_response(&msg);
+        let buf = out.collect_buffered().await.unwrap();
+        let body = String::from_utf8(buf.body).unwrap_or_default();
+        assert!(
+            body.contains("status-page"),
+            "body should contain status-page class"
+        );
+        assert!(body.contains(">403<"), "body should contain 403 code");
+        assert!(
+            body.contains("Sign in"),
+            "body should contain Sign in action"
+        );
+    }
+
+    #[tokio::test]
+    async fn server_error_response_uses_status_template() {
+        let mut msg = Message::new("http.request");
+        msg.set_meta("http.header.accept", "text/html");
+        let out = server_error_response(&msg);
+        let buf = out.collect_buffered().await.unwrap();
+        let body = String::from_utf8(buf.body).unwrap_or_default();
+        assert!(body.contains(">500<"), "body should contain 500 code");
+        assert!(
+            body.contains("Something went wrong"),
+            "body should contain 'Something went wrong' title"
+        );
+    }
 }

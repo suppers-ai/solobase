@@ -3,10 +3,10 @@ use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use wafer_sql_utils::{query, upsert, value::sea_values_to_json, Backend};
 
-use super::admin_page;
+use super::{admin_page, crumb};
 use crate::{
     blocks::admin::BLOCK_SETTINGS_COLLECTION as BLOCK_SETTINGS,
-    ui::{self, components, icons, SiteConfig, UserInfo},
+    ui::{self, components, icons, shell::Topbar, SiteConfig, UserInfo},
 };
 
 pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -203,6 +203,11 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/admin/blocks",
         user.as_ref(),
+        Topbar {
+            crumbs: crumb("Blocks"),
+            primary_action: None,
+            show_palette: true,
+        },
         content,
         msg,
     )

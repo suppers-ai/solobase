@@ -268,6 +268,11 @@ pub async fn route_to_block(
 ) -> OutputStream {
     let path = msg.path().to_string();
 
+    // Root: redirect logged-in users to portal dashboard, anonymous to login.
+    if path == "/" {
+        return root_redirect(msg.user_id().is_empty());
+    }
+
     for route in ROUTES {
         let matches = path == route.prefix || path.starts_with(route.prefix);
         if !matches {
@@ -318,6 +323,19 @@ pub async fn route_to_block(
     }
 
     crate::ui::not_found_response(&msg)
+}
+
+/// Build a root redirect response. Extracted for unit testability.
+fn root_redirect(user_id_empty: bool) -> OutputStream {
+    let target = if user_id_empty {
+        "/b/auth/login"
+    } else {
+        "/b/auth/dashboard"
+    };
+    crate::blocks::helpers::ResponseBuilder::new()
+        .status(302)
+        .set_header("Location", target)
+        .body(Vec::new(), "text/plain")
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +443,39 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn root_redirects_anonymous_to_login() {
+        let out = super::root_redirect(true);
+        let buf = out.collect_buffered().await.unwrap();
+        let status = buf
+            .meta
+            .iter()
+            .find(|e| e.key == "resp.status")
+            .map(|e| e.value.as_str())
+            .unwrap_or("");
+        let location = buf
+            .meta
+            .iter()
+            .find(|e| e.key == "resp.header.Location")
+            .map(|e| e.value.as_str())
+            .unwrap_or("");
+        assert_eq!(status, "302");
+        assert_eq!(location, "/b/auth/login");
+    }
+
+    #[tokio::test]
+    async fn root_redirects_authenticated_to_dashboard() {
+        let out = super::root_redirect(false);
+        let buf = out.collect_buffered().await.unwrap();
+        let location = buf
+            .meta
+            .iter()
+            .find(|e| e.key == "resp.header.Location")
+            .map(|e| e.value.as_str())
+            .unwrap_or("");
+        assert_eq!(location, "/b/auth/dashboard");
     }
 
     struct AllEnabled;

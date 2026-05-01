@@ -1,8 +1,13 @@
-//! Page layout components — full page wrapper, block shell with sidebar.
+//! Page layout components — full page wrapper and centered_page escape hatch.
+//!
+//! `block_shell()` was removed in Phase 2 of the UI cleanup; pages now build
+//! chrome via `ui::shelled_response()` which delegates to `ui::shell::shell()`
+//! + `ui::sidebar::sidebar_grouped()`. `centered_page()` is kept as the raw
+//! escape hatch for any future standalone (non-shelled, non-auth-split) page.
 
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 
-use super::{assets, icons, sidebar, NavItem, SiteConfig, UserInfo};
+use super::{assets, SiteConfig};
 
 /// Render a full HTML page with head (CSS + htmx) and body.
 pub fn page(title: &str, config: &SiteConfig, body: Markup) -> Markup {
@@ -32,57 +37,8 @@ pub fn page(title: &str, config: &SiteConfig, body: Markup) -> Markup {
     }
 }
 
-/// The standard block shell layout: sidebar + main content area.
-///
-/// If `is_fragment` is true, only the inner content is returned (for htmx partials).
-pub fn block_shell(
-    title: &str,
-    config: &SiteConfig,
-    nav_items: &[NavItem],
-    user: Option<&UserInfo>,
-    current_path: &str,
-    content: Markup,
-    is_fragment: bool,
-) -> Markup {
-    if is_fragment {
-        return content;
-    }
-
-    page(
-        title,
-        config,
-        html! {
-            // Mobile header
-            div .mobile-header {
-                button .menu-toggle onclick="toggleMobileMenu()" {
-                    (icons::menu())
-                }
-                span .mobile-title { (title) }
-            }
-
-            div .app-layout {
-                // Sidebar
-                div .sidebar-container {
-                    div .sidebar-overlay onclick="toggleMobileMenu()" {}
-                    div .sidebar-wrapper {
-                        (sidebar::sidebar(nav_items, user, current_path, &config.logo_url, &config.logo_icon_url))
-                    }
-                }
-
-                // Main content
-                div .main-content {
-                    div .content-wrapper #content {
-                        (content)
-                    }
-                }
-            }
-
-            script { (PreEscaped(assets::sidebar_js())) }
-        },
-    )
-}
-
-/// A simple centered page layout (used for login, signup, etc.)
+/// A simple centered page layout — escape hatch for standalone pages that
+/// don't use the shell or `auth_split` template.
 pub fn centered_page(title: &str, config: &SiteConfig, content: Markup) -> Markup {
     page(
         title,

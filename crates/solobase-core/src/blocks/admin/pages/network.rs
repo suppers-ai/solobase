@@ -3,13 +3,13 @@ use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, S
 use wafer_run::{context::Context, types::*, OutputStream};
 use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
 
-use super::admin_page;
+use super::{admin_page, crumb};
 use crate::{
     blocks::admin::{
         NETWORK_REQUEST_LOGS_COLLECTION as NETWORK_REQUEST_LOGS,
         NETWORK_RULES_COLLECTION as NETWORK_RULES, REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
     },
-    ui::{components, icons, SiteConfig, UserInfo},
+    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
 };
 
 pub async fn network_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -76,6 +76,11 @@ pub async fn network_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/admin/network",
         user.as_ref(),
+        Topbar {
+            crumbs: crumb("Network"),
+            primary_action: None,
+            show_palette: true,
+        },
         content,
         msg,
     )

@@ -65,31 +65,14 @@ document.body.addEventListener("showToast", function(e) {
 "#
 }
 
-/// Small inline JS for sidebar toggle (mobile menu + collapse).
-pub fn sidebar_js() -> &'static str {
-    r#"
-function toggleMobileMenu() {
-    document.querySelector('.sidebar-container').classList.toggle('active');
-}
-function toggleSidebar() {
-    document.querySelector('.sidebar').classList.toggle('collapsed');
-    localStorage.setItem('sidebar-collapsed', document.querySelector('.sidebar').classList.contains('collapsed'));
-}
-(function() {
-    if (localStorage.getItem('sidebar-collapsed') === 'true') {
-        var s = document.querySelector('.sidebar');
-        if (s) s.classList.add('collapsed');
-    }
-})();
-"#
-}
-
 /// Vanilla JS for the command palette — open/close, fuzzy filter,
 /// keyboard navigation. Embedded as a string the same way `toast_js()`
 /// and `modal_js()` are.
 pub fn palette_js() -> &'static str {
     r#"
 (function () {
+  if (window.__cmdkInit) return;
+  window.__cmdkInit = true;
   const el = document.getElementById('cmdk');
   if (!el) return;
   const input = document.getElementById('cmdk-input');

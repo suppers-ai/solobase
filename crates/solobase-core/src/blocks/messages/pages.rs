@@ -11,28 +11,32 @@ use wafer_run::{context::Context, types::*, OutputStream};
 use super::service::{self, ListContextsParams, ListEntriesParams};
 use crate::{
     blocks::helpers::{err_internal, RecordExt},
-    ui::{self, components, NavItem, SiteConfig, UserInfo},
+    ui::{
+        self, components, nav_groups,
+        shell::{Crumb, Topbar},
+        SiteConfig, UserInfo,
+    },
 };
 
-fn nav() -> Vec<NavItem> {
-    vec![NavItem {
-        label: "Contexts".into(),
-        href: "/b/messages/".into(),
-        icon: "message-square",
-    }]
-}
-
-fn messages_page(
+fn messages_page<'a>(
     title: &str,
     config: &SiteConfig,
     path: &str,
     user: Option<&UserInfo>,
+    crumb_label: &'a str,
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
-    let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(title, config, &nav(), user, path, content, is_fragment);
-    ui::html_response(markup)
+    let groups = nav_groups::admin();
+    let topbar = Topbar {
+        crumbs: vec![Crumb {
+            label: crumb_label,
+            href: None,
+        }],
+        primary_action: None,
+        show_palette: true,
+    };
+    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
 }
 
 pub fn entry_card(record: &db::Record) -> Markup {
@@ -182,7 +186,15 @@ pub async fn context_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream
         }
     };
 
-    messages_page("Messages", &config, &path, user.as_ref(), content, msg)
+    messages_page(
+        "Messages",
+        &config,
+        &path,
+        user.as_ref(),
+        "Contexts",
+        content,
+        msg,
+    )
 }
 
 pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -287,5 +299,13 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
         }
     };
 
-    messages_page(display_title, &config, &path, user.as_ref(), content, msg)
+    messages_page(
+        display_title,
+        &config,
+        &path,
+        user.as_ref(),
+        display_title,
+        content,
+        msg,
+    )
 }

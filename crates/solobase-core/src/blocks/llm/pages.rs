@@ -15,7 +15,11 @@ use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use super::SETTINGS_COLLECTION;
 use crate::{
     blocks::helpers::{err_internal, RecordExt},
-    ui::{self, components, icons, NavItem, SiteConfig, UserInfo},
+    ui::{
+        self, components, icons, nav_groups,
+        shell::{Crumb, Topbar},
+        SiteConfig, UserInfo,
+    },
 };
 
 const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
@@ -29,32 +33,25 @@ const ENTRIES_COLLECTION: &str = "suppers_ai__messages__entries";
 // Navigation
 // ---------------------------------------------------------------------------
 
-fn nav() -> Vec<NavItem> {
-    vec![
-        NavItem {
-            label: "Chat".into(),
-            href: "/b/llm/".into(),
-            icon: "message-circle",
-        },
-        NavItem {
-            label: "Settings".into(),
-            href: "/b/llm/settings".into(),
-            icon: "settings",
-        },
-    ]
-}
-
-fn llm_page(
-    title: &str,
+fn llm_page<'a>(
+    title: &'a str,
     config: &SiteConfig,
-    path: &str,
+    path: &'a str,
     user: Option<&UserInfo>,
+    crumb_label: &'a str,
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
-    let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(title, config, &nav(), user, path, content, is_fragment);
-    ui::html_response(markup)
+    let groups = nav_groups::admin();
+    let topbar = Topbar {
+        crumbs: vec![Crumb {
+            label: crumb_label,
+            href: None,
+        }],
+        primary_action: None,
+        show_palette: true,
+    };
+    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +207,7 @@ pub async fn chat_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    llm_page("Chat", &config, &path, user.as_ref(), content, msg)
+    llm_page("Chat", &config, &path, user.as_ref(), "Chat", content, msg)
 }
 
 fn thread_list_items(threads: &[db::Record]) -> Markup {
@@ -416,7 +413,15 @@ pub async fn thread_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    llm_page(display_title, &config, &path, user.as_ref(), content, msg)
+    llm_page(
+        display_title,
+        &config,
+        &path,
+        user.as_ref(),
+        display_title,
+        content,
+        msg,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -552,7 +557,15 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    llm_page("LLM Settings", &config, &path, user.as_ref(), content, msg)
+    llm_page(
+        "LLM Settings",
+        &config,
+        &path,
+        user.as_ref(),
+        "Settings",
+        content,
+        msg,
+    )
 }
 
 // ---------------------------------------------------------------------------

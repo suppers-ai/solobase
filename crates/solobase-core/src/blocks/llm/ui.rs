@@ -27,56 +27,37 @@ use super::{
 };
 use crate::{
     blocks::helpers::{self, err_internal},
-    ui::{self, components, NavItem, SiteConfig, UserInfo},
+    ui::{
+        self, components, nav_groups,
+        shell::{Crumb, Topbar},
+        SiteConfig, UserInfo,
+    },
 };
 
 // ---------------------------------------------------------------------------
 // Navigation
 // ---------------------------------------------------------------------------
 
-/// Admin nav shared between the providers and models pages.
-///
-/// Mirrors the `pages::nav()` used by the chat / settings pages but with
-/// admin-oriented entries. The dispatcher already gates non-API routes on
-/// admin role, so we can link without extra checks.
-fn nav() -> Vec<NavItem> {
-    vec![
-        NavItem {
-            label: "Chat".into(),
-            href: "/b/llm/".into(),
-            icon: "message-circle",
-        },
-        NavItem {
-            label: "Providers".into(),
-            href: "/b/llm/providers".into(),
-            icon: "server",
-        },
-        NavItem {
-            label: "Models".into(),
-            href: "/b/llm/models".into(),
-            icon: "cpu",
-        },
-        NavItem {
-            label: "Settings".into(),
-            href: "/b/llm/settings".into(),
-            icon: "settings",
-        },
-    ]
-}
-
-/// Wrap content in the standard block shell (full page for normal GETs,
-/// raw fragment for htmx boosts/partials).
+/// Wrap content in the admin shell for LLM admin pages (providers, models).
 fn llm_page(
-    title: &str,
+    title: &'static str,
     config: &SiteConfig,
     path: &str,
     user: Option<&UserInfo>,
+    crumb_label: &'static str,
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
-    let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(title, config, &nav(), user, path, content, is_fragment);
-    ui::html_response(markup)
+    let groups = nav_groups::admin();
+    let topbar = Topbar {
+        crumbs: vec![Crumb {
+            label: crumb_label,
+            href: None,
+        }],
+        primary_action: None,
+        show_palette: true,
+    };
+    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +123,7 @@ pub(super) async fn providers_page(
         &site_config,
         &path,
         user.as_ref(),
+        "Providers",
         content,
         msg,
     )
@@ -416,6 +398,7 @@ pub(super) async fn models_page(
         &site_config,
         &path,
         user.as_ref(),
+        "Models",
         content,
         msg,
     )
