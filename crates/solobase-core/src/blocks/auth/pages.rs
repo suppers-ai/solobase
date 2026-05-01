@@ -92,6 +92,72 @@ fn site_config(settings: &HashMap<String, String>) -> SiteConfig {
     }
 }
 
+/// True if the provider's full credential triple (CLIENT_ID + CLIENT_SECRET
+/// + REDIRECT_URL) is present in process env. Mirrors the check used by
+/// `providers::registry::build_providers`, so the login page only surfaces
+/// buttons that will actually succeed when clicked.
+fn oauth_provider_configured(provider: &str) -> bool {
+    let up = provider.to_ascii_uppercase();
+    !std::env::var(format!("SOLOBASE_SHARED__AUTH__{up}__CLIENT_ID"))
+        .unwrap_or_default()
+        .is_empty()
+        && !std::env::var(format!("SOLOBASE_SHARED__AUTH__{up}__CLIENT_SECRET"))
+            .unwrap_or_default()
+            .is_empty()
+        && !std::env::var(format!("SOLOBASE_SHARED__AUTH__{up}__REDIRECT_URL"))
+            .unwrap_or_default()
+            .is_empty()
+}
+
+/// Display label for an OAuth provider button.
+fn oauth_provider_label(provider: &str) -> &'static str {
+    match provider {
+        "github" => "GitHub",
+        "google" => "Google",
+        "microsoft" => "Microsoft",
+        _ => "OAuth",
+    }
+}
+
+/// Inline SVG glyph for an OAuth provider button. Sized to sit beside text.
+fn oauth_provider_icon(provider: &str) -> Markup {
+    match provider {
+        "github" => html! {
+            svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true" {
+                path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" {}
+            }
+        },
+        // No bespoke marks for google/microsoft yet — fall back to a
+        // neutral lock icon so the button still renders visually.
+        _ => html! {
+            svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" {
+                rect width="18" height="11" x="3" y="11" rx="2" ry="2" {}
+                path d="M7 11V7a5 5 0 0 1 10 0v4" {}
+            }
+        },
+    }
+}
+
+/// Browser-side handler for OAuth buttons. Hits the existing JSON endpoint,
+/// reads `auth_url`, and redirects. The fetch path uses same-origin cookies
+/// implicitly. On error we surface the message in the existing `#error`
+/// area so it's consistent with the email/password flow.
+fn oauth_button_script() -> &'static str {
+    r#"
+async function oauthStart(provider){
+  var err=document.getElementById('error');
+  try{
+    var r=await fetch('/b/auth/oauth/login?provider='+encodeURIComponent(provider),{credentials:'same-origin'});
+    var d=await r.json();
+    if(!r.ok||!d.auth_url){throw new Error((d&&d.error&&d.error.message)||d&&d.message||'OAuth start failed');}
+    window.location.href=d.auth_url;
+  }catch(ex){
+    if(err){err.textContent=ex.message||'Failed to start OAuth flow';err.style.display='flex';}
+  }
+}
+"#
+}
+
 /// Password field with visibility toggle.
 fn pw_field(id: &str, placeholder: &str, minlength: Option<&str>) -> Markup {
     html! {
@@ -222,6 +288,21 @@ pub async fn login_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         format!("?redirect={redirect}")
     };
 
+    // OAuth buttons appear only when ENABLE_OAUTH is on AND the provider's
+    // full credential triple (CLIENT_ID + CLIENT_SECRET + REDIRECT_URL) is
+    // present in env. Avoids rendering a "Continue with GitHub" button that
+    // would 4xx as soon as it's clicked.
+    let oauth_enabled = get(&settings, "SOLOBASE_SHARED__ENABLE_OAUTH", "false") == "true";
+    let oauth_providers: Vec<&'static str> = if oauth_enabled {
+        ["github", "google", "microsoft"]
+            .iter()
+            .copied()
+            .filter(|p| oauth_provider_configured(p))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     let markup = ui::layout::page(
         "Sign In",
         &config,
@@ -240,6 +321,27 @@ pub async fn login_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
                     div #error .login-error style="display:none" {}
                     div #info style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:.75rem;margin-bottom:1.5rem;font-size:.813rem;color:#059669;display:none" {}
+
+                    @if !oauth_providers.is_empty() {
+                        div .oauth-buttons style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:1rem" {
+                            @for provider in &oauth_providers {
+                                button
+                                    type="button"
+                                    class="oauth-button"
+                                    data-provider=(provider)
+                                    onclick={"oauthStart('"(provider)"')"}
+                                    style="display:flex;align-items:center;justify-content:center;gap:.5rem;padding:.625rem 1rem;background:#000;color:#fff;border:1px solid #000;border-radius:.5rem;font-weight:500;font-size:.95rem;cursor:pointer;transition:background .15s" {
+                                    (oauth_provider_icon(provider))
+                                    "Continue with " (oauth_provider_label(provider))
+                                }
+                            }
+                        }
+                        div style="display:flex;align-items:center;gap:.75rem;margin:.5rem 0 1rem;color:var(--sa-text-muted, #6b7280);font-size:.75rem" {
+                            div style="flex:1;height:1px;background:var(--sa-border, #e5e7eb)" {}
+                            "or"
+                            div style="flex:1;height:1px;background:var(--sa-border, #e5e7eb)" {}
+                        }
+                    }
 
                     form #form .login-form onsubmit="return handleLogin(event)" {
                         input type="hidden" #redirect value=(redirect);
@@ -274,6 +376,9 @@ pub async fn login_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
                 script { (PreEscaped(pw_toggle_js())) }
                 script { (PreEscaped(login_script())) }
+                @if !oauth_providers.is_empty() {
+                    script { (PreEscaped(oauth_button_script())) }
+                }
             },
         ),
     );
