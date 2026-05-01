@@ -8,34 +8,37 @@ use crate::{
         admin::VARIABLES_COLLECTION as VARIABLES,
         helpers::{self, err_bad_request, err_internal, err_not_found, parse_form_body, RecordExt},
     },
-    ui::{self, components, icons, shell::Topbar, SiteConfig, UserInfo},
+    ui::{
+        self, components, icons,
+        shell::Topbar,
+        templates::{self as tmpl, FormSection, PageHeader},
+        SiteConfig, UserInfo,
+    },
 };
 
-pub async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
+/// Render JUST the variables settings body. The parent `settings_page`
+/// handler wraps this in `form_page` + the shell.
+pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
     let tab = msg.query("tab");
     let active_tab = if tab == "all" { "all" } else { "blocks" };
 
-    let content = html! {
-        (components::page_header("Config", Some("Block configuration variables and access control"),
-            Some(html! {
-                button .btn .btn-primary .btn-sm onclick="openModal('create-var')" {
-                    (icons::plus()) " Add Variable"
-                }
-            })
-        ))
+    html! {
+        div style="margin-bottom:0.75rem" {
+            button .btn .btn-primary .btn-sm onclick="openModal('create-var')" {
+                (icons::plus()) " Add Variable"
+            }
+        }
 
         div .tabs {
             a .tab .(if active_tab == "blocks" { "active" } else { "" })
-                href="/b/admin/variables"
-                hx-get="/b/admin/variables"
+                href="/b/admin/settings/variables"
+                hx-get="/b/admin/settings/variables"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::package()) " By Block" }
             a .tab .(if active_tab == "all" { "active" } else { "" })
-                href="/b/admin/variables?tab=all"
-                hx-get="/b/admin/variables?tab=all"
+                href="/b/admin/settings/variables?tab=all"
+                hx-get="/b/admin/settings/variables?tab=all"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::file_text()) " All Variables" }
@@ -85,19 +88,66 @@ pub async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 div #edit-var-modal {}
             }
         }
-    };
+    }
+}
 
+/// Full settings page for variables — used by mutation handlers that need to
+/// re-render the complete page after a create/update. Wraps `settings_body`
+/// in `form_page` + the admin shell.
+async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    let config = SiteConfig::load(ctx).await;
+    let user = UserInfo::from_message(msg);
+    let path = msg.path().to_string();
+    let body = settings_body(ctx, msg).await;
+    let tabs = vec![
+        (
+            "Email".to_string(),
+            "/b/admin/settings/email".to_string(),
+            false,
+        ),
+        (
+            "Network".to_string(),
+            "/b/admin/settings/network".to_string(),
+            false,
+        ),
+        (
+            "Variables".to_string(),
+            "/b/admin/settings/variables".to_string(),
+            true,
+        ),
+        (
+            "Permissions".to_string(),
+            "/b/admin/settings/permissions".to_string(),
+            false,
+        ),
+    ];
+    let form_body = tmpl::form_page(
+        PageHeader {
+            title: "Settings",
+            subtitle: None,
+            primary_action: None,
+        },
+        Some(tabs),
+        vec![FormSection {
+            title: "Variables",
+            description: Some("Configure environment variables and shared config."),
+            body,
+        }],
+        "/b/admin/settings/variables",
+        "post",
+        "Save",
+    );
     admin_page(
-        "Config",
+        "Settings",
         &config,
-        "/b/admin/variables",
+        &path,
         user.as_ref(),
         Topbar {
-            crumbs: crumb("Variables"),
+            crumbs: crumb("Settings"),
             primary_action: None,
             show_palette: true,
         },
-        content,
+        form_body,
         msg,
     )
 }
