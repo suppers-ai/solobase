@@ -1,9 +1,7 @@
 mod api_keys;
-pub mod block;
 pub mod bootstrap;
 pub mod cache;
 pub mod config;
-pub mod handlers;
 mod login;
 pub mod migrations;
 mod oauth;
@@ -13,8 +11,6 @@ pub mod providers;
 pub mod repo;
 pub mod service;
 pub mod session;
-pub mod templates;
-pub mod view_models;
 
 use std::{collections::HashMap, time::Duration};
 

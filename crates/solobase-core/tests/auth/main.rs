@@ -1,24 +1,10 @@
 //! Integration test crate for the `suppers-ai/auth` block.
 
-mod block_dispatch;
-mod block_init_bootstrap;
 mod bootstrap_run;
-mod cli_exchange;
 mod common;
 mod fake_github;
-mod handlers_login;
-mod handlers_me;
-mod handlers_tokens_create;
-mod handlers_tokens_delete;
-mod handlers_tokens_list;
-mod login_flow;
-mod logout_cache_invalidation;
 mod migrations_001;
 mod migrations_002;
-mod oauth_integration;
-mod oauth_resolve;
-mod orgs_claim;
-mod pat_flow;
 mod pat_issue;
 mod repo_cli_codes;
 mod repo_orgs;
@@ -26,7 +12,6 @@ mod repo_pats;
 mod repo_provider_links;
 mod repo_sessions;
 mod repo_users;
-mod routes_mounted;
 mod service_require_role;
 mod service_require_token;
 mod service_require_user;
