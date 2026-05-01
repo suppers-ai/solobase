@@ -55,7 +55,11 @@ async fn load_variables(ctx: &dyn Context) -> HashMap<String, String> {
 /// rebind via `String::leak` — but we want a clean borrow lifetime, so the
 /// signature returns `Cow<'a, str>`. Callers compare with `==` or pass the
 /// result through `to_string()`, which both work transparently.
-fn get<'a>(settings: &'a HashMap<String, String>, key: &str, default: &'a str) -> std::borrow::Cow<'a, str> {
+fn get<'a>(
+    settings: &'a HashMap<String, String>,
+    key: &str,
+    default: &'a str,
+) -> std::borrow::Cow<'a, str> {
     if let Some(v) = settings.get(key) {
         return std::borrow::Cow::Borrowed(v.as_str());
     }
