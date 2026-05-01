@@ -6,7 +6,14 @@ use wafer_sql_utils::{query, upsert, value::sea_values_to_json, Backend};
 use super::{admin_page, crumb};
 use crate::{
     blocks::admin::BLOCK_SETTINGS_COLLECTION as BLOCK_SETTINGS,
-    ui::{self, components, icons, shell::Topbar, SiteConfig, UserInfo},
+    ui::{
+        self,
+        components::empty_state,
+        icons,
+        shell::Topbar,
+        templates::{list_page, PageHeader},
+        SiteConfig, UserInfo,
+    },
 };
 
 pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -61,22 +68,20 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     }
 
-    let content = html! {
-        (components::page_header("Blocks", Some("Registered WAFER blocks"),
-            Some(html! {
-                div style="display:flex;gap:8px" {
-                    a .btn .btn-sm href="https://wafer.run/registry" target="_blank"
-                        style="display:inline-flex;align-items:center;gap:4px;background:#8b5cf6;color:#fff;border:none"
-                    {
-                        (icons::arrow_up_right()) " Explore WASM blocks"
-                    }
-                    a .btn .btn-primary .btn-sm href="/debug/inspector/ui" target="_blank" {
-                        (icons::globe()) " Open Inspector"
-                    }
-                }
-            })
-        ))
+    let page_action = html! {
+        div style="display:flex;gap:8px" {
+            a .btn .btn-sm href="https://wafer.run/registry" target="_blank"
+                style="display:inline-flex;align-items:center;gap:4px;background:#8b5cf6;color:#fff;border:none"
+            {
+                (icons::arrow_up_right()) " Explore WASM blocks"
+            }
+            a .btn .btn-primary .btn-sm href="/debug/inspector/ui" target="_blank" {
+                (icons::globe()) " Open Inspector"
+            }
+        }
+    };
 
+    let tabs_and_body = html! {
         div .tabs {
             a .tab .(if active_tab == "features" { "active" } else { "" })
                 href="/b/admin/blocks"
@@ -134,7 +139,12 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 }
 
                 @if filtered.is_empty() {
-                    (components::empty_state_v1("No blocks", "No blocks registered in this category"))
+                    (empty_state(
+                        icons::package(),
+                        "No blocks",
+                        "No blocks registered in this category.",
+                        None,
+                    ))
                 }
 
                 div .cards style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px;align-items:start" {
@@ -198,6 +208,17 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
+    let body = list_page(
+        PageHeader {
+            title: "Blocks",
+            subtitle: Some("Registered WAFER blocks"),
+            primary_action: Some(page_action),
+        },
+        None,
+        tabs_and_body,
+        None,
+    );
+
     admin_page(
         "Blocks",
         &config,
@@ -208,7 +229,7 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             primary_action: None,
             show_palette: true,
         },
-        content,
+        body,
         msg,
     )
 }
