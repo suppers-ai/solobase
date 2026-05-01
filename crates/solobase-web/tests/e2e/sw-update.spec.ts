@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const PKG = join(__dirname, '../../pkg');
+const PKG = join(import.meta.dirname, '../../pkg');
 
 function readManifestBuildId(): string {
   const body = readFileSync(join(PKG, 'asset-manifest.json'), 'utf8');
@@ -27,7 +27,7 @@ test('a new build causes the SW to update and fetch new hashed WASM', async ({ p
 
   execSync(
     `touch crates/solobase-web/src/lib.rs && cd crates/solobase-web && make build`,
-    { cwd: join(__dirname, '../../../..'), stdio: 'inherit' },
+    { cwd: join(import.meta.dirname, '../../../..'), stdio: 'inherit' },
   );
 
   const newBuildId = readManifestBuildId();
@@ -53,7 +53,7 @@ test('a no-op rebuild does not trigger a SW update', async ({ page }) => {
 
   execSync(
     `cd crates/solobase-web && make build`,
-    { cwd: join(__dirname, '../../../..'), stdio: 'inherit' },
+    { cwd: join(import.meta.dirname, '../../../..'), stdio: 'inherit' },
   );
 
   const buildId2 = readManifestBuildId();
