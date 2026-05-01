@@ -97,7 +97,7 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
 
     html! {
         div .filter-bar {
-            (components::search_input_with_value("search", "Search by path...", "/b/admin/network", "#content", &search))
+            (components::search_input_with_value("search", "Search by path...", "/b/admin/settings/network", "#content", &search))
         }
 
         style { (maud::PreEscaped("
@@ -306,7 +306,7 @@ async fn network_outbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
 
     html! {
         div .filter-bar {
-            (components::search_input_with_value("search", "Search by URL...", "/b/admin/network?tab=outbound", "#content", &search))
+            (components::search_input_with_value("search", "Search by URL...", "/b/admin/settings/network?tab=outbound", "#content", &search))
         }
 
         style { (maud::PreEscaped("

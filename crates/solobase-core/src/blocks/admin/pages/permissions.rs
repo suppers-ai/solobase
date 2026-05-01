@@ -2,18 +2,13 @@ use maud::{html, Markup};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, OutputStream};
 
-use super::{admin_page, crumb, network::network_rules_tab, storage::storage_rules_tab};
+use super::{network::network_rules_tab, storage::storage_rules_tab};
 use crate::{
     blocks::admin::{
         NETWORK_RULES_COLLECTION as NETWORK_RULES, STORAGE_RULES_COLLECTION as STORAGE_RULES,
         WRAP_GRANTS_COLLECTION as WRAP_GRANTS,
     },
-    ui::{
-        components, icons,
-        shell::Topbar,
-        templates::{self as tmpl, FormSection, PageHeader},
-        SiteConfig, UserInfo,
-    },
+    ui::{components, icons},
 };
 
 /// Render JUST the permissions settings body. The parent `settings_page`
@@ -73,69 +68,14 @@ pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
 }
 
 /// Full settings page for permissions — used by WRAP grant mutation handlers
-/// that need to re-render the complete page after a create/delete.
+/// (and by the legacy `/b/admin/grants` route) that need to re-render the
+/// complete page after a create/delete. Delegates to the canonical
+/// `settings_page` so both call paths share one composition.
 pub async fn permissions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let path = msg.path().to_string();
-    let body = settings_body(ctx, msg).await;
-    let tabs = vec![
-        (
-            "Email".to_string(),
-            "/b/admin/settings/email".to_string(),
-            false,
-        ),
-        (
-            "Network".to_string(),
-            "/b/admin/settings/network".to_string(),
-            false,
-        ),
-        (
-            "Variables".to_string(),
-            "/b/admin/settings/variables".to_string(),
-            false,
-        ),
-        (
-            "Permissions".to_string(),
-            "/b/admin/settings/permissions".to_string(),
-            true,
-        ),
-    ];
-    let form_body = tmpl::form_page(
-        PageHeader {
-            title: "Settings",
-            subtitle: None,
-            primary_action: None,
-        },
-        Some(tabs),
-        vec![FormSection {
-            title: "Permissions",
-            description: Some(
-                "Control which blocks can access other blocks' data, files, and services.",
-            ),
-            body,
-        }],
-        "/b/admin/settings/permissions",
-        "post",
-        "Save",
-    );
-    admin_page(
-        "Settings",
-        &config,
-        &path,
-        user.as_ref(),
-        Topbar {
-            crumbs: crumb("Settings"),
-            primary_action: None,
-            show_palette: true,
-        },
-        form_body,
-        msg,
-    )
+    super::settings::settings_page(ctx, msg, "permissions").await
 }
 
 pub async fn grants_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    // Redirect to the consolidated permissions settings page
     permissions_page(ctx, msg).await
 }
 

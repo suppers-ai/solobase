@@ -250,7 +250,15 @@ impl Block for AdminBlock {
                 .split('/')
                 .next()
                 .unwrap_or("");
-            return pages::settings_page(ctx, &msg, tab).await;
+            // Whitelist tabs at the dispatch layer so /b/admin/settings/foobar
+            // 404s instead of silently rendering email — easier to catch
+            // typos and broken internal links during the Phase 3-5 ports.
+            match tab {
+                "email" | "network" | "variables" | "permissions" => {
+                    return pages::settings_page(ctx, &msg, tab).await;
+                }
+                _ => return err_not_found("not found"),
+            }
         }
 
         // SSR pages + htmx mutations at /b/admin/...

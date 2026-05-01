@@ -2,18 +2,12 @@ use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, ListOptions};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{admin_page, crumb};
 use crate::{
     blocks::{
         admin::VARIABLES_COLLECTION as VARIABLES,
         helpers::{self, err_bad_request, err_internal, err_not_found, parse_form_body, RecordExt},
     },
-    ui::{
-        self, components, icons,
-        shell::Topbar,
-        templates::{self as tmpl, FormSection, PageHeader},
-        SiteConfig, UserInfo,
-    },
+    ui::{self, components, icons},
 };
 
 /// Render JUST the variables settings body. The parent `settings_page`
@@ -92,64 +86,10 @@ pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
 }
 
 /// Full settings page for variables — used by mutation handlers that need to
-/// re-render the complete page after a create/update. Wraps `settings_body`
-/// in `form_page` + the admin shell.
+/// re-render the complete page after a create/update. Delegates to the
+/// canonical `settings_page` so both call paths share one composition.
 async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let path = msg.path().to_string();
-    let body = settings_body(ctx, msg).await;
-    let tabs = vec![
-        (
-            "Email".to_string(),
-            "/b/admin/settings/email".to_string(),
-            false,
-        ),
-        (
-            "Network".to_string(),
-            "/b/admin/settings/network".to_string(),
-            false,
-        ),
-        (
-            "Variables".to_string(),
-            "/b/admin/settings/variables".to_string(),
-            true,
-        ),
-        (
-            "Permissions".to_string(),
-            "/b/admin/settings/permissions".to_string(),
-            false,
-        ),
-    ];
-    let form_body = tmpl::form_page(
-        PageHeader {
-            title: "Settings",
-            subtitle: None,
-            primary_action: None,
-        },
-        Some(tabs),
-        vec![FormSection {
-            title: "Variables",
-            description: Some("Configure environment variables and shared config."),
-            body,
-        }],
-        "/b/admin/settings/variables",
-        "post",
-        "Save",
-    );
-    admin_page(
-        "Settings",
-        &config,
-        &path,
-        user.as_ref(),
-        Topbar {
-            crumbs: crumb("Settings"),
-            primary_action: None,
-            show_palette: true,
-        },
-        form_body,
-        msg,
-    )
+    super::settings::settings_page(ctx, msg, "variables").await
 }
 
 /// "All Variables" tab -- flat table of all config variables from the DB.
