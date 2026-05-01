@@ -8,86 +8,133 @@ use crate::{
         NETWORK_RULES_COLLECTION as NETWORK_RULES, STORAGE_RULES_COLLECTION as STORAGE_RULES,
         WRAP_GRANTS_COLLECTION as WRAP_GRANTS,
     },
-    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
+    ui::{
+        components, icons,
+        shell::Topbar,
+        templates::{self as tmpl, FormSection, PageHeader},
+        SiteConfig, UserInfo,
+    },
 };
 
-pub async fn grants_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    // Redirect to the unified Permissions page
-    permissions_page(ctx, msg).await
-}
-
-pub async fn permissions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let tab = msg.query("tab");
-    let active_tab = match tab {
+/// Render JUST the permissions settings body. The parent `settings_page`
+/// handler wraps this in `form_page` + the shell.
+///
+/// Internal sub-tabs use `?subtab=database|storage|network|all` to avoid
+/// colliding with the parent path-segment tab system (`/settings/{tab}`).
+pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
+    let subtab = msg.query("subtab");
+    let active_subtab = match subtab {
         "database" => "database",
         "storage" => "storage",
         "network" => "network",
         _ => "all",
     };
 
-    let content = html! {
-        (components::page_header(
-            "Permissions",
-            Some("Control which blocks can access other blocks' data, files, and services"),
-            None::<maud::Markup>,
-        ))
-
+    html! {
         div .tabs {
-            a .tab .(if active_tab == "all" { "active" } else { "" })
-                href="/b/admin/permissions"
-                hx-get="/b/admin/permissions"
+            a .tab .(if active_subtab == "all" { "active" } else { "" })
+                href="/b/admin/settings/permissions"
+                hx-get="/b/admin/settings/permissions"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::shield()) " All" }
-            a .tab .(if active_tab == "database" { "active" } else { "" })
-                href="/b/admin/permissions?tab=database"
-                hx-get="/b/admin/permissions?tab=database"
+            a .tab .(if active_subtab == "database" { "active" } else { "" })
+                href="/b/admin/settings/permissions?subtab=database"
+                hx-get="/b/admin/settings/permissions?subtab=database"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::database()) " Database & Config" }
-            a .tab .(if active_tab == "storage" { "active" } else { "" })
-                href="/b/admin/permissions?tab=storage"
-                hx-get="/b/admin/permissions?tab=storage"
+            a .tab .(if active_subtab == "storage" { "active" } else { "" })
+                href="/b/admin/settings/permissions?subtab=storage"
+                hx-get="/b/admin/settings/permissions?subtab=storage"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::hard_drive()) " Storage" }
-            a .tab .(if active_tab == "network" { "active" } else { "" })
-                href="/b/admin/permissions?tab=network"
-                hx-get="/b/admin/permissions?tab=network"
+            a .tab .(if active_subtab == "network" { "active" } else { "" })
+                href="/b/admin/settings/permissions?subtab=network"
+                hx-get="/b/admin/settings/permissions?subtab=network"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::globe()) " Network" }
         }
 
         div #permissions-content {
-            @if active_tab == "database" {
+            @if active_subtab == "database" {
                 (permissions_database_tab(ctx, msg).await)
-            } @else if active_tab == "storage" {
+            } @else if active_subtab == "storage" {
                 (permissions_storage_tab(ctx, msg).await)
-            } @else if active_tab == "network" {
+            } @else if active_subtab == "network" {
                 (permissions_network_tab(ctx, msg).await)
             } @else {
                 (permissions_all_tab(ctx, msg).await)
             }
         }
+    }
+}
 
-    };
-
+/// Full settings page for permissions — used by WRAP grant mutation handlers
+/// that need to re-render the complete page after a create/delete.
+pub async fn permissions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    let config = SiteConfig::load(ctx).await;
+    let user = UserInfo::from_message(msg);
+    let path = msg.path().to_string();
+    let body = settings_body(ctx, msg).await;
+    let tabs = vec![
+        (
+            "Email".to_string(),
+            "/b/admin/settings/email".to_string(),
+            false,
+        ),
+        (
+            "Network".to_string(),
+            "/b/admin/settings/network".to_string(),
+            false,
+        ),
+        (
+            "Variables".to_string(),
+            "/b/admin/settings/variables".to_string(),
+            false,
+        ),
+        (
+            "Permissions".to_string(),
+            "/b/admin/settings/permissions".to_string(),
+            true,
+        ),
+    ];
+    let form_body = tmpl::form_page(
+        PageHeader {
+            title: "Settings",
+            subtitle: None,
+            primary_action: None,
+        },
+        Some(tabs),
+        vec![FormSection {
+            title: "Permissions",
+            description: Some("Control which blocks can access other blocks' data, files, and services."),
+            body,
+        }],
+        "/b/admin/settings/permissions",
+        "post",
+        "Save",
+    );
     admin_page(
-        "Permissions",
+        "Settings",
         &config,
-        "/b/admin/permissions",
+        &path,
         user.as_ref(),
         Topbar {
-            crumbs: crumb("Permissions"),
+            crumbs: crumb("Settings"),
             primary_action: None,
             show_palette: true,
         },
-        content,
+        form_body,
         msg,
     )
+}
+
+pub async fn grants_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    // Redirect to the consolidated permissions settings page
+    permissions_page(ctx, msg).await
 }
 
 fn grants_code_tab(ctx: &dyn Context) -> Markup {
