@@ -8,103 +8,6 @@ use super::icons;
 // Data Table
 // ---------------------------------------------------------------------------
 
-/// Column definition for a data table.
-pub struct Column {
-    pub key: &'static str,
-    pub label: &'static str,
-    pub sortable: bool,
-}
-
-/// Options for rendering a data table.
-pub struct TableOptions<'a> {
-    pub id: &'a str,
-    /// htmx target for sorting/pagination requests
-    pub hx_target: Option<&'a str>,
-    /// Base URL for sort/page links
-    pub base_url: Option<&'a str>,
-    pub current_sort: Option<&'a str>,
-    pub sort_dir: Option<&'a str>,
-}
-
-impl<'a> Default for TableOptions<'a> {
-    fn default() -> Self {
-        Self {
-            id: "data-table",
-            hx_target: None,
-            base_url: None,
-            current_sort: None,
-            sort_dir: None,
-        }
-    }
-}
-
-/// Render a data table from JSON rows.
-pub fn data_table_v1(
-    columns: &[Column],
-    rows: &[serde_json::Value],
-    options: &TableOptions<'_>,
-) -> Markup {
-    html! {
-        div .table-container {
-            table .table id=(options.id) {
-                thead {
-                    tr {
-                        @for col in columns {
-                            @if col.sortable {
-                                @let is_sorted = options.current_sort == Some(col.key);
-                                @let next_dir = if is_sorted && options.sort_dir == Some("asc") { "desc" } else { "asc" };
-                                th .sortable
-                                    hx-get={
-                                        (options.base_url.unwrap_or(""))
-                                        "?sort=" (col.key) "&dir=" (next_dir)
-                                    }
-                                    hx-target=(options.hx_target.unwrap_or("#data-table"))
-                                    hx-swap="outerHTML"
-                                {
-                                    (col.label)
-                                    @if is_sorted {
-                                        @if options.sort_dir == Some("asc") {
-                                            " " (icons::chevron_up())
-                                        } @else {
-                                            " " (icons::chevron_down())
-                                        }
-                                    }
-                                }
-                            } @else {
-                                th { (col.label) }
-                            }
-                        }
-                    }
-                }
-                tbody {
-                    @if rows.is_empty() {
-                        tr {
-                            td colspan=(columns.len().to_string()) .text-center .text-muted style="padding: 2rem;" {
-                                "No data found"
-                            }
-                        }
-                    }
-                    @for row in rows {
-                        tr {
-                            @for col in columns {
-                                td {
-                                    @match row.get(col.key) {
-                                        Some(serde_json::Value::String(s)) => (s),
-                                        Some(serde_json::Value::Number(n)) => (n),
-                                        Some(serde_json::Value::Bool(b)) => (b),
-                                        Some(serde_json::Value::Null) | None => "",
-                                        Some(other) => (other),
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Tab Navigation
 // ---------------------------------------------------------------------------
@@ -207,47 +110,6 @@ pub fn search_input_with_value(
 // Pagination
 // ---------------------------------------------------------------------------
 
-/// Render pagination controls.
-pub fn pagination_v1(
-    current_page: u32,
-    total_pages: u32,
-    base_url: &str,
-    hx_target: &str,
-) -> Markup {
-    if total_pages <= 1 {
-        return html! {};
-    }
-    html! {
-        div .pagination {
-            div .pagination-info {
-                "Page " (current_page) " of " (total_pages)
-            }
-            div .pagination-controls {
-                @if current_page > 1 {
-                    button .pagination-btn
-                        hx-get={ (base_url) "?page=" (current_page - 1) }
-                        hx-target=(hx_target)
-                    {
-                        (icons::chevron_left())
-                    }
-                } @else {
-                    button .pagination-btn disabled { (icons::chevron_left()) }
-                }
-
-                @if current_page < total_pages {
-                    button .pagination-btn
-                        hx-get={ (base_url) "?page=" (current_page + 1) }
-                        hx-target=(hx_target)
-                    {
-                        (icons::chevron_right())
-                    }
-                } @else {
-                    button .pagination-btn disabled { (icons::chevron_right()) }
-                }
-            }
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Status Badge
@@ -319,16 +181,6 @@ pub fn modal_with_footer(id: &str, title: &str, body: Markup, footer: Markup) ->
 // Empty State
 // ---------------------------------------------------------------------------
 
-/// Render an empty state placeholder.
-pub fn empty_state_v1(title: &str, description: &str) -> Markup {
-    html! {
-        div .empty-state {
-            div .empty-state-icon { (icons::package()) }
-            div .empty-state-title { (title) }
-            div .empty-state-description { (description) }
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Loading Spinner
