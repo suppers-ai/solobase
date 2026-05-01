@@ -238,6 +238,21 @@ impl Block for AdminBlock {
             return err_not_found("not found");
         }
 
+        // Settings consolidation: /b/admin/settings/{tab}
+        // Must be checked BEFORE the generic /b/admin handler to avoid the catch-all.
+        if path == "/b/admin/settings" || path == "/b/admin/settings/" {
+            return redirect_308("/b/admin/settings/email");
+        }
+        if path.starts_with("/b/admin/settings/") {
+            let tab = path
+                .strip_prefix("/b/admin/settings/")
+                .unwrap_or("")
+                .split('/')
+                .next()
+                .unwrap_or("");
+            return pages::settings_page(ctx, &msg, tab).await;
+        }
+
         // SSR pages + htmx mutations at /b/admin/...
         if path.starts_with("/b/admin") {
             let action = msg.action().to_string();
@@ -367,13 +382,29 @@ impl Block for AdminBlock {
             }
 
             // SSR page handlers (GET)
+            // Note: /email, /network, /variables, /permissions redirect 308 to
+            // /b/admin/settings/{tab} so bookmarks and old links keep working.
             return match sub.as_str() {
                 "" | "/" => pages::dashboard(ctx, &msg).await,
                 "/users" => pages::users_page(ctx, &msg).await,
                 "/storage" => pages::storage_page(ctx, &msg).await,
                 "/blocks" => pages::blocks_page(ctx, &msg).await,
                 "/logs" => pages::logs_page(ctx, &msg).await,
-                // "/email", "/network", "/variables", "/permissions" replaced with 308 redirects in Task 8
+                "/email" => redirect_308("/b/admin/settings/email"),
+                "/network" => redirect_308("/b/admin/settings/network"),
+                "/variables" => redirect_308("/b/admin/settings/variables"),
+                "/permissions" => {
+                    // Preserve ?tab= query string as ?subtab= in the new location.
+                    let old_tab = msg.query("tab");
+                    if old_tab.is_empty() {
+                        redirect_308("/b/admin/settings/permissions")
+                    } else {
+                        redirect_308(&format!(
+                            "/b/admin/settings/permissions?subtab={}",
+                            old_tab
+                        ))
+                    }
+                }
                 "/grants" => pages::grants_page(ctx, &msg).await,
                 _ => err_not_found("not found"),
             };
@@ -393,6 +424,19 @@ impl Block for AdminBlock {
         }
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Redirect helper
+// ---------------------------------------------------------------------------
+
+/// Build a 308 Permanent Redirect to `target`. Preserves method + body
+/// per RFC 7538, so POST/PUT htmx requests redirect correctly.
+fn redirect_308(target: &str) -> OutputStream {
+    crate::blocks::helpers::ResponseBuilder::new()
+        .status(308)
+        .set_header("Location", target)
+        .body(Vec::new(), "text/plain")
 }
 
 // ---------------------------------------------------------------------------
@@ -431,7 +475,7 @@ async fn handle_create_wrap_grant(
     data.insert("description".into(), serde_json::json!(description));
     let _ = db::create(ctx, WRAP_GRANTS_COLLECTION, data).await;
 
-    msg.set_meta("req.query.tab", "database");
+    msg.set_meta("req.query.subtab", "database");
     pages::permissions_page(ctx, &msg).await
 }
 
@@ -441,9 +485,38 @@ async fn handle_delete_wrap_grant(
     grant_id: &str,
 ) -> OutputStream {
     let _ = db::delete(ctx, WRAP_GRANTS_COLLECTION, grant_id).await;
-    msg.set_meta("req.query.tab", "database");
+    msg.set_meta("req.query.subtab", "database");
     pages::permissions_page(ctx, &msg).await
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 ::wafer_run::register_static_block!("suppers-ai/admin", AdminBlock);
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn redirect_308_sets_location_and_status() {
+        let out = redirect_308("/b/admin/settings/email");
+        let buf = out.collect_buffered().await.unwrap();
+        let status = buf
+            .meta
+            .iter()
+            .find(|e| e.key == "resp.status")
+            .map(|e| e.value.as_str())
+            .unwrap_or("");
+        let location = buf
+            .meta
+            .iter()
+            .find(|e| e.key == "resp.header.Location")
+            .map(|e| e.value.as_str())
+            .unwrap_or("");
+        assert_eq!(status, "308");
+        assert_eq!(location, "/b/admin/settings/email");
+    }
+}
