@@ -428,7 +428,7 @@ impl AuthBlock {
             }
         };
 
-        let roles = get_user_roles(ctx, &user.id).await;
+        let roles = ensure_admin_role(ctx, &user.id, &email).await;
         let (jwt_token, refresh_token, family) = match generate_tokens(
             ctx,
             &user.id,

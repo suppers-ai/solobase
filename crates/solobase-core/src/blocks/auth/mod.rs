@@ -129,6 +129,61 @@ mod helpers {
         }
     }
 
+    /// Resolve user roles, idempotently granting `admin` if the user's email
+    /// matches the configured `SUPPERS_AI__AUTH__ADMIN_EMAIL` and they don't
+    /// already have it.
+    ///
+    /// This closes a real footgun: roles are normally only assigned at signup
+    /// (`create_user_and_assign_role`), so changing `ADMIN_EMAIL` after a
+    /// user already exists never elevates them. With this helper, every login
+    /// re-checks the rule and grants admin once when appropriate.
+    ///
+    /// Intentionally **upgrade-only**: never removes a role, never demotes.
+    /// Unsetting `ADMIN_EMAIL` does not revoke admin from anyone — that has
+    /// to be done explicitly via the admin UI / DB. Removing roles silently
+    /// on login would be an availability foot-gun (one typo in env locks
+    /// everyone out).
+    pub(super) async fn ensure_admin_role(
+        ctx: &dyn Context,
+        user_id: &str,
+        email: &str,
+    ) -> Vec<String> {
+        let mut roles = get_user_roles(ctx, user_id).await;
+
+        let admin_email =
+            config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "").await;
+        if admin_email.is_empty()
+            || !email.eq_ignore_ascii_case(&admin_email)
+            || roles.iter().any(|r| r == "admin")
+        {
+            return roles;
+        }
+
+        // Email matches and admin role is missing — grant it.
+        let role_data = json_map(serde_json::json!({
+            "user_id": user_id,
+            "role": "admin",
+            "assigned_at": crate::blocks::helpers::now_rfc3339(),
+        }));
+        match db::create(ctx, USER_ROLES_COLLECTION, role_data).await {
+            Ok(_) => {
+                tracing::info!(
+                    user_id = %user_id,
+                    email = %email,
+                    "granted admin role on login (email matches ADMIN_EMAIL)"
+                );
+                roles.push("admin".to_string());
+            }
+            Err(e) => {
+                tracing::warn!(
+                    user_id = %user_id,
+                    "failed to grant admin role on login: {e}"
+                );
+            }
+        }
+        roles
+    }
+
     /// Returns (access_token, refresh_token, family).
     ///
     /// `auth_method` records *how* the user authenticated for this token —
