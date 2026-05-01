@@ -228,6 +228,35 @@ pub fn not_found_response(msg: &wafer_run::types::Message) -> wafer_run::OutputS
     }
 }
 
+/// Return styled 500 for browser requests, JSON for API requests.
+pub fn server_error_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
+    let accept = msg.get_meta("http.header.accept");
+    if accept.contains("text/html") && !accept.contains("application/json") {
+        let config = SiteConfig {
+            app_name: "Solobase".to_string(),
+            logo_url: String::new(),
+            logo_icon_url: String::new(),
+            favicon_url: String::new(),
+            embedded_scripts: Vec::new(),
+        };
+        let body = templates::status_page(
+            "500",
+            "Something went wrong",
+            "An unexpected error occurred. Please try again.",
+            Some(("Go home".to_string(), "/".to_string())),
+        );
+        let markup = layout::page("Server error", &config, body);
+        crate::blocks::helpers::ResponseBuilder::new()
+            .status(500)
+            .body(
+                markup.into_string().into_bytes(),
+                "text/html; charset=utf-8",
+            )
+    } else {
+        crate::blocks::helpers::err_internal("internal server error")
+    }
+}
+
 /// Respond with HTML + an HX-Trigger header for toast notifications.
 pub fn html_response_with_toast(
     markup: maud::Markup,
@@ -313,5 +342,19 @@ mod tests {
         assert!(body.contains("status-page"), "body should contain status-page class");
         assert!(body.contains(">403<"), "body should contain 403 code");
         assert!(body.contains("Sign in"), "body should contain Sign in action");
+    }
+
+    #[tokio::test]
+    async fn server_error_response_uses_status_template() {
+        let mut msg = Message::new("http.request");
+        msg.set_meta("http.header.accept", "text/html");
+        let out = server_error_response(&msg);
+        let buf = out.collect_buffered().await.unwrap();
+        let body = String::from_utf8(buf.body).unwrap_or_default();
+        assert!(body.contains(">500<"), "body should contain 500 code");
+        assert!(
+            body.contains("Something went wrong"),
+            "body should contain 'Something went wrong' title"
+        );
     }
 }
