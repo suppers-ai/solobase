@@ -296,10 +296,7 @@ impl SolobaseBuilder {
                 "wafer-run/security-headers",
                 Arc::new(wafer_block_security_headers::SecurityHeadersBlock::new()),
             )?;
-            wafer.register_block(
-                "wafer-run/web",
-                Arc::new(wafer_block_web::WebBlock::new()),
-            )?;
+            wafer.register_block("wafer-run/web", Arc::new(wafer_block_web::WebBlock::new()))?;
         }
 
         wafer.add_block_config(
