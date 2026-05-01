@@ -150,8 +150,7 @@ pub fn shelled_page(
 }
 
 /// Same as `shelled_page`, but returns an `OutputStream`. Returns the
-/// raw `body` (no chrome) when the request is an htmx partial — same
-/// fragment behavior as `block_shell(is_fragment: true)` had.
+/// raw `body` (no chrome) when the request is an htmx partial.
 pub fn shelled_response(
     msg: &wafer_run::types::Message,
     title: &str,

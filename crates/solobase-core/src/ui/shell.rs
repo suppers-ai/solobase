@@ -1,6 +1,5 @@
-//! New shell — replaces `layout::block_shell` body. Renders sidebar
-//! (left) + topbar (top of content) + body (the rest). Pages declare
-//! `Topbar` inputs; this module owns the chrome.
+//! Shell — renders sidebar (left) + topbar (top of content) + body (the rest).
+//! Pages declare `Topbar` inputs; this module owns the chrome.
 
 use maud::{html, Markup};
 
@@ -96,8 +95,8 @@ pub fn shell(
     }
 }
 
-/// Backward-compat helper used by the existing `layout::block_shell`.
-/// Wraps a flat `Vec<NavItem>` into one unlabeled `NavGroup`.
+/// Wraps a flat `Vec<NavItem>` into one unlabeled `NavGroup`. Used by tests
+/// and any caller that doesn't need group labels.
 pub fn one_group(items: Vec<NavItem>) -> Vec<NavGroup> {
     vec![NavGroup { label: None, items }]
 }
