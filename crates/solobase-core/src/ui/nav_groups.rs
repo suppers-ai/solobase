@@ -49,6 +49,28 @@ pub fn admin(_current_path: &str) -> Vec<NavGroup> {
     ]
 }
 
+/// Portal sidebar groups (end-user account + apps).
+pub fn portal(_current_path: &str) -> Vec<NavGroup> {
+    vec![
+        NavGroup {
+            label: Some("Account".to_string()),
+            items: vec![
+                item("Profile", "/b/userportal/profile", "user"),
+                item("Organizations", "/b/auth/orgs", "users"),
+                item("Sessions", "/b/userportal/sessions", "shield"),
+            ],
+        },
+        NavGroup {
+            label: Some("Apps".to_string()),
+            items: vec![
+                item("Products", "/b/products/", "package"),
+                item("Files", "/b/storage/", "folder"),
+                item("Legal", "/b/legalpages/admin/privacy", "file-text"),
+            ],
+        },
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +99,34 @@ mod tests {
         let system = groups.iter().find(|g| g.label.as_deref() == Some("System")).unwrap();
         let settings = system.items.iter().find(|i| i.label == "Settings").unwrap();
         assert_eq!(settings.href, "/b/admin/settings/email");
+    }
+
+    #[test]
+    fn portal_has_account_and_apps() {
+        let groups = portal("/b/userportal/profile");
+        let labels: Vec<&str> = groups
+            .iter()
+            .map(|g| g.label.as_deref().unwrap_or(""))
+            .collect();
+        assert_eq!(labels, vec!["Account", "Apps"]);
+    }
+
+    #[test]
+    fn portal_account_includes_profile_orgs_sessions() {
+        let groups = portal("/b/userportal/profile");
+        let account = &groups[0];
+        let hrefs: Vec<&str> = account.items.iter().map(|i| i.href.as_str()).collect();
+        assert_eq!(
+            hrefs,
+            vec!["/b/userportal/profile", "/b/auth/orgs", "/b/userportal/sessions"]
+        );
+    }
+
+    #[test]
+    fn portal_apps_includes_products_files_legal() {
+        let groups = portal("/b/products/");
+        let apps = &groups[1];
+        let labels: Vec<&str> = apps.items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(labels, vec!["Products", "Files", "Legal"]);
     }
 }
