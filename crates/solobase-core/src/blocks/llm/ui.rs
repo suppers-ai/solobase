@@ -48,7 +48,7 @@ fn llm_page(
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
-    let groups = nav_groups::admin(path);
+    let groups = nav_groups::admin();
     let topbar = Topbar {
         crumbs: vec![Crumb {
             label: crumb_label,

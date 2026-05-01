@@ -11,10 +11,8 @@ fn item(label: &str, href: &str, icon: &'static str) -> NavItem {
     }
 }
 
-/// Admin sidebar groups. The `_current_path` arg exists for symmetry
-/// with `portal()` and is forwarded to `sidebar_grouped` by the caller;
-/// active-item highlighting happens there.
-pub fn admin(_current_path: &str) -> Vec<NavGroup> {
+/// Admin sidebar groups.
+pub fn admin() -> Vec<NavGroup> {
     vec![
         NavGroup {
             label: Some("Workspace".to_string()),
@@ -50,7 +48,7 @@ pub fn admin(_current_path: &str) -> Vec<NavGroup> {
 }
 
 /// Portal sidebar groups (end-user account + apps).
-pub fn portal(_current_path: &str) -> Vec<NavGroup> {
+pub fn portal() -> Vec<NavGroup> {
     vec![
         NavGroup {
             label: Some("Account".to_string()),
@@ -71,33 +69,21 @@ pub fn portal(_current_path: &str) -> Vec<NavGroup> {
     ]
 }
 
-/// Build palette entries for the audience matching `current_path`.
-/// Admin paths get admin nav; everything else gets portal nav.
-pub fn palette_entries(current_path: &str) -> Vec<crate::ui::palette::PaletteEntry> {
+/// Flatten a slice of `NavGroup`s into palette entries. Same items the
+/// sidebar shows; ⌘K uses the same source of truth so the two can never
+/// drift out of sync.
+pub fn palette_entries_from_groups(groups: &[NavGroup]) -> Vec<crate::ui::palette::PaletteEntry> {
     use crate::ui::palette::PaletteEntry;
-    let groups = if is_admin_path(current_path) {
-        admin(current_path)
-    } else {
-        portal(current_path)
-    };
     groups
-        .into_iter()
-        .flat_map(|g| g.items.into_iter())
+        .iter()
+        .flat_map(|g| g.items.iter())
         .map(|item| PaletteEntry {
             keywords: format!("{} {}", item.label.to_lowercase(), item.href),
-            label: item.label,
+            label: item.label.clone(),
             kind_label: "Page".to_string(),
-            href: item.href,
+            href: item.href.clone(),
         })
         .collect()
-}
-
-fn is_admin_path(path: &str) -> bool {
-    path.starts_with("/b/admin")
-        || path.starts_with("/b/inspector")
-        || path.starts_with("/b/messages")
-        || path.starts_with("/b/llm")
-        || path.starts_with("/b/files")
 }
 
 #[cfg(test)]
@@ -106,7 +92,7 @@ mod tests {
 
     #[test]
     fn admin_has_four_labeled_groups_in_spec_order() {
-        let groups = admin("/b/admin/");
+        let groups = admin();
         let labels: Vec<&str> = groups
             .iter()
             .map(|g| g.label.as_deref().unwrap_or(""))
@@ -116,7 +102,7 @@ mod tests {
 
     #[test]
     fn admin_workspace_has_dashboard_and_users() {
-        let groups = admin("/b/admin/");
+        let groups = admin();
         let workspace = &groups[0];
         let labels: Vec<&str> = workspace.items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(labels, vec!["Dashboard", "Users"]);
@@ -124,7 +110,7 @@ mod tests {
 
     #[test]
     fn admin_settings_points_at_email_tab_for_phase_3_route() {
-        let groups = admin("/b/admin/settings/email");
+        let groups = admin();
         let system = groups
             .iter()
             .find(|g| g.label.as_deref() == Some("System"))
@@ -135,7 +121,7 @@ mod tests {
 
     #[test]
     fn portal_has_account_and_apps() {
-        let groups = portal("/b/userportal/profile");
+        let groups = portal();
         let labels: Vec<&str> = groups
             .iter()
             .map(|g| g.label.as_deref().unwrap_or(""))
@@ -145,7 +131,7 @@ mod tests {
 
     #[test]
     fn portal_account_includes_profile_orgs_sessions() {
-        let groups = portal("/b/userportal/profile");
+        let groups = portal();
         let account = &groups[0];
         let hrefs: Vec<&str> = account.items.iter().map(|i| i.href.as_str()).collect();
         assert_eq!(
@@ -160,15 +146,15 @@ mod tests {
 
     #[test]
     fn portal_apps_includes_products_files_legal() {
-        let groups = portal("/b/products/");
+        let groups = portal();
         let apps = &groups[1];
         let labels: Vec<&str> = apps.items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(labels, vec!["Products", "Files", "Legal"]);
     }
 
     #[test]
-    fn palette_entries_for_admin_path_includes_admin_pages() {
-        let entries = palette_entries("/b/admin/users");
+    fn palette_entries_for_admin_groups_includes_admin_pages() {
+        let entries = palette_entries_from_groups(&admin());
         let labels: Vec<&str> = entries.iter().map(|e| e.label.as_str()).collect();
         assert!(labels.contains(&"Dashboard"));
         assert!(labels.contains(&"Users"));
@@ -176,8 +162,8 @@ mod tests {
     }
 
     #[test]
-    fn palette_entries_for_portal_path_includes_portal_pages() {
-        let entries = palette_entries("/b/userportal/profile");
+    fn palette_entries_for_portal_groups_includes_portal_pages() {
+        let entries = palette_entries_from_groups(&portal());
         let labels: Vec<&str> = entries.iter().map(|e| e.label.as_str()).collect();
         assert!(labels.contains(&"Profile"));
         assert!(labels.contains(&"Products"));
@@ -185,7 +171,7 @@ mod tests {
 
     #[test]
     fn palette_entry_keywords_lowercase_label_plus_href() {
-        let entries = palette_entries("/b/admin/");
+        let entries = palette_entries_from_groups(&admin());
         let users = entries.iter().find(|e| e.label == "Users").unwrap();
         assert!(users.keywords.contains("users"));
         assert!(users.keywords.contains("/b/admin/users"));

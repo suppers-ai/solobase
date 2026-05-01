@@ -71,6 +71,8 @@ document.body.addEventListener("showToast", function(e) {
 pub fn palette_js() -> &'static str {
     r#"
 (function () {
+  if (window.__cmdkInit) return;
+  window.__cmdkInit = true;
   const el = document.getElementById('cmdk');
   if (!el) return;
   const input = document.getElementById('cmdk-input');

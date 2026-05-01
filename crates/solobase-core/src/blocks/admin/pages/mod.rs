@@ -43,7 +43,7 @@ pub(crate) fn admin_page(
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
-    let groups = nav_groups::admin(path);
+    let groups = nav_groups::admin();
     ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
 }
 

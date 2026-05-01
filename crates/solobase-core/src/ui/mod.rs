@@ -126,7 +126,7 @@ pub fn shelled_page(
 ) -> maud::Markup {
     use maud::{html, PreEscaped};
     let palette_markup = if topbar.show_palette {
-        palette::palette(nav_groups::palette_entries(current_path))
+        palette::palette(nav_groups::palette_entries_from_groups(groups))
     } else {
         html! {}
     };
@@ -175,30 +175,57 @@ pub fn shelled_response(
     ))
 }
 
+/// Minimal `SiteConfig` used by the status-page helpers. They render
+/// before context is available, so they can't load real config; fixed
+/// branding + no embedded scripts is the right shape.
+fn minimal_config() -> SiteConfig {
+    SiteConfig {
+        app_name: "Solobase".to_string(),
+        logo_url: String::new(),
+        logo_icon_url: String::new(),
+        favicon_url: String::new(),
+        embedded_scripts: Vec::new(),
+    }
+}
+
+/// Render the styled `status_page` body wrapped in `layout::page` and
+/// return it with the requested HTTP status. Used by 403/404/500 helpers.
+fn status_response(
+    status: u16,
+    page_title: &str,
+    code: &str,
+    title: &str,
+    body_text: &str,
+    primary_action: (&str, &str),
+) -> wafer_run::OutputStream {
+    let config = minimal_config();
+    let body = templates::status_page(
+        code,
+        title,
+        body_text,
+        Some((primary_action.0.to_string(), primary_action.1.to_string())),
+    );
+    let markup = layout::page(page_title, &config, body);
+    crate::blocks::helpers::ResponseBuilder::new()
+        .status(status)
+        .body(
+            markup.into_string().into_bytes(),
+            "text/html; charset=utf-8",
+        )
+}
+
 /// Return styled 403 for browser requests, JSON for API requests.
 pub fn forbidden_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
     if accept.contains("text/html") && !accept.contains("application/json") {
-        let config = SiteConfig {
-            app_name: "Solobase".to_string(),
-            logo_url: String::new(),
-            logo_icon_url: String::new(),
-            favicon_url: String::new(),
-            embedded_scripts: Vec::new(),
-        };
-        let body = templates::status_page(
+        status_response(
+            403,
+            "Forbidden",
             "403",
             "Forbidden",
             "You don't have access to this page.",
-            Some(("Sign in".to_string(), "/b/auth/login".to_string())),
-        );
-        let markup = layout::page("Forbidden", &config, body);
-        crate::blocks::helpers::ResponseBuilder::new()
-            .status(403)
-            .body(
-                markup.into_string().into_bytes(),
-                "text/html; charset=utf-8",
-            )
+            ("Sign in", "/b/auth/login"),
+        )
     } else {
         crate::blocks::helpers::err_forbidden("admin access required")
     }
@@ -208,26 +235,14 @@ pub fn forbidden_response(msg: &wafer_run::types::Message) -> wafer_run::OutputS
 pub fn not_found_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
     if accept.contains("text/html") && !accept.contains("application/json") {
-        let config = SiteConfig {
-            app_name: "Solobase".to_string(),
-            logo_url: String::new(),
-            logo_icon_url: String::new(),
-            favicon_url: String::new(),
-            embedded_scripts: Vec::new(),
-        };
-        let body = templates::status_page(
+        status_response(
+            404,
+            "Not found",
             "404",
             "Not found",
             "We couldn't find that page.",
-            Some(("Go home".to_string(), "/".to_string())),
-        );
-        let markup = layout::page("Not found", &config, body);
-        crate::blocks::helpers::ResponseBuilder::new()
-            .status(404)
-            .body(
-                markup.into_string().into_bytes(),
-                "text/html; charset=utf-8",
-            )
+            ("Go home", "/"),
+        )
     } else {
         crate::blocks::helpers::err_not_found("endpoint not found")
     }
@@ -237,26 +252,14 @@ pub fn not_found_response(msg: &wafer_run::types::Message) -> wafer_run::OutputS
 pub fn server_error_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
     if accept.contains("text/html") && !accept.contains("application/json") {
-        let config = SiteConfig {
-            app_name: "Solobase".to_string(),
-            logo_url: String::new(),
-            logo_icon_url: String::new(),
-            favicon_url: String::new(),
-            embedded_scripts: Vec::new(),
-        };
-        let body = templates::status_page(
+        status_response(
+            500,
+            "Server error",
             "500",
             "Something went wrong",
             "An unexpected error occurred. Please try again.",
-            Some(("Go home".to_string(), "/".to_string())),
-        );
-        let markup = layout::page("Server error", &config, body);
-        crate::blocks::helpers::ResponseBuilder::new()
-            .status(500)
-            .body(
-                markup.into_string().into_bytes(),
-                "text/html; charset=utf-8",
-            )
+            ("Go home", "/"),
+        )
     } else {
         crate::blocks::helpers::err_internal("internal server error")
     }
@@ -300,7 +303,7 @@ mod tests {
 
     #[test]
     fn shelled_page_full_render_includes_html_doctype_shell_and_body() {
-        let groups = nav_groups::admin("/b/admin/");
+        let groups = nav_groups::admin();
         let topbar = Topbar {
             crumbs: vec![Crumb {
                 label: "Dashboard",

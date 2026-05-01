@@ -590,7 +590,7 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         script { (PreEscaped(SETTINGS_JS)) }
     };
 
-    let groups = nav_groups::admin("/b/auth/admin/settings");
+    let groups = nav_groups::admin();
     let topbar = Topbar {
         crumbs: vec![Crumb {
             label: "Auth Settings",

@@ -33,7 +33,7 @@ fn legalpages_page<'a>(
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
-    let groups = nav_groups::portal(path);
+    let groups = nav_groups::portal();
     let topbar = Topbar {
         crumbs: vec![Crumb {
             label: crumb_label,
