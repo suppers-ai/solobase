@@ -1,12 +1,9 @@
-use maud::{html, PreEscaped};
+use maud::{html, Markup, PreEscaped};
 use wafer_core::clients::config;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{admin_page, crumb};
-use crate::{
-    blocks::helpers::{err_bad_request, ok_json},
-    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
-};
+use crate::blocks::helpers::{err_bad_request, ok_json};
+use crate::ui::icons;
 
 const EMAIL_SETTINGS_KEYS: &[(&str, &str, &str, &str, bool)] = &[
     (
@@ -39,45 +36,40 @@ const EMAIL_SETTINGS_KEYS: &[(&str, &str, &str, &str, bool)] = &[
     ),
 ];
 
-pub async fn email_settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let site_config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-
+/// Render JUST the email settings form body. The parent `settings_page`
+/// handler wraps this in `form_page` + the shell.
+pub async fn settings_body(ctx: &dyn Context, _msg: &Message) -> Markup {
     let mut values = Vec::new();
     for &(key, label, help, default, sensitive) in EMAIL_SETTINGS_KEYS {
         let value = config::get_default(ctx, key, default).await;
         values.push((key, label, help, default, value, sensitive));
     }
 
-    let content = html! {
-        (components::page_header("Email Settings", Some("Configure email delivery via Mailgun"), None))
-
-        form #settings-form onsubmit="return submitEmailSettings(event)" {
-            h3 style="font-size:1rem;font-weight:600;margin:0 0 1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border-color)" {
-                (icons::globe()) " Mailgun Configuration"
-            }
-
-            @for (key, label, help, default, ref value, sensitive) in &values {
-                div .form-group style="margin-bottom:1.25rem" {
-                    label .form-label for=(key) { (label) }
-                    @if *sensitive {
-                        div style="display:flex;align-items:center;gap:0.5rem" {
-                            input .form-input #(key) name=(key) type="password" value=(value)
-                                placeholder=(if value.is_empty() { "Not configured" } else { "******** (set)" })
-                                style="flex:1";
-                            button type="button" .btn .btn-ghost .btn-sm
-                                onclick={"var i=document.getElementById('" (key) "');i.type=i.type==='password'?'text':'password'"}
-                            { (icons::eye()) }
-                        }
-                    } @else {
-                        input .form-input #(key) name=(key) type="text" value=(value) placeholder=(default);
-                    }
-                    p .text-muted style="font-size:0.8rem;margin-top:0.25rem" { (help) }
-                }
-            }
-
-            button .btn .btn-primary type="submit" style="margin-top:1rem" { "Save Settings" }
+    html! {
+        h3 style="font-size:1rem;font-weight:600;margin:0 0 1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border-color)" {
+            (icons::globe()) " Mailgun Configuration"
         }
+
+        @for (key, label, help, default, ref value, sensitive) in &values {
+            div .form-group style="margin-bottom:1.25rem" {
+                label .form-label for=(key) { (label) }
+                @if *sensitive {
+                    div style="display:flex;align-items:center;gap:0.5rem" {
+                        input .form-input #(key) name=(key) type="password" value=(value)
+                            placeholder=(if value.is_empty() { "Not configured" } else { "******** (set)" })
+                            style="flex:1";
+                        button type="button" .btn .btn-ghost .btn-sm
+                            onclick={"var i=document.getElementById('" (key) "');i.type=i.type==='password'?'text':'password'"}
+                        { (icons::eye()) }
+                    }
+                } @else {
+                    input .form-input #(key) name=(key) type="text" value=(value) placeholder=(default);
+                }
+                p .text-muted style="font-size:0.8rem;margin-top:0.25rem" { (help) }
+            }
+        }
+
+        button .btn .btn-primary type="submit" style="margin-top:1rem" { "Save Settings" }
 
         script { (PreEscaped(r#"
 function submitEmailSettings(e) {
@@ -95,21 +87,7 @@ function submitEmailSettings(e) {
     return false;
 }
 "#)) }
-    };
-
-    admin_page(
-        "Email",
-        &site_config,
-        "/b/admin/email",
-        user.as_ref(),
-        Topbar {
-            crumbs: crumb("Email"),
-            primary_action: None,
-            show_palette: true,
-        },
-        content,
-        msg,
-    )
+    }
 }
 
 pub async fn handle_save_email_settings(
