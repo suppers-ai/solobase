@@ -3,13 +3,12 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, OutputStream};
 
 use super::{admin_page, crumb, network::network_rules_tab, storage::storage_rules_tab};
-use crate::ui::shell::Topbar;
 use crate::{
     blocks::admin::{
         NETWORK_RULES_COLLECTION as NETWORK_RULES, STORAGE_RULES_COLLECTION as STORAGE_RULES,
         WRAP_GRANTS_COLLECTION as WRAP_GRANTS,
     },
-    ui::{components, icons, SiteConfig, UserInfo},
+    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
 };
 
 pub async fn grants_page(ctx: &dyn Context, msg: &Message) -> OutputStream {

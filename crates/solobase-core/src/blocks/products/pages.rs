@@ -10,7 +10,11 @@ use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use super::{GROUPS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION};
 use crate::{
     blocks::helpers::{ok_json, RecordExt},
-    ui::{components, icons, nav_groups, shell::{Crumb, Topbar}, SiteConfig, UserInfo},
+    ui::{
+        components, icons, nav_groups,
+        shell::{Crumb, Topbar},
+        SiteConfig, UserInfo,
+    },
 };
 
 fn products_page<'a>(
@@ -24,7 +28,10 @@ fn products_page<'a>(
 ) -> OutputStream {
     let groups = nav_groups::portal(path);
     let topbar = Topbar {
-        crumbs: vec![Crumb { label: crumb_label, href: None }],
+        crumbs: vec![Crumb {
+            label: crumb_label,
+            href: None,
+        }],
         primary_action: None,
         show_palette: true,
     };

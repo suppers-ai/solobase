@@ -3,10 +3,9 @@ use wafer_core::clients::config;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::{admin_page, crumb};
-use crate::ui::shell::Topbar;
 use crate::{
     blocks::helpers::{err_bad_request, ok_json},
-    ui::{components, icons, SiteConfig, UserInfo},
+    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
 };
 
 const EMAIL_SETTINGS_KEYS: &[(&str, &str, &str, &str, bool)] = &[

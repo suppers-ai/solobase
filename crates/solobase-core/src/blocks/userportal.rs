@@ -13,7 +13,12 @@ use wafer_run::{
 use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
 use crate::{
     blocks::helpers::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json},
-    ui::{self, components, icons, nav_groups, shell::{Crumb, Topbar}, sidebar::nav_icon, SiteConfig, UserInfo},
+    ui::{
+        self, components, icons, nav_groups,
+        shell::{Crumb, Topbar},
+        sidebar::nav_icon,
+        SiteConfig, UserInfo,
+    },
 };
 
 const BUTTONS_COLLECTION: &str = "suppers_ai__userportal__buttons";

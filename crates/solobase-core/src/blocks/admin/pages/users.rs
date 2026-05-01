@@ -79,9 +79,7 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 BtnVariant::Primary,
                 CtrlSize::Md,
                 "+ Invite user",
-                PreEscaped(
-                    r##"hx-get="/b/admin/users/new" hx-target="#content""##.to_string(),
-                ),
+                PreEscaped(r##"hx-get="/b/admin/users/new" hx-target="#content""##.to_string()),
             )),
             show_palette: true,
         },

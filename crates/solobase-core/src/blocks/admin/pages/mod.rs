@@ -27,8 +27,7 @@ pub use variables::*;
 use wafer_run::{types::*, OutputStream};
 
 use crate::ui::{
-    self,
-    nav_groups,
+    self, nav_groups,
     shell::{Crumb, Topbar},
     SiteConfig, UserInfo,
 };

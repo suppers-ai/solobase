@@ -14,7 +14,11 @@ use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::{
     blocks::helpers::{self, json_map, ok_json, RecordExt},
-    ui::{components, icons, nav_groups, shell::{Crumb, Topbar}, SiteConfig, UserInfo},
+    ui::{
+        components, icons, nav_groups,
+        shell::{Crumb, Topbar},
+        SiteConfig, UserInfo,
+    },
 };
 
 const COLLECTION: &str = super::COLLECTION;
@@ -31,7 +35,10 @@ fn legalpages_page<'a>(
 ) -> OutputStream {
     let groups = nav_groups::portal(path);
     let topbar = Topbar {
-        crumbs: vec![Crumb { label: crumb_label, href: None }],
+        crumbs: vec![Crumb {
+            label: crumb_label,
+            href: None,
+        }],
         primary_action: None,
         show_palette: true,
     };

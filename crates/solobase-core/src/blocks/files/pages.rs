@@ -10,7 +10,11 @@ use wafer_run::{context::Context, types::*, OutputStream};
 use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION};
 use crate::{
     blocks::helpers::RecordExt,
-    ui::{components, icons, nav_groups, shell::{Crumb, Topbar}, SiteConfig, UserInfo},
+    ui::{
+        components, icons, nav_groups,
+        shell::{Crumb, Topbar},
+        SiteConfig, UserInfo,
+    },
 };
 
 fn files_page<'a>(
@@ -24,7 +28,10 @@ fn files_page<'a>(
 ) -> OutputStream {
     let groups = nav_groups::portal(path);
     let topbar = Topbar {
-        crumbs: vec![Crumb { label: crumb_label, href: None }],
+        crumbs: vec![Crumb {
+            label: crumb_label,
+            href: None,
+        }],
         primary_action: None,
         show_palette: true,
     };

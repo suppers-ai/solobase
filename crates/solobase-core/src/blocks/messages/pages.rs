@@ -11,7 +11,11 @@ use wafer_run::{context::Context, types::*, OutputStream};
 use super::service::{self, ListContextsParams, ListEntriesParams};
 use crate::{
     blocks::helpers::{err_internal, RecordExt},
-    ui::{self, components, nav_groups, shell::{Crumb, Topbar}, SiteConfig, UserInfo},
+    ui::{
+        self, components, nav_groups,
+        shell::{Crumb, Topbar},
+        SiteConfig, UserInfo,
+    },
 };
 
 fn messages_page<'a>(
@@ -25,7 +29,10 @@ fn messages_page<'a>(
 ) -> OutputStream {
     let groups = nav_groups::admin(path);
     let topbar = Topbar {
-        crumbs: vec![Crumb { label: crumb_label, href: None }],
+        crumbs: vec![Crumb {
+            label: crumb_label,
+            href: None,
+        }],
         primary_action: None,
         show_palette: true,
     };
@@ -179,7 +186,15 @@ pub async fn context_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream
         }
     };
 
-    messages_page("Messages", &config, &path, user.as_ref(), "Contexts", content, msg)
+    messages_page(
+        "Messages",
+        &config,
+        &path,
+        user.as_ref(),
+        "Contexts",
+        content,
+        msg,
+    )
 }
 
 pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -284,5 +299,13 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
         }
     };
 
-    messages_page(display_title, &config, &path, user.as_ref(), display_title, content, msg)
+    messages_page(
+        display_title,
+        &config,
+        &path,
+        user.as_ref(),
+        display_title,
+        content,
+        msg,
+    )
 }

@@ -4,13 +4,12 @@ use wafer_run::{context::Context, types::*, OutputStream};
 use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
 
 use super::{admin_page, crumb};
-use crate::ui::shell::Topbar;
 use crate::{
     blocks::admin::{
         STORAGE_ACCESS_LOGS_COLLECTION as STORAGE_ACCESS_LOGS,
         STORAGE_RULES_COLLECTION as STORAGE_RULES,
     },
-    ui::{components, icons, SiteConfig, UserInfo},
+    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
 };
 
 pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {

@@ -15,7 +15,11 @@ use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use super::SETTINGS_COLLECTION;
 use crate::{
     blocks::helpers::{err_internal, RecordExt},
-    ui::{self, components, icons, nav_groups, shell::{Crumb, Topbar}, SiteConfig, UserInfo},
+    ui::{
+        self, components, icons, nav_groups,
+        shell::{Crumb, Topbar},
+        SiteConfig, UserInfo,
+    },
 };
 
 const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
@@ -409,7 +413,15 @@ pub async fn thread_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    llm_page(display_title, &config, &path, user.as_ref(), display_title, content, msg)
+    llm_page(
+        display_title,
+        &config,
+        &path,
+        user.as_ref(),
+        display_title,
+        content,
+        msg,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -545,7 +557,15 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    llm_page("LLM Settings", &config, &path, user.as_ref(), "Settings", content, msg)
+    llm_page(
+        "LLM Settings",
+        &config,
+        &path,
+        user.as_ref(),
+        "Settings",
+        content,
+        msg,
+    )
 }
 
 // ---------------------------------------------------------------------------

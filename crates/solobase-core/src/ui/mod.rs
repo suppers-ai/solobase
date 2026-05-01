@@ -165,7 +165,13 @@ pub fn shelled_response(
         return html_response(body);
     }
     html_response(shelled_page(
-        title, config, groups, user, current_path, topbar, body,
+        title,
+        config,
+        groups,
+        user,
+        current_path,
+        topbar,
+        body,
     ))
 }
 
@@ -276,10 +282,11 @@ pub fn html_response_with_toast(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::ui::shell::{Crumb, Topbar};
     use maud::html;
     use wafer_run::types::Message;
+
+    use super::*;
+    use crate::ui::shell::{Crumb, Topbar};
 
     fn site_config() -> SiteConfig {
         SiteConfig {
@@ -326,9 +333,15 @@ mod tests {
         let out = not_found_response(&msg);
         let buf = out.collect_buffered().await.unwrap();
         let body = String::from_utf8(buf.body).unwrap_or_default();
-        assert!(body.contains("status-page"), "body should contain status-page class");
+        assert!(
+            body.contains("status-page"),
+            "body should contain status-page class"
+        );
         assert!(body.contains(">404<"), "body should contain 404 code");
-        assert!(body.contains("Go home"), "body should contain Go home action");
+        assert!(
+            body.contains("Go home"),
+            "body should contain Go home action"
+        );
     }
 
     #[tokio::test]
@@ -338,9 +351,15 @@ mod tests {
         let out = forbidden_response(&msg);
         let buf = out.collect_buffered().await.unwrap();
         let body = String::from_utf8(buf.body).unwrap_or_default();
-        assert!(body.contains("status-page"), "body should contain status-page class");
+        assert!(
+            body.contains("status-page"),
+            "body should contain status-page class"
+        );
         assert!(body.contains(">403<"), "body should contain 403 code");
-        assert!(body.contains("Sign in"), "body should contain Sign in action");
+        assert!(
+            body.contains("Sign in"),
+            "body should contain Sign in action"
+        );
     }
 
     #[tokio::test]

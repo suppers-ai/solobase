@@ -3,13 +3,12 @@ use wafer_core::clients::database::{self as db, ListOptions};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::{admin_page, crumb};
-use crate::ui::shell::Topbar;
 use crate::{
     blocks::{
         admin::VARIABLES_COLLECTION as VARIABLES,
         helpers::{self, err_bad_request, err_internal, err_not_found, parse_form_body, RecordExt},
     },
-    ui::{self, components, icons, SiteConfig, UserInfo},
+    ui::{self, components, icons, shell::Topbar, SiteConfig, UserInfo},
 };
 
 pub async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {

@@ -125,7 +125,10 @@ mod tests {
     #[test]
     fn admin_settings_points_at_email_tab_for_phase_3_route() {
         let groups = admin("/b/admin/settings/email");
-        let system = groups.iter().find(|g| g.label.as_deref() == Some("System")).unwrap();
+        let system = groups
+            .iter()
+            .find(|g| g.label.as_deref() == Some("System"))
+            .unwrap();
         let settings = system.items.iter().find(|i| i.label == "Settings").unwrap();
         assert_eq!(settings.href, "/b/admin/settings/email");
     }
@@ -147,7 +150,11 @@ mod tests {
         let hrefs: Vec<&str> = account.items.iter().map(|i| i.href.as_str()).collect();
         assert_eq!(
             hrefs,
-            vec!["/b/userportal/profile", "/b/auth/orgs", "/b/userportal/sessions"]
+            vec![
+                "/b/userportal/profile",
+                "/b/auth/orgs",
+                "/b/userportal/sessions"
+            ]
         );
     }
 

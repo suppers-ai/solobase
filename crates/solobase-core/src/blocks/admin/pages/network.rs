@@ -4,13 +4,12 @@ use wafer_run::{context::Context, types::*, OutputStream};
 use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
 
 use super::{admin_page, crumb};
-use crate::ui::shell::Topbar;
 use crate::{
     blocks::admin::{
         NETWORK_REQUEST_LOGS_COLLECTION as NETWORK_REQUEST_LOGS,
         NETWORK_RULES_COLLECTION as NETWORK_RULES, REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
     },
-    ui::{components, icons, SiteConfig, UserInfo},
+    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
 };
 
 pub async fn network_page(ctx: &dyn Context, msg: &Message) -> OutputStream {

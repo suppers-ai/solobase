@@ -860,35 +860,37 @@ impl AuthBlock {
         let markup = ui::layout::page(
             "Reset Password",
             &config,
-            auth_split(brand_panel(&config), html! {
-                div .login-container {
-                    div .login-logo {
-                        @if !logo_url.is_empty() {
-                            img .logo-image src=(logo_url) alt="Solobase";
+            auth_split(
+                brand_panel(&config),
+                html! {
+                    div .login-container {
+                        div .login-logo {
+                            @if !logo_url.is_empty() {
+                                img .logo-image src=(logo_url) alt="Solobase";
+                            }
+                            p .login-subtitle { "Reset your password" }
                         }
-                        p .login-subtitle { "Reset your password" }
+
+                        div #error .login-error style="display:none" {}
+                        div #success style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:.75rem;margin-bottom:1rem;font-size:.813rem;color:#059669;display:none" {}
+
+                        form #form .login-form onsubmit="return handleReset(event)" {
+                            input type="hidden" #reset-token name="token" value=(token);
+
+                            div .form-group {
+                                label .form-label for="password" { "New Password" }
+                                input .form-input type="password" #password required minlength="8" placeholder="Min 8 characters";
+                            }
+                            div .form-group {
+                                label .form-label for="confirm" { "Confirm Password" }
+                                input .form-input type="password" #confirm required minlength="8" placeholder="Repeat password";
+                            }
+
+                            button .login-button type="submit" #btn { "Reset Password" }
+                        }
                     }
 
-                    div #error .login-error style="display:none" {}
-                    div #success style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:.75rem;margin-bottom:1rem;font-size:.813rem;color:#059669;display:none" {}
-
-                    form #form .login-form onsubmit="return handleReset(event)" {
-                        input type="hidden" #reset-token name="token" value=(token);
-
-                        div .form-group {
-                            label .form-label for="password" { "New Password" }
-                            input .form-input type="password" #password required minlength="8" placeholder="Min 8 characters";
-                        }
-                        div .form-group {
-                            label .form-label for="confirm" { "Confirm Password" }
-                            input .form-input type="password" #confirm required minlength="8" placeholder="Repeat password";
-                        }
-
-                        button .login-button type="submit" #btn { "Reset Password" }
-                    }
-                }
-
-                script { (PreEscaped(r#"
+                    script { (PreEscaped(r#"
 var $=function(id){return document.getElementById(id)};
 async function handleReset(e){
   e.preventDefault();
@@ -910,7 +912,8 @@ async function handleReset(e){
   return false;
 }
 "#)) }
-            }),
+                },
+            ),
         );
 
         ui::html_response(markup)
@@ -1030,25 +1033,28 @@ fn html_respond(title: &str, message: &str, success: bool, logo_url: &str) -> Ou
     let markup = ui::layout::page(
         title,
         &config,
-        auth_split(brand_panel(&config), html! {
-            div .login-container {
-                div .login-logo {
-                    @if !logo_url.is_empty() {
-                        img .logo-image src=(logo_url) alt="Solobase";
+        auth_split(
+            brand_panel(&config),
+            html! {
+                div .login-container {
+                    div .login-logo {
+                        @if !logo_url.is_empty() {
+                            img .logo-image src=(logo_url) alt="Solobase";
+                        }
+                    }
+                    div style="text-align:center" {
+                        div style={"width:48px;height:48px;background:" (color) "15;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:1.5rem;color:" (color)} {
+                            @if success { "✓" } @else { "✗" }
+                        }
+                        h2 style="font-size:1.25rem;font-weight:700;margin:0 0 .5rem" { (title) }
+                        p .login-subtitle style="line-height:1.6;margin:0 0 1.5rem" { (message) }
+                        a .login-button href="/b/auth/login" style="display:inline-block;width:auto;padding:.625rem 1.25rem;text-decoration:none" {
+                            "Go to Sign In"
+                        }
                     }
                 }
-                div style="text-align:center" {
-                    div style={"width:48px;height:48px;background:" (color) "15;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:1.5rem;color:" (color)} {
-                        @if success { "✓" } @else { "✗" }
-                    }
-                    h2 style="font-size:1.25rem;font-weight:700;margin:0 0 .5rem" { (title) }
-                    p .login-subtitle style="line-height:1.6;margin:0 0 1.5rem" { (message) }
-                    a .login-button href="/b/auth/login" style="display:inline-block;width:auto;padding:.625rem 1.25rem;text-decoration:none" {
-                        "Go to Sign In"
-                    }
-                }
-            }
-        }),
+            },
+        ),
     );
     ui::html_response(markup)
 }

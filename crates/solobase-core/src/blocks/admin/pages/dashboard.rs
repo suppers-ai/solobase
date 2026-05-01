@@ -4,13 +4,12 @@ use wafer_run::{context::Context, types::*, OutputStream};
 use wafer_sql_utils::{aggregate, query, value::sea_values_to_json, Backend};
 
 use super::{admin_page, crumb};
-use crate::ui::shell::Topbar;
 use crate::{
     blocks::{
         admin::{AUDIT_LOGS_COLLECTION as AUDIT_LOGS, REQUEST_LOGS_COLLECTION as REQUEST_LOGS},
         auth::USERS_COLLECTION as USERS,
     },
-    ui::{components, icons, SiteConfig, UserInfo},
+    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
 };
 
 pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {

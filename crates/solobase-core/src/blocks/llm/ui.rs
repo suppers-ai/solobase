@@ -27,7 +27,11 @@ use super::{
 };
 use crate::{
     blocks::helpers::{self, err_internal},
-    ui::{self, components, nav_groups, shell::{Crumb, Topbar}, SiteConfig, UserInfo},
+    ui::{
+        self, components, nav_groups,
+        shell::{Crumb, Topbar},
+        SiteConfig, UserInfo,
+    },
 };
 
 // ---------------------------------------------------------------------------
