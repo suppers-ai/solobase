@@ -5,13 +5,14 @@
 
 mod blocks;
 mod dashboard;
-mod email;
+pub(super) mod email;
 mod logs;
-mod network;
-mod permissions;
+pub(super) mod network;
+pub(super) mod permissions;
+pub(super) mod settings;
 mod storage;
 mod users;
-mod variables;
+pub(super) mod variables;
 
 // Re-export all public functions so callers can use `pages::dashboard(...)` etc.
 pub use blocks::*;
@@ -21,6 +22,7 @@ pub use logs::*;
 use maud::Markup;
 pub use network::*;
 pub use permissions::*;
+pub use settings::*;
 pub use storage::*;
 pub use users::*;
 pub use variables::*;
