@@ -14,52 +14,28 @@ use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::{
     blocks::helpers::{self, json_map, ok_json, RecordExt},
-    ui::{self, components, icons, NavItem, SiteConfig, UserInfo},
+    ui::{components, icons, nav_groups, shell::{Crumb, Topbar}, SiteConfig, UserInfo},
 };
 
 const COLLECTION: &str = super::COLLECTION;
 
-// ---------------------------------------------------------------------------
-// Navigation
-// ---------------------------------------------------------------------------
-
-fn nav() -> Vec<NavItem> {
-    vec![
-        NavItem {
-            label: "Privacy Policy".into(),
-            href: "/b/legalpages/admin/privacy".into(),
-            icon: "shield",
-        },
-        NavItem {
-            label: "Terms of Service".into(),
-            href: "/b/legalpages/admin/terms".into(),
-            icon: "file-text",
-        },
-        NavItem {
-            label: "Settings".into(),
-            href: "/b/legalpages/admin/settings".into(),
-            icon: "settings",
-        },
-        NavItem {
-            label: "Endpoints".into(),
-            href: "/b/legalpages/admin/endpoints".into(),
-            icon: "globe",
-        },
-    ]
-}
-
-/// Wrap content in the legalpages admin shell (sidebar + layout).
-fn legalpages_page(
+/// Wrap content in the legalpages portal shell (sidebar + layout).
+fn legalpages_page<'a>(
     title: &str,
     config: &SiteConfig,
     path: &str,
     user: Option<&UserInfo>,
+    crumb_label: &'a str,
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
-    let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(title, config, &nav(), user, path, content, is_fragment);
-    ui::html_response(markup)
+    let groups = nav_groups::portal(path);
+    let topbar = Topbar {
+        crumbs: vec![Crumb { label: crumb_label, href: None }],
+        primary_action: None,
+        show_palette: true,
+    };
+    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
 }
 
 // ---------------------------------------------------------------------------
@@ -277,6 +253,7 @@ pub async fn editor_page(ctx: &dyn Context, msg: &Message, doc_type: &str) -> Ou
         &config,
         &format!("/b/legalpages/admin/{doc_type}"),
         user.as_ref(),
+        default_title,
         page_content,
         msg,
     )
@@ -581,6 +558,7 @@ pub async fn endpoints_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/legalpages/admin/endpoints",
         user.as_ref(),
+        "Endpoints",
         content,
         msg,
     )
@@ -892,6 +870,7 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &site_config,
         "/b/legalpages/admin/settings",
         user.as_ref(),
+        "Settings",
         content,
         msg,
     )
