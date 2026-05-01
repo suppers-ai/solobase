@@ -270,7 +270,7 @@ export async function loadAsset(assetId, manifestJson) {
                 _pendingAssetLoads.delete(correlationId);
                 resolve({ status: 'failed', error: 'load-asset timed out' });
             }
-        }, 120_000);
+        }, manifest.timeout_ms ?? 120_000);
     });
 
     clients[0].postMessage({
