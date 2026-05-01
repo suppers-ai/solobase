@@ -10,64 +10,25 @@ use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use super::{GROUPS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION};
 use crate::{
     blocks::helpers::{ok_json, RecordExt},
-    ui::{self, components, icons, NavItem, SiteConfig, UserInfo},
+    ui::{components, icons, nav_groups, shell::{Crumb, Topbar}, SiteConfig, UserInfo},
 };
 
-/// Admin nav items.
-fn products_admin_nav() -> Vec<NavItem> {
-    vec![
-        NavItem {
-            label: "Overview".into(),
-            href: "/b/products/admin/".into(),
-            icon: "bar-chart",
-        },
-        NavItem {
-            label: "Products".into(),
-            href: "/b/products/admin/manage".into(),
-            icon: "package",
-        },
-        NavItem {
-            label: "Groups".into(),
-            href: "/b/products/admin/groups".into(),
-            icon: "folder",
-        },
-        NavItem {
-            label: "Pricing".into(),
-            href: "/b/products/admin/pricing".into(),
-            icon: "dollar-sign",
-        },
-        NavItem {
-            label: "Purchases".into(),
-            href: "/b/products/admin/purchases".into(),
-            icon: "shopping-cart",
-        },
-        NavItem {
-            label: "Settings".into(),
-            href: "/b/products/admin/settings".into(),
-            icon: "settings",
-        },
-    ]
-}
-
-fn products_page(
-    _title: &str,
+fn products_page<'a>(
+    title: &str,
     config: &SiteConfig,
     path: &str,
     user: Option<&UserInfo>,
+    crumb_label: &'a str,
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
-    let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(
-        _title,
-        config,
-        &products_admin_nav(),
-        user,
-        path,
-        content,
-        is_fragment,
-    );
-    ui::html_response(markup)
+    let groups = nav_groups::portal(path);
+    let topbar = Topbar {
+        crumbs: vec![Crumb { label: crumb_label, href: None }],
+        primary_action: None,
+        show_palette: true,
+    };
+    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +75,7 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/products/admin/",
         user.as_ref(),
+        "Products",
         content,
         msg,
     )
@@ -212,6 +174,7 @@ pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/products/admin/manage",
         user.as_ref(),
+        "Products",
         content,
         msg,
     )
@@ -269,6 +232,7 @@ pub async fn groups(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/products/admin/groups",
         user.as_ref(),
+        "Groups",
         content,
         msg,
     )
@@ -325,6 +289,7 @@ pub async fn pricing(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/products/admin/pricing",
         user.as_ref(),
+        "Pricing",
         content,
         msg,
     )
@@ -416,6 +381,7 @@ pub async fn purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
         &config,
         "/b/products/admin/purchases",
         user.as_ref(),
+        "Purchases",
         content,
         msg,
     )
@@ -457,19 +423,6 @@ pub async fn my_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
     )
     .await;
 
-    let nav = vec![
-        NavItem {
-            label: "My Products".into(),
-            href: "/b/products/my-products".into(),
-            icon: "package",
-        },
-        NavItem {
-            label: "My Purchases".into(),
-            href: "/b/products/my-purchases".into(),
-            icon: "shopping-cart",
-        },
-    ];
-
     let content = html! {
         (components::page_header("My Products", None, None))
 
@@ -502,17 +455,15 @@ pub async fn my_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(
+    products_page(
         "My Products",
         &config,
-        &nav,
-        user.as_ref(),
         "/b/products/my-products",
+        user.as_ref(),
+        "My Products",
         content,
-        is_fragment,
-    );
-    ui::html_response(markup)
+        msg,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -543,19 +494,6 @@ pub async fn my_purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
         sort,
     )
     .await;
-
-    let nav = vec![
-        NavItem {
-            label: "My Products".into(),
-            href: "/b/products/my-products".into(),
-            icon: "package",
-        },
-        NavItem {
-            label: "My Purchases".into(),
-            href: "/b/products/my-purchases".into(),
-            icon: "shopping-cart",
-        },
-    ];
 
     let content = html! {
         (components::page_header("My Purchases", None, None))
@@ -591,17 +529,15 @@ pub async fn my_purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(
+    products_page(
         "My Purchases",
         &config,
-        &nav,
-        user.as_ref(),
         "/b/products/my-purchases",
+        user.as_ref(),
+        "My Purchases",
         content,
-        is_fragment,
-    );
-    ui::html_response(markup)
+        msg,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -748,6 +684,7 @@ function submitSettings(e) {
         &site_config,
         "/b/products/admin/settings",
         user.as_ref(),
+        "Settings",
         content,
         msg,
     )
