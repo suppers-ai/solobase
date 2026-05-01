@@ -71,6 +71,35 @@ pub fn portal(_current_path: &str) -> Vec<NavGroup> {
     ]
 }
 
+/// Build palette entries for the audience matching `current_path`.
+/// Admin paths get admin nav; everything else gets portal nav.
+pub fn palette_entries(current_path: &str) -> Vec<crate::ui::palette::PaletteEntry> {
+    use crate::ui::palette::PaletteEntry;
+    let groups = if is_admin_path(current_path) {
+        admin(current_path)
+    } else {
+        portal(current_path)
+    };
+    groups
+        .into_iter()
+        .flat_map(|g| g.items.into_iter())
+        .map(|item| PaletteEntry {
+            keywords: format!("{} {}", item.label.to_lowercase(), item.href),
+            label: item.label,
+            kind_label: "Page".to_string(),
+            href: item.href,
+        })
+        .collect()
+}
+
+fn is_admin_path(path: &str) -> bool {
+    path.starts_with("/b/admin")
+        || path.starts_with("/b/inspector")
+        || path.starts_with("/b/messages")
+        || path.starts_with("/b/llm")
+        || path.starts_with("/b/files")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,5 +157,31 @@ mod tests {
         let apps = &groups[1];
         let labels: Vec<&str> = apps.items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(labels, vec!["Products", "Files", "Legal"]);
+    }
+
+    #[test]
+    fn palette_entries_for_admin_path_includes_admin_pages() {
+        let entries = palette_entries("/b/admin/users");
+        let labels: Vec<&str> = entries.iter().map(|e| e.label.as_str()).collect();
+        assert!(labels.contains(&"Dashboard"));
+        assert!(labels.contains(&"Users"));
+        assert!(labels.contains(&"Settings"));
+    }
+
+    #[test]
+    fn palette_entries_for_portal_path_includes_portal_pages() {
+        let entries = palette_entries("/b/userportal/profile");
+        let labels: Vec<&str> = entries.iter().map(|e| e.label.as_str()).collect();
+        assert!(labels.contains(&"Profile"));
+        assert!(labels.contains(&"Products"));
+    }
+
+    #[test]
+    fn palette_entry_keywords_lowercase_label_plus_href() {
+        let entries = palette_entries("/b/admin/");
+        let users = entries.iter().find(|e| e.label == "Users").unwrap();
+        assert!(users.keywords.contains("users"));
+        assert!(users.keywords.contains("/b/admin/users"));
+        assert_eq!(users.kind_label, "Page");
     }
 }
