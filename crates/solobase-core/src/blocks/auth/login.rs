@@ -71,8 +71,8 @@ impl AuthBlock {
             return error_response(ErrorCode::EmailNotVerified, "Please verify your email before logging in. Check your inbox for the verification link.");
         }
 
-        // Get roles
-        let roles = get_user_roles(ctx, &user.id).await;
+        // Get roles, granting admin role idempotently when ADMIN_EMAIL matches
+        let roles = ensure_admin_role(ctx, &user.id, &email_lower).await;
 
         // Generate tokens
         let (access_token, refresh_token, family) =
@@ -356,7 +356,7 @@ impl AuthBlock {
         }
 
         let email = user.str_field("email").to_string();
-        let roles = get_user_roles(ctx, &user_id).await;
+        let roles = ensure_admin_role(ctx, &user_id, &email).await;
 
         // Revoke old refresh token family and issue new
         let family = claims
