@@ -11,7 +11,7 @@ use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::{
     blocks::helpers::{err_bad_request, ok_json, RecordExt},
-    ui::{self, components, icons, NavItem, SiteConfig, UserInfo},
+    ui::{self, components, icons, nav_groups, shell::{Crumb, Topbar}, SiteConfig, UserInfo},
 };
 
 /// Read all key-value pairs from the variables table.
@@ -525,14 +525,6 @@ const SETTINGS_KEYS: &[(&str, &str, &str, &str, bool, &str)] = &[
     ),
 ];
 
-fn auth_admin_nav() -> Vec<NavItem> {
-    vec![NavItem {
-        label: "Settings".into(),
-        href: "/b/auth/admin/settings".into(),
-        icon: "settings",
-    }]
-}
-
 pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
@@ -581,17 +573,13 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         script { (PreEscaped(SETTINGS_JS)) }
     };
 
-    let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(
-        "Auth Settings",
-        &site_config,
-        &auth_admin_nav(),
-        user.as_ref(),
-        "/b/auth/admin/settings",
-        content,
-        is_fragment,
-    );
-    ui::html_response(markup)
+    let groups = nav_groups::admin("/b/auth/admin/settings");
+    let topbar = Topbar {
+        crumbs: vec![Crumb { label: "Auth Settings", href: None }],
+        primary_action: None,
+        show_palette: true,
+    };
+    crate::ui::shelled_response(msg, "Auth Settings", &site_config, &groups, user.as_ref(), "/b/auth/admin/settings", topbar, content)
 }
 
 const SETTINGS_JS: &str = r#"
