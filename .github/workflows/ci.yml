@@ -173,7 +173,7 @@ jobs:
           npm install
           npx playwright install chromium --with-deps
 
-      - name: Serve pkg/ in background
+      - name: Serve pkg/ in background (smoke tests)
         working-directory: crates/solobase-web
         run: |
           python3 -m http.server 8080 -d pkg &
@@ -186,15 +186,53 @@ jobs:
             sleep 1
           done
 
-      - name: Run Playwright tests
+      - name: Run smoke tests (browser WASM, port 8080)
         working-directory: crates/solobase-web
         run: npx playwright test --config=tests/playwright.config.ts tests/e2e/smoke.spec.ts
 
-      - name: Stop server
+      - name: Start native solobase server in background (visual-baseline tests)
+        run: |
+          # Run from /tmp so solobase auto-detects "sealed" mode (no
+          # ancestor Cargo.toml). Running from inside the repo triggers
+          # embed_native flow which `cargo build`s the whole workspace
+          # before the server starts, busting the wait loop.
+          cd /tmp
+          SOLOBASE_LISTEN="127.0.0.1:8093" \
+          SOLOBASE_DB_PATH="/tmp/solobase-visual-baseline.db" \
+          SUPPERS_AI__AUTH__ADMIN_EMAIL="admin@solobase.local" \
+          SUPPERS_AI__AUTH__ADMIN_PASSWORD="admin" \
+            solobase > /tmp/solobase-baseline.log 2>&1 &
+          echo $! > /tmp/solobase-pid
+          # Wait for native server to accept connections (60s; sealed-mode
+          # boot is fast — SQLite seed + WAFER init only).
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8093/b/auth/login -o /dev/null; then
+              echo "server ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          # Fail fast if server never came up (don't hand a dead port to playwright).
+          if ! curl -sf http://127.0.0.1:8093/b/auth/login -o /dev/null; then
+            echo "::error::native solobase did not start within 60s"
+            tail -50 /tmp/solobase-baseline.log
+            exit 1
+          fi
+
+      - name: Run visual-baseline tests (native server, port 8093)
+        working-directory: crates/solobase-web
+        env:
+          TEST_PORT: 8093
+        run: npx playwright test --config=tests/playwright.config.ts tests/e2e/visual-baseline.spec.ts
+
+      - name: Stop servers
         if: always()
         run: |
           if [ -f /tmp/http-pid ]; then
             kill "$(cat /tmp/http-pid)" 2>/dev/null || true
+          fi
+          if [ -f /tmp/solobase-pid ]; then
+            kill "$(cat /tmp/solobase-pid)" 2>/dev/null || true
           fi
 
       - name: Upload Playwright report on failure
