@@ -8,6 +8,7 @@ pub mod assets;
 pub mod components;
 pub mod icons;
 pub mod layout;
+pub mod nav_groups;
 pub mod palette;
 pub mod shell;
 pub mod sidebar;
