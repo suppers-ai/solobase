@@ -13,7 +13,7 @@ use wafer_run::{
 use super::helpers::{self, parse_form_body, stamp_updated, RecordExt};
 use crate::{
     blocks::helpers::{err_bad_request, err_forbidden, err_internal, err_not_found, ok_json},
-    ui::{self, components, icons, sidebar::nav_icon, NavItem, SiteConfig, UserInfo},
+    ui::{self, components, icons, nav_groups, shell::{Crumb, Topbar}, sidebar::nav_icon, SiteConfig, UserInfo},
 };
 
 const BUTTONS_COLLECTION: &str = "suppers_ai__userportal__buttons";
@@ -205,46 +205,25 @@ impl UserPortalBlock {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-fn portal_nav() -> Vec<NavItem> {
-    vec![NavItem {
-        label: "My Account".into(),
-        href: "/b/userportal/".into(),
-        icon: "user",
-    }]
-}
-
-fn admin_nav() -> Vec<NavItem> {
-    vec![
-        NavItem {
-            label: "My Account".into(),
-            href: "/b/userportal/".into(),
-            icon: "user",
-        },
-        NavItem {
-            label: "Manage Buttons".into(),
-            href: "/b/userportal/admin/buttons".into(),
-            icon: "package",
-        },
-        NavItem {
-            label: "Settings".into(),
-            href: "/b/userportal/admin/settings".into(),
-            icon: "settings",
-        },
-    ]
-}
-
 fn render_page(
     title: &str,
     config: &SiteConfig,
-    nav: &[NavItem],
     path: &str,
     user: Option<&UserInfo>,
+    crumb_label: &'static str,
     content: maud::Markup,
     msg: &Message,
 ) -> OutputStream {
-    let is_fragment = ui::is_htmx(msg);
-    let markup = ui::layout::block_shell(title, config, nav, user, path, content, is_fragment);
-    ui::html_response(markup)
+    let groups = nav_groups::portal(path);
+    let topbar = Topbar {
+        crumbs: vec![Crumb {
+            label: crumb_label,
+            href: None,
+        }],
+        primary_action: None,
+        show_palette: true,
+    };
+    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
 }
 
 async fn load_buttons(ctx: &dyn Context) -> Vec<wafer_core::clients::database::Record> {
@@ -376,9 +355,9 @@ async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     render_page(
         "My Account",
         &site_config,
-        &portal_nav(),
         "/b/userportal/",
         user.as_ref(),
+        "My Account",
         content,
         msg,
     )
@@ -475,9 +454,9 @@ async fn admin_buttons_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     render_page(
         "Portal Buttons",
         &site_config,
-        &admin_nav(),
         "/b/userportal/admin/buttons",
         user.as_ref(),
+        "Portal Buttons",
         content,
         msg,
     )
@@ -800,9 +779,9 @@ function submitPortalSettings(e) {
     render_page(
         "Settings",
         &site_config,
-        &admin_nav(),
         "/b/userportal/admin/settings",
         user.as_ref(),
+        "Settings",
         content,
         msg,
     )
