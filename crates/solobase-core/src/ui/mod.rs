@@ -170,74 +170,28 @@ pub fn shelled_response(
     ))
 }
 
-/// Render a styled 404 page.
-pub fn not_found_page() -> maud::Markup {
-    use maud::{html, DOCTYPE};
-    html! {
-        (DOCTYPE)
-        html lang="en" {
-            head {
-                meta charset="utf-8";
-                meta name="viewport" content="width=device-width,initial-scale=1";
-                title { "Not Found" }
-                link rel="stylesheet" href=(assets::css_url());
-            }
-            body {
-                div .login-page {
-                    div .login-container style="text-align:center" {
-                        div style="font-size:4rem;font-weight:700;color:var(--text-muted);margin-bottom:0.5rem" { "404" }
-                        h1 style="font-size:1.25rem;font-weight:600;margin:0 0 0.5rem" { "Page not found" }
-                        p .login-subtitle style="margin-bottom:1.5rem" {
-                            "The page you're looking for doesn't exist."
-                        }
-                        a .login-button href="/" style="display:inline-block;width:auto;padding:.625rem 1.25rem;text-decoration:none" {
-                            "Go Home"
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Render a styled 403 page.
-pub fn forbidden_page() -> maud::Markup {
-    use maud::{html, DOCTYPE};
-    html! {
-        (DOCTYPE)
-        html lang="en" {
-            head {
-                meta charset="utf-8";
-                meta name="viewport" content="width=device-width,initial-scale=1";
-                title { "Access Denied" }
-                link rel="stylesheet" href=(assets::css_url());
-            }
-            body {
-                div .login-page {
-                    div .login-container style="text-align:center" {
-                        div style="font-size:4rem;font-weight:700;color:var(--text-muted);margin-bottom:0.5rem" { "403" }
-                        h1 style="font-size:1.25rem;font-weight:600;margin:0 0 0.5rem" { "Access denied" }
-                        p .login-subtitle style="margin-bottom:1.5rem" {
-                            "You don't have permission to access this page. Please sign in with an admin account."
-                        }
-                        a .login-button href="/b/auth/login" style="display:inline-block;width:auto;padding:.625rem 1.25rem;text-decoration:none" {
-                            "Sign In"
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// Return styled 403 for browser requests, JSON for API requests.
 pub fn forbidden_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
     if accept.contains("text/html") && !accept.contains("application/json") {
+        let config = SiteConfig {
+            app_name: "Solobase".to_string(),
+            logo_url: String::new(),
+            logo_icon_url: String::new(),
+            favicon_url: String::new(),
+            embedded_scripts: Vec::new(),
+        };
+        let body = templates::status_page(
+            "403",
+            "Forbidden",
+            "You don't have access to this page.",
+            Some(("Sign in".to_string(), "/b/auth/login".to_string())),
+        );
+        let markup = layout::page("Forbidden", &config, body);
         crate::blocks::helpers::ResponseBuilder::new()
             .status(403)
             .body(
-                forbidden_page().into_string().into_bytes(),
+                markup.into_string().into_bytes(),
                 "text/html; charset=utf-8",
             )
     } else {
@@ -249,10 +203,24 @@ pub fn forbidden_response(msg: &wafer_run::types::Message) -> wafer_run::OutputS
 pub fn not_found_response(msg: &wafer_run::types::Message) -> wafer_run::OutputStream {
     let accept = msg.get_meta("http.header.accept");
     if accept.contains("text/html") && !accept.contains("application/json") {
+        let config = SiteConfig {
+            app_name: "Solobase".to_string(),
+            logo_url: String::new(),
+            logo_icon_url: String::new(),
+            favicon_url: String::new(),
+            embedded_scripts: Vec::new(),
+        };
+        let body = templates::status_page(
+            "404",
+            "Not found",
+            "We couldn't find that page.",
+            Some(("Go home".to_string(), "/".to_string())),
+        );
+        let markup = layout::page("Not found", &config, body);
         crate::blocks::helpers::ResponseBuilder::new()
             .status(404)
             .body(
-                not_found_page().into_string().into_bytes(),
+                markup.into_string().into_bytes(),
                 "text/html; charset=utf-8",
             )
     } else {
@@ -283,6 +251,7 @@ mod tests {
     use super::*;
     use crate::ui::shell::{Crumb, Topbar};
     use maud::html;
+    use wafer_run::types::Message;
 
     fn site_config() -> SiteConfig {
         SiteConfig {
@@ -320,5 +289,29 @@ mod tests {
         assert!(s.contains(r#"class="shell""#));
         assert!(s.contains(r#"id="cmdk""#)); // palette mounted
         assert!(s.contains("hello"));
+    }
+
+    #[tokio::test]
+    async fn not_found_response_uses_status_template() {
+        let mut msg = Message::new("http.request");
+        msg.set_meta("http.header.accept", "text/html");
+        let out = not_found_response(&msg);
+        let buf = out.collect_buffered().await.unwrap();
+        let body = String::from_utf8(buf.body).unwrap_or_default();
+        assert!(body.contains("status-page"), "body should contain status-page class");
+        assert!(body.contains(">404<"), "body should contain 404 code");
+        assert!(body.contains("Go home"), "body should contain Go home action");
+    }
+
+    #[tokio::test]
+    async fn forbidden_response_uses_status_template() {
+        let mut msg = Message::new("http.request");
+        msg.set_meta("http.header.accept", "text/html");
+        let out = forbidden_response(&msg);
+        let buf = out.collect_buffered().await.unwrap();
+        let body = String::from_utf8(buf.body).unwrap_or_default();
+        assert!(body.contains("status-page"), "body should contain status-page class");
+        assert!(body.contains(">403<"), "body should contain 403 code");
+        assert!(body.contains("Sign in"), "body should contain Sign in action");
     }
 }
