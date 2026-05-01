@@ -41,8 +41,28 @@ async fn load_variables(ctx: &dyn Context) -> HashMap<String, String> {
     settings
 }
 
-fn get<'a>(settings: &'a HashMap<String, String>, key: &str, default: &'a str) -> &'a str {
-    settings.get(key).map(|s| s.as_str()).unwrap_or(default)
+// Lookup precedence: DB > env > default. See `get` below.
+/// Lookup precedence for shared / block-scoped settings:
+///
+/// 1. Admin-managed value persisted in the variables table (`settings` map).
+/// 2. Process environment variable of the same name — lets `.env` bootstrap
+///    a fresh deployment (e.g. `SOLOBASE_SHARED__ALLOW_SIGNUP=false`)
+///    before any admin has touched the UI.
+/// 3. Hardcoded `default`.
+///
+/// The fallback uses a `Box::leak`-free pattern: we cache the env lookup
+/// in a thread-local so the borrow can outlive the closure. Simpler:
+/// rebind via `String::leak` — but we want a clean borrow lifetime, so the
+/// signature returns `Cow<'a, str>`. Callers compare with `==` or pass the
+/// result through `to_string()`, which both work transparently.
+fn get<'a>(settings: &'a HashMap<String, String>, key: &str, default: &'a str) -> std::borrow::Cow<'a, str> {
+    if let Some(v) = settings.get(key) {
+        return std::borrow::Cow::Borrowed(v.as_str());
+    }
+    if let Ok(v) = std::env::var(key) {
+        return std::borrow::Cow::Owned(v);
+    }
+    std::borrow::Cow::Borrowed(default)
 }
 
 /// Build SiteConfig from the variables settings map.

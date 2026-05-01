@@ -76,7 +76,7 @@ impl AuthBlock {
 
         // Generate tokens
         let (access_token, refresh_token, family) =
-            match generate_tokens(ctx, &user.id, &email_lower, &roles).await {
+            match generate_tokens(ctx, &user.id, &email_lower, &roles, "password").await {
                 Ok(t) => t,
                 Err(r) => return r,
             };
@@ -255,7 +255,7 @@ impl AuthBlock {
 
         // Generate tokens (only when email verification is NOT required)
         let (access_token, refresh_token, family) =
-            match generate_tokens(ctx, &user.id, &email_lower, &roles).await {
+            match generate_tokens(ctx, &user.id, &email_lower, &roles, "password").await {
                 Ok(t) => t,
                 Err(r) => return r,
             };
@@ -375,8 +375,17 @@ impl AuthBlock {
             .ok();
         }
 
+        // Preserve the original auth method across refresh — a token issued
+        // via OAuth must remain "oauth.<provider>" forever, not silently
+        // upgrade/downgrade. Default "password" handles refresh tokens
+        // minted before this claim was added.
+        let prior_auth_method = claims
+            .get("auth_method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("password")
+            .to_string();
         let (access_token, refresh_token, new_family) =
-            match generate_tokens(ctx, &user_id, &email, &roles).await {
+            match generate_tokens(ctx, &user_id, &email, &roles, &prior_auth_method).await {
                 Ok(t) => t,
                 Err(r) => return r,
             };

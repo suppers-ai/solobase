@@ -430,7 +430,15 @@ impl AuthBlock {
 
         let roles = get_user_roles(ctx, &user.id).await;
         let (jwt_token, refresh_token, family) =
-            match generate_tokens(ctx, &user.id, &email, &roles).await {
+            match generate_tokens(
+                ctx,
+                &user.id,
+                &email,
+                &roles,
+                &format!("oauth.{}", provider),
+            )
+            .await
+            {
                 Ok(t) => t,
                 Err(r) => return r,
             };

@@ -130,11 +130,18 @@ mod helpers {
     }
 
     /// Returns (access_token, refresh_token, family).
+    ///
+    /// `auth_method` records *how* the user authenticated for this token —
+    /// `"password"` for email/password login or signup, `"oauth.<provider>"`
+    /// for OAuth (e.g. `"oauth.github"`). The claim rides on both access and
+    /// refresh tokens so it survives refresh, letting downstream gates (like
+    /// the wafer registry's publish endpoint) require a stronger method.
     pub(super) async fn generate_tokens(
         ctx: &dyn Context,
         user_id: &str,
         email: &str,
         roles: &[String],
+        auth_method: &str,
     ) -> std::result::Result<(String, String, String), OutputStream> {
         let family = match crypto::random_bytes(ctx, 16).await {
             Ok(bytes) => hex_encode(&bytes),
@@ -159,6 +166,10 @@ mod helpers {
             "type".to_string(),
             serde_json::Value::String("access".to_string()),
         );
+        access_claims.insert(
+            "auth_method".to_string(),
+            serde_json::Value::String(auth_method.to_string()),
+        );
 
         let access_token = crypto::sign(ctx, &access_claims, Duration::from_secs(86400))
             .await
@@ -180,6 +191,10 @@ mod helpers {
         refresh_claims.insert(
             "family".to_string(),
             serde_json::Value::String(family.clone()),
+        );
+        refresh_claims.insert(
+            "auth_method".to_string(),
+            serde_json::Value::String(auth_method.to_string()),
         );
 
         let refresh_token = crypto::sign(ctx, &refresh_claims, Duration::from_secs(604800))
