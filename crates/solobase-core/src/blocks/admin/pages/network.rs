@@ -3,18 +3,17 @@ use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, S
 use wafer_run::{context::Context, types::*, OutputStream};
 use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
 
-use super::{admin_page, crumb};
 use crate::{
     blocks::admin::{
         NETWORK_REQUEST_LOGS_COLLECTION as NETWORK_REQUEST_LOGS,
         NETWORK_RULES_COLLECTION as NETWORK_RULES, REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
     },
-    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
+    ui::{components, icons},
 };
 
-pub async fn network_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
+/// Render JUST the network monitoring body. The parent `settings_page`
+/// handler wraps this in `form_page` + the shell.
+pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
     let tab = msg.query("tab");
     let active_tab = match tab {
         "outbound" => "outbound",
@@ -22,28 +21,24 @@ pub async fn network_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         _ => "inbound",
     };
 
-    let content = html! {
-        (components::page_header(
-            "Network",
-            Some("Inbound and outbound request monitoring"),
-            Some(html! {
-                button .btn .btn-secondary .btn-sm
-                    hx-get={"/b/admin/network?tab=" (active_tab)}
-                    hx-target="#content"
-                { (icons::refresh_cw()) " Refresh" }
-            })
-        ))
+    html! {
+        div .filter-bar style="margin-bottom:0.5rem" {
+            button .btn .btn-secondary .btn-sm
+                hx-get={"/b/admin/settings/network?tab=" (active_tab)}
+                hx-target="#content"
+            { (icons::refresh_cw()) " Refresh" }
+        }
 
         div .tabs {
             a .tab .(if active_tab == "inbound" { "active" } else { "" })
-                href="/b/admin/network"
-                hx-get="/b/admin/network"
+                href="/b/admin/settings/network"
+                hx-get="/b/admin/settings/network"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::arrow_down_left()) " Inbound" }
             a .tab .(if active_tab == "outbound" { "active" } else { "" })
-                href="/b/admin/network?tab=outbound"
-                hx-get="/b/admin/network?tab=outbound"
+                href="/b/admin/settings/network?tab=outbound"
+                hx-get="/b/admin/settings/network?tab=outbound"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::arrow_up_right()) " Outbound" }
@@ -53,7 +48,7 @@ pub async fn network_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             div .card .mt-4 style="background:#f0f9ff;border-color:#bae6fd" {
                 p style="padding:12px;margin:0;font-size:13px" {
                     (icons::info()) " Network permissions have moved to the "
-                    a href="/b/admin/permissions?tab=network" { "Permissions" }
+                    a href="/b/admin/settings/permissions?subtab=network" { "Permissions" }
                     " page."
                 }
             }
@@ -69,21 +64,7 @@ pub async fn network_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 (network_rules_tab(ctx, msg).await)
             }
         }
-    };
-
-    admin_page(
-        "Network",
-        &config,
-        "/b/admin/network",
-        user.as_ref(),
-        Topbar {
-            crumbs: crumb("Network"),
-            primary_action: None,
-            show_palette: true,
-        },
-        content,
-        msg,
-    )
+    }
 }
 
 async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
@@ -116,7 +97,7 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
 
     html! {
         div .filter-bar {
-            (components::search_input_with_value("search", "Search by path...", "/b/admin/network", "#content", &search))
+            (components::search_input_with_value("search", "Search by path...", "/b/admin/settings/network", "#content", &search))
         }
 
         style { (maud::PreEscaped("
@@ -325,7 +306,7 @@ async fn network_outbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
 
     html! {
         div .filter-bar {
-            (components::search_input_with_value("search", "Search by URL...", "/b/admin/network?tab=outbound", "#content", &search))
+            (components::search_input_with_value("search", "Search by URL...", "/b/admin/settings/network?tab=outbound", "#content", &search))
         }
 
         style { (maud::PreEscaped("

@@ -2,40 +2,37 @@ use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, ListOptions};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{admin_page, crumb};
 use crate::{
     blocks::{
         admin::VARIABLES_COLLECTION as VARIABLES,
         helpers::{self, err_bad_request, err_internal, err_not_found, parse_form_body, RecordExt},
     },
-    ui::{self, components, icons, shell::Topbar, SiteConfig, UserInfo},
+    ui::{self, components, icons},
 };
 
-pub async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
+/// Render JUST the variables settings body. The parent `settings_page`
+/// handler wraps this in `form_page` + the shell.
+pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
     let tab = msg.query("tab");
     let active_tab = if tab == "all" { "all" } else { "blocks" };
 
-    let content = html! {
-        (components::page_header("Config", Some("Block configuration variables and access control"),
-            Some(html! {
-                button .btn .btn-primary .btn-sm onclick="openModal('create-var')" {
-                    (icons::plus()) " Add Variable"
-                }
-            })
-        ))
+    html! {
+        div style="margin-bottom:0.75rem" {
+            button .btn .btn-primary .btn-sm onclick="openModal('create-var')" {
+                (icons::plus()) " Add Variable"
+            }
+        }
 
         div .tabs {
             a .tab .(if active_tab == "blocks" { "active" } else { "" })
-                href="/b/admin/variables"
-                hx-get="/b/admin/variables"
+                href="/b/admin/settings/variables"
+                hx-get="/b/admin/settings/variables"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::package()) " By Block" }
             a .tab .(if active_tab == "all" { "active" } else { "" })
-                href="/b/admin/variables?tab=all"
-                hx-get="/b/admin/variables?tab=all"
+                href="/b/admin/settings/variables?tab=all"
+                hx-get="/b/admin/settings/variables?tab=all"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::file_text()) " All Variables" }
@@ -85,21 +82,14 @@ pub async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 div #edit-var-modal {}
             }
         }
-    };
+    }
+}
 
-    admin_page(
-        "Config",
-        &config,
-        "/b/admin/variables",
-        user.as_ref(),
-        Topbar {
-            crumbs: crumb("Variables"),
-            primary_action: None,
-            show_palette: true,
-        },
-        content,
-        msg,
-    )
+/// Full settings page for variables — used by mutation handlers that need to
+/// re-render the complete page after a create/update. Delegates to the
+/// canonical `settings_page` so both call paths share one composition.
+async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    super::settings::settings_page(ctx, msg, "variables").await
 }
 
 /// "All Variables" tab -- flat table of all config variables from the DB.
