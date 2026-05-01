@@ -370,12 +370,10 @@ impl Block for AdminBlock {
             return match sub.as_str() {
                 "" | "/" => pages::dashboard(ctx, &msg).await,
                 "/users" => pages::users_page(ctx, &msg).await,
-                "/variables" => pages::variables_page(ctx, &msg).await,
-                "/network" => pages::network_page(ctx, &msg).await,
                 "/storage" => pages::storage_page(ctx, &msg).await,
                 "/blocks" => pages::blocks_page(ctx, &msg).await,
                 "/logs" => pages::logs_page(ctx, &msg).await,
-                // "/email" and "/permissions" replaced with 308 redirects in Task 8
+                // "/email", "/network", "/variables", "/permissions" replaced with 308 redirects in Task 8
                 "/grants" => pages::grants_page(ctx, &msg).await,
                 _ => err_not_found("not found"),
             };
