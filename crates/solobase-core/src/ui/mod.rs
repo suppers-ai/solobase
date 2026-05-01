@@ -111,6 +111,65 @@ pub fn html_response(markup: maud::Markup) -> wafer_run::OutputStream {
     )
 }
 
+/// Render a full page wrapping `body` in `shell()` + `page()`. Caller
+/// passes the audience's `nav_groups` (admin or portal) and a `Topbar`.
+/// Mounts the ⌘K palette modal at the bottom of the page when
+/// `topbar.show_palette` is true.
+pub fn shelled_page(
+    title: &str,
+    config: &SiteConfig,
+    groups: &[NavGroup],
+    user: Option<&UserInfo>,
+    current_path: &str,
+    topbar: shell::Topbar<'_>,
+    body: maud::Markup,
+) -> maud::Markup {
+    use maud::{html, PreEscaped};
+    let palette_markup = if topbar.show_palette {
+        palette::palette(nav_groups::palette_entries(current_path))
+    } else {
+        html! {}
+    };
+    layout::page(
+        title,
+        config,
+        html! {
+            (shell::shell(
+                groups,
+                user,
+                current_path,
+                &config.logo_url,
+                &config.logo_icon_url,
+                topbar,
+                body,
+            ))
+            (palette_markup)
+            script { (PreEscaped(assets::palette_js())) }
+        },
+    )
+}
+
+/// Same as `shelled_page`, but returns an `OutputStream`. Returns the
+/// raw `body` (no chrome) when the request is an htmx partial — same
+/// fragment behavior as `block_shell(is_fragment: true)` had.
+pub fn shelled_response(
+    msg: &wafer_run::types::Message,
+    title: &str,
+    config: &SiteConfig,
+    groups: &[NavGroup],
+    user: Option<&UserInfo>,
+    current_path: &str,
+    topbar: shell::Topbar<'_>,
+    body: maud::Markup,
+) -> wafer_run::OutputStream {
+    if is_htmx(msg) {
+        return html_response(body);
+    }
+    html_response(shelled_page(
+        title, config, groups, user, current_path, topbar, body,
+    ))
+}
+
 /// Render a styled 404 page.
 pub fn not_found_page() -> maud::Markup {
     use maud::{html, DOCTYPE};
@@ -217,4 +276,49 @@ pub fn html_response_with_toast(
             markup.into_string().into_bytes(),
             "text/html; charset=utf-8",
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::shell::{Crumb, Topbar};
+    use maud::html;
+
+    fn site_config() -> SiteConfig {
+        SiteConfig {
+            app_name: "TestApp".to_string(),
+            logo_url: String::new(),
+            logo_icon_url: String::new(),
+            favicon_url: String::new(),
+            embedded_scripts: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn shelled_page_full_render_includes_html_doctype_shell_and_body() {
+        let groups = nav_groups::admin("/b/admin/");
+        let topbar = Topbar {
+            crumbs: vec![Crumb {
+                label: "Dashboard",
+                href: None,
+            }],
+            primary_action: None,
+            show_palette: true,
+        };
+        let body = html! { p { "hello" } };
+        let markup = shelled_page(
+            "Dashboard",
+            &site_config(),
+            &groups,
+            None,
+            "/b/admin/",
+            topbar,
+            body,
+        );
+        let s = markup.into_string();
+        assert!(s.contains("<!DOCTYPE html>"));
+        assert!(s.contains(r#"class="shell""#));
+        assert!(s.contains(r#"id="cmdk""#)); // palette mounted
+        assert!(s.contains("hello"));
+    }
 }
