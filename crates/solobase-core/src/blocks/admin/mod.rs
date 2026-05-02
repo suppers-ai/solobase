@@ -145,6 +145,8 @@ impl Block for AdminBlock {
                 BlockEndpoint::post("/b/admin/email").summary("Save email settings").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/permissions").summary("Permissions management").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/grants").summary("WRAP grants management").auth(AuthLevel::Admin),
+                BlockEndpoint::get("/b/admin/database").summary("Database admin page").auth(AuthLevel::Admin),
+                BlockEndpoint::post("/b/admin/database/query").summary("Run read-only SQL (SSR)").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/api/users").summary("List users API").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/api/iam/roles").summary("List roles API").auth(AuthLevel::Admin),
                 BlockEndpoint::get("/b/admin/api/settings").summary("List variables API").auth(AuthLevel::Admin),
@@ -166,6 +168,7 @@ impl Block for AdminBlock {
             wafer_run::UiRoute::admin("/email"),
             wafer_run::UiRoute::admin("/permissions"),
             wafer_run::UiRoute::admin("/grants"),
+            wafer_run::UiRoute::admin("/database"),
         ]
     }
 
@@ -397,6 +400,7 @@ impl Block for AdminBlock {
                 "/users" => pages::users_page(ctx, &msg).await,
                 "/storage" => pages::storage_page(ctx, &msg).await,
                 "/blocks" => pages::blocks_page(ctx, &msg).await,
+                "/database" => pages::database_page(ctx, &msg).await,
                 "/logs" => pages::logs_page(ctx, &msg).await,
                 "/email" => redirect_308("/b/admin/settings/email"),
                 "/network" => redirect_308("/b/admin/settings/network"),

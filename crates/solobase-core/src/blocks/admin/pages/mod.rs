@@ -5,6 +5,7 @@
 
 mod blocks;
 mod dashboard;
+mod database;
 pub(super) mod email;
 mod logs;
 pub(super) mod network;
@@ -17,6 +18,7 @@ pub(super) mod variables;
 // Re-export all public functions so callers can use `pages::dashboard(...)` etc.
 pub use blocks::*;
 pub use dashboard::*;
+pub use database::*;
 pub use email::*;
 pub use logs::*;
 use maud::Markup;
