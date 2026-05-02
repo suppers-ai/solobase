@@ -26,7 +26,7 @@ pub fn admin() -> Vec<NavGroup> {
             items: vec![
                 item("Blocks", "/b/admin/blocks", "package"),
                 item("Storage", "/b/admin/storage", "hard-drive"),
-                item("SQL", "/b/admin/sql", "server"),
+                item("Database", "/b/admin/database", "server"),
             ],
         },
         NavGroup {
@@ -106,6 +106,18 @@ mod tests {
         let workspace = &groups[0];
         let labels: Vec<&str> = workspace.items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(labels, vec!["Dashboard", "Users"]);
+    }
+
+    #[test]
+    fn admin_data_group_has_database_not_sql() {
+        let groups = admin();
+        let data = groups
+            .iter()
+            .find(|g| g.label.as_deref() == Some("Data"))
+            .unwrap();
+        let database = data.items.iter().find(|i| i.label == "Database").unwrap();
+        assert_eq!(database.href, "/b/admin/database");
+        assert!(data.items.iter().all(|i| i.label != "SQL"), "SQL should be renamed to Database");
     }
 
     #[test]
