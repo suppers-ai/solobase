@@ -14,7 +14,9 @@ set -euo pipefail
 
 SQL_JS_TAG="v1.11.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORK_DIR="$(mktemp -d)"
+# Work under $HOME because Docker Desktop file-sharing typically excludes
+# /tmp; $HOME is always allowed.
+WORK_DIR="$(mktemp -d -p "$HOME" sqljs-fts5-build.XXXXXX)"
 VENDOR_DIR="${SCRIPT_DIR}/../crates/solobase-browser/assets/vendor"
 
 trap 'rm -rf "${WORK_DIR}"' EXIT
@@ -23,10 +25,32 @@ echo "[1/4] cloning sql.js ${SQL_JS_TAG} into ${WORK_DIR}"
 git clone --depth 1 --branch "${SQL_JS_TAG}" https://github.com/sql-js/sql.js.git "${WORK_DIR}/sql.js"
 cd "${WORK_DIR}/sql.js"
 
-echo "[2/4] building with FTS5 (Docker, may take 5-10 min)"
-make clean || true
-EMFLAGS_FEATURES="-DSQLITE_ENABLE_FTS3 -DSQLITE_ENABLE_FTS3_PARENTHESIS -DSQLITE_ENABLE_FTS5" \
-  make all
+echo "[2/4] building with FTS5 inside emscripten/emsdk container (may take 5-10 min)"
+# Run the entire build inside emscripten/emsdk so we don't depend on host
+# Emscripten or sql.js's host tool prereqs (sha3sum, etc.). Container runs
+# as root so apt-get works; outputs are chown'd back to the host user
+# before the container exits so subsequent cp commands work without sudo.
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
+docker run --rm \
+  -v "${WORK_DIR}/sql.js:/src" \
+  -w /src \
+  -e HOST_UID="${HOST_UID}" \
+  -e HOST_GID="${HOST_GID}" \
+  --entrypoint /bin/bash \
+  emscripten/emsdk:3.1.74 \
+  -c '
+    set -euo pipefail
+    apt-get update -qq
+    apt-get install -y -qq libdigest-sha3-perl
+    make clean || true
+    # Pass SQLITE_COMPILATION_FLAGS on the command line; Makefile uses `=`
+    # (recursive) assignment which overrides env-var values, so it must be
+    # set as a make argument to take effect.
+    make SQLITE_COMPILATION_FLAGS="-DSQLITE_ENABLE_FTS3 -DSQLITE_ENABLE_FTS3_PARENTHESIS -DSQLITE_ENABLE_NORMALIZE -DSQLITE_ENABLE_FTS5" all
+    # chown outputs back to host user so the host can read/copy them.
+    chown -R "${HOST_UID}:${HOST_GID}" dist cache sqlite-src out 2>/dev/null || true
+  '
 
 echo "[3/4] vendoring artifacts to ${VENDOR_DIR}"
 mkdir -p "${VENDOR_DIR}"
@@ -49,10 +73,14 @@ cp dist/sql-wasm.wasm "${VENDOR_DIR}/sql-wasm.wasm"
 } > "${VENDOR_DIR}/sql-wasm-esm.js"
 
 echo "[4/4] verifying FTS5 symbol present in new wasm"
-if ! strings "${VENDOR_DIR}/sql-wasm.wasm" | grep -qi "fts5"; then
+# Avoid `grep -q` here: with `set -o pipefail`, grep's early exit can SIGPIPE
+# `strings` and propagate as a pipeline failure, masking the real result.
+fts5_hits="$(strings "${VENDOR_DIR}/sql-wasm.wasm" | grep -ci "fts5" || true)"
+if [ "${fts5_hits}" -eq 0 ]; then
   echo "ERROR: FTS5 symbols missing from rebuilt wasm — build flag did not take effect" >&2
   exit 1
 fi
+echo "    found ${fts5_hits} fts5 references"
 
 echo "done. New artifacts:"
 ls -la "${VENDOR_DIR}/sql-wasm.wasm" "${VENDOR_DIR}/sql-wasm-esm.js"
