@@ -8,6 +8,16 @@ fn item(label: &str, href: &str, icon: &'static str) -> NavItem {
         label: label.to_string(),
         href: href.to_string(),
         icon,
+        external: false,
+    }
+}
+
+fn item_external(label: &str, href: &str, icon: &'static str) -> NavItem {
+    NavItem {
+        label: label.to_string(),
+        href: href.to_string(),
+        icon,
+        external: true,
     }
 }
 
@@ -40,7 +50,7 @@ pub fn admin() -> Vec<NavGroup> {
             label: Some("System".to_string()),
             items: vec![
                 item("Logs", "/b/admin/logs", "file-text"),
-                item("Inspector", "/b/inspector", "shield"),
+                item_external("Inspector", "/b/inspector/ui", "shield"),
                 item("Settings", "/b/admin/settings/email", "settings"),
             ],
         },
@@ -82,6 +92,7 @@ pub fn palette_entries_from_groups(groups: &[NavGroup]) -> Vec<crate::ui::palett
             label: item.label.clone(),
             kind_label: "Page".to_string(),
             href: item.href.clone(),
+            external: item.external,
         })
         .collect()
 }
@@ -191,5 +202,21 @@ mod tests {
         assert!(users.keywords.contains("users"));
         assert!(users.keywords.contains("/b/admin/users"));
         assert_eq!(users.kind_label, "Page");
+    }
+
+    #[test]
+    fn admin_inspector_is_external_new_tab_link_to_inspector_ui() {
+        let groups = admin();
+        let system = groups
+            .iter()
+            .find(|g| g.label.as_deref() == Some("System"))
+            .unwrap();
+        let inspector = system
+            .items
+            .iter()
+            .find(|i| i.label == "Inspector")
+            .expect("System group must include Inspector");
+        assert!(inspector.external, "Inspector should open in a new tab");
+        assert_eq!(inspector.href, "/b/inspector/ui");
     }
 }
