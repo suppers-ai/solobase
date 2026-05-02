@@ -109,6 +109,28 @@ async fn handle_columns(ctx: &dyn Context, msg: &Message) -> OutputStream {
     ok_json(&serde_json::json!({"table": table_name, "columns": col_info}))
 }
 
+/// Why a SQL query was rejected, with the right HTTP status mapping
+/// for `handle_query` (JSON API) and the SSR fragment handler in
+/// `pages::database` to use without reading message text.
+#[derive(Debug)]
+pub(in crate::blocks::admin) enum QueryValidationError {
+    /// Multi-statement queries or write/control keywords — caller should
+    /// return HTTP 403.
+    Forbidden(String),
+    /// Wrong shape (unknown first word, unsafe PRAGMA name) — caller
+    /// should return HTTP 400.
+    BadRequest(String),
+}
+
+impl QueryValidationError {
+    #[allow(dead_code)]
+    pub(in crate::blocks::admin) fn message(&self) -> &str {
+        match self {
+            Self::Forbidden(m) | Self::BadRequest(m) => m,
+        }
+    }
+}
+
 /// Validate that `query` is a read-only SQL statement we will execute.
 ///
 /// Accepts: SELECT / PRAGMA (whitelisted) / EXPLAIN / WITH.
@@ -118,12 +140,14 @@ async fn handle_columns(ctx: &dyn Context, msg: &Message) -> OutputStream {
 /// Used by both the JSON API (`POST /admin/database/query`) and the
 /// admin SSR page handler (`POST /b/admin/database/query`). Single
 /// source of truth — do not duplicate this logic.
-pub(super) fn validate_readonly_query(query: &str) -> Result<(), String> {
+pub(in crate::blocks::admin) fn validate_readonly_query(query: &str) -> Result<(), QueryValidationError> {
     let trimmed = query.trim();
 
     // Reject multi-statement queries (prevent piggy-backed writes).
     if trimmed.contains(';') {
-        return Err("Multi-statement queries are not allowed".to_string());
+        return Err(QueryValidationError::Forbidden(
+            "Multi-statement queries are not allowed".to_string(),
+        ));
     }
 
     let query_upper = trimmed.to_uppercase();
@@ -144,7 +168,9 @@ pub(super) fn validate_readonly_query(query: &str) -> Result<(), String> {
             let after_ok =
                 after_pos >= upper.len() || !upper.as_bytes()[after_pos].is_ascii_alphanumeric();
             if before_ok && after_ok {
-                return Err(format!("{keyword} is not allowed in read-only queries"));
+                return Err(QueryValidationError::Forbidden(format!(
+                    "{keyword} is not allowed in read-only queries"
+                )));
             }
             start = abs_pos + kw.len();
         }
@@ -167,16 +193,18 @@ pub(super) fn validate_readonly_query(query: &str) -> Result<(), String> {
             .next()
             .unwrap_or("");
         if !SAFE_PRAGMAS.iter().any(|p| pragma_name.starts_with(p)) {
-            return Err(
+            return Err(QueryValidationError::BadRequest(
                 "Only read-only PRAGMA queries are allowed (table_info, index_list, etc.)"
                     .to_string(),
-            );
+            ));
         }
     }
 
     match first_word {
         "SELECT" | "PRAGMA" | "EXPLAIN" | "WITH" => Ok(()),
-        _ => Err("Only SELECT, PRAGMA, EXPLAIN, and WITH queries are allowed".to_string()),
+        _ => Err(QueryValidationError::BadRequest(
+            "Only SELECT, PRAGMA, EXPLAIN, and WITH queries are allowed".to_string(),
+        )),
     }
 }
 
@@ -193,12 +221,11 @@ async fn handle_query(ctx: &dyn Context, input: InputStream) -> OutputStream {
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
-    if let Err(msg) = validate_readonly_query(&body.query) {
-        // Map error messages back to existing HTTP status mapping.
-        if msg.starts_with("Multi-statement") || msg.contains("not allowed") {
-            return err_forbidden(&msg);
-        }
-        return err_bad_request(&msg);
+    if let Err(e) = validate_readonly_query(&body.query) {
+        return match e {
+            QueryValidationError::Forbidden(m) => err_forbidden(&m),
+            QueryValidationError::BadRequest(m) => err_bad_request(&m),
+        };
     }
 
     match db::query_raw(ctx, &body.query, &body.args).await {
@@ -215,7 +242,7 @@ async fn handle_query(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_readonly_query;
+    use super::{validate_readonly_query, QueryValidationError};
 
     #[test]
     fn validate_accepts_select_pragma_explain_with() {
@@ -244,5 +271,17 @@ mod tests {
         assert!(validate_readonly_query("PRAGMA table_info(users)").is_ok());
         assert!(validate_readonly_query("PRAGMA index_list(users)").is_ok());
         assert!(validate_readonly_query("PRAGMA database_list").is_ok());
+    }
+
+    #[test]
+    fn validate_marks_writes_as_forbidden() {
+        let err = validate_readonly_query("INSERT INTO users VALUES (1)").unwrap_err();
+        assert!(matches!(err, QueryValidationError::Forbidden(_)));
+    }
+
+    #[test]
+    fn validate_marks_unknown_first_word_as_bad_request() {
+        let err = validate_readonly_query("EXEC users").unwrap_err();
+        assert!(matches!(err, QueryValidationError::BadRequest(_)));
     }
 }
