@@ -16,7 +16,9 @@ use wafer_sql_utils::{introspect, Backend};
 
 use super::{admin_page, crumb};
 use crate::{
+    blocks::{admin::database::validate_readonly_query, helpers::parse_form_body},
     ui::{
+        html_response,
         shell::Topbar,
         templates::{list_page, PageHeader},
         SiteConfig, UserInfo,
@@ -238,12 +240,101 @@ async fn right_pane(ctx: &dyn Context, selected: Option<&str>, tab: Tab) -> Mark
     }
 }
 
-/// SQL editor + results placeholder (Task 5 fills this in).
-fn sql_panel(_selected: Option<&str>, _query: Option<&str>, _result: Option<Markup>) -> Markup {
+fn sql_panel(selected: Option<&str>, query: Option<&str>, result: Option<Markup>) -> Markup {
+    let initial = match (query, selected) {
+        (Some(q), _) if !q.is_empty() => q.to_string(),
+        (_, Some(t)) => format!("SELECT * FROM {t} LIMIT 100;"),
+        _ => "SELECT 1;".to_string(),
+    };
     html! {
         div .db-panel {
-            p .text-muted { "SQL editor coming next commit." }
+            form .db-sql
+                hx-post="/b/admin/database/query"
+                hx-target="#db-sql-results"
+                hx-swap="innerHTML"
+            {
+                @if let Some(t) = selected {
+                    input type="hidden" name="table" value=(t);
+                }
+                textarea name="query" rows="6" .db-sql__input
+                    spellcheck="false"
+                    placeholder="SELECT … FROM …"
+                { (initial) }
+                div .db-sql__actions {
+                    button .btn .btn-primary type="submit" { "Run" }
+                    span .text-muted .text-sm { "Read-only: SELECT, PRAGMA, EXPLAIN, WITH" }
+                }
+            }
+            div #db-sql-results .db-sql-results {
+                @if let Some(r) = result { (r) } @else {
+                    p .text-muted .text-sm { "Run a query to see results." }
+                }
+            }
         }
+    }
+}
+
+fn render_sql_results(rows: &[db::Record], duration_ms: u128) -> Markup {
+    if rows.is_empty() {
+        return html! {
+            p .text-muted .text-sm { "0 rows in " (duration_ms) "ms" }
+        };
+    }
+
+    // Stable column ordering: union of keys, in first-row order then any new keys appended.
+    let mut columns: Vec<String> = Vec::new();
+    if let Some(first) = rows.first() {
+        for k in first.data.keys() {
+            columns.push(k.clone());
+        }
+    }
+    for r in rows {
+        for k in r.data.keys() {
+            if !columns.iter().any(|c| c == k) {
+                columns.push(k.clone());
+            }
+        }
+    }
+
+    html! {
+        p .text-muted .text-sm { (rows.len()) " rows in " (duration_ms) "ms" }
+        div .table-container {
+            table .table {
+                thead {
+                    tr {
+                        @for c in &columns { th { (c) } }
+                    }
+                }
+                tbody {
+                    @for r in rows {
+                        tr {
+                            @for c in &columns {
+                                td .text-sm {
+                                    @match r.data.get(c) {
+                                        Some(v) => (format_cell(v)),
+                                        None => "",
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn format_cell(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => "".to_string(),
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+fn render_sql_error(msg: &str) -> Markup {
+    html! {
+        div .login-error { (msg) }
     }
 }
 
@@ -284,4 +375,28 @@ pub async fn database_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         body,
         msg,
     )
+}
+
+pub async fn handle_database_query(
+    ctx: &dyn Context,
+    _msg: &Message,
+    input: wafer_run::InputStream,
+) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let form = parse_form_body(&raw);
+    let query = form.get("query").cloned().unwrap_or_default();
+
+    if let Err(err) = validate_readonly_query(&query) {
+        return html_response(render_sql_error(err.message()));
+    }
+
+    let started = std::time::Instant::now();
+    let result = db::query_raw(ctx, &query, &[]).await;
+    let elapsed = started.elapsed().as_millis();
+
+    let fragment = match result {
+        Ok(rows) => render_sql_results(&rows, elapsed),
+        Err(e) => render_sql_error(&format!("Query error: {}", e)),
+    };
+    html_response(fragment)
 }

@@ -374,6 +374,11 @@ impl Block for AdminBlock {
                 return pages::handle_save_email_settings(ctx, &msg, input).await;
             }
 
+            // Database SQL editor (htmx)
+            if action == "create" && sub == "/database/query" {
+                return pages::handle_database_query(ctx, &msg, input).await;
+            }
+
             // Custom block management
             if action == "create" && sub == "/custom-blocks/install" {
                 return pages::handle_custom_block_install(ctx, &msg, input).await;
