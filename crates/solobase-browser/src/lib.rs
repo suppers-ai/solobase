@@ -20,6 +20,7 @@ pub mod tools;
 // openai_codec is pure Rust and tested on native; the rest of `llm` is too
 // (stubs today, real impls later behind wasm32 cfg inside the module).
 pub mod llm;
+pub mod vector;
 
 // wasm32-only — use wasm-bindgen, web-sys, js-sys.
 #[cfg(target_arch = "wasm32")]
