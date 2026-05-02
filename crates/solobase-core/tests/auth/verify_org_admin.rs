@@ -175,13 +175,11 @@ async fn link_provider(
 async fn reserved_org_with_admin_user_returns_true() {
     let h = boot().await;
     let admin = mk_user(h.ctx.as_ref(), "admin@x.com", "admin").await;
-    assert_eq!(
-        h.svc
-            .verify_org_admin(admin, "github", "wafer-run")
-            .await
-            .unwrap(),
-        true
-    );
+    assert!(h
+        .svc
+        .verify_org_admin(admin, "github", "wafer-run")
+        .await
+        .unwrap());
 }
 
 // ── Case 2 ───────────────────────────────────────────────────────────────
@@ -189,13 +187,11 @@ async fn reserved_org_with_admin_user_returns_true() {
 async fn reserved_org_with_plain_user_returns_false() {
     let h = boot().await;
     let u = mk_user(h.ctx.as_ref(), "u@x.com", "user").await;
-    assert_eq!(
-        h.svc
-            .verify_org_admin(u, "github", "wafer-run")
-            .await
-            .unwrap(),
-        false
-    );
+    assert!(!h
+        .svc
+        .verify_org_admin(u, "github", "wafer-run")
+        .await
+        .unwrap());
 }
 
 // ── Case 3 ───────────────────────────────────────────────────────────────
@@ -205,13 +201,11 @@ async fn non_reserved_owner_returns_true_without_provider_call() {
     let owner = mk_user(h.ctx.as_ref(), "o@x.com", "user").await;
     seed_claimed(h.ctx.as_ref(), "acme", &owner, "acme").await;
     // No scripted answer → if code calls the provider, it panics.
-    assert_eq!(
-        h.svc
-            .verify_org_admin(owner, "github", "acme")
-            .await
-            .unwrap(),
-        true
-    );
+    assert!(h
+        .svc
+        .verify_org_admin(owner, "github", "acme")
+        .await
+        .unwrap());
 }
 
 // ── Case 4 ───────────────────────────────────────────────────────────────
@@ -231,13 +225,11 @@ async fn provider_says_admin_returns_true() {
     .await;
     seed_claimed(h.ctx.as_ref(), "acme", &owner, "acme").await;
     h.gh.set_admin("token-other", "acme", true);
-    assert_eq!(
-        h.svc
-            .verify_org_admin(other, "github", "acme")
-            .await
-            .unwrap(),
-        true
-    );
+    assert!(h
+        .svc
+        .verify_org_admin(other, "github", "acme")
+        .await
+        .unwrap());
 }
 
 // ── Case 5 ───────────────────────────────────────────────────────────────
@@ -257,13 +249,11 @@ async fn provider_says_no_returns_false() {
     .await;
     seed_claimed(h.ctx.as_ref(), "acme", &owner, "acme").await;
     h.gh.set_admin("token-other", "acme", false);
-    assert_eq!(
-        h.svc
-            .verify_org_admin(other, "github", "acme")
-            .await
-            .unwrap(),
-        false
-    );
+    assert!(!h
+        .svc
+        .verify_org_admin(other, "github", "acme")
+        .await
+        .unwrap());
 }
 
 // ── Case 6 ───────────────────────────────────────────────────────────────
@@ -278,7 +268,7 @@ async fn non_github_provider_returns_ok_false() {
         .verify_org_admin(owner, "google", "acme")
         .await
         .unwrap();
-    assert_eq!(got, false);
+    assert!(!got);
 }
 
 // ── Case 7 ───────────────────────────────────────────────────────────────
@@ -308,13 +298,11 @@ async fn provider_5xx_bubbles_as_provider_down_and_is_not_cached() {
     // Now flip to a real answer — the second call should NOT return a
     // cached `false` from the error path, it should hit the provider again.
     h.gh.set_admin("token-other", "acme", true);
-    assert_eq!(
-        h.svc
-            .verify_org_admin(other, "github", "acme")
-            .await
-            .unwrap(),
-        true
-    );
+    assert!(h
+        .svc
+        .verify_org_admin(other, "github", "acme")
+        .await
+        .unwrap());
 }
 
 // ── Case 8 ───────────────────────────────────────────────────────────────
@@ -322,11 +310,9 @@ async fn provider_5xx_bubbles_as_provider_down_and_is_not_cached() {
 async fn unknown_org_returns_ok_false() {
     let h = boot().await;
     let u = mk_user(h.ctx.as_ref(), "u@x.com", "user").await;
-    assert_eq!(
-        h.svc
-            .verify_org_admin(u, "github", "never-claimed")
-            .await
-            .unwrap(),
-        false
-    );
+    assert!(!h
+        .svc
+        .verify_org_admin(u, "github", "never-claimed")
+        .await
+        .unwrap());
 }
