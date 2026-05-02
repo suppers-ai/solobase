@@ -5,3 +5,6 @@
 
 pub mod score;
 pub mod sql;
+pub mod service;
+
+pub use service::BrowserVectorService;
