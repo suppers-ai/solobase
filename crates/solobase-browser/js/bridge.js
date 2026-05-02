@@ -41,6 +41,18 @@ export async function dbInit() {
     }
 
     _db.run('PRAGMA foreign_keys = ON;');
+
+    // Custom scalar fn used by BrowserVectorService.upsert to ship f32 blobs
+    // through JSON params (params can't carry binary). Rust packs the vector
+    // as little-endian f32 BLOB → base64 → string param → BLOB column via
+    // base64_decode() inside the INSERT.
+    _db.create_function('base64_decode', (b64) => {
+        if (!b64) return new Uint8Array(0);
+        const bin = atob(b64);
+        const out = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+        return out;
+    });
 }
 
 /**
