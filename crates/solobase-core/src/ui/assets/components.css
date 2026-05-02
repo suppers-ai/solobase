@@ -668,3 +668,15 @@
 @media (max-width: 720px) {
   .db-layout { grid-template-columns: 1fr; }
 }
+
+/* ── Quick actions card ─────────────────────────────────── */
+.dashboard-top { margin-bottom: 16px; }
+.quick-actions__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.quick-actions__grid .btn { width: 100%; }
+@media (max-width: 720px) {
+  .quick-actions__grid { grid-template-columns: repeat(2, 1fr); }
+}

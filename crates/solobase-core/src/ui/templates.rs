@@ -175,10 +175,12 @@ pub fn dashboard_page(
     primary_card: Markup,
     secondary_card: Markup,
     full_width_card: Option<Markup>,
+    top_card: Option<Markup>,
 ) -> Markup {
     html! {
         div .page .page--dashboard {
             (render_header(&header))
+            @if let Some(tc) = top_card { div .dashboard-top { (tc) } }
             @if !stats.is_empty() {
                 div .stats-grid {
                     @for s in &stats {
@@ -435,7 +437,7 @@ mod tests {
         ];
         let primary = html! { section .card { "Quick actions" } };
         let secondary = html! { section .card { "Recent activity" } };
-        let s = dashboard_page(header, stats, primary, secondary, None).into_string();
+        let s = dashboard_page(header, stats, primary, secondary, None, None).into_string();
         assert!(s.contains("stats-grid"));
         assert!(s.contains(">Users<"));
         assert!(s.contains("142"));
@@ -443,6 +445,24 @@ mod tests {
         assert!(s.contains("Quick actions"));
         assert!(s.contains("Recent activity"));
         assert!(!s.contains("dashboard-wide"));
+    }
+
+    #[test]
+    fn dashboard_page_renders_optional_top_card_above_stats() {
+        let header = PageHeader { title: "Dash", subtitle: None, primary_action: None };
+        let m = dashboard_page(
+            header,
+            vec![StatTile { label: "Users", value: "1", trend: None }],
+            html! { div #primary {} },
+            html! { div #secondary {} },
+            None,
+            Some(html! { div #top-card { "QA" } }),
+        );
+        let s = m.into_string();
+        let top = s.find("dashboard-top").expect("dashboard-top div present");
+        let stats = s.find("stats-grid").expect("stats-grid div present");
+        assert!(top < stats, "top card must render above stats");
+        assert!(s.contains(r#"id="top-card""#));
     }
 
     #[test]
