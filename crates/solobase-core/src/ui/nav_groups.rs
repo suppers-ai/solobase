@@ -8,6 +8,17 @@ fn item(label: &str, href: &str, icon: &'static str) -> NavItem {
         label: label.to_string(),
         href: href.to_string(),
         icon,
+        external: false,
+    }
+}
+
+#[allow(dead_code)] /* used by Task 11 */
+fn item_external(label: &str, href: &str, icon: &'static str) -> NavItem {
+    NavItem {
+        label: label.to_string(),
+        href: href.to_string(),
+        icon,
+        external: true,
     }
 }
 
@@ -82,6 +93,7 @@ pub fn palette_entries_from_groups(groups: &[NavGroup]) -> Vec<crate::ui::palett
             label: item.label.clone(),
             kind_label: "Page".to_string(),
             href: item.href.clone(),
+            external: item.external,
         })
         .collect()
 }

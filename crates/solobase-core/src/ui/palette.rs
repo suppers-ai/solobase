@@ -12,6 +12,7 @@ pub struct PaletteEntry {
     pub kind_label: String, // "Page", "Action", etc.
     pub href: String,       // for route entries
     pub keywords: String,   // space-separated, for fuzzy match
+    pub external: bool,     // open in a new tab (e.g. Inspector)
 }
 
 /// Render the palette markup. Hidden by default; CSS class controls
@@ -29,6 +30,7 @@ pub fn palette(entries: Vec<PaletteEntry>) -> Markup {
                     @for (i, e) in entries.iter().enumerate() {
                         li .palette__item role="option"
                            data-href=(e.href)
+                           data-external=[e.external.then_some("true")]
                            data-keywords=(e.keywords)
                            aria-selected=[(i == 0).then_some("true")] {
                             span .palette__item-label { (e.label) }
@@ -52,6 +54,7 @@ mod tests {
             kind_label: "Page".to_string(),
             href: href.to_string(),
             keywords: format!("{} {}", label.to_lowercase(), href),
+            external: false,
         }
     }
 
