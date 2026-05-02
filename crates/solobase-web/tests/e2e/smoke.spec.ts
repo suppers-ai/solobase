@@ -6,7 +6,12 @@ import { test, expect } from '@playwright/test';
  * path bug (both of which silently prevented SW registration).
  */
 test('service worker registers and controls the page', async ({ page }) => {
-  await page.goto('/');
+  // `domcontentloaded` is the right waitUntil here: the test exercises SW
+  // registration, which `loader.js` triggers as soon as the DOM is parsed.
+  // Default `load` waits for every <script type="module"> import to resolve,
+  // including `webllm-engine.js`'s jsdelivr fetch of @mlc-ai/web-llm — that's
+  // a multi-MB ESM bundle that times out the test on a cold CI cache.
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   // Read the controller scriptURL inside the waitForFunction predicate so the
   // value is captured atomically. solobase-web's loader.js redirects to
   // `/b/system/` as soon as the SW takes control, which would otherwise
@@ -22,7 +27,7 @@ test('service worker registers and controls the page', async ({ page }) => {
 });
 
 test('solobase-web admin UI at /b/system/ renders after SW activation', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(
     () => navigator.serviceWorker.controller !== null,
     null,
