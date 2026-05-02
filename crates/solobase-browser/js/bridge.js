@@ -465,6 +465,81 @@ export function _completeLlmMessage(msg) {
 
 globalThis.__solobaseCompleteLlmMessage = _completeLlmMessage;
 
+// ─── Embed (SW → page postMessage bridge) ───────────────────────────────────
+//
+// Mirrors the LLM bridge pattern: correlation-id keyed postMessage to a window
+// client; resolvers kept in a Map; sw.js routes replies via globalThis hook.
+
+const _pendingEmbedRequests = new Map(); // id -> { resolve, reject }
+
+function _mkEmbedId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Embed `texts` using the page-resident Transformers.js pipeline for `modelId`.
+ * Resolves to a JSON string `{"vectors":[[...]],"dims":<n>}`.
+ * @param {string} modelId
+ * @param {string} textsJson - JSON array of strings
+ * @returns {Promise<string>}
+ */
+export async function embedRun(modelId, textsJson) {
+    const id = _mkEmbedId('embed-run');
+    const replyPromise = new Promise((resolve, reject) => {
+        _pendingEmbedRequests.set(id, { resolve, reject });
+    });
+    await _postToWindowClient({ type: 'embed-run-request', id, modelId, texts: textsJson });
+    return await replyPromise;
+}
+
+/**
+ * Eagerly load the pipeline for `modelId` so the next `embedRun` is fast.
+ * Optional — `embedRun` will lazy-load if needed.
+ * @param {string} modelId
+ * @returns {Promise<void>}
+ */
+export async function embedCreatePipeline(modelId) {
+    const id = _mkEmbedId('embed-create');
+    const replyPromise = new Promise((resolve, reject) => {
+        _pendingEmbedRequests.set(id, { resolve, reject });
+    });
+    await _postToWindowClient({ type: 'embed-create-request', id, modelId });
+    return await replyPromise;
+}
+
+/**
+ * Free the page-resident pipeline for `modelId`. Optional.
+ * @param {string} modelId
+ * @returns {Promise<void>}
+ */
+export async function embedUnload(modelId) {
+    const id = _mkEmbedId('embed-unload');
+    const replyPromise = new Promise((resolve, reject) => {
+        _pendingEmbedRequests.set(id, { resolve, reject });
+    });
+    await _postToWindowClient({ type: 'embed-unload-request', id, modelId });
+    return await replyPromise;
+}
+
+/**
+ * Called by sw.js when a page embed reply arrives. Routes to the pending
+ * request by id.
+ *
+ * Page → SW message shapes:
+ *   { type: 'embed-run-response',    id, result? (JSON string), error? }
+ *   { type: 'embed-create-response', id, result?, error? }
+ *   { type: 'embed-unload-response', id, result?, error? }
+ */
+export function _completeEmbedMessage(msg) {
+    const pending = _pendingEmbedRequests.get(msg.id);
+    if (!pending) return;
+    _pendingEmbedRequests.delete(msg.id);
+    if (msg.error) pending.reject(new Error(msg.error));
+    else pending.resolve(msg.result ?? null);
+}
+
+globalThis.__solobaseCompleteEmbedMessage = _completeEmbedMessage;
+
 // ─── Cookies (readable from SW via CookieStore API) ─────────────────────────
 //
 // The Service-Worker spec filters the `Cookie` header out of

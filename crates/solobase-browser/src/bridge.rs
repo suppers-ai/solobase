@@ -114,4 +114,20 @@ extern "C" {
     /// Cancel an in-flight stream.
     #[wasm_bindgen(js_name = llmCancelStream, catch)]
     pub async fn llm_cancel_stream(stream_id: &str) -> Result<JsValue, JsValue>;
+
+    // ─── Embed bridge ─────────────────────────────────────────────────────────
+
+    /// Embed `texts` using the page-resident Transformers.js pipeline for
+    /// `model_id`. Resolves to a JSON string `{"vectors":[[...]],"dims":<n>}`.
+    #[wasm_bindgen(catch, js_name = embedRun)]
+    pub async fn embed_run(model_id: &str, texts_json: &str) -> Result<JsValue, JsValue>;
+
+    /// Eagerly load the pipeline for `model_id`. Optional — `embedRun` will
+    /// lazy-load if needed.
+    #[wasm_bindgen(catch, js_name = embedCreatePipeline)]
+    pub async fn embed_create_pipeline(model_id: &str) -> Result<JsValue, JsValue>;
+
+    /// Free the page-resident pipeline for `model_id`. Optional.
+    #[wasm_bindgen(catch, js_name = embedUnload)]
+    pub async fn embed_unload(model_id: &str) -> Result<JsValue, JsValue>;
 }

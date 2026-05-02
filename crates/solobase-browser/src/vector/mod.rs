@@ -14,3 +14,12 @@ pub mod service;
 
 #[cfg(target_arch = "wasm32")]
 pub use service::BrowserVectorService;
+
+// `embedding` and `embedding_bridge` also depend on the wasm32-only `bridge`.
+#[cfg(target_arch = "wasm32")]
+pub mod embedding;
+#[cfg(target_arch = "wasm32")]
+pub mod embedding_bridge;
+
+#[cfg(target_arch = "wasm32")]
+pub use embedding::BrowserEmbeddingService;
