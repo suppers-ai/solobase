@@ -87,8 +87,45 @@ impl VectorService for BrowserVectorService {
         Ok(())
     }
 
-    async fn upsert(&self, _index: &str, _entries: Vec<VectorEntry>) -> VResult<()> {
-        Err(VectorError::Internal("upsert not yet implemented".into()))
+    async fn upsert(&self, index: &str, entries: Vec<VectorEntry>) -> VResult<()> {
+        let state = self
+            .lookup(index)
+            .ok_or_else(|| VectorError::IndexNotFound(index.into()))?;
+
+        use base64ct::{Base64, Encoding};
+        let prepared: Result<Vec<sql::SqlUpsertEntry>, VectorError> = entries
+            .iter()
+            .map(|e| {
+                if e.vector.len() as u32 != state.dimensions {
+                    return Err(VectorError::DimensionMismatch {
+                        expected: state.dimensions,
+                        got: e.vector.len() as u32,
+                    });
+                }
+                if state.keyword_search && e.text.is_none() {
+                    return Err(VectorError::TextRequired);
+                }
+                let blob = sql::pack_vector_blob(&e.vector);
+                Ok(sql::SqlUpsertEntry {
+                    id: e.id.clone(),
+                    vector_blob_b64: Base64::encode_string(&blob),
+                    metadata_json: e
+                        .metadata
+                        .as_ref()
+                        .map(|m| m.to_string())
+                        .unwrap_or_else(|| "{}".into()),
+                    text: e.text.clone(),
+                })
+            })
+            .collect();
+        let prepared = prepared?;
+
+        for stmt in sql::build_upsert_sql_stmts(index, state.keyword_search, &prepared) {
+            bridge::db_exec_raw(&stmt.sql, &stmt.params_json)
+                .map_err(|e| VectorError::Internal(js_err(e)))?;
+        }
+        bridge::dbFlush().await;
+        Ok(())
     }
 
     async fn query(
@@ -103,8 +140,21 @@ impl VectorService for BrowserVectorService {
         Err(VectorError::Internal("query not yet implemented".into()))
     }
 
-    async fn delete(&self, _index: &str, _ids: Vec<String>) -> VResult<()> {
-        Err(VectorError::Internal("delete not yet implemented".into()))
+    async fn delete(&self, index: &str, ids: Vec<String>) -> VResult<()> {
+        let state = self
+            .lookup(index)
+            .ok_or_else(|| VectorError::IndexNotFound(index.into()))?;
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let (stmts, params) = sql::build_delete_ids_sql(index, &ids, state.keyword_search);
+        let params_json = serde_json::to_string(&params).unwrap_or_else(|_| "[]".into());
+        for s in stmts {
+            bridge::db_exec_raw(&s, &params_json)
+                .map_err(|e| VectorError::Internal(js_err(e)))?;
+        }
+        bridge::dbFlush().await;
+        Ok(())
     }
 
     async fn count(&self, index: &str) -> VResult<u64> {

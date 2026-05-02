@@ -92,6 +92,89 @@ pub fn parse_vector_blob(bytes: &[u8], expected_dims: u32) -> Result<Vec<f32>, S
     Ok(floats.to_vec())
 }
 
+#[derive(Clone, Debug)]
+pub struct SqlUpsertEntry {
+    pub id: String,
+    /// Base64-encoded packed f32 BLOB.
+    pub vector_blob_b64: String,
+    pub metadata_json: String,
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PreparedStmt {
+    pub sql: String,
+    /// JSON array string (the format `bridge::db_exec_raw` expects).
+    pub params_json: String,
+}
+
+/// Builds `INSERT OR REPLACE` statements. One statement per table per row
+/// keeps each blob param self-contained — sql.js's positional binding handles
+/// strings and base64 blobs uniformly via the JSON-array convention used by
+/// the rest of the bridge.
+pub fn build_upsert_sql_stmts(
+    prefixed_name: &str,
+    keyword_search: bool,
+    entries: &[SqlUpsertEntry],
+) -> Vec<PreparedStmt> {
+    let mut out = Vec::with_capacity(entries.len() * if keyword_search { 3 } else { 2 });
+    for e in entries {
+        let (sql_v, params_v) = if keyword_search {
+            (
+                format!(
+                    r#"INSERT OR REPLACE INTO "{prefixed_name}_vectors" (id, vector, metadata, text) VALUES (?, base64_decode(?), ?, ?)"#
+                ),
+                serde_json::json!([
+                    e.id,
+                    e.vector_blob_b64,
+                    e.metadata_json,
+                    e.text.clone().unwrap_or_default()
+                ]),
+            )
+        } else {
+            (
+                format!(
+                    r#"INSERT OR REPLACE INTO "{prefixed_name}_vectors" (id, vector, metadata) VALUES (?, base64_decode(?), ?)"#
+                ),
+                serde_json::json!([e.id, e.vector_blob_b64, e.metadata_json]),
+            )
+        };
+        out.push(PreparedStmt { sql: sql_v, params_json: params_v.to_string() });
+
+        if keyword_search {
+            out.push(PreparedStmt {
+                sql: format!(
+                    r#"INSERT OR REPLACE INTO "{prefixed_name}_fts" (id, text) VALUES (?, ?)"#
+                ),
+                params_json: serde_json::json!([e.id, e.text.clone().unwrap_or_default()])
+                    .to_string(),
+            });
+        }
+
+        let (sql_m, params_m) = if keyword_search {
+            (
+                format!(
+                    r#"INSERT OR REPLACE INTO "{prefixed_name}_meta" (id, rowid, metadata, text) VALUES (?, NULL, ?, ?)"#
+                ),
+                serde_json::json!([
+                    e.id,
+                    e.metadata_json,
+                    e.text.clone().unwrap_or_default()
+                ]),
+            )
+        } else {
+            (
+                format!(
+                    r#"INSERT OR REPLACE INTO "{prefixed_name}_meta" (id, rowid, metadata) VALUES (?, NULL, ?)"#
+                ),
+                serde_json::json!([e.id, e.metadata_json]),
+            )
+        };
+        out.push(PreparedStmt { sql: sql_m, params_json: params_m.to_string() });
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,5 +264,33 @@ mod tests {
         let v = vec![0.1f32; 4];
         let packed = pack_vector_blob(&v);
         assert!(parse_vector_blob(&packed, 5).is_err());
+    }
+
+    #[test]
+    fn upsert_emits_three_statements_with_keyword() {
+        let entry = SqlUpsertEntry {
+            id: "doc1".into(),
+            vector_blob_b64: "AAAA".into(),
+            metadata_json: "{}".into(),
+            text: Some("hello".into()),
+        };
+        let stmts = build_upsert_sql_stmts("suppers_ai__vector__docs", true, &[entry.clone()]);
+        assert_eq!(stmts.len(), 3, "expected vectors + fts + meta upserts");
+        assert!(stmts[0].sql.contains("INSERT OR REPLACE INTO \"suppers_ai__vector__docs_vectors\""));
+        assert!(stmts[1].sql.contains("INSERT OR REPLACE INTO \"suppers_ai__vector__docs_fts\""));
+        assert!(stmts[2].sql.contains("INSERT OR REPLACE INTO \"suppers_ai__vector__docs_meta\""));
+    }
+
+    #[test]
+    fn upsert_without_keyword_skips_fts() {
+        let entry = SqlUpsertEntry {
+            id: "doc1".into(),
+            vector_blob_b64: "AAAA".into(),
+            metadata_json: "{}".into(),
+            text: None,
+        };
+        let stmts = build_upsert_sql_stmts("suppers_ai__vector__docs", false, &[entry]);
+        assert_eq!(stmts.len(), 2);
+        assert!(!stmts.iter().any(|s| s.sql.contains("_fts")));
     }
 }
