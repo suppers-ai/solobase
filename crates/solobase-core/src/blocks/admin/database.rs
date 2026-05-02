@@ -109,6 +109,77 @@ async fn handle_columns(ctx: &dyn Context, msg: &Message) -> OutputStream {
     ok_json(&serde_json::json!({"table": table_name, "columns": col_info}))
 }
 
+/// Validate that `query` is a read-only SQL statement we will execute.
+///
+/// Accepts: SELECT / PRAGMA (whitelisted) / EXPLAIN / WITH.
+/// Rejects: multi-statement (`;`), any write keyword (whole-word match),
+/// and unsafe PRAGMAs.
+///
+/// Used by both the JSON API (`POST /admin/database/query`) and the
+/// admin SSR page handler (`POST /b/admin/database/query`). Single
+/// source of truth — do not duplicate this logic.
+pub(super) fn validate_readonly_query(query: &str) -> Result<(), String> {
+    let trimmed = query.trim();
+
+    // Reject multi-statement queries (prevent piggy-backed writes).
+    if trimmed.contains(';') {
+        return Err("Multi-statement queries are not allowed".to_string());
+    }
+
+    let query_upper = trimmed.to_uppercase();
+
+    const FORBIDDEN_KEYWORDS: &[&str] = &[
+        "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "REPLACE",
+        "ATTACH", "DETACH", "REINDEX", "VACUUM", "SAVEPOINT", "RELEASE",
+        "BEGIN", "COMMIT", "ROLLBACK", "RETURNING",
+    ];
+    for keyword in FORBIDDEN_KEYWORDS {
+        let upper = query_upper.as_str();
+        let kw = *keyword;
+        let mut start = 0;
+        while let Some(pos) = upper[start..].find(kw) {
+            let abs_pos = start + pos;
+            let before_ok = abs_pos == 0 || !upper.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
+            let after_pos = abs_pos + kw.len();
+            let after_ok =
+                after_pos >= upper.len() || !upper.as_bytes()[after_pos].is_ascii_alphanumeric();
+            if before_ok && after_ok {
+                return Err(format!("{keyword} is not allowed in read-only queries"));
+            }
+            start = abs_pos + kw.len();
+        }
+    }
+
+    let first_word = query_upper.split_whitespace().next().unwrap_or("");
+
+    if first_word == "PRAGMA" {
+        const SAFE_PRAGMAS: &[&str] = &[
+            "TABLE_INFO", "TABLE_LIST", "TABLE_XINFO", "INDEX_LIST", "INDEX_INFO",
+            "FOREIGN_KEY_LIST", "DATABASE_LIST", "COMPILE_OPTIONS", "INTEGRITY_CHECK",
+            "QUICK_CHECK", "PAGE_COUNT", "PAGE_SIZE", "FREELIST_COUNT",
+        ];
+        let pragma_name = query_upper
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or("")
+            .trim_start_matches('"')
+            .split('(')
+            .next()
+            .unwrap_or("");
+        if !SAFE_PRAGMAS.iter().any(|p| pragma_name.starts_with(p)) {
+            return Err(
+                "Only read-only PRAGMA queries are allowed (table_info, index_list, etc.)"
+                    .to_string(),
+            );
+        }
+    }
+
+    match first_word {
+        "SELECT" | "PRAGMA" | "EXPLAIN" | "WITH" => Ok(()),
+        _ => Err("Only SELECT, PRAGMA, EXPLAIN, and WITH queries are allowed".to_string()),
+    }
+}
+
 async fn handle_query(ctx: &dyn Context, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
     struct QueryReq {
@@ -122,102 +193,56 @@ async fn handle_query(ctx: &dyn Context, input: InputStream) -> OutputStream {
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
-    // Strict read-only query validation
-    let trimmed = body.query.trim();
-
-    // Reject multi-statement queries (prevent piggy-backed writes)
-    if trimmed.contains(';') {
-        return err_forbidden("Multi-statement queries are not allowed");
+    if let Err(msg) = validate_readonly_query(&body.query) {
+        // Map error messages back to existing HTTP status mapping.
+        if msg.starts_with("Multi-statement") || msg.contains("not allowed") {
+            return err_forbidden(&msg);
+        }
+        return err_bad_request(&msg);
     }
 
-    let query_upper = trimmed.to_uppercase();
-
-    // Reject queries containing write keywords anywhere (not just first word)
-    const FORBIDDEN_KEYWORDS: &[&str] = &[
-        "INSERT",
-        "UPDATE",
-        "DELETE",
-        "DROP",
-        "ALTER",
-        "CREATE",
-        "REPLACE",
-        "ATTACH",
-        "DETACH",
-        "REINDEX",
-        "VACUUM",
-        "SAVEPOINT",
-        "RELEASE",
-        "BEGIN",
-        "COMMIT",
-        "ROLLBACK",
-        "RETURNING",
-    ];
-    for keyword in FORBIDDEN_KEYWORDS {
-        // Check for keyword as a whole word (preceded and followed by non-alphanumeric)
-        let upper = query_upper.as_str();
-        let kw = *keyword;
-        let mut start = 0;
-        while let Some(pos) = upper[start..].find(kw) {
-            let abs_pos = start + pos;
-            let before_ok = abs_pos == 0 || !upper.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
-            let after_pos = abs_pos + kw.len();
-            let after_ok =
-                after_pos >= upper.len() || !upper.as_bytes()[after_pos].is_ascii_alphanumeric();
-            if before_ok && after_ok {
-                return err_forbidden(&format!("{} is not allowed in read-only queries", keyword));
-            }
-            start = abs_pos + kw.len();
+    match db::query_raw(ctx, &body.query, &body.args).await {
+        Ok(records) => {
+            let row_count = records.len();
+            ok_json(&serde_json::json!({
+                "rows": records,
+                "row_count": row_count
+            }))
         }
+        Err(e) => err_bad_request(&format!("Query error: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_readonly_query;
+
+    #[test]
+    fn validate_accepts_select_pragma_explain_with() {
+        assert!(validate_readonly_query("SELECT * FROM users").is_ok());
+        assert!(validate_readonly_query("PRAGMA table_info(users)").is_ok());
+        assert!(validate_readonly_query("EXPLAIN SELECT 1").is_ok());
+        assert!(validate_readonly_query("WITH x AS (SELECT 1) SELECT * FROM x").is_ok());
     }
 
-    let first_word = query_upper.split_whitespace().next().unwrap_or("");
-
-    // For PRAGMA: only allow known read-only pragmas
-    if first_word == "PRAGMA" {
-        const SAFE_PRAGMAS: &[&str] = &[
-            "TABLE_INFO",
-            "TABLE_LIST",
-            "TABLE_XINFO",
-            "INDEX_LIST",
-            "INDEX_INFO",
-            "FOREIGN_KEY_LIST",
-            "DATABASE_LIST",
-            "COMPILE_OPTIONS",
-            "INTEGRITY_CHECK",
-            "QUICK_CHECK",
-            "PAGE_COUNT",
-            "PAGE_SIZE",
-            "FREELIST_COUNT",
-        ];
-        let pragma_name = query_upper
-            .split_whitespace()
-            .nth(1)
-            .unwrap_or("")
-            .trim_start_matches('"')
-            .split('(')
-            .next()
-            .unwrap_or("");
-        if !SAFE_PRAGMAS.iter().any(|p| pragma_name.starts_with(p)) {
-            return err_forbidden(
-                "Only read-only PRAGMA queries are allowed (table_info, index_list, etc.)",
-            );
-        }
+    #[test]
+    fn validate_rejects_writes_and_multistatement() {
+        assert!(validate_readonly_query("INSERT INTO users VALUES (1)").is_err());
+        assert!(validate_readonly_query("UPDATE users SET x = 1").is_err());
+        assert!(validate_readonly_query("DELETE FROM users").is_err());
+        assert!(validate_readonly_query("SELECT 1; DROP TABLE users").is_err());
     }
 
-    // User-provided query (admin SQL explorer) -- stays as raw SQL
-    match first_word {
-        "SELECT" | "PRAGMA" | "EXPLAIN" | "WITH" => {
-            match db::query_raw(ctx, &body.query, &body.args).await {
-                Ok(records) => {
-                    let row_count = records.len();
-                    ok_json(&serde_json::json!({
-                        "rows": records,
-                        "row_count": row_count
-                    }))
-                }
-                Err(e) => err_bad_request(&format!("Query error: {e}")),
-            }
-        }
-        _ => err_forbidden("Only SELECT, PRAGMA, EXPLAIN, and WITH queries are allowed"),
+    #[test]
+    fn validate_rejects_unsafe_pragma() {
+        assert!(validate_readonly_query("PRAGMA writable_schema = 1").is_err());
+        assert!(validate_readonly_query("PRAGMA journal_mode = WAL").is_err());
+    }
+
+    #[test]
+    fn validate_accepts_safe_pragmas() {
+        assert!(validate_readonly_query("PRAGMA table_info(users)").is_ok());
+        assert!(validate_readonly_query("PRAGMA index_list(users)").is_ok());
+        assert!(validate_readonly_query("PRAGMA database_list").is_ok());
     }
 }
