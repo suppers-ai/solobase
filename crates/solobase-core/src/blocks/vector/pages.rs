@@ -569,7 +569,14 @@ async fn load_index_metadata(
 /// (Workers AI) and Plan 3 (browser/transformers) will split this by
 /// `model_id` so different models dispatch to different embedding blocks.
 fn embedding_block_for_model(_model_id: &str) -> &'static str {
-    "suppers-ai/fastembed"
+    #[cfg(target_arch = "wasm32")]
+    {
+        "suppers-ai/transformers-embed"
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        "suppers-ai/fastembed"
+    }
 }
 
 // ---------------------------------------------------------------------------

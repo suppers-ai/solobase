@@ -5,6 +5,8 @@ pub mod email;
 pub mod errors;
 #[cfg(feature = "native-embedding")]
 pub mod fastembed;
+#[cfg(target_arch = "wasm32")]
+pub mod transformers_embed;
 pub mod files;
 pub mod helpers;
 pub mod legalpages;
