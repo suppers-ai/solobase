@@ -140,7 +140,9 @@ impl QueryValidationError {
 /// Used by both the JSON API (`POST /admin/database/query`) and the
 /// admin SSR page handler (`POST /b/admin/database/query`). Single
 /// source of truth — do not duplicate this logic.
-pub(in crate::blocks::admin) fn validate_readonly_query(query: &str) -> Result<(), QueryValidationError> {
+pub(in crate::blocks::admin) fn validate_readonly_query(
+    query: &str,
+) -> Result<(), QueryValidationError> {
     let trimmed = query.trim();
 
     // Reject multi-statement queries (prevent piggy-backed writes).
@@ -153,9 +155,23 @@ pub(in crate::blocks::admin) fn validate_readonly_query(query: &str) -> Result<(
     let query_upper = trimmed.to_uppercase();
 
     const FORBIDDEN_KEYWORDS: &[&str] = &[
-        "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "REPLACE",
-        "ATTACH", "DETACH", "REINDEX", "VACUUM", "SAVEPOINT", "RELEASE",
-        "BEGIN", "COMMIT", "ROLLBACK", "RETURNING",
+        "INSERT",
+        "UPDATE",
+        "DELETE",
+        "DROP",
+        "ALTER",
+        "CREATE",
+        "REPLACE",
+        "ATTACH",
+        "DETACH",
+        "REINDEX",
+        "VACUUM",
+        "SAVEPOINT",
+        "RELEASE",
+        "BEGIN",
+        "COMMIT",
+        "ROLLBACK",
+        "RETURNING",
     ];
     for keyword in FORBIDDEN_KEYWORDS {
         let upper = query_upper.as_str();
@@ -180,9 +196,19 @@ pub(in crate::blocks::admin) fn validate_readonly_query(query: &str) -> Result<(
 
     if first_word == "PRAGMA" {
         const SAFE_PRAGMAS: &[&str] = &[
-            "TABLE_INFO", "TABLE_LIST", "TABLE_XINFO", "INDEX_LIST", "INDEX_INFO",
-            "FOREIGN_KEY_LIST", "DATABASE_LIST", "COMPILE_OPTIONS", "INTEGRITY_CHECK",
-            "QUICK_CHECK", "PAGE_COUNT", "PAGE_SIZE", "FREELIST_COUNT",
+            "TABLE_INFO",
+            "TABLE_LIST",
+            "TABLE_XINFO",
+            "INDEX_LIST",
+            "INDEX_INFO",
+            "FOREIGN_KEY_LIST",
+            "DATABASE_LIST",
+            "COMPILE_OPTIONS",
+            "INTEGRITY_CHECK",
+            "QUICK_CHECK",
+            "PAGE_COUNT",
+            "PAGE_SIZE",
+            "FREELIST_COUNT",
         ];
         let pragma_name = query_upper
             .split_whitespace()
