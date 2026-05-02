@@ -117,7 +117,10 @@ mod tests {
             .unwrap();
         let database = data.items.iter().find(|i| i.label == "Database").unwrap();
         assert_eq!(database.href, "/b/admin/database");
-        assert!(data.items.iter().all(|i| i.label != "SQL"), "SQL should be renamed to Database");
+        assert!(
+            data.items.iter().all(|i| i.label != "SQL"),
+            "SQL should be renamed to Database"
+        );
     }
 
     #[test]

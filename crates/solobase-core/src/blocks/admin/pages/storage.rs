@@ -10,7 +10,8 @@ use crate::{
         STORAGE_RULES_COLLECTION as STORAGE_RULES,
     },
     ui::{
-        components, icons, shell::Topbar,
+        components, icons,
+        shell::Topbar,
         templates::{list_page, PageHeader},
         SiteConfig, UserInfo,
     },

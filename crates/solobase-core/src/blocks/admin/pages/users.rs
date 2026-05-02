@@ -56,7 +56,11 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    let current_uid = user.as_ref().map(|u| u.id.as_str()).unwrap_or("").to_string();
+    let current_uid = user
+        .as_ref()
+        .map(|u| u.id.as_str())
+        .unwrap_or("")
+        .to_string();
     let tab_content = html! {
         div #users-tab-content {
             @if active_tab == "users" {
