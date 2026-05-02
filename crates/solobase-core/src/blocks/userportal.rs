@@ -471,9 +471,11 @@ fn render_buttons_table(buttons: &[wafer_core::clients::database::Record]) -> ma
     html! {
         div #buttons-table {
             @if buttons.is_empty() {
-                (components::empty_state_v1(
+                (components::empty_state(
+                    icons::package(),
                     "No buttons configured",
                     "Add a button above to show navigation links on the user profile page.",
+                    None,
                 ))
             } @else {
                 div .table-container {

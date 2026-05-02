@@ -9,7 +9,11 @@ use crate::{
         admin::{AUDIT_LOGS_COLLECTION as AUDIT_LOGS, REQUEST_LOGS_COLLECTION as REQUEST_LOGS},
         auth::USERS_COLLECTION as USERS,
     },
-    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
+    ui::{
+        shell::Topbar,
+        templates::{dashboard_page, PageHeader, StatTile},
+        SiteConfig, UserInfo,
+    },
 };
 
 pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -193,26 +197,47 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         .await
         .unwrap_or_default();
 
-    let content = html! {
-        (components::page_header("Dashboard", Some("System overview"), None))
+    let user_count_str = user_count.to_string();
+    let new_users_str = new_users_today.to_string();
+    let requests_str = requests_today.to_string();
+    let errors_str = errors_today.to_string();
+    let avg_ms_str = format!("{:.0}ms", avg_ms);
 
-        // Top row — key metrics
-        div .stats-grid {
-            (components::stat_card("Total Users", &user_count.to_string(), icons::users()))
-            (components::stat_card("New Today", &new_users_today.to_string(), icons::plus()))
-            (components::stat_card("Requests Today", &requests_today.to_string(), icons::server()))
-            (components::stat_card("Errors Today", &errors_today.to_string(), icons::x()))
-            (components::stat_card("Avg Response", &format!("{:.0}ms", avg_ms), icons::refresh_cw()))
-        }
+    let stats = vec![
+        StatTile {
+            label: "Total Users",
+            value: &user_count_str,
+            trend: None,
+        },
+        StatTile {
+            label: "New Today",
+            value: &new_users_str,
+            trend: None,
+        },
+        StatTile {
+            label: "Requests Today",
+            value: &requests_str,
+            trend: None,
+        },
+        StatTile {
+            label: "Errors Today",
+            value: &errors_str,
+            trend: None,
+        },
+        StatTile {
+            label: "Avg Response",
+            value: &avg_ms_str,
+            trend: None,
+        },
+    ];
 
-        // Two columns: Recent Users + Recent Activity
-        div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-top:1.5rem" {
-            // Recent Users
-            div .card {
-                div .card-header {
-                    h3 .card-title { "Recent Users" }
-                    a .btn .btn-ghost .btn-sm href="/b/admin/users" { "View all" }
-                }
+    let recent_users_card = html! {
+        section .card {
+            header .card__head {
+                h3 .card__title { "Recent Users" }
+                a .btn .btn-ghost .btn-sm href="/b/admin/users" { "View all" }
+            }
+            div .card__body {
                 @if recent_users.is_empty() {
                     p .text-muted .text-sm { "No users yet" }
                 } @else {
@@ -232,13 +257,16 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     }
                 }
             }
+        }
+    };
 
-            // Recent Activity (Audit Logs)
-            div .card {
-                div .card-header {
-                    h3 .card-title { "Recent Activity" }
-                    a .btn .btn-ghost .btn-sm href="/b/admin/logs?tab=audit" { "View all" }
-                }
+    let recent_activity_card = html! {
+        section .card {
+            header .card__head {
+                h3 .card__title { "Recent Activity" }
+                a .btn .btn-ghost .btn-sm href="/b/admin/logs?tab=audit" { "View all" }
+            }
+            div .card__body {
                 @if recent_audit.is_empty() {
                     p .text-muted .text-sm { "No activity yet" }
                 } @else {
@@ -261,48 +289,65 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 }
             }
         }
+    };
 
-        // Recent Errors
-        @if !recent_errors.is_empty() {
-            div .card style="margin-top:1.5rem" {
-                div .card-header {
-                    h3 .card-title { "Recent Errors" }
+    let recent_errors_card = if recent_errors.is_empty() {
+        None
+    } else {
+        Some(html! {
+            section .card {
+                header .card__head {
+                    h3 .card__title { "Recent Errors" }
                     a .btn .btn-ghost .btn-sm href="/b/admin/logs" { "View all" }
                 }
-                div .table-container {
-                    table .table {
-                        thead {
-                            tr {
-                                th { "Status" }
-                                th { "Method" }
-                                th { "Path" }
-                                th { "Duration" }
-                                th { "Time" }
-                            }
-                        }
-                        tbody {
-                            @for record in &recent_errors {
-                                @let code = record.data.get("status_code").and_then(|v| v.as_i64()).unwrap_or(0);
-                                @let method = record.data.get("method").and_then(|v| v.as_str()).unwrap_or("");
-                                @let path = record.data.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                                @let duration = record.data.get("duration_ms").and_then(|v| v.as_i64()).unwrap_or(0);
-                                @let created = record.data.get("created_at").and_then(|v| v.as_str()).unwrap_or("");
+                div .card__body {
+                    div .table-container {
+                        table .table {
+                            thead {
                                 tr {
-                                    td {
-                                        span .badge .(if code >= 500 { "badge-danger" } else { "badge-warning" }) { (code) }
+                                    th { "Status" }
+                                    th { "Method" }
+                                    th { "Path" }
+                                    th { "Duration" }
+                                    th { "Time" }
+                                }
+                            }
+                            tbody {
+                                @for record in &recent_errors {
+                                    @let code = record.data.get("status_code").and_then(|v| v.as_i64()).unwrap_or(0);
+                                    @let method = record.data.get("method").and_then(|v| v.as_str()).unwrap_or("");
+                                    @let path = record.data.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                    @let duration = record.data.get("duration_ms").and_then(|v| v.as_i64()).unwrap_or(0);
+                                    @let created = record.data.get("created_at").and_then(|v| v.as_str()).unwrap_or("");
+                                    tr {
+                                        td {
+                                            span .badge .(if code >= 500 { "badge-danger" } else { "badge-warning" }) { (code) }
+                                        }
+                                        td .text-sm .font-medium { (method.to_uppercase()) }
+                                        td .text-sm { (path) }
+                                        td .text-muted .text-sm { (duration) "ms" }
+                                        td .text-muted .text-sm { (created.get(..19).unwrap_or(created)) }
                                     }
-                                    td .text-sm .font-medium { (method.to_uppercase()) }
-                                    td .text-sm { (path) }
-                                    td .text-muted .text-sm { (duration) "ms" }
-                                    td .text-muted .text-sm { (created.get(..19).unwrap_or(created)) }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
+        })
     };
+
+    let body = dashboard_page(
+        PageHeader {
+            title: "Dashboard",
+            subtitle: Some("System overview"),
+            primary_action: None,
+        },
+        stats,
+        recent_users_card,
+        recent_activity_card,
+        recent_errors_card,
+    );
 
     admin_page(
         "Dashboard",
@@ -314,7 +359,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
             primary_action: None,
             show_palette: true,
         },
-        content,
+        body,
         msg,
     )
 }

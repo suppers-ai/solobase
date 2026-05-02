@@ -14,9 +14,10 @@ use crate::{
     },
     ui::{
         self,
-        components::{self, button, BtnVariant, CtrlSize},
+        components::{self, button, pagination, BtnVariant, CtrlSize},
         icons,
         shell::Topbar,
+        templates::{list_page, PageHeader},
         SiteConfig, UserInfo,
     },
 };
@@ -31,9 +32,7 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         _ => "users",
     };
 
-    let content = html! {
-        (components::page_header("Users & Access", Some("Manage accounts, roles, and API keys"), None))
-
+    let tabs_markup = html! {
         // Tabs
         div .tabs {
             a .tab .(if active_tab == "users" { "active" } else { "" })
@@ -55,11 +54,17 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 hx-push-url="true"
             { (icons::key()) " API Keys" }
         }
+    };
 
-        @let current_uid = user.as_ref().map(|u| u.id.as_str()).unwrap_or("");
+    let current_uid = user
+        .as_ref()
+        .map(|u| u.id.as_str())
+        .unwrap_or("")
+        .to_string();
+    let tab_content = html! {
         div #users-tab-content {
             @if active_tab == "users" {
-                (users_tab(ctx, msg, current_uid).await)
+                (users_tab(ctx, msg, &current_uid).await)
             } @else if active_tab == "roles" {
                 (roles_tab(ctx).await)
             } @else {
@@ -68,6 +73,22 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
+    let body = list_page(
+        PageHeader {
+            title: "Users & Access",
+            subtitle: Some("Manage accounts, roles, and API keys"),
+            primary_action: Some(button(
+                BtnVariant::Primary,
+                CtrlSize::Md,
+                "+ Invite user",
+                PreEscaped(r##"hx-get="/b/admin/users/new" hx-target="#content""##.to_string()),
+            )),
+        },
+        Some(tabs_markup),
+        tab_content,
+        None,
+    );
+
     admin_page(
         "Users",
         &config,
@@ -75,15 +96,10 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         user.as_ref(),
         Topbar {
             crumbs: crumb("Users"),
-            primary_action: Some(button(
-                BtnVariant::Primary,
-                CtrlSize::Md,
-                "+ Invite user",
-                PreEscaped(r##"hx-get="/b/admin/users/new" hx-target="#content""##.to_string()),
-            )),
+            primary_action: None,
             show_palette: true,
         },
-        content,
+        body,
         msg,
     )
 }
@@ -137,8 +153,7 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
             Ok(list) => {
                 (users_table(&list.records, ctx, current_user_id).await)
 
-                @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                (components::pagination_v1(list.page as u32, total_pages, "/b/admin/users", "#users-tab-content"))
+                (pagination(list.page as u32, list.page_size as u32, list.total_count as u32, "/b/admin/users"))
             }
             Err(e) => {
                 div .login-error { "Failed to load users: " (e.message) }

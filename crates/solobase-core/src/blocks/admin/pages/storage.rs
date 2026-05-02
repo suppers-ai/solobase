@@ -9,7 +9,12 @@ use crate::{
         STORAGE_ACCESS_LOGS_COLLECTION as STORAGE_ACCESS_LOGS,
         STORAGE_RULES_COLLECTION as STORAGE_RULES,
     },
-    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
+    ui::{
+        components, icons,
+        shell::Topbar,
+        templates::{list_page, PageHeader},
+        SiteConfig, UserInfo,
+    },
 };
 
 pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -21,18 +26,14 @@ pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         _ => "logs",
     };
 
-    let content = html! {
-        (components::page_header(
-            "Storage",
-            Some("Per-block storage isolation and access rules"),
-            Some(html! {
-                button .btn .btn-secondary .btn-sm
-                    hx-get={"/b/admin/storage?tab=" (active_tab)}
-                    hx-target="#content"
-                { (icons::refresh_cw()) " Refresh" }
-            })
-        ))
+    let refresh_action = html! {
+        button .btn .btn-secondary .btn-sm
+            hx-get={"/b/admin/storage?tab=" (active_tab)}
+            hx-target="#content"
+        { (icons::refresh_cw()) " Refresh" }
+    };
 
+    let tabs_and_body = html! {
         div .tabs {
             a .tab .(if active_tab == "logs" { "active" } else { "" })
                 href="/b/admin/storage"
@@ -62,6 +63,17 @@ pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
+    let body = list_page(
+        PageHeader {
+            title: "Storage",
+            subtitle: Some("Per-block storage isolation and access rules"),
+            primary_action: Some(refresh_action),
+        },
+        None,
+        tabs_and_body,
+        None,
+    );
+
     admin_page(
         "Storage",
         &config,
@@ -72,7 +84,7 @@ pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             primary_action: None,
             show_palette: true,
         },
-        content,
+        body,
         msg,
     )
 }

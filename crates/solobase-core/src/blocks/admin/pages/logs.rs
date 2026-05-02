@@ -8,7 +8,13 @@ use crate::{
         admin::{AUDIT_LOGS_COLLECTION as AUDIT_LOGS, REQUEST_LOGS_COLLECTION as REQUEST_LOGS},
         helpers::RecordExt,
     },
-    ui::{components, icons, shell::Topbar, SiteConfig, UserInfo},
+    ui::{
+        components::{self, pagination},
+        icons,
+        shell::Topbar,
+        templates::{list_page, PageHeader},
+        SiteConfig, UserInfo,
+    },
 };
 
 pub async fn logs_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -20,18 +26,14 @@ pub async fn logs_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         _ => "system",
     };
 
-    let content = html! {
-        (components::page_header(
-            "Logs",
-            Some("System telemetry and admin audit trail"),
-            Some(html! {
-                button .btn .btn-secondary .btn-sm
-                    hx-get={"/b/admin/logs?tab=" (active_tab)}
-                    hx-target="#content"
-                { (icons::refresh_cw()) " Refresh" }
-            })
-        ))
+    let refresh_action = html! {
+        button .btn .btn-secondary .btn-sm
+            hx-get={"/b/admin/logs?tab=" (active_tab)}
+            hx-target="#content"
+        { (icons::refresh_cw()) " Refresh" }
+    };
 
+    let tabs_and_body = html! {
         div .tabs {
             a .tab .(if active_tab == "system" { "active" } else { "" })
                 href="/b/admin/logs"
@@ -56,6 +58,17 @@ pub async fn logs_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
+    let body = list_page(
+        PageHeader {
+            title: "Logs",
+            subtitle: Some("System telemetry and admin audit trail"),
+            primary_action: Some(refresh_action),
+        },
+        None,
+        tabs_and_body,
+        None,
+    );
+
     admin_page(
         "Logs",
         &config,
@@ -66,7 +79,7 @@ pub async fn logs_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             primary_action: None,
             show_palette: true,
         },
-        content,
+        body,
         msg,
     )
 }
@@ -152,8 +165,7 @@ async fn system_logs_tab(ctx: &dyn Context, msg: &Message) -> Markup {
                     }
                 }
 
-                @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                (components::pagination_v1(list.page as u32, total_pages, "/b/admin/logs", "#content"))
+                (pagination(list.page as u32, list.page_size as u32, list.total_count as u32, "/b/admin/logs"))
             }
             Err(e) => {
                 div .login-error { "Failed to load request logs: " (e.message) }
@@ -233,8 +245,7 @@ async fn audit_logs_tab(ctx: &dyn Context, msg: &Message) -> Markup {
                     }
                 }
 
-                @let total_pages = ((list.total_count as f64) / (list.page_size.max(1) as f64)).ceil() as u32;
-                (components::pagination_v1(list.page as u32, total_pages, "/b/admin/logs?tab=audit", "#content"))
+                (pagination(list.page as u32, list.page_size as u32, list.total_count as u32, "/b/admin/logs?tab=audit"))
             }
             Err(e) => {
                 div .login-error { "Failed to load audit logs: " (e.message) }
