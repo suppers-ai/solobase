@@ -106,7 +106,11 @@ mod tests {
 
     #[test]
     fn dot_product_basic() {
-        let s = pair_score(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0], DistanceMetric::DotProduct);
+        let s = pair_score(
+            &[1.0, 2.0, 3.0],
+            &[4.0, 5.0, 6.0],
+            DistanceMetric::DotProduct,
+        );
         assert!((s - 32.0).abs() < 1e-5);
     }
 

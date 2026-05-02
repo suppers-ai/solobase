@@ -4,16 +4,14 @@
 //! (no separate file). Scoring is in-process Rust using SIMD on wasm32. FTS5
 //! powers keyword search when the index has `keyword_search: true`.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
+use std::{collections::HashMap, sync::Mutex};
 
 use wafer_core::interfaces::vector::service::{
     DistanceMetric, MetadataFilter, Result as VResult, SearchMode, VectorEntry, VectorError,
     VectorIndexConfig, VectorMatch, VectorService,
 };
 
-use crate::bridge;
-use crate::vector::sql;
+use crate::{bridge, vector::sql};
 
 fn js_err(e: wasm_bindgen::JsValue) -> String {
     e.as_string().unwrap_or_else(|| format!("{e:?}"))
@@ -230,25 +228,18 @@ impl VectorService for BrowserVectorService {
                 let mut rrf: std::collections::HashMap<String, f32> =
                     std::collections::HashMap::new();
                 for (rank, (id, _)) in vec_top.iter().enumerate() {
-                    *rrf.entry(id.clone()).or_insert(0.0) +=
-                        1.0 / (RRF_K + (rank + 1) as f32);
+                    *rrf.entry(id.clone()).or_insert(0.0) += 1.0 / (RRF_K + (rank + 1) as f32);
                 }
                 for (rank, id) in kw_top.iter().enumerate() {
-                    *rrf.entry(id.clone()).or_insert(0.0) +=
-                        1.0 / (RRF_K + (rank + 1) as f32);
+                    *rrf.entry(id.clone()).or_insert(0.0) += 1.0 / (RRF_K + (rank + 1) as f32);
                 }
                 let mut fused: Vec<(String, f32)> = rrf.into_iter().collect();
-                fused.sort_by(|a, b| {
-                    b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-                });
+                fused.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
                 // Hydrate metadata from both sources: vector candidates carry it
                 // already, FTS-only ids need a separate meta lookup.
                 let mut by_id: std::collections::HashMap<String, Option<serde_json::Value>> =
-                    candidates
-                        .into_iter()
-                        .map(|(id, _v, m)| (id, m))
-                        .collect();
+                    candidates.into_iter().map(|(id, _v, m)| (id, m)).collect();
                 let kw_only_ids: Vec<String> = kw_top
                     .into_iter()
                     .filter(|id| !by_id.contains_key(id))
@@ -281,8 +272,7 @@ impl VectorService for BrowserVectorService {
         let (stmts, params) = sql::build_delete_ids_sql(index, &ids, state.keyword_search);
         let params_json = serde_json::to_string(&params).unwrap_or_else(|_| "[]".into());
         for s in stmts {
-            bridge::db_exec_raw(&s, &params_json)
-                .map_err(|e| VectorError::Internal(js_err(e)))?;
+            bridge::db_exec_raw(&s, &params_json).map_err(|e| VectorError::Internal(js_err(e)))?;
         }
         bridge::dbFlush().await;
         Ok(())
@@ -311,17 +301,18 @@ fn load_all_vectors(
     dims: u32,
     f: &MetadataFilter,
 ) -> VResult<Vec<(String, Vec<f32>, Option<serde_json::Value>)>> {
-    let s = format!(
-        r#"SELECT id, vector, metadata FROM "{index}_vectors""#
-    );
-    let json = bridge::db_query_raw(&s, "[]")
-        .map_err(|e| VectorError::Internal(js_err(e)))?;
+    let s = format!(r#"SELECT id, vector, metadata FROM "{index}_vectors""#);
+    let json = bridge::db_query_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
     let rows: Vec<serde_json::Value> = serde_json::from_str(&json)
         .map_err(|e| VectorError::Internal(format!("parse vectors: {e}")))?;
 
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
-        let id = r.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let id = r
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         // sql.js returns BLOBs as `Uint8Array`, which serializes as JSON
         // arrays of integers when shipped through JSON.stringify. We accept
         // both: array of numbers OR base64 string (forward compat).
@@ -337,8 +328,7 @@ fn load_all_vectors(
             }
             _ => continue,
         };
-        let vector =
-            sql::parse_vector_blob(&bytes, dims).map_err(VectorError::Internal)?;
+        let vector = sql::parse_vector_blob(&bytes, dims).map_err(VectorError::Internal)?;
         let metadata: Option<serde_json::Value> = r
             .get("metadata")
             .and_then(|v| v.as_str())
@@ -356,8 +346,7 @@ fn fts_search(index: &str, query: &str, limit: usize) -> VResult<Vec<String>> {
         r#"SELECT id FROM "{index}_fts" WHERE "{index}_fts" MATCH ? ORDER BY rank LIMIT ?"#
     );
     let params = serde_json::json!([query, limit]).to_string();
-    let json = bridge::db_query_raw(&s, &params)
-        .map_err(|e| VectorError::Internal(js_err(e)))?;
+    let json = bridge::db_query_raw(&s, &params).map_err(|e| VectorError::Internal(js_err(e)))?;
     let rows: Vec<serde_json::Value> = serde_json::from_str(&json)
         .map_err(|e| VectorError::Internal(format!("parse fts: {e}")))?;
     Ok(rows
@@ -374,12 +363,9 @@ fn load_metadata_for_ids(
         return Ok(Default::default());
     }
     let placeholders = vec!["?"; ids.len()].join(", ");
-    let s = format!(
-        r#"SELECT id, metadata FROM "{index}_meta" WHERE id IN ({placeholders})"#
-    );
+    let s = format!(r#"SELECT id, metadata FROM "{index}_meta" WHERE id IN ({placeholders})"#);
     let params = serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
-    let json = bridge::db_query_raw(&s, &params)
-        .map_err(|e| VectorError::Internal(js_err(e)))?;
+    let json = bridge::db_query_raw(&s, &params).map_err(|e| VectorError::Internal(js_err(e)))?;
     let rows: Vec<serde_json::Value> = serde_json::from_str(&json)
         .map_err(|e| VectorError::Internal(format!("parse meta: {e}")))?;
     Ok(rows

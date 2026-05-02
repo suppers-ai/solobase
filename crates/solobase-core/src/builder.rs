@@ -62,8 +62,7 @@ pub struct SolobaseBuilder {
     /// `suppers-ai/transformers-embed` (with the embedding service). The
     /// native `register_vector_block` path is gated behind the
     /// `native-embedding` feature and remains unaffected.
-    extra_vector_service:
-        Option<Arc<dyn wafer_core::interfaces::vector::service::VectorService>>,
+    extra_vector_service: Option<Arc<dyn wafer_core::interfaces::vector::service::VectorService>>,
     extra_embedding_service:
         Option<Arc<dyn wafer_core::interfaces::vector::service::EmbeddingService>>,
 }
@@ -303,10 +302,9 @@ impl SolobaseBuilder {
         // + embedding services, register the runtime block + transformers
         // embed feature block. Mutually exclusive with `native-embedding` —
         // both producing `wafer-run/vector` would conflict on register.
-        if let (Some(vec_svc), Some(emb_svc)) = (
-            self.extra_vector_service,
-            self.extra_embedding_service,
-        ) {
+        if let (Some(vec_svc), Some(emb_svc)) =
+            (self.extra_vector_service, self.extra_embedding_service)
+        {
             wafer_core::service_blocks::vector::register_with(
                 &mut wafer,
                 vec_svc,

@@ -12,11 +12,9 @@ pub fn build_create_index_sql(prefixed_name: &str, keyword_search: bool) -> Vec<
 
     let text_col = if keyword_search { ", text TEXT" } else { "" };
 
-    let mut out = vec![
-        format!(
-            r#"CREATE TABLE "{v}" (id TEXT PRIMARY KEY, vector BLOB NOT NULL, metadata TEXT{text_col})"#
-        ),
-    ];
+    let mut out = vec![format!(
+        r#"CREATE TABLE "{v}" (id TEXT PRIMARY KEY, vector BLOB NOT NULL, metadata TEXT{text_col})"#
+    )];
     if keyword_search {
         let f = format!("{prefixed_name}_fts");
         out.push(format!(
@@ -30,9 +28,7 @@ pub fn build_create_index_sql(prefixed_name: &str, keyword_search: bool) -> Vec<
 }
 
 pub fn build_delete_index_sql(prefixed_name: &str, keyword_search: bool) -> Vec<String> {
-    let mut out = vec![format!(
-        r#"DROP TABLE IF EXISTS "{prefixed_name}_vectors""#
-    )];
+    let mut out = vec![format!(r#"DROP TABLE IF EXISTS "{prefixed_name}_vectors""#)];
     if keyword_search {
         out.push(format!(r#"DROP TABLE IF EXISTS "{prefixed_name}_fts""#));
     }
@@ -87,8 +83,8 @@ pub fn parse_vector_blob(bytes: &[u8], expected_dims: u32) -> Result<Vec<f32>, S
             expected_dims
         ));
     }
-    let floats: &[f32] = bytemuck::try_cast_slice(bytes)
-        .map_err(|e| format!("blob alignment error: {e}"))?;
+    let floats: &[f32] =
+        bytemuck::try_cast_slice(bytes).map_err(|e| format!("blob alignment error: {e}"))?;
     Ok(floats.to_vec())
 }
 
@@ -139,7 +135,10 @@ pub fn build_upsert_sql_stmts(
                 serde_json::json!([e.id, e.vector_blob_b64, e.metadata_json]),
             )
         };
-        out.push(PreparedStmt { sql: sql_v, params_json: params_v.to_string() });
+        out.push(PreparedStmt {
+            sql: sql_v,
+            params_json: params_v.to_string(),
+        });
 
         if keyword_search {
             out.push(PreparedStmt {
@@ -156,11 +155,7 @@ pub fn build_upsert_sql_stmts(
                 format!(
                     r#"INSERT OR REPLACE INTO "{prefixed_name}_meta" (id, rowid, metadata, text) VALUES (?, NULL, ?, ?)"#
                 ),
-                serde_json::json!([
-                    e.id,
-                    e.metadata_json,
-                    e.text.clone().unwrap_or_default()
-                ]),
+                serde_json::json!([e.id, e.metadata_json, e.text.clone().unwrap_or_default()]),
             )
         } else {
             (
@@ -170,7 +165,10 @@ pub fn build_upsert_sql_stmts(
                 serde_json::json!([e.id, e.metadata_json]),
             )
         };
-        out.push(PreparedStmt { sql: sql_m, params_json: params_m.to_string() });
+        out.push(PreparedStmt {
+            sql: sql_m,
+            params_json: params_m.to_string(),
+        });
     }
     out
 }
@@ -189,7 +187,10 @@ mod tests {
         assert!(sqls[1].contains(r#"CREATE VIRTUAL TABLE "suppers_ai__vector__docs_fts""#));
         assert!(sqls[1].contains("USING fts5(id UNINDEXED, text)"));
         assert!(sqls[2].contains(r#"CREATE TABLE "suppers_ai__vector__docs_meta""#));
-        assert!(sqls[2].contains("text TEXT"), "expected _meta to include text column when keyword_search=true");
+        assert!(
+            sqls[2].contains("text TEXT"),
+            "expected _meta to include text column when keyword_search=true"
+        );
     }
 
     #[test]
@@ -199,7 +200,10 @@ mod tests {
         assert!(sqls[0].contains("vectors"));
         assert!(!sqls[0].contains("text TEXT"));
         assert!(sqls[1].contains("meta"));
-        assert!(!sqls[1].contains("text TEXT"), "expected _meta to omit text column when keyword_search=false");
+        assert!(
+            !sqls[1].contains("text TEXT"),
+            "expected _meta to omit text column when keyword_search=false"
+        );
         assert!(!sqls.iter().any(|s| s.contains("USING fts5")));
     }
 
@@ -207,9 +211,15 @@ mod tests {
     fn delete_index_drops_all_three_tables() {
         let sqls = build_delete_index_sql("suppers_ai__vector__docs", true);
         assert_eq!(sqls.len(), 3);
-        assert!(sqls.iter().any(|s| s.contains("DROP TABLE IF EXISTS \"suppers_ai__vector__docs_vectors\"")));
-        assert!(sqls.iter().any(|s| s.contains("DROP TABLE IF EXISTS \"suppers_ai__vector__docs_fts\"")));
-        assert!(sqls.iter().any(|s| s.contains("DROP TABLE IF EXISTS \"suppers_ai__vector__docs_meta\"")));
+        assert!(sqls
+            .iter()
+            .any(|s| s.contains("DROP TABLE IF EXISTS \"suppers_ai__vector__docs_vectors\"")));
+        assert!(sqls
+            .iter()
+            .any(|s| s.contains("DROP TABLE IF EXISTS \"suppers_ai__vector__docs_fts\"")));
+        assert!(sqls
+            .iter()
+            .any(|s| s.contains("DROP TABLE IF EXISTS \"suppers_ai__vector__docs_meta\"")));
     }
 
     #[test]
@@ -229,11 +239,17 @@ mod tests {
 
     #[test]
     fn delete_by_ids_uses_in_clause() {
-        let (sqls, params) = build_delete_ids_sql("suppers_ai__vector__docs", &["a".into(), "b".into()], true);
+        let (sqls, params) =
+            build_delete_ids_sql("suppers_ai__vector__docs", &["a".into(), "b".into()], true);
         assert_eq!(sqls.len(), 3);
-        assert!(sqls[0].contains(r#"DELETE FROM "suppers_ai__vector__docs_vectors" WHERE id IN (?, ?)"#));
-        assert!(sqls[1].contains(r#"DELETE FROM "suppers_ai__vector__docs_fts" WHERE id IN (?, ?)"#));
-        assert!(sqls[2].contains(r#"DELETE FROM "suppers_ai__vector__docs_meta" WHERE id IN (?, ?)"#));
+        assert!(sqls[0]
+            .contains(r#"DELETE FROM "suppers_ai__vector__docs_vectors" WHERE id IN (?, ?)"#));
+        assert!(
+            sqls[1].contains(r#"DELETE FROM "suppers_ai__vector__docs_fts" WHERE id IN (?, ?)"#)
+        );
+        assert!(
+            sqls[2].contains(r#"DELETE FROM "suppers_ai__vector__docs_meta" WHERE id IN (?, ?)"#)
+        );
         assert_eq!(params, vec!["a", "b"]);
     }
 
@@ -276,9 +292,15 @@ mod tests {
         };
         let stmts = build_upsert_sql_stmts("suppers_ai__vector__docs", true, &[entry.clone()]);
         assert_eq!(stmts.len(), 3, "expected vectors + fts + meta upserts");
-        assert!(stmts[0].sql.contains("INSERT OR REPLACE INTO \"suppers_ai__vector__docs_vectors\""));
-        assert!(stmts[1].sql.contains("INSERT OR REPLACE INTO \"suppers_ai__vector__docs_fts\""));
-        assert!(stmts[2].sql.contains("INSERT OR REPLACE INTO \"suppers_ai__vector__docs_meta\""));
+        assert!(stmts[0]
+            .sql
+            .contains("INSERT OR REPLACE INTO \"suppers_ai__vector__docs_vectors\""));
+        assert!(stmts[1]
+            .sql
+            .contains("INSERT OR REPLACE INTO \"suppers_ai__vector__docs_fts\""));
+        assert!(stmts[2]
+            .sql
+            .contains("INSERT OR REPLACE INTO \"suppers_ai__vector__docs_meta\""));
     }
 
     #[test]
