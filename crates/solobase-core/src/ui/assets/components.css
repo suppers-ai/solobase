@@ -607,3 +607,64 @@
 .palette__item-kind { color: var(--text-muted); font-size: var(--text-xs); }
 .palette__item.is-hidden { display: none; }
 .palette__hint { padding: 0.4rem var(--spacing-md); border-top: 1px solid var(--border-light); font-size: var(--text-xs); color: var(--text-muted); background: var(--surface-3); }
+
+/* ── Database admin ─────────────────────────────────────── */
+.db-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 32%) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.db-pane {
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.db-pane--left { padding: 12px; }
+.db-pane--right { padding: 12px; min-height: 360px; }
+.db-pane__head { margin-bottom: 8px; }
+.db-pane__head input {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+}
+.db-table-list { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; }
+.db-table-list__item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  text-decoration: none;
+  color: inherit;
+  font-size: 13px;
+}
+.db-table-list__item:hover { background: var(--bg-secondary, #f8f9fa); }
+.db-table-list__item.is-active { background: #fef9e7; border: 1px solid #f0d78c; }
+.db-table-list__name { font-weight: 500; word-break: break-all; }
+.db-table-list__empty { padding: 8px; }
+.db-panel { padding: 4px 0; }
+.db-panel__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.db-panel__head h3 { font-size: 14px; margin: 0; word-break: break-all; }
+.db-panel-body { padding-top: 8px; }
+.db-sql { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.db-sql__input {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  padding: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  background: #0f172a;
+  color: #cbd5e1;
+  resize: vertical;
+}
+.db-sql__actions { display: flex; align-items: center; gap: 12px; }
+.db-sql-results { border-top: 1px solid var(--border, #e2e8f0); padding-top: 12px; }
+@media (max-width: 720px) {
+  .db-layout { grid-template-columns: 1fr; }
+}
