@@ -53,6 +53,18 @@ pub async fn initialize() -> Result<(), JsValue> {
     let browser_llm: Arc<dyn wafer_core::interfaces::llm::service::LlmService> =
         Arc::new(solobase_browser::llm::BrowserLlmService::new());
 
+    let browser_vector: Arc<dyn wafer_core::interfaces::vector::service::VectorService> =
+        Arc::new(solobase_browser::vector::BrowserVectorService::new());
+
+    let browser_embedding: Arc<dyn wafer_core::interfaces::vector::service::EmbeddingService> =
+        match solobase_browser::vector::BrowserEmbeddingService::new() {
+            Ok(svc) => Arc::new(svc),
+            Err(e) => {
+                web_sys::console::error_1(&format!("BrowserEmbeddingService init: {e}").into());
+                return Err(JsValue::from_str(&e));
+            }
+        };
+
     let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(solobase_browser::make_database_service())
         .storage(solobase_browser::make_storage_service())
@@ -61,6 +73,8 @@ pub async fn initialize() -> Result<(), JsValue> {
         .network(solobase_browser::make_network_service())
         .logger(solobase_browser::make_console_logger())
         .llm_service("browser", browser_llm)
+        .vector_service(browser_vector)
+        .embedding_service(browser_embedding)
         .block_settings(features)
         .block_config(
             "wafer-run/security-headers",
