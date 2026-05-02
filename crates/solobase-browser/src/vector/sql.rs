@@ -69,6 +69,29 @@ pub fn build_delete_ids_sql(
     (out, ids.to_vec())
 }
 
+/// Pack `&[f32]` as little-endian bytes for storage in a sql.js BLOB column.
+pub fn pack_vector_blob(v: &[f32]) -> Vec<u8> {
+    let bytes: &[u8] = bytemuck::cast_slice(v);
+    bytes.to_vec()
+}
+
+/// Unpack a BLOB into `Vec<f32>`. Errors if the byte length does not equal
+/// `4 * expected_dims`.
+pub fn parse_vector_blob(bytes: &[u8], expected_dims: u32) -> Result<Vec<f32>, String> {
+    let want = (expected_dims as usize) * 4;
+    if bytes.len() != want {
+        return Err(format!(
+            "vector blob length {} != expected {} ({}d × 4 bytes)",
+            bytes.len(),
+            want,
+            expected_dims
+        ));
+    }
+    let floats: &[f32] = bytemuck::try_cast_slice(bytes)
+        .map_err(|e| format!("blob alignment error: {e}"))?;
+    Ok(floats.to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,5 +159,27 @@ mod tests {
         let (sqls, params) = build_delete_ids_sql("suppers_ai__vector__docs", &[], true);
         assert!(sqls.is_empty());
         assert!(params.is_empty());
+    }
+
+    #[test]
+    fn pack_then_unpack_roundtrip() {
+        let v = vec![0.1f32, -0.5, 1e-7, f32::INFINITY, 0.0];
+        let packed = pack_vector_blob(&v);
+        assert_eq!(packed.len(), v.len() * 4);
+        let unpacked = parse_vector_blob(&packed, v.len() as u32).expect("parse");
+        assert_eq!(unpacked, v);
+    }
+
+    #[test]
+    fn parse_rejects_wrong_byte_length() {
+        let blob = vec![0u8; 10]; // not divisible by 4
+        assert!(parse_vector_blob(&blob, 1).is_err());
+    }
+
+    #[test]
+    fn parse_rejects_dimension_mismatch() {
+        let v = vec![0.1f32; 4];
+        let packed = pack_vector_blob(&v);
+        assert!(parse_vector_blob(&packed, 5).is_err());
     }
 }
