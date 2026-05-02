@@ -10,15 +10,15 @@ extern "C" {
 
     /// Execute SQL that modifies data (INSERT/UPDATE/DELETE/DDL).
     /// `params_json` is a JSON array of parameters.
-    /// Returns rows-modified count as a string.
-    #[wasm_bindgen(js_name = dbExecRaw)]
-    pub fn db_exec_raw(sql: &str, params_json: &str) -> String;
+    /// Returns rows-modified count as a string. Throws on SQL error.
+    #[wasm_bindgen(catch, js_name = dbExecRaw)]
+    pub fn db_exec_raw(sql: &str, params_json: &str) -> Result<String, JsValue>;
 
     /// Execute a SELECT SQL query.
     /// `params_json` is a JSON array of parameters.
-    /// Returns JSON array of row objects as a string.
-    #[wasm_bindgen(js_name = dbQueryRaw)]
-    pub fn db_query_raw(sql: &str, params_json: &str) -> String;
+    /// Returns JSON array of row objects as a string. Throws on SQL error.
+    #[wasm_bindgen(catch, js_name = dbQueryRaw)]
+    pub fn db_query_raw(sql: &str, params_json: &str) -> Result<String, JsValue>;
 
     /// Export the sql.js DB to OPFS at `solobase.db`.
     pub async fn dbFlush() -> JsValue;

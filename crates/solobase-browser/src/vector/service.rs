@@ -15,6 +15,10 @@ use wafer_core::interfaces::vector::service::{
 use crate::bridge;
 use crate::vector::sql;
 
+fn js_err(e: wasm_bindgen::JsValue) -> String {
+    e.as_string().unwrap_or_else(|| format!("{e:?}"))
+}
+
 /// Per-index config cached in memory after `create_index`. Persisted via the
 /// `wafer_core::interfaces::vector` block's own registry table; this cache
 /// is hydrated on first use by reading that registry.
@@ -56,7 +60,7 @@ impl VectorService for BrowserVectorService {
     async fn create_index(&self, config: VectorIndexConfig) -> VResult<()> {
         let stmts = sql::build_create_index_sql(&config.name, config.keyword_search);
         for s in stmts {
-            run_exec(&s, "[]").map_err(VectorError::Internal)?;
+            bridge::db_exec_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
         }
         bridge::dbFlush().await;
         self.indexes.lock().unwrap().insert(
@@ -76,7 +80,7 @@ impl VectorService for BrowserVectorService {
             .ok_or_else(|| VectorError::IndexNotFound(name.into()))?;
         let stmts = sql::build_delete_index_sql(name, state.keyword_search);
         for s in stmts {
-            run_exec(&s, "[]").map_err(VectorError::Internal)?;
+            bridge::db_exec_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
         }
         bridge::dbFlush().await;
         self.indexes.lock().unwrap().remove(name);
@@ -107,8 +111,8 @@ impl VectorService for BrowserVectorService {
         if self.lookup(index).is_none() {
             return Err(VectorError::IndexNotFound(index.into()));
         }
-        let row_json = run_query(&sql::build_count_sql(index), "[]")
-            .map_err(VectorError::Internal)?;
+        let row_json = bridge::db_query_raw(&sql::build_count_sql(index), "[]")
+            .map_err(|e| VectorError::Internal(js_err(e)))?;
         // sql.js returns rows as `[{ "n": <number> }]`.
         let rows: Vec<serde_json::Value> = serde_json::from_str(&row_json)
             .map_err(|e| VectorError::Internal(format!("parse count: {e}")))?;
@@ -121,14 +125,3 @@ impl VectorService for BrowserVectorService {
     }
 }
 
-/// Wrap `bridge::db_exec_raw` to convert the JS throw → Rust Result.
-/// Today's bridge throws on SQL error; we translate the resulting JS exception
-/// to a string. Once `bridge::db_exec_raw` is updated to return `Result`, this
-/// wrapper collapses (Task 8).
-fn run_exec(sql: &str, params_json: &str) -> Result<String, String> {
-    Ok(bridge::db_exec_raw(sql, params_json))
-}
-
-fn run_query(sql: &str, params_json: &str) -> Result<String, String> {
-    Ok(bridge::db_query_raw(sql, params_json))
-}
