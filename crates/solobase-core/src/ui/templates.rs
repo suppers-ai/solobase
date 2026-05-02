@@ -449,10 +449,18 @@ mod tests {
 
     #[test]
     fn dashboard_page_renders_optional_top_card_above_stats() {
-        let header = PageHeader { title: "Dash", subtitle: None, primary_action: None };
+        let header = PageHeader {
+            title: "Dash",
+            subtitle: None,
+            primary_action: None,
+        };
         let m = dashboard_page(
             header,
-            vec![StatTile { label: "Users", value: "1", trend: None }],
+            vec![StatTile {
+                label: "Users",
+                value: "1",
+                trend: None,
+            }],
             html! { div #primary {} },
             html! { div #secondary {} },
             None,
