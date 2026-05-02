@@ -69,7 +69,9 @@ pub fn sidebar_grouped(
                                 li {
                                     a href=(item.href)
                                       class={ "sidebar__nav-item" @if active { " is-active" } }
-                                      aria-current=[active.then_some("page")] {
+                                      aria-current=[active.then_some("page")]
+                                      target=[item.external.then_some("_blank")]
+                                      rel=[item.external.then_some("noopener noreferrer")] {
                                         span .sidebar__nav-icon {
                                             (nav_icon(item.icon))
                                         }
@@ -146,6 +148,7 @@ mod tests {
             label: label.to_string(),
             href: href.to_string(),
             icon: "circle",
+            external: false,
         }
     }
 

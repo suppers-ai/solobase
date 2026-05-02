@@ -94,6 +94,10 @@ pub struct NavItem {
     pub label: String,
     pub href: String,
     pub icon: &'static str,
+    /// When true, render as `target="_blank"` and open in a new tab from
+    /// both the sidebar and the ⌘K palette. Used for cross-block links
+    /// that have their own chrome (e.g. Inspector).
+    pub external: bool,
 }
 
 pub use sidebar::NavGroup;

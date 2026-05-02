@@ -16,6 +16,25 @@ use crate::{
     },
 };
 
+fn quick_actions_card() -> maud::Markup {
+    use maud::html;
+    html! {
+        section .card .quick-actions {
+            header .card__head {
+                h3 .card__title { "Quick actions" }
+            }
+            div .card__body .quick-actions__grid {
+                a .btn .btn-secondary href="/b/admin/users" { "Invite user" }
+                a .btn .btn-secondary href="/b/admin/logs" { "View logs" }
+                a .btn .btn-secondary href="/b/admin/database" { "Open Database" }
+                a .btn .btn-secondary href="/b/inspector/ui"
+                  target="_blank" rel="noopener noreferrer"
+                { "Open Inspector" }
+            }
+        }
+    }
+}
+
 pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
@@ -347,6 +366,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         recent_users_card,
         recent_activity_card,
         recent_errors_card,
+        Some(quick_actions_card()),
     );
 
     admin_page(

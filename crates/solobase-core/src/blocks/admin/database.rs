@@ -109,30 +109,51 @@ async fn handle_columns(ctx: &dyn Context, msg: &Message) -> OutputStream {
     ok_json(&serde_json::json!({"table": table_name, "columns": col_info}))
 }
 
-async fn handle_query(ctx: &dyn Context, input: InputStream) -> OutputStream {
-    #[derive(serde::Deserialize)]
-    struct QueryReq {
-        query: String,
-        #[serde(default)]
-        args: Vec<serde_json::Value>,
+/// Why a SQL query was rejected, with the right HTTP status mapping
+/// for `handle_query` (JSON API) and the SSR fragment handler in
+/// `pages::database` to use without reading message text.
+#[derive(Debug)]
+pub(in crate::blocks::admin) enum QueryValidationError {
+    /// Multi-statement queries or write/control keywords — caller should
+    /// return HTTP 403.
+    Forbidden(String),
+    /// Wrong shape (unknown first word, unsafe PRAGMA name) — caller
+    /// should return HTTP 400.
+    BadRequest(String),
+}
+
+impl QueryValidationError {
+    #[allow(dead_code)]
+    pub(in crate::blocks::admin) fn message(&self) -> &str {
+        match self {
+            Self::Forbidden(m) | Self::BadRequest(m) => m,
+        }
     }
-    let raw = input.collect_to_bytes().await;
-    let body: QueryReq = match serde_json::from_slice(&raw) {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
-    };
+}
 
-    // Strict read-only query validation
-    let trimmed = body.query.trim();
+/// Validate that `query` is a read-only SQL statement we will execute.
+///
+/// Accepts: SELECT / PRAGMA (whitelisted) / EXPLAIN / WITH.
+/// Rejects: multi-statement (`;`), any write keyword (whole-word match),
+/// and unsafe PRAGMAs.
+///
+/// Used by both the JSON API (`POST /admin/database/query`) and the
+/// admin SSR page handler (`POST /b/admin/database/query`). Single
+/// source of truth — do not duplicate this logic.
+pub(in crate::blocks::admin) fn validate_readonly_query(
+    query: &str,
+) -> Result<(), QueryValidationError> {
+    let trimmed = query.trim();
 
-    // Reject multi-statement queries (prevent piggy-backed writes)
+    // Reject multi-statement queries (prevent piggy-backed writes).
     if trimmed.contains(';') {
-        return err_forbidden("Multi-statement queries are not allowed");
+        return Err(QueryValidationError::Forbidden(
+            "Multi-statement queries are not allowed".to_string(),
+        ));
     }
 
     let query_upper = trimmed.to_uppercase();
 
-    // Reject queries containing write keywords anywhere (not just first word)
     const FORBIDDEN_KEYWORDS: &[&str] = &[
         "INSERT",
         "UPDATE",
@@ -153,7 +174,6 @@ async fn handle_query(ctx: &dyn Context, input: InputStream) -> OutputStream {
         "RETURNING",
     ];
     for keyword in FORBIDDEN_KEYWORDS {
-        // Check for keyword as a whole word (preceded and followed by non-alphanumeric)
         let upper = query_upper.as_str();
         let kw = *keyword;
         let mut start = 0;
@@ -164,7 +184,9 @@ async fn handle_query(ctx: &dyn Context, input: InputStream) -> OutputStream {
             let after_ok =
                 after_pos >= upper.len() || !upper.as_bytes()[after_pos].is_ascii_alphanumeric();
             if before_ok && after_ok {
-                return err_forbidden(&format!("{} is not allowed in read-only queries", keyword));
+                return Err(QueryValidationError::Forbidden(format!(
+                    "{keyword} is not allowed in read-only queries"
+                )));
             }
             start = abs_pos + kw.len();
         }
@@ -172,7 +194,6 @@ async fn handle_query(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     let first_word = query_upper.split_whitespace().next().unwrap_or("");
 
-    // For PRAGMA: only allow known read-only pragmas
     if first_word == "PRAGMA" {
         const SAFE_PRAGMAS: &[&str] = &[
             "TABLE_INFO",
@@ -198,26 +219,95 @@ async fn handle_query(ctx: &dyn Context, input: InputStream) -> OutputStream {
             .next()
             .unwrap_or("");
         if !SAFE_PRAGMAS.iter().any(|p| pragma_name.starts_with(p)) {
-            return err_forbidden(
-                "Only read-only PRAGMA queries are allowed (table_info, index_list, etc.)",
-            );
+            return Err(QueryValidationError::BadRequest(
+                "Only read-only PRAGMA queries are allowed (table_info, index_list, etc.)"
+                    .to_string(),
+            ));
         }
     }
 
-    // User-provided query (admin SQL explorer) -- stays as raw SQL
     match first_word {
-        "SELECT" | "PRAGMA" | "EXPLAIN" | "WITH" => {
-            match db::query_raw(ctx, &body.query, &body.args).await {
-                Ok(records) => {
-                    let row_count = records.len();
-                    ok_json(&serde_json::json!({
-                        "rows": records,
-                        "row_count": row_count
-                    }))
-                }
-                Err(e) => err_bad_request(&format!("Query error: {e}")),
-            }
+        "SELECT" | "PRAGMA" | "EXPLAIN" | "WITH" => Ok(()),
+        _ => Err(QueryValidationError::BadRequest(
+            "Only SELECT, PRAGMA, EXPLAIN, and WITH queries are allowed".to_string(),
+        )),
+    }
+}
+
+async fn handle_query(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    #[derive(serde::Deserialize)]
+    struct QueryReq {
+        query: String,
+        #[serde(default)]
+        args: Vec<serde_json::Value>,
+    }
+    let raw = input.collect_to_bytes().await;
+    let body: QueryReq = match serde_json::from_slice(&raw) {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
+    };
+
+    if let Err(e) = validate_readonly_query(&body.query) {
+        return match e {
+            QueryValidationError::Forbidden(m) => err_forbidden(&m),
+            QueryValidationError::BadRequest(m) => err_bad_request(&m),
+        };
+    }
+
+    match db::query_raw(ctx, &body.query, &body.args).await {
+        Ok(records) => {
+            let row_count = records.len();
+            ok_json(&serde_json::json!({
+                "rows": records,
+                "row_count": row_count
+            }))
         }
-        _ => err_forbidden("Only SELECT, PRAGMA, EXPLAIN, and WITH queries are allowed"),
+        Err(e) => err_bad_request(&format!("Query error: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_readonly_query, QueryValidationError};
+
+    #[test]
+    fn validate_accepts_select_pragma_explain_with() {
+        assert!(validate_readonly_query("SELECT * FROM users").is_ok());
+        assert!(validate_readonly_query("PRAGMA table_info(users)").is_ok());
+        assert!(validate_readonly_query("EXPLAIN SELECT 1").is_ok());
+        assert!(validate_readonly_query("WITH x AS (SELECT 1) SELECT * FROM x").is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_writes_and_multistatement() {
+        assert!(validate_readonly_query("INSERT INTO users VALUES (1)").is_err());
+        assert!(validate_readonly_query("UPDATE users SET x = 1").is_err());
+        assert!(validate_readonly_query("DELETE FROM users").is_err());
+        assert!(validate_readonly_query("SELECT 1; DROP TABLE users").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_unsafe_pragma() {
+        assert!(validate_readonly_query("PRAGMA writable_schema = 1").is_err());
+        assert!(validate_readonly_query("PRAGMA journal_mode = WAL").is_err());
+    }
+
+    #[test]
+    fn validate_accepts_safe_pragmas() {
+        assert!(validate_readonly_query("PRAGMA table_info(users)").is_ok());
+        assert!(validate_readonly_query("PRAGMA index_list(users)").is_ok());
+        assert!(validate_readonly_query("PRAGMA database_list").is_ok());
+    }
+
+    #[test]
+    fn validate_marks_writes_as_forbidden() {
+        let err = validate_readonly_query("INSERT INTO users VALUES (1)").unwrap_err();
+        assert!(matches!(err, QueryValidationError::Forbidden(_)));
+    }
+
+    #[test]
+    fn validate_marks_unknown_first_word_as_bad_request() {
+        let err = validate_readonly_query("EXEC users").unwrap_err();
+        assert!(matches!(err, QueryValidationError::BadRequest(_)));
     }
 }

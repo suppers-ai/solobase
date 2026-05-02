@@ -119,7 +119,12 @@ pub fn palette_js() -> &'static str {
   function activate() {
     const vis = visibleItems();
     const sel = vis[selected];
-    if (sel?.dataset.href) { window.location.assign(sel.dataset.href); }
+    if (!sel?.dataset.href) return;
+    if (sel.dataset.external === 'true') {
+      window.open(sel.dataset.href, '_blank', 'noopener,noreferrer');
+    } else {
+      window.location.assign(sel.dataset.href);
+    }
   }
 
   // Hotkeys
@@ -144,7 +149,12 @@ pub fn palette_js() -> &'static str {
   // Item click → navigate
   list.addEventListener('click', (e) => {
     const item = e.target.closest('.palette__item');
-    if (item?.dataset.href) { window.location.assign(item.dataset.href); }
+    if (!item?.dataset.href) return;
+    if (item.dataset.external === 'true') {
+      window.open(item.dataset.href, '_blank', 'noopener,noreferrer');
+    } else {
+      window.location.assign(item.dataset.href);
+    }
   });
 
   input.addEventListener('input', (e) => apply(e.target.value));

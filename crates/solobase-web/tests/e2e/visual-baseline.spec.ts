@@ -12,6 +12,7 @@ const ADMIN_ROUTES = [
   { path: '/b/admin/', name: 'admin-dashboard' },
   { path: '/b/admin/users', name: 'admin-users' },
   { path: '/b/admin/blocks', name: 'admin-blocks' },
+  { path: '/b/admin/database', name: 'admin-database' },
   { path: '/b/admin/storage', name: 'admin-storage' },
   { path: '/b/admin/logs', name: 'admin-logs' },
   { path: '/b/admin/email', name: 'admin-email' },

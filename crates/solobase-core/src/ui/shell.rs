@@ -113,6 +113,7 @@ mod tests {
             label: label.to_string(),
             href: href.to_string(),
             icon: "circle",
+            external: false,
         }
     }
 
