@@ -66,6 +66,7 @@ pub fn portal() -> Vec<NavGroup> {
                 item("Profile", "/b/userportal/profile", "user"),
                 item("Organizations", "/b/auth/orgs", "users"),
                 item("Sessions", "/b/userportal/sessions", "shield"),
+                item("Security", "/b/userportal/security", "lock"),
             ],
         },
         NavGroup {
@@ -156,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn portal_account_includes_profile_orgs_sessions() {
+    fn portal_account_includes_profile_orgs_sessions_security() {
         let groups = portal();
         let account = &groups[0];
         let hrefs: Vec<&str> = account.items.iter().map(|i| i.href.as_str()).collect();
@@ -165,7 +166,8 @@ mod tests {
             vec![
                 "/b/userportal/profile",
                 "/b/auth/orgs",
-                "/b/userportal/sessions"
+                "/b/userportal/sessions",
+                "/b/userportal/security"
             ]
         );
     }
