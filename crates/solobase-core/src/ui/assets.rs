@@ -186,6 +186,38 @@ document.body.addEventListener("closeModal", function(e) {
 "#
 }
 
+/// Vanilla JS for the mobile sidebar drawer. Toggles `body[data-drawer-open]`
+/// from clicks on `[data-action="drawer-open"]` (the hamburger), the overlay
+/// (`[data-action="drawer-close"]`), Escape, or any sidebar nav-link click
+/// (so navigation auto-collapses the drawer).
+pub fn drawer_js() -> &'static str {
+    r#"
+(function () {
+  if (window.__drawerInit) return;
+  window.__drawerInit = true;
+  var body = document.body;
+  function open() { body.setAttribute('data-drawer-open', 'true'); }
+  function close() { body.removeAttribute('data-drawer-open'); }
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!(t instanceof Element)) return;
+    var actEl = t.closest('[data-action]');
+    var action = actEl ? actEl.getAttribute('data-action') : null;
+    if (action === 'drawer-open') { open(); e.preventDefault(); return; }
+    if (action === 'drawer-close') { close(); e.preventDefault(); return; }
+    if (body.hasAttribute('data-drawer-open') && t.closest('.sidebar a')) {
+      close();
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && body.hasAttribute('data-drawer-open')) {
+      close();
+    }
+  });
+})();
+"#
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -221,5 +253,17 @@ mod tests {
         assert!(js.contains("cmdk"));
         assert!(js.contains("Meta+K") || js.contains("metaKey"));
         assert!(js.starts_with("\n(function") || js.contains("(function "));
+    }
+
+    #[test]
+    fn drawer_js_handles_open_close_esc_and_navlink() {
+        let js = super::drawer_js();
+        assert!(js.contains("'drawer-open'"));
+        assert!(js.contains("'drawer-close'"));
+        assert!(js.contains("'Escape'"));
+        assert!(js.contains(".sidebar a"));
+        assert!(js.contains("data-drawer-open"));
+        // Self-invoking + idempotent guard.
+        assert!(js.contains("__drawerInit"));
     }
 }
