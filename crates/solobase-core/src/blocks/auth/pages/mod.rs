@@ -4,6 +4,7 @@
 //! the `variables` table at render time.
 
 pub mod dashboard;
+pub mod orgs;
 
 use std::collections::HashMap;
 
