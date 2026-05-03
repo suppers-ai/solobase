@@ -43,11 +43,16 @@ export async function dbInit() {
         console.log('[bridge:dbInit] no existing DB (' + e.name + ')');
     }
 
-    console.log('[bridge:dbInit] step 6: new SQL.Database');
-    if (existingData) {
-        _db = new SQL.Database(existingData);
-    } else {
-        _db = new SQL.Database();
+    console.log('[bridge:dbInit] step 6: new SQL.Database (SQL keys=' + Object.keys(SQL).join(',') + ')');
+    try {
+        if (existingData) {
+            _db = new SQL.Database(existingData);
+        } else {
+            _db = new SQL.Database();
+        }
+    } catch (e) {
+        console.log('[bridge:dbInit] step 6 THREW: ' + (e?.message || e));
+        throw e;
     }
     console.log('[bridge:dbInit] step 6 done');
 
