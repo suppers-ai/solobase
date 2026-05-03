@@ -99,3 +99,52 @@ pub fn register_llm(
         std::sync::Arc::new(llm::LlmBlock::new(provider_llm_svc)),
     )
 }
+
+/// Register every solobase feature block on wasm32 builds.
+///
+/// On native, each block self-registers via `register_static_block!` (gated
+/// `cfg(not(target_arch = "wasm32"))` because linkme's distributed_slice
+/// only emits on ELF/Mach-O/PE — see `wafer_run::builder::WaferBuilder::build`).
+/// On wasm32 that path is a no-op, so the runtime starts with zero
+/// `suppers-ai/*` blocks and the SolobaseRouter dispatches into a void —
+/// every feature route returns `block 'suppers-ai/<name>' not found`.
+///
+/// This helper mirrors the linkme manifest so wasm builds get the same
+/// block set. Keep this list in sync with the `register_static_block!`
+/// invocations across `crate::blocks::*` and with the `all_block_infos`
+/// wasm32 fallback above.
+///
+/// Excludes `suppers-ai/llm` (constructed in `SolobaseBuilder::build` with
+/// `Arc<ProviderLlmService>`) and `suppers-ai/fastembed` (native-only,
+/// requires `feature = "native-embedding"`).
+#[cfg(target_arch = "wasm32")]
+pub fn register_all_static_blocks(
+    wafer: &mut wafer_run::Wafer,
+) -> Result<(), wafer_run::RuntimeError> {
+    use std::sync::Arc;
+
+    wafer.register_block("suppers-ai/admin", Arc::new(admin::AdminBlock::new()))?;
+    wafer.register_block("suppers-ai/auth", Arc::new(auth::AuthBlock::new()))?;
+    wafer.register_block("suppers-ai/email", Arc::new(email::EmailBlock::new()))?;
+    wafer.register_block("suppers-ai/files", Arc::new(files::FilesBlock::new()))?;
+    wafer.register_block(
+        "suppers-ai/legalpages",
+        Arc::new(legalpages::LegalPagesBlock::new()),
+    )?;
+    wafer.register_block(
+        "suppers-ai/messages",
+        Arc::new(messages::MessagesBlock::new()),
+    )?;
+    wafer.register_block(
+        "suppers-ai/products",
+        Arc::new(products::ProductsBlock::new()),
+    )?;
+    wafer.register_block("suppers-ai/system", Arc::new(system::SystemBlock::new()))?;
+    wafer.register_block(
+        "suppers-ai/userportal",
+        Arc::new(userportal::UserPortalBlock::new()),
+    )?;
+    wafer.register_block("suppers-ai/vector", Arc::new(vector::VectorBlock::new()))?;
+
+    Ok(())
+}
