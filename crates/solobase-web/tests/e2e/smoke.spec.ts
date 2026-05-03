@@ -43,6 +43,29 @@ test('boot redirect lands on the auth login page', async ({ page }) => {
   // on the file-level 60s timeout.
   test.setTimeout(180_000);
 
+  // Instrumentation — dump console messages, page errors, and SW-relevant
+  // network activity so a CI failure surfaces what's actually happening
+  // inside the SW init. Remove once the smoke is green on CI.
+  const start = Date.now();
+  const ts = () => `+${(Date.now() - start).toString().padStart(6, ' ')}ms`;
+  page.on('console', (msg) => {
+    console.log(`${ts()} [console:${msg.type()}] ${msg.text()}`);
+  });
+  page.on('pageerror', (err) => {
+    console.log(`${ts()} [pageerror] ${err.message}`);
+  });
+  page.on('requestfailed', (req) => {
+    console.log(
+      `${ts()} [reqfail] ${req.method()} ${req.url()} — ${req.failure()?.errorText ?? '?'}`,
+    );
+  });
+  page.on('response', (res) => {
+    const u = res.url();
+    if (u.includes('localhost:8080') || u.includes('127.0.0.1:8080')) {
+      console.log(`${ts()} [res] ${res.status()} ${u.replace(/^https?:\/\/[^/]+/, '')}`);
+    }
+  });
+
   // boot_redirect is "/" (intercepted by SW → wasm router → 302 →
   // /b/auth/login for anonymous visitors). loader.js sets
   // `window.location.href = boot_redirect` once the SW takes control;
@@ -54,8 +77,16 @@ test('boot redirect lands on the auth login page', async ({ page }) => {
   // catches the regression where boot_redirect pointed at /b/system/ —
   // an unclaimed path that returned a non-empty 404 page and silently
   // passed the smoke.
+  console.log(`${ts()} starting goto`);
   await page.goto('/', { waitUntil: 'commit' });
-  await page.waitForURL(/\/b\/auth\/login/, { timeout: 150_000 });
+  console.log(`${ts()} goto returned, waiting for /b/auth/login`);
+  try {
+    await page.waitForURL(/\/b\/auth\/login/, { timeout: 150_000 });
+    console.log(`${ts()} reached /b/auth/login`);
+  } catch (e) {
+    console.log(`${ts()} waitForURL FAILED: page.url()=${page.url()}`);
+    throw e;
+  }
   await expect(page.locator('input#email')).toBeVisible();
   await expect(page.locator('input#password')).toBeVisible();
 });
