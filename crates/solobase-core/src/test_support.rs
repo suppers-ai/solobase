@@ -63,6 +63,20 @@ impl TestContext {
             .expect("apply auth migrations in test fixture");
         ctx
     }
+
+    /// Register a block under `name`. Calls to `ctx.call_block(name, ...)`
+    /// will route to this block's `handle()`.
+    ///
+    /// Used to wire up cross-block call tests — e.g. the dashboard handler
+    /// in the auth block calls `"suppers-ai/userportal"` for the buttons
+    /// list; tests register a real or fake `UserPortalBlock` so the call
+    /// resolves.
+    pub fn register_block(&mut self, name: &str, block: Arc<dyn Block>) {
+        self.blocks
+            .lock()
+            .expect("blocks mutex poisoned")
+            .insert(name.to_string(), block);
+    }
 }
 
 #[async_trait::async_trait]
@@ -348,5 +362,49 @@ mod tests {
             rows[0].data.get("name").and_then(|v| v.as_str()),
             Some("acme")
         );
+    }
+
+    #[tokio::test]
+    async fn registered_block_is_dispatched_through_call_block() {
+        use async_trait::async_trait;
+        use wafer_run::block::Block as RunBlock;
+        use wafer_run::{BlockCategory, BlockInfo, LifecycleEvent};
+
+        struct EchoBlock;
+
+        #[async_trait]
+        impl RunBlock for EchoBlock {
+            fn info(&self) -> BlockInfo {
+                BlockInfo::new("test/echo", "0.0.1", "echo@v1", "echoes the request path")
+                    .category(BlockCategory::Service)
+            }
+
+            async fn handle(
+                &self,
+                _ctx: &dyn Context,
+                msg: Message,
+                _input: InputStream,
+            ) -> OutputStream {
+                crate::blocks::helpers::ResponseBuilder::new()
+                    .status(200)
+                    .body(msg.path().as_bytes().to_vec(), "text/plain")
+            }
+
+            async fn lifecycle(
+                &self,
+                _ctx: &dyn Context,
+                _e: LifecycleEvent,
+            ) -> Result<(), WaferError> {
+                Ok(())
+            }
+        }
+
+        let mut ctx = TestContext::new().await;
+        ctx.register_block("test/echo", Arc::new(EchoBlock));
+
+        let msg = anon_msg("retrieve", "/echo-me");
+        let resp = ctx.call_block("test/echo", msg, InputStream::empty()).await;
+        let body = output_html(resp).await;
+        assert_eq!(body, "/echo-me");
     }
 }
