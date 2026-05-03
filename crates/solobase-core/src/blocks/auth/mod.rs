@@ -420,6 +420,8 @@ impl Block for AuthBlock {
                 BlockEndpoint::get("/b/auth/login").summary("Login page"),
                 BlockEndpoint::get("/b/auth/signup").summary("Signup page"),
                 BlockEndpoint::get("/b/auth/change-password").summary("Change password page").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/auth/dashboard").summary("Portal home").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/auth/orgs").summary("Claimed organizations").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/auth/oauth/login").summary("Start OAuth flow"),
                 // JSON API
                 BlockEndpoint::post("/b/auth/api/login").summary("Authenticate with email/password"),
@@ -487,6 +489,8 @@ impl Block for AuthBlock {
             wafer_run::UiRoute::public("/login"),
             wafer_run::UiRoute::public("/signup"),
             wafer_run::UiRoute::authenticated("/change-password"),
+            wafer_run::UiRoute::authenticated("/dashboard"),
+            wafer_run::UiRoute::authenticated("/orgs"),
             wafer_run::UiRoute::admin("/admin/settings"),
         ]
     }
@@ -618,6 +622,8 @@ impl Block for AuthBlock {
                 }
                 pages::change_password_page(ctx, &msg).await
             }
+            ("retrieve", "/auth/dashboard") => pages::dashboard::dashboard_page(ctx, &msg).await,
+            ("retrieve", "/auth/orgs") => pages::orgs::orgs_page(ctx, &msg).await,
             ("retrieve", "/auth/reset-password") => {
                 self.handle_reset_password_form(ctx, &msg).await
             }
@@ -761,5 +767,71 @@ pub(crate) fn brand_panel(config: &SiteConfig) -> BrandPanel<'_> {
         },
         headline: &config.app_name,
         tagline: Some("Sign in to continue."),
+    }
+}
+
+#[cfg(test)]
+mod routing_tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use wafer_core::clients::database as db;
+    use wafer_run::block::Block;
+
+    use super::*;
+    use crate::blocks::userportal::UserPortalBlock;
+    use crate::test_support::{anon_msg, auth_msg, output_status, TestContext};
+
+    async fn ctx_with_userportal() -> TestContext {
+        let mut ctx = TestContext::with_auth().await;
+        ctx.register_block("suppers-ai/userportal", Arc::new(UserPortalBlock));
+        ctx
+    }
+
+    async fn seed_user(ctx: &TestContext, user_id: &str) {
+        db::exec_raw(
+            ctx,
+            "INSERT INTO suppers_ai__auth__users (id, email, display_name, role, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+            &[
+                json!(user_id),
+                json!(format!("{user_id}@example.com")),
+                json!(user_id),
+                json!("user"),
+                json!("2026-01-01T00:00:00Z"),
+                json!("2026-01-01T00:00:00Z"),
+            ],
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn dashboard_route_dispatches_to_handler() {
+        let ctx = ctx_with_userportal().await;
+        seed_user(&ctx, "user-a").await;
+        let block = AuthBlock::default();
+        let msg = auth_msg("retrieve", "/b/auth/dashboard", "user-a");
+        let resp = block.handle(&ctx, msg, InputStream::empty()).await;
+        assert_eq!(output_status(resp).await, 200);
+    }
+
+    #[tokio::test]
+    async fn orgs_route_dispatches_to_handler() {
+        let ctx = ctx_with_userportal().await;
+        seed_user(&ctx, "user-a").await;
+        let block = AuthBlock::default();
+        let msg = auth_msg("retrieve", "/b/auth/orgs", "user-a");
+        let resp = block.handle(&ctx, msg, InputStream::empty()).await;
+        assert_eq!(output_status(resp).await, 200);
+    }
+
+    #[tokio::test]
+    async fn dashboard_route_redirects_anonymous() {
+        let ctx = ctx_with_userportal().await;
+        let block = AuthBlock::default();
+        let msg = anon_msg("retrieve", "/b/auth/dashboard");
+        let resp = block.handle(&ctx, msg, InputStream::empty()).await;
+        assert_eq!(output_status(resp).await, 302);
     }
 }
