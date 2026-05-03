@@ -31,18 +31,14 @@ pub async fn initialize() -> Result<(), JsValue> {
         return Ok(());
     }
 
-    web_sys::console::log_1(&"solobase[debug]: db_init starting".into());
     solobase_browser::db_init().await;
-    web_sys::console::log_1(&"solobase[debug]: db_init done".into());
 
     let vars = config::seed_and_load_variables();
     web_sys::console::log_1(
         &format!("solobase: {} variables loaded from database", vars.len()).into(),
     );
 
-    web_sys::console::log_1(&"solobase[debug]: load_block_settings starting".into());
     let features = config::load_block_settings();
-    web_sys::console::log_1(&"solobase[debug]: load_block_settings done".into());
 
     let jwt_secret = vars
         .get("SUPPERS_AI__AUTH__JWT_SECRET")
@@ -57,11 +53,9 @@ pub async fn initialize() -> Result<(), JsValue> {
     let browser_llm: Arc<dyn wafer_core::interfaces::llm::service::LlmService> =
         Arc::new(solobase_browser::llm::BrowserLlmService::new());
 
-    web_sys::console::log_1(&"solobase[debug]: BrowserVectorService::new".into());
     let browser_vector: Arc<dyn wafer_core::interfaces::vector::service::VectorService> =
         Arc::new(solobase_browser::vector::BrowserVectorService::new());
 
-    web_sys::console::log_1(&"solobase[debug]: BrowserEmbeddingService::new".into());
     let browser_embedding: Arc<dyn wafer_core::interfaces::vector::service::EmbeddingService> =
         match solobase_browser::vector::BrowserEmbeddingService::new() {
             Ok(svc) => Arc::new(svc),
@@ -71,7 +65,6 @@ pub async fn initialize() -> Result<(), JsValue> {
             }
         };
 
-    web_sys::console::log_1(&"solobase[debug]: SolobaseBuilder::build starting".into());
     let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(solobase_browser::make_database_service())
         .storage(solobase_browser::make_storage_service())
@@ -89,16 +82,13 @@ pub async fn initialize() -> Result<(), JsValue> {
         )
         .build()
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    web_sys::console::log_1(&"solobase[debug]: SolobaseBuilder::build done".into());
 
     wafer.set_asset_loader(solobase_browser::make_sw_asset_loader());
 
-    web_sys::console::log_1(&"solobase[debug]: start_without_bind starting".into());
     wafer
         .start_without_bind()
         .await
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    web_sys::console::log_1(&"solobase[debug]: start_without_bind done".into());
 
     builder::post_start(&wafer, &storage_block);
 

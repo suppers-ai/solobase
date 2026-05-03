@@ -47,7 +47,19 @@ docker run --rm \
     # Pass SQLITE_COMPILATION_FLAGS on the command line; Makefile uses `=`
     # (recursive) assignment which overrides env-var values, so it must be
     # set as a make argument to take effect.
-    make SQLITE_COMPILATION_FLAGS="-DSQLITE_ENABLE_FTS3 -DSQLITE_ENABLE_FTS3_PARENTHESIS -DSQLITE_ENABLE_NORMALIZE -DSQLITE_ENABLE_FTS5" all
+    #
+    # CRITICAL: this is the FULL default list from sql.js v1.11.0 Makefile
+    # plus `-DSQLITE_ENABLE_FTS5`. An earlier version of this script passed
+    # only the FTS5 flag, which silently dropped:
+    #   - SQLITE_OMIT_LOAD_EXTENSION  (without this, SQLite includes its
+    #     dlopen-based dynamic loader; in wasm those become null function
+    #     pointers and the runtime traps with "null function" the first
+    #     time `new SQL.Database()` is called inside a Service Worker)
+    #   - SQLITE_THREADSAFE=0         (pulls in pthread-style mutex code)
+    #   - SQLITE_DISABLE_LFS          (large file support uses 64-bit syscalls)
+    #   - -Oz                         (size optimization)
+    # Always extend the upstream list rather than replacing it.
+    make SQLITE_COMPILATION_FLAGS="-Oz -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DISABLE_LFS -DSQLITE_ENABLE_FTS3 -DSQLITE_ENABLE_FTS3_PARENTHESIS -DSQLITE_THREADSAFE=0 -DSQLITE_ENABLE_NORMALIZE -DSQLITE_ENABLE_FTS5" all
     # chown outputs back to host user so the host can read/copy them.
     chown -R "${HOST_UID}:${HOST_GID}" dist cache sqlite-src out 2>/dev/null || true
   '
