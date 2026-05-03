@@ -1,7 +1,12 @@
 [app]
 name = "solobase-web"
 title = "Solobase"
-boot_redirect = "/b/system/"
+# `/` is intercepted by the SW and routed through `solobase_core::routing` —
+# anonymous users get a 302 to /b/auth/login, authenticated users to
+# /b/auth/dashboard. Don't aim this at /b/system/: that path isn't claimed
+# by any block and would 404 (the system block only serves /health and
+# /b/static/, despite its name).
+boot_redirect = "/"
 
 # solobase-web's PWA Web App Manifest. The file is app-specific (icons,
 # name, start_url); solobase-browser doesn't ship a default. Overlay it
