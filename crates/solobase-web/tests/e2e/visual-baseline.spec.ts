@@ -58,3 +58,52 @@ test.describe('visual baseline — admin', () => {
     });
   }
 });
+
+// ===== Phase 4 PR-3: 375px mobile pass =====
+
+const MOBILE_VIEWPORT = { width: 375, height: 812 } as const;
+
+const MOBILE_ANON_ROUTES = [
+  { path: '/b/auth/login', name: 'auth-login' },
+  { path: '/b/auth/signup', name: 'auth-signup' },
+];
+
+const MOBILE_ADMIN_ROUTES = [
+  // One admin page to confirm drawer wires up; admin stays desktop-first
+  // per master spec, no need for full coverage.
+  { path: '/b/admin/', name: 'admin-dashboard' },
+  // Portal pages — primary mobile audience.
+  { path: '/b/auth/dashboard', name: 'portal-dashboard' },
+  { path: '/b/auth/orgs', name: 'portal-orgs' },
+  { path: '/b/userportal/profile', name: 'portal-profile' },
+  { path: '/b/userportal/sessions', name: 'portal-sessions' },
+  { path: '/b/userportal/security', name: 'portal-security' },
+  { path: '/b/products/', name: 'portal-products' },
+];
+
+test.describe('visual baseline mobile — anonymous (375px)', () => {
+  for (const r of MOBILE_ANON_ROUTES) {
+    test(`anon-mobile ${r.name}`, async ({ page }) => {
+      await page.setViewportSize(MOBILE_VIEWPORT);
+      await page.goto(r.path, { waitUntil: 'networkidle' });
+      await expect(page).toHaveScreenshot(`anon-${r.name}-mobile.png`, COMMON_OPTS);
+    });
+  }
+});
+
+test.describe('visual baseline mobile — admin (375px)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await loginAsAdmin(page);
+  });
+  for (const r of MOBILE_ADMIN_ROUTES) {
+    test(`admin-mobile ${r.name}`, async ({ page }) => {
+      await page.setViewportSize(MOBILE_VIEWPORT);
+      await page.goto(r.path, { waitUntil: 'networkidle' });
+      await expect(page).toHaveScreenshot(`admin-${r.name}-mobile.png`, {
+        ...COMMON_OPTS,
+        mask: [page.locator('[data-relative-time], .relative-time, time')],
+      });
+    });
+  }
+});
