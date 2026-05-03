@@ -354,6 +354,14 @@ impl SolobaseBuilder {
                 Arc::new(wafer_block_security_headers::SecurityHeadersBlock::new()),
             )?;
             wafer.register_block("wafer-run/web", Arc::new(wafer_block_web::WebBlock::new()))?;
+
+            // Solobase feature blocks (suppers-ai/*) self-register via
+            // `register_static_block!` on native, but linkme's distributed_slice
+            // doesn't emit on wasm32 — see `crate::blocks::register_all_static_blocks`
+            // for the full reasoning. Without this call the wasm runtime has only
+            // wafer-run/* middleware and the SolobaseRouter resolves every feature
+            // route to a `block 'suppers-ai/<name>' not found` error.
+            crate::blocks::register_all_static_blocks(&mut wafer)?;
         }
 
         wafer.add_block_config(
