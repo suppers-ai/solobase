@@ -2,8 +2,19 @@
 //
 // Runs in the window (WebGPU is window-only). Receives requests from the SW
 // via navigator.serviceWorker.message, runs WebLLM, streams chunks back.
+//
+// The @mlc-ai/web-llm import is lazy: a top-level static import would block
+// DOMContentLoaded for every page that loads this script (it's a multi-MB
+// jsdelivr ESM bundle), and most page loads never end up invoking the LLM.
+// Defer the import until handleCreateEngine actually needs it.
 
-import { CreateMLCEngine } from 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.74/+esm';
+let _CreateMLCEngine = null;
+async function loadCreateMLCEngine() {
+    if (_CreateMLCEngine) return _CreateMLCEngine;
+    const mod = await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.74/+esm');
+    _CreateMLCEngine = mod.CreateMLCEngine;
+    return _CreateMLCEngine;
+}
 
 let _engine = null;
 let _engineModel = null;
@@ -22,6 +33,7 @@ async function handleCreateEngine(msg) {
                 _engine = null;
                 _engineModel = null;
             }
+            const CreateMLCEngine = await loadCreateMLCEngine();
             _engine = await CreateMLCEngine(msg.modelId, { /* progress swallowed */ });
             _engineModel = msg.modelId;
         }
