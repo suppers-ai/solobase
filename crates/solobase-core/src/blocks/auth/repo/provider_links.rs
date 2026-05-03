@@ -178,18 +178,42 @@ mod tests_phase_4 {
         for u in ["user-a", "user-b"] {
             seed_user(&ctx, u).await;
         }
-        upsert(&ctx, NewLink {
-            provider: "github", provider_ref: "gh-1", user_id: "user-a",
-            provider_login: "alice", access_token: "tok-a",
-        }).await.unwrap();
-        upsert(&ctx, NewLink {
-            provider: "google", provider_ref: "gg-1", user_id: "user-a",
-            provider_login: "alice@example.com", access_token: "tok-b",
-        }).await.unwrap();
-        upsert(&ctx, NewLink {
-            provider: "github", provider_ref: "gh-2", user_id: "user-b",
-            provider_login: "bob", access_token: "tok-c",
-        }).await.unwrap();
+        upsert(
+            &ctx,
+            NewLink {
+                provider: "github",
+                provider_ref: "gh-1",
+                user_id: "user-a",
+                provider_login: "alice",
+                access_token: "tok-a",
+            },
+        )
+        .await
+        .unwrap();
+        upsert(
+            &ctx,
+            NewLink {
+                provider: "google",
+                provider_ref: "gg-1",
+                user_id: "user-a",
+                provider_login: "alice@example.com",
+                access_token: "tok-b",
+            },
+        )
+        .await
+        .unwrap();
+        upsert(
+            &ctx,
+            NewLink {
+                provider: "github",
+                provider_ref: "gh-2",
+                user_id: "user-b",
+                provider_login: "bob",
+                access_token: "tok-c",
+            },
+        )
+        .await
+        .unwrap();
 
         let a = list_for_user(&ctx, "user-a").await.unwrap();
         let providers: Vec<&str> = a.iter().map(|l| l.provider.as_str()).collect();

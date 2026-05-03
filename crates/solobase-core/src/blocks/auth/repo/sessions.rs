@@ -148,15 +148,10 @@ pub async fn delete_expired(ctx: &dyn Context, cutoff: &str) -> Result<u64, Repo
 
 /// Return all active sessions for `user_id`, ordered by `last_used_at` DESC
 /// so the most recently active session sorts first.
-pub async fn list_for_user(
-    ctx: &dyn Context,
-    user_id: &str,
-) -> Result<Vec<SessionRow>, RepoError> {
+pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<SessionRow>, RepoError> {
     let rows = db::query_raw(
         ctx,
-        &format!(
-            "SELECT * FROM {TABLE} WHERE user_id = ? ORDER BY last_used_at DESC"
-        ),
+        &format!("SELECT * FROM {TABLE} WHERE user_id = ? ORDER BY last_used_at DESC"),
         &[json!(user_id)],
     )
     .await
@@ -250,13 +245,17 @@ mod tests_phase_4 {
         insert(&ctx, fake_session("user-b", 0x02)).await.unwrap();
 
         // user-a tries to revoke user-b's session — should affect 0 rows.
-        let affected = delete_for_user(&ctx, "user-a", &vec![0x02; 32]).await.unwrap();
+        let affected = delete_for_user(&ctx, "user-a", &vec![0x02; 32])
+            .await
+            .unwrap();
         assert_eq!(affected, 0);
         // user-b's session is still there.
         assert_eq!(list_for_user(&ctx, "user-b").await.unwrap().len(), 1);
 
         // user-a can revoke their own.
-        let affected = delete_for_user(&ctx, "user-a", &vec![0x01; 32]).await.unwrap();
+        let affected = delete_for_user(&ctx, "user-a", &vec![0x01; 32])
+            .await
+            .unwrap();
         assert_eq!(affected, 1);
         assert_eq!(list_for_user(&ctx, "user-a").await.unwrap().len(), 0);
     }
