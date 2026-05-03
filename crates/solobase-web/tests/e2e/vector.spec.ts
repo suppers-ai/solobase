@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 
-const ADMIN_EMAIL = 'admin@solobase.local';
-const ADMIN_PASSWORD = 'admin';
+const ADMIN_EMAIL = 'admin@example.com';
+const ADMIN_PASSWORD = 'admin123';
 
 /**
  * Log in via the JSON API (POST /b/auth/api/login) and wait for the service

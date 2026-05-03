@@ -2,9 +2,8 @@ import type { Page } from '@playwright/test';
 
 /**
  * Log in as the seeded admin user. solobase-web seeds
- * `admin@solobase.local` / `admin` on first boot via
- * `SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL` /
- * `SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_PASSWORD`.
+ * `admin@example.com` / `admin123` on first boot via
+ * `SUPPERS_AI__AUTH__ADMIN_EMAIL` / `SUPPERS_AI__AUTH__ADMIN_PASSWORD`.
  *
  * Works against both the native solobase server (used for visual-baseline
  * snapshot generation, where argon2id runs in native Rust and is fast) and
@@ -17,8 +16,8 @@ import type { Page } from '@playwright/test';
  */
 export async function loginAsAdmin(page: Page): Promise<void> {
   await page.goto('/b/auth/login');
-  await page.fill('#email', 'admin@solobase.local');
-  await page.fill('#password', 'admin');
+  await page.fill('#email', 'admin@example.com');
+  await page.fill('#password', 'admin123');
   await page.click('#btn');
   // Native argon2id completes in milliseconds; allow up to 10s for the
   // login fetch + redirect to complete.
