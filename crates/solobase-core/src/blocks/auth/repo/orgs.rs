@@ -78,6 +78,19 @@ pub async fn find_by_name(ctx: &dyn Context, name: &str) -> Result<Option<OrgRow
     }
 }
 
+/// Return all orgs owned by `user_id`, ordered by `created_at` ASC for
+/// stable rendering. Empty Vec if the user owns none.
+pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<OrgRow>, OrgsRepoError> {
+    let rows = db::query_raw(
+        ctx,
+        &format!("SELECT * FROM {TABLE} WHERE owner_user_id = ? ORDER BY created_at ASC"),
+        &[json!(user_id)],
+    )
+    .await
+    .map_err(|e| OrgsRepoError::Db(format!("orgs list_for_user: {e}")))?;
+    rows.iter().map(|r| row_from_map(&r.data)).collect()
+}
+
 /// Payload for [`upsert_claimed`]. Borrowed fields — caller keeps ownership.
 #[derive(Debug, Clone, Copy)]
 pub struct NewClaim<'a> {
@@ -193,5 +206,74 @@ mod tests {
         assert_eq!(row.owner_user_id.as_deref(), Some("user-a"));
         assert_eq!(row.verified_via.as_deref(), Some("github"));
         assert_eq!(row.verified_ref.as_deref(), Some("gh-1"));
+    }
+
+    #[tokio::test]
+    async fn list_for_user_returns_only_caller_orgs_ordered_by_created_at() {
+        let ctx = TestContext::with_auth().await;
+
+        // Seed users (FK constraint on owner_user_id).
+        for user_id in ["user-a", "user-b"] {
+            db::exec_raw(
+                &ctx,
+                "INSERT INTO suppers_ai__auth__users (id, email, display_name, role, created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+                &[
+                    json!(user_id),
+                    json!(format!("{user_id}@example.com")),
+                    json!(user_id),
+                    json!("user"),
+                    json!("2026-01-01T00:00:00Z"),
+                    json!("2026-01-01T00:00:00Z"),
+                ],
+            )
+            .await
+            .unwrap();
+        }
+
+        // user-a claims two orgs; user-b claims one.
+        upsert_claimed(
+            &ctx,
+            NewClaim {
+                name: "alpha",
+                owner_user_id: "user-a",
+                verified_via: "github",
+                verified_ref: "gh-1",
+            },
+        )
+        .await
+        .unwrap();
+        upsert_claimed(
+            &ctx,
+            NewClaim {
+                name: "beta",
+                owner_user_id: "user-a",
+                verified_via: "google",
+                verified_ref: "gg-2",
+            },
+        )
+        .await
+        .unwrap();
+        upsert_claimed(
+            &ctx,
+            NewClaim {
+                name: "gamma",
+                owner_user_id: "user-b",
+                verified_via: "github",
+                verified_ref: "gh-3",
+            },
+        )
+        .await
+        .unwrap();
+
+        let a = list_for_user(&ctx, "user-a").await.unwrap();
+        let b = list_for_user(&ctx, "user-b").await.unwrap();
+        let c = list_for_user(&ctx, "user-c").await.unwrap();
+
+        let names_a: Vec<&str> = a.iter().map(|o| o.name.as_str()).collect();
+        let names_b: Vec<&str> = b.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(names_a, vec!["alpha", "beta"]);
+        assert_eq!(names_b, vec!["gamma"]);
+        assert!(c.is_empty());
     }
 }

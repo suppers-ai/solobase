@@ -118,6 +118,7 @@ impl Block for UserPortalBlock {
             ("retrieve", "" | "/") => profile_page(ctx, &msg).await,
             ("create", "/update-profile") => handle_update_profile(ctx, &msg, input).await,
             ("retrieve", "/config") => self.handle_config(ctx).await,
+            ("retrieve", "/internal/list-buttons") => self.handle_list_buttons(ctx).await,
             _ => err_not_found("not found"),
         }
     }
@@ -132,6 +133,25 @@ impl Block for UserPortalBlock {
 }
 
 impl UserPortalBlock {
+    /// Internal cross-block action — returns the configured portal buttons as
+    /// a JSON array. Not user-routable. Consumed by the auth block's dashboard
+    /// page via `ctx.call_block` to avoid raw cross-block SQL.
+    async fn handle_list_buttons(&self, ctx: &dyn Context) -> OutputStream {
+        let records = load_buttons(ctx).await;
+        let arr: Vec<serde_json::Value> = records
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "label": r.str_field("label"),
+                    "icon": r.str_field("icon"),
+                    "path": r.str_field("path"),
+                    "sort_order": r.data.get("sort_order").cloned().unwrap_or(serde_json::Value::Null),
+                })
+            })
+            .collect();
+        ok_json(&serde_json::Value::Array(arr))
+    }
+
     async fn handle_config(&self, ctx: &dyn Context) -> OutputStream {
         let block_rows = db::list_all(ctx, crate::blocks::admin::BLOCK_SETTINGS_COLLECTION, vec![])
             .await
@@ -808,6 +828,80 @@ async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputSt
         }
     }
     ok_json(&serde_json::json!({"message": "Settings saved"}))
+}
+
+#[cfg(test)]
+mod cross_block_tests {
+    use std::collections::HashMap;
+
+    use serde_json::json;
+    use wafer_core::clients::database as db;
+    use wafer_run::block::Block;
+
+    use super::*;
+    use crate::test_support::{anon_msg, output_json, TestContext};
+
+    fn button_data(
+        label: &str,
+        icon: &str,
+        path: &str,
+        sort_order: i64,
+    ) -> HashMap<String, serde_json::Value> {
+        let mut m = HashMap::new();
+        m.insert("label".to_string(), json!(label));
+        m.insert("icon".to_string(), json!(icon));
+        m.insert("path".to_string(), json!(path));
+        m.insert("sort_order".to_string(), json!(sort_order));
+        m
+    }
+
+    #[tokio::test]
+    async fn list_buttons_action_returns_json_array_in_sort_order() {
+        let ctx = TestContext::new().await;
+
+        // Seed two buttons via db::create (lazy table creation).
+        db::create(
+            &ctx,
+            BUTTONS_COLLECTION,
+            button_data("Solobase", "shield", "/b/admin/", 0),
+        )
+        .await
+        .expect("seed first button");
+        db::create(
+            &ctx,
+            BUTTONS_COLLECTION,
+            button_data("Inspector", "search", "/b/inspector/ui", 1),
+        )
+        .await
+        .expect("seed second button");
+
+        let block = UserPortalBlock;
+        let msg = anon_msg("retrieve", "/b/userportal/internal/list-buttons");
+        let resp = block
+            .handle(&ctx, msg, wafer_run::InputStream::empty())
+            .await;
+        let parsed = output_json(resp).await;
+
+        let arr = parsed.as_array().expect("response is JSON array");
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["label"], "Solobase");
+        assert_eq!(arr[0]["icon"], "shield");
+        assert_eq!(arr[0]["path"], "/b/admin/");
+        assert_eq!(arr[1]["label"], "Inspector");
+        assert_eq!(arr[1]["icon"], "search");
+    }
+
+    #[tokio::test]
+    async fn list_buttons_action_returns_empty_array_when_none_configured() {
+        let ctx = TestContext::new().await;
+        let block = UserPortalBlock;
+        let msg = anon_msg("retrieve", "/b/userportal/internal/list-buttons");
+        let resp = block
+            .handle(&ctx, msg, wafer_run::InputStream::empty())
+            .await;
+        let parsed = output_json(resp).await;
+        assert_eq!(parsed.as_array().unwrap().len(), 0);
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

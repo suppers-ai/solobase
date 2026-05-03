@@ -3,6 +3,9 @@
 //! Uses maud for compile-time HTML generation. Settings are read from
 //! the `variables` table at render time.
 
+pub mod dashboard;
+pub mod orgs;
+
 use std::collections::HashMap;
 
 use maud::{html, Markup, PreEscaped};
