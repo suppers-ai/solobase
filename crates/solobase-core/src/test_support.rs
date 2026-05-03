@@ -87,6 +87,28 @@ impl Context for TestContext {
     }
 }
 
+/// Build an anonymous request `Message`. No `auth.user_id` meta set.
+pub fn anon_msg(action: &str, path: &str) -> Message {
+    let mut m = Message::new("http.request");
+    m.set_meta("req.action", action);
+    m.set_meta("req.resource", path);
+    m
+}
+
+/// Build an authenticated request `Message` for `user_id`. No admin role.
+pub fn auth_msg(action: &str, path: &str, user_id: &str) -> Message {
+    let mut m = anon_msg(action, path);
+    m.set_meta("auth.user_id", user_id);
+    m
+}
+
+/// Build an admin request `Message` (user_id `"admin_1"`, role `admin`).
+pub fn admin_msg(action: &str, path: &str) -> Message {
+    let mut m = auth_msg(action, path, "admin_1");
+    m.set_meta("auth.user_roles", "admin");
+    m
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +148,29 @@ mod tests {
             rows[0].data.get("name").and_then(|v| v.as_str()),
             Some("alpha")
         );
+    }
+
+    #[test]
+    fn anon_msg_sets_action_and_path_with_no_user_id() {
+        let m = anon_msg("retrieve", "/b/auth/login");
+        assert_eq!(m.action(), "retrieve");
+        assert_eq!(m.path(), "/b/auth/login");
+        assert_eq!(m.user_id(), "");
+    }
+
+    #[test]
+    fn auth_msg_sets_user_id() {
+        let m = auth_msg("retrieve", "/b/auth/dashboard", "user-a");
+        assert_eq!(m.action(), "retrieve");
+        assert_eq!(m.path(), "/b/auth/dashboard");
+        assert_eq!(m.user_id(), "user-a");
+    }
+
+    #[test]
+    fn admin_msg_marks_admin_role() {
+        use crate::blocks::helpers::is_admin;
+        let m = admin_msg("retrieve", "/b/admin/users");
+        assert_eq!(m.user_id(), "admin_1");
+        assert!(is_admin(&m));
     }
 }
