@@ -86,6 +86,25 @@ pub fn shell(
 ) -> Markup {
     html! {
         div .shell {
+            header .shell__mobile-header {
+                button .shell__drawer-toggle type="button"
+                    data-action="drawer-open"
+                    aria-label="Open menu"
+                {
+                    "☰"
+                }
+                span .shell__mobile-title { "Solobase" }
+                @if topbar.show_palette {
+                    button .shell__palette-icon type="button"
+                        data-action="palette-open"
+                        aria-keyshortcuts="Meta+K Control+K"
+                        aria-label="Open command palette"
+                    {
+                        "⌘K"
+                    }
+                }
+            }
+            div .shell__overlay data-action="drawer-close" {}
             (sidebar_grouped(nav_groups, user, current_path, logo_url, logo_icon_url))
             div .shell__main {
                 (render_topbar(&topbar))
@@ -156,6 +175,43 @@ mod tests {
         let s = shell(&groups, None, "/x", "", "", tb, html! {}).into_string();
         assert!(!s.contains("topbar__palette"));
         assert!(s.contains("topbar__crumbs"));
+    }
+
+    #[test]
+    fn shell_renders_mobile_header_with_drawer_toggle() {
+        let groups = one_group(vec![item("X", "/x")]);
+        let s = shell(
+            &groups,
+            None,
+            "/x",
+            "",
+            "",
+            Topbar::default(),
+            html! { "body" },
+        )
+        .into_string();
+        assert!(s.contains("shell__mobile-header"), "missing mobile header");
+        assert!(
+            s.contains(r#"data-action="drawer-open""#),
+            "missing drawer toggle"
+        );
+        assert!(
+            s.contains(r#"data-action="drawer-close""#),
+            "missing drawer overlay"
+        );
+        assert!(s.contains("shell__overlay"), "missing overlay element");
+    }
+
+    #[test]
+    fn shell_mobile_header_omits_palette_icon_when_disabled() {
+        let groups = one_group(vec![item("X", "/x")]);
+        let mut tb = Topbar::default();
+        tb.show_palette = false;
+        let s = shell(&groups, None, "/x", "", "", tb, html! {}).into_string();
+        // Mobile header itself is always rendered…
+        assert!(s.contains("shell__mobile-header"));
+        // …but the ⌘K icon-button inside it isn't, when the page disables the palette.
+        assert!(!s.contains("shell__palette-icon"));
     }
 
     #[test]
