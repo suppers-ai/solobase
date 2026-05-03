@@ -11,6 +11,15 @@ async function boot() {
             scope: '/',
             updateViaCache: 'none',
         });
+        // Force an update check on every page load. `register()` only checks
+        // when the script bytes differ from the cached copy, and even then
+        // browsers may delay the check up to 24h. Calling update() explicitly
+        // means a deploy is picked up the next time the user visits the page,
+        // not the next time the browser feels like polling. controllerchange
+        // (wired below) handles the reload once the new SW takes over.
+        try { await registration.update(); } catch (e) {
+            console.warn('[__APP_NAME__] SW update check failed:', e);
+        }
         const sw = registration.installing || registration.waiting || registration.active;
         if (sw && sw.state !== 'activated') {
             await new Promise((resolve) => {
