@@ -734,3 +734,28 @@
 }
 .orgs-list-row__name { flex: 1; font-weight: 500; }
 .orgs-list-row__date { font-size: var(--text-xs); color: var(--text-muted); }
+
+/* ===== Sessions page (Phase 4 PR-2) ===== */
+.session-row td:last-child { text-align: right; white-space: nowrap; }
+
+/* ===== Security page (Phase 4 PR-2) ===== */
+.security-section { margin-bottom: var(--spacing-lg); }
+.linked-providers-list { list-style: none; padding: 0; margin: 0; }
+.linked-provider {
+	display: flex;
+	gap: var(--spacing-md);
+	align-items: center;
+	padding: var(--spacing-sm) var(--spacing-md);
+	border-top: 1px solid var(--border-light);
+}
+.linked-provider:first-child { border-top: none; }
+.linked-provider__name {
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	background: var(--surface-3);
+	padding: 2px 6px;
+	border-radius: var(--radius-sm);
+	color: var(--text-muted);
+}
+.linked-provider__login { flex: 1; font-weight: 500; }
+.linked-provider__date { font-size: var(--text-xs); color: var(--text-muted); }

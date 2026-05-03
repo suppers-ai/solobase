@@ -22,6 +22,8 @@ const ADMIN_ROUTES = [
   { path: '/b/auth/dashboard', name: 'portal-dashboard' },
   { path: '/b/auth/orgs', name: 'portal-orgs' },
   { path: '/b/userportal/profile', name: 'portal-profile' },
+  { path: '/b/userportal/sessions', name: 'portal-sessions' },
+  { path: '/b/userportal/security', name: 'portal-security' },
   { path: '/b/products/', name: 'portal-products' },
 ];
 
