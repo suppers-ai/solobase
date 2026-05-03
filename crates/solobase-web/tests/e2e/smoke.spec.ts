@@ -34,15 +34,14 @@ test('service worker registers and controls the page', async ({ page }) => {
 
 test('solobase-web admin UI at /b/system/ renders after SW activation', async ({ page }) => {
   await page.goto('/', { waitUntil: 'commit' });
-  await page.waitForFunction(
-    () => navigator.serviceWorker.controller !== null,
-    null,
-    { timeout: 20_000 },
-  );
-  // Navigate to the admin UI that solobase-web ships. Past the SW boundary,
-  // the UI block renders HTML served from WAFER. Any title/heading works —
-  // this smoke just confirms the runtime responds.
-  await page.goto('/b/system/');
+  // loader.js redirects to `/b/system/` as soon as the SW takes control.
+  // Wait for that redirect to land instead of issuing our own goto — an
+  // explicit `page.goto('/b/system/')` here would race with the loader's
+  // `window.location.href` assignment and abort with
+  // `net::ERR_ABORTED; maybe frame was detached?`. The redirect itself
+  // exercises the SW serving the admin UI through WAFER, which is what
+  // this smoke is verifying.
+  await page.waitForURL(/\/b\/system\/?$/, { timeout: 20_000 });
   const bodyText = await page.locator('body').textContent();
   expect(bodyText ?? '').not.toBe('');
 });
