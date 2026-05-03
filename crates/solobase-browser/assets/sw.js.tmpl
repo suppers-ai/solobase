@@ -90,6 +90,14 @@ self.addEventListener('message', (event) => {
         }
         return;
     }
+
+    // Embed bridge: route all embed-*-response replies from the page to bridge.js's handler.
+    if (typeof msg.type === 'string' && msg.type.startsWith('embed-') && msg.type.endsWith('-response')) {
+        if (typeof globalThis.__solobaseCompleteEmbedMessage === 'function') {
+            globalThis.__solobaseCompleteEmbedMessage(msg);
+        }
+        return;
+    }
 });
 
 // ---------------------------------------------------------------------------
@@ -115,6 +123,7 @@ self.addEventListener('fetch', (event) => {
         url.pathname === '/manifest.json' ||
         url.pathname === '/asset-manifest.json' ||
         url.pathname === '/webllm-engine.js' ||
+        url.pathname === '/embed-engine.js' ||
         url.pathname.startsWith('__WASM_JS_PREFIX__') ||
         url.pathname.startsWith('/snippets/') ||
         url.pathname.startsWith('/vendor/') ||

@@ -1,0 +1,398 @@
+//! `BrowserVectorService` — sql.js-backed `VectorService`.
+//!
+//! Vectors are stored as `BLOB` columns in the shared OPFS sql.js database
+//! (no separate file). Scoring is in-process Rust using SIMD on wasm32. FTS5
+//! powers keyword search when the index has `keyword_search: true`.
+
+use std::{collections::HashMap, sync::Mutex};
+
+use wafer_core::interfaces::vector::service::{
+    DistanceMetric, MetadataFilter, Result as VResult, SearchMode, VectorEntry, VectorError,
+    VectorIndexConfig, VectorMatch, VectorService,
+};
+
+use crate::{bridge, vector::sql};
+
+fn js_err(e: wasm_bindgen::JsValue) -> String {
+    e.as_string().unwrap_or_else(|| format!("{e:?}"))
+}
+
+fn matches_filter(metadata: Option<&serde_json::Value>, filter: &MetadataFilter) -> bool {
+    if filter.equals.is_empty() {
+        return true;
+    }
+    let Some(meta) = metadata else { return false };
+    for (path, expected) in &filter.equals {
+        let mut cursor = meta;
+        for segment in path.split('.') {
+            cursor = match cursor.get(segment) {
+                Some(v) => v,
+                None => return false,
+            };
+        }
+        if cursor != expected {
+            return false;
+        }
+    }
+    true
+}
+
+/// Per-index config cached in memory after `create_index`. Persisted via the
+/// `wafer_core::interfaces::vector` block's own registry table; this cache
+/// is hydrated on first use by reading that registry.
+#[derive(Clone)]
+struct IndexState {
+    dimensions: u32,
+    metric: DistanceMetric,
+    keyword_search: bool,
+}
+
+pub struct BrowserVectorService {
+    indexes: Mutex<HashMap<String, IndexState>>,
+}
+
+// Safety: wasm32-unknown-unknown is single-threaded — no data races possible.
+unsafe impl Send for BrowserVectorService {}
+unsafe impl Sync for BrowserVectorService {}
+
+impl Default for BrowserVectorService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BrowserVectorService {
+    pub fn new() -> Self {
+        Self {
+            indexes: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn lookup(&self, name: &str) -> Option<IndexState> {
+        self.indexes.lock().ok()?.get(name).cloned()
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl VectorService for BrowserVectorService {
+    async fn create_index(&self, config: VectorIndexConfig) -> VResult<()> {
+        let stmts = sql::build_create_index_sql(&config.name, config.keyword_search);
+        for s in stmts {
+            bridge::db_exec_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
+        }
+        bridge::dbFlush().await;
+        self.indexes.lock().unwrap().insert(
+            config.name.clone(),
+            IndexState {
+                dimensions: config.dimensions,
+                metric: config.metric,
+                keyword_search: config.keyword_search,
+            },
+        );
+        Ok(())
+    }
+
+    async fn delete_index(&self, name: &str) -> VResult<()> {
+        let state = self
+            .lookup(name)
+            .ok_or_else(|| VectorError::IndexNotFound(name.into()))?;
+        let stmts = sql::build_delete_index_sql(name, state.keyword_search);
+        for s in stmts {
+            bridge::db_exec_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
+        }
+        bridge::dbFlush().await;
+        self.indexes.lock().unwrap().remove(name);
+        Ok(())
+    }
+
+    async fn upsert(&self, index: &str, entries: Vec<VectorEntry>) -> VResult<()> {
+        let state = self
+            .lookup(index)
+            .ok_or_else(|| VectorError::IndexNotFound(index.into()))?;
+
+        use base64ct::{Base64, Encoding};
+        let prepared: Result<Vec<sql::SqlUpsertEntry>, VectorError> = entries
+            .iter()
+            .map(|e| {
+                if e.vector.len() as u32 != state.dimensions {
+                    return Err(VectorError::DimensionMismatch {
+                        expected: state.dimensions,
+                        got: e.vector.len() as u32,
+                    });
+                }
+                if state.keyword_search && e.text.is_none() {
+                    return Err(VectorError::TextRequired);
+                }
+                let blob = sql::pack_vector_blob(&e.vector);
+                Ok(sql::SqlUpsertEntry {
+                    id: e.id.clone(),
+                    vector_blob_b64: Base64::encode_string(&blob),
+                    metadata_json: e
+                        .metadata
+                        .as_ref()
+                        .map(|m| m.to_string())
+                        .unwrap_or_else(|| "{}".into()),
+                    text: e.text.clone(),
+                })
+            })
+            .collect();
+        let prepared = prepared?;
+
+        for stmt in sql::build_upsert_sql_stmts(index, state.keyword_search, &prepared) {
+            bridge::db_exec_raw(&stmt.sql, &stmt.params_json)
+                .map_err(|e| VectorError::Internal(js_err(e)))?;
+        }
+        bridge::dbFlush().await;
+        Ok(())
+    }
+
+    async fn query(
+        &self,
+        index: &str,
+        vector: Vec<f32>,
+        top_k: usize,
+        filter: Option<MetadataFilter>,
+        mode: SearchMode,
+        keyword_query: Option<String>,
+    ) -> VResult<Vec<VectorMatch>> {
+        let state = self
+            .lookup(index)
+            .ok_or_else(|| VectorError::IndexNotFound(index.into()))?;
+
+        let needs_keyword = matches!(mode, SearchMode::Keyword | SearchMode::Hybrid);
+        if needs_keyword && !state.keyword_search {
+            return Err(VectorError::KeywordSearchNotEnabled);
+        }
+        if needs_keyword && keyword_query.as_deref().unwrap_or("").is_empty() {
+            return Err(VectorError::KeywordQueryRequired(mode));
+        }
+        if mode != SearchMode::Keyword && vector.len() as u32 != state.dimensions {
+            return Err(VectorError::DimensionMismatch {
+                expected: state.dimensions,
+                got: vector.len() as u32,
+            });
+        }
+
+        let f = filter.unwrap_or_default();
+        let fetch_n = if matches!(mode, SearchMode::Hybrid) {
+            50.max(top_k)
+        } else {
+            top_k
+        };
+
+        use crate::vector::score;
+
+        match mode {
+            SearchMode::Vector => {
+                let candidates = load_all_vectors(index, state.dimensions, &f)?;
+                let pairs: Vec<(String, Vec<f32>)> = candidates
+                    .iter()
+                    .map(|(id, v, _m)| (id.clone(), v.clone()))
+                    .collect();
+                let scored = score::top_k(&vector, &pairs, fetch_n, state.metric);
+                Ok(attach_metadata(&candidates, scored))
+            }
+            SearchMode::Keyword => {
+                let kq = keyword_query.unwrap();
+                let ids = fts_search(index, &kq, fetch_n)?;
+                let metadata = load_metadata_for_ids(index, &ids)?;
+                Ok(ids
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(rank, id)| {
+                        let m = metadata.get(&id).cloned().flatten();
+                        if !matches_filter(m.as_ref(), &f) {
+                            return None;
+                        }
+                        Some(VectorMatch {
+                            id,
+                            score: 1.0 / (1.0 + rank as f32),
+                            metadata: m,
+                        })
+                    })
+                    .collect())
+            }
+            SearchMode::Hybrid => {
+                let kq = keyword_query.unwrap();
+                let candidates = load_all_vectors(index, state.dimensions, &f)?;
+                let pairs: Vec<(String, Vec<f32>)> = candidates
+                    .iter()
+                    .map(|(id, v, _m)| (id.clone(), v.clone()))
+                    .collect();
+                let vec_top = score::top_k(&vector, &pairs, fetch_n, state.metric);
+                let kw_top = fts_search(index, &kq, fetch_n)?;
+
+                // Inline RRF fusion. We need per-id scores in the response,
+                // so we don't use wafer_core::rrf::fuse (which discards scores).
+                const RRF_K: f32 = 60.0;
+                let mut rrf: std::collections::HashMap<String, f32> =
+                    std::collections::HashMap::new();
+                for (rank, (id, _)) in vec_top.iter().enumerate() {
+                    *rrf.entry(id.clone()).or_insert(0.0) += 1.0 / (RRF_K + (rank + 1) as f32);
+                }
+                for (rank, id) in kw_top.iter().enumerate() {
+                    *rrf.entry(id.clone()).or_insert(0.0) += 1.0 / (RRF_K + (rank + 1) as f32);
+                }
+                let mut fused: Vec<(String, f32)> = rrf.into_iter().collect();
+                fused.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                // Hydrate metadata from both sources: vector candidates carry it
+                // already, FTS-only ids need a separate meta lookup.
+                let mut by_id: std::collections::HashMap<String, Option<serde_json::Value>> =
+                    candidates.into_iter().map(|(id, _v, m)| (id, m)).collect();
+                let kw_only_ids: Vec<String> = kw_top
+                    .into_iter()
+                    .filter(|id| !by_id.contains_key(id))
+                    .collect();
+                let kw_meta = load_metadata_for_ids(index, &kw_only_ids)?;
+                for (id, m) in kw_meta {
+                    by_id.insert(id, m);
+                }
+
+                Ok(fused
+                    .into_iter()
+                    .take(top_k)
+                    .map(|(id, score)| VectorMatch {
+                        metadata: by_id.get(&id).cloned().flatten(),
+                        id,
+                        score,
+                    })
+                    .collect())
+            }
+        }
+    }
+
+    async fn delete(&self, index: &str, ids: Vec<String>) -> VResult<()> {
+        let state = self
+            .lookup(index)
+            .ok_or_else(|| VectorError::IndexNotFound(index.into()))?;
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let (stmts, params) = sql::build_delete_ids_sql(index, &ids, state.keyword_search);
+        let params_json = serde_json::to_string(&params).unwrap_or_else(|_| "[]".into());
+        for s in stmts {
+            bridge::db_exec_raw(&s, &params_json).map_err(|e| VectorError::Internal(js_err(e)))?;
+        }
+        bridge::dbFlush().await;
+        Ok(())
+    }
+
+    async fn count(&self, index: &str) -> VResult<u64> {
+        if self.lookup(index).is_none() {
+            return Err(VectorError::IndexNotFound(index.into()));
+        }
+        let row_json = bridge::db_query_raw(&sql::build_count_sql(index), "[]")
+            .map_err(|e| VectorError::Internal(js_err(e)))?;
+        // sql.js returns rows as `[{ "n": <number> }]`.
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&row_json)
+            .map_err(|e| VectorError::Internal(format!("parse count: {e}")))?;
+        let n = rows
+            .first()
+            .and_then(|r| r.get("n"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        Ok(n)
+    }
+}
+
+fn load_all_vectors(
+    index: &str,
+    dims: u32,
+    f: &MetadataFilter,
+) -> VResult<Vec<(String, Vec<f32>, Option<serde_json::Value>)>> {
+    let s = format!(r#"SELECT id, vector, metadata FROM "{index}_vectors""#);
+    let json = bridge::db_query_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&json)
+        .map_err(|e| VectorError::Internal(format!("parse vectors: {e}")))?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let id = r
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        // sql.js returns BLOBs as `Uint8Array`, which serializes as JSON
+        // arrays of integers when shipped through JSON.stringify. We accept
+        // both: array of numbers OR base64 string (forward compat).
+        let bytes: Vec<u8> = match r.get("vector") {
+            Some(serde_json::Value::Array(arr)) => arr
+                .iter()
+                .filter_map(|v| v.as_u64().map(|x| x as u8))
+                .collect(),
+            Some(serde_json::Value::String(b64)) => {
+                use base64ct::{Base64, Encoding};
+                Base64::decode_vec(b64)
+                    .map_err(|e| VectorError::Internal(format!("blob b64: {e}")))?
+            }
+            _ => continue,
+        };
+        let vector = sql::parse_vector_blob(&bytes, dims).map_err(VectorError::Internal)?;
+        let metadata: Option<serde_json::Value> = r
+            .get("metadata")
+            .and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_str(s).ok());
+        if !matches_filter(metadata.as_ref(), f) {
+            continue;
+        }
+        out.push((id, vector, metadata));
+    }
+    Ok(out)
+}
+
+fn fts_search(index: &str, query: &str, limit: usize) -> VResult<Vec<String>> {
+    let s = format!(
+        r#"SELECT id FROM "{index}_fts" WHERE "{index}_fts" MATCH ? ORDER BY rank LIMIT ?"#
+    );
+    let params = serde_json::json!([query, limit]).to_string();
+    let json = bridge::db_query_raw(&s, &params).map_err(|e| VectorError::Internal(js_err(e)))?;
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&json)
+        .map_err(|e| VectorError::Internal(format!("parse fts: {e}")))?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| r.get("id").and_then(|v| v.as_str()).map(String::from))
+        .collect())
+}
+
+fn load_metadata_for_ids(
+    index: &str,
+    ids: &[String],
+) -> VResult<std::collections::HashMap<String, Option<serde_json::Value>>> {
+    if ids.is_empty() {
+        return Ok(Default::default());
+    }
+    let placeholders = vec!["?"; ids.len()].join(", ");
+    let s = format!(r#"SELECT id, metadata FROM "{index}_meta" WHERE id IN ({placeholders})"#);
+    let params = serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
+    let json = bridge::db_query_raw(&s, &params).map_err(|e| VectorError::Internal(js_err(e)))?;
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&json)
+        .map_err(|e| VectorError::Internal(format!("parse meta: {e}")))?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| {
+            let id = r.get("id")?.as_str()?.to_string();
+            let md: Option<serde_json::Value> = r
+                .get("metadata")
+                .and_then(|v| v.as_str())
+                .and_then(|s| serde_json::from_str(s).ok());
+            Some((id, md))
+        })
+        .collect())
+}
+
+fn attach_metadata(
+    cands: &[(String, Vec<f32>, Option<serde_json::Value>)],
+    scored: Vec<(String, f32)>,
+) -> Vec<VectorMatch> {
+    let by_id: std::collections::HashMap<&str, &Option<serde_json::Value>> =
+        cands.iter().map(|(id, _, m)| (id.as_str(), m)).collect();
+    scored
+        .into_iter()
+        .map(|(id, score)| VectorMatch {
+            metadata: by_id.get(id.as_str()).cloned().cloned().unwrap_or(None),
+            id,
+            score,
+        })
+        .collect()
+}

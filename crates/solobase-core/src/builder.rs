@@ -57,6 +57,14 @@ pub struct SolobaseBuilder {
     /// (rather than feature-gated) so platforms can always pass it; the
     /// field is simply ignored when the feature is off.
     sqlite_db_path: Option<String>,
+    /// Browser-side `VectorService` + `EmbeddingService`. When both are
+    /// `Some`, `build()` registers `wafer-run/vector` (with the pair) and
+    /// `suppers-ai/transformers-embed` (with the embedding service). The
+    /// native `register_vector_block` path is gated behind the
+    /// `native-embedding` feature and remains unaffected.
+    extra_vector_service: Option<Arc<dyn wafer_core::interfaces::vector::service::VectorService>>,
+    extra_embedding_service:
+        Option<Arc<dyn wafer_core::interfaces::vector::service::EmbeddingService>>,
 }
 
 impl Default for SolobaseBuilder {
@@ -80,6 +88,8 @@ impl SolobaseBuilder {
             extra_llm_services: Vec::new(),
             extra_routes: Vec::new(),
             sqlite_db_path: None,
+            extra_vector_service: None,
+            extra_embedding_service: None,
         }
     }
 
@@ -141,6 +151,30 @@ impl SolobaseBuilder {
     /// it just contains only the backends passed in via this setter.
     pub fn llm_service(mut self, label: impl Into<String>, service: Arc<dyn LlmService>) -> Self {
         self.extra_llm_services.push((label.into(), service));
+        self
+    }
+
+    /// Inject a browser-side `VectorService` (e.g. `BrowserVectorService` from
+    /// `solobase-browser`). When both `vector_service` and `embedding_service`
+    /// are provided, `build()` registers `wafer-run/vector` with the pair and
+    /// `suppers-ai/transformers-embed` with the embedding half. Mutually
+    /// exclusive with the `native-embedding` feature path — both produce
+    /// `wafer-run/vector` and would conflict on register.
+    pub fn vector_service(
+        mut self,
+        svc: Arc<dyn wafer_core::interfaces::vector::service::VectorService>,
+    ) -> Self {
+        self.extra_vector_service = Some(svc);
+        self
+    }
+
+    /// Inject a browser-side `EmbeddingService` (e.g. `BrowserEmbeddingService`
+    /// from `solobase-browser`). See `vector_service` for full semantics.
+    pub fn embedding_service(
+        mut self,
+        svc: Arc<dyn wafer_core::interfaces::vector::service::EmbeddingService>,
+    ) -> Self {
+        self.extra_embedding_service = Some(svc);
         self
     }
 
@@ -263,6 +297,29 @@ impl SolobaseBuilder {
         // dependency resolution fails at startup.
         #[cfg(feature = "native-embedding")]
         register_vector_block(&mut wafer, self.sqlite_db_path.as_deref())?;
+
+        // Browser path: when callers (typically `solobase-web`) inject vector
+        // + embedding services, register the runtime block + transformers
+        // embed feature block. Mutually exclusive with `native-embedding` —
+        // both producing `wafer-run/vector` would conflict on register.
+        if let (Some(vec_svc), Some(emb_svc)) =
+            (self.extra_vector_service, self.extra_embedding_service)
+        {
+            wafer_core::service_blocks::vector::register_with(
+                &mut wafer,
+                vec_svc,
+                emb_svc.clone(),
+            )?;
+            #[cfg(target_arch = "wasm32")]
+            {
+                wafer.register_block(
+                    "suppers-ai/transformers-embed".to_string(),
+                    Arc::new(
+                        crate::blocks::transformers_embed::TransformersEmbedBlock::new(emb_svc),
+                    ),
+                )?;
+            }
+        }
 
         // 5. All middleware blocks (cors, inspector, readonly-guard, router,
         // security-headers, web) self-register via register_static_block! in

@@ -285,7 +285,7 @@ fn build_create_index_sql(table_name: &str, idx: &Index) -> String {
 /// Retrieve existing column names for a table via PRAGMA table_info.
 fn existing_columns(table: &str) -> Vec<String> {
     let sql = format!("PRAGMA table_info({})", quote_ident(table));
-    let result = bridge::db_query_raw(&sql, "[]");
+    let result = bridge::db_query_raw(&sql, "[]").unwrap_or_default();
     let rows: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap_or_default();
     rows.into_iter()
         .filter_map(|r| {
@@ -300,7 +300,7 @@ fn existing_columns(table: &str) -> Vec<String> {
 fn table_exists_sync(name: &str) -> bool {
     let sql = "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?";
     let params = params_to_json(&[serde_json::Value::String(name.to_string())]);
-    let result = bridge::db_query_raw(sql, &params);
+    let result = bridge::db_query_raw(sql, &params).unwrap_or_default();
     let rows: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap_or_default();
     rows.first()
         .and_then(|r| r.get("cnt"))
@@ -324,7 +324,8 @@ impl DatabaseService for BrowserDatabaseService {
 
         let sql = format!("SELECT * FROM {} WHERE id = ?", quote_ident(&table));
         let params = params_to_json(&[serde_json::Value::String(id.to_string())]);
-        let json = bridge::db_query_raw(&sql, &params);
+        let json = bridge::db_query_raw(&sql, &params)
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
         let records = parse_rows(&json)?;
         records.into_iter().next().ok_or(DatabaseError::NotFound)
@@ -356,7 +357,8 @@ impl DatabaseService for BrowserDatabaseService {
             where_clause
         );
         let params_json = params_to_json(&filter_params);
-        let count_json = bridge::db_query_raw(&count_sql, &params_json);
+        let count_json = bridge::db_query_raw(&count_sql, &params_json)
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
         let count_rows: Vec<serde_json::Value> =
             serde_json::from_str(&count_json).unwrap_or_default();
         let total_count: i64 = count_rows
@@ -387,7 +389,8 @@ impl DatabaseService for BrowserDatabaseService {
             select_sql.push_str(&format!(" OFFSET {}", opts.offset));
         }
 
-        let rows_json = bridge::db_query_raw(&select_sql, &params_json);
+        let rows_json = bridge::db_query_raw(&select_sql, &params_json)
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
         let records = parse_rows(&rows_json)?;
 
         let page = if opts.limit > 0 {
@@ -448,7 +451,8 @@ impl DatabaseService for BrowserDatabaseService {
                 quote_ident(&table),
                 col_defs.join(", ")
             );
-            bridge::db_exec_raw(&create_sql, "[]");
+            bridge::db_exec_raw(&create_sql, "[]")
+                .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
         } else {
             // Ensure any new columns exist
             let existing = existing_columns(&table);
@@ -460,7 +464,8 @@ impl DatabaseService for BrowserDatabaseService {
                         quote_ident(&table),
                         quote_ident(&safe_key)
                     );
-                    bridge::db_exec_raw(&alter, "[]");
+                    bridge::db_exec_raw(&alter, "[]")
+                        .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
                 }
             }
         }
@@ -481,7 +486,8 @@ impl DatabaseService for BrowserDatabaseService {
         let params: Vec<serde_json::Value> = keys.iter().map(|k| coerce_param(&data[*k])).collect();
         let params_json = params_to_json(&params);
 
-        bridge::db_exec_raw(&sql, &params_json);
+        bridge::db_exec_raw(&sql, &params_json)
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
         // Persist to OPFS
         bridge::dbFlush().await;
@@ -522,7 +528,8 @@ impl DatabaseService for BrowserDatabaseService {
                     quote_ident(&table),
                     quote_ident(&safe_key)
                 );
-                bridge::db_exec_raw(&alter, "[]");
+                bridge::db_exec_raw(&alter, "[]")
+                    .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
             }
         }
 
@@ -542,7 +549,8 @@ impl DatabaseService for BrowserDatabaseService {
         params.push(serde_json::Value::String(id.to_string()));
         let params_json = params_to_json(&params);
 
-        let result = bridge::db_exec_raw(&sql, &params_json);
+        let result = bridge::db_exec_raw(&sql, &params_json)
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
         if parse_rows_modified(&result) == 0 {
             return Err(DatabaseError::NotFound);
         }
@@ -563,7 +571,8 @@ impl DatabaseService for BrowserDatabaseService {
 
         let sql = format!("DELETE FROM {} WHERE id = ?", quote_ident(&table));
         let params = params_to_json(&[serde_json::Value::String(id.to_string())]);
-        let result = bridge::db_exec_raw(&sql, &params);
+        let result = bridge::db_exec_raw(&sql, &params)
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
         if parse_rows_modified(&result) == 0 {
             return Err(DatabaseError::NotFound);
@@ -589,7 +598,8 @@ impl DatabaseService for BrowserDatabaseService {
             where_clause
         );
         let params_json = params_to_json(&filter_params);
-        let json = bridge::db_query_raw(&sql, &params_json);
+        let json = bridge::db_query_raw(&sql, &params_json)
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
         let rows: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap_or_default();
         Ok(rows
             .first()
@@ -620,7 +630,8 @@ impl DatabaseService for BrowserDatabaseService {
             where_clause
         );
         let params_json = params_to_json(&filter_params);
-        let json = bridge::db_query_raw(&sql, &params_json);
+        let json = bridge::db_query_raw(&sql, &params_json)
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
         let rows: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap_or_default();
         Ok(rows
             .first()
@@ -638,7 +649,8 @@ impl DatabaseService for BrowserDatabaseService {
     ) -> Result<Vec<Record>, DatabaseError> {
         let coerced: Vec<serde_json::Value> = args.iter().map(coerce_param).collect();
         let params_json = params_to_json(&coerced);
-        let json = bridge::db_query_raw(query, &params_json);
+        let json = bridge::db_query_raw(query, &params_json)
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
         parse_rows(&json)
     }
 
@@ -651,7 +663,8 @@ impl DatabaseService for BrowserDatabaseService {
     ) -> Result<i64, DatabaseError> {
         let coerced: Vec<serde_json::Value> = args.iter().map(coerce_param).collect();
         let params_json = params_to_json(&coerced);
-        let result = bridge::db_exec_raw(query, &params_json);
+        let result = bridge::db_exec_raw(query, &params_json)
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
         bridge::dbFlush().await;
 
@@ -673,7 +686,8 @@ impl DatabaseService for BrowserDatabaseService {
         let (where_clause, filter_params) = build_where(filters);
         let sql = format!("DELETE FROM {} {}", quote_ident(&table), where_clause);
         let params_json = params_to_json(&filter_params);
-        bridge::db_exec_raw(&sql, &params_json);
+        bridge::db_exec_raw(&sql, &params_json)
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
         bridge::dbFlush().await;
 
@@ -718,7 +732,8 @@ impl DatabaseService for BrowserDatabaseService {
         params.extend(filter_params);
         let params_json = params_to_json(&params);
 
-        bridge::db_exec_raw(&sql, &params_json);
+        bridge::db_exec_raw(&sql, &params_json)
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
         bridge::dbFlush().await;
 
@@ -730,7 +745,8 @@ impl DatabaseService for BrowserDatabaseService {
     async fn ensure_schema_table(&self, table: &Table) -> Result<(), DatabaseError> {
         // CREATE TABLE IF NOT EXISTS
         let create_sql = build_create_table_sql(table);
-        bridge::db_exec_raw(&create_sql, "[]");
+        bridge::db_exec_raw(&create_sql, "[]")
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
         // Add any missing columns
         let existing = existing_columns(&table.name);
@@ -741,14 +757,16 @@ impl DatabaseService for BrowserDatabaseService {
                     quote_ident(&table.name),
                     column_def_to_sql(col)
                 );
-                bridge::db_exec_raw(&alter, "[]");
+                bridge::db_exec_raw(&alter, "[]")
+                    .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
             }
         }
 
         // Create indexes
         for idx in &table.indexes {
             let idx_sql = build_create_index_sql(&table.name, idx);
-            bridge::db_exec_raw(&idx_sql, "[]");
+            bridge::db_exec_raw(&idx_sql, "[]")
+                .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
         }
 
         // Create FK indexes
@@ -763,7 +781,8 @@ impl DatabaseService for BrowserDatabaseService {
                     quote_ident(&table.name),
                     quote_ident(&col.name)
                 );
-                bridge::db_exec_raw(&idx_sql, "[]");
+                bridge::db_exec_raw(&idx_sql, "[]")
+                    .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
             }
         }
 
@@ -782,7 +801,8 @@ impl DatabaseService for BrowserDatabaseService {
 
     async fn schema_drop_table(&self, name: &str) -> Result<(), DatabaseError> {
         let sql = format!("DROP TABLE IF EXISTS {}", quote_ident(name));
-        bridge::db_exec_raw(&sql, "[]");
+        bridge::db_exec_raw(&sql, "[]")
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
         bridge::dbFlush().await;
 
@@ -797,7 +817,8 @@ impl DatabaseService for BrowserDatabaseService {
             quote_ident(table),
             column_def_to_sql(column)
         );
-        bridge::db_exec_raw(&sql, "[]");
+        bridge::db_exec_raw(&sql, "[]")
+            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
         bridge::dbFlush().await;
 
