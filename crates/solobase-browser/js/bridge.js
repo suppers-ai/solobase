@@ -17,30 +17,42 @@ const DB_FILENAME = 'solobase.db';
  * Sets PRAGMA foreign_keys=ON.
  */
 export async function dbInit() {
+    console.log('[bridge:dbInit] step 1: initSqlJs');
     const SQL = await initSqlJs({
         locateFile: () => SQL_WASM_PATH,
     });
+    console.log('[bridge:dbInit] step 1 done');
 
+    console.log('[bridge:dbInit] step 2: navigator.storage.getDirectory()');
     const root = await navigator.storage.getDirectory();
+    console.log('[bridge:dbInit] step 2 done');
+
     let existingData = null;
     try {
+        console.log('[bridge:dbInit] step 3: getFileHandle');
         const fileHandle = await root.getFileHandle(DB_FILENAME);
+        console.log('[bridge:dbInit] step 3 done; step 4: getFile');
         const file = await fileHandle.getFile();
+        console.log('[bridge:dbInit] step 4 done; step 5: arrayBuffer');
         const buffer = await file.arrayBuffer();
+        console.log('[bridge:dbInit] step 5 done; bytes=' + buffer.byteLength);
         if (buffer.byteLength > 0) {
             existingData = new Uint8Array(buffer);
         }
-    } catch (_e) {
-        // File does not exist yet — start fresh
+    } catch (e) {
+        console.log('[bridge:dbInit] no existing DB (' + e.name + ')');
     }
 
+    console.log('[bridge:dbInit] step 6: new SQL.Database');
     if (existingData) {
         _db = new SQL.Database(existingData);
     } else {
         _db = new SQL.Database();
     }
+    console.log('[bridge:dbInit] step 6 done');
 
     _db.run('PRAGMA foreign_keys = ON;');
+    console.log('[bridge:dbInit] PRAGMA done');
 
     // Custom scalar fn used by BrowserVectorService.upsert to ship f32 blobs
     // through JSON params (params can't carry binary). Rust packs the vector
