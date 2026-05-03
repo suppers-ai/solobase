@@ -132,3 +132,77 @@ pub async fn find_by_user_provider(
         None => Ok(None),
     }
 }
+
+/// Return all OAuth provider links owned by `user_id`, ordered by
+/// `linked_at` ASC for stable rendering on the security page.
+pub async fn list_for_user(
+    ctx: &dyn Context,
+    user_id: &str,
+) -> Result<Vec<ProviderLink>, RepoError> {
+    let rows = db::query_raw(
+        ctx,
+        &format!("SELECT * FROM {TABLE} WHERE user_id = ? ORDER BY linked_at ASC"),
+        &[json!(user_id)],
+    )
+    .await
+    .map_err(|e| RepoError::Db(format!("provider_links list_for_user: {e}")))?;
+    rows.iter().map(|r| row_from_map(&r.data)).collect()
+}
+
+#[cfg(test)]
+mod tests_phase_4 {
+    use super::*;
+    use crate::test_support::TestContext;
+
+    async fn seed_user(ctx: &TestContext, user_id: &str) {
+        wafer_core::clients::database::exec_raw(
+            ctx,
+            "INSERT INTO suppers_ai__auth__users (id, email, display_name, role, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+            &[
+                serde_json::json!(user_id),
+                serde_json::json!(format!("{user_id}@example.com")),
+                serde_json::json!(user_id),
+                serde_json::json!("user"),
+                serde_json::json!("2026-01-01T00:00:00Z"),
+                serde_json::json!("2026-01-01T00:00:00Z"),
+            ],
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn list_for_user_returns_only_caller_links() {
+        let ctx = TestContext::with_auth().await;
+        for u in ["user-a", "user-b"] {
+            seed_user(&ctx, u).await;
+        }
+        upsert(&ctx, NewLink {
+            provider: "github", provider_ref: "gh-1", user_id: "user-a",
+            provider_login: "alice", access_token: "tok-a",
+        }).await.unwrap();
+        upsert(&ctx, NewLink {
+            provider: "google", provider_ref: "gg-1", user_id: "user-a",
+            provider_login: "alice@example.com", access_token: "tok-b",
+        }).await.unwrap();
+        upsert(&ctx, NewLink {
+            provider: "github", provider_ref: "gh-2", user_id: "user-b",
+            provider_login: "bob", access_token: "tok-c",
+        }).await.unwrap();
+
+        let a = list_for_user(&ctx, "user-a").await.unwrap();
+        let providers: Vec<&str> = a.iter().map(|l| l.provider.as_str()).collect();
+        assert_eq!(providers.len(), 2);
+        assert!(providers.contains(&"github"));
+        assert!(providers.contains(&"google"));
+
+        let b = list_for_user(&ctx, "user-b").await.unwrap();
+        assert_eq!(b.len(), 1);
+        assert_eq!(b[0].provider, "github");
+        assert_eq!(b[0].provider_login, "bob");
+
+        let c = list_for_user(&ctx, "user-c").await.unwrap();
+        assert!(c.is_empty());
+    }
+}
