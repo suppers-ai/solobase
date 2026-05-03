@@ -142,3 +142,56 @@ pub async fn upsert_claimed(
         .await?
         .ok_or_else(|| OrgsRepoError::Db("insert returned no row".into()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::TestContext;
+
+    #[tokio::test]
+    async fn find_by_name_returns_none_for_missing_org() {
+        let ctx = TestContext::with_auth().await;
+        let result = find_by_name(&ctx, "nonexistent").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn find_by_name_returns_inserted_org() {
+        let ctx = TestContext::with_auth().await;
+
+        // Create a user first (foreign key constraint on owner_user_id)
+        db::exec_raw(
+            &ctx,
+            "INSERT INTO suppers_ai__auth__users (id, email, display_name, role, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+            &[
+                json!("user-a"),
+                json!("alice@example.com"),
+                json!("Alice"),
+                json!("user"),
+                json!("2026-01-01T00:00:00Z"),
+                json!("2026-01-01T00:00:00Z"),
+            ],
+        )
+        .await
+        .unwrap();
+
+        upsert_claimed(
+            &ctx,
+            NewClaim {
+                name: "acme",
+                owner_user_id: "user-a",
+                verified_via: "github",
+                verified_ref: "gh-1",
+            },
+        )
+        .await
+        .unwrap();
+
+        let row = find_by_name(&ctx, "acme").await.unwrap().unwrap();
+        assert_eq!(row.name, "acme");
+        assert_eq!(row.owner_user_id.as_deref(), Some("user-a"));
+        assert_eq!(row.verified_via.as_deref(), Some("github"));
+        assert_eq!(row.verified_ref.as_deref(), Some("gh-1"));
+    }
+}
