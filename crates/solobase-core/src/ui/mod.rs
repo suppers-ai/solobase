@@ -149,6 +149,7 @@ pub fn shelled_page(
             ))
             (palette_markup)
             script { (PreEscaped(assets::palette_js())) }
+            script { (PreEscaped(assets::drawer_js())) }
         },
     )
 }

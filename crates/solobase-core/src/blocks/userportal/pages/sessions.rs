@@ -101,10 +101,10 @@ fn render_table(rows: &[sessions::SessionRow]) -> Markup {
             tbody {
                 @for r in rows {
                     tr .session-row {
-                        td { (r.created_at) }
-                        td { (r.last_used_at) }
-                        td { (r.expires_at) }
-                        td {
+                        td data-label="Started" { (r.created_at) }
+                        td data-label="Last used" { (r.last_used_at) }
+                        td data-label="Expires" { (r.expires_at) }
+                        td data-label="" {
                             button .btn .btn-ghost .btn-sm
                                 hx-delete=(format!("/b/userportal/sessions/{}", hex_encode(&r.token_hash)))
                                 hx-target="closest tr"

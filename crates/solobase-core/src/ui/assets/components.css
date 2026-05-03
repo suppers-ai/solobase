@@ -759,3 +759,73 @@
 }
 .linked-provider__login { flex: 1; font-weight: 500; }
 .linked-provider__date { font-size: var(--text-xs); color: var(--text-muted); }
+
+/* ===== Phase 4 PR-3: Per-surface mobile rules ===== */
+
+/* Hint banner — hidden on desktop, shown at < 720px (rule below). */
+.admin-dashboard-mobile-hint {
+	display: none;
+	margin: 0 0 var(--spacing-md);
+	padding: var(--spacing-sm) var(--spacing-md);
+	background: var(--surface-2);
+	border-left: 3px solid var(--accent-primary, var(--primary-color));
+	border-radius: var(--radius-sm);
+	font-size: var(--text-sm);
+	color: var(--text-secondary);
+}
+
+@media (max-width: 720px) {
+	/* Dashboard: apps grid stacks single-column. */
+	.dashboard-apps-grid { grid-template-columns: 1fr; }
+
+	/* Orgs list rows: provider/name/date stack tightly. */
+	.orgs-list-row { flex-wrap: wrap; gap: 0.25rem; }
+	.orgs-list-row__date { width: 100%; font-size: var(--text-xs); }
+
+	/* Sessions / orgs tables → card list. The data-table doesn't fit at
+	   360px; collapse rows to stacked cards using ::before from data-label. */
+	.data-table { display: block; }
+	.data-table thead { display: none; }
+	.data-table tbody, .data-table tr { display: block; }
+	.data-table tr {
+		border: 1px solid var(--border-light);
+		border-radius: var(--radius-md);
+		margin-bottom: var(--spacing-sm);
+		padding: var(--spacing-sm);
+		background: var(--surface-1);
+	}
+	.data-table td {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		border: none;
+		padding: 4px 0;
+		text-align: right;
+	}
+	.data-table td::before {
+		content: attr(data-label);
+		color: var(--text-muted);
+		font-size: var(--text-xs);
+		text-transform: uppercase;
+		text-align: left;
+	}
+	.data-table td:last-child { padding-top: var(--spacing-sm); }
+
+	/* Linked providers list: stack tightly on narrow screens. */
+	.linked-provider { flex-wrap: wrap; gap: 0.25rem; }
+	.linked-provider__date { width: 100%; }
+
+	/* Form inputs / buttons: ≥44px touch target, full-width. */
+	.form-input,
+	.form-control,
+	.btn { min-height: 44px; }
+	.btn--block,
+	.btn--primary,
+	.btn--secondary,
+	.btn-primary,
+	.btn-secondary { width: 100%; }
+	.oauth-button { width: 100%; }
+
+	/* Admin dashboard hint: shown only at narrow widths. */
+	.admin-dashboard-mobile-hint { display: block; }
+}
