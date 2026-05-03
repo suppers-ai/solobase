@@ -84,6 +84,7 @@ impl Block for UserPortalBlock {
             BlockEndpoint::post("/b/userportal/update-profile").summary("Update profile").auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/userportal/sessions").summary("Active sessions").auth(AuthLevel::Authenticated),
             BlockEndpoint::delete("/b/userportal/sessions/:hash").summary("Revoke session").auth(AuthLevel::Authenticated),
+            BlockEndpoint::get("/b/userportal/security").summary("Account security").auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/userportal/config").summary("Portal configuration"),
             BlockEndpoint::get("/b/userportal/admin/buttons").summary("Manage portal buttons").auth(AuthLevel::Admin),
             BlockEndpoint::post("/b/userportal/admin/buttons").summary("Create button").auth(AuthLevel::Admin),
@@ -99,6 +100,7 @@ impl Block for UserPortalBlock {
             wafer_run::UiRoute::authenticated("/"),
             wafer_run::UiRoute::authenticated("/profile"),
             wafer_run::UiRoute::authenticated("/sessions"),
+            wafer_run::UiRoute::authenticated("/security"),
         ]
     }
 
@@ -128,6 +130,7 @@ impl Block for UserPortalBlock {
             ("retrieve", "/profile") => pages::profile::profile_page(ctx, &msg).await,
             ("create", "/update-profile") => handle_update_profile(ctx, &msg, input).await,
             ("retrieve", "/sessions") => pages::sessions::sessions_page(ctx, &msg).await,
+            ("retrieve", "/security") => pages::security::security_page(ctx, &msg).await,
             ("delete", s) if s.starts_with("/sessions/") => {
                 pages::sessions::handle_revoke(ctx, &msg, s).await
             }

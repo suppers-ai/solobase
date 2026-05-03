@@ -8,12 +8,16 @@ use maud::html;
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::Message, OutputStream};
 
-use crate::blocks::auth::USERS_COLLECTION;
-use crate::blocks::helpers::{RecordExt, ResponseBuilder};
-use crate::ui::{
-    components, nav_groups,
-    shell::{Crumb, Topbar},
-    shelled_response, SiteConfig, UserInfo,
+use crate::{
+    blocks::{
+        auth::USERS_COLLECTION,
+        helpers::{RecordExt, ResponseBuilder},
+    },
+    ui::{
+        components, nav_groups,
+        shell::{Crumb, Topbar},
+        shelled_response, SiteConfig, UserInfo,
+    },
 };
 
 pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
