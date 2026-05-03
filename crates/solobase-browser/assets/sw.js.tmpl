@@ -3,15 +3,49 @@ import init, { initialize, handle_request } from '__WASM_JS__';
 
 let initialized = false;
 let initPromise = null;
+// Set after a fatal wasm error (init failure or runtime trap). A poisoned SW
+// stops handling fetches with wasm and unregisters itself so the next page
+// load picks up a fresh registration. Without this, a stale SW from a prior
+// deploy whose hashed asset URL no longer exists keeps returning 5xx forever
+// — the user has to manually unregister via DevTools to recover.
+let poisoned = false;
+
+async function selfDestruct(reason) {
+    if (poisoned) return;
+    poisoned = true;
+    console.error('[__APP_NAME__] SW self-destructing:', reason);
+    try {
+        await self.registration.unregister();
+        const clients = await self.clients.matchAll({ type: 'window' });
+        for (const c of clients) {
+            // Re-navigate the page so the next request goes to the network
+            // (no controller now that we've unregistered) and loader.js runs
+            // again with the fresh /sw.js.
+            try { c.navigate(c.url); } catch (e) { console.warn('[__APP_NAME__] navigate() failed:', e); }
+        }
+    } catch (e) {
+        console.error('[__APP_NAME__] self-destruct cleanup failed:', e);
+    }
+}
 
 async function ensureInitialized() {
     if (initialized) return;
     if (initPromise) return await initPromise;
     initPromise = (async () => {
         console.log('[__APP_NAME__] Loading WASM module...');
-        await init();
+        try {
+            await init();
+        } catch (e) {
+            await selfDestruct(`wasm module load failed: ${e}`);
+            throw e;
+        }
         console.log('[__APP_NAME__] Initializing runtime...');
-        await initialize();
+        try {
+            await initialize();
+        } catch (e) {
+            await selfDestruct(`runtime initialize() failed: ${e}`);
+            throw e;
+        }
         initialized = true;
         console.log('[__APP_NAME__] Runtime ready.');
     })();
@@ -91,11 +125,24 @@ self.addEventListener('fetch', (event) => {
 });
 
 async function handleFetch(request) {
+    if (poisoned) {
+        // wasm is dead — let the network serve this. The page should already
+        // be in the middle of a re-navigation triggered by selfDestruct().
+        return fetch(request);
+    }
     try {
         await ensureInitialized();
         return await handle_request(request);
     } catch (error) {
         console.error('[__APP_NAME__] Error handling request:', error);
+        // wasm-bindgen surfaces a `RuntimeError` for an `unreachable` trap.
+        // Once the wasm instance traps it's permanently broken — every
+        // subsequent host call will fail. Self-destruct so the user doesn't
+        // get stuck behind a dead SW.
+        if (error instanceof WebAssembly.RuntimeError) {
+            await selfDestruct(`wasm trap during request: ${error}`);
+            return fetch(request);
+        }
         return new Response(
             JSON.stringify({ error: 'internal_error', message: String(error) }),
             { status: 500, headers: { 'Content-Type': 'application/json' } }
