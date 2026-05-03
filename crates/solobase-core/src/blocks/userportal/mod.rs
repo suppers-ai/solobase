@@ -82,6 +82,8 @@ impl Block for UserPortalBlock {
             BlockEndpoint::get("/b/userportal/").summary("User profile page (redirects to /profile)").auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/userportal/profile").summary("Profile page").auth(AuthLevel::Authenticated),
             BlockEndpoint::post("/b/userportal/update-profile").summary("Update profile").auth(AuthLevel::Authenticated),
+            BlockEndpoint::get("/b/userportal/sessions").summary("Active sessions").auth(AuthLevel::Authenticated),
+            BlockEndpoint::delete("/b/userportal/sessions/:hash").summary("Revoke session").auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/userportal/config").summary("Portal configuration"),
             BlockEndpoint::get("/b/userportal/admin/buttons").summary("Manage portal buttons").auth(AuthLevel::Admin),
             BlockEndpoint::post("/b/userportal/admin/buttons").summary("Create button").auth(AuthLevel::Admin),
@@ -96,6 +98,7 @@ impl Block for UserPortalBlock {
         vec![
             wafer_run::UiRoute::authenticated("/"),
             wafer_run::UiRoute::authenticated("/profile"),
+            wafer_run::UiRoute::authenticated("/sessions"),
         ]
     }
 
@@ -124,6 +127,10 @@ impl Block for UserPortalBlock {
             ("retrieve", "" | "/") => redirect_308("/b/userportal/profile"),
             ("retrieve", "/profile") => pages::profile::profile_page(ctx, &msg).await,
             ("create", "/update-profile") => handle_update_profile(ctx, &msg, input).await,
+            ("retrieve", "/sessions") => pages::sessions::sessions_page(ctx, &msg).await,
+            ("delete", s) if s.starts_with("/sessions/") => {
+                pages::sessions::handle_revoke(ctx, &msg, s).await
+            }
             ("retrieve", "/config") => self.handle_config(ctx).await,
             ("retrieve", "/internal/list-buttons") => self.handle_list_buttons(ctx).await,
             _ => err_not_found("not found"),
