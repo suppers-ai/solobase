@@ -41,7 +41,13 @@ test('solobase-web admin UI at /b/system/ renders after SW activation', async ({
   // `net::ERR_ABORTED; maybe frame was detached?`. The redirect itself
   // exercises the SW serving the admin UI through WAFER, which is what
   // this smoke is verifying.
-  await page.waitForURL(/\/b\/system\/?$/, { timeout: 20_000 });
+  //
+  // The 50s timeout accounts for the SW's first-request init: loading
+  // the multi-MB solobase-web wasm + sql.js (FTS5) + Transformers.js
+  // wiring on a cold CI cache. Locally everything is cached so the
+  // redirect lands in <1s, but CI cold-starts can take 25-30s before
+  // the SW responds to its first fetch.
+  await page.waitForURL(/\/b\/system\/?$/, { timeout: 50_000 });
   const bodyText = await page.locator('body').textContent();
   expect(bodyText ?? '').not.toBe('');
 });
