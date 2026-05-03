@@ -86,13 +86,13 @@ fn render_orgs_table(orgs: &[orgs::OrgRow]) -> Markup {
             tbody {
                 @for o in orgs {
                     tr {
-                        td {
+                        td data-label="Provider" {
                             span .badge .badge--neutral {
                                 (o.verified_via.as_deref().unwrap_or("manual"))
                             }
                         }
-                        td { (o.name) }
-                        td { (o.created_at) }
+                        td data-label="Organization" { (o.name) }
+                        td data-label="Claimed" { (o.created_at) }
                     }
                 }
             }

@@ -19,6 +19,12 @@ use crate::{
 fn quick_actions_card() -> maud::Markup {
     use maud::html;
     html! {
+        // Phase 4 PR-3: friendly hint at < 720px (CSS-toggled). Admin views
+        // are desktop-first; this nudges users to switch to a wider screen
+        // rather than fight the table chrome at narrow widths.
+        p .admin-dashboard-mobile-hint {
+            "Admin views work better on a larger screen."
+        }
         section .card .quick-actions {
             header .card__head {
                 h3 .card__title { "Quick actions" }
