@@ -206,8 +206,9 @@ pub async fn output_is_error(out: OutputStream, code: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use wafer_core::clients::database as db;
+
+    use super::*;
 
     #[tokio::test]
     async fn database_create_and_get_round_trip() {
@@ -367,8 +368,7 @@ mod tests {
     #[tokio::test]
     async fn registered_block_is_dispatched_through_call_block() {
         use async_trait::async_trait;
-        use wafer_run::block::Block as RunBlock;
-        use wafer_run::{BlockCategory, BlockInfo, LifecycleEvent};
+        use wafer_run::{block::Block as RunBlock, BlockCategory, BlockInfo, LifecycleEvent};
 
         struct EchoBlock;
 
