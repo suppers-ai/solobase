@@ -20,7 +20,7 @@ test('service worker registers and controls the page', async ({ page }) => {
   await page.goto('/', { waitUntil: 'commit' });
   // Read the controller scriptURL inside the waitForFunction predicate so the
   // value is captured atomically. solobase-web's loader.js redirects to
-  // `/b/system/` as soon as the SW takes control, which would otherwise
+  // `boot_redirect` as soon as the SW takes control, which would otherwise
   // destroy the execution context between a separate `waitForFunction` +
   // `evaluate` pair.
   const handle = await page.waitForFunction(
@@ -32,16 +32,20 @@ test('service worker registers and controls the page', async ({ page }) => {
   expect(controllerURL).toMatch(/\/sw\.js$/);
 });
 
-test('solobase-web admin UI at /b/system/ renders after SW activation', async ({ page }) => {
+test('boot redirect lands on the auth login page', async ({ page }) => {
+  // boot_redirect is "/" (intercepted by SW → wasm router → 302 →
+  // /b/auth/login for anonymous visitors). loader.js sets
+  // `window.location.href = boot_redirect` once the SW takes control;
+  // waiting for the resulting URL match avoids the
+  // `net::ERR_ABORTED; maybe frame was detached?` race that an explicit
+  // second goto would hit.
+  //
+  // Asserting on the rendered Sign In form rather than a non-empty body
+  // catches the regression where boot_redirect pointed at /b/system/ —
+  // an unclaimed path that returned a non-empty 404 page and silently
+  // passed the smoke.
   await page.goto('/', { waitUntil: 'commit' });
-  // loader.js redirects to `/b/system/` as soon as the SW takes control.
-  // Wait for that redirect to land instead of issuing our own goto — an
-  // explicit `page.goto('/b/system/')` here would race with the loader's
-  // `window.location.href` assignment and abort with
-  // `net::ERR_ABORTED; maybe frame was detached?`. The redirect itself
-  // exercises the SW serving the admin UI through WAFER, which is what
-  // this smoke is verifying.
-  await page.waitForURL(/\/b\/system\/?$/, { timeout: 20_000 });
-  const bodyText = await page.locator('body').textContent();
-  expect(bodyText ?? '').not.toBe('');
+  await page.waitForURL(/\/b\/auth\/login/, { timeout: 30_000 });
+  await expect(page.locator('input#email')).toBeVisible();
+  await expect(page.locator('input#password')).toBeVisible();
 });
