@@ -11,14 +11,15 @@ use wafer_run::{
     OutputStream,
 };
 
-use crate::blocks::auth::repo::orgs;
-use crate::blocks::helpers::ResponseBuilder;
-use crate::ui::{
-    nav_groups,
-    shell::{Crumb, Topbar},
-    shelled_response,
-    sidebar::nav_icon,
-    SiteConfig, UserInfo,
+use crate::{
+    blocks::{auth::repo::orgs, helpers::ResponseBuilder},
+    ui::{
+        nav_groups,
+        shell::{Crumb, Topbar},
+        shelled_response,
+        sidebar::nav_icon,
+        SiteConfig, UserInfo,
+    },
 };
 
 #[derive(serde::Deserialize)]
@@ -94,8 +95,9 @@ async fn fetch_buttons(ctx: &dyn Context) -> Vec<DashboardButton> {
     let mut msg = Message::new("http.request");
     msg.set_meta("req.action", "retrieve");
     msg.set_meta("req.resource", "/b/userportal/internal/list-buttons");
-    let resp: Result<wafer_run::streams::output::BufferedResponse, WaferError> =
-        ctx.call_block_buffered("suppers-ai/userportal", msg, &[]).await;
+    let resp: Result<wafer_run::streams::output::BufferedResponse, WaferError> = ctx
+        .call_block_buffered("suppers-ai/userportal", msg, &[])
+        .await;
     let body = match resp {
         Ok(r) => r.body,
         Err(_) => return Vec::new(),
@@ -159,16 +161,21 @@ fn render_orgs_card(orgs: &[orgs::OrgRow]) -> Markup {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::sync::Arc;
+    use std::{collections::HashMap, sync::Arc};
 
     use serde_json::json;
     use wafer_core::clients::database as db;
 
     use super::*;
-    use crate::blocks::auth::repo::orgs::{upsert_claimed, NewClaim};
-    use crate::blocks::userportal::UserPortalBlock;
-    use crate::test_support::{anon_msg, auth_msg, output_header, output_html, output_status, TestContext};
+    use crate::{
+        blocks::{
+            auth::repo::orgs::{upsert_claimed, NewClaim},
+            userportal::UserPortalBlock,
+        },
+        test_support::{
+            anon_msg, auth_msg, output_header, output_html, output_status, TestContext,
+        },
+    };
 
     async fn ctx_with_userportal() -> TestContext {
         let mut ctx = TestContext::with_auth().await;
@@ -273,7 +280,10 @@ mod tests {
         let msg = auth_msg("retrieve", "/b/auth/dashboard", "user-a");
         let resp = dashboard_page(&ctx, &msg).await;
         let html = output_html(resp).await;
-        assert!(html.contains("No claimed organizations"), "missing empty state");
+        assert!(
+            html.contains("No claimed organizations"),
+            "missing empty state"
+        );
     }
 
     #[tokio::test]

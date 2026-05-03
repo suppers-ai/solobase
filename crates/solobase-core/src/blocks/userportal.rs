@@ -841,7 +841,12 @@ mod cross_block_tests {
     use super::*;
     use crate::test_support::{anon_msg, output_json, TestContext};
 
-    fn button_data(label: &str, icon: &str, path: &str, sort_order: i64) -> HashMap<String, serde_json::Value> {
+    fn button_data(
+        label: &str,
+        icon: &str,
+        path: &str,
+        sort_order: i64,
+    ) -> HashMap<String, serde_json::Value> {
         let mut m = HashMap::new();
         m.insert("label".to_string(), json!(label));
         m.insert("icon".to_string(), json!(icon));
@@ -855,16 +860,26 @@ mod cross_block_tests {
         let ctx = TestContext::new().await;
 
         // Seed two buttons via db::create (lazy table creation).
-        db::create(&ctx, BUTTONS_COLLECTION, button_data("Solobase", "shield", "/b/admin/", 0))
-            .await
-            .expect("seed first button");
-        db::create(&ctx, BUTTONS_COLLECTION, button_data("Inspector", "search", "/b/inspector/ui", 1))
-            .await
-            .expect("seed second button");
+        db::create(
+            &ctx,
+            BUTTONS_COLLECTION,
+            button_data("Solobase", "shield", "/b/admin/", 0),
+        )
+        .await
+        .expect("seed first button");
+        db::create(
+            &ctx,
+            BUTTONS_COLLECTION,
+            button_data("Inspector", "search", "/b/inspector/ui", 1),
+        )
+        .await
+        .expect("seed second button");
 
         let block = UserPortalBlock;
         let msg = anon_msg("retrieve", "/b/userportal/internal/list-buttons");
-        let resp = block.handle(&ctx, msg, wafer_run::InputStream::empty()).await;
+        let resp = block
+            .handle(&ctx, msg, wafer_run::InputStream::empty())
+            .await;
         let parsed = output_json(resp).await;
 
         let arr = parsed.as_array().expect("response is JSON array");
@@ -881,7 +896,9 @@ mod cross_block_tests {
         let ctx = TestContext::new().await;
         let block = UserPortalBlock;
         let msg = anon_msg("retrieve", "/b/userportal/internal/list-buttons");
-        let resp = block.handle(&ctx, msg, wafer_run::InputStream::empty()).await;
+        let resp = block
+            .handle(&ctx, msg, wafer_run::InputStream::empty())
+            .await;
         let parsed = output_json(resp).await;
         assert_eq!(parsed.as_array().unwrap().len(), 0);
     }

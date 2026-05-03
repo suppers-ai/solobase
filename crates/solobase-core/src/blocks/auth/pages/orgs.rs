@@ -3,12 +3,13 @@
 use maud::{html, Markup};
 use wafer_run::{context::Context, types::Message, OutputStream};
 
-use crate::blocks::auth::repo::orgs;
-use crate::blocks::helpers::ResponseBuilder;
-use crate::ui::{
-    nav_groups,
-    shell::{Crumb, Topbar},
-    shelled_response, SiteConfig, UserInfo,
+use crate::{
+    blocks::{auth::repo::orgs, helpers::ResponseBuilder},
+    ui::{
+        nav_groups,
+        shell::{Crumb, Topbar},
+        shelled_response, SiteConfig, UserInfo,
+    },
 };
 
 /// GET `/b/auth/orgs`. Anonymous users redirected to login.
@@ -105,8 +106,12 @@ mod tests {
     use wafer_core::clients::database as db;
 
     use super::*;
-    use crate::blocks::auth::repo::orgs::{upsert_claimed, NewClaim};
-    use crate::test_support::{anon_msg, auth_msg, output_header, output_html, output_status, TestContext};
+    use crate::{
+        blocks::auth::repo::orgs::{upsert_claimed, NewClaim},
+        test_support::{
+            anon_msg, auth_msg, output_header, output_html, output_status, TestContext,
+        },
+    };
 
     async fn seed_user(ctx: &TestContext, user_id: &str) {
         db::exec_raw(

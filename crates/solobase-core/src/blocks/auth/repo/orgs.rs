@@ -80,10 +80,7 @@ pub async fn find_by_name(ctx: &dyn Context, name: &str) -> Result<Option<OrgRow
 
 /// Return all orgs owned by `user_id`, ordered by `created_at` ASC for
 /// stable rendering. Empty Vec if the user owns none.
-pub async fn list_for_user(
-    ctx: &dyn Context,
-    user_id: &str,
-) -> Result<Vec<OrgRow>, OrgsRepoError> {
+pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<OrgRow>, OrgsRepoError> {
     let rows = db::query_raw(
         ctx,
         &format!("SELECT * FROM {TABLE} WHERE owner_user_id = ? ORDER BY created_at ASC"),

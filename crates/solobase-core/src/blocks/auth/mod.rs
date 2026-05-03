@@ -779,8 +779,10 @@ mod routing_tests {
     use wafer_run::block::Block;
 
     use super::*;
-    use crate::blocks::userportal::UserPortalBlock;
-    use crate::test_support::{anon_msg, auth_msg, output_status, TestContext};
+    use crate::{
+        blocks::userportal::UserPortalBlock,
+        test_support::{anon_msg, auth_msg, output_status, TestContext},
+    };
 
     async fn ctx_with_userportal() -> TestContext {
         let mut ctx = TestContext::with_auth().await;
