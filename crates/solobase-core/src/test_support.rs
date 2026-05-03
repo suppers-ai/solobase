@@ -16,6 +16,7 @@ use std::{
 use wafer_run::{
     block::Block,
     context::Context,
+    streams::output::{BufferedResponse, TerminalNotResponse},
     types::{ErrorCode, Message, WaferError},
     InputStream, OutputStream,
 };
@@ -109,6 +110,72 @@ pub fn admin_msg(action: &str, path: &str) -> Message {
     m
 }
 
+/// Drain an `OutputStream` to a `BufferedResponse`. Panics if the stream
+/// terminates with anything other than `Complete`.
+///
+/// Tests should not see errors from handlers under test unless they're
+/// explicitly asserting on error paths — use `output_is_error` for that.
+pub async fn collect_or_panic(out: OutputStream) -> BufferedResponse {
+    match out.collect_buffered().await {
+        Ok(buf) => buf,
+        Err(TerminalNotResponse::Error(e)) => {
+            panic!("handler returned error: {} ({:?})", e.message, e.code)
+        }
+        Err(TerminalNotResponse::Drop) => panic!("handler dropped the request"),
+        Err(TerminalNotResponse::Continue(_)) => panic!("handler returned Continue"),
+        Err(TerminalNotResponse::Malformed) => panic!("handler returned malformed stream"),
+    }
+}
+
+/// Read the HTTP status from an `OutputStream`. Defaults to 200 if the
+/// handler didn't set a `resp.status` meta entry.
+pub async fn output_status(out: OutputStream) -> u16 {
+    let buf = collect_or_panic(out).await;
+    buf.meta
+        .iter()
+        .find(|m| m.key == "resp.status")
+        .and_then(|m| m.value.parse::<u16>().ok())
+        .unwrap_or(200)
+}
+
+/// Read a named response header (e.g. `"Location"` for redirects).
+/// The lookup is case-sensitive — pass the exact name handlers used in
+/// `set_header(name, _)`.
+pub async fn output_header(out: OutputStream, name: &str) -> Option<String> {
+    let key = format!("resp.header.{name}");
+    let buf = collect_or_panic(out).await;
+    buf.meta
+        .iter()
+        .find(|m| m.key == key)
+        .map(|m| m.value.clone())
+}
+
+/// Read the body as a UTF-8 string. Panics if the body is not valid UTF-8.
+pub async fn output_html(out: OutputStream) -> String {
+    let buf = collect_or_panic(out).await;
+    String::from_utf8(buf.body).expect("body was not valid UTF-8")
+}
+
+/// Read the body as raw bytes.
+pub async fn output_body(out: OutputStream) -> Vec<u8> {
+    collect_or_panic(out).await.body
+}
+
+/// Read the body as JSON. Returns `Value::Null` if the body fails to parse.
+pub async fn output_json(out: OutputStream) -> serde_json::Value {
+    let buf = collect_or_panic(out).await;
+    serde_json::from_slice(&buf.body).unwrap_or(serde_json::Value::Null)
+}
+
+/// True if the OutputStream terminated with an error matching `code`.
+/// The code string should match the ErrorCode debug format (e.g., "NotFound", "Internal").
+pub async fn output_is_error(out: OutputStream, code: &str) -> bool {
+    matches!(
+        out.collect_buffered().await,
+        Err(TerminalNotResponse::Error(e)) if format!("{:?}", e.code) == code
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +239,52 @@ mod tests {
         let m = admin_msg("retrieve", "/b/admin/users");
         assert_eq!(m.user_id(), "admin_1");
         assert!(is_admin(&m));
+    }
+
+    #[tokio::test]
+    async fn output_status_reads_status_meta() {
+        use crate::blocks::helpers::ResponseBuilder;
+        let out = ResponseBuilder::new()
+            .status(302)
+            .body(Vec::new(), "text/plain");
+        assert_eq!(output_status(out).await, 302);
+    }
+
+    #[tokio::test]
+    async fn output_status_defaults_to_200_when_unset() {
+        use crate::blocks::helpers::ResponseBuilder;
+        let out = ResponseBuilder::new().body(Vec::new(), "text/plain");
+        assert_eq!(output_status(out).await, 200);
+    }
+
+    #[tokio::test]
+    async fn output_header_reads_named_header() {
+        use crate::blocks::helpers::ResponseBuilder;
+        let out = ResponseBuilder::new()
+            .status(302)
+            .set_header("Location", "/dashboard")
+            .body(Vec::new(), "text/plain");
+        assert_eq!(
+            output_header(out, "Location").await.as_deref(),
+            Some("/dashboard")
+        );
+    }
+
+    #[tokio::test]
+    async fn output_html_reads_body_as_utf8() {
+        use crate::blocks::helpers::ResponseBuilder;
+        let out = ResponseBuilder::new()
+            .status(200)
+            .body(b"<h1>hi</h1>".to_vec(), "text/html");
+        assert_eq!(output_html(out).await, "<h1>hi</h1>");
+    }
+
+    #[tokio::test]
+    async fn output_json_parses_body() {
+        use crate::blocks::helpers::ResponseBuilder;
+        let out = ResponseBuilder::new()
+            .status(200)
+            .body(br#"{"ok":true}"#.to_vec(), "application/json");
+        assert_eq!(output_json(out).await, serde_json::json!({"ok": true}));
     }
 }
