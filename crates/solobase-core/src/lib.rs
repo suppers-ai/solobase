@@ -14,6 +14,9 @@ pub mod pipeline;
 pub mod routing;
 pub mod ui;
 
+#[cfg(test)]
+pub mod test_support;
+
 pub use features::FeatureConfig;
 pub use pipeline::handle_request;
 pub use routing::{ExtraRoute, RouteAccess};
