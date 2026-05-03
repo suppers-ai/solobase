@@ -21,6 +21,8 @@ use crate::{
     },
 };
 
+mod pages;
+
 const BUTTONS_COLLECTION: &str = "suppers_ai__userportal__buttons";
 
 /// Known icon names available for button configuration.
@@ -77,7 +79,8 @@ impl Block for UserPortalBlock {
         .category(wafer_run::BlockCategory::Feature)
         .description("User-facing profile page with editable display name, admin-configurable navigation buttons, and portal configuration endpoint.")
         .endpoints(vec![
-            BlockEndpoint::get("/b/userportal/").summary("User profile page").auth(AuthLevel::Authenticated),
+            BlockEndpoint::get("/b/userportal/").summary("User profile page (redirects to /profile)").auth(AuthLevel::Authenticated),
+            BlockEndpoint::get("/b/userportal/profile").summary("Profile page").auth(AuthLevel::Authenticated),
             BlockEndpoint::post("/b/userportal/update-profile").summary("Update profile").auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/userportal/config").summary("Portal configuration"),
             BlockEndpoint::get("/b/userportal/admin/buttons").summary("Manage portal buttons").auth(AuthLevel::Admin),
@@ -90,7 +93,10 @@ impl Block for UserPortalBlock {
     }
 
     fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![wafer_run::UiRoute::authenticated("/")]
+        vec![
+            wafer_run::UiRoute::authenticated("/"),
+            wafer_run::UiRoute::authenticated("/profile"),
+        ]
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
@@ -115,7 +121,8 @@ impl Block for UserPortalBlock {
         }
 
         match (action.as_str(), sub.as_str()) {
-            ("retrieve", "" | "/") => profile_page(ctx, &msg).await,
+            ("retrieve", "" | "/") => redirect_308("/b/userportal/profile"),
+            ("retrieve", "/profile") => pages::profile::profile_page(ctx, &msg).await,
             ("create", "/update-profile") => handle_update_profile(ctx, &msg, input).await,
             ("retrieve", "/config") => self.handle_config(ctx).await,
             ("retrieve", "/internal/list-buttons") => self.handle_list_buttons(ctx).await,
@@ -230,6 +237,13 @@ impl UserPortalBlock {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
+fn redirect_308(target: &str) -> OutputStream {
+    crate::blocks::helpers::ResponseBuilder::new()
+        .status(308)
+        .set_header("Location", target)
+        .body(Vec::new(), "text/plain")
+}
+
 fn render_page(
     title: &str,
     config: &SiteConfig,
@@ -270,125 +284,6 @@ async fn load_buttons(ctx: &dyn Context) -> Vec<wafer_core::clients::database::R
 }
 
 // ---------------------------------------------------------------------------
-// User-facing: Profile page
-// ---------------------------------------------------------------------------
-
-async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let site_config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let user_id = msg.user_id().to_string();
-
-    // Load user details
-    let user_record = db::get(ctx, crate::blocks::auth::USERS_COLLECTION, &user_id)
-        .await
-        .ok();
-    let display_name = user_record
-        .as_ref()
-        .map(|r| r.str_field("name").to_string())
-        .unwrap_or_default();
-    let avatar_url = user_record
-        .as_ref()
-        .map(|r| r.str_field("avatar_url").to_string())
-        .unwrap_or_default();
-    let email = user.as_ref().map(|u| u.email.as_str()).unwrap_or("");
-
-    // Load configurable buttons
-    let buttons = load_buttons(ctx).await;
-
-    let content = html! {
-        (components::page_header("My Account", Some("Manage your profile and settings"), None))
-
-        // Profile card
-        div .card style="margin-bottom:1.5rem" {
-            div style="display:flex;align-items:center;gap:1.5rem;padding:1.5rem" {
-                // Avatar
-                div .user-avatar style="width:64px;height:64px;font-size:1.5rem;flex-shrink:0" {
-                    @if !avatar_url.is_empty() {
-                        img src=(avatar_url) alt="Avatar" style="width:100%;height:100%;border-radius:50%;object-fit:cover";
-                    } @else if let Some(u) = &user {
-                        (u.avatar_initial())
-                    }
-                }
-                div style="flex:1;min-width:0" {
-                    h2 style="margin:0;font-size:1.25rem" {
-                        @if display_name.is_empty() { (email) } @else { (display_name) }
-                    }
-                    p .text-muted style="margin:0.25rem 0 0" { (email) }
-                    @if let Some(u) = &user {
-                        div style="margin-top:0.5rem;display:flex;gap:0.25rem;flex-wrap:wrap" {
-                            @for role in &u.roles {
-                                (components::status_badge(role))
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Edit name form
-            div style="padding:0 1.5rem 1.5rem;border-top:1px solid var(--border-color)" {
-                form
-                    hx-post="/b/userportal/update-profile"
-                    hx-target="#content"
-                    hx-swap="innerHTML"
-                    style="display:flex;gap:0.5rem;align-items:end;margin-top:1rem"
-                {
-                    div .form-group style="flex:1;margin:0" {
-                        label .form-label for="display-name" { "Display Name" }
-                        input .form-input #display-name type="text" name="name"
-                            value=(display_name) placeholder="Enter your name";
-                    }
-                    button .btn .btn-primary type="submit" { "Save" }
-                }
-            }
-        }
-
-        // Action buttons grid
-        @if !buttons.is_empty() {
-            div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem" {
-                @for btn in &buttons {
-                    @let label = btn.str_field("label");
-                    @let icon = btn.str_field("icon");
-                    @let path = btn.str_field("path");
-                    a .card href=(path)
-                        style="padding:1.25rem;text-decoration:none;color:inherit;display:flex;align-items:center;gap:0.75rem;transition:box-shadow 0.15s"
-                    {
-                        span .nav-icon {
-                            (nav_icon(if icon.is_empty() { "package" } else { icon }))
-                        }
-                        span .font-medium { (label) }
-                    }
-                }
-            }
-        }
-
-        // Account actions
-        div .card style="padding:1.25rem" {
-            h3 style="margin:0 0 1rem;font-size:1rem" { "Account" }
-            div style="display:flex;flex-direction:column;gap:0.5rem" {
-                a .btn .btn-secondary href="/b/auth/change-password" {
-                    (icons::key()) " Change Password"
-                }
-                form action="/b/auth/api/logout" method="post" {
-                    button .btn .btn-ghost type="submit" style="width:100%;color:var(--danger)" {
-                        (icons::log_out()) " Sign Out"
-                    }
-                }
-            }
-        }
-    };
-
-    render_page(
-        "My Account",
-        &site_config,
-        "/b/userportal/",
-        user.as_ref(),
-        "My Account",
-        content,
-        msg,
-    )
-}
-
-// ---------------------------------------------------------------------------
 // User-facing: Update profile
 // ---------------------------------------------------------------------------
 
@@ -415,7 +310,7 @@ async fn handle_update_profile(
     }
 
     // Re-render the profile page (htmx will swap content)
-    profile_page(ctx, msg).await
+    pages::profile::profile_page(ctx, msg).await
 }
 
 // ---------------------------------------------------------------------------
@@ -901,6 +796,37 @@ mod cross_block_tests {
             .await;
         let parsed = output_json(resp).await;
         assert_eq!(parsed.as_array().unwrap().len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod redirect_tests {
+    use wafer_run::block::Block;
+
+    use super::*;
+    use crate::test_support::{auth_msg, output_header, output_status, TestContext};
+
+    #[tokio::test]
+    async fn root_redirects_308_to_profile() {
+        let ctx = TestContext::with_auth().await;
+        let block = UserPortalBlock;
+
+        // First response: assert status.
+        let msg = auth_msg("retrieve", "/b/userportal/", "user-a");
+        let resp = block
+            .handle(&ctx, msg, wafer_run::InputStream::empty())
+            .await;
+        assert_eq!(output_status(resp).await, 308);
+
+        // Second response: assert Location header (status helper consumed the first).
+        let msg2 = auth_msg("retrieve", "/b/userportal/", "user-a");
+        let resp2 = block
+            .handle(&ctx, msg2, wafer_run::InputStream::empty())
+            .await;
+        assert_eq!(
+            output_header(resp2, "Location").await.as_deref(),
+            Some("/b/userportal/profile")
+        );
     }
 }
 
