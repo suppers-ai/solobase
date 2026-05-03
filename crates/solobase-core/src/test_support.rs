@@ -40,14 +40,28 @@ impl TestContext {
             wafer_block_sqlite::service::SQLiteDatabaseService::open_in_memory()
                 .expect("open in-memory sqlite"),
         );
-        let database_block: Arc<dyn Block> =
-            Arc::new(wafer_core::service_blocks::database::DatabaseBlock::new(svc));
+        let database_block: Arc<dyn Block> = Arc::new(
+            wafer_core::service_blocks::database::DatabaseBlock::new(svc),
+        );
 
         Self {
             database_block,
             config: Arc::new(Mutex::new(HashMap::new())),
             blocks: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Build a `TestContext` with the auth-block migrations applied.
+    ///
+    /// Convenience constructor for tests that need the
+    /// `suppers_ai__auth__{users,orgs,sessions,provider_links,...}` schema
+    /// in place — most repo and handler tests do.
+    pub async fn with_auth() -> Self {
+        let ctx = Self::new().await;
+        crate::blocks::auth::migrations::apply(&ctx)
+            .await
+            .expect("apply auth migrations in test fixture");
+        ctx
     }
 }
 
@@ -286,5 +300,53 @@ mod tests {
             .status(200)
             .body(br#"{"ok":true}"#.to_vec(), "application/json");
         assert_eq!(output_json(out).await, serde_json::json!({"ok": true}));
+    }
+
+    #[tokio::test]
+    async fn with_auth_applies_orgs_and_users_tables() {
+        let ctx = TestContext::with_auth().await;
+        // Verify auth tables exist by inserting a user, then an org, then selecting.
+        db::exec_raw(
+            &ctx,
+            "INSERT INTO suppers_ai__auth__users (id, email, display_name, role, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+            &[
+                serde_json::json!("user-a"),
+                serde_json::json!("alice@example.com"),
+                serde_json::json!("Alice"),
+                serde_json::json!("user"),
+                serde_json::json!("2026-01-01T00:00:00Z"),
+                serde_json::json!("2026-01-01T00:00:00Z"),
+            ],
+        )
+        .await
+        .expect("insert user");
+
+        db::exec_raw(
+            &ctx,
+            "INSERT INTO suppers_ai__auth__orgs (id, name, owner_user_id, is_reserved, created_at) \
+             VALUES (?, ?, ?, 0, ?)",
+            &[
+                serde_json::json!("org-1"),
+                serde_json::json!("acme"),
+                serde_json::json!("user-a"),
+                serde_json::json!("2026-01-01T00:00:00Z"),
+            ],
+        )
+        .await
+        .expect("insert org");
+
+        let rows = db::query_raw(
+            &ctx,
+            "SELECT name FROM suppers_ai__auth__orgs WHERE id = ?",
+            &[serde_json::json!("org-1")],
+        )
+        .await
+        .expect("select org");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].data.get("name").and_then(|v| v.as_str()),
+            Some("acme")
+        );
     }
 }
