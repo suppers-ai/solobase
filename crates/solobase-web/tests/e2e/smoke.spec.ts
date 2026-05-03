@@ -32,7 +32,7 @@ test('service worker registers and controls the page', async ({ page }) => {
   expect(controllerURL).toMatch(/\/sw\.js$/);
 });
 
-test('boot redirect lands on the auth login page', async ({ page }) => {
+test('boot redirect lands on the auth login page', async ({ page, context }) => {
   // The vector backend ships sql.js (FTS5) + the Transformers.js bridge,
   // which makes the SW's first-request init substantially heavier than
   // before this PR. Locally with a warm browser cache the redirect lands
@@ -65,6 +65,33 @@ test('boot redirect lands on the auth login page', async ({ page }) => {
       console.log(`${ts()} [res] ${res.status()} ${u.replace(/^https?:\/\/[^/]+/, '')}`);
     }
   });
+  // SW console isn't captured by page.on('console') — hook every SW that
+  // shows up on the context so we can see ensureInitialized progress.
+  context.on('serviceworker', (sw) => {
+    console.log(`${ts()} [sw:new] ${sw.url()}`);
+    sw.on('console', (msg) => {
+      console.log(`${ts()} [sw:${msg.type()}] ${msg.text()}`);
+    });
+  });
+  // Belt-and-suspenders: also poll the SW state from the page so we know
+  // whether registration and activation are happening at all.
+  const pollSwState = async (label: string) => {
+    try {
+      const state = await page.evaluate(async () => {
+        const reg = await navigator.serviceWorker.getRegistration();
+        return {
+          hasReg: !!reg,
+          installing: reg?.installing?.state ?? null,
+          waiting: reg?.waiting?.state ?? null,
+          active: reg?.active?.state ?? null,
+          controller: navigator.serviceWorker.controller?.scriptURL ?? null,
+        };
+      });
+      console.log(`${ts()} [sw:state ${label}] ${JSON.stringify(state)}`);
+    } catch (e) {
+      console.log(`${ts()} [sw:state ${label}] err: ${(e as Error).message}`);
+    }
+  };
 
   // boot_redirect is "/" (intercepted by SW → wasm router → 302 →
   // /b/auth/login for anonymous visitors). loader.js sets
@@ -80,12 +107,19 @@ test('boot redirect lands on the auth login page', async ({ page }) => {
   console.log(`${ts()} starting goto`);
   await page.goto('/', { waitUntil: 'commit' });
   console.log(`${ts()} goto returned, waiting for /b/auth/login`);
+  // Periodic SW-state snapshots so a stalled state shows up.
+  const poller = setInterval(() => {
+    void pollSwState('poll');
+  }, 5000);
   try {
     await page.waitForURL(/\/b\/auth\/login/, { timeout: 150_000 });
     console.log(`${ts()} reached /b/auth/login`);
   } catch (e) {
     console.log(`${ts()} waitForURL FAILED: page.url()=${page.url()}`);
+    await pollSwState('on-fail');
     throw e;
+  } finally {
+    clearInterval(poller);
   }
   await expect(page.locator('input#email')).toBeVisible();
   await expect(page.locator('input#password')).toBeVisible();
