@@ -8,6 +8,7 @@ on:
       - 'packages/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/**'
       - '.github/workflows/ci.yml'
 
 concurrency:
@@ -23,6 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Lint — no full-page html! outside ui/
+        run: bash scripts/grep-guard-html.sh
 
       - name: Checkout wafer-run
         run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"

@@ -9,10 +9,11 @@
 	--primary-color: #fe6627;
 	--primary-hover: #b72a07;
 	--secondary-color: #64748b;
-	--success-color: #10b981;
-	--warning-color: #f59e0b;
-	--danger-color: #ef4444;
-	--info-color: #3b82f6;
+
+	--accent-success: #10b981;
+	--accent-warning: #f59e0b;
+	--accent-danger: #ef4444;
+	--accent-info: #3b82f6;
 
 	--bg-primary: #ffffff;
 	--bg-secondary: #f0f0f0;

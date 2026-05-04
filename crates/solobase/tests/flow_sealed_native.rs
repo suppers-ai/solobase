@@ -14,7 +14,7 @@ async fn build_copies_frontend_to_data_storage_site() {
     let tmp = tempdir().unwrap();
     let fe = tmp.path().join("frontend/build");
     fs::create_dir_all(&fe).unwrap();
-    fs::write(fe.join("index.html"), "<html>x</html>").unwrap();
+    fs::write(fe.join("index.html"), "placeholder-frontend-asset").unwrap();
 
     sealed_native::build(tmp.path(), false).await.unwrap();
 
