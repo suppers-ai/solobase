@@ -361,15 +361,6 @@
 	.tab { flex-shrink: 0; }
 }
 
-@media (min-width: 768px) and (max-width: 1023px) {
-	.stats-grid { grid-template-columns: repeat(2, 1fr); }
-	.card { padding: 1.25rem; }
-}
-
-@media (max-width: 480px) {
-	.login-container { padding: 2rem; }
-	.logo-image { height: 50px; }
-}
 
 /* ===== Page templates — Phase 1 ===== */
 .page { display: flex; flex-direction: column; gap: var(--spacing-lg); padding: var(--spacing-lg) var(--space-2xl); }
@@ -417,7 +408,7 @@
 
 /* ===== Dashboard page ===== */
 .stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
-@media (min-width: 768px) { .stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 1024px) { .stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .stat-tile { background: var(--surface-1); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: var(--spacing-md); }
 .stat-tile__label { font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .stat-tile__value { font-size: var(--text-2xl); font-weight: 500; color: var(--text-primary); margin-top: 0.25rem; }
@@ -430,7 +421,7 @@
 /* ===== Chat page ===== */
 .page--chat { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 0; height: calc(100vh - 2rem); }
 .page--chat:has(.chat-rail) { grid-template-columns: 280px minmax(0,1fr) 320px; }
-@media (max-width: 900px) {
+@media (max-width: 720px) {
 	.page--chat, .page--chat:has(.chat-rail) { grid-template-columns: 1fr; }
 	.chat-threads, .chat-rail { display: none; }
 }
@@ -442,7 +433,7 @@
 
 /* ===== Auth split ===== */
 .auth-split { display: grid; grid-template-columns: 1fr; min-height: 100vh; }
-@media (min-width: 768px) { .auth-split { grid-template-columns: minmax(280px, 480px) 1fr; } }
+@media (min-width: 1024px) { .auth-split { grid-template-columns: minmax(280px, 480px) 1fr; } }
 .auth-split__brand { background: var(--primary-color); color: #fff; padding: var(--space-2xl) var(--spacing-xl); display: flex; flex-direction: column; justify-content: center; gap: var(--spacing-md); }
 .auth-split__logo { font-size: 2rem; }
 .auth-split__headline { font-size: var(--text-2xl); font-weight: 500; margin: 0; line-height: 1.2; }
