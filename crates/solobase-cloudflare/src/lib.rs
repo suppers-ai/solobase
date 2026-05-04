@@ -63,17 +63,17 @@ pub fn make_r2_storage_service(
 /// pure-Rust crates).
 ///
 /// `jwt_secret` is the HMAC secret used to sign and verify JWTs.
-pub fn make_crypto_service(jwt_secret: String) -> Arc<dyn CryptoService> {
+pub fn make_jwt_crypto_service(jwt_secret: String) -> Arc<dyn CryptoService> {
     Arc::new(crypto_service::SolobaseCryptoService::new(jwt_secret))
 }
 
 /// Construct a [`NetworkService`] backed by the CF Worker global `fetch` API.
-pub fn make_network_service() -> Arc<dyn NetworkService> {
+pub fn make_fetch_network_service() -> Arc<dyn NetworkService> {
     Arc::new(network_service::WorkerFetchService)
 }
 
 /// Construct a [`LoggerService`] that writes to `worker::console_log`.
-pub fn make_logger_service() -> Arc<dyn LoggerService> {
+pub fn make_console_logger() -> Arc<dyn LoggerService> {
     Arc::new(logger_service::ConsoleLoggerService)
 }
 
