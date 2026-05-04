@@ -229,7 +229,7 @@ mod tests {
             s.contains(".btn") || s.contains(".button"),
             "components layer missing"
         );
-        assert!(s.contains(".app-layout"), "layout layer missing");
+        assert!(s.contains(".shell"), "layout layer missing");
     }
 
     #[test]

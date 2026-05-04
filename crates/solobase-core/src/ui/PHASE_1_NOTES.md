@@ -41,15 +41,12 @@ Plan: `workspace/docs/superpowers/plans/2026-04-30-solobase-ui-cleanup-phase-1-f
   SQL first-class entry.
 - Phase 4: end-user portal IA reconciliation, mobile pass.
 - Phase 5: chat surfaces, Vector port, file-browser unification, dead-CSS removal,
-  token renames (`--accent-success` → `--accent-success`, etc.).
+  token renames (`--success-color` → `--accent-success`, `--danger-color` → `--accent-danger`, etc.).
 
 ## Backward compatibility notes
 
 - `layout::block_shell` and every page calling it are **untouched**. The new
   shell engine coexists, ready for Phase 2 callers to opt into.
-- Old `.app-layout` / `.sidebar-container` / `.main-content` CSS still lives
-  in `assets/layout.css` (verbatim from the pre-split `app.css`); the new
-  `.shell` / `.shell__main` / `.sidebar__nav-item` rules sit alongside it.
 - Old button HTML in pages (uses pre-existing `.btn` styles) keeps rendering.
   The new canonical button class set (`btn--primary` etc.) is additive — both
   resolve.
