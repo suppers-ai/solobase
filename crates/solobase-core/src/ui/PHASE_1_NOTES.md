@@ -41,7 +41,7 @@ Plan: `workspace/docs/superpowers/plans/2026-04-30-solobase-ui-cleanup-phase-1-f
   SQL first-class entry.
 - Phase 4: end-user portal IA reconciliation, mobile pass.
 - Phase 5: chat surfaces, Vector port, file-browser unification, dead-CSS removal,
-  token renames (`--success-color` → `--accent-success`, etc.).
+  token renames (`--accent-success` → `--accent-success`, etc.).
 
 ## Backward compatibility notes
 

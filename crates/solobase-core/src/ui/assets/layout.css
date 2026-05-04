@@ -142,7 +142,7 @@
 .nav-badge {
 	display: inline-flex; align-items: center; justify-content: center;
 	min-width: 20px; height: 20px; padding: 0 6px;
-	background: var(--success-color); color: white;
+	background: var(--accent-success); color: white;
 	border-radius: 10px; font-size: 0.75rem; font-weight: 500;
 }
 
@@ -262,7 +262,7 @@
 }
 
 .profile-menu-item:hover { background: var(--bg-hover); }
-.profile-menu-item-danger { color: var(--danger-color); }
+.profile-menu-item-danger { color: var(--accent-danger); }
 .profile-menu-item-danger:hover { background: rgba(239, 68, 68, 0.1); }
 
 /* ===== Login ===== */

@@ -127,8 +127,8 @@
 }
 
 .btn-secondary:hover { background: var(--bg-hover); }
-.btn-success { background: var(--success-color); color: white; }
-.btn-danger { background: var(--danger-color); color: white; }
+.btn-success { background: var(--accent-success); color: white; }
+.btn-danger { background: var(--accent-danger); color: white; }
 .btn-danger:hover { background: #dc2626; }
 .btn-ghost { background: transparent; color: var(--text-secondary); border: none; }
 .btn-ghost:hover { color: var(--text-primary); background: var(--bg-hover); }
@@ -152,11 +152,11 @@
 	font-size: 0.75rem; font-weight: 500;
 }
 
-.badge-success { background: #10b98119; color: var(--success-color); }
+.badge-success { background: #10b98119; color: var(--accent-success); }
 .badge-primary { background: #fe662719; color: var(--primary-color); }
-.badge-danger { background: #ef444419; color: var(--danger-color); }
-.badge-warning { background: #f59e0b19; color: var(--warning-color); }
-.badge-info { background: #3b82f619; color: var(--info-color); }
+.badge-danger { background: #ef444419; color: var(--accent-danger); }
+.badge-warning { background: #f59e0b19; color: var(--accent-warning); }
+.badge-info { background: #3b82f619; color: var(--accent-info); }
 
 /* Pagination */
 .pagination {
@@ -488,8 +488,8 @@
 .text-center { text-align: center; }
 .text-right { text-align: right; }
 .text-muted { color: var(--text-muted); }
-.text-danger { color: var(--danger-color); }
-.text-success { color: var(--success-color); }
+.text-danger { color: var(--accent-danger); }
+.text-success { color: var(--accent-success); }
 .text-sm { font-size: 0.875rem; }
 .text-xs { font-size: 0.75rem; }
 .font-medium { font-weight: 500; }
@@ -553,13 +553,13 @@
 .btn--ghost { background: transparent; color: var(--text-primary); }
 .btn--ghost:hover:not(:disabled) { background: var(--bg-hover); }
 
-.btn--danger { background: var(--danger-color); color: #fff; }
+.btn--danger { background: var(--accent-danger); color: #fff; }
 .btn--danger:hover:not(:disabled) { filter: brightness(0.92); }
 
 /* ===== Canonical form fields (Phase 1) ===== */
 .field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: var(--spacing-md); }
 .field__label { font-size: var(--text-sm); color: var(--text-primary); font-weight: 500; }
-.field__req { color: var(--danger-color); }
+.field__req { color: var(--accent-danger); }
 .field__input {
 	font-family: inherit; font-size: var(--text-base);
 	padding: 0.5rem 0.75rem; border: 1px solid var(--border-color);
@@ -570,8 +570,8 @@
 .field__input:disabled { background: var(--bg-secondary); cursor: not-allowed; }
 .field__input--textarea { resize: vertical; min-height: 6rem; }
 .field__helper { font-size: var(--text-xs); color: var(--text-muted); }
-.field__error { font-size: var(--text-xs); color: var(--danger-color); }
-.field--error .field__input { border-color: var(--danger-color); }
+.field__error { font-size: var(--text-xs); color: var(--accent-danger); }
+.field--error .field__input { border-color: var(--accent-danger); }
 
 /* ===== Card ===== */
 .card { background: var(--surface-1); border: 1px solid var(--border-color); border-radius: var(--radius-lg); margin-bottom: var(--spacing-md); }
