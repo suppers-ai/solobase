@@ -25,6 +25,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Lint — no full-page html! outside ui/
+        run: bash scripts/grep-guard-html.sh
+
       - name: Checkout wafer-run
         run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
 
@@ -55,9 +58,6 @@ jobs:
 
       - name: Run clippy
         run: cargo clippy --workspace --exclude solobase-web
-
-      - name: Lint — no full-page html! outside ui/
-        run: bash scripts/grep-guard-html.sh
 
   test:
     name: Tests
