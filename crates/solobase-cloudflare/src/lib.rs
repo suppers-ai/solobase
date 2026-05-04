@@ -16,3 +16,4 @@ pub mod helpers;
 pub mod logger_service;
 pub mod network_service;
 pub mod schema;
+pub mod storage;
