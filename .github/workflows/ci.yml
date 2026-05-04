@@ -8,6 +8,7 @@ on:
       - 'packages/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/**'
       - '.github/workflows/ci.yml'
 
 concurrency:
@@ -54,6 +55,9 @@ jobs:
 
       - name: Run clippy
         run: cargo clippy --workspace --exclude solobase-web
+
+      - name: Lint — no full-page html! outside ui/
+        run: bash scripts/grep-guard-html.sh
 
   test:
     name: Tests
