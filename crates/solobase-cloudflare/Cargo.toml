@@ -35,9 +35,9 @@ serde_json = { workspace = true }
 # Crypto (wasm-compatible)
 hmac = { workspace = true }
 sha2 = { workspace = true }
-getrandom = { workspace = true }
-# uuid needs the "js" feature for wasm (uses js_sys random); v4 for generation
-uuid = { version = "1", features = ["v4", "js"] }
+getrandom = { workspace = true, features = ["js"] }
+# uuid needs the "js" feature for wasm (uses js_sys random); inherit v4+v7 from workspace
+uuid = { workspace = true, features = ["js"] }
 
 # Time
 chrono = { workspace = true }
