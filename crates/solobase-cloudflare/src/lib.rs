@@ -7,3 +7,7 @@
 //!   like wafer-site).
 //!
 //! This crate is wasm-only; building for native targets is not supported.
+
+pub mod convert;
+pub mod helpers;
+pub mod schema;
