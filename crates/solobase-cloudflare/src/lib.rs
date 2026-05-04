@@ -11,6 +11,7 @@
 pub mod config_service;
 pub mod convert;
 pub mod crypto_service;
+pub mod database;
 pub mod helpers;
 pub mod logger_service;
 pub mod network_service;
