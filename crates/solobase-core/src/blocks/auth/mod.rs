@@ -304,8 +304,17 @@ pub async fn seed_admin_user(ctx: &dyn Context) {
         return;
     }
 
-    let admin_email =
-        config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "admin@example.com").await;
+    let admin_email_env =
+        config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "").await;
+    let admin_email = if admin_email_env.is_empty() {
+        tracing::warn!(
+            "SUPPERS_AI__AUTH__ADMIN_EMAIL not set — seeding admin@example.com; \
+             set SUPPERS_AI__AUTH__ADMIN_EMAIL in production"
+        );
+        "admin@example.com".to_string()
+    } else {
+        admin_email_env
+    };
     let admin_password_env =
         config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_PASSWORD", "").await;
 
