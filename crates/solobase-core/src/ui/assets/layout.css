@@ -361,7 +361,6 @@
 	.tab { flex-shrink: 0; }
 }
 
-
 /* ===== Page templates — Phase 1 ===== */
 .page { display: flex; flex-direction: column; gap: var(--spacing-lg); padding: var(--spacing-lg) var(--space-2xl); }
 .page-header { display: flex; align-items: flex-start; gap: var(--spacing-md); }
