@@ -3,13 +3,22 @@
 # Catches blocks shipping their own page chrome instead of using a template.
 #
 # Signals matched (in .rs source):
-#   - Maud's (DOCTYPE html) token inside an html! macro.
+#   - Maud's (DOCTYPE html) single-token compact form.
+#   - Maud's (DOCTYPE) two-token form (followed by `html lang=...`).
 #   - Raw "<html" or "<!DOCTYPE" string literals.
+#
+# Exemptions (extend with care):
+#   - crates/solobase-core/src/blocks/legalpages/mod.rs — the public legal-page
+#     renderer (`/b/legalpages/{terms,privacy}`) intentionally ships its own
+#     chrome (different audience, different typography, deployment-configured
+#     branding) and pre-dates the design system. Phase 5d / follow-up will
+#     introduce a public_page template and remove this exemption.
 set -euo pipefail
 hits=$(grep -rlnE --include='*.rs' \
-  '\(DOCTYPE\s+html\)|<!DOCTYPE|<html\b' \
+  '\(DOCTYPE\s+html\)|\(DOCTYPE\)|<!DOCTYPE|<html\b' \
   crates/ \
-  | grep -v '^crates/solobase-core/src/ui/' || true)
+  | grep -vE '^crates/solobase-core/src/ui/|^crates/solobase-core/src/blocks/legalpages/mod\.rs$' \
+  || true) # grep exits 1 on empty input under pipefail; || true normalises that
 if [ -n "$hits" ]; then
   echo "ERROR: full-page HTML markers found outside crates/solobase-core/src/ui/:" >&2
   echo "$hits" >&2
