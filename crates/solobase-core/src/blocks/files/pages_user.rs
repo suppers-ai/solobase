@@ -7,6 +7,7 @@ use maud::{html, Markup};
 
 /// Aggregated bucket info as shown in the user-facing table:
 /// name, public flag, created-at ISO string, and live object count.
+#[derive(Clone, Debug)]
 pub struct BucketRow {
     pub name: String,
     pub public: bool,
@@ -83,5 +84,23 @@ mod tests {
         assert!(html.contains("Private"));
         assert!(html.contains(">12<"));
         assert!(html.contains(r#"href="/b/storage/photos/""#));
+    }
+
+    #[test]
+    fn render_buckets_table_escapes_special_chars_in_bucket_name() {
+        // Maud auto-escapes both the text content and the href attribute
+        // value, so a bucket name with `&` should render as `a&amp;b` in
+        // both places. This guards against a future refactor that bypasses
+        // maud's escaping (e.g. PreEscaped).
+        let rows = vec![sample("a&b", false, 0)];
+        let html = render_buckets_table(&rows).into_string();
+        assert!(
+            html.contains("a&amp;b"),
+            "name should be HTML-escaped: {html}"
+        );
+        assert!(
+            !html.contains(">a&b<") && !html.contains(r#"href="/b/storage/a&b/""#),
+            "raw `&` leaked into HTML: {html}"
+        );
     }
 }
