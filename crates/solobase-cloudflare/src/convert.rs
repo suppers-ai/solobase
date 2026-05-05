@@ -4,9 +4,7 @@
 //! `OutputStream` → `worker::Response`. Mirrors the native axum adapter
 //! in `wafer-block-http-listener` and the browser adapter in `solobase-web`.
 
-use wafer_run::meta::*;
-use wafer_run::types::*;
-use wafer_run::{InputStream, OutputStream, TerminalNotResponse};
+use wafer_run::{meta::*, types::*, InputStream, OutputStream, TerminalNotResponse};
 use worker::{Request, Response, Result};
 
 // ---------------------------------------------------------------------------
@@ -16,9 +14,7 @@ use worker::{Request, Response, Result};
 /// Convert a Cloudflare Worker Request into a WAFER `(Message, InputStream)`.
 ///
 /// Also normalizes paths by stripping the `/api` prefix.
-pub async fn worker_request_to_message(
-    req: &Request,
-) -> Result<(Message, InputStream)> {
+pub async fn worker_request_to_message(req: &Request) -> Result<(Message, InputStream)> {
     let method = req.method().to_string();
     let url = req.url()?;
     let raw_path = url.path().to_string();

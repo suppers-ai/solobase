@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
+
 use wafer_core::interfaces::crypto::service::{CryptoError, CryptoService};
 
 /// CryptoService using solobase_core::crypto (works on both native and WASM).

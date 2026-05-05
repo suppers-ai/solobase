@@ -5,13 +5,12 @@
 
 use std::collections::HashMap;
 
-use wasm_bindgen::JsValue;
-use worker::*;
-
 use wafer_core::interfaces::database::service::{
     Column, DatabaseError, DatabaseService, Filter, FilterOp, ListOptions, Record, RecordList,
     Table,
 };
+use wasm_bindgen::JsValue;
+use worker::*;
 
 /// Async database service wrapping Cloudflare D1.
 pub struct D1DatabaseService {
@@ -59,11 +58,7 @@ impl DatabaseService for D1DatabaseService {
 
         // Count query
         let count_sql = format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, where_sql);
-        let count_stmt = self
-            .db
-            .prepare(&count_sql)
-            .bind(&params)
-            .map_err(db_err)?;
+        let count_stmt = self.db.prepare(&count_sql).bind(&params).map_err(db_err)?;
         let count_row = count_stmt
             .first::<serde_json::Value>(None)
             .await
@@ -94,18 +89,9 @@ impl DatabaseService for D1DatabaseService {
         let limit = if opts.limit > 0 { opts.limit } else { 100 };
         sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, opts.offset));
 
-        let stmt = self
-            .db
-            .prepare(&sql)
-            .bind(&params)
-            .map_err(db_err)?;
-        let results = stmt
-            .all()
-            .await
-            .map_err(db_err)?;
-        let rows: Vec<serde_json::Value> = results
-            .results()
-            .map_err(db_err)?;
+        let stmt = self.db.prepare(&sql).bind(&params).map_err(db_err)?;
+        let results = stmt.all().await.map_err(db_err)?;
+        let rows: Vec<serde_json::Value> = results.results().map_err(db_err)?;
 
         let page = if limit > 0 {
             (opts.offset / limit) + 1
@@ -268,18 +254,9 @@ impl DatabaseService for D1DatabaseService {
         args: &[serde_json::Value],
     ) -> Result<Vec<Record>, DatabaseError> {
         let params: Vec<JsValue> = args.iter().map(json_value_to_js).collect();
-        let stmt = self
-            .db
-            .prepare(query)
-            .bind(&params)
-            .map_err(db_err)?;
-        let results = stmt
-            .all()
-            .await
-            .map_err(db_err)?;
-        let rows: Vec<serde_json::Value> = results
-            .results()
-            .map_err(db_err)?;
+        let stmt = self.db.prepare(query).bind(&params).map_err(db_err)?;
+        let results = stmt.all().await.map_err(db_err)?;
+        let rows: Vec<serde_json::Value> = results.results().map_err(db_err)?;
         Ok(rows.into_iter().map(json_to_record).collect())
     }
 

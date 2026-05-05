@@ -3,11 +3,10 @@
 //! Implements the shared `StorageService` trait from wafer-core so R2Block
 //! can reuse the shared message handler.
 
-use worker::*;
-
 use wafer_core::interfaces::storage::service::{
     FolderInfo, ListOptions, ObjectInfo, ObjectList, StorageError, StorageService,
 };
+use worker::*;
 
 /// Async storage service wrapping Cloudflare R2.
 /// Each project has its own R2 bucket — no tenant prefix needed.

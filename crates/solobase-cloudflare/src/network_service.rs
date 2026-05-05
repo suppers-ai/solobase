@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+
 use wafer_core::interfaces::network::service::{NetworkError, NetworkService, Request, Response};
 
 /// NetworkService using CF Worker's fetch API.

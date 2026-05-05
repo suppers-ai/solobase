@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+
 use wafer_core::interfaces::config::service::ConfigService;
 
 /// ConfigService backed by a pre-loaded HashMap (from D1 variables table).
