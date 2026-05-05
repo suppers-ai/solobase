@@ -231,6 +231,100 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
         Err(_) => vec![],
     };
 
+    // Sibling conversations only loaded when this is a conversation context;
+    // the chat_page template needs them for the thread-list pane.
+    let siblings = if context.str_field("type") == "conversation" {
+        let sibling_params = ListContextsParams {
+            context_type: Some("conversation".to_string()),
+            status: None,
+            sender_id: None,
+            parent_id: None,
+            page_size: 50,
+            offset: 0,
+        };
+        service::list_contexts(ctx, &sibling_params)
+            .await
+            .map(|r| r.records)
+            .unwrap_or_default()
+    } else {
+        vec![]
+    };
+
+    let context_title = context.str_field("title");
+    let display_title = if context_title.is_empty() {
+        "Untitled"
+    } else {
+        context_title
+    };
+
+    let body = render_context_detail_body(&context, &entries, &siblings, context_id);
+
+    messages_page(
+        display_title,
+        &config,
+        &path,
+        user.as_ref(),
+        display_title,
+        body,
+        msg,
+    )
+}
+
+/// Pure render helper: branches on `context.type`. Conversation contexts
+/// use the canonical chat_page template (no right rail). Other types keep
+/// the existing single-pane shell.
+///
+/// Why split: keeps the async data-loading shell separate from the markup,
+/// so unit tests can exercise both branches without mocking Context.
+fn render_context_detail_body(
+    context: &db::Record,
+    entries: &[db::Record],
+    siblings: &[db::Record],
+    context_id: &str,
+) -> Markup {
+    let context_type = context.str_field("type");
+
+    // Why type=conversation diverges: conversation contexts are chat-shaped,
+    // so they reuse the canonical chat_page template — same lens the LLM
+    // block's /b/llm/ surface uses. Other types (task, notification) hold
+    // artifacts and status updates that don't fit a chat composer.
+    if context_type == "conversation" {
+        return render_conversation_view(context, entries, siblings, context_id);
+    }
+
+    // Existing single-pane render path for non-conversation types.
+    render_default_view(context, entries, context_id)
+}
+
+/// Conversation-type view: chat_page template with sibling thread list,
+/// entries via `entry_card`, simplified composer (kind=message/role=user).
+fn render_conversation_view(
+    context: &db::Record,
+    entries: &[db::Record],
+    siblings: &[db::Record],
+    context_id: &str,
+) -> Markup {
+    let post_url = format!("/b/messages/api/contexts/{context_id}/entries");
+
+    // Ensure the active context is always present in the thread list (a
+    // freshly created conversation may not yet appear in the sibling query
+    // results; without this the active marker would have nothing to attach
+    // to).
+    let mut combined: Vec<&db::Record> = Vec::with_capacity(siblings.len() + 1);
+    if !siblings.iter().any(|s| s.id == context.id) {
+        combined.push(context);
+    }
+    combined.extend(siblings.iter());
+
+    let thread_list = render_conversation_thread_list(&combined, context_id);
+    let messages_pane = render_conversation_messages(entries);
+    let composer = render_conversation_composer(&post_url);
+
+    crate::ui::templates::chat_page(thread_list, messages_pane, composer, None)
+}
+
+/// Default single-pane view for task/notification/etc.
+fn render_default_view(context: &db::Record, entries: &[db::Record], context_id: &str) -> Markup {
     let context_title = context.str_field("title");
     let context_type = context.str_field("type");
     let context_status = context.str_field("status");
@@ -239,10 +333,9 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
     } else {
         context_title
     };
-
     let post_url = format!("/b/messages/api/contexts/{context_id}/entries");
 
-    let content = html! {
+    html! {
         div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem" {
             a .btn .btn-ghost .btn-sm href="/b/messages/" { "\u{2190} Back" }
             h1 .page-title style="margin:0" { (display_title) }
@@ -256,7 +349,7 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
                     "No entries yet. Add one below."
                 }
             } @else {
-                @for e in &entries {
+                @for e in entries {
                     (entry_card(e))
                 }
             }
@@ -297,15 +390,198 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
                 }
             }
         }
-    };
+    }
+}
 
-    messages_page(
-        display_title,
-        &config,
-        &path,
-        user.as_ref(),
-        display_title,
-        content,
-        msg,
-    )
+fn render_conversation_thread_list(siblings: &[&db::Record], active_id: &str) -> Markup {
+    html! {
+        div style="display:flex;flex-direction:column;gap:0.75rem;height:100%" {
+            div style="display:flex;align-items:center;justify-content:space-between" {
+                h3 style="font-size:0.875rem;font-weight:600;color:var(--text-muted);margin:0;text-transform:uppercase;letter-spacing:0.05em" {
+                    "Conversations"
+                }
+            }
+            div #conversation-list style="overflow-y:auto;flex:1" {
+                @if siblings.is_empty() {
+                    div .text-center .text-muted style="padding:1rem;font-size:0.875rem" {
+                        "No conversations yet."
+                    }
+                } @else {
+                    @for c in siblings {
+                        @let id = c.id.as_str();
+                        @let title = c.str_field("title");
+                        @let updated_at = c.str_field("updated_at");
+                        @let date = updated_at.get(..10).unwrap_or(updated_at);
+                        @let is_active = id == active_id;
+                        a
+                            .card
+                            href={"/b/messages/contexts/" (id)}
+                            data-context-id=(id)
+                            data-active=(if is_active { "true" } else { "false" })
+                            aria-current=[is_active.then_some("page")]
+                            style="display:block;text-decoration:none;color:inherit;margin-bottom:0.375rem;padding:0.625rem 0.75rem;transition:box-shadow 0.15s"
+                            onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'"
+                            onmouseout="this.style.boxShadow=''"
+                        {
+                            div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem" {
+                                span style="font-weight:500;font-size:0.875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1" {
+                                    @if title.is_empty() { "Untitled" } @else { (title) }
+                                }
+                                @if !date.is_empty() {
+                                    span .text-muted style="font-size:0.75rem;flex-shrink:0" { (date) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn render_conversation_messages(entries: &[db::Record]) -> Markup {
+    html! {
+        div #entries-list
+            style="height:100%;overflow-y:auto;padding:0.5rem;background:var(--bg-secondary);border-radius:0.5rem"
+        {
+            @if entries.is_empty() {
+                div .text-center .text-muted style="padding:2rem" {
+                    "No messages yet. Send the first one below."
+                }
+            } @else {
+                @for e in entries {
+                    (entry_card(e))
+                }
+            }
+        }
+    }
+}
+
+fn render_conversation_composer(post_url: &str) -> Markup {
+    html! {
+        form
+            hx-post=(post_url)
+            hx-target="#entries-list"
+            hx-swap="beforeend"
+            hx-on--after-request="if(event.detail.successful){this.reset();var list=document.getElementById('entries-list');list.scrollTop=list.scrollHeight;}"
+        {
+            // Hidden defaults: kind=message, role=user. Conversation lens is
+            // an opinionated view — composers below the fold (settings page,
+            // direct API) can still post other kinds/roles.
+            input type="hidden" name="kind" value="message";
+            input type="hidden" name="role" value="user";
+            div style="display:flex;gap:0.5rem;align-items:flex-end" {
+                textarea
+                    .form-input
+                    name="content"
+                    placeholder="Type your message..."
+                    rows="3"
+                    required
+                    style="flex:1;resize:none"
+                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.closest('form').requestSubmit();}"
+                {}
+                button .btn .btn-primary type="submit" style="height:fit-content" { "Send" }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_record(id: &str) -> db::Record {
+        db::Record {
+            id: id.to_string(),
+            data: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn context_detail_body_uses_chat_page_for_conversation_type() {
+        let mut ctx_rec = make_record("ctx-1");
+        ctx_rec
+            .data
+            .insert("type".to_string(), serde_json::json!("conversation"));
+        ctx_rec
+            .data
+            .insert("title".to_string(), serde_json::json!("Hello"));
+        ctx_rec
+            .data
+            .insert("status".to_string(), serde_json::json!("active"));
+
+        let html = render_context_detail_body(&ctx_rec, &[], &[], "ctx-1").into_string();
+        assert!(
+            html.contains(r#"class="page--chat""#),
+            "conversation type should use chat_page template; got: {html}"
+        );
+        // Messages does NOT enable the right rail.
+        assert!(
+            !html.contains(r#"class="chat-rail""#),
+            "Messages chat view should NOT enable the right rail; got: {html}"
+        );
+    }
+
+    #[test]
+    fn context_detail_body_uses_default_shell_for_task_type() {
+        let mut ctx_rec = make_record("ctx-1");
+        ctx_rec
+            .data
+            .insert("type".to_string(), serde_json::json!("task"));
+        ctx_rec
+            .data
+            .insert("title".to_string(), serde_json::json!("Do thing"));
+        ctx_rec
+            .data
+            .insert("status".to_string(), serde_json::json!("open"));
+
+        let html = render_context_detail_body(&ctx_rec, &[], &[], "ctx-1").into_string();
+        assert!(
+            !html.contains(r#"class="page--chat""#),
+            "task type should keep the existing single-pane shell"
+        );
+        assert!(
+            html.contains(r#"id="entries-list""#),
+            "single-pane shell still has the entries-list container"
+        );
+    }
+
+    #[test]
+    fn context_detail_body_conversation_renders_sibling_thread_list() {
+        let mut active = make_record("ctx-1");
+        active
+            .data
+            .insert("type".to_string(), serde_json::json!("conversation"));
+        active
+            .data
+            .insert("title".to_string(), serde_json::json!("Active"));
+
+        let mut sibling = make_record("ctx-2");
+        sibling
+            .data
+            .insert("type".to_string(), serde_json::json!("conversation"));
+        sibling
+            .data
+            .insert("title".to_string(), serde_json::json!("Sibling"));
+        sibling.data.insert(
+            "updated_at".to_string(),
+            serde_json::json!("2026-05-04T10:00:00Z"),
+        );
+
+        let html =
+            render_context_detail_body(&active, &[], std::slice::from_ref(&sibling), "ctx-1")
+                .into_string();
+        assert!(
+            html.contains(r#"href="/b/messages/contexts/ctx-2""#),
+            "sibling link missing: {html}"
+        );
+        assert!(html.contains("Sibling"));
+        assert!(
+            html.contains("Conversations"),
+            "thread-list header missing"
+        );
+        // Active marker on the active context, not the sibling.
+        assert!(html.contains(r#"data-context-id="ctx-1""#));
+        assert!(html.contains(r#"data-active="true""#));
+    }
 }
