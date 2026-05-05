@@ -1,6 +1,7 @@
 mod cloud;
 pub(crate) mod models;
 mod pages;
+pub(crate) mod pages_user;
 mod quota;
 mod share;
 pub(crate) mod storage;
