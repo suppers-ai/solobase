@@ -1,5 +1,6 @@
 pub mod ingestion;
 pub mod pages;
+pub mod pages_ui;
 pub mod service;
 
 use wafer_run::{
@@ -39,6 +40,12 @@ impl Block for VectorBlock {
         .requires(vec!["wafer-run/vector".into()])
         .category(wafer_run::BlockCategory::Feature)
         .endpoints(vec![
+            BlockEndpoint::get("/b/vector/")
+                .summary("Vector indexes admin list")
+                .auth(AuthLevel::Admin),
+            BlockEndpoint::get("/b/vector/{name}/")
+                .summary("Vector index detail")
+                .auth(AuthLevel::Admin),
             BlockEndpoint::post("/b/vector/api/indexes")
                 .summary("Create a vector index")
                 .auth(AuthLevel::Authenticated),
@@ -71,6 +78,13 @@ impl Block for VectorBlock {
         .default_enabled(true)
     }
 
+    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
+        vec![
+            wafer_run::UiRoute::admin("/"),
+            wafer_run::UiRoute::admin("/{name}/"),
+        ]
+    }
+
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         // All endpoints require authentication. Task 15 fills in the indexes
         // CRUD routes; remaining routes (upsert, query, ingest, embed, stats,
@@ -78,6 +92,36 @@ impl Block for VectorBlock {
         let user_id = msg.user_id().to_string();
         if user_id.is_empty() {
             return helpers::err_unauthorized("authentication required");
+        }
+
+        // UI pages — admin-only. The JSON dispatch in `pages::route` handles
+        // all `/b/vector/api/...` paths; UI routes live alongside on the
+        // bare base path and on `/b/vector/{name}/`.
+        let action = msg.action();
+        let path = msg.path();
+        if action == "retrieve" {
+            let is_ui = path == "/b/vector/"
+                || path == "/b/vector"
+                || (path.starts_with("/b/vector/")
+                    && !path.starts_with("/b/vector/api/")
+                    && path != "/b/vector/api"
+                    && path != "/b/vector/api/");
+            if is_ui {
+                if !helpers::is_admin(&msg) {
+                    return crate::ui::forbidden_response(&msg);
+                }
+                if path == "/b/vector/" || path == "/b/vector" {
+                    return pages_ui::index_list_page(ctx, &msg).await;
+                }
+                // /b/vector/{name}[/...] → detail page. Strip the prefix and
+                // any trailing slashes; reject empty segments to avoid
+                // routing `/b/vector//` or similar.
+                let rest = path.trim_start_matches("/b/vector/").trim_matches('/');
+                if rest.is_empty() || rest.contains('/') {
+                    return crate::blocks::helpers::err_not_found("not found");
+                }
+                return pages_ui::index_detail_page(ctx, &msg, rest).await;
+            }
         }
 
         pages::route(ctx, &msg, input).await

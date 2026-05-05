@@ -88,6 +88,31 @@ const MOBILE_ADMIN_ROUTES = [
   { path: '/b/llm/', name: 'llm-chat' },
 ];
 
+// ===== Phase 5b PR-1: vector index admin pages =====
+//
+// The list page renders the same shell + empty-state composition the unit
+// tests cover; the detail page requires a registry row + matching `_meta`
+// table, which the production API path can only build via the
+// `wafer-run/vector` runtime block (gated behind the `native-embedding`
+// feature). The CI baseline runner uses a stock `cargo install` build
+// without `native-embedding`, so seeding via `/b/vector/api/indexes`
+// would fail there. We snapshot the list-page empty state only —
+// detail-page rendering is exercised by `pages_ui::integration_tests`.
+
+test.describe('visual baseline — admin vector', () => {
+  test.beforeEach(async ({ page }) => {
+    await loginAsAdmin(page);
+  });
+
+  test('admin-vector-list-desktop', async ({ page }) => {
+    await page.goto('/b/vector/', { waitUntil: 'networkidle' });
+    await expect(page).toHaveScreenshot('admin-vector-list-desktop.png', {
+      ...COMMON_OPTS,
+      mask: [page.locator('[data-relative-time], .relative-time, time')],
+    });
+  });
+});
+
 test.describe('visual baseline mobile — anonymous (375px)', () => {
   for (const r of MOBILE_ANON_ROUTES) {
     test(`anon-mobile ${r.name}`, async ({ page }) => {

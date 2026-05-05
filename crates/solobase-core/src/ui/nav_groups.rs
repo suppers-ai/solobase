@@ -37,6 +37,7 @@ pub fn admin() -> Vec<NavGroup> {
                 item("Blocks", "/b/admin/blocks", "package"),
                 item("Storage", "/b/admin/storage", "hard-drive"),
                 item("Database", "/b/admin/database", "server"),
+                item("Vector indexes", "/b/vector/", "network"),
             ],
         },
         NavGroup {
