@@ -193,9 +193,7 @@ pub async fn index_detail_page(
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
-    // Allocate the display name as a String so the Crumb borrow lives
-    // for the full duration of `shelled_response`.
-    let display: String = display_index_name(&row.name).to_string();
+    let display = display_index_name(&row.name);
     let subtitle = format!(
         "{} · {} dimensions",
         if row.model.is_empty() { "(no model)" } else { row.model.as_str() },
@@ -455,5 +453,6 @@ mod integration_tests {
             body.contains("suppers_ai__vector__docs"),
             "missing storage table name in schema section: {body}"
         );
+        assert!(body.contains("vector_id"), "schema column should render: {body}");
     }
 }
