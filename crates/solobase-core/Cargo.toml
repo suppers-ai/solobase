@@ -38,6 +38,9 @@ native-embedding = [
 wafer-run = { workspace = true, features = ["wasmi"] }
 # wafer-core for clients and interface traits
 wafer-core = { workspace = true }
+# wafer-block — wire types + codec used directly by feature blocks that
+# encode/decode service payloads (e.g. llm chunks, vector queries).
+wafer-block = { workspace = true }
 # SQL utilities (query builders, value conversion)
 wafer-sql-utils = { workspace = true }
 # SQL query builder (used via wafer-sql-utils, re-exported for complex conditions)

@@ -8,10 +8,14 @@
 //! response or a Server-Sent Events stream.
 
 use futures::StreamExt;
-use wafer_core::{
-    clients::database as db,
-    interfaces::llm::service::{ChatChunk, ChatMessage, ChatRequest, ChatRole, ChunkDelta},
+use wafer_block::{
+    codec,
+    wire::llm::{
+        ChatChunk, ChatContent, ChatMessage, ChatParams, ChatRequest, ChatRole, ChunkDelta,
+        LoadModelRequest, ModelInfo, ModelStatus, StatusRequest, UnloadModelRequest,
+    },
 };
+use wafer_core::clients::database as db;
 use wafer_run::{
     context::Context,
     meta::META_RESP_CONTENT_TYPE,
@@ -55,20 +59,22 @@ fn role_from_str(role: &str) -> ChatRole {
     }
 }
 
-/// Build a text-content `ChatMessage` for the given role. `ChatMessage` is
-/// `#[non_exhaustive]`, so we delegate to the public ctor helpers rather
-/// than assembling the struct literally.
+/// Build a text-content `ChatMessage` for the given role.
+///
+/// `ChatRole::Tool` is unreachable via `role_from_str` (it coerces to
+/// `User`), but if it ever bubbles up here a tool-result message would
+/// require a `tool_call_id` we don't have — so coerce it to a user turn
+/// rather than emit an invalid Tool message.
 fn build_text_message(role: ChatRole, content: String) -> ChatMessage {
-    match role {
-        ChatRole::Assistant => ChatMessage::assistant(content),
-        ChatRole::System => ChatMessage::system(content),
-        // `Tool` is unreachable via `role_from_str` (it coerces to `User`),
-        // but handle it defensively — a tool-result message requires a
-        // `tool_call_id` which we don't have here, so treat it as a user
-        // turn. `ChatRole` is `#[non_exhaustive]`, so a wildcard covers any
-        // future variant until we have an explicit mapping for it.
-        ChatRole::Tool | ChatRole::User => ChatMessage::user(content),
-        _ => ChatMessage::user(content),
+    let role = match role {
+        ChatRole::Tool => ChatRole::User,
+        other => other,
+    };
+    ChatMessage {
+        role,
+        content: ChatContent::Text(content),
+        tool_call_id: None,
+        tool_calls: Vec::new(),
     }
 }
 
@@ -188,11 +194,25 @@ async fn dispatch_chat(
         Err(e) => return Err(err_internal(e)),
     };
 
-    // 5. Build the service request and dispatch.
-    let chat_req = ChatRequest::new(backend_id, model, messages);
-    let payload = match serde_json::to_vec(&chat_req) {
+    // 5. Build the service request and dispatch. The wire request is encoded
+    //    via MessagePack — the new `wafer-run/llm` handler decodes via
+    //    `codec::decode` (no JSON path).
+    let chat_req = ChatRequest {
+        backend_id,
+        model,
+        messages,
+        params: ChatParams::default(),
+        tools: Vec::new(),
+        extra: serde_json::Value::Null,
+    };
+    let payload = match codec::encode(&chat_req) {
         Ok(p) => p,
-        Err(e) => return Err(err_internal(&format!("serialize chat request: {e}"))),
+        Err(e) => {
+            return Err(err_internal(&format!(
+                "serialize chat request: {}",
+                e.message
+            )))
+        }
     };
 
     let call_msg = build_chat_call_msg(msg);
@@ -216,7 +236,11 @@ pub(super) async fn handle_chat(
     };
 
     // Drain the service stream, concatenating `ChunkDelta::Text` bytes into
-    // the assistant reply. Propagate any error terminal as a 500.
+    // the assistant reply. Propagate any error terminal as a 500. Each frame
+    // from the new `wafer-run/llm` handler is one MessagePack-encoded
+    // `ChatChunk`; decode per-frame rather than buffering and decoding once
+    // (concatenating MessagePack frames yields a sequence, not a single
+    // value, so there is no "buffered" single-decode option here).
     let mut content = String::new();
     let mut model_used = String::new();
     let mut body_stream = Box::pin(out.body_stream_or_error());
@@ -225,20 +249,17 @@ pub(super) async fn handle_chat(
             Ok(b) => b,
             Err(e) => return err_internal(&format!("llm service error: {}", e.message)),
         };
-        let chunk: ChatChunk = match serde_json::from_slice(&bytes) {
+        let chunk: ChatChunk = match codec::decode(&bytes) {
             Ok(c) => c,
-            Err(e) => return err_internal(&format!("decode ChatChunk: {e}")),
+            Err(e) => return err_internal(&format!("decode ChatChunk: {}", e.message)),
         };
         match chunk.delta {
             ChunkDelta::Text(s) => content.push_str(&s),
             // Tool-call and empty deltas are ignored in the buffered path.
-            // `ChunkDelta` is `#[non_exhaustive]` — the wildcard covers any
-            // future variant until we explicitly handle it.
             ChunkDelta::ToolCallStart { .. }
             | ChunkDelta::ToolCallArguments { .. }
             | ChunkDelta::ToolCallComplete { .. }
             | ChunkDelta::Empty => {}
-            _ => {}
         }
     }
     if model_used.is_empty() {
@@ -321,11 +342,27 @@ pub(super) async fn handle_chat_stream(
                 let _ = sink.send_chunk(frame).await;
                 return;
             };
-            // `bytes` is already valid JSON (one `ChatChunk` per chunk from
-            // the service). Emit as an SSE `data:` frame.
-            let mut frame = Vec::with_capacity(bytes.len() + 8);
+            // Each frame is a MessagePack-encoded `ChatChunk`. Decode and
+            // re-encode as JSON for the SSE wire — clients consume JSON.
+            let chunk: ChatChunk = match codec::decode(&bytes) {
+                Ok(c) => c,
+                Err(_) => {
+                    let frame = b"event: error\ndata: {}\n\n".to_vec();
+                    let _ = sink.send_chunk(frame).await;
+                    return;
+                }
+            };
+            let json = match serde_json::to_vec(&chunk) {
+                Ok(j) => j,
+                Err(_) => {
+                    let frame = b"event: error\ndata: {}\n\n".to_vec();
+                    let _ = sink.send_chunk(frame).await;
+                    return;
+                }
+            };
+            let mut frame = Vec::with_capacity(json.len() + 8);
             frame.extend_from_slice(b"data: ");
-            frame.extend_from_slice(&bytes);
+            frame.extend_from_slice(&json);
             frame.extend_from_slice(b"\n\n");
             if sink.send_chunk(frame).await.is_err() {
                 return;
@@ -636,16 +673,6 @@ pub(super) async fn delete_provider(
 // per-(backend_id, model_id) ops forwarded verbatim. These handlers only
 // marshal HTTP ⇄ service-block JSON — no business logic here.
 
-/// Request body for `llm.status`, `llm.load_model`, `llm.unload_model` on
-/// the service block. Mirrors the `StatusRequest` / `LoadModelRequest`
-/// / `UnloadModelRequest` structs in
-/// `wafer-core::interfaces::llm::handler`.
-#[derive(serde::Serialize)]
-struct BackendModelBody<'a> {
-    backend_id: &'a str,
-    model_id: &'a str,
-}
-
 /// Extract `(backend_id, model_id)` from
 /// `/b/llm/api/models/{backend_id}/{model_id}[/suffix]`.
 ///
@@ -698,11 +725,11 @@ pub(super) async fn list_models(
         Ok(b) => b,
         Err(e) => return err_internal(&format!("llm list_models failed: {e:?}")),
     };
-    // The service block returns a bare `Vec<ModelInfo>` (see `to_output`
-    // in the handler). Re-parse opaquely and wrap in the UI-friendly envelope.
-    let models: serde_json::Value = match serde_json::from_slice(&buf.body) {
+    // The service block returns a MessagePack-encoded `Vec<ModelInfo>` in
+    // a single buffered chunk. Decode then re-serialize to JSON for the UI.
+    let models: Vec<ModelInfo> = match codec::decode(&buf.body) {
         Ok(v) => v,
-        Err(e) => return err_internal(&format!("decode list_models: {e}")),
+        Err(e) => return err_internal(&format!("decode list_models: {}", e.message)),
     };
     ok_json(&serde_json::json!({ "models": models }))
 }
@@ -718,12 +745,13 @@ pub(super) async fn model_status(
     if backend_id.is_empty() || model_id.is_empty() {
         return err_bad_request("Missing backend_id or model_id");
     }
-    let body = match serde_json::to_vec(&BackendModelBody {
-        backend_id: &backend_id,
-        model_id: &model_id,
-    }) {
+    let req = StatusRequest {
+        backend_id: backend_id.clone(),
+        model_id: model_id.clone(),
+    };
+    let body = match codec::encode(&req) {
         Ok(b) => b,
-        Err(e) => return err_internal(&format!("serialize status req: {e}")),
+        Err(e) => return err_internal(&format!("serialize status req: {}", e.message)),
     };
 
     let call_msg = build_llm_service_msg(msg, wafer_run::common::ServiceOp::LLM_STATUS);
@@ -734,9 +762,9 @@ pub(super) async fn model_status(
         Ok(b) => b,
         Err(e) => return err_internal(&format!("llm status failed: {e:?}")),
     };
-    let status: serde_json::Value = match serde_json::from_slice(&buf.body) {
+    let status: ModelStatus = match codec::decode(&buf.body) {
         Ok(v) => v,
-        Err(e) => return err_internal(&format!("decode status: {e}")),
+        Err(e) => return err_internal(&format!("decode status: {}", e.message)),
     };
     ok_json(&serde_json::json!({ "status": status }))
 }
@@ -755,12 +783,13 @@ pub(super) async fn load_model(
     if backend_id.is_empty() || model_id.is_empty() {
         return err_bad_request("Missing backend_id or model_id");
     }
-    let body = match serde_json::to_vec(&BackendModelBody {
-        backend_id: &backend_id,
-        model_id: &model_id,
-    }) {
+    let req = LoadModelRequest {
+        backend_id: backend_id.clone(),
+        model_id: model_id.clone(),
+    };
+    let body = match codec::encode(&req) {
         Ok(b) => b,
-        Err(e) => return err_internal(&format!("serialize load req: {e}")),
+        Err(e) => return err_internal(&format!("serialize load req: {}", e.message)),
     };
 
     let call_msg = build_llm_service_msg(msg, wafer_run::common::ServiceOp::LLM_LOAD_MODEL);
@@ -783,10 +812,27 @@ pub(super) async fn load_model(
                 let _ = sink.send_chunk(frame).await;
                 return;
             };
-            // `bytes` is already the JSON encoding of one `LoadProgress`.
-            let mut frame = Vec::with_capacity(bytes.len() + 8);
+            // Each frame is a MessagePack-encoded `LoadProgress`. Decode and
+            // re-encode as JSON for the SSE wire.
+            let progress: wafer_block::wire::llm::LoadProgress = match codec::decode(&bytes) {
+                Ok(p) => p,
+                Err(_) => {
+                    let frame = b"event: error\ndata: {}\n\n".to_vec();
+                    let _ = sink.send_chunk(frame).await;
+                    return;
+                }
+            };
+            let json = match serde_json::to_vec(&progress) {
+                Ok(j) => j,
+                Err(_) => {
+                    let frame = b"event: error\ndata: {}\n\n".to_vec();
+                    let _ = sink.send_chunk(frame).await;
+                    return;
+                }
+            };
+            let mut frame = Vec::with_capacity(json.len() + 8);
             frame.extend_from_slice(b"data: ");
-            frame.extend_from_slice(&bytes);
+            frame.extend_from_slice(&json);
             frame.extend_from_slice(b"\n\n");
             if sink.send_chunk(frame).await.is_err() {
                 return;
@@ -810,12 +856,13 @@ pub(super) async fn unload_model(
     if backend_id.is_empty() || model_id.is_empty() {
         return err_bad_request("Missing backend_id or model_id");
     }
-    let body = match serde_json::to_vec(&BackendModelBody {
-        backend_id: &backend_id,
-        model_id: &model_id,
-    }) {
+    let req = UnloadModelRequest {
+        backend_id: backend_id.clone(),
+        model_id: model_id.clone(),
+    };
+    let body = match codec::encode(&req) {
         Ok(b) => b,
-        Err(e) => return err_internal(&format!("serialize unload req: {e}")),
+        Err(e) => return err_internal(&format!("serialize unload req: {}", e.message)),
     };
 
     let call_msg = build_llm_service_msg(msg, wafer_run::common::ServiceOp::LLM_UNLOAD_MODEL);
@@ -987,7 +1034,7 @@ mod tests {
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].role, ChatRole::User);
         assert!(
-            matches!(&msgs[0].content, wafer_core::interfaces::llm::service::ChatContent::Text(t) if t == "hi")
+            matches!(&msgs[0].content, wafer_block::wire::llm::ChatContent::Text(t) if t == "hi")
         );
     }
 
@@ -1001,7 +1048,7 @@ mod tests {
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].role, ChatRole::Assistant);
         assert!(
-            matches!(&msgs[0].content, wafer_core::interfaces::llm::service::ChatContent::Text(t) if t == "yes")
+            matches!(&msgs[0].content, wafer_block::wire::llm::ChatContent::Text(t) if t == "yes")
         );
     }
 

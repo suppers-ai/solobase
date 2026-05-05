@@ -600,10 +600,21 @@ async fn load_models(ctx: &dyn Context, original_msg: &Message) -> Vec<serde_jso
     let Ok(buf) = out.collect_buffered().await else {
         return vec![];
     };
-    // The service block returns `Vec<ModelInfo>` as a bare JSON array. A
-    // decode failure is treated as "no models" so the picker still renders —
-    // the user can fall back to the default remote option.
-    serde_json::from_slice::<Vec<serde_json::Value>>(&buf.body).unwrap_or_default()
+    // The service block returns a MessagePack-encoded `Vec<ModelInfo>`.
+    // Decode then convert each model into a JSON value for template
+    // rendering (the picker keys off `model_id` / `display_name` /
+    // `backend_id`). A decode failure is treated as "no models" so the
+    // picker still renders — the user can fall back to the default remote
+    // option.
+    let models: Vec<wafer_block::wire::llm::ModelInfo> = match wafer_block::codec::decode(&buf.body)
+    {
+        Ok(v) => v,
+        Err(_) => return vec![],
+    };
+    models
+        .into_iter()
+        .map(|m| serde_json::to_value(m).unwrap_or(serde_json::Value::Null))
+        .collect()
 }
 
 /// Render the `<option>` list for the remote-model picker.
