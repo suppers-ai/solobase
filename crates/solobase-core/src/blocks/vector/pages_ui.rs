@@ -166,11 +166,7 @@ pub async fn index_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 /// `_meta` table — empty on a fresh DB, in which case the helper omits
 /// the schema table. Any 404 path (invalid name, missing row) goes to
 /// `ui::not_found_response`.
-pub async fn index_detail_page(
-    ctx: &dyn Context,
-    msg: &Message,
-    name: &str,
-) -> OutputStream {
+pub async fn index_detail_page(ctx: &dyn Context, msg: &Message, name: &str) -> OutputStream {
     if super::service::validate_index_name(name).is_err() {
         return ui::not_found_response(msg);
     }
@@ -196,7 +192,11 @@ pub async fn index_detail_page(
     let display = display_index_name(&row.name);
     let subtitle = format!(
         "{} · {} dimensions",
-        if row.model.is_empty() { "(no model)" } else { row.model.as_str() },
+        if row.model.is_empty() {
+            "(no model)"
+        } else {
+            row.model.as_str()
+        },
         row.dimensions
     );
 
@@ -257,7 +257,10 @@ mod tests {
     #[test]
     fn render_index_list_table_renders_rows_and_empty_state() {
         let empty = render_index_list_table(&[]).into_string();
-        assert!(empty.contains("No vector indexes yet"), "missing empty hint: {empty}");
+        assert!(
+            empty.contains("No vector indexes yet"),
+            "missing empty hint: {empty}"
+        );
 
         let rows = vec![sample_index("docs", "fastembed", 384, 1234, true)];
         let html = render_index_list_table(&rows).into_string();
@@ -335,10 +338,7 @@ mod integration_tests {
         // Registry row. The SQLite service auto-creates the table on first
         // insert (`ensure_table`) so we don't need DDL here.
         let mut registry_row: HashMap<String, serde_json::Value> = HashMap::new();
-        registry_row.insert(
-            "prefixed_name".into(),
-            json!("suppers_ai__vector__docs"),
-        );
+        registry_row.insert("prefixed_name".into(), json!("suppers_ai__vector__docs"));
         registry_row.insert("model".into(), json!("fastembed"));
         registry_row.insert("dimensions".into(), json!(384));
         registry_row.insert("keyword_search".into(), json!(1));
@@ -453,6 +453,9 @@ mod integration_tests {
             body.contains("suppers_ai__vector__docs"),
             "missing storage table name in schema section: {body}"
         );
-        assert!(body.contains("vector_id"), "schema column should render: {body}");
+        assert!(
+            body.contains("vector_id"),
+            "schema column should render: {body}"
+        );
     }
 }

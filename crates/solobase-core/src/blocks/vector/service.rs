@@ -105,7 +105,10 @@ async fn map_index_row(ctx: &dyn Context, rec: &db::Record) -> Option<IndexRow> 
     let dimensions = rec
         .data
         .get("dimensions")
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .unwrap_or(0) as u32;
     let keyword_search = rec
         .data
