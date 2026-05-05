@@ -16,26 +16,26 @@ license = "MIT"
 
 [workspace.dependencies]
 # WAFER runtime (git deps pinned to rev)
-wafer-run = { git = "https://github.com/wafer-run/wafer-run", branch = "main", default-features = false }
-wafer-block = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-core = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-sql-utils = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-config = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-cors = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-crypto = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-http-listener = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-inspector = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-local-storage = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-logger = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-network = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-readonly-guard = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-router = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-s3 = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-security-headers = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-sqlite = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-web = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-postgres = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
-wafer-block-fastembed = { git = "https://github.com/wafer-run/wafer-run", branch = "main" }
+wafer-run = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul", default-features = false }
+wafer-block = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-core = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-sql-utils = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-config = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-cors = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-crypto = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-http-listener = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-inspector = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-local-storage = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-logger = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-network = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-readonly-guard = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-router = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-s3 = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-security-headers = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-sqlite = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-web = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-postgres = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
+wafer-block-fastembed = { git = "https://github.com/wafer-run/wafer-run", branch = "binary-transport-overhaul" }
 
 # Core
 async-trait = "0.1"

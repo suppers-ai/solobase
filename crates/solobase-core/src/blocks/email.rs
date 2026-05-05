@@ -7,8 +7,10 @@
 //! Uses the `wafer-run/network` block to make HTTP requests to Mailgun,
 //! and `wafer-run/config` for MAILGUN_API_KEY, MAILGUN_DOMAIN, MAILGUN_FROM.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
-use wafer_core::clients::config;
+use wafer_core::clients::{config, network as net};
 use wafer_run::{
     block::{Block, BlockInfo},
     context::Context,
@@ -274,37 +276,22 @@ async fn send_email(
     // Base64 encode "api:{api_key}"
     let credentials = base64_encode(&format!("api:{}", api_key));
 
-    // Call network block
+    // Call network block via the typed client. The buffered helper consumes
+    // the two-frame response (header + body) and returns a typed
+    // `NetworkResponse` whose `status_code` we use to decide success.
     let url = format!("https://api.mailgun.net/v3/{}/messages", domain);
-    let network_req = serde_json::json!({
-        "method": "POST",
-        "url": url,
-        "headers": {
-            "Authorization": format!("Basic {}", credentials),
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-        "body": body.as_bytes().to_vec(),
-    });
+    let mut headers = HashMap::new();
+    headers.insert(
+        "Authorization".to_string(),
+        format!("Basic {}", credentials),
+    );
+    headers.insert(
+        "Content-Type".to_string(),
+        "application/x-www-form-urlencoded".to_string(),
+    );
 
-    let network_msg = Message::new("network.do");
-    let req_bytes = serde_json::to_vec(&network_req).unwrap_or_default();
-
-    let out = ctx
-        .call_block(
-            "wafer-run/network",
-            network_msg,
-            InputStream::from_bytes(req_bytes),
-        )
-        .await;
-
-    match out.collect_buffered().await {
-        Ok(resp) => {
-            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&resp.body) {
-                let status = v.get("status_code").and_then(|s| s.as_u64()).unwrap_or(0);
-                return (200..300).contains(&status);
-            }
-            false
-        }
+    match net::do_request(ctx, "POST", &url, &headers, Some(body.as_bytes())).await {
+        Ok(resp) => (200..300).contains(&resp.status_code),
         Err(_) => false,
     }
 }

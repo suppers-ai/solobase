@@ -6,10 +6,15 @@
 
 use std::sync::Arc;
 
+use futures::StreamExt;
+use wafer_block::{
+    codec,
+    stream::StreamEvent,
+    wire::network::{Request as NetRequest, ResponseHeader as NetResponseHeader},
+};
 use wafer_core::{clients::database as db, interfaces::network::service::NetworkService};
 use wafer_run::{
-    block::Block, context::Context, streams::output::TerminalNotResponse, types::*, BlockInfo,
-    InputStream, OutputStream,
+    block::Block, context::Context, types::*, BlockInfo, InputStream, OutputStream,
 };
 
 use super::helpers::{json_map, now_millis};
@@ -27,22 +32,13 @@ impl SolobaseNetworkBlock {
     }
 }
 
-/// Parse the request payload to extract method + url for logging.
+/// Parse the request payload (a MessagePack-encoded `wire::network::Request`)
+/// to extract method + url for logging. Decode failures fall back to
+/// `UNKNOWN`/empty so logging never blocks the actual request.
 fn parse_request_info(body: &[u8]) -> (String, String) {
-    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) {
-        let method = v
-            .get("method")
-            .and_then(|m| m.as_str())
-            .unwrap_or("GET")
-            .to_uppercase();
-        let url = v
-            .get("url")
-            .and_then(|u| u.as_str())
-            .unwrap_or("")
-            .to_string();
-        (method, url)
-    } else {
-        ("UNKNOWN".into(), String::new())
+    match codec::decode::<NetRequest>(body) {
+        Ok(req) => (req.method.to_uppercase(), req.url),
+        Err(_) => ("UNKNOWN".into(), String::new()),
     }
 }
 
@@ -61,32 +57,44 @@ impl Block for SolobaseNetworkBlock {
         // Network access control is enforced by WRAP in call_block() before
         // reaching this handler. This block only handles logging + execution.
 
-        // Execute the actual request (re-wrap body as a fresh InputStream).
+        // Dispatch to the wrapped wafer-core network block. The response is a
+        // two-frame stream: a `wire::network::ResponseHeader` chunk followed
+        // by zero-or-more body chunks. We must preserve frame boundaries when
+        // forwarding — `collect_buffered` would concatenate header + body and
+        // break the downstream `buffered_header_and_body` decoder.
         let start = now_millis();
         let inner_out = self
             .inner
             .handle(ctx, msg, InputStream::from_bytes(body))
             .await;
-        let buffered = inner_out.collect_buffered().await;
+
+        // Drain the inner stream into a buffer of events so we can both log
+        // (via the decoded header's `status_code`) and forward verbatim.
+        let mut events: Vec<StreamEvent> = Vec::new();
+        let mut inner = inner_out;
+        while let Some(evt) = inner.next().await {
+            events.push(evt);
+        }
         let duration_ms = (now_millis() - start) as i64;
 
-        // Extract status code from response, then re-emit the buffered output.
-        let (status_code, error_message, result) = match buffered {
-            Ok(resp) => {
-                let status = serde_json::from_slice::<serde_json::Value>(&resp.body)
-                    .ok()
-                    .and_then(|v| v.get("status_code").and_then(|s| s.as_i64()))
-                    .unwrap_or(0);
-                // Re-emit as a buffered response, preserving meta if any.
-                let mut builder = crate::blocks::helpers::ResponseBuilder::new();
-                for entry in &resp.meta {
-                    builder = builder.set_header(&entry.key, &entry.value);
+        // Pick out the status_code from the first Chunk (the header frame).
+        let mut status_code: i64 = 0;
+        let mut error_message = String::new();
+        for evt in &events {
+            match evt {
+                StreamEvent::Chunk(bytes) => {
+                    if let Ok(header) = codec::decode::<NetResponseHeader>(bytes) {
+                        status_code = header.status_code as i64;
+                    }
+                    break;
                 }
-                let out = builder.body(resp.body, "");
-                (status, String::new(), out)
+                StreamEvent::Error(e) => {
+                    error_message = e.message.clone();
+                    break;
+                }
+                _ => continue,
             }
-            Err(terminal) => terminal_to_output(terminal),
-        };
+        }
 
         // Log the request (best-effort, don't fail the actual request)
         let _ = db::create(
@@ -103,7 +111,38 @@ impl Block for SolobaseNetworkBlock {
         )
         .await;
 
-        result
+        // Re-emit the captured events to the caller, preserving frame
+        // boundaries so the typed network client can decode header + body.
+        OutputStream::from_producer(move |sink, _cancel| async move {
+            for evt in events {
+                match evt {
+                    StreamEvent::Chunk(bytes) => {
+                        if sink.send_chunk(bytes).await.is_err() {
+                            return;
+                        }
+                    }
+                    StreamEvent::Meta(entry) => {
+                        let _ = sink.send_meta(entry).await;
+                    }
+                    StreamEvent::Complete { meta } => {
+                        let _ = sink.complete(meta).await;
+                        return;
+                    }
+                    StreamEvent::Error(e) => {
+                        let _ = sink.error(*e).await;
+                        return;
+                    }
+                    StreamEvent::Drop => {
+                        let _ = sink.drop_request().await;
+                        return;
+                    }
+                    StreamEvent::Continue(m) => {
+                        let _ = sink.continue_with(m).await;
+                        return;
+                    }
+                }
+            }
+        })
     }
 
     async fn lifecycle(
@@ -118,27 +157,6 @@ impl Block for SolobaseNetworkBlock {
 /// Create a new SolobaseNetworkBlock (caller must register it with the runtime).
 pub fn create(service: Arc<dyn NetworkService>) -> Arc<SolobaseNetworkBlock> {
     Arc::new(SolobaseNetworkBlock::new(service))
-}
-
-/// Convert a non-Complete terminal into a re-emitted OutputStream plus the
-/// status/error fields used for logging.
-fn terminal_to_output(terminal: TerminalNotResponse) -> (i64, String, OutputStream) {
-    match terminal {
-        TerminalNotResponse::Error(e) => {
-            let msg = e.message.clone();
-            (0, msg, OutputStream::error(e))
-        }
-        TerminalNotResponse::Drop => (0, String::new(), OutputStream::drop_request()),
-        TerminalNotResponse::Continue(m) => (0, String::new(), OutputStream::continue_with(m)),
-        TerminalNotResponse::Malformed => (
-            0,
-            "malformed inner response".into(),
-            OutputStream::error(WaferError::new(
-                ErrorCode::Internal,
-                "malformed inner response",
-            )),
-        ),
-    }
 }
 
 // Pattern matching tests are in wafer-block/src/wrap.rs (grant_matches_resource)

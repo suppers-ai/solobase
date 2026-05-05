@@ -35,11 +35,14 @@
 //! `{index}/{id}` handler.
 
 use wafer_core::{
-    clients::{database as db, vector as vclient},
-    interfaces::vector::{
-        get_model, service::VectorEntry, DistanceMetric, MetadataFilter, SearchMode,
-        VectorIndexConfig, DEFAULT_MODEL,
+    clients::{
+        database as db,
+        vector::{
+            self as vclient, DistanceMetric, MetadataFilter, SearchMode, VectorEntry,
+            VectorIndexConfig,
+        },
     },
+    interfaces::vector::{get_model, DEFAULT_MODEL},
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 

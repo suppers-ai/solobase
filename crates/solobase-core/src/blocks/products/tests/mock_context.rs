@@ -3,6 +3,10 @@ use std::{
     sync::{atomic::AtomicU64, Arc, Mutex},
 };
 
+use wafer_block::{
+    codec,
+    wire::{config as cfg_wire, database as db_wire},
+};
 use wafer_core::clients::database::{Record, RecordList};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
@@ -64,14 +68,11 @@ impl MockContext {
     }
 
     fn handle_config_call(&self, _kind: &str, data: &[u8]) -> Result<Vec<u8>, WaferError> {
-        #[derive(serde::Deserialize)]
-        struct Req {
-            key: String,
-        }
-        let req: Req =
-            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
+        let req: cfg_wire::GetRequest =
+            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
         match self.config.get(&req.key) {
-            Some(v) => Ok(serde_json::to_vec(&serde_json::json!({"value": v})).unwrap()),
+            Some(v) => codec::encode(&cfg_wire::GetResponse { value: v.clone() })
+                .map_err(|e| WaferError::new("internal", e.message)),
             None => Err(WaferError::new(
                 "not_found",
                 format!("config key '{}' not found", req.key),
@@ -82,13 +83,8 @@ impl MockContext {
     // --- Database operations ---
 
     fn db_get(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
-        #[derive(serde::Deserialize)]
-        struct Req {
-            collection: String,
-            id: String,
-        }
-        let req: Req =
-            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
+        let req: db_wire::GetRequest =
+            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
         let db = self.db.lock().unwrap();
         let records = db
             .get(&req.collection)
@@ -97,34 +93,12 @@ impl MockContext {
             .iter()
             .find(|r| r.id == req.id)
             .ok_or_else(|| WaferError::new("not_found", "not found"))?;
-        Ok(serde_json::to_vec(record).unwrap())
+        codec::encode(record).map_err(|e| WaferError::new("internal", e.message))
     }
 
     fn db_list(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
-        #[derive(serde::Deserialize)]
-        struct Req {
-            collection: String,
-            #[serde(default)]
-            filters: Vec<FilterDef>,
-            #[serde(default)]
-            sort: Vec<SortDef>,
-            #[serde(default = "default_limit")]
-            limit: i64,
-            #[serde(default)]
-            offset: i64,
-        }
-        fn default_limit() -> i64 {
-            1000
-        }
-        #[derive(serde::Deserialize)]
-        struct SortDef {
-            field: String,
-            #[serde(default)]
-            desc: bool,
-        }
-
-        let req: Req =
-            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
+        let req: db_wire::ListRequest =
+            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
 
         let db = self.db.lock().unwrap();
         let empty = Vec::new();
@@ -149,9 +123,14 @@ impl MockContext {
             });
         }
 
+        // Tests serialize requests with `limit: 0` to mean "default", and the
+        // wire schema has no per-field default; preserve the previous mock
+        // behaviour by treating `limit == 0` as the legacy 1000 default.
+        let effective_limit = if req.limit == 0 { 1000 } else { req.limit };
+
         let total_count = filtered.len() as i64;
         let offset = req.offset.max(0) as usize;
-        let limit = req.limit.max(0) as usize;
+        let limit = effective_limit.max(0) as usize;
         let page_records: Vec<Record> = filtered
             .into_iter()
             .skip(offset)
@@ -159,8 +138,8 @@ impl MockContext {
             .cloned()
             .collect();
 
-        let page = if req.limit > 0 {
-            req.offset / req.limit + 1
+        let page = if effective_limit > 0 {
+            req.offset / effective_limit + 1
         } else {
             1
         };
@@ -168,36 +147,25 @@ impl MockContext {
             records: page_records,
             total_count,
             page,
-            page_size: req.limit,
+            page_size: effective_limit,
         };
-        Ok(serde_json::to_vec(&result).unwrap())
+        codec::encode(&result).map_err(|e| WaferError::new("internal", e.message))
     }
 
     fn db_create(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
-        #[derive(serde::Deserialize)]
-        struct Req {
-            collection: String,
-            data: HashMap<String, serde_json::Value>,
-        }
-        let req: Req =
-            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
+        let req: db_wire::CreateRequest =
+            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
 
         let id = self.next_id();
         let record = Record { id, data: req.data };
         let mut db = self.db.lock().unwrap();
         db.entry(req.collection).or_default().push(record.clone());
-        Ok(serde_json::to_vec(&record).unwrap())
+        codec::encode(&record).map_err(|e| WaferError::new("internal", e.message))
     }
 
     fn db_update(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
-        #[derive(serde::Deserialize)]
-        struct Req {
-            collection: String,
-            id: String,
-            data: HashMap<String, serde_json::Value>,
-        }
-        let req: Req =
-            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
+        let req: db_wire::UpdateRequest =
+            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
 
         let mut db = self.db.lock().unwrap();
         let records = db
@@ -210,17 +178,12 @@ impl MockContext {
         for (k, v) in req.data {
             record.data.insert(k, v);
         }
-        Ok(serde_json::to_vec(&record).unwrap())
+        codec::encode(record).map_err(|e| WaferError::new("internal", e.message))
     }
 
     fn db_delete(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
-        #[derive(serde::Deserialize)]
-        struct Req {
-            collection: String,
-            id: String,
-        }
-        let req: Req =
-            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
+        let req: db_wire::DeleteRequest =
+            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
 
         let mut db = self.db.lock().unwrap();
         let records = db
@@ -231,19 +194,15 @@ impl MockContext {
             .position(|r| r.id == req.id)
             .ok_or_else(|| WaferError::new("not_found", "not found"))?;
         records.remove(idx);
-        Ok(b"{}".to_vec())
+        // The native delete client returns the empty-buffer ack; emit an
+        // empty MessagePack payload so the typed client's `Ok(())` path
+        // succeeds.
+        Ok(Vec::new())
     }
 
     fn db_count(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
-        #[derive(serde::Deserialize)]
-        struct Req {
-            collection: String,
-            #[serde(default)]
-            filters: Vec<FilterDef>,
-        }
-
-        let req: Req =
-            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
+        let req: db_wire::CountRequest =
+            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
 
         let db = self.db.lock().unwrap();
         let empty = Vec::new();
@@ -252,20 +211,13 @@ impl MockContext {
             .iter()
             .filter(|r| req.filters.iter().all(|f| matches_filter(r, f)))
             .count() as i64;
-        Ok(serde_json::to_vec(&serde_json::json!({"count": count})).unwrap())
+        codec::encode(&db_wire::CountResponse { count })
+            .map_err(|e| WaferError::new("internal", e.message))
     }
 
     fn db_sum(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
-        #[derive(serde::Deserialize)]
-        struct Req {
-            collection: String,
-            field: String,
-            #[serde(default)]
-            filters: Vec<FilterDef>,
-        }
-
-        let req: Req =
-            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
+        let req: db_wire::SumRequest =
+            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
 
         let db = self.db.lock().unwrap();
         let empty = Vec::new();
@@ -275,21 +227,16 @@ impl MockContext {
             .filter(|r| req.filters.iter().all(|f| matches_filter(r, f)))
             .filter_map(|r| r.data.get(&req.field).and_then(|v| v.as_f64()))
             .sum();
-        Ok(serde_json::to_vec(&serde_json::json!({"sum": sum})).unwrap())
+        codec::encode(&db_wire::SumResponse { sum })
+            .map_err(|e| WaferError::new("internal", e.message))
     }
 
     /// Minimal exec_raw support for atomic UPDATE ... WHERE id = ? AND status = ? patterns.
     /// Supports both numbered (?1, ?2) and positional (?) parameter styles, and
     /// handles quoted identifiers ("field") from sea_query builders.
     fn db_exec_raw(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
-        #[derive(serde::Deserialize)]
-        struct Req {
-            query: String,
-            #[serde(default)]
-            args: Vec<serde_json::Value>,
-        }
-        let req: Req =
-            serde_json::from_slice(data).map_err(|e| WaferError::new("internal", e.to_string()))?;
+        let req: db_wire::ExecRawRequest =
+            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
 
         // Normalize: convert positional ? to numbered ?N and strip double-quotes from identifiers
         let normalized = normalize_sql(&req.query);
@@ -298,7 +245,8 @@ impl MockContext {
         // Match: UPDATE <table> SET ... WHERE id = ?N AND status IN (...)
         // or: UPDATE <table> SET ... WHERE id = ?N AND status = ?M
         if !query_upper.starts_with("UPDATE ") {
-            return Ok(serde_json::to_vec(&serde_json::json!({"rows_affected": 0})).unwrap());
+            return codec::encode(&db_wire::ExecRawResponse { rows_affected: 0 })
+                .map_err(|e| WaferError::new("internal", e.message));
         }
 
         // Extract table name (word after UPDATE)
@@ -410,7 +358,8 @@ impl MockContext {
         let records = match db.get_mut(&table) {
             Some(r) => r,
             None => {
-                return Ok(serde_json::to_vec(&serde_json::json!({"rows_affected": 0})).unwrap())
+                return codec::encode(&db_wire::ExecRawResponse { rows_affected: 0 })
+                    .map_err(|e| WaferError::new("internal", e.message))
             }
         };
 
@@ -433,7 +382,8 @@ impl MockContext {
             }
         }
 
-        Ok(serde_json::to_vec(&serde_json::json!({"rows_affected": rows_affected})).unwrap())
+        codec::encode(&db_wire::ExecRawResponse { rows_affected })
+            .map_err(|e| WaferError::new("internal", e.message))
     }
 }
 
@@ -483,14 +433,7 @@ fn normalize_sql(sql: &str) -> String {
 
 // --- Filter matching ---
 
-#[derive(serde::Deserialize)]
-struct FilterDef {
-    field: String,
-    operator: String,
-    value: serde_json::Value,
-}
-
-fn matches_filter(record: &Record, filter: &FilterDef) -> bool {
+fn matches_filter(record: &Record, filter: &db_wire::FilterDef) -> bool {
     let val = record.data.get(&filter.field);
     match filter.operator.as_str() {
         "eq" => val == Some(&filter.value),

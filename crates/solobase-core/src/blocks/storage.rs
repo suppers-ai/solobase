@@ -22,10 +22,12 @@
 
 use std::sync::Arc;
 
+use futures::StreamExt;
+use wafer_block::{codec, stream::StreamEvent, wire::storage as wire};
 use wafer_core::{clients::database as db, interfaces::storage::service::StorageService};
 use wafer_run::{
-    block::Block, context::Context, streams::output::TerminalNotResponse, types::*, BlockInfo,
-    InputStream, OutputStream, ResourceGrant, ResourceType,
+    block::Block, context::Context, types::*, BlockInfo, InputStream, OutputStream, ResourceGrant,
+    ResourceType,
 };
 
 use super::{
@@ -121,52 +123,87 @@ fn access_type_for_op(kind: &str) -> &'static str {
 /// Rewrite the folder/name field in the request body bytes.
 ///
 /// Returns the rewritten body bytes plus the resolved path info.
+///
+/// Bodies are MessagePack-encoded `wire::storage` request types (matching
+/// the binary transport overhaul). We decode the relevant typed request,
+/// rewrite the path field, and re-encode — no `serde_json::Value`
+/// round-trip, because that would lose the byte-fidelity guarantees
+/// needed for the schema-locked wire types (and silently strip
+/// non-string-encodable fields like `PutRequest.data`).
 fn rewrite_request_body(
     kind: &str,
     body: &[u8],
     caller: &str,
 ) -> Result<(Vec<u8>, ResolvedPath), WaferError> {
-    // For list_folders, no folder field to rewrite — handled by filtering results
-    if kind == "storage.list_folders" {
-        return Ok((
+    let invalid = |e: wafer_block::WaferError| {
+        WaferError::new(
+            ErrorCode::INVALID_ARGUMENT,
+            format!("invalid storage request: {}", e.message),
+        )
+    };
+    let encode_err = |e: wafer_block::WaferError| {
+        WaferError::new(
+            ErrorCode::INTERNAL,
+            format!("encoding storage request: {}", e.message),
+        )
+    };
+
+    match kind {
+        // No folder field to rewrite — handled by filtering results.
+        "storage.list_folders" => Ok((
             body.to_vec(),
             ResolvedPath {
                 path: caller.to_string(),
                 cross_block: false,
             },
-        ));
-    }
-
-    let mut v: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
-        WaferError::new(
+        )),
+        "storage.create_folder" => {
+            let mut req: wire::CreateFolderRequest = codec::decode(body).map_err(invalid)?;
+            let resolved = resolve_folder(caller, &req.name);
+            req.name = resolved.path.clone();
+            let bytes = codec::encode(&req).map_err(encode_err)?;
+            Ok((bytes, resolved))
+        }
+        "storage.delete_folder" => {
+            let mut req: wire::DeleteFolderRequest = codec::decode(body).map_err(invalid)?;
+            let resolved = resolve_folder(caller, &req.name);
+            req.name = resolved.path.clone();
+            let bytes = codec::encode(&req).map_err(encode_err)?;
+            Ok((bytes, resolved))
+        }
+        "storage.put" => {
+            let mut req: wire::PutRequest = codec::decode(body).map_err(invalid)?;
+            let resolved = resolve_folder(caller, &req.folder);
+            req.folder = resolved.path.clone();
+            let bytes = codec::encode(&req).map_err(encode_err)?;
+            Ok((bytes, resolved))
+        }
+        "storage.get" => {
+            let mut req: wire::GetRequest = codec::decode(body).map_err(invalid)?;
+            let resolved = resolve_folder(caller, &req.folder);
+            req.folder = resolved.path.clone();
+            let bytes = codec::encode(&req).map_err(encode_err)?;
+            Ok((bytes, resolved))
+        }
+        "storage.delete" => {
+            let mut req: wire::DeleteRequest = codec::decode(body).map_err(invalid)?;
+            let resolved = resolve_folder(caller, &req.folder);
+            req.folder = resolved.path.clone();
+            let bytes = codec::encode(&req).map_err(encode_err)?;
+            Ok((bytes, resolved))
+        }
+        "storage.list" => {
+            let mut req: wire::ListRequest = codec::decode(body).map_err(invalid)?;
+            let resolved = resolve_folder(caller, &req.folder);
+            req.folder = resolved.path.clone();
+            let bytes = codec::encode(&req).map_err(encode_err)?;
+            Ok((bytes, resolved))
+        }
+        other => Err(WaferError::new(
             ErrorCode::INVALID_ARGUMENT,
-            format!("invalid storage request: {e}"),
-        )
-    })?;
-
-    // For folder-level ops, rewrite the "name" field
-    if kind == "storage.create_folder" || kind == "storage.delete_folder" {
-        let name = v
-            .get("name")
-            .and_then(|n| n.as_str())
-            .unwrap_or("")
-            .to_string();
-        let resolved = resolve_folder(caller, &name);
-        v["name"] = serde_json::Value::String(resolved.path.clone());
-        let bytes = serde_json::to_vec(&v).unwrap_or_default();
-        return Ok((bytes, resolved));
+            format!("unknown storage op: {other}"),
+        )),
     }
-
-    // For object-level ops, rewrite the "folder" field
-    let folder = v
-        .get("folder")
-        .and_then(|f| f.as_str())
-        .unwrap_or("")
-        .to_string();
-    let resolved = resolve_folder(caller, &folder);
-    v["folder"] = serde_json::Value::String(resolved.path.clone());
-    let bytes = serde_json::to_vec(&v).unwrap_or_default();
-    Ok((bytes, resolved))
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -236,47 +273,66 @@ impl Block for SolobaseStorageBlock {
             }
         }
 
-        // Execute the actual storage operation, then collect to log status.
+        // Execute the actual storage operation. Frame boundaries must be
+        // preserved for two-frame ops (`storage.get` returns header + body),
+        // so we drain events into a buffer and replay them rather than
+        // calling `collect_buffered` (which would concatenate header + body
+        // into a single chunk and break downstream `buffered_header_and_body`
+        // decoding).
         let start = now_millis();
         let inner_out = self
             .inner
             .handle(ctx, msg.clone(), InputStream::from_bytes(rewritten_body))
             .await;
-        let buffered = inner_out.collect_buffered().await;
+        let mut events: Vec<StreamEvent> = Vec::new();
+        let mut inner = inner_out;
+        while let Some(evt) = inner.next().await {
+            events.push(evt);
+        }
         let duration_ms = (now_millis() - start) as i64;
 
-        let (status, result) = match buffered {
-            Ok(resp) => {
-                let mut builder = crate::blocks::helpers::ResponseBuilder::new();
-                for entry in &resp.meta {
-                    builder = builder.set_header(&entry.key, &entry.value);
-                }
-                let out = builder.body(resp.body, "");
-                (format!("OK ({duration_ms}ms)"), out)
+        let mut error_status: Option<String> = None;
+        for evt in &events {
+            if let StreamEvent::Error(e) = evt {
+                error_status = Some(format!("ERROR: {}", e.message));
+                break;
             }
-            Err(TerminalNotResponse::Error(e)) => {
-                let s = format!("ERROR: {}", e.message);
-                (s, OutputStream::error(e))
-            }
-            Err(TerminalNotResponse::Drop) => {
-                ("ERROR: dropped".into(), OutputStream::drop_request())
-            }
-            Err(TerminalNotResponse::Continue(m)) => {
-                ("ERROR: continue".into(), OutputStream::continue_with(m))
-            }
-            Err(TerminalNotResponse::Malformed) => (
-                "ERROR: malformed".into(),
-                OutputStream::error(WaferError::new(
-                    ErrorCode::Internal,
-                    "malformed inner response",
-                )),
-            ),
-        };
+        }
+        let status = error_status.unwrap_or_else(|| format!("OK ({duration_ms}ms)"));
 
         // Log the access (best-effort)
         let _ = log_storage_access(ctx, &caller, &msg.kind, &resolved.path, &status).await;
 
-        result
+        OutputStream::from_producer(move |sink, _cancel| async move {
+            for evt in events {
+                match evt {
+                    StreamEvent::Chunk(bytes) => {
+                        if sink.send_chunk(bytes).await.is_err() {
+                            return;
+                        }
+                    }
+                    StreamEvent::Meta(entry) => {
+                        let _ = sink.send_meta(entry).await;
+                    }
+                    StreamEvent::Complete { meta } => {
+                        let _ = sink.complete(meta).await;
+                        return;
+                    }
+                    StreamEvent::Error(e) => {
+                        let _ = sink.error(*e).await;
+                        return;
+                    }
+                    StreamEvent::Drop => {
+                        let _ = sink.drop_request().await;
+                        return;
+                    }
+                    StreamEvent::Continue(m) => {
+                        let _ = sink.continue_with(m).await;
+                        return;
+                    }
+                }
+            }
+        })
     }
 
     async fn lifecycle(
@@ -386,51 +442,51 @@ mod tests {
 
     #[test]
     fn test_rewrite_request_body_put() {
-        let body = serde_json::to_vec(&serde_json::json!({
-            "folder": "uploads",
-            "key": "photo.jpg",
-            "data": [],
-            "content_type": "image/jpeg"
-        }))
+        let body = codec::encode(&wire::PutRequest {
+            folder: "uploads".into(),
+            key: "photo.jpg".into(),
+            data: vec![],
+            content_type: "image/jpeg".into(),
+        })
         .unwrap();
         let (rewritten, resolved) =
             rewrite_request_body("storage.put", &body, "suppers-ai/files").unwrap();
         assert_eq!(resolved.path, "suppers-ai/files/uploads");
         assert!(!resolved.cross_block);
 
-        let v: serde_json::Value = serde_json::from_slice(&rewritten).unwrap();
-        assert_eq!(v["folder"], "suppers-ai/files/uploads");
+        let req: wire::PutRequest = codec::decode(&rewritten).unwrap();
+        assert_eq!(req.folder, "suppers-ai/files/uploads");
     }
 
     #[test]
     fn test_rewrite_request_body_cross_block() {
-        let body = serde_json::to_vec(&serde_json::json!({
-            "folder": "@wafer-run/web/public",
-            "key": "index.html"
-        }))
+        let body = codec::encode(&wire::GetRequest {
+            folder: "@wafer-run/web/public".into(),
+            key: "index.html".into(),
+        })
         .unwrap();
         let (rewritten, resolved) =
             rewrite_request_body("storage.get", &body, "suppers-ai/files").unwrap();
         assert_eq!(resolved.path, "wafer-run/web/public");
         assert!(resolved.cross_block);
 
-        let v: serde_json::Value = serde_json::from_slice(&rewritten).unwrap();
-        assert_eq!(v["folder"], "wafer-run/web/public");
+        let req: wire::GetRequest = codec::decode(&rewritten).unwrap();
+        assert_eq!(req.folder, "wafer-run/web/public");
     }
 
     #[test]
     fn test_rewrite_request_body_create_folder() {
-        let body = serde_json::to_vec(&serde_json::json!({
-            "name": "uploads",
-            "public": false
-        }))
+        let body = codec::encode(&wire::CreateFolderRequest {
+            name: "uploads".into(),
+            public: false,
+        })
         .unwrap();
         let (rewritten, resolved) =
             rewrite_request_body("storage.create_folder", &body, "suppers-ai/files").unwrap();
         assert_eq!(resolved.path, "suppers-ai/files/uploads");
         assert!(!resolved.cross_block);
 
-        let v: serde_json::Value = serde_json::from_slice(&rewritten).unwrap();
-        assert_eq!(v["name"], "suppers-ai/files/uploads");
+        let req: wire::CreateFolderRequest = codec::decode(&rewritten).unwrap();
+        assert_eq!(req.name, "suppers-ai/files/uploads");
     }
 }
