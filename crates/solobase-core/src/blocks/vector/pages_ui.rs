@@ -5,7 +5,7 @@
 
 use maud::{html, Markup};
 
-const TABLE_PREFIX: &str = "suppers_ai__vector__";
+use super::service::display_index_name;
 
 #[derive(Clone, Debug)]
 pub struct IndexRow {
@@ -19,14 +19,14 @@ pub struct IndexRow {
 pub fn render_index_list_table(rows: &[IndexRow]) -> Markup {
     if rows.is_empty() {
         return html! {
-            div.empty-state {
+            div .empty-state {
                 p { "No vector indexes yet." }
             }
         };
     }
 
     html! {
-        table.data-table {
+        table .data-table {
             thead { tr {
                 th { "Name" }
                 th { "Model" }
@@ -36,16 +36,17 @@ pub fn render_index_list_table(rows: &[IndexRow]) -> Markup {
             } }
             tbody {
                 @for r in rows {
-                    tr data-index-name=(strip_prefix(&r.name)) {
-                        td { (strip_prefix(&r.name)) }
-                        td { (r.model) }
-                        td { (r.dimensions) }
-                        td { (r.vector_count) }
-                        td {
+                    @let display = display_index_name(&r.name);
+                    tr data-index-name=(display) {
+                        td data-label="Name" { (display) }
+                        td data-label="Model" { (r.model) }
+                        td data-label="Dimensions" { (r.dimensions) }
+                        td data-label="Vectors" { (r.vector_count) }
+                        td data-label="Keyword search" {
                             @if r.keyword_search {
-                                span.badge.badge-success { "Yes" }
+                                span .badge.badge-success { "Yes" }
                             } @else {
-                                span.badge { "No" }
+                                span .badge { "No" }
                             }
                         }
                     }
@@ -53,10 +54,6 @@ pub fn render_index_list_table(rows: &[IndexRow]) -> Markup {
             }
         }
     }
-}
-
-fn strip_prefix(name: &str) -> &str {
-    name.strip_prefix(TABLE_PREFIX).unwrap_or(name)
 }
 
 #[cfg(test)]
