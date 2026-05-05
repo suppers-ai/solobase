@@ -24,14 +24,13 @@ pub mod storage;
 // internal types directly.
 // ---------------------------------------------------------------------------
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use wafer_core::interfaces::config::service::ConfigService;
-use wafer_core::interfaces::crypto::service::CryptoService;
-use wafer_core::interfaces::database::service::DatabaseService;
-use wafer_core::interfaces::logger::service::LoggerService;
-use wafer_core::interfaces::network::service::NetworkService;
-use wafer_core::interfaces::storage::service::StorageService;
+use std::{collections::HashMap, sync::Arc};
+
+use wafer_core::interfaces::{
+    config::service::ConfigService, crypto::service::CryptoService,
+    database::service::DatabaseService, logger::service::LoggerService,
+    network::service::NetworkService, storage::service::StorageService,
+};
 
 /// Construct a D1-backed [`DatabaseService`] from a worker `Env` and the D1
 /// binding name.
@@ -85,4 +84,21 @@ pub fn make_console_logger() -> Arc<dyn LoggerService> {
 /// CF Workers are stateless.
 pub fn make_config_service(vars: HashMap<String, String>) -> Arc<dyn ConfigService> {
     Arc::new(config_service::HashMapConfigService::new(vars))
+}
+
+#[cfg(test)]
+mod api_surface {
+    //! Compile-time check that the public `make_*` surface exists and is
+    //! callable. No runtime assertions — D1/R2 require a worker runtime to
+    //! instantiate. If any of the 6 symbols are renamed or removed, this
+    //! stops compiling.
+    #[allow(dead_code)]
+    fn _signatures_compile() {
+        let _: fn() -> _ = super::make_fetch_network_service;
+        let _: fn() -> _ = super::make_console_logger;
+        let _ = super::make_d1_database_service;
+        let _ = super::make_r2_storage_service;
+        let _ = super::make_jwt_crypto_service;
+        let _ = super::make_config_service;
+    }
 }

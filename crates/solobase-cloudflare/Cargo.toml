@@ -6,7 +6,7 @@ license.workspace = true
 description = "Cloudflare Workers adapter for solobase (D1, R2, wasm crypto/network, worker entry helpers)"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [features]
 default = []
