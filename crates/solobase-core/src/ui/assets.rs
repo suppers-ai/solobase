@@ -64,7 +64,12 @@ pub fn llm_chat_js() -> &'static str {
 /// Chrome devtools.
 pub fn llm_chat_js_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
-    URL.get_or_init(|| format!("/b/static/llm-chat-{}.js", short_hash(llm_chat_js().as_bytes())))
+    URL.get_or_init(|| {
+        format!(
+            "/b/static/llm-chat-{}.js",
+            short_hash(llm_chat_js().as_bytes())
+        )
+    })
 }
 
 /// Small inline JS for toast notifications (triggered by htmx HX-Trigger).
@@ -291,8 +296,17 @@ mod tests {
         assert!(js.contains("(function ()") || js.contains("(function()"));
         assert!(js.contains("__solobaseLlmChatLoaded"));
         assert!(js.contains("window.solobaseLlmChat = { init: init }"));
-        for sym in ["handleChatSubmit", "createNewThread", "selectThread", "onModelChange", "unloadLocalModel"] {
-            assert!(js.contains(&format!("window.{sym} = {sym}")), "missing global re-export for {sym}");
+        for sym in [
+            "handleChatSubmit",
+            "createNewThread",
+            "selectThread",
+            "onModelChange",
+            "unloadLocalModel",
+        ] {
+            assert!(
+                js.contains(&format!("window.{sym} = {sym}")),
+                "missing global re-export for {sym}"
+            );
         }
     }
 
@@ -301,8 +315,13 @@ mod tests {
         let url = super::llm_chat_js_url();
         assert!(url.starts_with("/b/static/llm-chat-"));
         assert!(url.ends_with(".js"));
-        assert!(!url.ends_with(".min.js"), "we deliberately ship un-minified");
-        let mid = url.trim_start_matches("/b/static/llm-chat-").trim_end_matches(".js");
+        assert!(
+            !url.ends_with(".min.js"),
+            "we deliberately ship un-minified"
+        );
+        let mid = url
+            .trim_start_matches("/b/static/llm-chat-")
+            .trim_end_matches(".js");
         assert_eq!(mid.len(), 8, "expected 8-char short hash, got: {mid}");
         assert!(mid.chars().all(|c| c.is_ascii_hexdigit()));
     }

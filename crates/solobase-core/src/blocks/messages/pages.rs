@@ -612,10 +612,7 @@ mod tests {
             "sibling link missing: {html}"
         );
         assert!(html.contains("Sibling"));
-        assert!(
-            html.contains("Conversations"),
-            "thread-list header missing"
-        );
+        assert!(html.contains("Conversations"), "thread-list header missing");
         // Active marker on the active context, not the sibling.
         assert!(html.contains(r#"data-context-id="ctx-1""#));
         assert!(html.contains(r#"data-active="true""#));

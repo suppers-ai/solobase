@@ -630,7 +630,6 @@ fn render_model_picker(models: &[serde_json::Value], default_model: &str) -> Mar
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -776,7 +775,10 @@ mod tests {
     #[test]
     fn render_thread_list_pane_empty() {
         let html = render_thread_list_pane(&[], None).into_string();
-        assert!(html.contains("No threads yet"), "empty hint missing: {html}");
+        assert!(
+            html.contains("No threads yet"),
+            "empty hint missing: {html}"
+        );
         assert!(
             html.contains("createNewThread()"),
             "new-thread button missing"
@@ -838,10 +840,7 @@ mod tests {
         assert!(html.contains(r#"id="model-picker""#));
         assert!(html.contains(r#"id="model-progress-container""#));
         assert!(html.contains(r#"id="local-models-group""#));
-        assert!(
-            html.contains("/b/llm/settings"),
-            "settings link missing"
-        );
+        assert!(html.contains("/b/llm/settings"), "settings link missing");
         assert!(html.contains(r#"label="Remote""#));
     }
 
@@ -880,7 +879,10 @@ mod tests {
         assert!(html.contains(r#"id="no-thread-prompt""#));
         assert!(html.contains("Start a new conversation"));
         assert!(html.contains(r#"id="chat-form""#));
-        assert!(html.contains("opacity:0.4"), "composer should be disabled style");
+        assert!(
+            html.contains("opacity:0.4"),
+            "composer should be disabled style"
+        );
     }
 
     /// With a thread id, the body wires the active thread into the

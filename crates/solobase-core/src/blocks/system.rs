@@ -91,9 +91,10 @@ impl Block for SystemBlock {
 
 #[cfg(test)]
 mod tests {
+    use wafer_run::meta::META_RESP_CONTENT_TYPE;
+
     use super::*;
     use crate::ui::assets;
-    use wafer_run::meta::META_RESP_CONTENT_TYPE;
 
     struct NopCtx;
     #[async_trait::async_trait]
@@ -135,6 +136,9 @@ mod tests {
             "wrong content type"
         );
         let body = std::str::from_utf8(&buffered.body).unwrap();
-        assert!(body.contains("solobaseLlmChat"), "body should contain the JS module");
+        assert!(
+            body.contains("solobaseLlmChat"),
+            "body should contain the JS module"
+        );
     }
 }
