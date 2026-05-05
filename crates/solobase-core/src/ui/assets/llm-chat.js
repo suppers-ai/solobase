@@ -1,5 +1,7 @@
 // Solobase LLM chat — extracted from inline SHARED_JS/CHAT_JS/THREAD_JS.
-// Entry point: solobaseLlmChat.init({ activeThreadId, threadMessages, defaultModel })
+// Entry point: solobaseLlmChat.init() — reads window._activeThreadId,
+//                                      window._threadMessages,
+//                                      window._defaultModel
 // All globals previously exposed (handleChatSubmit, selectThread, createNewThread,
 // onModelChange, unloadLocalModel) remain on window so existing onclick="" /
 // onsubmit="" attributes keep working.
@@ -447,6 +449,21 @@
     renderInitialMessages();
     setTimeout(populateLocalModels, 1500);
     setTimeout(populateLocalModels, 5000);
+
+    // Desktop fast-path: clicking a thread <a href> in the sidebar performs
+    // an in-page swap via selectThread() instead of a full page reload.
+    // The href stays as the no-JS / first-paint fallback.
+    document.addEventListener('click', function (e) {
+      var t = e.target.closest('[data-thread-id]');
+      if (!t) return;
+      // Only intercept left-clicks without modifier keys (let cmd/ctrl-click
+      // open in new tab, middle-click work as expected).
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      var id = t.dataset.threadId;
+      if (!id) return;
+      e.preventDefault();
+      selectThread(id);
+    });
   }
 
   window.solobaseLlmChat = { init: init };
