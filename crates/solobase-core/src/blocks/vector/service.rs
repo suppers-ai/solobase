@@ -5,13 +5,25 @@
 //! prefixed storage name (e.g. `"suppers_ai__vector__docs"`) at the block
 //! boundary — no magic mapping elsewhere in the stack.
 
-use wafer_core::clients::database::{self as db, ListOptions};
+use wafer_core::clients::database::{self as db, ListOptions, SortField};
 use wafer_run::{
     context::Context,
     types::{ErrorCode, WaferError},
 };
 
-use super::pages_ui::IndexRow;
+/// Per-row data fed to the vector index list table renderer.
+///
+/// Lives in the service layer alongside the loader (`list_index_rows`) so
+/// the data shape and its query stay co-located. The UI layer imports it
+/// for rendering only.
+#[derive(Clone, Debug)]
+pub struct IndexRow {
+    pub name: String,
+    pub model: String,
+    pub dimensions: u32,
+    pub vector_count: u64,
+    pub keyword_search: bool,
+}
 
 /// All tables created for a vector index are named with this prefix.
 pub const TABLE_PREFIX: &str = "suppers_ai__vector__";
@@ -77,6 +89,10 @@ pub fn validate_index_name(name: &str) -> Result<&str, WaferError> {
 pub async fn list_index_rows(ctx: &dyn Context) -> Result<Vec<IndexRow>, WaferError> {
     let opts = ListOptions {
         limit: 1000,
+        sort: vec![SortField {
+            field: "prefixed_name".to_string(),
+            desc: false,
+        }],
         ..Default::default()
     };
     let result = db::list(ctx, "suppers_ai__vector__registry", &opts).await?;
@@ -117,7 +133,11 @@ pub async fn list_index_rows(ctx: &dyn Context) -> Result<Vec<IndexRow>, WaferEr
             .map(|n| n != 0)
             .unwrap_or(false);
 
-        let count = db::count(ctx, &storage_name, &[]).await.unwrap_or(0);
+        // Vectors live in `{prefixed}_meta` (see `pages.rs::ingest`/`reindex`),
+        // not in the registry's `prefixed_name` table. Counting that meta
+        // table is what gives a correct per-index vector count.
+        let meta_table = format!("{storage_name}_meta");
+        let count = db::count(ctx, &meta_table, &[]).await.unwrap_or(0);
 
         rows.push(IndexRow {
             name: storage_name,

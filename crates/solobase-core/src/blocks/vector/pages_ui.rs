@@ -6,7 +6,7 @@
 use maud::{html, Markup};
 use wafer_run::{context::Context, types::Message, OutputStream};
 
-use super::service::display_index_name;
+use super::service::{display_index_name, IndexRow};
 use crate::ui::{
     nav_groups,
     shell::{Crumb, Topbar},
@@ -14,15 +14,6 @@ use crate::ui::{
     templates::{list_page, PageHeader},
     SiteConfig, UserInfo,
 };
-
-#[derive(Clone, Debug)]
-pub struct IndexRow {
-    pub name: String,
-    pub model: String,
-    pub dimensions: u32,
-    pub vector_count: u64,
-    pub keyword_search: bool,
-}
 
 pub fn render_index_list_table(rows: &[IndexRow]) -> Markup {
     if rows.is_empty() {
@@ -180,12 +171,12 @@ mod integration_tests {
             .await
             .expect("seed registry row");
 
-        // One row in the meta table so the count is non-zero. The handler
-        // calls `db::count` against the prefixed storage name (which is the
-        // registry-recorded `prefixed_name`).
+        // Vectors live in `{prefixed}_meta` (see `pages.rs::ingest`), so the
+        // count loader queries that table — not the bare `prefixed_name`.
+        // Seed there to exercise the production code path.
         let mut meta_row: HashMap<String, serde_json::Value> = HashMap::new();
         meta_row.insert("vector_id".into(), json!("v1"));
-        db::create(ctx, "suppers_ai__vector__docs", meta_row)
+        db::create(ctx, "suppers_ai__vector__docs_meta", meta_row)
             .await
             .expect("seed meta row");
     }
@@ -205,6 +196,14 @@ mod integration_tests {
         );
         assert!(body.contains(">docs<"), "seeded row missing: {body}");
         assert!(body.contains("fastembed"), "missing model column: {body}");
+        // The count cell is rendered as `<td data-label="Vectors">1</td>`.
+        // Asserting the exact substring guards against the previously-masked
+        // bug where `db::count` was issued against the registry's
+        // `prefixed_name` (no `_meta` suffix) and silently returned 0.
+        assert!(
+            body.contains(r#"data-label="Vectors">1<"#),
+            "vector count cell should show 1, got: {body}"
+        );
     }
 
     #[tokio::test]
