@@ -35,7 +35,8 @@ impl Block for SystemBlock {
             .endpoints(vec![
                 BlockEndpoint::get("/health").summary("Health check"),
                 BlockEndpoint::get("/b/static/app-{hash}.css").summary("Embedded CSS"),
-                BlockEndpoint::get("/b/static/htmx-{hash}.min.js").summary("Embedded JavaScript"),
+                BlockEndpoint::get("/b/static/htmx-{hash}.min.js").summary("Embedded htmx JS"),
+                BlockEndpoint::get("/b/static/llm-chat-{hash}.js").summary("Embedded LLM chat JS"),
             ])
     }
 
@@ -64,6 +65,14 @@ impl Block for SystemBlock {
                         "application/javascript; charset=utf-8",
                     )
             }
+            _ if path.starts_with("/b/static/llm-chat-") && path.ends_with(".js") => {
+                ResponseBuilder::new()
+                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
+                    .body(
+                        ui::assets::llm_chat_js().as_bytes().to_vec(),
+                        "application/javascript; charset=utf-8",
+                    )
+            }
             _ => err_not_found("not found"),
         }
     }
@@ -79,3 +88,53 @@ impl Block for SystemBlock {
 
 #[cfg(not(target_arch = "wasm32"))]
 ::wafer_run::register_static_block!("suppers-ai/system", SystemBlock);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::assets;
+    use wafer_run::meta::META_RESP_CONTENT_TYPE;
+
+    struct NopCtx;
+    #[async_trait::async_trait]
+    impl Context for NopCtx {
+        async fn call_block(
+            &self,
+            _block_name: &str,
+            _msg: Message,
+            _input: InputStream,
+        ) -> OutputStream {
+            panic!("call_block not used");
+        }
+        fn is_cancelled(&self) -> bool {
+            false
+        }
+        fn config_get(&self, _key: &str) -> Option<&str> {
+            None
+        }
+    }
+
+    #[tokio::test]
+    async fn system_handle_serves_llm_chat_js() {
+        let block = SystemBlock;
+        let url = assets::llm_chat_js_url();
+        let mut msg = Message::new(format!("retrieve:{url}"));
+        msg.set_meta(wafer_run::meta::META_REQ_ACTION, "retrieve");
+        msg.set_meta(wafer_run::meta::META_REQ_RESOURCE, url);
+
+        let out = block.handle(&NopCtx, msg, InputStream::empty()).await;
+        let buffered = out.collect_buffered().await.expect("response");
+        let content_type = buffered
+            .meta
+            .iter()
+            .find(|m| m.key == META_RESP_CONTENT_TYPE)
+            .map(|m| m.value.as_str());
+        assert_eq!(
+            content_type,
+            Some("application/javascript; charset=utf-8"),
+            "wrong content type"
+        );
+        let body = std::str::from_utf8(&buffered.body).unwrap();
+        assert!(body.contains("solobaseLlmChat"), "body should contain the JS module");
+    }
+}

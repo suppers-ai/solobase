@@ -49,6 +49,24 @@ pub fn htmx_js_url() -> &'static str {
     URL.get_or_init(|| format!("/b/static/htmx-{}.min.js", short_hash(htmx_js().as_bytes())))
 }
 
+const LLM_CHAT_JS: &str = include_str!("assets/llm-chat.js");
+
+/// Embedded vanilla-JS bundle for the LLM chat surface — markdown, message
+/// rendering, model management, chat submission, thread creation/selection.
+/// Consumed by the unified LLM page handler and (for the conversation lens)
+/// by the Messages context_detail handler.
+pub fn llm_chat_js() -> &'static str {
+    LLM_CHAT_JS
+}
+
+/// LLM chat JS URL with content hash, e.g. `/b/static/llm-chat-a1b2c3d4.js`.
+/// Not minified — readability matters for a script that's debugged in
+/// Chrome devtools.
+pub fn llm_chat_js_url() -> &'static str {
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| format!("/b/static/llm-chat-{}.js", short_hash(llm_chat_js().as_bytes())))
+}
+
 /// Small inline JS for toast notifications (triggered by htmx HX-Trigger).
 pub fn toast_js() -> &'static str {
     r#"
@@ -265,5 +283,27 @@ mod tests {
         assert!(js.contains("data-drawer-open"));
         // Self-invoking + idempotent guard.
         assert!(js.contains("__drawerInit"));
+    }
+
+    #[test]
+    fn llm_chat_js_is_self_invoking_and_exposes_init() {
+        let js = super::llm_chat_js();
+        assert!(js.contains("(function ()") || js.contains("(function()"));
+        assert!(js.contains("__solobaseLlmChatLoaded"));
+        assert!(js.contains("window.solobaseLlmChat = { init: init }"));
+        for sym in ["handleChatSubmit", "createNewThread", "selectThread", "onModelChange", "unloadLocalModel"] {
+            assert!(js.contains(&format!("window.{sym} = {sym}")), "missing global re-export for {sym}");
+        }
+    }
+
+    #[test]
+    fn llm_chat_js_url_has_content_hash() {
+        let url = super::llm_chat_js_url();
+        assert!(url.starts_with("/b/static/llm-chat-"));
+        assert!(url.ends_with(".js"));
+        assert!(!url.ends_with(".min.js"), "we deliberately ship un-minified");
+        let mid = url.trim_start_matches("/b/static/llm-chat-").trim_end_matches(".js");
+        assert_eq!(mid.len(), 8, "expected 8-char short hash, got: {mid}");
+        assert!(mid.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }
