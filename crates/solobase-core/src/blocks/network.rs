@@ -13,9 +13,7 @@ use wafer_block::{
     wire::network::{Request as NetRequest, ResponseHeader as NetResponseHeader},
 };
 use wafer_core::{clients::database as db, interfaces::network::service::NetworkService};
-use wafer_run::{
-    block::Block, context::Context, types::*, BlockInfo, InputStream, OutputStream,
-};
+use wafer_run::{block::Block, context::Context, types::*, BlockInfo, InputStream, OutputStream};
 
 use super::helpers::{json_map, now_millis};
 

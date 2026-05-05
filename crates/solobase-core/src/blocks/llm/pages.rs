@@ -606,11 +606,11 @@ async fn load_models(ctx: &dyn Context, original_msg: &Message) -> Vec<serde_jso
     // `backend_id`). A decode failure is treated as "no models" so the
     // picker still renders — the user can fall back to the default remote
     // option.
-    let models: Vec<wafer_block::wire::llm::ModelInfo> =
-        match wafer_block::codec::decode(&buf.body) {
-            Ok(v) => v,
-            Err(_) => return vec![],
-        };
+    let models: Vec<wafer_block::wire::llm::ModelInfo> = match wafer_block::codec::decode(&buf.body)
+    {
+        Ok(v) => v,
+        Err(_) => return vec![],
+    };
     models
         .into_iter()
         .map(|m| serde_json::to_value(m).unwrap_or(serde_json::Value::Null))

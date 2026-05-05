@@ -207,7 +207,12 @@ async fn dispatch_chat(
     };
     let payload = match codec::encode(&chat_req) {
         Ok(p) => p,
-        Err(e) => return Err(err_internal(&format!("serialize chat request: {}", e.message))),
+        Err(e) => {
+            return Err(err_internal(&format!(
+                "serialize chat request: {}",
+                e.message
+            )))
+        }
     };
 
     let call_msg = build_chat_call_msg(msg);
