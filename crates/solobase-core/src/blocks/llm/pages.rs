@@ -118,7 +118,7 @@ pub async fn chat_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     }
                 }
                 div #thread-list style="overflow-y:auto;flex:1" {
-                    (thread_list_items(&threads))
+                    (thread_list_items(&threads, None))
                 }
             }
 
@@ -210,7 +210,28 @@ pub async fn chat_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     llm_page("Chat", &config, &path, user.as_ref(), "Chat", content, msg)
 }
 
-fn thread_list_items(threads: &[db::Record]) -> Markup {
+/// Thread-list pane for the chat_page template. Includes the section
+/// header + "+" new-thread button + the scrollable list. Pure function of
+/// the loaded threads and the (optional) active thread id.
+fn render_thread_list_pane(threads: &[db::Record], active_id: Option<&str>) -> Markup {
+    html! {
+        div style="display:flex;flex-direction:column;gap:0.75rem;height:100%" {
+            div style="display:flex;align-items:center;justify-content:space-between" {
+                h3 style="font-size:0.875rem;font-weight:600;color:var(--text-muted);margin:0;text-transform:uppercase;letter-spacing:0.05em" {
+                    "Threads"
+                }
+                button .btn.btn-sm.btn-primary onclick="createNewThread()" {
+                    (icons::plus())
+                }
+            }
+            div #thread-list style="overflow-y:auto;flex:1" {
+                (thread_list_items(threads, active_id))
+            }
+        }
+    }
+}
+
+fn thread_list_items(threads: &[db::Record], active_id: Option<&str>) -> Markup {
     html! {
         @if threads.is_empty() {
             div .text-center .text-muted style="padding:1rem;font-size:0.875rem" {
@@ -222,11 +243,14 @@ fn thread_list_items(threads: &[db::Record]) -> Markup {
                 @let title = thread.str_field("title");
                 @let updated_at = thread.str_field("updated_at");
                 @let date = updated_at.get(..10).unwrap_or(updated_at);
-                div
+                @let is_active = active_id == Some(id);
+                a
                     .card
-                    style="margin-bottom:0.375rem;cursor:pointer;padding:0.625rem 0.75rem;transition:box-shadow 0.15s"
+                    href={"/b/llm/threads/" (id)}
                     data-thread-id=(id)
-                    onclick={"selectThread('" (id) "')"}
+                    data-active=(if is_active { "true" } else { "false" })
+                    aria-current=[is_active.then_some("page")]
+                    style="display:block;text-decoration:none;color:inherit;margin-bottom:0.375rem;padding:0.625rem 0.75rem;transition:box-shadow 0.15s"
                     onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'"
                     onmouseout="this.style.boxShadow=''"
                 {
@@ -239,6 +263,119 @@ fn thread_list_items(threads: &[db::Record]) -> Markup {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Messages pane for the chat_page template. When no thread is selected,
+/// shows the "Create a thread first" empty-state element. When a thread
+/// IS selected, renders an empty `#messages-area` that the JS bootstrap
+/// fills from server-rendered `window._threadMessages`.
+fn render_messages_pane(_entries: &[db::Record], thread_id: Option<&str>) -> Markup {
+    html! {
+        div #messages-area
+            style="height:100%;overflow-y:auto;padding:0.5rem;background:var(--bg-secondary);border-radius:0.5rem"
+        {
+            @if thread_id.is_none() {
+                div #no-thread-prompt .text-center style="padding:3rem 1rem" {
+                    div style="font-size:2.5rem;margin-bottom:0.75rem" { "\u{1f4ac}" }
+                    p style="font-size:1.1rem;color:var(--text-primary);margin:0 0 0.5rem" { "Start a new conversation" }
+                    p .text-muted style="margin:0 0 1.5rem" { "Click the " strong { "+" } " button to create a thread, then type your message." }
+                }
+            }
+            // When thread_id is Some, the JS bootstrap fills #messages-area
+            // from window._threadMessages on init().
+        }
+    }
+}
+
+/// Composer pane for the chat_page template. Disabled state when no
+/// thread is selected (matches the original empty-state behavior).
+fn render_composer(thread_id: Option<&str>) -> Markup {
+    let enabled = thread_id.is_some();
+    let thread_value = thread_id.unwrap_or("");
+    let placeholder = if enabled {
+        "Type your message..."
+    } else {
+        "Create a thread first..."
+    };
+
+    html! {
+        form
+            id="chat-form"
+            onsubmit="return handleChatSubmit(event)"
+            style=(if enabled { "" } else { "opacity:0.4;pointer-events:none" })
+            data-thread=(thread_value)
+        {
+            input type="hidden" name="thread_id" id="active-thread-id" value=(thread_value);
+            div style="display:flex;gap:0.5rem;align-items:flex-end" {
+                div style="flex:1;position:relative" {
+                    textarea
+                        .form-input
+                        #chat-input
+                        name="message"
+                        placeholder=(placeholder)
+                        rows="3"
+                        required
+                        disabled[!enabled]
+                        style="resize:none;width:100%"
+                        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.closest('form').requestSubmit();}"
+                    {}
+                }
+                div style="display:flex;flex-direction:column;align-items:center;gap:0.25rem" {
+                    button #send-btn .btn.btn-primary type="submit" disabled[!enabled] style="height:fit-content" {
+                        "Send"
+                    }
+                    span #send-status .text-muted style="font-size:0.7rem;white-space:nowrap" {}
+                }
+            }
+        }
+    }
+}
+
+/// Right-rail pane for the chat_page template. Holds the model picker,
+/// model loading progress container, and a link to the LLM settings
+/// page. Replaces the inline above-messages model strip from the old
+/// chat_page handler.
+fn render_right_rail(models: &[serde_json::Value], default_model: &str) -> Markup {
+    html! {
+        div style="display:flex;flex-direction:column;gap:1rem;padding:0.5rem" {
+            div {
+                label .form-label style="display:block;margin-bottom:0.375rem;font-size:0.875rem" { "Model" }
+                select
+                    #model-picker
+                    .form-input
+                    style="width:100%"
+                    name="model"
+                    onchange="onModelChange(this.value)"
+                {
+                    optgroup label="Remote" {
+                        option value="" selected[default_model.is_empty()] { "Default (remote)" }
+                        (render_model_picker(models, default_model))
+                    }
+                    optgroup #local-models-group label="Local (WebLLM)" {}
+                }
+                span #model-status .text-muted style="display:block;margin-top:0.25rem;font-size:0.75rem" {}
+            }
+
+            div #model-progress-container style="display:none" {
+                div .card style="padding:0.75rem" {
+                    div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem" {
+                        span style="font-size:0.875rem;font-weight:500" { "Loading model..." }
+                        button #model-unload-btn .btn.btn-sm.btn-ghost onclick="unloadLocalModel()" style="margin-left:auto" {
+                            "Cancel"
+                        }
+                    }
+                    div style="background:var(--bg-secondary);border-radius:0.25rem;height:6px;overflow:hidden" {
+                        div #model-progress-bar style="height:100%;background:var(--primary, #3b82f6);width:0%;transition:width 0.3s" {}
+                    }
+                    div #model-progress-text .text-muted style="font-size:0.75rem;margin-top:0.25rem" { "" }
+                }
+            }
+
+            a .btn.btn-ghost.btn-sm href="/b/llm/settings" style="justify-content:flex-start" {
+                "\u{2699} Settings"
             }
         }
     }
@@ -1273,5 +1410,90 @@ mod tests {
             !html.contains(r#"value="""#),
             "expected no empty-value <option>, got: {html}"
         );
+    }
+
+    // ----- Task 2 helpers: render_thread_list_pane / render_messages_pane /
+    //       render_composer / render_right_rail -----
+
+    fn make_thread(id: &str, title: &str, updated_at: &str) -> db::Record {
+        let mut data = std::collections::HashMap::new();
+        data.insert("title".to_string(), serde_json::json!(title));
+        data.insert("updated_at".to_string(), serde_json::json!(updated_at));
+        db::Record {
+            id: id.to_string(),
+            data,
+        }
+    }
+
+    #[test]
+    fn render_thread_list_pane_empty() {
+        let html = render_thread_list_pane(&[], None).into_string();
+        assert!(html.contains("No threads yet"), "empty hint missing: {html}");
+        assert!(
+            html.contains("createNewThread()"),
+            "new-thread button missing"
+        );
+        assert!(html.contains("Threads"));
+    }
+
+    #[test]
+    fn render_thread_list_pane_marks_active_thread() {
+        let t = make_thread("thread-42", "My chat", "2026-05-05T10:00:00Z");
+        let html = render_thread_list_pane(&[t], Some("thread-42")).into_string();
+        assert!(html.contains("My chat"));
+        assert!(html.contains(r#"data-thread-id="thread-42""#));
+        assert!(
+            html.contains("data-active=\"true\"") || html.contains("aria-current"),
+            "active thread should be marked: {html}"
+        );
+    }
+
+    #[test]
+    fn render_messages_pane_empty_renders_no_thread_prompt() {
+        let html = render_messages_pane(&[], None).into_string();
+        assert!(html.contains(r#"id="no-thread-prompt""#));
+        assert!(html.contains("Start a new conversation"));
+    }
+
+    #[test]
+    fn render_messages_pane_with_thread_renders_messages_area() {
+        let html = render_messages_pane(&[], Some("thread-1")).into_string();
+        assert!(html.contains(r#"id="messages-area""#));
+        assert!(!html.contains(r#"id="no-thread-prompt""#));
+    }
+
+    #[test]
+    fn render_composer_disabled_when_no_thread() {
+        let html = render_composer(None).into_string();
+        assert!(html.contains(r#"id="chat-form""#));
+        assert!(html.contains(r#"id="active-thread-id""#));
+        assert!(
+            html.contains(r#"value="""#),
+            "thread id hidden input should be empty"
+        );
+        assert!(html.contains("disabled"), "composer should be disabled");
+        assert!(html.contains("Create a thread first"));
+    }
+
+    #[test]
+    fn render_composer_enabled_with_thread() {
+        let html = render_composer(Some("thread-7")).into_string();
+        assert!(html.contains(r#"id="chat-form""#));
+        assert!(html.contains(r#"value="thread-7""#));
+        assert!(!html.contains("Create a thread first"));
+    }
+
+    #[test]
+    fn render_right_rail_contains_picker_progress_settings() {
+        let models: Vec<serde_json::Value> = vec![];
+        let html = render_right_rail(&models, "").into_string();
+        assert!(html.contains(r#"id="model-picker""#));
+        assert!(html.contains(r#"id="model-progress-container""#));
+        assert!(html.contains(r#"id="local-models-group""#));
+        assert!(
+            html.contains("/b/llm/settings"),
+            "settings link missing"
+        );
+        assert!(html.contains(r#"label="Remote""#));
     }
 }
