@@ -2,6 +2,19 @@
 resolver = "2"
 members = [
     "crates/solobase-browser",
+    "crates/solobase-cloudflare",
+    "crates/solobase-core",
+    "crates/solobase-native",
+    "crates/solobase",
+    "crates/solobase-web",
+    "examples/minimal-browser",
+]
+# solobase-cloudflare is wasm32-only (depends on `worker`/`wasm-bindgen`,
+# whose StorageService futures wrap `!Send` JsFuture). Excluded from
+# default-members so host `cargo test`/`cargo check` skip it; build it
+# explicitly with `cargo <cmd> -p solobase-cloudflare --target wasm32-unknown-unknown`.
+default-members = [
+    "crates/solobase-browser",
     "crates/solobase-core",
     "crates/solobase-native",
     "crates/solobase",
@@ -52,8 +65,16 @@ tracing-opentelemetry = "0.28"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1", features = ["v4", "v7"] }
 sha2 = "0.10"
+hmac = "0.12"
+getrandom = { version = "0.2" }
 dotenvy = "0.15"
 rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Cloudflare Workers SDK (wasm-only crates; only used by solobase-cloudflare)
+worker = { version = "0.7.5", features = ["d1"] }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+maud = "0.26"
 [profile.release]
 opt-level = "z"
 lto = true

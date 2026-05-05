@@ -57,7 +57,7 @@ jobs:
         run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
 
       - name: Run clippy
-        run: cargo clippy --workspace --exclude solobase-web
+        run: cargo clippy --workspace --exclude solobase-web --exclude solobase-cloudflare
 
   test:
     name: Tests
@@ -100,7 +100,7 @@ jobs:
       # the harness is the right root-cause fix rather than bolting a
       # separate job on here.
       - name: Run tests
-        run: cargo test --workspace --exclude solobase-web
+        run: cargo test --workspace --exclude solobase-web --exclude solobase-cloudflare
 
   wasm:
     name: WASM Build
@@ -126,6 +126,13 @@ jobs:
 
       - name: Build WASM
         run: cd crates/solobase-web && wasm-pack build --target web --release
+
+      # solobase-cloudflare is wasm-only (cdylib targeting CF Workers).
+      # Excluded from host `cargo test`/`clippy` because its R2/D1 services
+      # wrap `!Send` JsFutures that violate wafer-core's Send-bound traits
+      # on host. Verify the crate compiles for wasm32 here.
+      - name: Check solobase-cloudflare (wasm32)
+        run: cargo check -p solobase-cloudflare --target wasm32-unknown-unknown
 
   e2e:
     name: E2E (Playwright)
