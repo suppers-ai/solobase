@@ -88,6 +88,84 @@ const MOBILE_ADMIN_ROUTES = [
   { path: '/b/llm/', name: 'llm-chat' },
 ];
 
+// ===== Phase 5b PR-1: vector index admin pages =====
+
+const VECTOR_INDEX = 'docs';
+const VECTOR_DIMS = 384;
+
+test.describe('visual baseline — admin vector', () => {
+  test.beforeEach(async ({ page }) => {
+    await loginAsAdmin(page);
+  });
+
+  test('admin-vector-list-desktop', async ({ page }) => {
+    // Seed one index so the listing has a row (otherwise we'd snapshot the
+    // empty state, which is covered by unit tests).
+    const create = await page.request.post('/b/vector/api/indexes', {
+      data: {
+        name: VECTOR_INDEX,
+        model: 'multilingual-e5-small',
+        dimensions: VECTOR_DIMS,
+        metric: 'cosine',
+        keyword_search: true,
+      },
+    });
+    expect(create.status()).toBe(200);
+
+    // Upsert one vector so the count cell is non-zero (deterministic).
+    const v = Array.from({ length: VECTOR_DIMS }, (_, i) => (i === 0 ? 1 : 0));
+    const upsert = await page.request.post('/b/vector/api/upsert', {
+      data: {
+        index: VECTOR_INDEX,
+        entries: [{ id: 'doc-A', vector: v }],
+      },
+    });
+    expect(upsert.status()).toBe(200);
+
+    try {
+      await page.goto('/b/vector/', { waitUntil: 'networkidle' });
+      await expect(page).toHaveScreenshot('admin-vector-list-desktop.png', {
+        ...COMMON_OPTS,
+        mask: [page.locator('[data-relative-time], .relative-time, time')],
+      });
+    } finally {
+      await page.request.delete(`/b/vector/api/indexes/${VECTOR_INDEX}`);
+    }
+  });
+
+  test('admin-vector-detail-desktop', async ({ page }) => {
+    const create = await page.request.post('/b/vector/api/indexes', {
+      data: {
+        name: VECTOR_INDEX,
+        model: 'multilingual-e5-small',
+        dimensions: VECTOR_DIMS,
+        metric: 'cosine',
+        keyword_search: true,
+      },
+    });
+    expect(create.status()).toBe(200);
+
+    const v = Array.from({ length: VECTOR_DIMS }, (_, i) => (i === 0 ? 1 : 0));
+    const upsert = await page.request.post('/b/vector/api/upsert', {
+      data: {
+        index: VECTOR_INDEX,
+        entries: [{ id: 'doc-A', vector: v }],
+      },
+    });
+    expect(upsert.status()).toBe(200);
+
+    try {
+      await page.goto(`/b/vector/${VECTOR_INDEX}/`, { waitUntil: 'networkidle' });
+      await expect(page).toHaveScreenshot('admin-vector-detail-desktop.png', {
+        ...COMMON_OPTS,
+        mask: [page.locator('[data-relative-time], .relative-time, time')],
+      });
+    } finally {
+      await page.request.delete(`/b/vector/api/indexes/${VECTOR_INDEX}`);
+    }
+  });
+});
+
 test.describe('visual baseline mobile — anonymous (375px)', () => {
   for (const r of MOBILE_ANON_ROUTES) {
     test(`anon-mobile ${r.name}`, async ({ page }) => {
