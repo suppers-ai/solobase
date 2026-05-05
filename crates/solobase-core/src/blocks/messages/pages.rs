@@ -259,14 +259,44 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
 
     let body = render_context_detail_body(&context, &entries, &siblings, context_id);
 
-    messages_page(
+    // Build crumbs locally so the conversation branch can carry a working
+    // [Messages] link back to /b/messages/. The default branch keeps a
+    // single crumb (matches its inline "← Back" affordance in
+    // render_default_view). Inline shelled_response here — parallel to
+    // T3's pages::page for LLM — so we don't have to teach messages_page
+    // about variable crumb shapes (it's still used by context_list_page).
+    let crumbs = if context.str_field("type") == "conversation" {
+        vec![
+            Crumb {
+                label: "Messages",
+                href: Some("/b/messages/"),
+            },
+            Crumb {
+                label: display_title,
+                href: None,
+            },
+        ]
+    } else {
+        vec![Crumb {
+            label: display_title,
+            href: None,
+        }]
+    };
+    let topbar = Topbar {
+        crumbs,
+        primary_action: None,
+        show_palette: true,
+    };
+    let groups = nav_groups::admin();
+    crate::ui::shelled_response(
+        msg,
         display_title,
         &config,
-        &path,
+        &groups,
         user.as_ref(),
-        display_title,
+        &path,
+        topbar,
         body,
-        msg,
     )
 }
 
@@ -440,10 +470,13 @@ fn render_conversation_thread_list(siblings: &[&db::Record], active_id: &str) ->
 }
 
 fn render_conversation_messages(entries: &[db::Record]) -> Markup {
+    // The `chat_page` template's `.chat-messages` wrapper already owns
+    // scroll, padding, and background for this pane (see layout.css
+    // `.page--chat .chat-messages`). We just need the #entries-list ID
+    // for the htmx composer's hx-target — no extra scroll container or
+    // we double-scroll and end up with a boxed-inside-boxed look.
     html! {
-        div #entries-list
-            style="height:100%;overflow-y:auto;padding:0.5rem;background:var(--bg-secondary);border-radius:0.5rem"
-        {
+        div #entries-list {
             @if entries.is_empty() {
                 div .text-center .text-muted style="padding:2rem" {
                     "No messages yet. Send the first one below."
@@ -463,7 +496,10 @@ fn render_conversation_composer(post_url: &str) -> Markup {
             hx-post=(post_url)
             hx-target="#entries-list"
             hx-swap="beforeend"
-            hx-on--after-request="if(event.detail.successful){this.reset();var list=document.getElementById('entries-list');list.scrollTop=list.scrollHeight;}"
+            // Scroll the parent `.chat-messages` (the chat_page template's
+            // pane wrapper) — `#entries-list` itself is no longer a scroll
+            // container in the conversation view (see render_conversation_messages).
+            hx-on--after-request="if(event.detail.successful){this.reset();var list=document.getElementById('entries-list').parentElement;list.scrollTop=list.scrollHeight;}"
         {
             // Hidden defaults: kind=message, role=user. Conversation lens is
             // an opinionated view — composers below the fold (settings page,
@@ -583,5 +619,40 @@ mod tests {
         // Active marker on the active context, not the sibling.
         assert!(html.contains(r#"data-context-id="ctx-1""#));
         assert!(html.contains(r#"data-active="true""#));
+    }
+
+    #[test]
+    fn context_detail_body_conversation_messages_pane_has_no_inner_scroll() {
+        let mut ctx_rec = make_record("ctx-1");
+        ctx_rec
+            .data
+            .insert("type".to_string(), serde_json::json!("conversation"));
+        ctx_rec
+            .data
+            .insert("title".to_string(), serde_json::json!("Hello"));
+
+        let html = render_context_detail_body(&ctx_rec, &[], &[], "ctx-1").into_string();
+
+        // #entries-list still exists for htmx hx-target.
+        assert!(html.contains(r#"id="entries-list""#));
+        // But it must not carry the redundant overflow/height styling — the
+        // .chat-messages wrapper from the chat_page template owns scroll.
+        // Heuristic: the entries-list opening tag should NOT include
+        // height:100% or overflow-y:auto in its style attribute.
+        let entries_pos = html
+            .find(r#"id="entries-list""#)
+            .expect("entries-list must exist");
+        // Walk back from entries-list to the opening `<div`.
+        let div_start = html[..entries_pos].rfind("<div").expect("opening div");
+        let tag_end = html[div_start..].find('>').expect("tag close") + div_start;
+        let opening_tag = &html[div_start..=tag_end];
+        assert!(
+            !opening_tag.contains("height:100%"),
+            "conversation entries-list opening tag still has height:100% — double scroll: {opening_tag}"
+        );
+        assert!(
+            !opening_tag.contains("overflow-y:auto"),
+            "conversation entries-list opening tag still has overflow-y:auto — double scroll: {opening_tag}"
+        );
     }
 }
