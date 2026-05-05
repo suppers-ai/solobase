@@ -1,8 +1,8 @@
 //! SSR pages for the LLM orchestrator block.
 //!
 //! Provides:
-//! - Chat page (`GET /b/llm/`) — thread list + message history + input form
-//! - Thread page (`GET /b/llm/threads/{id}`) — focused thread view
+//! - Chat page (`GET /b/llm/` and `GET /b/llm/threads/{id}`) — unified
+//!   handler renders the canonical `templates::chat_page` shell.
 //! - Settings page (`GET /b/llm/settings`) — default provider/model config
 
 use maud::{html, Markup};
@@ -14,9 +14,9 @@ use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::SETTINGS_COLLECTION;
 use crate::{
-    blocks::helpers::{err_internal, RecordExt},
+    blocks::helpers::RecordExt,
     ui::{
-        self, components, icons, nav_groups,
+        components, icons, nav_groups,
         shell::{Crumb, Topbar},
         SiteConfig, UserInfo,
     },
@@ -30,39 +30,93 @@ const CONTEXTS_COLLECTION: &str = "suppers_ai__messages__contexts";
 const ENTRIES_COLLECTION: &str = "suppers_ai__messages__entries";
 
 // ---------------------------------------------------------------------------
-// Navigation
+// Unified chat page (handles `/b/llm/` and `/b/llm/threads/{id}`)
 // ---------------------------------------------------------------------------
 
-fn llm_page<'a>(
-    title: &'a str,
-    config: &SiteConfig,
-    path: &'a str,
-    user: Option<&UserInfo>,
-    crumb_label: &'a str,
-    content: Markup,
-    msg: &Message,
-) -> OutputStream {
-    let groups = nav_groups::admin();
-    let topbar = Topbar {
-        crumbs: vec![Crumb {
-            label: crumb_label,
-            href: None,
-        }],
-        primary_action: None,
-        show_palette: true,
-    };
-    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
+/// Parse the optional thread id from a `/b/llm/{...}` URL.
+///
+/// Returns `Some(id)` for `/b/llm/threads/{id}` (and ignores any trailing
+/// path segments), `None` for `/b/llm/` and `/b/llm`.
+fn parse_thread_id(path: &str) -> Option<&str> {
+    let after = path.strip_prefix("/b/llm/threads/")?;
+    let id = after.split('/').next().unwrap_or("");
+    if id.is_empty() {
+        None
+    } else {
+        Some(id)
+    }
 }
 
-// ---------------------------------------------------------------------------
-// Chat page
-// ---------------------------------------------------------------------------
+/// Pure render helper for the unified chat page body.
+///
+/// Takes the already-loaded data (threads, entries, models, defaults) and
+/// the optional active thread id, returns the inner page Markup. Kept
+/// pure (sync, no `Context`) so the selector-preservation contract can be
+/// verified in unit tests without mocking the database client.
+fn render_page_body(
+    threads: &[db::Record],
+    entries: &[db::Record],
+    models: &[serde_json::Value],
+    default_model: &str,
+    thread_id: Option<&str>,
+    llm_chat_js_url: &str,
+) -> Markup {
+    // Build messages JSON for the bootstrap carrier. Empty array when no thread.
+    let messages_json: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "role": m.str_field("role"),
+                "content": m.str_field("content"),
+                "created_at": m.str_field("created_at"),
+            })
+        })
+        .collect();
+    let messages_json_str = serde_json::to_string(&messages_json).unwrap_or_else(|_| "[]".into());
 
-pub async fn chat_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
+    let thread_list = render_thread_list_pane(threads, thread_id);
+    let messages_pane = render_messages_pane(entries, thread_id);
+    let composer = render_composer(thread_id);
+    let right_rail = render_right_rail(models, default_model);
+
+    let chat_body =
+        crate::ui::templates::chat_page(thread_list, messages_pane, composer, Some(right_rail));
+
+    html! {
+        (chat_body)
+
+        // Pulse animation for thinking indicator + blinking cursor.
+        style { "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} @keyframes blink{0%,100%{opacity:1}50%{opacity:0}} .typing-cursor{display:inline-block;width:0.5em;height:1.1em;background:var(--text-primary,#333);vertical-align:text-bottom;margin-left:2px;animation:blink 0.8s step-end infinite}" }
+        // marked.js for markdown rendering. CDN dependency preserved
+        // (separate cleanup; out of scope for Phase 5a).
+        script src="https://cdn.jsdelivr.net/npm/marked@14/marked.min.js" {}
+
+        // Server-rendered initial state for the chat module. Carrier is
+        // type="application/json" so the browser does NOT parse the body as JS —
+        // any `</script>` or `<` in user-typed message content is inert. The
+        // JS module reads it via JSON.parse on init().
+        script type="application/json" id="llm-chat-bootstrap" {
+            (maud::PreEscaped(messages_json_str))
+        }
+        script src=(llm_chat_js_url) defer {}
+        script {
+            (maud::PreEscaped("window.addEventListener('DOMContentLoaded', function(){ if (window.solobaseLlmChat) window.solobaseLlmChat.init(); });"))
+        }
+    }
+}
+
+/// Unified handler for `/b/llm/` and `/b/llm/threads/{id}`.
+///
+/// Renders the canonical `templates::chat_page` (thread list / messages /
+/// composer / right rail). The optional thread id from the URL drives
+/// composer enablement and message preloading.
+pub async fn page(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
+    let thread_id = parse_thread_id(&path);
 
+    // Load thread list (sidebar) — most-recently-updated first, capped at 50.
     let opts = ListOptions {
         sort: vec![SortField {
             field: "updated_at".to_string(),
@@ -71,146 +125,120 @@ pub async fn chat_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         limit: 50,
         ..Default::default()
     };
-
     let threads = match db::list(ctx, CONTEXTS_COLLECTION, &opts).await {
         Ok(r) => r.records,
         Err(_) => vec![],
     };
 
-    // Load available remote models for the picker — aggregated across all
-    // registered LLM backends via the `wafer-run/llm` service block.
+    // Load entries for the selected thread, if any. Empty when no thread is selected.
+    let entries = match thread_id {
+        Some(tid) => {
+            let messages_opts = ListOptions {
+                filters: vec![Filter {
+                    field: "context_id".to_string(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::Value::String(tid.to_string()),
+                }],
+                sort: vec![SortField {
+                    field: "created_at".to_string(),
+                    desc: false,
+                }],
+                limit: 200,
+                ..Default::default()
+            };
+            db::list(ctx, ENTRIES_COLLECTION, &messages_opts)
+                .await
+                .map(|r| r.records)
+                .unwrap_or_default()
+        }
+        None => Vec::new(),
+    };
+
+    // Resolve display title from the loaded thread record (when present).
+    let thread_title = thread_id
+        .and_then(|tid| threads.iter().find(|t| t.id.as_str() == tid))
+        .map(|t| t.str_field("title").to_string())
+        .filter(|s| !s.is_empty());
+    let display_title = thread_title.as_deref().unwrap_or("Chat");
+
     let models = load_models(ctx, msg).await;
     let default_model = config::get_default(ctx, DEFAULT_MODEL_VAR, "").await;
 
-    let content = html! {
-        (components::page_header(
-            "Chat",
-            Some("Start a conversation with your LLM providers"),
-            None,
-        ))
+    let llm_chat_js_url = crate::ui::assets::llm_chat_js_url();
+    let content = render_page_body(
+        &threads,
+        &entries,
+        &models,
+        default_model.as_str(),
+        thread_id,
+        llm_chat_js_url,
+    );
 
-        // Model loading progress bar (hidden by default)
-        div #model-progress-container style="display:none;margin-bottom:1rem" {
-            div .card style="padding:0.75rem" {
-                div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem" {
-                    span style="font-size:0.875rem;font-weight:500" { "Loading model..." }
-                    button #model-unload-btn .btn.btn-sm.btn-ghost onclick="unloadLocalModel()" style="margin-left:auto" { "Cancel" }
-                }
-                div style="background:var(--bg-secondary);border-radius:0.25rem;height:6px;overflow:hidden" {
-                    div #model-progress-bar style="height:100%;background:var(--primary, #3b82f6);width:0%;transition:width 0.3s" {}
-                }
-                div #model-progress-text .text-muted style="font-size:0.75rem;margin-top:0.25rem" { "" }
-            }
-        }
-
-        div style="display:grid;grid-template-columns:280px 1fr;gap:1.5rem;height:calc(100vh - 200px)" {
-            // --- Sidebar: thread list ---
-            div style="display:flex;flex-direction:column;gap:0.75rem;overflow:hidden" {
-                div style="display:flex;align-items:center;justify-content:space-between" {
-                    h3 style="font-size:0.875rem;font-weight:600;color:var(--text-muted);margin:0;text-transform:uppercase;letter-spacing:0.05em" {
-                        "Threads"
-                    }
-                    button
-                        .btn.btn-sm.btn-primary
-                        onclick="createNewThread()"
-                    {
-                        (icons::plus())
-                    }
-                }
-                div #thread-list style="overflow-y:auto;flex:1" {
-                    (thread_list_items(&threads))
-                }
-            }
-
-            // --- Main: message area + input ---
-            div style="display:flex;flex-direction:column;overflow:hidden" {
-                // Model picker — populated server-side from
-                // `wafer-run/llm` aggregated `list_models`. Values use the
-                // `"{backend_id}:{model_id}"` format so the chat API can
-                // forward them unchanged via the `model` field.
-                div style="margin-bottom:1rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap" {
-                    label .form-label style="margin:0;font-size:0.875rem" { "Model:" }
-                    select
-                        #model-picker
-                        .form-input
-                        style="max-width:280px"
-                        name="model"
-                        onchange="onModelChange(this.value)"
-                    {
-                        // Remote models group
-                        optgroup label="Remote" {
-                            option value="" selected[default_model.is_empty()] { "Default (remote)" }
-                            (render_model_picker(&models, default_model.as_str()))
-                        }
-                        // Local models group — populated by JS if WebGPU available
-                        optgroup #local-models-group label="Local (WebLLM)" {}
-                    }
-                    // Status indicator for local model
-                    span #model-status .text-muted style="font-size:0.75rem" {}
-                }
-
-                div #messages-area
-                    style="flex:1;overflow-y:auto;padding:0.5rem;background:var(--bg-secondary);border-radius:0.5rem;margin-bottom:1rem"
-                {
-                    div #no-thread-prompt .text-center style="padding:3rem 1rem" {
-                        div style="font-size:2.5rem;margin-bottom:0.75rem" { "\u{1f4ac}" }
-                        p style="font-size:1.1rem;color:var(--text-primary);margin:0 0 0.5rem" { "Start a new conversation" }
-                        p .text-muted style="margin:0 0 1.5rem" { "Click the " strong { "+" } " button to create a thread, then type your message." }
-                    }
-                }
-
-                // Chat input form (disabled until a thread is selected)
-                form
-                    id="chat-form"
-                    onsubmit="return handleChatSubmit(event)"
-                    style="opacity:0.4;pointer-events:none"
-                    data-thread=""
-                {
-                    input type="hidden" name="thread_id" id="active-thread-id" value="";
-                    div style="display:flex;gap:0.5rem;align-items:flex-end" {
-                        div style="flex:1;position:relative" {
-                            textarea
-                                .form-input
-                                #chat-input
-                                name="message"
-                                placeholder="Create a thread first..."
-                                rows="3"
-                                required
-                                disabled
-                                style="resize:none;width:100%"
-                                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.closest('form').requestSubmit();}"
-                            {}
-                        }
-                        div style="display:flex;flex-direction:column;align-items:center;gap:0.25rem" {
-                            button #send-btn .btn.btn-primary type="submit" disabled style="height:fit-content" {
-                                "Send"
-                            }
-                            span #send-status .text-muted style="font-size:0.7rem;white-space:nowrap" {}
-                        }
-                    }
-                }
-            }
-        }
-
-        // Pulse animation for thinking indicator + blinking cursor for typing
-        style { "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} @keyframes blink{0%,100%{opacity:1}50%{opacity:0}} .typing-cursor{display:inline-block;width:0.5em;height:1.1em;background:var(--text-primary,#333);vertical-align:text-bottom;margin-left:2px;animation:blink 0.8s step-end infinite}" }
-        // Load marked.js for markdown rendering
-        script src="https://cdn.jsdelivr.net/npm/marked@14/marked.min.js" {}
-
-        // Shared JS (markdown, message rendering, model management, chat logic)
-        script {
-            (maud::PreEscaped(SHARED_JS))
-        }
-        // Page-specific JS (thread selection)
-        script {
-            (maud::PreEscaped(CHAT_JS))
-        }
+    // Build mobile-friendly crumbs:
+    //  - On /b/llm/: just `[Chat]`.
+    //  - On /b/llm/threads/{id}: `[Threads] / [thread title]` so the mobile
+    //    single-pane view has a visible back-link to the thread list.
+    let crumbs = match thread_id {
+        Some(_) => vec![
+            Crumb {
+                label: "Threads",
+                href: Some("/b/llm/"),
+            },
+            Crumb {
+                label: display_title,
+                href: None,
+            },
+        ],
+        None => vec![Crumb {
+            label: "Chat",
+            href: None,
+        }],
+    };
+    let topbar = Topbar {
+        crumbs,
+        primary_action: None,
+        show_palette: true,
     };
 
-    llm_page("Chat", &config, &path, user.as_ref(), "Chat", content, msg)
+    let groups = nav_groups::admin();
+    crate::ui::shelled_response(
+        msg,
+        display_title,
+        &site_config,
+        &groups,
+        user.as_ref(),
+        &path,
+        topbar,
+        content,
+    )
 }
 
-fn thread_list_items(threads: &[db::Record]) -> Markup {
+// ---------------------------------------------------------------------------
+// chat_page render helpers (consumed by the unified `page` handler above)
+// ---------------------------------------------------------------------------
+
+/// Thread-list pane for the chat_page template. Includes the section
+/// header + "+" new-thread button + the scrollable list. Pure function of
+/// the loaded threads and the (optional) active thread id.
+fn render_thread_list_pane(threads: &[db::Record], active_id: Option<&str>) -> Markup {
+    html! {
+        div style="display:flex;flex-direction:column;gap:0.75rem;height:100%" {
+            div style="display:flex;align-items:center;justify-content:space-between" {
+                h3 style="font-size:0.875rem;font-weight:600;color:var(--text-muted);margin:0;text-transform:uppercase;letter-spacing:0.05em" {
+                    "Threads"
+                }
+                button .btn.btn-sm.btn-primary onclick="createNewThread()" {
+                    (icons::plus())
+                }
+            }
+            div #thread-list style="overflow-y:auto;flex:1" {
+                (thread_list_items(threads, active_id))
+            }
+        }
+    }
+}
+
+fn thread_list_items(threads: &[db::Record], active_id: Option<&str>) -> Markup {
     html! {
         @if threads.is_empty() {
             div .text-center .text-muted style="padding:1rem;font-size:0.875rem" {
@@ -222,11 +250,14 @@ fn thread_list_items(threads: &[db::Record]) -> Markup {
                 @let title = thread.str_field("title");
                 @let updated_at = thread.str_field("updated_at");
                 @let date = updated_at.get(..10).unwrap_or(updated_at);
-                div
+                @let is_active = active_id == Some(id);
+                a
                     .card
-                    style="margin-bottom:0.375rem;cursor:pointer;padding:0.625rem 0.75rem;transition:box-shadow 0.15s"
+                    href={"/b/llm/threads/" (id)}
                     data-thread-id=(id)
-                    onclick={"selectThread('" (id) "')"}
+                    data-active=(if is_active { "true" } else { "false" })
+                    aria-current=[is_active.then_some("page")]
+                    style="display:block;text-decoration:none;color:inherit;margin-bottom:0.375rem;padding:0.625rem 0.75rem;transition:box-shadow 0.15s"
                     onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'"
                     onmouseout="this.style.boxShadow=''"
                 {
@@ -244,184 +275,118 @@ fn thread_list_items(threads: &[db::Record]) -> Markup {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Thread page (focused view)
-// ---------------------------------------------------------------------------
-
-pub async fn thread_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let path = msg.path().to_string();
-
-    let thread_id = path
-        .strip_prefix("/b/llm/threads/")
-        .unwrap_or("")
-        .split('/')
-        .next()
-        .unwrap_or("");
-
-    if thread_id.is_empty() {
-        return ui::not_found_response(msg);
-    }
-
-    let thread = match db::get(ctx, CONTEXTS_COLLECTION, thread_id).await {
-        Ok(r) => r,
-        Err(e) if e.code == ErrorCode::NotFound => return ui::not_found_response(msg),
-        Err(e) => return err_internal(&format!("Database error: {e}")),
-    };
-
-    let messages_opts = ListOptions {
-        filters: vec![Filter {
-            field: "context_id".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(thread_id.to_string()),
-        }],
-        sort: vec![SortField {
-            field: "created_at".to_string(),
-            desc: false,
-        }],
-        limit: 200,
-        ..Default::default()
-    };
-
-    let messages = match db::list(ctx, ENTRIES_COLLECTION, &messages_opts).await {
-        Ok(r) => r.records,
-        Err(_) => vec![],
-    };
-
-    let models = load_models(ctx, msg).await;
-    let default_model = config::get_default(ctx, DEFAULT_MODEL_VAR, "").await;
-
-    let thread_title = thread.str_field("title");
-    let display_title = if thread_title.is_empty() {
-        "Chat"
-    } else {
-        thread_title
-    };
-
-    // Build messages JSON for the page JS to pick up
-    let messages_json: Vec<serde_json::Value> = messages
-        .iter()
-        .map(|m| {
-            serde_json::json!({
-                "role": m.str_field("role"),
-                "content": m.str_field("content"),
-                "created_at": m.str_field("created_at"),
-            })
-        })
-        .collect();
-    let messages_json_str = serde_json::to_string(&messages_json).unwrap_or_else(|_| "[]".into());
-
-    let content = html! {
-        div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem" {
-            a .btn.btn-ghost.btn-sm href="/b/llm/" { "\u{2190} Back" }
-            h1 .page-title style="margin:0" { (display_title) }
-        }
-
-        // Model loading progress bar (hidden by default)
-        div #model-progress-container style="display:none;margin-bottom:1rem" {
-            div .card style="padding:0.75rem" {
-                div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem" {
-                    span style="font-size:0.875rem;font-weight:500" { "Loading model..." }
-                    button #model-unload-btn .btn.btn-sm.btn-ghost onclick="unloadLocalModel()" style="margin-left:auto" { "Cancel" }
-                }
-                div style="background:var(--bg-secondary);border-radius:0.25rem;height:6px;overflow:hidden" {
-                    div #model-progress-bar style="height:100%;background:var(--primary, #3b82f6);width:0%;transition:width 0.3s" {}
-                }
-                div #model-progress-text .text-muted style="font-size:0.75rem;margin-top:0.25rem" { "" }
-            }
-        }
-
-        // Model picker — populated server-side from `wafer-run/llm`
-        // aggregated `list_models`. See `render_model_picker` for the
-        // `"{backend_id}:{model_id}"` value shape.
-        div style="margin-bottom:1rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap" {
-            label .form-label style="margin:0;font-size:0.875rem" { "Model:" }
-            select
-                #model-picker
-                .form-input
-                style="max-width:280px"
-                name="model"
-                onchange="onModelChange(this.value)"
-            {
-                optgroup label="Remote" {
-                    option value="" selected[default_model.is_empty()] { "Default (remote)" }
-                    (render_model_picker(&models, default_model.as_str()))
-                }
-                optgroup #local-models-group label="Local (WebLLM)" {}
-            }
-            span #model-status .text-muted style="font-size:0.75rem" {}
-        }
-
-        // Messages list
-        div
-            #messages-area
-            style="margin-bottom:1rem;max-height:60vh;overflow-y:auto;padding:0.5rem;background:var(--bg-secondary);border-radius:0.5rem"
+/// Messages pane for the chat_page template. When no thread is selected,
+/// shows the "Create a thread first" empty-state element. When a thread
+/// IS selected, renders an empty `#messages-area` that the JS bootstrap
+/// fills from the `<script type="application/json" id="llm-chat-bootstrap">`
+/// carrier emitted by `render_page_body`.
+fn render_messages_pane(_entries: &[db::Record], thread_id: Option<&str>) -> Markup {
+    html! {
+        div #messages-area
+            style="height:100%;overflow-y:auto;padding:0.5rem;background:var(--bg-secondary);border-radius:0.5rem"
         {
-            @if messages.is_empty() {
-                div .text-center .text-muted style="padding:2rem" {
-                    "No messages yet. Send the first one below."
+            @if thread_id.is_none() {
+                div #no-thread-prompt .text-center style="padding:3rem 1rem" {
+                    div style="font-size:2.5rem;margin-bottom:0.75rem" { "\u{1f4ac}" }
+                    p style="font-size:1.1rem;color:var(--text-primary);margin:0 0 0.5rem" { "Start a new conversation" }
+                    p .text-muted style="margin:0 0 1.5rem" { "Click the " strong { "+" } " button to create a thread, then type your message." }
                 }
             }
-            // Messages will be rendered by JS for consistent markdown rendering
+            // When thread_id is Some, the JS bootstrap fills #messages-area
+            // by JSON.parse-ing the #llm-chat-bootstrap carrier on init().
         }
+    }
+}
 
-        // Chat input form
+/// Composer pane for the chat_page template. Disabled state when no
+/// thread is selected (matches the original empty-state behavior).
+fn render_composer(thread_id: Option<&str>) -> Markup {
+    let enabled = thread_id.is_some();
+    let thread_value = thread_id.unwrap_or("");
+    let placeholder = if enabled {
+        "Type your message..."
+    } else {
+        "Create a thread first..."
+    };
+
+    html! {
         form
             id="chat-form"
             onsubmit="return handleChatSubmit(event)"
+            style=(if enabled { "" } else { "opacity:0.4;pointer-events:none" })
+            data-thread=(thread_value)
         {
-            input type="hidden" name="thread_id" id="active-thread-id" value=(thread_id);
+            input type="hidden" name="thread_id" id="active-thread-id" value=(thread_value);
             div style="display:flex;gap:0.5rem;align-items:flex-end" {
                 div style="flex:1;position:relative" {
                     textarea
                         .form-input
                         #chat-input
                         name="message"
-                        placeholder="Type your message..."
+                        placeholder=(placeholder)
                         rows="3"
                         required
+                        disabled[!enabled]
                         style="resize:none;width:100%"
                         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.closest('form').requestSubmit();}"
                     {}
                 }
-                button #send-btn .btn.btn-primary type="submit" style="height:fit-content" {
-                    "Send"
+                div style="display:flex;flex-direction:column;align-items:center;gap:0.25rem" {
+                    button #send-btn .btn.btn-primary type="submit" disabled[!enabled] style="height:fit-content" {
+                        "Send"
+                    }
+                    span #send-status .text-muted style="font-size:0.7rem;white-space:nowrap" {}
                 }
             }
         }
+    }
+}
 
-        // Pulse animation for thinking indicator + blinking cursor for typing
-        style { "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} @keyframes blink{0%,100%{opacity:1}50%{opacity:0}} .typing-cursor{display:inline-block;width:0.5em;height:1.1em;background:var(--text-primary,#333);vertical-align:text-bottom;margin-left:2px;animation:blink 0.8s step-end infinite}" }
-        // Load marked.js for markdown rendering
-        script src="https://cdn.jsdelivr.net/npm/marked@14/marked.min.js" {}
+/// Right-rail pane for the chat_page template. Holds the model picker,
+/// model loading progress container, and a link to the LLM settings
+/// page. Replaces the inline above-messages model strip from the old
+/// chat_page handler.
+fn render_right_rail(models: &[serde_json::Value], default_model: &str) -> Markup {
+    html! {
+        div style="display:flex;flex-direction:column;gap:1rem;padding:0.5rem" {
+            div {
+                label .form-label style="display:block;margin-bottom:0.375rem;font-size:0.875rem" { "Model" }
+                select
+                    #model-picker
+                    .form-input
+                    style="width:100%"
+                    name="model"
+                    onchange="onModelChange(this.value)"
+                {
+                    optgroup label="Remote" {
+                        option value="" selected[default_model.is_empty()] { "Default (remote)" }
+                        (render_model_picker(models, default_model))
+                    }
+                    optgroup #local-models-group label="Local (WebLLM)" {}
+                }
+                span #model-status .text-muted style="display:block;margin-top:0.25rem;font-size:0.75rem" {}
+            }
 
-        // Pass initial messages to JS
-        script {
-            (maud::PreEscaped(format!(
-                "window._threadMessages = {messages_json_str};"
-            )))
+            div #model-progress-container style="display:none" {
+                div .card style="padding:0.75rem" {
+                    div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem" {
+                        span style="font-size:0.875rem;font-weight:500" { "Loading model..." }
+                        button #model-unload-btn .btn.btn-sm.btn-ghost onclick="unloadLocalModel()" style="margin-left:auto" {
+                            "Cancel"
+                        }
+                    }
+                    div style="background:var(--bg-secondary);border-radius:0.25rem;height:6px;overflow:hidden" {
+                        div #model-progress-bar style="height:100%;background:var(--primary, #3b82f6);width:0%;transition:width 0.3s" {}
+                    }
+                    div #model-progress-text .text-muted style="font-size:0.75rem;margin-top:0.25rem" { "" }
+                }
+            }
+
+            a .btn.btn-ghost.btn-sm href="/b/llm/settings" style="justify-content:flex-start" {
+                "\u{2699} Settings"
+            }
         }
-
-        // Shared JS (markdown, message rendering, model management, chat logic)
-        script {
-            (maud::PreEscaped(SHARED_JS))
-        }
-        // Page-specific JS (initial message rendering)
-        script {
-            (maud::PreEscaped(THREAD_JS))
-        }
-    };
-
-    llm_page(
-        display_title,
-        &config,
-        &path,
-        user.as_ref(),
-        display_title,
-        content,
-        msg,
-    )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -557,14 +522,24 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    llm_page(
+    let groups = nav_groups::admin();
+    let topbar = Topbar {
+        crumbs: vec![Crumb {
+            label: "Settings",
+            href: None,
+        }],
+        primary_action: None,
+        show_palette: true,
+    };
+    crate::ui::shelled_response(
+        msg,
         "LLM Settings",
         &config,
-        &path,
+        &groups,
         user.as_ref(),
-        "Settings",
+        &path,
+        topbar,
         content,
-        msg,
     )
 }
 
@@ -665,497 +640,6 @@ fn render_model_picker(models: &[serde_json::Value], default_model: &str) -> Mar
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Shared JS utilities (markdown, message rendering, model management)
-// ---------------------------------------------------------------------------
-
-/// JavaScript shared between the chat page and thread page.
-/// Contains markdown rendering, message card rendering, model management,
-/// and chat submission logic.
-const SHARED_JS: &str = r#"
-// ---------------------------------------------------------------------------
-// Markdown rendering
-// ---------------------------------------------------------------------------
-
-function renderMarkdown(text) {
-    if (typeof marked !== 'undefined' && marked.parse) {
-        try {
-            return marked.parse(text, { breaks: true });
-        } catch(e) {}
-    }
-    // Fallback: escape HTML and preserve whitespace
-    return escHtml(text).replace(/\n/g, '<br>');
-}
-
-function escHtml(s) {
-    return String(s)
-        .replace(/&/g,'&amp;')
-        .replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;')
-        .replace(/"/g,'&quot;');
-}
-
-// ---------------------------------------------------------------------------
-// Message card rendering
-// ---------------------------------------------------------------------------
-
-function messageCardHtml(role, content, date, opts) {
-    opts = opts || {};
-    var isMarkdown = (role === 'assistant');
-    var rendered = isMarkdown ? renderMarkdown(content) : escHtml(content);
-
-    var bg, badge;
-    if (role === 'user') {
-        bg = 'background:#eff6ff;border-left:3px solid #3b82f6';
-        badge = 'badge-info';
-    } else if (role === 'assistant') {
-        bg = 'background:#f8fafc;border-left:3px solid #94a3b8';
-        badge = 'badge';
-    } else if (role === 'system') {
-        bg = 'background:#fefce8;border-left:3px solid #eab308';
-        badge = 'badge-warning';
-    } else {
-        bg = 'background:#f0fdf4;border-left:3px solid #22c55e';
-        badge = 'badge-success';
-    }
-
-    var modelBadge = '';
-    if (opts.model) {
-        modelBadge = ' <span class="badge badge-info" style="font-size:0.7rem">' + escHtml(opts.model) + '</span>';
-    }
-
-    var contentStyle = isMarkdown
-        ? 'margin:0;word-break:break-word;line-height:1.6'
-        : 'margin:0;white-space:pre-wrap;word-break:break-word';
-
-    var id = opts.id ? ' id="' + opts.id + '"' : '';
-
-    return '<div class="card"' + id + ' style="margin-bottom:0.75rem;' + bg + '">'
-        + '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">'
-        + '<span class="badge ' + badge + '" style="text-transform:capitalize">' + role + '</span>'
-        + (date ? '<span class="text-muted" style="font-size:0.75rem">' + escHtml(date) + '</span>' : '')
-        + modelBadge
-        + '</div>'
-        + '<div style="' + contentStyle + '">' + rendered + '</div>'
-        + '</div>';
-}
-
-function appendMessageCard(role, content, opts) {
-    var area = document.getElementById('messages-area');
-    if (!area) return null;
-    // Clear placeholder text
-    var placeholder = area.querySelector('.text-center.text-muted');
-    if (placeholder) placeholder.remove();
-
-    var wrapper = document.createElement('div');
-    var date = new Date().toISOString().slice(0, 10);
-    wrapper.innerHTML = messageCardHtml(role, content, date, opts);
-    var card = wrapper.firstChild;
-    area.appendChild(card);
-    area.scrollTop = area.scrollHeight;
-    return card;
-}
-
-// ---------------------------------------------------------------------------
-// Local model management
-// ---------------------------------------------------------------------------
-
-var _localModelLoading = false;
-
-async function populateLocalModels() {
-    if (!window.solobaseAI) return;
-    var status = window.solobaseAI.getStatus();
-    if (!status.webgpu_supported) {
-        var group = document.getElementById('local-models-group');
-        if (group) group.label = 'Local (WebGPU not available)';
-        return;
-    }
-    var models = await window.solobaseAI.getAvailableModels();
-    var group = document.getElementById('local-models-group');
-    if (!group) return;
-    group.innerHTML = '';
-    models.forEach(function(m) {
-        var opt = document.createElement('option');
-        opt.value = 'local:' + m.id;
-        opt.textContent = m.name;
-        group.appendChild(opt);
-    });
-}
-
-function onModelChange(value) {
-    if (value && value.startsWith('local:')) {
-        var modelId = value.slice(6);
-        loadLocalModel(modelId);
-    } else {
-        updateModelStatus('');
-    }
-}
-
-function loadLocalModel(modelId) {
-    if (!window.solobaseAI) {
-        updateModelStatus('WebLLM not loaded yet. Wait for page to finish loading.');
-        return;
-    }
-    var status = window.solobaseAI.getStatus();
-    if (status.loaded_model === modelId) {
-        updateModelStatus('Ready');
-        return;
-    }
-
-    _localModelLoading = true;
-    showModelProgress(true);
-    updateModelStatus('Loading...');
-
-    window.solobaseAI.loadModel(modelId, function(progress) {
-        var pct = Math.round(progress.progress * 100);
-        var bar = document.getElementById('model-progress-bar');
-        var text = document.getElementById('model-progress-text');
-        if (bar) bar.style.width = pct + '%';
-        if (text) text.textContent = progress.text;
-    }).then(function() {
-        _localModelLoading = false;
-        showModelProgress(false);
-        updateModelStatus('Ready');
-    }).catch(function(err) {
-        _localModelLoading = false;
-        showModelProgress(false);
-        updateModelStatus('Error: ' + err.message);
-        console.error('[solobase] Model load error:', err);
-    });
-}
-
-function unloadLocalModel() {
-    if (!window.solobaseAI) return;
-    window.solobaseAI.unloadModel().then(function() {
-        _localModelLoading = false;
-        showModelProgress(false);
-        updateModelStatus('');
-        // Reset picker to default
-        var picker = document.getElementById('model-picker');
-        if (picker) picker.value = '';
-    });
-}
-
-function showModelProgress(show) {
-    var container = document.getElementById('model-progress-container');
-    if (container) container.style.display = show ? 'block' : 'none';
-}
-
-function updateModelStatus(text) {
-    var el = document.getElementById('model-status');
-    if (el) el.textContent = text;
-}
-
-// ---------------------------------------------------------------------------
-// Chat submission
-// ---------------------------------------------------------------------------
-
-var _chatBusy = false;
-
-function handleChatSubmit(e) {
-    e.preventDefault();
-    if (_chatBusy) return false;
-
-    var form = document.getElementById('chat-form');
-    var textarea = document.getElementById('chat-input');
-    var threadId = document.getElementById('active-thread-id').value;
-    var userText = textarea.value.trim();
-
-    if (!userText || !threadId) return false;
-
-    _chatBusy = true;
-    setSendEnabled(false);
-    textarea.value = '';
-
-    // 1. Show user message immediately
-    appendMessageCard('user', userText);
-
-    // 2. Determine if local or remote
-    var picker = document.getElementById('model-picker');
-    var model = picker ? picker.value : '';
-
-    var chatPromise;
-    if (model.startsWith('local:')) {
-        // Local path: save user message ourselves (the SW chat endpoint is not involved)
-        chatPromise = fetch('/b/messages/api/threads/' + threadId + '/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ role: 'user', content: userText })
-        }).then(function() {
-            return handleLocalChat(threadId, model.slice(6));
-        });
-    } else {
-        // Remote path: /b/llm/api/chat saves user + assistant messages server-side
-        chatPromise = handleRemoteChat(threadId, userText, model);
-    }
-
-    chatPromise.catch(function(err) {
-        appendMessageCard('system', 'Error: ' + err.message);
-    }).finally(function() {
-        _chatBusy = false;
-        setSendEnabled(true);
-    });
-
-    return false;
-}
-
-function handleLocalChat(threadId, modelId) {
-    if (!window.solobaseAI) {
-        appendMessageCard('system', 'WebLLM not loaded. Select a local model first.');
-        return Promise.resolve();
-    }
-
-    // Get full thread history for context
-    return fetch('/b/messages/api/threads/' + threadId + '/messages')
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            var records = data.records || [];
-            var messages = records.map(function(m) {
-                var d = m.data || m;
-                return { role: d.role, content: d.content };
-            });
-
-            // Create streaming assistant card with thinking indicator
-            var card = appendMessageCard('assistant', '', { id: 'streaming-msg' });
-            var contentDiv = card ? card.querySelector('div:last-child') : null;
-            if (contentDiv) contentDiv.innerHTML = '<span class="text-muted" style="animation:pulse 1.5s infinite">Thinking...</span>';
-            setSendStatus('AI is thinking...');
-
-            return window.solobaseAI.chat(messages, function(delta, full) {
-                setSendStatus('AI is typing...');
-                // Update the card with streaming content + blinking cursor
-                if (contentDiv) {
-                    contentDiv.innerHTML = renderMarkdown(full) + '<span class="typing-cursor"></span>';
-                    var area = document.getElementById('messages-area');
-                    if (area) area.scrollTop = area.scrollHeight;
-                }
-            });
-        })
-        .then(function(result) {
-            // Remove the streaming ID and blinking cursor
-            var streamCard = document.getElementById('streaming-msg');
-            if (streamCard) {
-                streamCard.removeAttribute('id');
-                var cursor = streamCard.querySelector('.typing-cursor');
-                if (cursor) cursor.remove();
-                // Re-render without cursor
-                var cd = streamCard.querySelector('div:last-child');
-                if (cd && result.content) cd.innerHTML = renderMarkdown(result.content);
-            }
-
-            // Save assistant message
-            return fetch('/b/messages/api/threads/' + threadId + '/messages', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role: 'assistant', content: result.content })
-            });
-        });
-}
-
-function handleRemoteChat(threadId, userText, model) {
-    // Create a placeholder assistant card with animated thinking indicator
-    var card = appendMessageCard('assistant', '', { id: 'streaming-msg' });
-    var contentDiv = card ? card.querySelector('div:last-child') : null;
-    if (contentDiv) contentDiv.innerHTML = '<span class="text-muted" style="animation:pulse 1.5s infinite">Thinking...</span>';
-    setSendStatus('Waiting for response...');
-
-    var body = { thread_id: threadId, message: userText };
-    if (model) body.model = model;
-
-    return fetch('/b/llm/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        // Replace the placeholder with actual response
-        var streamCard = document.getElementById('streaming-msg');
-        if (streamCard) {
-            var contentDiv = streamCard.querySelector('div:last-child');
-            if (contentDiv) {
-                contentDiv.innerHTML = renderMarkdown(data.content || 'No response');
-                contentDiv.style.margin = '0';
-                contentDiv.style.wordBreak = 'break-word';
-                contentDiv.style.lineHeight = '1.6';
-            }
-            // Add model badge if available
-            if (data.model) {
-                var header = streamCard.querySelector('div:first-child');
-                if (header) {
-                    var badge = document.createElement('span');
-                    badge.className = 'badge badge-info';
-                    badge.style.fontSize = '0.7rem';
-                    badge.textContent = data.model;
-                    header.appendChild(badge);
-                }
-            }
-            streamCard.removeAttribute('id');
-        }
-    })
-    .catch(function(err) {
-        var streamCard = document.getElementById('streaming-msg');
-        if (streamCard) streamCard.remove();
-        appendMessageCard('system', 'Error: ' + err.message);
-    });
-}
-
-function setSendEnabled(enabled) {
-    var btn = document.getElementById('send-btn');
-    var input = document.getElementById('chat-input');
-    if (btn) { btn.disabled = !enabled; btn.textContent = enabled ? 'Send' : 'Sending...'; }
-    if (input) input.disabled = !enabled;
-    if (enabled) setSendStatus('');
-}
-
-function setSendStatus(text) {
-    var el = document.getElementById('send-status');
-    if (el) el.textContent = text;
-}
-
-// ---------------------------------------------------------------------------
-// Thread creation
-// ---------------------------------------------------------------------------
-
-function createNewThread() {
-    fetch('/b/messages/api/threads', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'New Chat' })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        var id = data.id || (data.data && data.data.id);
-        if (id) {
-            // Add thread to sidebar
-            var list = document.getElementById('thread-list');
-            if (list) {
-                var placeholder = list.querySelector('.text-center.text-muted');
-                if (placeholder) placeholder.remove();
-                var date = new Date().toISOString().slice(0, 10);
-                var html = '<div class="card" style="margin-bottom:0.375rem;cursor:pointer;padding:0.625rem 0.75rem;transition:box-shadow 0.15s" '
-                    + 'data-thread-id="' + id + '" '
-                    + 'onclick="selectThread(\'' + id + '\')" '
-                    + 'onmouseover="this.style.boxShadow=\'0 2px 8px rgba(0,0,0,0.1)\'" '
-                    + 'onmouseout="this.style.boxShadow=\'\'">'
-                    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">'
-                    + '<span style="font-weight:500;font-size:0.875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">New Chat</span>'
-                    + '<span class="text-muted" style="font-size:0.75rem;flex-shrink:0">' + date + '</span>'
-                    + '</div></div>';
-                list.insertAdjacentHTML('afterbegin', html);
-            }
-            selectThread(id);
-        }
-    })
-    .catch(function(err) {
-        console.error('[solobase] Error creating thread:', err);
-    });
-}
-"#;
-
-// ---------------------------------------------------------------------------
-// Chat page JS (includes shared + chat-specific)
-// ---------------------------------------------------------------------------
-
-const CHAT_JS: &str = r#"
-// ---------------------------------------------------------------------------
-// Thread selection (chat page only)
-// ---------------------------------------------------------------------------
-
-function selectThread(id) {
-    // Update active thread ID in form
-    document.getElementById('active-thread-id').value = id;
-
-    // Enable the form
-    var form = document.getElementById('chat-form');
-    form.style.opacity = '1';
-    form.style.pointerEvents = 'auto';
-    var input = document.getElementById('chat-input');
-    if (input) { input.disabled = false; input.placeholder = 'Type your message...'; input.focus(); }
-    var btn = document.getElementById('send-btn');
-    if (btn) btn.disabled = false;
-    // Remove the "create a thread" prompt
-    var prompt = document.getElementById('no-thread-prompt');
-    if (prompt) prompt.remove();
-
-    // Load thread messages
-    fetch('/b/messages/api/threads/' + id + '/messages')
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            var records = data.records || [];
-            var area = document.getElementById('messages-area');
-            if (!area) return;
-
-            if (records.length === 0) {
-                area.innerHTML = '<div class="text-center text-muted" style="padding:2rem">No messages yet.</div>';
-            } else {
-                var html = records.map(function(m) {
-                    var d = m.data || m;
-                    var role = d.role || 'user';
-                    var content = d.content || '';
-                    var date = (d.created_at || '').slice(0, 10);
-                    return messageCardHtml(role, content, date);
-                }).join('');
-                area.innerHTML = html;
-            }
-            area.scrollTop = area.scrollHeight;
-        })
-        .catch(function(err) {
-            console.error('[solobase] Error loading messages:', err);
-        });
-
-    // Highlight active thread
-    document.querySelectorAll('[data-thread-id]').forEach(function(el) {
-        if (el.dataset.threadId === id) {
-            el.style.borderColor = 'var(--primary)';
-            el.style.background = 'var(--primary-light, #eff6ff)';
-        } else {
-            el.style.borderColor = '';
-            el.style.background = '';
-        }
-    });
-
-    // Update URL so thread survives navigation/refresh without conflicting with thread_view_page
-    history.replaceState({}, '', '/b/llm/?thread=' + id);
-}
-
-// Auto-select thread from URL on page load
-(function() {
-    var threadId = new URLSearchParams(location.search).get('thread');
-    if (threadId) {
-        setTimeout(function() { selectThread(threadId); }, 100);
-    }
-})();
-
-// Populate local models when ai-bridge loads
-setTimeout(function() { populateLocalModels(); }, 1500);
-// Retry in case CDN import is slow
-setTimeout(function() { populateLocalModels(); }, 5000);
-"#;
-
-// ---------------------------------------------------------------------------
-// Thread page JS (includes shared + thread-specific)
-// ---------------------------------------------------------------------------
-
-const THREAD_JS: &str = r#"
-// Render initial messages on load
-document.addEventListener('DOMContentLoaded', function() {
-    var messages = window._threadMessages || [];
-    var area = document.getElementById('messages-area');
-    if (!area || messages.length === 0) return;
-
-    area.innerHTML = messages.map(function(m) {
-        var date = (m.created_at || '').slice(0, 10);
-        return messageCardHtml(m.role, m.content, date);
-    }).join('');
-    area.scrollTop = area.scrollHeight;
-});
-
-// Populate local models when ai-bridge loads
-setTimeout(function() { populateLocalModels(); }, 1500);
-setTimeout(function() { populateLocalModels(); }, 5000);
-"#;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -1283,6 +767,282 @@ mod tests {
         assert!(
             !html.contains(r#"value="""#),
             "expected no empty-value <option>, got: {html}"
+        );
+    }
+
+    // ----- Task 2 helpers: render_thread_list_pane / render_messages_pane /
+    //       render_composer / render_right_rail -----
+
+    fn make_thread(id: &str, title: &str, updated_at: &str) -> db::Record {
+        let mut data = std::collections::HashMap::new();
+        data.insert("title".to_string(), serde_json::json!(title));
+        data.insert("updated_at".to_string(), serde_json::json!(updated_at));
+        db::Record {
+            id: id.to_string(),
+            data,
+        }
+    }
+
+    #[test]
+    fn render_thread_list_pane_empty() {
+        let html = render_thread_list_pane(&[], None).into_string();
+        assert!(
+            html.contains("No threads yet"),
+            "empty hint missing: {html}"
+        );
+        assert!(
+            html.contains("createNewThread()"),
+            "new-thread button missing"
+        );
+        assert!(html.contains("Threads"));
+    }
+
+    #[test]
+    fn render_thread_list_pane_marks_active_thread() {
+        let t = make_thread("thread-42", "My chat", "2026-05-05T10:00:00Z");
+        let html = render_thread_list_pane(&[t], Some("thread-42")).into_string();
+        assert!(html.contains("My chat"));
+        assert!(html.contains(r#"data-thread-id="thread-42""#));
+        assert!(
+            html.contains("data-active=\"true\"") || html.contains("aria-current"),
+            "active thread should be marked: {html}"
+        );
+    }
+
+    #[test]
+    fn render_messages_pane_empty_renders_no_thread_prompt() {
+        let html = render_messages_pane(&[], None).into_string();
+        assert!(html.contains(r#"id="no-thread-prompt""#));
+        assert!(html.contains("Start a new conversation"));
+    }
+
+    #[test]
+    fn render_messages_pane_with_thread_renders_messages_area() {
+        let html = render_messages_pane(&[], Some("thread-1")).into_string();
+        assert!(html.contains(r#"id="messages-area""#));
+        assert!(!html.contains(r#"id="no-thread-prompt""#));
+    }
+
+    #[test]
+    fn render_composer_disabled_when_no_thread() {
+        let html = render_composer(None).into_string();
+        assert!(html.contains(r#"id="chat-form""#));
+        assert!(html.contains(r#"id="active-thread-id""#));
+        assert!(
+            html.contains(r#"value="""#),
+            "thread id hidden input should be empty"
+        );
+        assert!(html.contains("disabled"), "composer should be disabled");
+        assert!(html.contains("Create a thread first"));
+    }
+
+    #[test]
+    fn render_composer_enabled_with_thread() {
+        let html = render_composer(Some("thread-7")).into_string();
+        assert!(html.contains(r#"id="chat-form""#));
+        assert!(html.contains(r#"value="thread-7""#));
+        assert!(!html.contains("Create a thread first"));
+    }
+
+    #[test]
+    fn render_right_rail_contains_picker_progress_settings() {
+        let models: Vec<serde_json::Value> = vec![];
+        let html = render_right_rail(&models, "").into_string();
+        assert!(html.contains(r#"id="model-picker""#));
+        assert!(html.contains(r#"id="model-progress-container""#));
+        assert!(html.contains(r#"id="local-models-group""#));
+        assert!(html.contains("/b/llm/settings"), "settings link missing");
+        assert!(html.contains(r#"label="Remote""#));
+    }
+
+    // ----- Task 3: parse_thread_id + render_page_body -----
+
+    #[test]
+    fn parse_thread_id_root_returns_none() {
+        assert_eq!(parse_thread_id("/b/llm/"), None);
+        assert_eq!(parse_thread_id("/b/llm"), None);
+    }
+
+    #[test]
+    fn parse_thread_id_thread_path_returns_id() {
+        assert_eq!(parse_thread_id("/b/llm/threads/abc-123"), Some("abc-123"));
+    }
+
+    #[test]
+    fn parse_thread_id_strips_trailing_segments() {
+        assert_eq!(
+            parse_thread_id("/b/llm/threads/abc-123/extra"),
+            Some("abc-123")
+        );
+    }
+
+    #[test]
+    fn parse_thread_id_blank_id_returns_none() {
+        assert_eq!(parse_thread_id("/b/llm/threads/"), None);
+    }
+
+    /// At root URL, the page body shows the no-thread prompt and a
+    /// disabled composer.
+    #[test]
+    fn page_body_renders_empty_state_at_root() {
+        let html =
+            render_page_body(&[], &[], &[], "", None, "/b/static/llm-chat-test.js").into_string();
+        assert!(html.contains(r#"id="no-thread-prompt""#));
+        assert!(html.contains("Start a new conversation"));
+        assert!(html.contains(r#"id="chat-form""#));
+        assert!(
+            html.contains("opacity:0.4"),
+            "composer should be disabled style"
+        );
+    }
+
+    /// With a thread id, the body wires the active thread into the
+    /// composer's hidden input and drops the empty-state prompt.
+    #[test]
+    fn page_body_renders_with_thread_id() {
+        let threads = vec![make_thread("some-id", "Some Chat", "2026-05-05T10:00:00Z")];
+        let html = render_page_body(
+            &threads,
+            &[],
+            &[],
+            "",
+            Some("some-id"),
+            "/b/static/llm-chat-test.js",
+        )
+        .into_string();
+        assert!(html.contains(r#"value="some-id""#));
+        assert!(!html.contains(r#"id="no-thread-prompt""#));
+        assert!(!html.contains("opacity:0.4"));
+    }
+
+    /// The page body must include the external <script src> for the static
+    /// llm-chat.js asset, and must NOT include the deleted inline JS
+    /// constants. Markers from the old SHARED_JS / CHAT_JS / THREAD_JS
+    /// must be absent.
+    #[test]
+    fn page_body_includes_external_llm_chat_js_and_drops_inline_constants() {
+        let url = "/b/static/llm-chat-deadbeef.js";
+        let html = render_page_body(&[], &[], &[], "", None, url).into_string();
+        assert!(
+            html.contains(&format!(r#"src="{url}""#)),
+            "missing external llm-chat.js script tag (expected src={url}): {html}"
+        );
+        assert!(html.contains("solobaseLlmChat.init"));
+        // No leaked giant inline JS — these are markers from the old SHARED_JS.
+        assert!(!html.contains("function handleChatSubmit"));
+        assert!(!html.contains("function selectThread"));
+        assert!(!html.contains("function createNewThread"));
+    }
+
+    /// Selector preservation contract — every ID the JS module depends on
+    /// must appear in the rendered markup of the with-thread page. Single
+    /// guard test; failure points at exactly which selector regressed.
+    #[test]
+    fn page_body_preserves_required_selectors() {
+        let threads = vec![make_thread("sel-test", "Sel Chat", "2026-05-05T10:00:00Z")];
+        let html = render_page_body(
+            &threads,
+            &[],
+            &[],
+            "",
+            Some("sel-test"),
+            "/b/static/llm-chat-test.js",
+        )
+        .into_string();
+
+        let required_ids = [
+            "chat-form",
+            "chat-input",
+            "active-thread-id",
+            "messages-area",
+            "model-picker",
+            "thread-list",
+            "model-progress-container",
+            "model-progress-bar",
+            "model-progress-text",
+            "model-unload-btn",
+            "local-models-group",
+            "model-status",
+            "send-btn",
+            "send-status",
+        ];
+        for id in required_ids {
+            assert!(
+                html.contains(&format!(r#"id="{id}""#)),
+                "selector preservation contract violated — missing id={id}; render: {html}"
+            );
+        }
+    }
+
+    /// XSS regression — a thread whose message content contains a
+    /// `</script>` sequence MUST NOT terminate the bootstrap script tag
+    /// prematurely. With the `type="application/json"` carrier, the body
+    /// is inert — the browser does not parse it as JS — so the literal
+    /// sequence appearing in textContent is safe. We also assert the dead
+    /// `_activeThreadId` / `_defaultModel` JS bootstrap fields are gone.
+    #[test]
+    fn render_page_body_carrier_escapes_user_content_safely() {
+        let mut data = std::collections::HashMap::new();
+        data.insert("role".to_string(), serde_json::json!("user"));
+        data.insert(
+            "content".to_string(),
+            serde_json::json!("hello </script><script>alert(1)</script>"),
+        );
+        data.insert(
+            "created_at".to_string(),
+            serde_json::json!("2026-05-05T10:00:00Z"),
+        );
+        let entry = db::Record {
+            id: "e-1".to_string(),
+            data,
+        };
+
+        let html = render_page_body(
+            &[],
+            &[entry],
+            &[],
+            "",
+            Some("t-1"),
+            "/b/static/llm-chat-test.js",
+        )
+        .into_string();
+
+        // Carrier present.
+        assert!(
+            html.contains(r#"<script type="application/json" id="llm-chat-bootstrap">"#),
+            "expected JSON carrier block: {html}"
+        );
+        // The dangerous content is INSIDE a non-JS-parsed block. We don't
+        // assert the absence of the literal bytes (they're allowed to appear
+        // in JSON text inside a type="application/json" block — they're inert).
+        // We assert that the JS bootstrap line that USED to inline values is gone.
+        assert!(
+            !html.contains("window._threadMessages = "),
+            "JS bootstrap line should be removed in favor of carrier: {html}"
+        );
+        assert!(
+            !html.contains("window._activeThreadId"),
+            "_activeThreadId was dead — should be removed entirely"
+        );
+        assert!(
+            !html.contains("window._defaultModel"),
+            "_defaultModel was dead — should be removed entirely"
+        );
+    }
+
+    /// The body wraps in the canonical `templates::chat_page` shell (page
+    /// class + right-rail aside).
+    #[test]
+    fn page_body_emits_chat_page_template_class() {
+        let html =
+            render_page_body(&[], &[], &[], "", None, "/b/static/llm-chat-test.js").into_string();
+        assert!(
+            html.contains(r#"class="page--chat""#),
+            "expected templates::chat_page wrapper class"
+        );
+        assert!(
+            html.contains(r#"class="chat-rail""#),
+            "right rail expected (LLM enables it)"
         );
     }
 }

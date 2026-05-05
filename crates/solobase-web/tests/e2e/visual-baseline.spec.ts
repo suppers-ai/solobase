@@ -28,6 +28,7 @@ const ADMIN_ROUTES = [
   { path: '/b/userportal/sessions', name: 'portal-sessions' },
   { path: '/b/userportal/security', name: 'portal-security' },
   { path: '/b/products/', name: 'portal-products' },
+  { path: '/b/llm/', name: 'llm-chat' },
 ];
 
 const COMMON_OPTS = {
@@ -84,6 +85,7 @@ const MOBILE_ADMIN_ROUTES = [
   { path: '/b/userportal/sessions', name: 'portal-sessions' },
   { path: '/b/userportal/security', name: 'portal-security' },
   { path: '/b/products/', name: 'portal-products' },
+  { path: '/b/llm/', name: 'llm-chat' },
 ];
 
 test.describe('visual baseline mobile — anonymous (375px)', () => {

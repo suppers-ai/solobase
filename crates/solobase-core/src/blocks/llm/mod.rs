@@ -464,10 +464,8 @@ impl Block for LlmBlock {
 
         match (action, path) {
             // UI pages
-            ("retrieve", "/b/llm/") | ("retrieve", "/b/llm") => pages::chat_page(ctx, &msg).await,
-            ("retrieve", _) if path.starts_with("/b/llm/threads/") => {
-                pages::thread_page(ctx, &msg).await
-            }
+            ("retrieve", "/b/llm/") | ("retrieve", "/b/llm") => pages::page(ctx, &msg).await,
+            ("retrieve", _) if path.starts_with("/b/llm/threads/") => pages::page(ctx, &msg).await,
             ("retrieve", "/b/llm/settings") => pages::settings_page(ctx, &msg).await,
             ("retrieve", "/b/llm/providers") => ui::providers_page(self, ctx, &msg).await,
             ("retrieve", "/b/llm/models") => ui::models_page(self, ctx, &msg).await,
