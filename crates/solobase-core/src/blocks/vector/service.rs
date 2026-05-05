@@ -5,7 +5,13 @@
 //! prefixed storage name (e.g. `"suppers_ai__vector__docs"`) at the block
 //! boundary — no magic mapping elsewhere in the stack.
 
-use wafer_run::types::{ErrorCode, WaferError};
+use wafer_core::clients::database::{self as db, ListOptions};
+use wafer_run::{
+    context::Context,
+    types::{ErrorCode, WaferError},
+};
+
+use super::pages_ui::IndexRow;
 
 /// All tables created for a vector index are named with this prefix.
 pub const TABLE_PREFIX: &str = "suppers_ai__vector__";
@@ -56,6 +62,72 @@ pub fn validate_index_name(name: &str) -> Result<&str, WaferError> {
         });
     }
     Ok(name)
+}
+
+/// Read every registered vector index plus its current row count from
+/// the meta table. Caller decides what to do with errors — returning
+/// `Result` (rather than swallowing) keeps the helper testable in
+/// isolation, while the page handler maps any failure to the empty
+/// state.
+///
+/// On a fresh database the registry table doesn't exist yet; the
+/// SQLite service returns an empty `RecordList` for unknown
+/// collections, so `db::list` gives us `Ok(empty)` rather than an
+/// error. Same for `db::count` against the per-index meta table.
+pub async fn list_index_rows(ctx: &dyn Context) -> Result<Vec<IndexRow>, WaferError> {
+    let opts = ListOptions {
+        limit: 1000,
+        ..Default::default()
+    };
+    let result = db::list(ctx, "suppers_ai__vector__registry", &opts).await?;
+
+    let mut rows = Vec::with_capacity(result.records.len());
+    for rec in result.records {
+        let storage_name = rec
+            .data
+            .get("prefixed_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if storage_name.is_empty() {
+            continue;
+        }
+        let model = rec
+            .data
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        // The SQLite service stores all auto-created columns as TEXT, so the
+        // numeric registry values arrive as JSON strings (e.g. `"384"`)
+        // rather than numbers. Try a number first for backends that round-trip
+        // them faithfully, then fall back to parsing the string.
+        let dimensions = rec
+            .data
+            .get("dimensions")
+            .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+            .unwrap_or(0) as u32;
+        let keyword_search = rec
+            .data
+            .get("keyword_search")
+            .and_then(|v| {
+                v.as_i64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            })
+            .map(|n| n != 0)
+            .unwrap_or(false);
+
+        let count = db::count(ctx, &storage_name, &[]).await.unwrap_or(0);
+
+        rows.push(IndexRow {
+            name: storage_name,
+            model,
+            dimensions,
+            vector_count: count.max(0) as u64,
+            keyword_search,
+        });
+    }
+    Ok(rows)
 }
 
 #[cfg(test)]
