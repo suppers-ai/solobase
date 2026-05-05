@@ -1,7 +1,6 @@
 // Solobase LLM chat — extracted from inline SHARED_JS/CHAT_JS/THREAD_JS.
-// Entry point: solobaseLlmChat.init() — reads window._activeThreadId,
-//                                      window._threadMessages,
-//                                      window._defaultModel
+// Entry point: solobaseLlmChat.init() — reads initial server-rendered
+// messages from <script type="application/json" id="llm-chat-bootstrap">.
 // All globals previously exposed (handleChatSubmit, selectThread, createNewThread,
 // onModelChange, unloadLocalModel) remain on window so existing onclick="" /
 // onsubmit="" attributes keep working.
@@ -430,7 +429,15 @@
   // -------------------------------------------------------------------------
 
   function renderInitialMessages() {
-    var messages = window._threadMessages || [];
+    var carrier = document.getElementById('llm-chat-bootstrap');
+    var messages = [];
+    if (carrier) {
+      try {
+        messages = JSON.parse(carrier.textContent || '[]');
+      } catch (e) {
+        console.warn('[solobase] failed to parse llm-chat-bootstrap:', e);
+      }
+    }
     var area = document.getElementById('messages-area');
     if (!area || messages.length === 0) return;
 

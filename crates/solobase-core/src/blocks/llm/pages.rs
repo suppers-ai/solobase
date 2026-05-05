@@ -61,7 +61,7 @@ fn render_page_body(
     thread_id: Option<&str>,
     llm_chat_js_url: &str,
 ) -> Markup {
-    // Build messages JSON for JS bootstrap. Empty array when no thread.
+    // Build messages JSON for the bootstrap carrier. Empty array when no thread.
     let messages_json: Vec<serde_json::Value> = entries
         .iter()
         .map(|m| {
@@ -91,15 +91,12 @@ fn render_page_body(
         // (separate cleanup; out of scope for Phase 5a).
         script src="https://cdn.jsdelivr.net/npm/marked@14/marked.min.js" {}
 
-        // Per-page bootstrap: expose server-rendered data, then the external
-        // module's init() consumes it.
-        script {
-            (maud::PreEscaped(format!(
-                "window._activeThreadId = {active}; window._threadMessages = {messages}; window._defaultModel = {default};",
-                active = serde_json::to_string(&thread_id).unwrap_or_else(|_| "null".into()),
-                messages = messages_json_str,
-                default = serde_json::to_string(default_model).unwrap_or_else(|_| "\"\"".into()),
-            )))
+        // Server-rendered initial state for the chat module. Carrier is
+        // type="application/json" so the browser does NOT parse the body as JS —
+        // any `</script>` or `<` in user-typed message content is inert. The
+        // JS module reads it via JSON.parse on init().
+        script type="application/json" id="llm-chat-bootstrap" {
+            (maud::PreEscaped(messages_json_str))
         }
         script src=(llm_chat_js_url) defer {}
         script {
@@ -281,7 +278,8 @@ fn thread_list_items(threads: &[db::Record], active_id: Option<&str>) -> Markup 
 /// Messages pane for the chat_page template. When no thread is selected,
 /// shows the "Create a thread first" empty-state element. When a thread
 /// IS selected, renders an empty `#messages-area` that the JS bootstrap
-/// fills from server-rendered `window._threadMessages`.
+/// fills from the `<script type="application/json" id="llm-chat-bootstrap">`
+/// carrier emitted by `render_page_body`.
 fn render_messages_pane(_entries: &[db::Record], thread_id: Option<&str>) -> Markup {
     html! {
         div #messages-area
@@ -295,7 +293,7 @@ fn render_messages_pane(_entries: &[db::Record], thread_id: Option<&str>) -> Mar
                 }
             }
             // When thread_id is Some, the JS bootstrap fills #messages-area
-            // from window._threadMessages on init().
+            // by JSON.parse-ing the #llm-chat-bootstrap carrier on init().
         }
     }
 }
@@ -961,6 +959,62 @@ mod tests {
                 "selector preservation contract violated — missing id={id}; render: {html}"
             );
         }
+    }
+
+    /// XSS regression — a thread whose message content contains a
+    /// `</script>` sequence MUST NOT terminate the bootstrap script tag
+    /// prematurely. With the `type="application/json"` carrier, the body
+    /// is inert — the browser does not parse it as JS — so the literal
+    /// sequence appearing in textContent is safe. We also assert the dead
+    /// `_activeThreadId` / `_defaultModel` JS bootstrap fields are gone.
+    #[test]
+    fn render_page_body_carrier_escapes_user_content_safely() {
+        let mut data = std::collections::HashMap::new();
+        data.insert("role".to_string(), serde_json::json!("user"));
+        data.insert(
+            "content".to_string(),
+            serde_json::json!("hello </script><script>alert(1)</script>"),
+        );
+        data.insert(
+            "created_at".to_string(),
+            serde_json::json!("2026-05-05T10:00:00Z"),
+        );
+        let entry = db::Record {
+            id: "e-1".to_string(),
+            data,
+        };
+
+        let html = render_page_body(
+            &[],
+            &[entry],
+            &[],
+            "",
+            Some("t-1"),
+            "/b/static/llm-chat-test.js",
+        )
+        .into_string();
+
+        // Carrier present.
+        assert!(
+            html.contains(r#"<script type="application/json" id="llm-chat-bootstrap">"#),
+            "expected JSON carrier block: {html}"
+        );
+        // The dangerous content is INSIDE a non-JS-parsed block. We don't
+        // assert the absence of the literal bytes (they're allowed to appear
+        // in JSON text inside a type="application/json" block — they're inert).
+        // We assert that the JS bootstrap line that USED to inline values is gone.
+        assert!(
+            !html.contains("window._threadMessages = "),
+            "JS bootstrap line should be removed in favor of carrier: {html}"
+        );
+        assert!(
+            !html.contains("window._activeThreadId"),
+            "_activeThreadId was dead — should be removed entirely"
+        );
+        assert!(
+            !html.contains("window._defaultModel"),
+            "_defaultModel was dead — should be removed entirely"
+        );
     }
 
     /// The body wraps in the canonical `templates::chat_page` shell (page
