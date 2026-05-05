@@ -1,5 +1,6 @@
 pub mod ingestion;
 pub mod pages;
+pub mod pages_ui;
 pub mod service;
 
 use wafer_run::{
