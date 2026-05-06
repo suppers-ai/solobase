@@ -1,0 +1,136 @@
+name: Regen Visual Baselines
+
+# Manually-triggered workflow that re-runs the visual-baseline Playwright
+# suite with `--update-snapshots` against a target branch, then commits and
+# pushes any baseline diffs back to that branch.
+#
+# Why this exists: CI's font/AA rendering on ubuntu-latest drifts deterministically
+# from local Linux renders for content-heavy mobile cards-table baselines
+# (see Phase 5d-C/E handoff). The CI render is the canonical baseline, so when
+# a PR touches UI that lands on a flaky-mobile route, regen from CI here.
+#
+# Usage:
+#   gh workflow run regen-visual-baselines.yml -f branch=<branch-name>
+#
+# Or from the Actions UI: select the workflow and provide a branch input.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to regen baselines on (the workflow checks it out, runs --update-snapshots, and pushes any PNG diffs back)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  regen:
+    name: Regen visual baselines on ${{ inputs.branch }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          # Need a token that can push commits back to the branch.
+          # GITHUB_TOKEN with `contents: write` (above) is sufficient
+          # for non-protected branches.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout wafer-run
+        run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: e2e
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Pre-build solobase-web wasm (build.rs prereq)
+        working-directory: crates/solobase-web
+        run: wasm-pack build --target web --release --out-dir pkg
+
+      - name: Install solobase CLI
+        run: cargo install --path crates/solobase --locked
+
+      - name: Build solobase-web (framework assets + hashed pkg/)
+        working-directory: crates/solobase-web
+        run: solobase build --target web --release
+
+      - name: Install Playwright
+        working-directory: crates/solobase-web
+        run: |
+          npm install
+          npx playwright install chromium --with-deps
+
+      - name: Start native solobase server in background
+        run: |
+          cd /tmp
+          SOLOBASE_LISTEN="127.0.0.1:8093" \
+          SOLOBASE_DB_PATH="/tmp/solobase-visual-baseline.db" \
+          SUPPERS_AI__AUTH__ADMIN_EMAIL="admin@example.com" \
+          SUPPERS_AI__AUTH__ADMIN_PASSWORD="admin123" \
+          SOLOBASE_BLOCK_ENABLED="suppers-ai/userportal,suppers-ai/vector" \
+            solobase > /tmp/solobase-baseline.log 2>&1 &
+          echo $! > /tmp/solobase-pid
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8093/b/auth/login -o /dev/null; then
+              echo "server ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          if ! curl -sf http://127.0.0.1:8093/b/auth/login -o /dev/null; then
+            echo "::error::native solobase did not start within 60s"
+            tail -50 /tmp/solobase-baseline.log
+            exit 1
+          fi
+
+      - name: Run visual-baseline tests with --update-snapshots
+        working-directory: crates/solobase-web
+        env:
+          TEST_PORT: 8093
+        # `--update-snapshots` overwrites mismatched PNGs in place.
+        # Test step succeeds even if snapshots changed; we detect via git diff below.
+        run: npx playwright test --config=tests/playwright.visual-baseline.config.ts tests/e2e/visual-baseline.spec.ts --update-snapshots
+
+      - name: Stop servers
+        if: always()
+        run: |
+          if [ -f /tmp/solobase-pid ]; then
+            kill "$(cat /tmp/solobase-pid)" 2>/dev/null || true
+          fi
+
+      - name: Commit and push regenerated baselines
+        # `${{ inputs.branch }}` is routed through env vars (not interpolated
+        # into the script body) to avoid GitHub Actions script-injection.
+        env:
+          TARGET_BRANCH: ${{ inputs.branch }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet -- '.playwright-mcp/'; then
+            echo "::notice::No baseline drift — nothing to commit."
+            exit 0
+          fi
+          echo "Baseline diff detected:"
+          git diff --stat -- '.playwright-mcp/'
+          git add .playwright-mcp/
+          git commit -m "test(ui): regen visual baselines from CI render
+
+Auto-committed by .github/workflows/regen-visual-baselines.yml
+dispatched against branch '${TARGET_BRANCH}'."
+          git push origin "HEAD:${TARGET_BRANCH}"
