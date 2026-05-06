@@ -12,3 +12,36 @@ pub(crate) const D1_BINDING: &str = "DB";
 pub(crate) const R2_BINDING: &str = "STORAGE";
 
 pub(crate) use solobase_core::blocks::admin::{BLOCK_SETTINGS_COLLECTION, VARIABLES_COLLECTION};
+
+use std::{collections::HashMap, sync::Arc};
+
+use wafer_core::interfaces::database::service::{DatabaseService, ListOptions};
+
+/// Read all rows from the admin variables collection into a key→value map.
+///
+/// Returns an empty map if the query fails or the collection is missing —
+/// the caller continues with whatever protected `worker::Env` bindings it
+/// can merge on top. Errors are logged via `worker::console_log!` but do
+/// not fail the request.
+pub(crate) async fn load_env_vars(db: &Arc<dyn DatabaseService>) -> HashMap<String, String> {
+    let opts = ListOptions {
+        offset: 0,
+        limit: 10_000,
+        ..Default::default()
+    };
+    match db.list(VARIABLES_COLLECTION, &opts).await {
+        Ok(record_list) => record_list
+            .records
+            .into_iter()
+            .filter_map(|r| {
+                let key = r.data.get("key")?.as_str()?.to_string();
+                let value = r.data.get("value")?.as_str()?.to_string();
+                Some((key, value))
+            })
+            .collect(),
+        Err(e) => {
+            worker::console_log!("warn: load_env_vars failed: {e}");
+            HashMap::new()
+        }
+    }
+}
