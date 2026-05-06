@@ -104,6 +104,7 @@ impl Block for FilesBlock {
                 BlockEndpoint::get("/b/storage/api/buckets/{name}/objects/{key}").summary("Download file").auth(AuthLevel::Authenticated),
                 BlockEndpoint::delete("/b/storage/api/buckets/{name}/objects/{key}").summary("Delete file").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/storage/direct/{token}").summary("Access shared file"),
+                BlockEndpoint::get("/b/cloudstorage/").summary("Shares + quota page").auth(AuthLevel::Authenticated),
             ])
             .admin_url("/b/storage/admin/")
             .can_disable(true)
@@ -201,6 +202,11 @@ impl Block for FilesBlock {
                     }
                 }
             }
+        }
+
+        // Cloud storage SSR page — must check before JSON dispatch below.
+        if msg.action() == "retrieve" && (path == "/b/cloudstorage" || path == "/b/cloudstorage/") {
+            return pages_user::cloudstorage_page(ctx, &msg).await;
         }
 
         // Cloud storage routes (/b/cloudstorage/...)

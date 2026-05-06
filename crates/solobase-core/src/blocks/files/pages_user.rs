@@ -480,6 +480,223 @@ pub async fn object_list_page(
     )
 }
 
+#[derive(Clone, Debug)]
+pub struct QuotaInfo {
+    pub used_bytes: i64,
+    pub limit_bytes: i64,
+}
+
+#[derive(Clone, Debug)]
+pub struct ShareRow {
+    pub token: String,
+    pub bucket: String,
+    pub key: String,
+    pub created_at: String,
+    pub expires_at: Option<String>,
+    pub access_count: i64,
+}
+
+fn quota_pct(used: i64, limit: i64) -> i64 {
+    if limit <= 0 {
+        return 0;
+    }
+    ((used.max(0) as f64 / limit as f64) * 100.0).round() as i64
+}
+
+pub fn render_quota_card(q: &QuotaInfo) -> Markup {
+    let pct = quota_pct(q.used_bytes, q.limit_bytes);
+    let warn = pct >= 90;
+    html! {
+        div class={ "quota-card" @if warn { " quota-warning" } } {
+            h3 { "Storage quota" }
+            p {
+                (q.used_bytes) " / " (q.limit_bytes) " bytes"
+                " · " (pct) "%"
+            }
+            div .quota-bar { div .quota-bar__fill style={"width: " (pct) "%"} {} }
+        }
+    }
+}
+
+pub fn render_shares_table(rows: &[ShareRow]) -> Markup {
+    if rows.is_empty() {
+        return html! {
+            div .empty-state { p { "No active shares yet." } }
+        };
+    }
+    html! {
+        table .data-table {
+            thead { tr {
+                th { "Token" }
+                th { "Source" }
+                th { "Created" }
+                th { "Expires" }
+                th { "Accesses" }
+                th {}
+            } }
+            tbody {
+                @for r in rows {
+                    tr data-share-token=(r.token) {
+                        td data-label="Token" { code { (r.token) } }
+                        td data-label="Source" { (r.bucket) "/" (r.key) }
+                        td data-label="Created" { (r.created_at) }
+                        td data-label="Expires" {
+                            @if let Some(exp) = &r.expires_at { (exp) } @else { "—" }
+                        }
+                        td data-label="Accesses" { (r.access_count) }
+                        td {
+                            button .kebab-trigger
+                                type="button"
+                                data-action-menu
+                                data-token=(r.token)
+                                aria-label={"Actions for share " (r.token)}
+                            { "⋯" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow> {
+    use super::{SHARES_COLLECTION};
+    use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+    let opts = ListOptions {
+        filters: vec![Filter {
+            field: "created_by".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id.into()),
+        }],
+        sort: vec![SortField {
+            field: "created_at".into(),
+            desc: true,
+        }],
+        ..Default::default()
+    };
+    match db::list(ctx, SHARES_COLLECTION, &opts).await {
+        Ok(rl) => rl
+            .records
+            .into_iter()
+            .map(|r| ShareRow {
+                token: r.data.get("token").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                bucket: r.data.get("bucket").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                key: r.data.get("key").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                created_at: r.data.get("created_at").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                expires_at: r.data.get("expires_at").and_then(|v| v.as_str()).map(str::to_string),
+                access_count: r.data.get("access_count")
+                    .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                    .unwrap_or(0),
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!(error = %e, "shares list failed");
+            Vec::new()
+        }
+    }
+}
+
+async fn load_quota_info(ctx: &dyn Context, user_id: &str) -> QuotaInfo {
+    use super::{OBJECTS_COLLECTION, QUOTAS_COLLECTION};
+    use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
+
+    let limit_opts = ListOptions {
+        filters: vec![Filter {
+            field: "user_id".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id.into()),
+        }],
+        ..Default::default()
+    };
+    let limit = match db::list(ctx, QUOTAS_COLLECTION, &limit_opts).await {
+        Ok(rl) => rl
+            .records
+            .into_iter()
+            .next()
+            .and_then(|r| {
+                r.data.get("max_storage_bytes").and_then(|v| {
+                    v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                })
+            })
+            .unwrap_or(1_073_741_824),
+        Err(e) => {
+            tracing::warn!(error = %e, "quota lookup failed");
+            1_073_741_824
+        }
+    };
+
+    // used_bytes = SUM(size) over the user's objects. v1 in-process sum.
+    let used_filters = vec![Filter {
+        field: "uploaded_by".into(),
+        operator: FilterOp::Equal,
+        value: serde_json::Value::String(user_id.into()),
+    }];
+    let used = match db::list_all(ctx, OBJECTS_COLLECTION, used_filters).await {
+        Ok(recs) => recs
+            .iter()
+            .filter_map(|r| {
+                r.data.get("size").and_then(|v| {
+                    v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                })
+            })
+            .sum(),
+        Err(e) => {
+            tracing::warn!(error = %e, "used-bytes lookup failed");
+            0
+        }
+    };
+
+    QuotaInfo {
+        used_bytes: used,
+        limit_bytes: limit,
+    }
+}
+
+/// GET `/b/cloudstorage/` — share list with quota card.
+pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    let user_id = msg.user_id().to_string();
+    if user_id.is_empty() {
+        return crate::ui::not_found_response(msg);
+    }
+
+    let shares = list_shares_for_user(ctx, &user_id).await;
+    let quota = load_quota_info(ctx, &user_id).await;
+
+    let config = SiteConfig::load(ctx).await;
+    let user = UserInfo::from_message(msg);
+
+    let body = list_page(
+        PageHeader {
+            title: "Shares",
+            subtitle: Some("Public links you've created and your storage quota."),
+            primary_action: None,
+        },
+        Some(render_quota_card(&quota)),
+        render_shares_table(&shares),
+        None,
+    );
+
+    let groups = nav_groups::portal();
+    let topbar = Topbar {
+        crumbs: vec![Crumb {
+            label: "Shares",
+            href: None,
+        }],
+        primary_action: None,
+        show_palette: true,
+    };
+    shelled_response(
+        msg,
+        "Shares",
+        &config,
+        &groups,
+        user.as_ref(),
+        msg.path(),
+        topbar,
+        body,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -730,6 +947,51 @@ mod tests {
             "last segment should be plain text, not a link: {html}"
         );
     }
+
+    #[test]
+    fn render_quota_card_under_quota() {
+        let q = QuotaInfo {
+            used_bytes: 100_000,
+            limit_bytes: 1_000_000,
+        };
+        let html = render_quota_card(&q).into_string();
+        assert!(html.contains("100"), "used count missing");
+        assert!(html.contains("10%") || html.contains("10 %"), "percent missing");
+        assert!(!html.contains("quota-warning"), "should not be warning class");
+    }
+
+    #[test]
+    fn render_quota_card_near_quota() {
+        let q = QuotaInfo {
+            used_bytes: 950_000,
+            limit_bytes: 1_000_000,
+        };
+        let html = render_quota_card(&q).into_string();
+        assert!(html.contains("quota-warning"), "should mark near-quota: {html}");
+    }
+
+    #[test]
+    fn render_shares_table_empty() {
+        let html = render_shares_table(&[]).into_string();
+        assert!(html.contains("No active shares"));
+    }
+
+    #[test]
+    fn render_shares_table_with_rows() {
+        let rows = vec![ShareRow {
+            token: "abc12345".into(),
+            bucket: "photos".into(),
+            key: "a.png".into(),
+            created_at: "2026-05-06T10:00:00Z".into(),
+            expires_at: Some("2026-06-06T10:00:00Z".into()),
+            access_count: 4,
+        }];
+        let html = render_shares_table(&rows).into_string();
+        assert!(html.contains("abc12345"));
+        assert!(html.contains("photos"));
+        assert!(html.contains("a.png"));
+        assert!(html.contains(">4<"), "access count missing");
+    }
 }
 
 #[cfg(test)]
@@ -741,7 +1003,7 @@ mod integration_tests {
 
     use super::*;
     use crate::{
-        blocks::files::{BUCKETS_COLLECTION, OBJECTS_COLLECTION},
+        blocks::files::{BUCKETS_COLLECTION, OBJECTS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION},
         test_support::{admin_msg, output_html, TestContext},
     };
 
@@ -903,5 +1165,62 @@ mod integration_tests {
             body.contains("This folder is empty"),
             "expected empty-state copy: {body}"
         );
+    }
+
+    #[tokio::test]
+    async fn cloudstorage_page_renders_shares_and_quota() {
+        let ctx = TestContext::with_auth().await;
+
+        // Seed a share + a quota row owned by admin_1.
+        let mut share: HashMap<String, serde_json::Value> = HashMap::new();
+        share.insert("token".into(), json!("tok123abc"));
+        share.insert("bucket".into(), json!("photos"));
+        share.insert("key".into(), json!("a.png"));
+        share.insert("created_by".into(), json!("admin_1"));
+        share.insert("access_count".into(), json!(2));
+        db::create(&ctx, SHARES_COLLECTION, share)
+            .await
+            .expect("seed share");
+
+        let mut quota: HashMap<String, serde_json::Value> = HashMap::new();
+        quota.insert("user_id".into(), json!("admin_1"));
+        quota.insert("max_storage_bytes".into(), json!(1_073_741_824i64));
+        db::create(&ctx, QUOTAS_COLLECTION, quota)
+            .await
+            .expect("seed quota");
+
+        let msg = admin_msg("retrieve", "/b/cloudstorage/");
+        let resp = cloudstorage_page(&ctx, &msg).await;
+        let body = output_html(resp).await;
+
+        assert!(body.contains("Shares"));
+        assert!(body.contains("tok123abc"));
+        assert!(body.contains("photos"));
+        assert!(body.contains("a.png"));
+        assert!(body.contains(">2<"), "access count cell: {body}");
+    }
+
+    #[tokio::test]
+    async fn cloudstorage_page_hides_other_users_shares() {
+        let ctx = TestContext::with_auth().await;
+        // Seed admin_1's share.
+        let mut mine: HashMap<String, serde_json::Value> = HashMap::new();
+        mine.insert("token".into(), json!("mine"));
+        mine.insert("bucket".into(), json!("photos"));
+        mine.insert("key".into(), json!("a.png"));
+        mine.insert("created_by".into(), json!("admin_1"));
+        db::create(&ctx, SHARES_COLLECTION, mine).await.expect("seed mine");
+        // Seed another user's share.
+        let mut theirs: HashMap<String, serde_json::Value> = HashMap::new();
+        theirs.insert("token".into(), json!("theirs"));
+        theirs.insert("bucket".into(), json!("secrets"));
+        theirs.insert("key".into(), json!("k"));
+        theirs.insert("created_by".into(), json!("other_user"));
+        db::create(&ctx, SHARES_COLLECTION, theirs).await.expect("seed theirs");
+
+        let msg = admin_msg("retrieve", "/b/cloudstorage/");
+        let body = output_html(cloudstorage_page(&ctx, &msg).await).await;
+        assert!(body.contains("mine"), "own share missing: {body}");
+        assert!(!body.contains("theirs"), "other-user share leaked: {body}");
     }
 }
