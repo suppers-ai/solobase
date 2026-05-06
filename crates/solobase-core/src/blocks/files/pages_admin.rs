@@ -424,7 +424,50 @@ pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // Quotas
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Debug)]
+pub struct AdminQuotaRow {
+    pub user_short: String,
+    pub max_storage_bytes: i64,
+    pub max_file_size_bytes: i64,
+    pub max_files_per_bucket: i64,
+}
+
+/// Render the admin Storage Quotas table (or empty state). Bytes
+/// columns humanize via `format_bytes`; user_id is truncated to the
+/// first 8 chars in the loader. Pure helper.
+pub fn render_admin_quotas_table(rows: &[AdminQuotaRow]) -> Markup {
+    if rows.is_empty() {
+        return html! {
+            div .empty-state {
+                p { "No custom quotas. Default: 1 GB storage, 100 MB file size, 10,000 files per bucket." }
+            }
+        };
+    }
+    html! {
+        table .data-table {
+            thead { tr {
+                th { "User" }
+                th { "Max Storage" }
+                th { "Max File Size" }
+                th { "Max Files/Bucket" }
+            } }
+            tbody {
+                @for r in rows {
+                    tr {
+                        td data-label="User" .text-sm { (r.user_short) }
+                        td data-label="Max Storage" .text-sm { (format_bytes(r.max_storage_bytes)) }
+                        td data-label="Max File Size" .text-sm { (format_bytes(r.max_file_size_bytes)) }
+                        td data-label="Max Files/Bucket" .text-sm { (r.max_files_per_bucket) }
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    use crate::ui::templates::{list_page, PageHeader};
+
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -436,41 +479,34 @@ pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
         limit: 100,
         ..Default::default()
     };
-    let result = db::list(ctx, QUOTAS_COLLECTION, &opts).await;
 
-    let content = html! {
-        (components::page_header("Storage Quotas", Some("Per-user storage limits"), None))
-
-        div #quotas-content {
-            @match &result {
-                Ok(list) => {
-                    div .table-container {
-                        table .table {
-                            thead { tr { th { "User" } th { "Max Storage" } th { "Max File Size" } th { "Max Files/Bucket" } } }
-                            tbody {
-                                @if list.records.is_empty() {
-                                    tr { td colspan="4" .text-center .text-muted style="padding:2rem;" {
-                                        "No custom quotas. Default: 1 GB storage, 100 MB file size, 10,000 files per bucket."
-                                    } }
-                                }
-                                @for r in &list.records {
-                                    @let max_storage = r.i64_field("max_storage_bytes");
-                                    @let max_file = r.i64_field("max_file_size_bytes");
-                                    tr {
-                                        td .text-sm { (r.str_field("user_id").get(..8).unwrap_or("—")) }
-                                        td .text-sm { (format_bytes(max_storage)) }
-                                        td .text-sm { (format_bytes(max_file)) }
-                                        td .text-sm { (r.i64_field("max_files_per_bucket")) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(e) => { div .login-error { "Error: " (e.message) } }
-            }
+    let rows: Vec<AdminQuotaRow> = match db::list(ctx, QUOTAS_COLLECTION, &opts).await {
+        Ok(list) => list
+            .records
+            .into_iter()
+            .map(|r| AdminQuotaRow {
+                user_short: r.str_field("user_id").get(..8).unwrap_or("—").to_string(),
+                max_storage_bytes: r.i64_field("max_storage_bytes"),
+                max_file_size_bytes: r.i64_field("max_file_size_bytes"),
+                max_files_per_bucket: r.i64_field("max_files_per_bucket"),
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!(error = %e.message, "admin quotas list failed");
+            Vec::new()
         }
     };
+
+    let body = list_page(
+        PageHeader {
+            title: "Storage Quotas",
+            subtitle: Some("Per-user storage limits"),
+            primary_action: None,
+        },
+        None,
+        render_admin_quotas_table(&rows),
+        None,
+    );
 
     files_page(
         "Quotas",
@@ -478,7 +514,7 @@ pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "/b/storage/admin/quotas",
         user.as_ref(),
         "Quotas",
-        content,
+        body,
         msg,
     )
 }
@@ -611,5 +647,31 @@ mod tests {
         assert!(html.contains("Never"), "missing 'Never' for null expires: {html}");
         // No "/ N" segment when max_access_count is None.
         assert!(!html.contains("/ "), "should not show max divisor when None: {html}");
+    }
+
+    #[test]
+    fn render_admin_quotas_table_empty_state() {
+        let html = render_admin_quotas_table(&[]).into_string();
+        assert!(html.contains("No custom quotas"), "missing empty hint: {html}");
+        // Default values surfaced in the empty state copy.
+        assert!(html.contains("1 GB"), "missing 1 GB default copy: {html}");
+    }
+
+    #[test]
+    fn render_admin_quotas_table_renders_rows() {
+        let rows = vec![AdminQuotaRow {
+            user_short: "user_1".into(),
+            max_storage_bytes: 5_000_000_000,
+            max_file_size_bytes: 100_000_000,
+            max_files_per_bucket: 1000,
+        }];
+        let html = render_admin_quotas_table(&rows).into_string();
+        assert!(html.contains("user_1"), "user missing: {html}");
+        // 5 GB ≈ "4.7 GB" via format_bytes humanization.
+        assert!(html.contains("GB"), "GB unit missing: {html}");
+        // 100 MB → "95.4 MB".
+        assert!(html.contains("MB"), "MB unit missing: {html}");
+        // max_files_per_bucket as integer in its own cell.
+        assert!(html.contains(">1000<"), "files-per-bucket count missing: {html}");
     }
 }
