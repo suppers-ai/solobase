@@ -332,6 +332,21 @@ mod tests {
     }
 
     #[test]
+    fn files_browser_js_exposes_init_and_handles_drag_drop() {
+        let js = super::files_browser_js();
+        assert!(
+            js.contains("solobaseFilesBrowser"),
+            "module namespace missing"
+        );
+        assert!(js.contains("dragenter"), "drag handler missing");
+        assert!(js.contains("dragover"), "drag handler missing");
+        assert!(js.contains("'drop'") || js.contains("\"drop\""), "drop handler missing");
+        assert!(js.contains("data-bulk-toggle"), "bulk-select missing");
+        assert!(js.contains("data-action-menu"), "kebab handler missing");
+        assert!(js.contains("dialog"), "modal uses <dialog>");
+    }
+
+    #[test]
     fn files_browser_js_url_has_content_hash() {
         let url = super::files_browser_js_url();
         assert!(url.starts_with("/b/static/files-browser-"));
