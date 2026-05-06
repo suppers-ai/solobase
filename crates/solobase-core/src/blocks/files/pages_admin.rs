@@ -42,18 +42,84 @@ fn files_page<'a>(
 // Overview
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Debug)]
+pub struct AdminStats {
+    pub buckets: i64,
+    pub files: i64,
+    pub total_size_bytes: i64,
+    pub shares: i64,
+    pub quotas_count: i64,
+}
+
+/// Render the 4 stat cards (Buckets, Files, Total Size, Active Shares)
+/// for the admin storage overview. Designed for the `list_page` template's
+/// `filters` slot. Pure helper — no `Context` access.
+pub fn render_admin_overview_stats(stats: &AdminStats) -> Markup {
+    html! {
+        div .stats-grid {
+            (components::stat_card("Buckets", &stats.buckets.to_string(), icons::folder()))
+            (components::stat_card("Files", &stats.files.to_string(), icons::file_text()))
+            (components::stat_card("Total Size", &format_bytes(stats.total_size_bytes), icons::hard_drive()))
+            (components::stat_card("Active Shares", &stats.shares.to_string(), icons::globe()))
+        }
+    }
+}
+
+/// Render the optional "X user(s) with custom quotas" hint card.
+/// Returns an empty markup when `quotas_count == 0`. Pure helper.
+pub fn render_admin_overview_quotas_hint(quotas_count: i64) -> Markup {
+    if quotas_count <= 0 {
+        return html! {};
+    }
+    html! {
+        div .card style="padding:1rem" {
+            p .text-muted style="font-size:0.875rem" {
+                (quotas_count) " user(s) with custom quotas configured."
+            }
+        }
+    }
+}
+
 pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    use crate::ui::templates::{list_page, PageHeader};
+
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
+
+    let stats = load_admin_stats(ctx).await;
+
+    let body = list_page(
+        PageHeader {
+            title: "Storage",
+            subtitle: Some("File storage statistics"),
+            primary_action: None,
+        },
+        Some(render_admin_overview_stats(&stats)),
+        render_admin_overview_quotas_hint(stats.quotas_count),
+        None,
+    );
+
+    files_page(
+        "Storage",
+        &config,
+        "/b/storage/admin/",
+        user.as_ref(),
+        "Overview",
+        body,
+        msg,
+    )
+}
+
+async fn load_admin_stats(ctx: &dyn Context) -> AdminStats {
     let one = ListOptions {
         limit: 1,
         ..Default::default()
     };
-
-    let buckets_count = db::list(ctx, BUCKETS_COLLECTION, &one)
+    let buckets = db::list(ctx, BUCKETS_COLLECTION, &one)
         .await
         .map(|r| r.total_count)
         .unwrap_or(0);
+
     let complete_only = ListOptions {
         filters: vec![Filter {
             field: "status".into(),
@@ -63,21 +129,22 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
         limit: 1,
         ..Default::default()
     };
-    let objects_count = db::list(ctx, OBJECTS_COLLECTION, &complete_only)
+    let files = db::list(ctx, OBJECTS_COLLECTION, &complete_only)
         .await
         .map(|r| r.total_count)
         .unwrap_or(0);
-    let shares_count = db::list(ctx, SHARES_COLLECTION, &one)
+
+    let shares = db::list(ctx, SHARES_COLLECTION, &one)
         .await
         .map(|r| r.total_count)
         .unwrap_or(0);
+
     let quotas_count = db::list(ctx, QUOTAS_COLLECTION, &one)
         .await
         .map(|r| r.total_count)
         .unwrap_or(0);
 
-    // Total storage size (only complete uploads)
-    let total_size: i64 = db::list(
+    let total_size_bytes = db::list(
         ctx,
         OBJECTS_COLLECTION,
         &ListOptions {
@@ -94,43 +161,13 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
     .map(|r| r.records.iter().map(|rec| rec.i64_field("size")).sum())
     .unwrap_or(0);
 
-    let size_display = if total_size > 1_073_741_824 {
-        format!("{:.1} GB", total_size as f64 / 1_073_741_824.0)
-    } else if total_size > 1_048_576 {
-        format!("{:.1} MB", total_size as f64 / 1_048_576.0)
-    } else if total_size > 1024 {
-        format!("{:.1} KB", total_size as f64 / 1024.0)
-    } else {
-        format!("{} B", total_size)
-    };
-
-    let content = html! {
-        (components::page_header("Storage Overview", Some("File storage statistics"), None))
-        div .stats-grid {
-            (components::stat_card("Buckets", &buckets_count.to_string(), icons::folder()))
-            (components::stat_card("Files", &objects_count.to_string(), icons::file_text()))
-            (components::stat_card("Total Size", &size_display, icons::hard_drive()))
-            (components::stat_card("Active Shares", &shares_count.to_string(), icons::globe()))
-        }
-
-        @if quotas_count > 0 {
-            div .card style="margin-top:1rem;padding:1rem" {
-                p .text-muted style="font-size:0.875rem" {
-                    (quotas_count) " user(s) with custom quotas configured."
-                }
-            }
-        }
-    };
-
-    files_page(
-        "Storage",
-        &config,
-        "/b/storage/admin/",
-        user.as_ref(),
-        "Overview",
-        content,
-        msg,
-    )
+    AdminStats {
+        buckets,
+        files,
+        total_size_bytes,
+        shares,
+        quotas_count,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -334,5 +371,46 @@ fn format_bytes(bytes: i64) -> String {
         format!("{:.1} KB", bytes as f64 / 1024.0)
     } else {
         format!("{} B", bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_admin_overview_stats_renders_four_stat_cards() {
+        let stats = AdminStats {
+            buckets: 3,
+            files: 42,
+            total_size_bytes: 2_500_000_000,
+            shares: 5,
+            quotas_count: 1,
+        };
+        let html = render_admin_overview_stats(&stats).into_string();
+        assert!(html.contains(">3<"), "buckets count missing: {html}");
+        assert!(html.contains(">42<"), "files count missing: {html}");
+        assert!(html.contains(">5<"), "shares count missing: {html}");
+        // total_size_bytes 2.5 GB → "2.3 GB" via format_bytes (or close).
+        assert!(html.contains("GB"), "size humanization missing: {html}");
+    }
+
+    #[test]
+    fn render_admin_overview_quotas_hint_when_present() {
+        let html = render_admin_overview_quotas_hint(3).into_string();
+        assert!(
+            html.contains("3 user(s) with custom quotas"),
+            "quotas hint missing: {html}"
+        );
+    }
+
+    #[test]
+    fn render_admin_overview_quotas_hint_empty_when_zero() {
+        let html = render_admin_overview_quotas_hint(0).into_string();
+        // Empty markup or no visible "with custom quotas" copy.
+        assert!(
+            !html.contains("with custom quotas"),
+            "should be empty when zero: {html}"
+        );
     }
 }
