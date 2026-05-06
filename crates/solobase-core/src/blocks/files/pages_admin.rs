@@ -251,9 +251,17 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
             .into_iter()
             .map(|r| AdminBucketRow {
                 name: r.str_field("name").to_string(),
-                owner_short: r.str_field("created_by").get(..8).unwrap_or("—").to_string(),
+                owner_short: r
+                    .str_field("created_by")
+                    .get(..8)
+                    .unwrap_or("—")
+                    .to_string(),
                 public: r.str_field("public") == "true",
-                created_at_short: r.str_field("created_at").get(..10).unwrap_or("").to_string(),
+                created_at_short: r
+                    .str_field("created_at")
+                    .get(..10)
+                    .unwrap_or("")
+                    .to_string(),
             })
             .collect(),
         Err(e) => {
@@ -374,11 +382,7 @@ pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     Some(exp_str.get(..10).unwrap_or(exp_str).to_string())
                 };
                 AdminShareRow {
-                    token_short: r
-                        .str_field("token")
-                        .get(..12)
-                        .unwrap_or("—")
-                        .to_string(),
+                    token_short: r.str_field("token").get(..12).unwrap_or("—").to_string(),
                     bucket: r.str_field("bucket").to_string(),
                     key: r.str_field("key").to_string(),
                     access_count: r.i64_field("access_count"),
@@ -625,7 +629,10 @@ mod tests {
         assert!(html.contains(">photos<"));
         assert!(html.contains(">a.png<"));
         // access_count and max rendered together as "4 / 10"
-        assert!(html.contains("4 / 10"), "access count + max missing: {html}");
+        assert!(
+            html.contains("4 / 10"),
+            "access count + max missing: {html}"
+        );
         // max_access_count rendered as "/ 10"
         assert!(html.contains("/ 10"));
         assert!(html.contains("2026-06-06"));
@@ -644,15 +651,24 @@ mod tests {
             owner_short: "u".into(),
         }];
         let html = render_admin_shares_table(&rows).into_string();
-        assert!(html.contains("Never"), "missing 'Never' for null expires: {html}");
+        assert!(
+            html.contains("Never"),
+            "missing 'Never' for null expires: {html}"
+        );
         // No "/ N" segment when max_access_count is None.
-        assert!(!html.contains("/ "), "should not show max divisor when None: {html}");
+        assert!(
+            !html.contains("/ "),
+            "should not show max divisor when None: {html}"
+        );
     }
 
     #[test]
     fn render_admin_quotas_table_empty_state() {
         let html = render_admin_quotas_table(&[]).into_string();
-        assert!(html.contains("No custom quotas"), "missing empty hint: {html}");
+        assert!(
+            html.contains("No custom quotas"),
+            "missing empty hint: {html}"
+        );
         // Default values surfaced in the empty state copy.
         assert!(html.contains("1 GB"), "missing 1 GB default copy: {html}");
     }
@@ -672,6 +688,9 @@ mod tests {
         // 100 MB → "95.4 MB".
         assert!(html.contains("MB"), "MB unit missing: {html}");
         // max_files_per_bucket as integer in its own cell.
-        assert!(html.contains(">1000<"), "files-per-bucket count missing: {html}");
+        assert!(
+            html.contains(">1000<"),
+            "files-per-bucket count missing: {html}"
+        );
     }
 }
