@@ -7,17 +7,13 @@
 #   - Maud's (DOCTYPE) two-token form (followed by `html lang=...`).
 #   - Raw "<html" or "<!DOCTYPE" string literals.
 #
-# Exemptions (extend with care):
-#   - crates/solobase-core/src/blocks/legalpages/mod.rs — the public legal-page
-#     renderer (`/b/legalpages/{terms,privacy}`) intentionally ships its own
-#     chrome (different audience, different typography, deployment-configured
-#     branding) and pre-dates the design system. Phase 5d / follow-up will
-#     introduce a public_page template and remove this exemption.
+# Phase 5d removed the legalpages exemption: legal pages now render via the
+# `public_page` template in solobase-core/src/ui/templates.rs.
 set -euo pipefail
 hits=$(grep -rlnE --include='*.rs' \
   '\(DOCTYPE\s+html\)|\(DOCTYPE\)|<!DOCTYPE|<html\b' \
   crates/ \
-  | grep -vE '^crates/solobase-core/src/ui/|^crates/solobase-core/src/blocks/legalpages/mod\.rs$' \
+  | grep -vE '^crates/solobase-core/src/ui/' \
   || true) # grep exits 1 on empty input under pipefail; || true normalises that
 if [ -n "$hits" ]; then
   echo "ERROR: full-page HTML markers found outside crates/solobase-core/src/ui/:" >&2

@@ -4,9 +4,9 @@
 //! declare their template inputs and call one function — no bespoke
 //! page HTML outside this module.
 
-use maud::{html, Markup};
+use maud::{html, Markup, PreEscaped, DOCTYPE};
 
-use super::components;
+use super::{assets, components, SiteConfig};
 
 /// Header line for list / detail / form pages.
 pub struct PageHeader<'a> {
@@ -257,6 +257,107 @@ pub fn status_page(
                 p .status-page__body { (body) }
                 @if let Some((label, href)) = primary_action {
                     a .btn .btn--primary .btn--md href=(href) { (label) }
+                }
+            }
+        }
+    }
+}
+
+/// Inputs for [`public_page`] — anonymous full-page chrome shared by all
+/// public-facing surfaces (legal pages, marketing, etc.). No sidebar, no
+/// admin chrome, no auth-aware bits. Returns the *full* HTML document
+/// including DOCTYPE — unlike the other templates in this module, which
+/// return body fragments wrapped by `layout::page` later.
+pub struct PublicPage<'a> {
+    /// Window title. Combined with `config.app_name` if non-empty.
+    pub title: &'a str,
+    /// Site branding (favicon, app name) and any embedded scripts.
+    pub config: &'a SiteConfig,
+    /// Optional `<meta name="description">` for SEO / social cards.
+    pub meta_description: Option<&'a str>,
+    /// Optional href for the back-arrow shown in the header. None hides
+    /// the header entirely (use for true root pages).
+    pub back_url: Option<&'a str>,
+    /// Optional CSS color override for the page background. Set via
+    /// `--public-page-bg` custom property; falls back to `--surface-2`.
+    pub bg_color: Option<&'a str>,
+    /// Optional CSS color override for accent (links, focus). Set via
+    /// `--public-page-accent`; falls back to `--primary-color`.
+    pub accent_color: Option<&'a str>,
+    /// Optional pre-sanitized footer HTML. Rendered verbatim (caller is
+    /// responsible for sanitization — see `ammonia::clean` upstream).
+    pub footer: Option<Markup>,
+}
+
+/// `public_page` template — full HTML document for anonymous public-facing
+/// pages (legal documents, marketing, etc.). Standard solobase CSS bundle,
+/// minimal header (back-arrow only), optional footer.
+///
+/// The body is rendered inside `<main class="public-page">` with a centered
+/// card (`.public-page__card`); pages put long-form prose inside
+/// `.public-page__content` to inherit the prose typography.
+pub fn public_page(opts: PublicPage<'_>, body: Markup) -> Markup {
+    // Build a tiny inline `:root` override only when overrides are present;
+    // otherwise the defaults from tokens.css apply.
+    let inline_vars = match (opts.bg_color, opts.accent_color) {
+        (None, None) => String::new(),
+        (bg, accent) => {
+            let mut s = String::from(":root{");
+            if let Some(c) = bg {
+                s.push_str(&format!("--public-page-bg:{};", c));
+            }
+            if let Some(c) = accent {
+                s.push_str(&format!("--public-page-accent:{};", c));
+            }
+            s.push('}');
+            s
+        }
+    };
+
+    let full_title = if opts.config.app_name.is_empty() {
+        opts.title.to_string()
+    } else {
+        format!("{} \u{2014} {}", opts.title, opts.config.app_name)
+    };
+
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width,initial-scale=1";
+                title { (full_title) }
+                @if let Some(desc) = opts.meta_description {
+                    meta name="description" content=(desc);
+                }
+                link rel="stylesheet" href=(assets::css_url());
+                @if !opts.config.favicon_url.is_empty() {
+                    link rel="icon" href=(opts.config.favicon_url);
+                }
+                @if !inline_vars.is_empty() {
+                    style { (PreEscaped(inline_vars)) }
+                }
+            }
+            body .public-page-body {
+                @if let Some(href) = opts.back_url {
+                    header .public-page__header {
+                        div .public-page__header-inner {
+                            a .public-page__back href=(href) title="Go back" aria-label="Go back" {
+                                "\u{2190}"
+                            }
+                        }
+                    }
+                }
+                main .public-page {
+                    div .public-page__card {
+                        (body)
+                    }
+                }
+                @if let Some(f) = opts.footer {
+                    footer .public-page__footer { (f) }
+                }
+                @for src in &opts.config.embedded_scripts {
+                    script type="module" src=(src) {}
                 }
             }
         }
@@ -537,5 +638,125 @@ mod tests {
         let s = status_page("", "Hello", "Welcome.", None).into_string();
         assert!(!s.contains("status-page__code"));
         assert!(!s.contains(r#"class="btn"#));
+    }
+
+    fn public_site_config() -> SiteConfig {
+        SiteConfig {
+            app_name: "Acme".to_string(),
+            logo_url: String::new(),
+            logo_icon_url: String::new(),
+            favicon_url: "/favicon.ico".to_string(),
+            embedded_scripts: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn public_page_renders_full_document_with_doctype_head_and_body() {
+        let cfg = public_site_config();
+        let opts = PublicPage {
+            title: "Terms of Service",
+            config: &cfg,
+            meta_description: Some("Our terms"),
+            back_url: Some("/"),
+            bg_color: None,
+            accent_color: None,
+            footer: None,
+        };
+        let body = html! { div .public-page__content { p { "Hello" } } };
+        let s = public_page(opts, body).into_string();
+
+        assert!(s.contains("<!DOCTYPE html>"));
+        assert!(s.contains(r#"<html lang="en">"#));
+        assert!(s.contains(r#"<meta charset="utf-8">"#));
+        assert!(
+            s.contains(r#"<meta name="viewport" content="width=device-width,initial-scale=1">"#)
+        );
+        // Title combines page title + app name.
+        assert!(s.contains("Terms of Service \u{2014} Acme"));
+        assert!(s.contains(r#"<meta name="description" content="Our terms">"#));
+        assert!(s.contains(r#"href="/favicon.ico""#));
+        // Standard CSS bundle linked (hash is content-derived).
+        assert!(s.contains(r#"<link rel="stylesheet" href="/b/static/app-"#));
+        // Header back link present.
+        assert!(s.contains(r#"class="public-page__back" href="/""#));
+        // Body wrapper present.
+        assert!(s.contains(r#"<main class="public-page">"#));
+        assert!(s.contains(r#"class="public-page__card""#));
+        assert!(s.contains("Hello"));
+    }
+
+    #[test]
+    fn public_page_omits_optional_chrome() {
+        let cfg = public_site_config();
+        let opts = PublicPage {
+            title: "Hi",
+            config: &cfg,
+            meta_description: None,
+            back_url: None,
+            bg_color: None,
+            accent_color: None,
+            footer: None,
+        };
+        let s = public_page(opts, html! { p { "x" } }).into_string();
+        assert!(!s.contains("public-page__header"));
+        assert!(!s.contains("public-page__footer"));
+        assert!(!s.contains(r#"name="description""#));
+    }
+
+    #[test]
+    fn public_page_inlines_color_overrides() {
+        let cfg = public_site_config();
+        let opts = PublicPage {
+            title: "x",
+            config: &cfg,
+            meta_description: None,
+            back_url: None,
+            bg_color: Some("#fafafa"),
+            accent_color: Some("#6366f1"),
+            footer: None,
+        };
+        let s = public_page(opts, html! {}).into_string();
+        assert!(s.contains("--public-page-bg:#fafafa"));
+        assert!(s.contains("--public-page-accent:#6366f1"));
+    }
+
+    #[test]
+    fn public_page_renders_footer_markup() {
+        let cfg = public_site_config();
+        let opts = PublicPage {
+            title: "x",
+            config: &cfg,
+            meta_description: None,
+            back_url: None,
+            bg_color: None,
+            accent_color: None,
+            footer: Some(html! { span { "© 2026 Acme" } }),
+        };
+        let s = public_page(opts, html! {}).into_string();
+        assert!(s.contains("public-page__footer"));
+        assert!(s.contains("© 2026 Acme"));
+    }
+
+    #[test]
+    fn public_page_title_omits_separator_when_app_name_empty() {
+        let cfg = SiteConfig {
+            app_name: String::new(),
+            logo_url: String::new(),
+            logo_icon_url: String::new(),
+            favicon_url: String::new(),
+            embedded_scripts: Vec::new(),
+        };
+        let opts = PublicPage {
+            title: "Just Title",
+            config: &cfg,
+            meta_description: None,
+            back_url: None,
+            bg_color: None,
+            accent_color: None,
+            footer: None,
+        };
+        let s = public_page(opts, html! {}).into_string();
+        assert!(s.contains("<title>Just Title</title>"));
+        assert!(!s.contains(" \u{2014} "));
     }
 }
