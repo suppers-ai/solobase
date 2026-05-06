@@ -66,11 +66,14 @@ use crate::ui::{
 /// Load the calling user's buckets, decorated with live object counts.
 ///
 /// `created_by` filtering keeps users from seeing each other's buckets.
-/// Object counts are an N+1 — acceptable for v1 (per-user bucket count
-/// is normally small). If this gets hot, fold into a single aggregate
-/// query via `wafer-sql-utils::aggregate` (do **not** use raw SQL —
-/// CLAUDE.md).
+/// Two N+1-shaped concerns: (1) `ListOptions::default()` has `limit: 0`
+/// which means no LIMIT clause — a full scan of the buckets collection
+/// for this user. (2) Object counts loop one `db::count` per bucket.
+/// Both are acceptable for v1 — per-user bucket count is normally small.
+/// If this gets hot, fold into a single aggregate query via
+/// `wafer-sql-utils::aggregate` (do **not** use raw SQL — CLAUDE.md).
 pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<BucketRow> {
+    use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION};
     use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 
     let opts = ListOptions {
@@ -86,9 +89,12 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
         ..Default::default()
     };
 
-    let recs = match db::list(ctx, "suppers_ai__files__buckets", &opts).await {
+    let recs = match db::list(ctx, BUCKETS_COLLECTION, &opts).await {
         Ok(rl) => rl.records,
-        Err(_) => Vec::new(),
+        Err(e) => {
+            tracing::warn!(error = %e, "files bucket list failed");
+            Vec::new()
+        }
     };
 
     let mut rows: Vec<BucketRow> = Vec::with_capacity(recs.len());
@@ -116,10 +122,13 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
             operator: FilterOp::Equal,
             value: serde_json::Value::String(name.clone()),
         }];
-        let object_count =
-            db::count(ctx, "suppers_ai__files__objects", &obj_filters)
-                .await
-                .unwrap_or(0);
+        let object_count = match db::count(ctx, OBJECTS_COLLECTION, &obj_filters).await {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(error = %e, bucket = %name, "files bucket object count failed");
+                0
+            }
+        };
 
         rows.push(BucketRow {
             name,
@@ -236,7 +245,10 @@ mod integration_tests {
     use wafer_core::clients::database as db;
 
     use super::*;
-    use crate::test_support::{admin_msg, output_html, TestContext};
+    use crate::{
+        blocks::files::{BUCKETS_COLLECTION, OBJECTS_COLLECTION},
+        test_support::{admin_msg, output_html, TestContext},
+    };
 
     /// Seed two buckets + two objects in `photos`, none in `docs`.
     async fn seed_two_buckets(ctx: &TestContext, owner: &str) {
@@ -245,7 +257,7 @@ mod integration_tests {
             row.insert("name".into(), json!(name));
             row.insert("public".into(), json!(public));
             row.insert("created_by".into(), json!(owner));
-            db::create(ctx, "suppers_ai__files__buckets", row)
+            db::create(ctx, BUCKETS_COLLECTION, row)
                 .await
                 .expect("seed bucket");
         }
@@ -255,7 +267,7 @@ mod integration_tests {
             row.insert("key".into(), json!(key));
             row.insert("size".into(), json!(1024));
             row.insert("uploaded_by".into(), json!(owner));
-            db::create(ctx, "suppers_ai__files__objects", row)
+            db::create(ctx, OBJECTS_COLLECTION, row)
                 .await
                 .expect("seed object");
         }
@@ -294,5 +306,26 @@ mod integration_tests {
 
         assert!(body.contains("Files"), "missing page header");
         assert!(body.contains("No buckets yet"), "missing empty state");
+    }
+
+    #[tokio::test]
+    async fn bucket_list_page_hides_other_users_buckets() {
+        let ctx = TestContext::with_auth().await;
+        // Seed admin_1's buckets.
+        seed_two_buckets(&ctx, "admin_1").await;
+        // Seed one bucket for a different user.
+        let mut row: HashMap<String, serde_json::Value> = HashMap::new();
+        row.insert("name".into(), json!("secrets"));
+        row.insert("created_by".into(), json!("other_user"));
+        db::create(&ctx, BUCKETS_COLLECTION, row)
+            .await
+            .expect("seed cross-user bucket");
+
+        let msg = admin_msg("retrieve", "/b/storage/"); // user_id = "admin_1"
+        let body = output_html(bucket_list_page(&ctx, &msg).await).await;
+        assert!(
+            !body.contains(">secrets<"),
+            "cross-user bucket leaked: {body}"
+        );
     }
 }
