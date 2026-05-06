@@ -474,16 +474,13 @@ mod tests {
     #[tokio::test]
     async fn with_wrap_denies_unowned_resource_without_grant() {
         // Caller "block-x" tries to read auth-owned table; no grants → denied.
-        let ctx = TestContext::with_auth()
-            .await
-            .with_wrap("test/block-x", Vec::new(), "suppers-ai/admin");
+        let ctx = TestContext::with_auth().await.with_wrap(
+            "test/block-x",
+            Vec::new(),
+            "suppers-ai/admin",
+        );
 
-        let result = db::list(
-            &ctx,
-            "suppers_ai__auth__users",
-            &db::ListOptions::default(),
-        )
-        .await;
+        let result = db::list(&ctx, "suppers_ai__auth__users", &db::ListOptions::default()).await;
 
         let err = result.expect_err("WRAP must deny call without grant");
         assert!(
@@ -498,18 +495,15 @@ mod tests {
             "test/block-x",
             "suppers_ai__auth__users",
         )];
-        let ctx = TestContext::with_auth()
-            .await
-            .with_wrap("test/block-x", grants, "suppers-ai/admin");
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("test/block-x", grants, "suppers-ai/admin");
 
         // Empty users table — listing must succeed (zero rows is success).
-        let res = db::list(
-            &ctx,
-            "suppers_ai__auth__users",
-            &db::ListOptions::default(),
-        )
-        .await
-        .expect("WRAP must allow listing with matching grant");
+        let res = db::list(&ctx, "suppers_ai__auth__users", &db::ListOptions::default())
+            .await
+            .expect("WRAP must allow listing with matching grant");
         assert_eq!(res.records.len(), 0);
     }
 
@@ -518,13 +512,9 @@ mod tests {
         // Default TestContext (no `with_wrap`) keeps WRAP-bypassing legacy
         // behaviour so existing tests aren't disturbed.
         let ctx = TestContext::with_auth().await;
-        let res = db::list(
-            &ctx,
-            "suppers_ai__auth__users",
-            &db::ListOptions::default(),
-        )
-        .await
-        .expect("call must succeed without with_wrap");
+        let res = db::list(&ctx, "suppers_ai__auth__users", &db::ListOptions::default())
+            .await
+            .expect("call must succeed without with_wrap");
         assert_eq!(res.records.len(), 0);
     }
 }
