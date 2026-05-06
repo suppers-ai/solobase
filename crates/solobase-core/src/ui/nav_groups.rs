@@ -35,7 +35,7 @@ pub fn admin() -> Vec<NavGroup> {
             label: Some("Data".to_string()),
             items: vec![
                 item("Blocks", "/b/admin/blocks", "package"),
-                item("Storage", "/b/admin/storage", "hard-drive"),
+                item("Storage", "/b/storage/admin/", "hard-drive"),
                 item("Database", "/b/admin/database", "server"),
                 item("Vector indexes", "/b/vector/", "network"),
             ],
@@ -135,6 +135,17 @@ mod tests {
             data.items.iter().all(|i| i.label != "SQL"),
             "SQL should be renamed to Database"
         );
+    }
+
+    #[test]
+    fn admin_storage_entry_points_at_actual_route() {
+        let groups = admin();
+        let storage = groups
+            .iter()
+            .flat_map(|g| g.items.iter())
+            .find(|i| i.label == "Storage")
+            .expect("Storage entry exists in admin nav");
+        assert_eq!(storage.href, "/b/storage/admin/");
     }
 
     #[test]

@@ -19,7 +19,15 @@ export async function loginAsAdmin(page: Page): Promise<void> {
   await page.fill('#email', 'admin@example.com');
   await page.fill('#password', 'admin123');
   await page.click('#btn');
-  // Native argon2id completes in milliseconds; allow up to 10s for the
-  // login fetch + redirect to complete.
-  await page.waitForURL((url) => !url.pathname.includes('/b/auth/login'), { timeout: 10_000 });
+  // Native argon2id completes in milliseconds. The fixture only needs the
+  // URL to leave `/b/auth/login` — not the full target page to finish loading.
+  // `waitUntil: 'commit'` fires as soon as the navigation commits to the new
+  // URL, avoiding cumulative timeouts late in the suite when the post-login
+  // dashboard page is slow to fire `load` (the `request_log` "Recent Errors"
+  // table grows with traffic from prior tests; with 36+ tests in the suite
+  // the default `'load'` wait can exceed 10s on the last few logins).
+  await page.waitForURL((url) => !url.pathname.includes('/b/auth/login'), {
+    timeout: 15_000,
+    waitUntil: 'commit',
+  });
 }

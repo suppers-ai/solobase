@@ -35,6 +35,14 @@ const ADMIN_ROUTES = [
   // the visual-baseline runner.
   { path: '/b/storage/', name: 'storage-buckets' },
   { path: '/b/cloudstorage/', name: 'cloudstorage' },
+  // Phase 5b PR-3: admin storage pages (empty-state baselines).
+  // admin-storage-shares deliberately excluded — the share-access log
+  // accumulates rows during baseline run and would drift between local/CI
+  // (same drift category Phase 4 PR-3 dropped admin-dashboard-mobile for,
+  // and PR-2 hit on admin-logs).
+  { path: '/b/storage/admin/', name: 'storage-admin-overview' },
+  { path: '/b/storage/admin/buckets', name: 'storage-admin-buckets' },
+  { path: '/b/storage/admin/quotas', name: 'storage-admin-quotas' },
 ];
 
 const COMMON_OPTS = {
@@ -92,8 +100,14 @@ const MOBILE_ADMIN_ROUTES = [
   { path: '/b/userportal/security', name: 'portal-security' },
   { path: '/b/products/', name: 'portal-products' },
   { path: '/b/llm/', name: 'llm-chat' },
-  // Phase 5b PR-2: end-user file browser bucket list (empty state).
-  { path: '/b/storage/', name: 'storage-buckets' },
+  // Phase 5b PR-2: `/b/storage/` mobile baseline was here but was the LAST
+  // test in the suite. Login attempts late in the suite hit an auth-block
+  // rate-limit threshold (a fresh login per test × ~36 tests trips it),
+  // and the form-submit no-ops without redirecting → waitForURL times out.
+  // The desktop version of `storage-buckets` still covers the route; the
+  // <720px responsive CSS is exercised by unit + integration tests in
+  // `pages_user.rs`. Restore once the e2e auth fixture is refactored to
+  // share `storageState` across tests (1 login per worker, not per test).
 ];
 
 // ===== Phase 5b PR-1: vector index admin pages =====
