@@ -129,8 +129,5 @@ jobs:
           echo "Baseline diff detected:"
           git diff --stat -- '.playwright-mcp/'
           git add .playwright-mcp/
-          git commit -m "test(ui): regen visual baselines from CI render
-
-Auto-committed by .github/workflows/regen-visual-baselines.yml
-dispatched against branch '${TARGET_BRANCH}'."
+          git commit -m "test(ui): regen visual baselines from CI render (auto-committed by regen-visual-baselines.yml against ${TARGET_BRANCH})"
           git push origin "HEAD:${TARGET_BRANCH}"
