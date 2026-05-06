@@ -115,10 +115,13 @@ async fn load_admin_stats(ctx: &dyn Context) -> AdminStats {
         limit: 1,
         ..Default::default()
     };
-    let buckets = db::list(ctx, BUCKETS_COLLECTION, &one)
-        .await
-        .map(|r| r.total_count)
-        .unwrap_or(0);
+    let buckets = match db::list(ctx, BUCKETS_COLLECTION, &one).await {
+        Ok(r) => r.total_count,
+        Err(e) => {
+            tracing::warn!(error = %e.message, "admin overview: bucket count failed");
+            0
+        }
+    };
 
     let complete_only = ListOptions {
         filters: vec![Filter {
@@ -129,22 +132,31 @@ async fn load_admin_stats(ctx: &dyn Context) -> AdminStats {
         limit: 1,
         ..Default::default()
     };
-    let files = db::list(ctx, OBJECTS_COLLECTION, &complete_only)
-        .await
-        .map(|r| r.total_count)
-        .unwrap_or(0);
+    let files = match db::list(ctx, OBJECTS_COLLECTION, &complete_only).await {
+        Ok(r) => r.total_count,
+        Err(e) => {
+            tracing::warn!(error = %e.message, "admin overview: files count failed");
+            0
+        }
+    };
 
-    let shares = db::list(ctx, SHARES_COLLECTION, &one)
-        .await
-        .map(|r| r.total_count)
-        .unwrap_or(0);
+    let shares = match db::list(ctx, SHARES_COLLECTION, &one).await {
+        Ok(r) => r.total_count,
+        Err(e) => {
+            tracing::warn!(error = %e.message, "admin overview: shares count failed");
+            0
+        }
+    };
 
-    let quotas_count = db::list(ctx, QUOTAS_COLLECTION, &one)
-        .await
-        .map(|r| r.total_count)
-        .unwrap_or(0);
+    let quotas_count = match db::list(ctx, QUOTAS_COLLECTION, &one).await {
+        Ok(r) => r.total_count,
+        Err(e) => {
+            tracing::warn!(error = %e.message, "admin overview: quotas count failed");
+            0
+        }
+    };
 
-    let total_size_bytes = db::list(
+    let total_size_bytes: i64 = match db::list(
         ctx,
         OBJECTS_COLLECTION,
         &ListOptions {
@@ -158,8 +170,13 @@ async fn load_admin_stats(ctx: &dyn Context) -> AdminStats {
         },
     )
     .await
-    .map(|r| r.records.iter().map(|rec| rec.i64_field("size")).sum())
-    .unwrap_or(0);
+    {
+        Ok(r) => r.records.iter().map(|rec| rec.i64_field("size")).sum(),
+        Err(e) => {
+            tracing::warn!(error = %e.message, "admin overview: total size sum failed");
+            0
+        }
+    };
 
     AdminStats {
         buckets,
