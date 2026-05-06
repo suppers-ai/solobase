@@ -412,4 +412,66 @@ mod tests {
             "no badge expected when cookie hash doesn't match any row"
         );
     }
+
+    // --- WRAP regression: catches a future removal of the userportal
+    // grant on `auth::repo::sessions::TABLE`. Without it, /b/userportal/
+    // sessions silently returns the empty state for every authenticated
+    // user. PR #77 added the grant; these tests fail closed if it's removed.
+
+    #[tokio::test]
+    async fn wrap_denies_sessions_list_without_grant() {
+        // Seed BEFORE enabling WRAP — `seed_user` uses raw SQL, which WRAP
+        // restricts to the admin block. In production, rows are seeded by
+        // owner/admin paths; userportal only reads them. The test mirrors
+        // that lifecycle.
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+        insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
+
+        let ctx = ctx.with_wrap("suppers-ai/userportal", Vec::new(), "suppers-ai/admin");
+
+        let err = sessions::list_for_user(&ctx, "user-a")
+            .await
+            .expect_err("WRAP must deny list_for_user without grant");
+        assert!(
+            format!("{err:?}").contains("WRAP"),
+            "error must mention WRAP, got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn wrap_allows_sessions_list_with_auth_block_grants() {
+        use crate::blocks::auth::AuthBlock;
+        use wafer_run::block::Block;
+
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+        insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
+
+        let auth_grants = AuthBlock::default().info().grants;
+        let ctx = ctx.with_wrap("suppers-ai/userportal", auth_grants, "suppers-ai/admin");
+
+        let rows = sessions::list_for_user(&ctx, "user-a")
+            .await
+            .expect("auth's production grants must cover userportal sessions read");
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn wrap_allows_sessions_delete_with_auth_block_grants() {
+        use crate::blocks::auth::AuthBlock;
+        use wafer_run::block::Block;
+
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+        insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
+
+        let auth_grants = AuthBlock::default().info().grants;
+        let ctx = ctx.with_wrap("suppers-ai/userportal", auth_grants, "suppers-ai/admin");
+
+        let removed = sessions::delete_for_user(&ctx, "user-a", &[0x01u8; 32])
+            .await
+            .expect("auth's production grants must cover userportal sessions write");
+        assert_eq!(removed, 1);
+    }
 }
