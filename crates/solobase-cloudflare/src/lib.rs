@@ -93,7 +93,7 @@ use solobase_core::builder::SolobaseBuilder;
 /// block registrations, dispatch the request through WAFER.
 ///
 /// Binding names are hardcoded: D1 = `"DB"`, R2 = `"STORAGE"`. Consumers'
-/// `wrangler.toml` must use these names. See `runner.rs` for the rationale.
+/// `wrangler.toml` must use these names.
 ///
 /// `register_blocks` runs after the 6 services are attached to the builder
 /// and before `builder.build()` — register your blocks there.
@@ -142,7 +142,7 @@ where
     let bucket = make_r2_storage_service(&env, runner::R2_BINDING)
         .map_err(|e| format!("R2 binding {:?}: {e}", runner::R2_BINDING))?;
     let jwt_secret = env_vars
-        .get("SUPPERS_AI__AUTH__JWT_SECRET")
+        .get(solobase_core::blocks::auth::JWT_SECRET_KEY)
         .cloned()
         .unwrap_or_default();
     let crypto = make_jwt_crypto_service(jwt_secret);
@@ -161,8 +161,7 @@ where
         .logger(logger)
         .block_settings(block_settings);
 
-    // 5. Consumer registers its blocks (consume + return matches the
-    //    SolobaseBuilder setter convention).
+    // 5. Consumer registers its blocks.
     let builder = register_blocks(builder)?;
 
     // 6. Build runtime.
@@ -191,7 +190,7 @@ where
 /// `wrangler secret put`). Most config belongs in D1 so admins can
 /// manage it through the dashboard — this list stays short.
 const PROTECTED_ENV_KEYS: &[&str] = &[
-    "SUPPERS_AI__AUTH__JWT_SECRET",
+    solobase_core::blocks::auth::JWT_SECRET_KEY,
 ];
 
 #[cfg(test)]
