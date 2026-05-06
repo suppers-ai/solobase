@@ -5,6 +5,8 @@
 
 use maud::{html, Markup};
 
+use super::super::helpers::url_path_encode;
+
 /// Aggregated bucket info as shown in the user-facing table:
 /// name, public flag, created-at ISO string, and live object count.
 #[derive(Clone, Debug)]
@@ -265,7 +267,7 @@ pub fn render_objects_table(
                     tr .row--folder {
                         td {} // bulk-select disabled on folders
                         td data-label="Name" {
-                            a href={"/b/storage/" (bucket) "/" (current_prefix) (folder) "/"} {
+                            a href={"/b/storage/" (url_path_encode(bucket)) "/" (current_prefix) (url_path_encode(folder)) "/"} {
                                 "📁 " (folder)
                             }
                         }
@@ -278,7 +280,8 @@ pub fn render_objects_table(
                     @let filename = f.key.strip_prefix(current_prefix).unwrap_or(&f.key);
                     @let download_href = format!(
                         "/b/storage/api/buckets/{}/objects/{}",
-                        bucket, f.key,
+                        url_path_encode(bucket),
+                        f.key.split('/').map(url_path_encode).collect::<Vec<_>>().join("/"),
                     );
                     tr data-object-key=(f.key) {
                         td { input type="checkbox" .bulk-select data-key=(f.key); }
@@ -303,9 +306,14 @@ pub fn render_objects_table(
     }
 }
 
-/// Render breadcrumb crumbs for the topbar. The bucket and each prefix
-/// segment except the last are clickable; the last segment is plain text.
-/// The returned `Markup` is a `<nav class="breadcrumbs">` block.
+/// Render breadcrumb crumbs for the page body (below the topbar).
+///
+/// This is distinct from the shell `Topbar { crumbs: vec![Crumb {...}] }`
+/// system: the topbar shows the page-level chrome ("Files > {bucket}"),
+/// and this in-body breadcrumb shows the current folder path within the
+/// bucket. The bucket and each prefix segment except the last are
+/// clickable; the last segment is plain text. Returned `Markup` is a
+/// `<nav class="breadcrumbs">` block.
 pub fn render_breadcrumbs(bucket: &str, current_prefix: &str) -> Markup {
     let segments: Vec<&str> = current_prefix
         .trim_end_matches('/')
@@ -313,6 +321,7 @@ pub fn render_breadcrumbs(bucket: &str, current_prefix: &str) -> Markup {
         .filter(|s| !s.is_empty())
         .collect();
     let last_idx = segments.len();
+    let encoded_bucket = url_path_encode(bucket);
 
     html! {
         nav .breadcrumbs aria-label="Folder" {
@@ -321,14 +330,14 @@ pub fn render_breadcrumbs(bucket: &str, current_prefix: &str) -> Markup {
             @if segments.is_empty() {
                 span { (bucket) }
             } @else {
-                a href={"/b/storage/" (bucket) "/"} { (bucket) }
+                a href={"/b/storage/" (encoded_bucket) "/"} { (bucket) }
                 @for (i, seg) in segments.iter().enumerate() {
                     span .breadcrumbs__sep { " / " }
                     @if i + 1 == last_idx {
                         span { (seg) }
                     } @else {
-                        @let cumulative: String = segments[..=i].join("/");
-                        a href={"/b/storage/" (bucket) "/" (cumulative) "/"} { (seg) }
+                        @let cumulative: String = segments[..=i].iter().map(|s| url_path_encode(s)).collect::<Vec<_>>().join("/");
+                        a href={"/b/storage/" (encoded_bucket) "/" (cumulative) "/"} { (seg) }
                     }
                 }
             }
@@ -519,6 +528,8 @@ mod tests {
         assert!(html.contains("1024"), "size missing");
         // kebab menu trigger
         assert!(html.contains(r#"data-action-menu"#), "kebab missing");
+        assert!(html.contains(r#"data-bucket="photos""#), "kebab data-bucket missing/wrong: {html}");
+        assert!(html.contains(r#"data-key="a.png""#), "kebab data-key missing/wrong: {html}");
     }
 
     #[test]
@@ -543,6 +554,26 @@ mod tests {
     }
 
     #[test]
+    fn render_objects_table_url_encodes_key_with_spaces() {
+        let f1 = ObjectRow {
+            key: "report Q2.pdf".into(),
+            size: 0,
+            modified: "x".into(),
+        };
+        let listing = FolderListing {
+            folders: Vec::new(),
+            files: vec![&f1],
+        };
+        let html = render_objects_table("photos", "", &listing).into_string();
+        assert!(
+            html.contains(r#"href="/b/storage/api/buckets/photos/objects/report%20Q2.pdf""#),
+            "download href not URL-encoded: {html}"
+        );
+        // Display text remains the raw filename (HTML-escaped by maud).
+        assert!(html.contains(">report Q2.pdf<"), "filename text wrong: {html}");
+    }
+
+    #[test]
     fn render_breadcrumbs_root_only() {
         let html = render_breadcrumbs("photos", "").into_string();
         // bucket name visible, no extra crumbs.
@@ -558,6 +589,11 @@ mod tests {
         assert!(html.contains("photos"));
         assert!(html.contains(r#"href="/b/storage/photos/nested/""#));
         assert!(html.contains(">sub<"));
+        // Last segment ("sub") must NOT be a link.
+        assert!(
+            !html.contains(r#"href="/b/storage/photos/nested/sub/""#),
+            "last segment should be plain text, not a link: {html}"
+        );
     }
 }
 

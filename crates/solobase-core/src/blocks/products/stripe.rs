@@ -152,8 +152,8 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
         currency,
         total_cents,
         body.purchase_id,
-        urlencoding(&success_url),
-        urlencoding(&cancel_url),
+        super::super::helpers::url_path_encode(&success_url),
+        super::super::helpers::url_path_encode(&cancel_url),
         body.purchase_id
     );
 
@@ -650,19 +650,6 @@ async fn fire_products_webhook(ctx: &dyn Context, event: &str, data: &serde_json
     }
 }
 
-pub(super) fn urlencoding(s: &str) -> String {
-    // Iterate over bytes (not chars) to correctly handle multi-byte UTF-8
-    s.as_bytes()
-        .iter()
-        .map(|&b| match b {
-            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                String::from(b as char)
-            }
-            _ => format!("%{:02X}", b),
-        })
-        .collect()
-}
-
 /// Verify Stripe webhook signature using HMAC-SHA256.
 /// Stripe sends `t=timestamp,v1=signature` in the Stripe-Signature header.
 fn verify_stripe_signature(payload: &[u8], sig_header: &str, secret: &str) -> bool {
@@ -910,11 +897,12 @@ mod tests {
 
     #[test]
     fn test_urlencoding() {
-        assert_eq!(urlencoding("hello"), "hello");
-        assert_eq!(urlencoding("hello world"), "hello%20world");
-        assert_eq!(urlencoding("a+b=c&d"), "a%2Bb%3Dc%26d");
+        use super::super::super::helpers::url_path_encode;
+        assert_eq!(url_path_encode("hello"), "hello");
+        assert_eq!(url_path_encode("hello world"), "hello%20world");
+        assert_eq!(url_path_encode("a+b=c&d"), "a%2Bb%3Dc%26d");
         assert_eq!(
-            urlencoding("https://example.com"),
+            url_path_encode("https://example.com"),
             "https%3A%2F%2Fexample.com"
         );
     }

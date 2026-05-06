@@ -110,6 +110,23 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// Percent-encode a string for use as a URL path segment. Encodes everything
+/// except RFC 3986 unreserved characters (`A-Z a-z 0-9 - _ . ~`). Spaces become
+/// `%20`, `/` becomes `%2F`, etc. Use this when constructing `<a href>` URLs
+/// from caller-supplied data (object keys, bucket names, etc.) — maud's HTML
+/// escaping does NOT URL-encode.
+pub fn url_path_encode(s: &str) -> String {
+    s.as_bytes()
+        .iter()
+        .map(|&b| match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                String::from(b as char)
+            }
+            _ => format!("%{:02X}", b),
+        })
+        .collect()
+}
+
 /// Decode a percent-encoded (URL-encoded) string.
 pub fn urlencoding_decode(s: &str) -> String {
     let s = s.replace('+', " ");
@@ -314,6 +331,15 @@ impl Default for ResponseBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn url_path_encode_basic() {
+        assert_eq!(url_path_encode("hello"), "hello");
+        assert_eq!(url_path_encode("hello world"), "hello%20world");
+        assert_eq!(url_path_encode("a+b=c&d"), "a%2Bb%3Dc%26d");
+        assert_eq!(url_path_encode("a/b"), "a%2Fb");
+        assert_eq!(url_path_encode("café"), "caf%C3%A9");
+    }
 
     #[test]
     fn test_now_rfc3339_format() {
