@@ -287,4 +287,70 @@ mod tests {
         assert!(html.contains("github"));
         assert!(html.contains("alice"));
     }
+
+    // --- WRAP regression: catches a future removal of the userportal
+    // grant on `auth::repo::provider_links::TABLE`. Without it, the
+    // /b/userportal/security page silently renders "No external accounts
+    // linked" even after a real OAuth link. PR #77 added the grant.
+
+    #[tokio::test]
+    async fn wrap_denies_provider_links_list_without_grant() {
+        // Seed before opting in to WRAP — `seed_user` uses raw SQL.
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+        upsert(
+            &ctx,
+            NewLink {
+                provider: "github",
+                provider_ref: "gh-1",
+                user_id: "user-a",
+                provider_login: "alice",
+                access_token: "tok",
+            },
+        )
+        .await
+        .unwrap();
+
+        let ctx = ctx.with_wrap("suppers-ai/userportal", Vec::new(), "suppers-ai/admin");
+
+        use crate::blocks::auth::repo::provider_links;
+        let err = provider_links::list_for_user(&ctx, "user-a")
+            .await
+            .expect_err("WRAP must deny provider_links list_for_user without grant");
+        assert!(
+            format!("{err:?}").contains("WRAP"),
+            "error must mention WRAP, got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn wrap_allows_provider_links_list_with_auth_block_grants() {
+        use wafer_run::block::Block;
+
+        use crate::blocks::auth::AuthBlock;
+
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+        upsert(
+            &ctx,
+            NewLink {
+                provider: "github",
+                provider_ref: "gh-1",
+                user_id: "user-a",
+                provider_login: "alice",
+                access_token: "tok",
+            },
+        )
+        .await
+        .unwrap();
+
+        let auth_grants = AuthBlock::default().info().grants;
+        let ctx = ctx.with_wrap("suppers-ai/userportal", auth_grants, "suppers-ai/admin");
+
+        use crate::blocks::auth::repo::provider_links;
+        let links = provider_links::list_for_user(&ctx, "user-a")
+            .await
+            .expect("auth's production grants must cover userportal provider_links read");
+        assert_eq!(links.len(), 1);
+    }
 }

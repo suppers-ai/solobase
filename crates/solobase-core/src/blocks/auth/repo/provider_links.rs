@@ -135,18 +135,35 @@ pub async fn find_by_user_provider(
 
 /// Return all OAuth provider links owned by `user_id`, ordered by
 /// `linked_at` ASC for stable rendering on the security page.
+///
+/// Uses the typed `db::list` client (not raw SQL) because this is the
+/// only entry point in this module called cross-block — userportal's
+/// `/b/userportal/security` page reads it. Raw SQL is admin-only under
+/// WRAP, so the cross-block call must go through the namespaced path.
+/// The other lookups in this module (`find_by_provider_ref`,
+/// `find_by_user_provider`) remain on raw SQL because they're called
+/// only by auth itself (the resource owner — own-resource access is
+/// always permitted, regardless of typed-vs-raw).
 pub async fn list_for_user(
     ctx: &dyn Context,
     user_id: &str,
 ) -> Result<Vec<ProviderLink>, RepoError> {
-    let rows = db::query_raw(
-        ctx,
-        &format!("SELECT * FROM {TABLE} WHERE user_id = ? ORDER BY linked_at ASC"),
-        &[json!(user_id)],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("provider_links list_for_user: {e}")))?;
-    rows.iter().map(|r| row_from_map(&r.data)).collect()
+    let opts = db::ListOptions {
+        filters: vec![db::Filter {
+            field: "user_id".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(user_id),
+        }],
+        sort: vec![db::SortField {
+            field: "linked_at".into(),
+            desc: false,
+        }],
+        ..Default::default()
+    };
+    let res = db::list(ctx, TABLE, &opts)
+        .await
+        .map_err(|e| RepoError::Db(format!("provider_links list_for_user: {e}")))?;
+    res.records.iter().map(|r| row_from_map(&r.data)).collect()
 }
 
 #[cfg(test)]
