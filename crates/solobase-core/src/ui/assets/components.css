@@ -979,9 +979,19 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
+		gap: var(--spacing-sm);
 		border: none;
 		padding: 4px 0;
 		text-align: right;
+		/* min-width: 0 lets the value shrink below its intrinsic content width;
+		   overflow-wrap: anywhere allows long unbroken values (ISO timestamps,
+		   share-tokens, file keys) to wrap rather than push the parent card
+		   past the viewport edge. Without this, seeded data with long
+		   non-wrapping strings (e.g. /b/storage/photos/) overflowed the 375px
+		   mobile viewport by ~20px, causing horizontal scroll on real mobile
+		   and width-drift in CI baselines. */
+		min-width: 0;
+		overflow-wrap: anywhere;
 	}
 	.data-table td::before {
 		content: attr(data-label);
@@ -989,6 +999,7 @@
 		font-size: var(--text-xs);
 		text-transform: uppercase;
 		text-align: left;
+		flex-shrink: 0;
 	}
 	.data-table td:last-child { padding-top: var(--spacing-sm); }
 
