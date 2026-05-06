@@ -92,24 +92,32 @@ use solobase_core::builder::SolobaseBuilder;
 /// Worker entry shim: load D1 vars, wire services, run the consumer's
 /// block registrations, dispatch the request through WAFER.
 ///
+/// Two consumer hooks:
+/// - `register_blocks` runs against the `SolobaseBuilder` after the 6
+///   services are attached and before `builder.build()`. Use builder
+///   methods (`extra_block`, `add_route`, `block_config`).
+/// - `register_post_build` runs against `&mut Wafer` after build and
+///   before start. Use this for runtime-level operations like
+///   `add_flow_json` or overriding `add_block_config` for blocks that
+///   `SolobaseBuilder` auto-installs.
+///
 /// Binding names are hardcoded: D1 = `"DB"`, R2 = `"STORAGE"`. Consumers'
 /// `wrangler.toml` must use these names.
 ///
-/// `register_blocks` runs after the 6 services are attached to the builder
-/// and before `builder.build()` — register your blocks there.
-///
 /// On error in any step, returns a 500 response with the error message.
 /// The error is also logged via `worker::console_log!`.
-pub async fn run<F>(
+pub async fn run<F, G>(
     req: worker::Request,
     env: worker::Env,
     _ctx: worker::Context,
     register_blocks: F,
+    register_post_build: G,
 ) -> worker::Result<worker::Response>
 where
     F: FnOnce(SolobaseBuilder) -> Result<SolobaseBuilder, Box<dyn std::error::Error>>,
+    G: FnOnce(&mut wafer_run::Wafer) -> Result<(), Box<dyn std::error::Error>>,
 {
-    match run_inner(req, env, register_blocks).await {
+    match run_inner(req, env, register_blocks, register_post_build).await {
         Ok(response) => Ok(response),
         Err(e) => {
             worker::console_log!("solobase-cloudflare run error: {e}");
@@ -118,13 +126,15 @@ where
     }
 }
 
-async fn run_inner<F>(
+async fn run_inner<F, G>(
     req: worker::Request,
     env: worker::Env,
     register_blocks: F,
+    register_post_build: G,
 ) -> Result<worker::Response, Box<dyn std::error::Error>>
 where
     F: FnOnce(SolobaseBuilder) -> Result<SolobaseBuilder, Box<dyn std::error::Error>>,
+    G: FnOnce(&mut wafer_run::Wafer) -> Result<(), Box<dyn std::error::Error>>,
 {
     // 1. Construct D1 service first — env vars live in D1.
     let db = make_d1_database_service(&env, runner::D1_BINDING)
@@ -168,6 +178,12 @@ where
     let (mut wafer, storage_block) = builder
         .build()
         .map_err(|e| format!("builder.build: {e}"))?;
+
+    // 6b. Consumer post-build hook (override flows / configs before start).
+    register_post_build(&mut wafer)
+        .map_err(|e| format!("register_post_build: {e}"))?;
+
+    // 6c. Start the runtime.
     wafer
         .start_without_bind()
         .await
