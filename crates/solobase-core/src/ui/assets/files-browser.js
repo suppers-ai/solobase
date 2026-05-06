@@ -291,11 +291,107 @@
     }
   }
 
+  // S3-style bucket name validation. Rules per AWS S3:
+  //   - 3 to 63 characters
+  //   - lowercase letters, digits, hyphens; must start and end with letter/digit
+  //   - no consecutive hyphens, no `..`
+  //   - not formatted as an IP address
+  // Returns null when valid, otherwise an error message.
+  function validateBucketName(name) {
+    if (!name) return 'Bucket name is required.';
+    if (name.length < 3 || name.length > 63)
+      return 'Bucket name must be 3 to 63 characters.';
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name))
+      return 'Use lowercase letters, digits, and hyphens; must start and end with a letter or digit.';
+    if (name.indexOf('--') !== -1) return 'Bucket name cannot contain consecutive hyphens.';
+    if (name.indexOf('..') !== -1) return 'Bucket name cannot contain consecutive dots.';
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(name)) return 'Bucket name cannot look like an IP address.';
+    return null;
+  }
+
+  function bucketCreateModal() {
+    const trigger = document.querySelector('[data-action="open-new-bucket"]');
+    const dlg = document.getElementById('new-bucket-modal');
+    if (!trigger || !dlg) return;
+
+    const form = dlg.querySelector('form');
+    const nameInput = dlg.querySelector('input[name="name"]');
+    const publicInput = dlg.querySelector('input[name="public"]');
+    const errEl = dlg.querySelector('.modal-error');
+    const cancelBtn = dlg.querySelector('[data-action="cancel"]');
+    const submitBtn = dlg.querySelector('[data-action="create"]');
+
+    function showError(msg) {
+      if (!errEl) return;
+      errEl.textContent = msg || '';
+      errEl.hidden = !msg;
+    }
+
+    function resetForm() {
+      if (form) form.reset();
+      showError('');
+    }
+
+    trigger.addEventListener('click', (e) => {
+      e.preventDefault();
+      resetForm();
+      dlg.showModal();
+      // Focus the name input on open.
+      if (nameInput) nameInput.focus();
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      dlg.close();
+    });
+
+    // Native <dialog> already handles ESC-to-close; clear error on close.
+    dlg.addEventListener('close', resetForm);
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = (nameInput.value || '').trim();
+      const isPublic = publicInput ? !!publicInput.checked : false;
+      const validationError = validateBucketName(name);
+      if (validationError) {
+        showError(validationError);
+        nameInput.focus();
+        return;
+      }
+      submitBtn.disabled = true;
+      try {
+        const resp = await fetch('/b/storage/api/buckets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name, public: isPublic }),
+        });
+        if (resp.ok) {
+          // Redirect into the new bucket so the user can immediately upload.
+          window.location.href = '/b/storage/' + encodeURIComponent(name) + '/';
+          return;
+        }
+        let serverMsg = 'Failed to create bucket.';
+        try {
+          const j = await resp.json();
+          if (j && j.message) serverMsg = j.message;
+        } catch (_) {
+          /* ignore JSON parse error */
+        }
+        showError(serverMsg);
+        submitBtn.disabled = false;
+      } catch (err) {
+        showError('Network error. Please try again.');
+        submitBtn.disabled = false;
+      }
+    });
+  }
+
   window.solobaseFilesBrowser = {
     init: function () {
       const boot = readBootstrap();
       // shareModal/kebab still useful even without bootstrap (e.g., shares page).
       kebabMenu();
+      // bucket-create modal lives on the bucket-list page (no boot bucket).
+      bucketCreateModal();
       if (!boot) return;
       dragDropHandler(boot);
       bulkSelect();
