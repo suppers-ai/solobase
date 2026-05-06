@@ -29,6 +29,12 @@ const ADMIN_ROUTES = [
   { path: '/b/userportal/security', name: 'portal-security' },
   { path: '/b/products/', name: 'portal-products' },
   { path: '/b/llm/', name: 'llm-chat' },
+  // Phase 5b PR-2: end-user file browser bucket list + cloudstorage shares.
+  // Snapshots are empty-state only (no seeded buckets/shares); seeded
+  // baselines deferred to 5d once a fixture-injection pattern exists in
+  // the visual-baseline runner.
+  { path: '/b/storage/', name: 'storage-buckets' },
+  { path: '/b/cloudstorage/', name: 'cloudstorage' },
 ];
 
 const COMMON_OPTS = {
@@ -86,6 +92,8 @@ const MOBILE_ADMIN_ROUTES = [
   { path: '/b/userportal/security', name: 'portal-security' },
   { path: '/b/products/', name: 'portal-products' },
   { path: '/b/llm/', name: 'llm-chat' },
+  // Phase 5b PR-2: end-user file browser bucket list (empty state).
+  { path: '/b/storage/', name: 'storage-buckets' },
 ];
 
 // ===== Phase 5b PR-1: vector index admin pages =====

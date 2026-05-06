@@ -1,6 +1,7 @@
 mod cloud;
 pub(crate) mod models;
 mod pages;
+pub(crate) mod pages_user;
 mod quota;
 mod share;
 pub(crate) mod storage;
@@ -93,6 +94,9 @@ impl Block for FilesBlock {
             .category(wafer_run::BlockCategory::Feature)
             .description("File storage and management with bucket-based organization. Supports file upload, download, deletion, search, and sharing via public links with expiration and access counting. Includes per-user storage quotas.")
             .endpoints(vec![
+                BlockEndpoint::get("/b/storage/").summary("Bucket list (user)").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/storage/{bucket}/").summary("Object list").auth(AuthLevel::Authenticated),
+                BlockEndpoint::get("/b/storage/{bucket}/{prefix...}/").summary("Object list (nested)").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/storage/api/buckets").summary("List buckets").auth(AuthLevel::Authenticated),
                 BlockEndpoint::post("/b/storage/api/buckets").summary("Create bucket").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/storage/api/buckets/{name}/objects").summary("List objects").auth(AuthLevel::Authenticated),
@@ -100,6 +104,7 @@ impl Block for FilesBlock {
                 BlockEndpoint::get("/b/storage/api/buckets/{name}/objects/{key}").summary("Download file").auth(AuthLevel::Authenticated),
                 BlockEndpoint::delete("/b/storage/api/buckets/{name}/objects/{key}").summary("Delete file").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/storage/direct/{token}").summary("Access shared file"),
+                BlockEndpoint::get("/b/cloudstorage/").summary("Shares + quota page").auth(AuthLevel::Authenticated),
             ])
             .admin_url("/b/storage/admin/")
             .can_disable(true)
@@ -164,6 +169,41 @@ impl Block for FilesBlock {
             }
         }
 
+        // User-facing SSR pages.
+        if msg.action() == "retrieve" {
+            if path == "/b/storage" || path == "/b/storage/" {
+                return pages_user::bucket_list_page(ctx, &msg).await;
+            }
+            // /b/storage/{bucket}/[{prefix...}/]  (must end with `/`).
+            // Skip admin/ (handled above before normalize), api/, direct/.
+            if let Some(rest) = path.strip_prefix("/b/storage/") {
+                if rest.ends_with('/')
+                    && !rest.starts_with("admin/")
+                    && !rest.starts_with("api/")
+                    && !rest.starts_with("direct/")
+                {
+                    let trimmed = rest.trim_end_matches('/');
+                    let mut parts = trimmed.splitn(2, '/');
+                    let bucket = parts.next().unwrap_or_default();
+                    let prefix = parts.next().unwrap_or_default();
+                    let prefix_with_slash = if prefix.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{prefix}/")
+                    };
+                    if !bucket.is_empty() {
+                        return pages_user::object_list_page(ctx, &msg, bucket, &prefix_with_slash)
+                            .await;
+                    }
+                }
+            }
+        }
+
+        // Cloud storage SSR page — must check before JSON dispatch below.
+        if msg.action() == "retrieve" && (path == "/b/cloudstorage" || path == "/b/cloudstorage/") {
+            return pages_user::cloudstorage_page(ctx, &msg).await;
+        }
+
         // Cloud storage routes (/b/cloudstorage/...)
         if normalized.starts_with("/b/cloudstorage") {
             return cloud::handle(ctx, msg, input).await;
@@ -186,6 +226,9 @@ impl Block for FilesBlock {
             wafer_run::UiRoute::admin("/admin/buckets"),
             wafer_run::UiRoute::admin("/admin/shares"),
             wafer_run::UiRoute::admin("/admin/quotas"),
+            wafer_run::UiRoute::authenticated("/"),
+            wafer_run::UiRoute::authenticated("/{bucket}/"),
+            wafer_run::UiRoute::authenticated("/{bucket}/{prefix...}/"),
         ]
     }
 

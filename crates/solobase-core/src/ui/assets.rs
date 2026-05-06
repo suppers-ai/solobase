@@ -72,6 +72,27 @@ pub fn llm_chat_js_url() -> &'static str {
     })
 }
 
+const FILES_BROWSER_JS: &str = include_str!("assets/files-browser.js");
+
+/// Embedded vanilla-JS bundle for the file-browser surfaces — drag-drop
+/// upload, bulk select, kebab menus, share modal, upload modal,
+/// confirm-delete. Consumed by `pages_user::object_list_page` and
+/// `cloudstorage_page`.
+pub fn files_browser_js() -> &'static str {
+    FILES_BROWSER_JS
+}
+
+/// Files-browser JS URL with content hash, e.g. `/b/static/files-browser-a1b2c3d4.js`.
+pub fn files_browser_js_url() -> &'static str {
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| {
+        format!(
+            "/b/static/files-browser-{}.js",
+            short_hash(files_browser_js().as_bytes())
+        )
+    })
+}
+
 /// Small inline JS for toast notifications (triggered by htmx HX-Trigger).
 pub fn toast_js() -> &'static str {
     r#"
@@ -308,6 +329,35 @@ mod tests {
                 "missing global re-export for {sym}"
             );
         }
+    }
+
+    #[test]
+    fn files_browser_js_exposes_init_and_handles_drag_drop() {
+        let js = super::files_browser_js();
+        assert!(
+            js.contains("solobaseFilesBrowser"),
+            "module namespace missing"
+        );
+        assert!(js.contains("dragenter"), "drag handler missing");
+        assert!(js.contains("dragover"), "drag handler missing");
+        assert!(
+            js.contains("'drop'") || js.contains("\"drop\""),
+            "drop handler missing"
+        );
+        assert!(js.contains("data-bulk-toggle"), "bulk-select missing");
+        assert!(js.contains("data-action-menu"), "kebab handler missing");
+        assert!(js.contains("dialog"), "modal uses <dialog>");
+    }
+
+    #[test]
+    fn files_browser_js_url_has_content_hash() {
+        let url = super::files_browser_js_url();
+        assert!(url.starts_with("/b/static/files-browser-"));
+        assert!(url.ends_with(".js"));
+        let hash = url
+            .trim_start_matches("/b/static/files-browser-")
+            .trim_end_matches(".js");
+        assert_eq!(hash.len(), 8);
     }
 
     #[test]
