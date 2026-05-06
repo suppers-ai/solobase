@@ -4,8 +4,12 @@ use maud::{html, Markup};
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::{
-    blocks::{auth::repo::sessions, helpers::ResponseBuilder},
+    blocks::{
+        auth::{repo::sessions, service::hash_token},
+        helpers::ResponseBuilder,
+    },
     ui::{
+        components::{badge, BadgeVariant},
         nav_groups,
         shell::{Crumb, Topbar},
         shelled_response, SiteConfig, UserInfo,
@@ -21,9 +25,17 @@ pub async fn sessions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             .body(Vec::new(), "text/plain");
     }
 
-    let rows = sessions::list_for_user(ctx, &user_id)
-        .await
-        .unwrap_or_default();
+    // DB errors are tracing::warn'd (per repo convention) and we render the
+    // empty-state — the page is a UX surface, not a security gate.
+    let rows = match sessions::list_for_user(ctx, &user_id).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(user_id = %user_id, "userportal sessions list_for_user failed: {e}");
+            Vec::new()
+        }
+    };
+
+    let current_hash = current_session_hash(msg);
 
     let body = crate::ui::templates::list_page(
         crate::ui::templates::PageHeader {
@@ -32,7 +44,7 @@ pub async fn sessions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             primary_action: None,
         },
         None,
-        render_table(&rows),
+        render_table(&rows, current_hash.as_deref()),
         None,
     );
 
@@ -79,15 +91,24 @@ fn decode_hex(s: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-fn render_table(rows: &[sessions::SessionRow]) -> Markup {
+/// Compute the SHA-256 hash of the request's `auth_token` cookie (the JWT
+/// issued at login), or `None` if no cookie is present. Used to mark the row
+/// matching the current request with a "Current session" badge — a UX
+/// signal, not a security gate.
+fn current_session_hash(msg: &Message) -> Option<Vec<u8>> {
+    let cookie = msg.cookie("auth_token");
+    if cookie.is_empty() {
+        return None;
+    }
+    Some(hash_token(cookie))
+}
+
+fn render_table(rows: &[sessions::SessionRow], current_hash: Option<&[u8]>) -> Markup {
     if rows.is_empty() {
         return html! {
             div .empty-state { p { "No active sessions." } }
         };
     }
-    // TODO(phase-4-followup): mark the current session with a badge and
-    // suppress its revoke button. Requires Message to expose the request's
-    // session token hash — not currently surfaced through the handler API.
     html! {
         table .data-table {
             thead {
@@ -100,8 +121,15 @@ fn render_table(rows: &[sessions::SessionRow]) -> Markup {
             }
             tbody {
                 @for r in rows {
+                    @let is_current = current_hash.is_some_and(|h| h == r.token_hash.as_slice());
                     tr .session-row {
-                        td data-label="Started" { (r.created_at) }
+                        td data-label="Started" {
+                            (r.created_at)
+                            @if is_current {
+                                " "
+                                (badge(BadgeVariant::Success, "Current session"))
+                            }
+                        }
                         td data-label="Last used" { (r.last_used_at) }
                         td data-label="Expires" { (r.expires_at) }
                         td data-label="" {
@@ -151,9 +179,20 @@ mod tests {
 
     use super::*;
     use crate::{
-        blocks::auth::repo::sessions::{insert, NewSession},
+        blocks::auth::{
+            repo::sessions::{insert, NewSession},
+            service::hash_token,
+        },
         test_support::{anon_msg, auth_msg, output_html, output_status, TestContext},
     };
+
+    /// Inject an `auth_token` cookie into a request `Message` by setting the
+    /// `http.header.cookie` meta — mirroring how a real HTTP frontend
+    /// surfaces cookies to handlers.
+    fn with_auth_cookie(mut msg: wafer_run::types::Message, token: &str) -> wafer_run::types::Message {
+        msg.set_meta("http.header.cookie", format!("auth_token={token}"));
+        msg
+    }
 
     async fn seed_user(ctx: &TestContext, user_id: &str) {
         db::exec_raw(
@@ -281,6 +320,93 @@ mod tests {
         assert_eq!(
             sessions::list_for_user(&ctx, "user-b").await.unwrap().len(),
             1
+        );
+    }
+
+    /// When the request's `auth_token` cookie hashes to one of the user's
+    /// session rows, that row gets a "Current session" badge. Other rows
+    /// don't. Mirrors how the JWT login path stores `hash_token(jwt)` in
+    /// `token_hash`.
+    #[tokio::test]
+    async fn current_session_row_gets_badge() {
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+
+        // Two sessions: one matches the request's cookie, one doesn't.
+        let current_jwt = "eyJfake.jwt.value";
+        let current_hash = hash_token(current_jwt);
+        insert(
+            &ctx,
+            NewSession {
+                token_hash: current_hash,
+                user_id: "user-a".into(),
+                expires_at: "2099-01-01T00:00:00Z".into(),
+            },
+        )
+        .await
+        .unwrap();
+        insert(&ctx, fake_session("user-a", 0xee)).await.unwrap();
+
+        let msg = with_auth_cookie(
+            auth_msg("retrieve", "/b/userportal/sessions", "user-a"),
+            current_jwt,
+        );
+        let resp = sessions_page(&ctx, &msg).await;
+        let html = output_html(resp).await;
+
+        assert_eq!(
+            html.matches("Current session").count(),
+            1,
+            "expected exactly one 'Current session' badge, got: {}",
+            html.matches("Current session").count()
+        );
+        assert!(
+            html.contains("badge--success"),
+            "expected success-variant badge class in HTML"
+        );
+    }
+
+    /// No `auth_token` cookie means no row matches — page renders without
+    /// any current-session badge but still lists rows normally. Guards the
+    /// "page must not crash for cookie-less callers" requirement.
+    #[tokio::test]
+    async fn no_cookie_renders_no_badge() {
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+        insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
+
+        // auth_msg sets user_id meta but no cookie header.
+        let msg = auth_msg("retrieve", "/b/userportal/sessions", "user-a");
+        let resp = sessions_page(&ctx, &msg).await;
+        let html = output_html(resp).await;
+
+        assert!(
+            !html.contains("Current session"),
+            "no badge expected when no auth_token cookie present"
+        );
+        // Row still rendered — page didn't degrade.
+        assert!(html.contains(">Revoke<"), "row body still present");
+    }
+
+    /// A cookie that doesn't hash to any session row produces no badge.
+    /// Catches the case where a stale/invalid token sneaks into the request
+    /// (e.g. expired-but-not-yet-cleared client cookie).
+    #[tokio::test]
+    async fn cookie_with_no_matching_row_renders_no_badge() {
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+        insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
+
+        let msg = with_auth_cookie(
+            auth_msg("retrieve", "/b/userportal/sessions", "user-a"),
+            "eyJ.unrelated.jwt",
+        );
+        let resp = sessions_page(&ctx, &msg).await;
+        let html = output_html(resp).await;
+
+        assert!(
+            !html.contains("Current session"),
+            "no badge expected when cookie hash doesn't match any row"
         );
     }
 }
