@@ -288,7 +288,62 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // Shares
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Debug)]
+pub struct AdminShareRow {
+    pub token_short: String,
+    pub bucket: String,
+    pub key: String,
+    pub access_count: i64,
+    pub max_access_count: Option<i64>,
+    pub expires_short: Option<String>,
+    pub owner_short: String,
+}
+
+/// Render the admin Shares table (or empty state). Token displayed as
+/// short prefix in a `<code>` block; access count includes optional
+/// "/ N" divisor when a max is set; "Never" renders for unset expires.
+pub fn render_admin_shares_table(rows: &[AdminShareRow]) -> Markup {
+    if rows.is_empty() {
+        return html! {
+            div .empty-state { p { "No active shares" } }
+        };
+    }
+    html! {
+        table .data-table {
+            thead { tr {
+                th { "Token" }
+                th { "Bucket" }
+                th { "File" }
+                th { "Access Count" }
+                th { "Expires" }
+                th { "Created By" }
+            } }
+            tbody {
+                @for r in rows {
+                    tr data-share-token=(r.token_short) {
+                        td data-label="Token" .text-sm { code { (r.token_short) "..." } }
+                        td data-label="Bucket" .font-medium { (r.bucket) }
+                        td data-label="File" .text-sm { (r.key) }
+                        td data-label="Access Count" .text-sm {
+                            (r.access_count)
+                            @if let Some(max) = r.max_access_count {
+                                @if max > 0 { " / " (max) }
+                            }
+                        }
+                        td data-label="Expires" .text-muted .text-sm {
+                            @if let Some(exp) = &r.expires_short { (exp) } @else { "Never" }
+                        }
+                        td data-label="Created By" .text-muted .text-sm { (r.owner_short) }
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    use crate::ui::templates::{list_page, PageHeader};
+
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -300,48 +355,59 @@ pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
         limit: 100,
         ..Default::default()
     };
-    let result = db::list(ctx, SHARES_COLLECTION, &opts).await;
 
-    let content = html! {
-        (components::page_header("Active Shares", Some("Public file share links"), None))
-
-        div #shares-content {
-            @match &result {
-                Ok(list) => {
-                    div .table-container {
-                        table .table {
-                            thead { tr { th { "Token" } th { "Bucket" } th { "File" } th { "Access Count" } th { "Expires" } th { "Created By" } } }
-                            tbody {
-                                @if list.records.is_empty() {
-                                    tr { td colspan="6" .text-center .text-muted style="padding:2rem;" { "No active shares" } }
-                                }
-                                @for r in &list.records {
-                                    tr {
-                                        td .text-sm { code { (r.str_field("token").get(..12).unwrap_or("—")) "..." } }
-                                        td .font-medium { (r.str_field("bucket")) }
-                                        td .text-sm { (r.str_field("key")) }
-                                        td .text-sm {
-                                            (r.i64_field("access_count"))
-                                            @let max = r.str_field("max_access_count");
-                                            @if !max.is_empty() && max != "0" {
-                                                " / " (max)
-                                            }
-                                        }
-                                        td .text-muted .text-sm {
-                                            @let exp = r.str_field("expires_at");
-                                            @if exp.is_empty() { "Never" } @else { (exp.get(..10).unwrap_or(exp)) }
-                                        }
-                                        td .text-muted .text-sm { (r.str_field("created_by").get(..8).unwrap_or("—")) }
-                                    }
-                                }
-                            }
-                        }
-                    }
+    let rows: Vec<AdminShareRow> = match db::list(ctx, SHARES_COLLECTION, &opts).await {
+        Ok(list) => list
+            .records
+            .into_iter()
+            .map(|r| {
+                let max_str = r.str_field("max_access_count");
+                let max = if max_str.is_empty() {
+                    None
+                } else {
+                    max_str.parse::<i64>().ok().filter(|n| *n > 0)
+                };
+                let exp_str = r.str_field("expires_at");
+                let expires_short = if exp_str.is_empty() {
+                    None
+                } else {
+                    Some(exp_str.get(..10).unwrap_or(exp_str).to_string())
+                };
+                AdminShareRow {
+                    token_short: r
+                        .str_field("token")
+                        .get(..12)
+                        .unwrap_or("—")
+                        .to_string(),
+                    bucket: r.str_field("bucket").to_string(),
+                    key: r.str_field("key").to_string(),
+                    access_count: r.i64_field("access_count"),
+                    max_access_count: max,
+                    expires_short,
+                    owner_short: r
+                        .str_field("created_by")
+                        .get(..8)
+                        .unwrap_or("—")
+                        .to_string(),
                 }
-                Err(e) => { div .login-error { "Error: " (e.message) } }
-            }
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!(error = %e.message, "admin shares list failed");
+            Vec::new()
         }
     };
+
+    let body = list_page(
+        PageHeader {
+            title: "Active Shares",
+            subtitle: Some("Public file share links"),
+            primary_action: None,
+        },
+        None,
+        render_admin_shares_table(&rows),
+        None,
+    );
 
     files_page(
         "Shares",
@@ -349,7 +415,7 @@ pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "/b/storage/admin/shares",
         user.as_ref(),
         "Shares",
-        content,
+        body,
         msg,
     )
 }
@@ -499,5 +565,51 @@ mod tests {
         assert!(html.contains("public"));
         assert!(html.contains("private"));
         assert!(html.contains("2026-05-06"));
+    }
+
+    #[test]
+    fn render_admin_shares_table_empty_state() {
+        let html = render_admin_shares_table(&[]).into_string();
+        assert!(html.contains("No active shares"), "missing empty: {html}");
+    }
+
+    #[test]
+    fn render_admin_shares_table_renders_rows() {
+        let rows = vec![AdminShareRow {
+            token_short: "tok12345abc1".into(),
+            bucket: "photos".into(),
+            key: "a.png".into(),
+            access_count: 4,
+            max_access_count: Some(10),
+            expires_short: Some("2026-06-06".into()),
+            owner_short: "admin_1".into(),
+        }];
+        let html = render_admin_shares_table(&rows).into_string();
+        assert!(html.contains("tok12345abc1"));
+        assert!(html.contains(">photos<"));
+        assert!(html.contains(">a.png<"));
+        // access_count and max rendered together as "4 / 10"
+        assert!(html.contains("4 / 10"), "access count + max missing: {html}");
+        // max_access_count rendered as "/ 10"
+        assert!(html.contains("/ 10"));
+        assert!(html.contains("2026-06-06"));
+        assert!(html.contains("admin_1"));
+    }
+
+    #[test]
+    fn render_admin_shares_table_no_expires_renders_never() {
+        let rows = vec![AdminShareRow {
+            token_short: "abc".into(),
+            bucket: "b".into(),
+            key: "k".into(),
+            access_count: 0,
+            max_access_count: None,
+            expires_short: None,
+            owner_short: "u".into(),
+        }];
+        let html = render_admin_shares_table(&rows).into_string();
+        assert!(html.contains("Never"), "missing 'Never' for null expires: {html}");
+        // No "/ N" segment when max_access_count is None.
+        assert!(!html.contains("/ "), "should not show max divisor when None: {html}");
     }
 }
