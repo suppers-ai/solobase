@@ -6,13 +6,14 @@ DROP TABLE IF EXISTS oauth_states;
 
 -- Users (spec §3)
 CREATE TABLE IF NOT EXISTS suppers_ai__auth__users (
-    id            TEXT PRIMARY KEY,
-    email         TEXT NOT NULL UNIQUE,
-    display_name  TEXT NOT NULL,
-    avatar_url    TEXT,
-    role          TEXT NOT NULL DEFAULT 'user',
-    created_at    TEXT NOT NULL,
-    updated_at    TEXT NOT NULL
+    id              TEXT PRIMARY KEY,
+    email           TEXT NOT NULL UNIQUE,
+    display_name    TEXT NOT NULL,
+    avatar_url      TEXT,
+    role            TEXT NOT NULL DEFAULT 'user',
+    email_verified  INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
 );
 
 -- Local credentials (empty for OAuth-only users)

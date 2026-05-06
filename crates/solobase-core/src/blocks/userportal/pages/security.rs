@@ -1,15 +1,14 @@
-//! `/b/userportal/security` — change password + linked OAuth providers.
-//!
-//! TODO(phase-4-followup): add an Email verification section once the
-//! users table grows an `email_verified` column. Today there's no
-//! persistent verified-status to display, so the section is omitted
-//! rather than rendered as a placeholder.
+//! `/b/userportal/security` — change password + linked OAuth providers
+//! + email verification status.
 
 use maud::html;
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::{
-    blocks::{auth::repo::provider_links, helpers::ResponseBuilder},
+    blocks::{
+        auth::repo::{provider_links, users},
+        helpers::ResponseBuilder,
+    },
     ui::{
         nav_groups,
         shell::{Crumb, Topbar},
@@ -29,6 +28,18 @@ pub async fn security_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let links = provider_links::list_for_user(ctx, &user_id)
         .await
         .unwrap_or_default();
+
+    // Read verification status. On error (missing user / db hiccup), default
+    // to "unverified" + log — this matches the rest of the auth block's
+    // defensive style (login.rs treats missing `email_verified` as false).
+    let email_verified = match users::is_email_verified(ctx, &user_id).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, user_id = %user_id, "failed to read email_verified");
+            false
+        }
+    };
+    let user_email = msg.get_meta("auth.user_email").to_string();
 
     let body = html! {
         section .security-section .card {
@@ -51,6 +62,41 @@ pub async fn security_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     }
                     div #change-pw-result {}
                     button .btn .btn-primary type="submit" { "Change password" }
+                }
+            }
+        }
+        section .security-section .card {
+            header .card__head { h2 .card__title { "Email verification" } }
+            div .card__body {
+                @if email_verified {
+                    p .text-muted {
+                        "Email verified"
+                        @if !user_email.is_empty() { " — " (user_email) }
+                    }
+                } @else {
+                    p .text-muted {
+                        "Email not verified"
+                        @if !user_email.is_empty() { " — " (user_email) }
+                    }
+                    div #resend-verification-result {}
+                    button .btn .btn-secondary
+                        type="button"
+                        // Inline handler: POST JSON, surface server message in
+                        // the result div. Avoids pulling in a wrapper API
+                        // under /b/userportal — the auth block already owns
+                        // the resend endpoint and rate limits it by IP.
+                        onclick=(format!(
+                            "(function(b){{b.disabled=true;b.textContent='Sending…';\
+                             fetch('/b/auth/api/resend-verification',{{method:'POST',\
+                             headers:{{'Content-Type':'application/json'}},\
+                             body:JSON.stringify({{email:{email_json}}})}})\
+                             .then(function(r){{return r.json();}})\
+                             .then(function(d){{document.getElementById('resend-verification-result').textContent=d.message||'Sent';}})\
+                             .catch(function(e){{document.getElementById('resend-verification-result').textContent='Error: '+e.message;}})\
+                             .finally(function(){{b.disabled=false;b.textContent='Resend verification email';}});}})(this)",
+                            email_json = serde_json::Value::String(user_email.clone())
+                        ))
+                    { "Resend verification email" }
                 }
             }
         }
@@ -116,15 +162,21 @@ mod tests {
     };
 
     async fn seed_user(ctx: &TestContext, user_id: &str) {
+        seed_user_with_verified(ctx, user_id, false).await;
+    }
+
+    async fn seed_user_with_verified(ctx: &TestContext, user_id: &str, verified: bool) {
         db::exec_raw(
             ctx,
-            "INSERT INTO suppers_ai__auth__users (id, email, display_name, role, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO suppers_ai__auth__users \
+             (id, email, display_name, role, email_verified, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
             &[
                 serde_json::json!(user_id),
                 serde_json::json!(format!("{user_id}@example.com")),
                 serde_json::json!(user_id),
                 serde_json::json!("user"),
+                serde_json::json!(if verified { 1 } else { 0 }),
                 serde_json::json!("2026-01-01T00:00:00Z"),
                 serde_json::json!("2026-01-01T00:00:00Z"),
             ],
@@ -142,7 +194,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn renders_two_sections() {
+    async fn renders_three_sections() {
         let ctx = TestContext::with_auth().await;
         seed_user(&ctx, "user-a").await;
         let msg = auth_msg("retrieve", "/b/userportal/security", "user-a");
@@ -150,11 +202,45 @@ mod tests {
         let html = output_html(resp).await;
         assert!(html.contains("Password"), "missing Password section title");
         assert!(
+            html.contains("Email verification"),
+            "missing Email verification section title"
+        );
+        assert!(
             html.contains("Linked accounts"),
             "missing Linked accounts section title"
         );
-        // Negative: no email verification section in this iteration.
-        assert!(!html.contains("Email verification"));
+    }
+
+    #[tokio::test]
+    async fn unverified_state_shows_resend_cta() {
+        let ctx = TestContext::with_auth().await;
+        seed_user_with_verified(&ctx, "user-a", false).await;
+        let msg = auth_msg("retrieve", "/b/userportal/security", "user-a");
+        let resp = security_page(&ctx, &msg).await;
+        let html = output_html(resp).await;
+        assert!(html.contains("Email not verified"));
+        assert!(
+            html.contains("Resend verification email"),
+            "unverified state should show the resend CTA"
+        );
+        assert!(
+            html.contains("/b/auth/api/resend-verification"),
+            "resend CTA should target the auth block's resend endpoint"
+        );
+    }
+
+    #[tokio::test]
+    async fn verified_state_hides_resend_cta() {
+        let ctx = TestContext::with_auth().await;
+        seed_user_with_verified(&ctx, "user-a", true).await;
+        let msg = auth_msg("retrieve", "/b/userportal/security", "user-a");
+        let resp = security_page(&ctx, &msg).await;
+        let html = output_html(resp).await;
+        assert!(html.contains("Email verified"));
+        assert!(
+            !html.contains("Resend verification email"),
+            "verified state must not render the resend CTA"
+        );
     }
 
     #[tokio::test]
