@@ -184,6 +184,54 @@ pub async fn bucket_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream 
     )
 }
 
+/// Object as the user sees it (key, size, modified timestamp).
+#[derive(Clone, Debug)]
+pub struct ObjectRow {
+    pub key: String,
+    pub size: i64,
+    pub modified: String,
+}
+
+/// Result of grouping a flat object list by a current-prefix folder view.
+pub struct FolderListing<'a> {
+    pub folders: Vec<String>,
+    pub files: Vec<&'a ObjectRow>,
+}
+
+/// Synthesize a folder/file split for the rows whose key starts with
+/// `current_prefix`. Folder names are deduped while preserving first-seen
+/// order. Files are objects with no further `/` after `current_prefix`.
+///
+/// Pure function; safe to unit-test without `Context`.
+pub fn group_objects_by_prefix<'a>(
+    objs: &'a [ObjectRow],
+    current_prefix: &str,
+) -> FolderListing<'a> {
+    let mut folders: Vec<String> = Vec::new();
+    let mut files: Vec<&ObjectRow> = Vec::new();
+
+    for obj in objs {
+        let Some(rest) = obj.key.strip_prefix(current_prefix) else {
+            continue;
+        };
+        match rest.find('/') {
+            Some(idx) => {
+                let folder = &rest[..idx];
+                if !folder.is_empty() && !folders.iter().any(|f| f == folder) {
+                    folders.push(folder.to_string());
+                }
+            }
+            None => {
+                if !rest.is_empty() {
+                    files.push(obj);
+                }
+            }
+        }
+    }
+
+    FolderListing { folders, files }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,6 +282,101 @@ mod tests {
             !html.contains(">a&b<") && !html.contains(r#"href="/b/storage/a&b/""#),
             "raw `&` leaked into HTML: {html}"
         );
+    }
+
+    #[test]
+    fn group_objects_by_prefix_empty() {
+        let g = group_objects_by_prefix(&[], "");
+        assert!(g.folders.is_empty());
+        assert!(g.files.is_empty());
+    }
+
+    #[test]
+    fn group_objects_by_prefix_root_files_only() {
+        let objs = vec![
+            ObjectRow {
+                key: "a.png".into(),
+                size: 1,
+                modified: "2026-05-06T10:00:00Z".into(),
+            },
+            ObjectRow {
+                key: "b.txt".into(),
+                size: 2,
+                modified: "2026-05-06T11:00:00Z".into(),
+            },
+        ];
+        let g = group_objects_by_prefix(&objs, "");
+        assert!(g.folders.is_empty());
+        assert_eq!(g.files.len(), 2);
+        assert_eq!(g.files[0].key, "a.png");
+    }
+
+    #[test]
+    fn group_objects_by_prefix_synthesizes_folder() {
+        let objs = vec![
+            ObjectRow {
+                key: "a.png".into(),
+                size: 1,
+                modified: "x".into(),
+            },
+            ObjectRow {
+                key: "nested/b.png".into(),
+                size: 2,
+                modified: "x".into(),
+            },
+            ObjectRow {
+                key: "nested/c.png".into(),
+                size: 3,
+                modified: "x".into(),
+            },
+        ];
+        let g = group_objects_by_prefix(&objs, "");
+        assert_eq!(g.folders, vec!["nested".to_string()]);
+        assert_eq!(g.files.len(), 1);
+        assert_eq!(g.files[0].key, "a.png");
+    }
+
+    #[test]
+    fn group_objects_by_prefix_filters_by_current_prefix() {
+        let objs = vec![
+            ObjectRow {
+                key: "a.png".into(),
+                size: 1,
+                modified: "x".into(),
+            },
+            ObjectRow {
+                key: "nested/b.png".into(),
+                size: 2,
+                modified: "x".into(),
+            },
+            ObjectRow {
+                key: "nested/sub/c.png".into(),
+                size: 3,
+                modified: "x".into(),
+            },
+        ];
+        let g = group_objects_by_prefix(&objs, "nested/");
+        assert_eq!(g.folders, vec!["sub".to_string()]);
+        assert_eq!(g.files.len(), 1);
+        assert_eq!(g.files[0].key, "nested/b.png");
+    }
+
+    #[test]
+    fn group_objects_by_prefix_dedups_folder_names() {
+        let objs = vec![
+            ObjectRow {
+                key: "x/a".into(),
+                size: 0,
+                modified: "x".into(),
+            },
+            ObjectRow {
+                key: "x/b".into(),
+                size: 0,
+                modified: "x".into(),
+            },
+        ];
+        let g = group_objects_by_prefix(&objs, "");
+        assert_eq!(g.folders, vec!["x".to_string()]);
     }
 }
 
