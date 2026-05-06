@@ -54,11 +54,55 @@ pub fn render_buckets_table(rows: &[BucketRow]) -> Markup {
     }
 }
 
+/// Render the "+ New bucket" `<dialog>` modal. The form is wired by the
+/// `bucketCreateModal()` handler in `files-browser.js`: it intercepts
+/// submit, POSTs to `/b/storage/api/buckets`, and on success redirects to
+/// `/b/storage/{name}/`. Markup is rendered server-side so the page works
+/// even before the JS bundle finishes loading (the trigger is a no-op
+/// without JS — accepted v1 trade-off; the JSON API is still callable).
+pub fn render_new_bucket_modal() -> Markup {
+    html! {
+        dialog #new-bucket-modal .modal.modal--bucket-create {
+            form method="dialog" {
+                h3 { "New bucket" }
+                p .modal-error role="alert" hidden {}
+                label {
+                    span { "Name" }
+                    input
+                        type="text"
+                        name="name"
+                        required
+                        minlength="3"
+                        maxlength="63"
+                        // S3-compatible: lowercase letters, digits, hyphens; start/end alnum.
+                        pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?"
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="my-bucket";
+                }
+                small .form-hint {
+                    "3–63 characters. Lowercase letters, digits, and hyphens. Must start and end with a letter or digit."
+                }
+                label .checkbox-label {
+                    input type="checkbox" name="public" value="1";
+                    span { "Public (objects can be accessed by anonymous URL)" }
+                }
+                div .modal-actions {
+                    button type="button" data-action="cancel" .btn.btn--ghost.btn--md { "Cancel" }
+                    button type="submit" data-action="create" .btn.btn--primary.btn--md { "Create bucket" }
+                }
+            }
+        }
+    }
+}
+
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::ui::{
-    self, nav_groups,
+    self,
+    components::{button, BtnVariant, CtrlSize},
+    nav_groups,
     shell::{Crumb, Topbar},
     shelled_response,
     templates::{list_page, PageHeader},
@@ -155,14 +199,30 @@ pub async fn bucket_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream 
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
+    let new_bucket_btn = button(
+        BtnVariant::Primary,
+        CtrlSize::Md,
+        "+ New bucket",
+        PreEscaped(r#"type="button" data-action="open-new-bucket""#.to_string()),
+    );
+
+    // The table cell carries the modal markup + JS so it lives inside the
+    // shelled response without needing a new template parameter.
+    let js_url = crate::ui::assets::files_browser_js_url();
+    let table_with_modal = html! {
+        (render_buckets_table(&rows))
+        (render_new_bucket_modal())
+        script src=(js_url) defer {}
+    };
+
     let body = list_page(
         PageHeader {
             title: "Files",
             subtitle: Some("Your buckets and their object counts."),
-            primary_action: None, // bucket creation modal arrives in Task 9 JS
+            primary_action: Some(new_bucket_btn),
         },
         None,
-        render_buckets_table(&rows),
+        table_with_modal,
         None,
     );
 
@@ -1229,6 +1289,74 @@ mod integration_tests {
         assert!(
             !body.contains(">secrets<"),
             "cross-user bucket leaked: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn bucket_list_page_renders_new_bucket_button() {
+        let ctx = TestContext::with_auth().await;
+        let msg = admin_msg("retrieve", "/b/storage/");
+        let body = output_html(bucket_list_page(&ctx, &msg).await).await;
+
+        // Primary-action slot is populated (proves we're not still on
+        // `primary_action: None`).
+        assert!(
+            body.contains("page-header__action"),
+            "page-header action slot missing: {body}"
+        );
+        assert!(
+            body.contains("+ New bucket"),
+            "new-bucket button label missing: {body}"
+        );
+        assert!(
+            body.contains(r#"data-action="open-new-bucket""#),
+            "new-bucket trigger attribute missing: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn bucket_list_page_renders_new_bucket_modal() {
+        let ctx = TestContext::with_auth().await;
+        let msg = admin_msg("retrieve", "/b/storage/");
+        let body = output_html(bucket_list_page(&ctx, &msg).await).await;
+
+        // Modal markup is server-rendered next to the table.
+        assert!(
+            body.contains(r#"id="new-bucket-modal""#),
+            "modal element missing: {body}"
+        );
+        assert!(
+            body.contains(r#"name="name""#),
+            "name input missing: {body}"
+        );
+        assert!(
+            body.contains(r#"name="public""#),
+            "public toggle missing: {body}"
+        );
+        assert!(
+            body.contains("Create bucket"),
+            "submit button missing: {body}"
+        );
+        // JS bundle is included with the cache-busting hash URL.
+        assert!(
+            body.contains("/b/static/files-browser-"),
+            "files-browser.js script tag missing: {body}"
+        );
+    }
+
+    #[test]
+    fn render_new_bucket_modal_validates_name_pattern_client_side() {
+        // The pattern is used by the browser for native validation; assert
+        // it's present so we don't regress accidentally to no client-side
+        // validation. Server-side validation lives in storage.rs.
+        let html = render_new_bucket_modal().into_string();
+        assert!(
+            html.contains(r#"pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?""#),
+            "client-side pattern attribute missing: {html}"
+        );
+        assert!(
+            html.contains(r#"minlength="3""#) && html.contains(r#"maxlength="63""#),
+            "length constraints missing: {html}"
         );
     }
 
