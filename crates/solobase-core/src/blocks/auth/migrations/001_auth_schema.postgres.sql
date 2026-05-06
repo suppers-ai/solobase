@@ -5,13 +5,14 @@ DROP TABLE IF EXISTS auth_sessions;
 DROP TABLE IF EXISTS oauth_states;
 
 CREATE TABLE IF NOT EXISTS suppers_ai__auth__users (
-    id            TEXT PRIMARY KEY,
-    email         TEXT NOT NULL UNIQUE,
-    display_name  TEXT NOT NULL,
-    avatar_url    TEXT,
-    role          TEXT NOT NULL DEFAULT 'user',
-    created_at    TEXT NOT NULL,
-    updated_at    TEXT NOT NULL
+    id              TEXT PRIMARY KEY,
+    email           TEXT NOT NULL UNIQUE,
+    display_name    TEXT NOT NULL,
+    avatar_url      TEXT,
+    role            TEXT NOT NULL DEFAULT 'user',
+    email_verified  BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS suppers_ai__auth__local_credentials (

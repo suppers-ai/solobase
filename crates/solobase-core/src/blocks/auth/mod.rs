@@ -349,7 +349,12 @@ pub async fn seed_admin_user(ctx: &dyn Context) {
         "email": admin_email,
         "password_hash": password_hash,
         "name": "Admin",
-        "disabled": false
+        "disabled": false,
+        // Seeded admins are inherently trusted — no email loop needed before
+        // first sign-in. Without this, the seeded admin would land in the
+        // "unverified" state on /b/userportal/security and the require-
+        // verification config could lock them out of their own deployment.
+        "email_verified": true
     }));
     super::helpers::stamp_created(&mut data);
 
