@@ -345,6 +345,13 @@
 .oauth-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .oauth-button span { font-weight: 600; }
 
+/* ===== Dashboard page — default rules ===== */
+/* Declared BEFORE the @media (max-width: 720px) block below so the mobile
+ * 1-col override (line ~358) wins at equal specificity. Companion
+ * @media (min-width: 1024px) widening rule lives next to the default. */
+.stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
+@media (min-width: 1024px) { .stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
 /* ===== Responsive ===== */
 /* Live mobile rules migrated from former (max-width: 767px) block — Phase 5c. */
 @media (max-width: 720px) {
@@ -406,8 +413,7 @@
 .form-bar { padding: var(--spacing-md) var(--spacing-lg); border-top: 1px solid var(--border-light); display: flex; justify-content: flex-end; gap: var(--spacing-sm); position: sticky; bottom: 0; background: var(--surface-1); }
 
 /* ===== Dashboard page ===== */
-.stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
-@media (min-width: 1024px) { .stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* .stats-grid default + min-width:1024px rules live above the @media (max-width: 720px) block (cascade order). */
 .stat-tile { background: var(--surface-1); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: var(--spacing-md); }
 .stat-tile__label { font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .stat-tile__value { font-size: var(--text-2xl); font-weight: 500; color: var(--text-primary); margin-top: 0.25rem; }
