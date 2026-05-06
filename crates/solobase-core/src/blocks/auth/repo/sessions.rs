@@ -1,7 +1,26 @@
 //! Row-level access over `suppers_ai__auth__sessions`.
 //!
-//! `token_hash` is the sha256 of the raw session token — the raw token never
-//! lives past its issuance helper (see AuthService in a later task).
+//! `token_hash` is the sha256 of the raw token (a JWT for the live login flow,
+//! a `wafer_session_*` opaque token for the planned cookie flow). The raw
+//! token never lives past its issuance helper.
+//!
+//! ## Schema convention
+//!
+//! This module uses the **live TEXT-everything convention** — rows are
+//! materialised through `db::create` (which calls `ensure_table` on first
+//! insert) rather than the BLOB-keyed Plan A2 migration schema. The migration
+//! file `001_auth_schema.sqlite.sql` still defines a stricter schema for tests
+//! that opt into `with_auth()`, but production startup never applies migrations
+//! (the auth block's `Init` lifecycle only seeds the admin user, not the
+//! schema). Storing `token_hash` as a hex string in a TEXT column keeps the
+//! repo working in both cases:
+//!
+//! - In production, `ensure_table` materialises a TEXT-everything table on
+//!   first insert (mirroring how `users`, `user_roles`, and `tokens` already
+//!   work).
+//! - In tests using `with_auth()`, the migration's BLOB-keyed table already
+//!   exists; SQLite's loose typing accepts the hex string in the BLOB column,
+//!   and `ensure_table` adds the auto `id` column via `ALTER TABLE`.
 
 use std::collections::HashMap;
 
@@ -33,20 +52,33 @@ fn now_iso() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
-/// Decode a `Value` returned by the database client into a byte vector.
-///
-/// The sqlite service stores byte arrays passed in as `json!(&[u8])` as the
-/// JSON array text representation and returns them parsed back into
-/// `Value::Array` on read. The helper tolerates a couple of other shapes so
-/// the repo layer stays forgiving if a backend round-trips them differently.
-fn decode_bytes(v: &Value) -> Option<Vec<u8>> {
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn decode_hex(s: &str) -> Option<Vec<u8>> {
+    if !s.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
+        .collect()
+}
+
+/// Decode a `token_hash` column value, accepting either:
+/// - A TEXT hex string (live convention used by production rows + new inserts).
+/// - A `Value::Array` of `u8`-coerced numbers (legacy migration BLOB rows
+///   round-tripped via `json!(&[u8])`).
+/// - A non-hex `Value::String` (legacy raw-bytes encoding).
+fn decode_token_hash(v: &Value) -> Option<Vec<u8>> {
     match v {
+        Value::String(s) => decode_hex(s).or_else(|| Some(s.as_bytes().to_vec())),
         Value::Array(arr) => Some(
             arr.iter()
                 .filter_map(|x| x.as_u64().map(|n| n as u8))
                 .collect(),
         ),
-        Value::String(s) => Some(s.as_bytes().to_vec()),
         _ => None,
     }
 }
@@ -55,7 +87,7 @@ fn row_from_map(m: &HashMap<String, Value>) -> Result<SessionRow, RepoError> {
     let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
     let token_hash = m
         .get("token_hash")
-        .and_then(decode_bytes)
+        .and_then(decode_token_hash)
         .ok_or_else(|| RepoError::Db("missing token_hash".into()))?;
     Ok(SessionRow {
         token_hash,
@@ -66,38 +98,79 @@ fn row_from_map(m: &HashMap<String, Value>) -> Result<SessionRow, RepoError> {
     })
 }
 
+/// Build the column map written for both new inserts and update reads.
+fn row_to_data(new: &NewSession, now: &str) -> HashMap<String, Value> {
+    let mut data = HashMap::new();
+    data.insert("token_hash".into(), json!(hex_encode(&new.token_hash)));
+    data.insert("user_id".into(), json!(new.user_id));
+    data.insert("created_at".into(), json!(now));
+    data.insert("last_used_at".into(), json!(now));
+    data.insert("expires_at".into(), json!(new.expires_at));
+    data
+}
+
+/// Insert a new session row.
+///
+/// Each call creates a new row — sessions are not idempotent, every login or
+/// session-issuance call gets a fresh row keyed by its own `token_hash`.
 pub async fn insert(ctx: &dyn Context, new: NewSession) -> Result<(), RepoError> {
     let now = now_iso();
-    db::exec_raw(
+    let data = row_to_data(&new, &now);
+    db::create(ctx, TABLE, data)
+        .await
+        .map_err(|e| RepoError::Db(format!("insert session: {e}")))?;
+    Ok(())
+}
+
+/// Convenience wrapper for the JWT login path: hashes nothing (the caller
+/// already computed `token_hash`), defaults `expires_at` to the access-token
+/// lifetime in days, and forwards to [`insert`].
+///
+/// Naming mirrors `delete_for_user`/`list_for_user` for symmetry.
+pub async fn create_for_user(
+    ctx: &dyn Context,
+    user_id: &str,
+    token_hash: Vec<u8>,
+    lifetime_days: u32,
+) -> Result<(), RepoError> {
+    let expires_at = (chrono::Utc::now() + chrono::Duration::days(lifetime_days as i64))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
+    insert(
         ctx,
-        &format!(
-            "INSERT INTO {TABLE} (token_hash, user_id, created_at, last_used_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-        ),
-        &[
-            json!(new.token_hash),
-            json!(new.user_id),
-            json!(now),
-            json!(now),
-            json!(new.expires_at),
-        ],
+        NewSession {
+            token_hash,
+            user_id: user_id.to_string(),
+            expires_at,
+        },
     )
     .await
-    .map_err(|e| RepoError::Db(format!("insert session: {e}")))?;
-    Ok(())
+}
+
+async fn find_record_by_hash(
+    ctx: &dyn Context,
+    hash: &[u8],
+) -> Result<Option<wafer_core::clients::database::Record>, RepoError> {
+    let opts = db::ListOptions {
+        filters: vec![db::Filter {
+            field: "token_hash".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(hex_encode(hash)),
+        }],
+        limit: 1,
+        ..Default::default()
+    };
+    let res = db::list(ctx, TABLE, &opts)
+        .await
+        .map_err(|e| RepoError::Db(format!("session lookup: {e}")))?;
+    Ok(res.records.into_iter().next())
 }
 
 pub async fn find_by_token_hash(
     ctx: &dyn Context,
     hash: &[u8],
 ) -> Result<Option<SessionRow>, RepoError> {
-    let rows = db::query_raw(
-        ctx,
-        &format!("SELECT * FROM {TABLE} WHERE token_hash = ?"),
-        &[json!(hash)],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("session select: {e}")))?;
-    match rows.first() {
+    match find_record_by_hash(ctx, hash).await? {
         Some(r) => Ok(Some(row_from_map(&r.data)?)),
         None => Ok(None),
     }
@@ -107,56 +180,76 @@ pub async fn find_by_token_hash(
 /// `hash`. Silently no-ops if the row is missing — callers treat liveness
 /// as a best-effort signal.
 pub async fn touch_last_used(ctx: &dyn Context, hash: &[u8]) -> Result<(), RepoError> {
-    let now = now_iso();
-    db::exec_raw(
-        ctx,
-        &format!("UPDATE {TABLE} SET last_used_at = ? WHERE token_hash = ?"),
-        &[json!(now), json!(hash)],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("session touch: {e}")))?;
+    let Some(record) = find_record_by_hash(ctx, hash).await? else {
+        return Ok(());
+    };
+    let mut data = HashMap::new();
+    data.insert("last_used_at".into(), json!(now_iso()));
+    db::update(ctx, TABLE, &record.id, data)
+        .await
+        .map_err(|e| RepoError::Db(format!("session touch: {e}")))?;
     Ok(())
 }
 
 /// Deletes the session row identified by `token_hash`. Returns the number of
 /// affected rows (0 if no such row exists).
 pub async fn delete_by_token_hash(ctx: &dyn Context, hash: &[u8]) -> Result<u64, RepoError> {
-    let affected = db::exec_raw(
-        ctx,
-        &format!("DELETE FROM {TABLE} WHERE token_hash = ?"),
-        &[json!(hash)],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("session delete: {e}")))?;
-    Ok(affected.max(0) as u64)
+    let Some(record) = find_record_by_hash(ctx, hash).await? else {
+        return Ok(0);
+    };
+    db::delete(ctx, TABLE, &record.id)
+        .await
+        .map_err(|e| RepoError::Db(format!("session delete: {e}")))?;
+    Ok(1)
 }
 
 /// Deletes rows whose `expires_at < cutoff`. Returns the number deleted.
 ///
-/// `cutoff` is compared as an ISO-8601 string; the migration schema stores
-/// timestamps in the same text format.
+/// `cutoff` is compared as an ISO-8601 string; rows store timestamps in the
+/// same text format (see [`now_iso`]).
 pub async fn delete_expired(ctx: &dyn Context, cutoff: &str) -> Result<u64, RepoError> {
-    let affected = db::exec_raw(
-        ctx,
-        &format!("DELETE FROM {TABLE} WHERE expires_at < ?"),
-        &[json!(cutoff)],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("delete expired: {e}")))?;
-    Ok(affected.max(0) as u64)
+    let opts = db::ListOptions {
+        filters: vec![db::Filter {
+            field: "expires_at".into(),
+            operator: db::FilterOp::LessThan,
+            value: json!(cutoff),
+        }],
+        ..Default::default()
+    };
+    let res = db::list(ctx, TABLE, &opts)
+        .await
+        .map_err(|e| RepoError::Db(format!("delete expired list: {e}")))?;
+    let mut deleted = 0u64;
+    for record in res.records {
+        if db::delete(ctx, TABLE, &record.id).await.is_ok() {
+            deleted += 1;
+        }
+    }
+    Ok(deleted)
 }
 
 /// Return all active sessions for `user_id`, ordered by `last_used_at` DESC
 /// so the most recently active session sorts first.
 pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<SessionRow>, RepoError> {
-    let rows = db::query_raw(
-        ctx,
-        &format!("SELECT * FROM {TABLE} WHERE user_id = ? ORDER BY last_used_at DESC"),
-        &[json!(user_id)],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("session list_for_user: {e}")))?;
-    rows.iter().map(|r| row_from_map(&r.data)).collect()
+    let opts = db::ListOptions {
+        filters: vec![db::Filter {
+            field: "user_id".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(user_id),
+        }],
+        sort: vec![db::SortField {
+            field: "last_used_at".into(),
+            desc: true,
+        }],
+        ..Default::default()
+    };
+    let res = db::list(ctx, TABLE, &opts)
+        .await
+        .map_err(|e| RepoError::Db(format!("session list_for_user: {e}")))?;
+    res.records
+        .iter()
+        .map(|r| row_from_map(&r.data))
+        .collect()
 }
 
 /// Delete a session row, but only if it belongs to `user_id`. Returns 0 if
@@ -167,14 +260,21 @@ pub async fn delete_for_user(
     user_id: &str,
     hash: &[u8],
 ) -> Result<u64, RepoError> {
-    let affected = db::exec_raw(
-        ctx,
-        &format!("DELETE FROM {TABLE} WHERE token_hash = ? AND user_id = ?"),
-        &[json!(hash), json!(user_id)],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("session delete_for_user: {e}")))?;
-    Ok(affected.max(0) as u64)
+    let Some(record) = find_record_by_hash(ctx, hash).await? else {
+        return Ok(0);
+    };
+    let owner = record
+        .data
+        .get("user_id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if owner != user_id {
+        return Ok(0);
+    }
+    db::delete(ctx, TABLE, &record.id)
+        .await
+        .map_err(|e| RepoError::Db(format!("session delete_for_user: {e}")))?;
+    Ok(1)
 }
 
 #[cfg(test)]
@@ -190,26 +290,35 @@ mod tests_phase_4 {
         }
     }
 
+    /// Seed a user using the live (TEXT-everything) convention via
+    /// `db::create`, matching how `seed_admin_user` writes rows in
+    /// production. This sidesteps the migration's NOT NULL on
+    /// `display_name`/`role` so the test can use the unwired-migration
+    /// schema while still mirroring production.
+    async fn seed_user(ctx: &TestContext, user_id: &str) {
+        // Use exec_raw so we can pin the id (db::create would generate one).
+        db::exec_raw(
+            ctx,
+            "INSERT INTO suppers_ai__auth__users (id, email, display_name, role, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+            &[
+                json!(user_id),
+                json!(format!("{user_id}@example.com")),
+                json!(user_id),
+                json!("user"),
+                json!("2026-01-01T00:00:00Z"),
+                json!("2026-01-01T00:00:00Z"),
+            ],
+        )
+        .await
+        .unwrap();
+    }
+
     #[tokio::test]
     async fn list_for_user_returns_only_caller_sessions() {
         let ctx = TestContext::with_auth().await;
-        // Seed users (FK constraint).
         for user_id in ["user-a", "user-b"] {
-            wafer_core::clients::database::exec_raw(
-                &ctx,
-                "INSERT INTO suppers_ai__auth__users (id, email, display_name, role, created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
-                &[
-                    serde_json::json!(user_id),
-                    serde_json::json!(format!("{user_id}@example.com")),
-                    serde_json::json!(user_id),
-                    serde_json::json!("user"),
-                    serde_json::json!("2026-01-01T00:00:00Z"),
-                    serde_json::json!("2026-01-01T00:00:00Z"),
-                ],
-            )
-            .await
-            .unwrap();
+            seed_user(&ctx, user_id).await;
         }
         insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
         insert(&ctx, fake_session("user-a", 0x02)).await.unwrap();
@@ -225,21 +334,7 @@ mod tests_phase_4 {
     async fn delete_for_user_refuses_other_users_session() {
         let ctx = TestContext::with_auth().await;
         for user_id in ["user-a", "user-b"] {
-            wafer_core::clients::database::exec_raw(
-                &ctx,
-                "INSERT INTO suppers_ai__auth__users (id, email, display_name, role, created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
-                &[
-                    serde_json::json!(user_id),
-                    serde_json::json!(format!("{user_id}@example.com")),
-                    serde_json::json!(user_id),
-                    serde_json::json!("user"),
-                    serde_json::json!("2026-01-01T00:00:00Z"),
-                    serde_json::json!("2026-01-01T00:00:00Z"),
-                ],
-            )
-            .await
-            .unwrap();
+            seed_user(&ctx, user_id).await;
         }
         insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
         insert(&ctx, fake_session("user-b", 0x02)).await.unwrap();
@@ -258,5 +353,62 @@ mod tests_phase_4 {
             .unwrap();
         assert_eq!(affected, 1);
         assert_eq!(list_for_user(&ctx, "user-a").await.unwrap().len(), 0);
+    }
+
+    /// `find_by_token_hash` round-trips a freshly-inserted row, and the row's
+    /// `token_hash` is the same bytes that went in (proves the hex
+    /// encode/decode is symmetric).
+    #[tokio::test]
+    async fn find_by_token_hash_roundtrip() {
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+        let raw_hash = vec![0xaa; 32];
+        insert(
+            &ctx,
+            NewSession {
+                token_hash: raw_hash.clone(),
+                user_id: "user-a".into(),
+                expires_at: "2099-01-01T00:00:00Z".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let found = find_by_token_hash(&ctx, &raw_hash).await.unwrap();
+        let row = found.expect("row missing after insert");
+        assert_eq!(row.token_hash, raw_hash);
+        assert_eq!(row.user_id, "user-a");
+    }
+
+    /// `delete_by_token_hash` returns 1 on hit, 0 on miss.
+    #[tokio::test]
+    async fn delete_by_token_hash_counts_rows() {
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+        insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
+        assert_eq!(
+            delete_by_token_hash(&ctx, &vec![0x99; 32]).await.unwrap(),
+            0
+        );
+        assert_eq!(
+            delete_by_token_hash(&ctx, &vec![0x01; 32]).await.unwrap(),
+            1
+        );
+        assert_eq!(list_for_user(&ctx, "user-a").await.unwrap().len(), 0);
+    }
+
+    /// `create_for_user` writes a row that `list_for_user` can find, and the
+    /// `expires_at` is in the future relative to `now_iso()`.
+    #[tokio::test]
+    async fn create_for_user_writes_visible_row() {
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+        create_for_user(&ctx, "user-a", vec![0x42; 32], 1)
+            .await
+            .unwrap();
+        let rows = list_for_user(&ctx, "user-a").await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].token_hash, vec![0x42; 32]);
+        // `expires_at` is one day in the future — strictly greater than now.
+        assert!(rows[0].expires_at.as_str() > now_iso().as_str());
     }
 }
