@@ -106,11 +106,8 @@ const MOBILE_ADMIN_ROUTES = [
   { path: '/b/llm/', name: 'llm-chat' },
   // Phase 5d Item A's storageState refactor unblocks the cumulative auth
   // rate-limit that PR-3 hit, so `/b/storage/` can safely sit at the end
-  // of MOBILE_ADMIN_ROUTES again. The mobile baseline image still needs to
-  // be regenerated with a sealed-mode server before this entry can ship —
-  // see Phase 5d follow-up. Until then, omit the route so CI doesn't fail
-  // on a missing snapshot. Desktop coverage of `/b/storage/` is sufficient
-  // (line 39).
+  // of MOBILE_ADMIN_ROUTES again.
+  { path: '/b/storage/', name: 'storage-buckets' },
 ];
 
 // ===== Phase 5b PR-1: vector index admin pages =====
