@@ -345,6 +345,141 @@ pub fn render_breadcrumbs(bucket: &str, current_prefix: &str) -> Markup {
     }
 }
 
+async fn user_owns_bucket(ctx: &dyn Context, user_id: &str, bucket: &str) -> bool {
+    use super::{BUCKETS_COLLECTION};
+    use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
+
+    let opts = ListOptions {
+        filters: vec![
+            Filter {
+                field: "name".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(bucket.into()),
+            },
+            Filter {
+                field: "created_by".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(user_id.into()),
+            },
+        ],
+        ..Default::default()
+    };
+    match db::list(ctx, BUCKETS_COLLECTION, &opts).await {
+        Ok(rl) => !rl.records.is_empty(),
+        Err(e) => {
+            tracing::warn!(error = %e, bucket = %bucket, "bucket-ownership check failed");
+            false
+        }
+    }
+}
+
+async fn list_objects_in_bucket(ctx: &dyn Context, bucket: &str) -> Vec<ObjectRow> {
+    use super::{OBJECTS_COLLECTION};
+    use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+
+    let opts = ListOptions {
+        filters: vec![Filter {
+            field: "bucket".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(bucket.into()),
+        }],
+        sort: vec![SortField {
+            field: "key".into(),
+            desc: false,
+        }],
+        limit: 1000,
+        ..Default::default()
+    };
+
+    match db::list(ctx, OBJECTS_COLLECTION, &opts).await {
+        Ok(rl) => rl
+            .records
+            .into_iter()
+            .map(|r| ObjectRow {
+                key: r.data.get("key").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                size: r.data.get("size").and_then(|v| v.as_i64()).unwrap_or(0),
+                modified: r
+                    .data
+                    .get("uploaded_at")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!(error = %e, bucket = %bucket, "object list failed");
+            Vec::new()
+        }
+    }
+}
+
+/// GET `/b/storage/{bucket}/[{prefix}/]` — object listing with synthesized
+/// folder navigation. 404s if the bucket doesn't exist for this user
+/// (cross-user isolation enforced by the `created_by` filter on lookup).
+pub async fn object_list_page(
+    ctx: &dyn Context,
+    msg: &Message,
+    bucket: &str,
+    current_prefix: &str,
+) -> OutputStream {
+    let user_id = msg.user_id().to_string();
+    if user_id.is_empty() {
+        return crate::ui::not_found_response(msg);
+    }
+    if !user_owns_bucket(ctx, &user_id, bucket).await {
+        return crate::ui::not_found_response(msg);
+    }
+
+    let all_objects = list_objects_in_bucket(ctx, bucket).await;
+    let listing = group_objects_by_prefix(&all_objects, current_prefix);
+
+    let config = SiteConfig::load(ctx).await;
+    let user = UserInfo::from_message(msg);
+
+    let title = if current_prefix.is_empty() {
+        bucket.to_string()
+    } else {
+        format!("{bucket} / {}", current_prefix.trim_end_matches('/'))
+    };
+
+    let body = list_page(
+        PageHeader {
+            title: bucket,
+            subtitle: Some("Drag files here to upload."),
+            primary_action: None,
+        },
+        Some(render_breadcrumbs(bucket, current_prefix)),
+        render_objects_table(bucket, current_prefix, &listing),
+        None,
+    );
+
+    let groups = nav_groups::portal();
+    let topbar = Topbar {
+        crumbs: vec![
+            Crumb {
+                label: "Files",
+                href: Some("/b/storage/"),
+            },
+            Crumb {
+                label: bucket,
+                href: None,
+            },
+        ],
+        primary_action: None,
+        show_palette: true,
+    };
+    shelled_response(
+        msg,
+        &title,
+        &config,
+        &groups,
+        user.as_ref(),
+        msg.path(),
+        topbar,
+        body,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -686,6 +821,71 @@ mod integration_tests {
         assert!(
             !body.contains(">secrets<"),
             "cross-user bucket leaked: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn object_list_page_root_renders_files_and_folders() {
+        let ctx = TestContext::with_auth().await;
+        seed_two_buckets(&ctx, "admin_1").await;
+
+        let msg = admin_msg("retrieve", "/b/storage/photos/");
+        let resp = object_list_page(&ctx, &msg, "photos", "").await;
+        let body = output_html(resp).await;
+
+        assert!(body.contains(">a.png<"), "root file missing: {body}");
+        assert!(body.contains("📁 nested"), "synthesized folder missing: {body}");
+        // Breadcrumb has only the bucket segment, no prefix segments.
+        assert!(
+            body.contains(r#"href="/b/storage/""#),
+            "Files crumb link missing: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn object_list_page_with_prefix_strips_filename() {
+        let ctx = TestContext::with_auth().await;
+        seed_two_buckets(&ctx, "admin_1").await;
+
+        let msg = admin_msg("retrieve", "/b/storage/photos/nested/");
+        let resp = object_list_page(&ctx, &msg, "photos", "nested/").await;
+        let body = output_html(resp).await;
+
+        // Filename portion of "nested/b.png" is just "b.png".
+        assert!(body.contains(">b.png<"), "filename missing: {body}");
+        assert!(!body.contains(">nested/b.png<"), "raw key leaked: {body}");
+    }
+
+    #[tokio::test]
+    async fn object_list_page_404_for_unknown_bucket() {
+        let ctx = TestContext::with_auth().await;
+        let mut msg = admin_msg("retrieve", "/b/storage/missing/");
+        msg.set_meta("http.header.accept", "text/html");
+        let resp = object_list_page(&ctx, &msg, "missing", "").await;
+        let body = output_html(resp).await;
+        assert!(
+            body.contains("Not found") || body.contains("404"),
+            "expected 404: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn object_list_page_404_for_other_users_bucket() {
+        // Cross-user isolation: a bucket owned by another user must 404,
+        // not render its contents.
+        let ctx = TestContext::with_auth().await;
+        let mut row: HashMap<String, serde_json::Value> = HashMap::new();
+        row.insert("name".into(), json!("secrets"));
+        row.insert("created_by".into(), json!("other_user"));
+        db::create(&ctx, BUCKETS_COLLECTION, row).await.expect("seed");
+
+        let mut msg = admin_msg("retrieve", "/b/storage/secrets/");
+        msg.set_meta("http.header.accept", "text/html");
+        let resp = object_list_page(&ctx, &msg, "secrets", "").await;
+        let body = output_html(resp).await;
+        assert!(
+            body.contains("Not found") || body.contains("404"),
+            "expected 404 for cross-user bucket: {body}"
         );
     }
 }
