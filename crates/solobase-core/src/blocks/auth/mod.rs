@@ -431,6 +431,21 @@ impl Block for AuthBlock {
             .grants(vec![
                 wafer_run::ResourceGrant::read("suppers-ai/admin", "suppers_ai__auth__*"),
                 wafer_run::ResourceGrant::read_write("suppers-ai/userportal", USERS_COLLECTION),
+                // The userportal `/b/userportal/sessions` page lists the
+                // caller's sessions and revokes individual rows. Read+write
+                // because revoke deletes the row; reads are scoped to the
+                // caller's user_id by the repo helper.
+                wafer_run::ResourceGrant::read_write(
+                    "suppers-ai/userportal",
+                    crate::blocks::auth::repo::sessions::TABLE,
+                ),
+                // Userportal `/b/userportal/security` lists the caller's
+                // linked OAuth providers. Read-only — unlinking goes
+                // through an auth POST endpoint, not the userportal block.
+                wafer_run::ResourceGrant::read(
+                    "suppers-ai/userportal",
+                    crate::blocks::auth::repo::provider_links::TABLE,
+                ),
                 wafer_run::ResourceGrant::read("suppers-ai/products", USERS_COLLECTION),
             ])
             .category(wafer_run::BlockCategory::Feature)
