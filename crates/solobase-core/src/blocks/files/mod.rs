@@ -177,7 +177,7 @@ impl Block for FilesBlock {
             // Skip admin/ (handled above before normalize), api/, direct/.
             if let Some(rest) = path.strip_prefix("/b/storage/") {
                 if rest.ends_with('/')
-                    && !rest.starts_with("admin")
+                    && !rest.starts_with("admin/")
                     && !rest.starts_with("api/")
                     && !rest.starts_with("direct/")
                 {

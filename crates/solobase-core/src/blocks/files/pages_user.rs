@@ -888,4 +888,20 @@ mod integration_tests {
             "expected 404 for cross-user bucket: {body}"
         );
     }
+
+    #[tokio::test]
+    async fn object_list_page_renders_empty_state_for_empty_bucket() {
+        let ctx = TestContext::with_auth().await;
+        // seed_two_buckets seeds `docs` with no objects.
+        seed_two_buckets(&ctx, "admin_1").await;
+
+        let msg = admin_msg("retrieve", "/b/storage/docs/");
+        let resp = object_list_page(&ctx, &msg, "docs", "").await;
+        let body = output_html(resp).await;
+
+        assert!(
+            body.contains("This folder is empty"),
+            "expected empty-state copy: {body}"
+        );
+    }
 }
