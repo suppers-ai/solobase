@@ -191,7 +191,48 @@ async fn load_admin_stats(ctx: &dyn Context) -> AdminStats {
 // Buckets
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Debug)]
+pub struct AdminBucketRow {
+    pub name: String,
+    pub owner_short: String,
+    pub public: bool,
+    pub created_at_short: String,
+}
+
+/// Render the admin Buckets table (or empty state).
+pub fn render_admin_buckets_table(rows: &[AdminBucketRow]) -> Markup {
+    if rows.is_empty() {
+        return html! {
+            div .empty-state { p { "No buckets" } }
+        };
+    }
+    html! {
+        table .data-table {
+            thead { tr {
+                th { "Name" }
+                th { "Owner" }
+                th { "Public" }
+                th { "Created" }
+            } }
+            tbody {
+                @for r in rows {
+                    tr data-bucket=(r.name) {
+                        td data-label="Name" .font-medium { (r.name) }
+                        td data-label="Owner" .text-muted .text-sm { (r.owner_short) }
+                        td data-label="Public" {
+                            (components::status_badge(if r.public { "public" } else { "private" }))
+                        }
+                        td data-label="Created" .text-muted .text-sm { (r.created_at_short) }
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    use crate::ui::templates::{list_page, PageHeader};
+
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
@@ -203,37 +244,34 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
         limit: 100,
         ..Default::default()
     };
-    let result = db::list(ctx, BUCKETS_COLLECTION, &opts).await;
 
-    let content = html! {
-        (components::page_header("Buckets", Some("All storage buckets"), None))
-
-        div #buckets-content {
-            @match &result {
-                Ok(list) => {
-                    div .table-container {
-                        table .table {
-                            thead { tr { th { "Name" } th { "Owner" } th { "Public" } th { "Created" } } }
-                            tbody {
-                                @if list.records.is_empty() {
-                                    tr { td colspan="4" .text-center .text-muted style="padding:2rem;" { "No buckets" } }
-                                }
-                                @for r in &list.records {
-                                    tr {
-                                        td .font-medium { (r.str_field("name")) }
-                                        td .text-muted .text-sm { (r.str_field("created_by").get(..8).unwrap_or("—")) }
-                                        td { (components::status_badge(if r.str_field("public") == "true" { "public" } else { "private" })) }
-                                        td .text-muted .text-sm { (r.str_field("created_at").get(..10).unwrap_or("")) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(e) => { div .login-error { "Error: " (e.message) } }
-            }
+    let rows: Vec<AdminBucketRow> = match db::list(ctx, BUCKETS_COLLECTION, &opts).await {
+        Ok(list) => list
+            .records
+            .into_iter()
+            .map(|r| AdminBucketRow {
+                name: r.str_field("name").to_string(),
+                owner_short: r.str_field("created_by").get(..8).unwrap_or("—").to_string(),
+                public: r.str_field("public") == "true",
+                created_at_short: r.str_field("created_at").get(..10).unwrap_or("").to_string(),
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!(error = %e.message, "admin bucket list failed");
+            Vec::new()
         }
     };
+
+    let body = list_page(
+        PageHeader {
+            title: "Buckets",
+            subtitle: Some("All storage buckets"),
+            primary_action: None,
+        },
+        None,
+        render_admin_buckets_table(&rows),
+        None,
+    );
 
     files_page(
         "Buckets",
@@ -241,7 +279,7 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "/b/storage/admin/buckets",
         user.as_ref(),
         "Buckets",
-        content,
+        body,
         msg,
     )
 }
@@ -429,5 +467,37 @@ mod tests {
             !html.contains("with custom quotas"),
             "should be empty when zero: {html}"
         );
+    }
+
+    #[test]
+    fn render_admin_buckets_table_empty_state() {
+        let html = render_admin_buckets_table(&[]).into_string();
+        assert!(html.contains("No buckets"), "missing empty hint: {html}");
+    }
+
+    #[test]
+    fn render_admin_buckets_table_renders_rows() {
+        let rows = vec![
+            AdminBucketRow {
+                name: "photos".into(),
+                owner_short: "admin_1".into(),
+                public: true,
+                created_at_short: "2026-05-06".into(),
+            },
+            AdminBucketRow {
+                name: "docs".into(),
+                owner_short: "user_42".into(),
+                public: false,
+                created_at_short: "2026-05-05".into(),
+            },
+        ];
+        let html = render_admin_buckets_table(&rows).into_string();
+        assert!(html.contains(">photos<"), "name missing: {html}");
+        assert!(html.contains(">docs<"));
+        assert!(html.contains("admin_1"));
+        // status_badge renders class names containing "public" / "private".
+        assert!(html.contains("public"));
+        assert!(html.contains("private"));
+        assert!(html.contains("2026-05-06"));
     }
 }
