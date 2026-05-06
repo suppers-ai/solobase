@@ -94,6 +94,7 @@ impl Block for FilesBlock {
             .category(wafer_run::BlockCategory::Feature)
             .description("File storage and management with bucket-based organization. Supports file upload, download, deletion, search, and sharing via public links with expiration and access counting. Includes per-user storage quotas.")
             .endpoints(vec![
+                BlockEndpoint::get("/b/storage/").summary("Bucket list (user)").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/storage/api/buckets").summary("List buckets").auth(AuthLevel::Authenticated),
                 BlockEndpoint::post("/b/storage/api/buckets").summary("Create bucket").auth(AuthLevel::Authenticated),
                 BlockEndpoint::get("/b/storage/api/buckets/{name}/objects").summary("List objects").auth(AuthLevel::Authenticated),
@@ -165,6 +166,11 @@ impl Block for FilesBlock {
             }
         }
 
+        // User-facing SSR pages (bucket list).
+        if msg.action() == "retrieve" && (path == "/b/storage" || path == "/b/storage/") {
+            return pages_user::bucket_list_page(ctx, &msg).await;
+        }
+
         // Cloud storage routes (/b/cloudstorage/...)
         if normalized.starts_with("/b/cloudstorage") {
             return cloud::handle(ctx, msg, input).await;
@@ -187,6 +193,7 @@ impl Block for FilesBlock {
             wafer_run::UiRoute::admin("/admin/buckets"),
             wafer_run::UiRoute::admin("/admin/shares"),
             wafer_run::UiRoute::admin("/admin/quotas"),
+            wafer_run::UiRoute::authenticated("/"),
         ]
     }
 

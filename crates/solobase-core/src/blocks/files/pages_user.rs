@@ -52,6 +52,129 @@ pub fn render_buckets_table(rows: &[BucketRow]) -> Markup {
     }
 }
 
+use wafer_core::clients::database as db;
+use wafer_run::{context::Context, types::Message, OutputStream};
+
+use crate::ui::{
+    self, nav_groups,
+    shell::{Crumb, Topbar},
+    shelled_response,
+    templates::{list_page, PageHeader},
+    SiteConfig, UserInfo,
+};
+
+/// Load the calling user's buckets, decorated with live object counts.
+///
+/// `created_by` filtering keeps users from seeing each other's buckets.
+/// Object counts are an N+1 — acceptable for v1 (per-user bucket count
+/// is normally small). If this gets hot, fold into a single aggregate
+/// query via `wafer-sql-utils::aggregate` (do **not** use raw SQL —
+/// CLAUDE.md).
+pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<BucketRow> {
+    use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+
+    let opts = ListOptions {
+        filters: vec![Filter {
+            field: "created_by".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id.into()),
+        }],
+        sort: vec![SortField {
+            field: "name".into(),
+            desc: false,
+        }],
+        ..Default::default()
+    };
+
+    let recs = match db::list(ctx, "suppers_ai__files__buckets", &opts).await {
+        Ok(rl) => rl.records,
+        Err(_) => Vec::new(),
+    };
+
+    let mut rows: Vec<BucketRow> = Vec::with_capacity(recs.len());
+    for r in recs {
+        let name = r
+            .data
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let public = r
+            .data
+            .get("public")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let created_at = r
+            .data
+            .get("created_at")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+
+        let obj_filters = vec![Filter {
+            field: "bucket".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(name.clone()),
+        }];
+        let object_count =
+            db::count(ctx, "suppers_ai__files__objects", &obj_filters)
+                .await
+                .unwrap_or(0);
+
+        rows.push(BucketRow {
+            name,
+            public,
+            created_at,
+            object_count,
+        });
+    }
+    rows
+}
+
+/// GET `/b/storage/` — bucket list for the calling user.
+pub async fn bucket_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
+    let user_id = msg.user_id().to_string();
+    // The handle() above us already enforces auth; this guard is defensive.
+    if user_id.is_empty() {
+        return ui::not_found_response(msg);
+    }
+
+    let rows = list_buckets_for_user(ctx, &user_id).await;
+    let config = SiteConfig::load(ctx).await;
+    let user = UserInfo::from_message(msg);
+
+    let body = list_page(
+        PageHeader {
+            title: "Files",
+            subtitle: Some("Your buckets and their object counts."),
+            primary_action: None, // bucket creation modal arrives in Task 9 JS
+        },
+        None,
+        render_buckets_table(&rows),
+        None,
+    );
+
+    let groups = nav_groups::portal();
+    let topbar = Topbar {
+        crumbs: vec![Crumb {
+            label: "Files",
+            href: None,
+        }],
+        primary_action: None,
+        show_palette: true,
+    };
+    shelled_response(
+        msg,
+        "Files",
+        &config,
+        &groups,
+        user.as_ref(),
+        msg.path(),
+        topbar,
+        body,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +225,74 @@ mod tests {
             !html.contains(">a&b<") && !html.contains(r#"href="/b/storage/a&b/""#),
             "raw `&` leaked into HTML: {html}"
         );
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use std::collections::HashMap;
+
+    use serde_json::json;
+    use wafer_core::clients::database as db;
+
+    use super::*;
+    use crate::test_support::{admin_msg, output_html, TestContext};
+
+    /// Seed two buckets + two objects in `photos`, none in `docs`.
+    async fn seed_two_buckets(ctx: &TestContext, owner: &str) {
+        for (name, public) in [("photos", true), ("docs", false)] {
+            let mut row: HashMap<String, serde_json::Value> = HashMap::new();
+            row.insert("name".into(), json!(name));
+            row.insert("public".into(), json!(public));
+            row.insert("created_by".into(), json!(owner));
+            db::create(ctx, "suppers_ai__files__buckets", row)
+                .await
+                .expect("seed bucket");
+        }
+        for key in ["a.png", "nested/b.png"] {
+            let mut row: HashMap<String, serde_json::Value> = HashMap::new();
+            row.insert("bucket".into(), json!("photos"));
+            row.insert("key".into(), json!(key));
+            row.insert("size".into(), json!(1024));
+            row.insert("uploaded_by".into(), json!(owner));
+            db::create(ctx, "suppers_ai__files__objects", row)
+                .await
+                .expect("seed object");
+        }
+    }
+
+    #[tokio::test]
+    async fn bucket_list_page_renders_user_buckets() {
+        let ctx = TestContext::with_auth().await;
+        let owner = "admin_1"; // admin_msg's default user_id
+        seed_two_buckets(&ctx, owner).await;
+
+        let msg = admin_msg("retrieve", "/b/storage/");
+        let resp = bucket_list_page(&ctx, &msg).await;
+        let body = output_html(resp).await;
+
+        assert!(body.contains("Files"), "missing page header: {body}");
+        assert!(body.contains(">photos<"), "missing bucket: {body}");
+        assert!(body.contains(">docs<"), "missing bucket: {body}");
+        assert!(
+            body.contains(r#"data-label="Objects">2<"#),
+            "photos should show 2 objects: {body}"
+        );
+        assert!(
+            body.contains(r#"data-label="Objects">0<"#),
+            "docs should show 0 objects: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn bucket_list_page_empty_state_for_fresh_user() {
+        let ctx = TestContext::with_auth().await;
+
+        let msg = admin_msg("retrieve", "/b/storage/");
+        let resp = bucket_list_page(&ctx, &msg).await;
+        let body = output_html(resp).await;
+
+        assert!(body.contains("Files"), "missing page header");
+        assert!(body.contains("No buckets yet"), "missing empty state");
     }
 }
