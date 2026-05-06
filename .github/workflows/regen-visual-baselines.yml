@@ -115,6 +115,10 @@ jobs:
           fi
 
       - name: Commit and push regenerated baselines
+        # `${{ inputs.branch }}` is routed through env vars (not interpolated
+        # into the script body) to avoid GitHub Actions script-injection.
+        env:
+          TARGET_BRANCH: ${{ inputs.branch }}
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -128,5 +132,5 @@ jobs:
           git commit -m "test(ui): regen visual baselines from CI render
 
 Auto-committed by .github/workflows/regen-visual-baselines.yml
-dispatched against branch '${{ inputs.branch }}'."
-          git push origin HEAD:${{ inputs.branch }}
+dispatched against branch '${TARGET_BRANCH}'."
+          git push origin "HEAD:${TARGET_BRANCH}"
