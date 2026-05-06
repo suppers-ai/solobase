@@ -75,8 +75,9 @@ use crate::ui::{
 /// If this gets hot, fold into a single aggregate query via
 /// `wafer-sql-utils::aggregate` (do **not** use raw SQL — CLAUDE.md).
 pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<BucketRow> {
-    use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION};
     use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+
+    use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION};
 
     let opts = ListOptions {
         filters: vec![Filter {
@@ -346,8 +347,9 @@ pub fn render_breadcrumbs(bucket: &str, current_prefix: &str) -> Markup {
 }
 
 async fn user_owns_bucket(ctx: &dyn Context, user_id: &str, bucket: &str) -> bool {
-    use super::{BUCKETS_COLLECTION};
     use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
+
+    use super::BUCKETS_COLLECTION;
 
     let opts = ListOptions {
         filters: vec![
@@ -374,8 +376,9 @@ async fn user_owns_bucket(ctx: &dyn Context, user_id: &str, bucket: &str) -> boo
 }
 
 async fn list_objects_in_bucket(ctx: &dyn Context, bucket: &str) -> Vec<ObjectRow> {
-    use super::{OBJECTS_COLLECTION};
     use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+
+    use super::OBJECTS_COLLECTION;
 
     let opts = ListOptions {
         filters: vec![Filter {
@@ -396,7 +399,12 @@ async fn list_objects_in_bucket(ctx: &dyn Context, bucket: &str) -> Vec<ObjectRo
             .records
             .into_iter()
             .map(|r| ObjectRow {
-                key: r.data.get("key").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                key: r
+                    .data
+                    .get("key")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
                 size: r
                     .data
                     .get("size")
@@ -594,8 +602,9 @@ pub fn render_shares_table(rows: &[ShareRow]) -> Markup {
 }
 
 async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow> {
-    use super::{SHARES_COLLECTION};
     use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+
+    use super::SHARES_COLLECTION;
     let opts = ListOptions {
         filters: vec![Filter {
             field: "created_by".into(),
@@ -613,13 +622,42 @@ async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow>
             .records
             .into_iter()
             .map(|r| ShareRow {
-                token: r.data.get("token").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                bucket: r.data.get("bucket").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                key: r.data.get("key").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                created_at: r.data.get("created_at").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                expires_at: r.data.get("expires_at").and_then(|v| v.as_str()).map(str::to_string),
-                access_count: r.data.get("access_count")
-                    .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                token: r
+                    .data
+                    .get("token")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                bucket: r
+                    .data
+                    .get("bucket")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                key: r
+                    .data
+                    .get("key")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                created_at: r
+                    .data
+                    .get("created_at")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                expires_at: r
+                    .data
+                    .get("expires_at")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                access_count: r
+                    .data
+                    .get("access_count")
+                    .and_then(|v| {
+                        v.as_i64()
+                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                    })
                     .unwrap_or(0),
             })
             .collect(),
@@ -631,8 +669,9 @@ async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow>
 }
 
 async fn load_quota_info(ctx: &dyn Context, user_id: &str) -> QuotaInfo {
-    use super::{OBJECTS_COLLECTION, QUOTAS_COLLECTION};
     use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
+
+    use super::{OBJECTS_COLLECTION, QUOTAS_COLLECTION};
 
     let limit_opts = ListOptions {
         filters: vec![Filter {
@@ -649,7 +688,8 @@ async fn load_quota_info(ctx: &dyn Context, user_id: &str) -> QuotaInfo {
             .next()
             .and_then(|r| {
                 r.data.get("max_storage_bytes").and_then(|v| {
-                    v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                    v.as_i64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
                 })
             })
             .unwrap_or(1_073_741_824),
@@ -670,7 +710,8 @@ async fn load_quota_info(ctx: &dyn Context, user_id: &str) -> QuotaInfo {
             .iter()
             .filter_map(|r| {
                 r.data.get("size").and_then(|v| {
-                    v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                    v.as_i64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
                 })
             })
             .sum(),
@@ -919,8 +960,14 @@ mod tests {
         assert!(html.contains("1024"), "size missing");
         // kebab menu trigger
         assert!(html.contains(r#"data-action-menu"#), "kebab missing");
-        assert!(html.contains(r#"data-bucket="photos""#), "kebab data-bucket missing/wrong: {html}");
-        assert!(html.contains(r#"data-key="a.png""#), "kebab data-key missing/wrong: {html}");
+        assert!(
+            html.contains(r#"data-bucket="photos""#),
+            "kebab data-bucket missing/wrong: {html}"
+        );
+        assert!(
+            html.contains(r#"data-key="a.png""#),
+            "kebab data-key missing/wrong: {html}"
+        );
     }
 
     #[test]
@@ -961,7 +1008,10 @@ mod tests {
             "download href not URL-encoded: {html}"
         );
         // Display text remains the raw filename (HTML-escaped by maud).
-        assert!(html.contains(">report Q2.pdf<"), "filename text wrong: {html}");
+        assert!(
+            html.contains(">report Q2.pdf<"),
+            "filename text wrong: {html}"
+        );
     }
 
     #[test]
@@ -995,8 +1045,14 @@ mod tests {
         };
         let html = render_quota_card(&q).into_string();
         assert!(html.contains("100"), "used count missing");
-        assert!(html.contains("10%") || html.contains("10 %"), "percent missing");
-        assert!(!html.contains("quota-warning"), "should not be warning class");
+        assert!(
+            html.contains("10%") || html.contains("10 %"),
+            "percent missing"
+        );
+        assert!(
+            !html.contains("quota-warning"),
+            "should not be warning class"
+        );
     }
 
     #[test]
@@ -1006,7 +1062,10 @@ mod tests {
             limit_bytes: 1_000_000,
         };
         let html = render_quota_card(&q).into_string();
-        assert!(html.contains("quota-warning"), "should mark near-quota: {html}");
+        assert!(
+            html.contains("quota-warning"),
+            "should mark near-quota: {html}"
+        );
     }
 
     #[test]
@@ -1042,7 +1101,9 @@ mod integration_tests {
 
     use super::*;
     use crate::{
-        blocks::files::{BUCKETS_COLLECTION, OBJECTS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION},
+        blocks::files::{
+            BUCKETS_COLLECTION, OBJECTS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION,
+        },
         test_support::{admin_msg, output_html, TestContext},
     };
 
@@ -1135,7 +1196,10 @@ mod integration_tests {
         let body = output_html(resp).await;
 
         assert!(body.contains(">a.png<"), "root file missing: {body}");
-        assert!(body.contains("📁 nested"), "synthesized folder missing: {body}");
+        assert!(
+            body.contains("📁 nested"),
+            "synthesized folder missing: {body}"
+        );
         // Breadcrumb has only the bucket segment, no prefix segments.
         assert!(
             body.contains(r#"href="/b/storage/""#),
@@ -1178,7 +1242,9 @@ mod integration_tests {
         let mut row: HashMap<String, serde_json::Value> = HashMap::new();
         row.insert("name".into(), json!("secrets"));
         row.insert("created_by".into(), json!("other_user"));
-        db::create(&ctx, BUCKETS_COLLECTION, row).await.expect("seed");
+        db::create(&ctx, BUCKETS_COLLECTION, row)
+            .await
+            .expect("seed");
 
         let mut msg = admin_msg("retrieve", "/b/storage/secrets/");
         msg.set_meta("http.header.accept", "text/html");
@@ -1248,14 +1314,18 @@ mod integration_tests {
         mine.insert("bucket".into(), json!("photos"));
         mine.insert("key".into(), json!("a.png"));
         mine.insert("created_by".into(), json!("admin_1"));
-        db::create(&ctx, SHARES_COLLECTION, mine).await.expect("seed mine");
+        db::create(&ctx, SHARES_COLLECTION, mine)
+            .await
+            .expect("seed mine");
         // Seed another user's share.
         let mut theirs: HashMap<String, serde_json::Value> = HashMap::new();
         theirs.insert("token".into(), json!("theirs"));
         theirs.insert("bucket".into(), json!("secrets"));
         theirs.insert("key".into(), json!("k"));
         theirs.insert("created_by".into(), json!("other_user"));
-        db::create(&ctx, SHARES_COLLECTION, theirs).await.expect("seed theirs");
+        db::create(&ctx, SHARES_COLLECTION, theirs)
+            .await
+            .expect("seed theirs");
 
         let msg = admin_msg("retrieve", "/b/cloudstorage/");
         let body = output_html(cloudstorage_page(&ctx, &msg).await).await;
@@ -1316,7 +1386,9 @@ mod integration_tests {
         let mut bucket: HashMap<String, serde_json::Value> = HashMap::new();
         bucket.insert("name".into(), json!("photos"));
         bucket.insert("created_by".into(), json!("admin_1"));
-        db::create(&ctx, BUCKETS_COLLECTION, bucket).await.expect("seed bucket");
+        db::create(&ctx, BUCKETS_COLLECTION, bucket)
+            .await
+            .expect("seed bucket");
 
         let mut obj: HashMap<String, serde_json::Value> = HashMap::new();
         obj.insert("bucket".into(), json!("photos"));
@@ -1326,7 +1398,9 @@ mod integration_tests {
         // must accept both shapes.
         obj.insert("size".into(), json!(2048));
         obj.insert("uploaded_by".into(), json!("admin_1"));
-        db::create(&ctx, OBJECTS_COLLECTION, obj).await.expect("seed obj");
+        db::create(&ctx, OBJECTS_COLLECTION, obj)
+            .await
+            .expect("seed obj");
 
         let msg = admin_msg("retrieve", "/b/storage/photos/");
         let body = output_html(object_list_page(&ctx, &msg, "photos", "").await).await;
@@ -1346,12 +1420,12 @@ mod integration_tests {
         let mut bucket: HashMap<String, serde_json::Value> = HashMap::new();
         bucket.insert("name".into(), json!("foo</script>bar"));
         bucket.insert("created_by".into(), json!("admin_1"));
-        db::create(&ctx, BUCKETS_COLLECTION, bucket).await.expect("seed");
+        db::create(&ctx, BUCKETS_COLLECTION, bucket)
+            .await
+            .expect("seed");
 
         let msg = admin_msg("retrieve", "/b/storage/foo</script>bar/");
-        let body = output_html(
-            object_list_page(&ctx, &msg, "foo</script>bar", "").await
-        ).await;
+        let body = output_html(object_list_page(&ctx, &msg, "foo</script>bar", "").await).await;
 
         // The dangerous substring must NOT appear in the rendered HTML.
         // The escaped form `</script>` is the safe representation.

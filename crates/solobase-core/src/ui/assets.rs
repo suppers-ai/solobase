@@ -340,7 +340,10 @@ mod tests {
         );
         assert!(js.contains("dragenter"), "drag handler missing");
         assert!(js.contains("dragover"), "drag handler missing");
-        assert!(js.contains("'drop'") || js.contains("\"drop\""), "drop handler missing");
+        assert!(
+            js.contains("'drop'") || js.contains("\"drop\""),
+            "drop handler missing"
+        );
         assert!(js.contains("data-bulk-toggle"), "bulk-select missing");
         assert!(js.contains("data-action-menu"), "kebab handler missing");
         assert!(js.contains("dialog"), "modal uses <dialog>");

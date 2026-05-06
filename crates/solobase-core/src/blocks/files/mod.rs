@@ -192,13 +192,8 @@ impl Block for FilesBlock {
                         format!("{prefix}/")
                     };
                     if !bucket.is_empty() {
-                        return pages_user::object_list_page(
-                            ctx,
-                            &msg,
-                            bucket,
-                            &prefix_with_slash,
-                        )
-                        .await;
+                        return pages_user::object_list_page(ctx, &msg, bucket, &prefix_with_slash)
+                            .await;
                     }
                 }
             }
