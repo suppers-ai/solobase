@@ -37,7 +37,7 @@ pub fn render_buckets_table(rows: &[BucketRow]) -> Markup {
             tbody {
                 @for r in rows {
                     tr data-bucket=(r.name) {
-                        td data-label="Name" { a href={"/b/storage/" (r.name) "/"} { (r.name) } }
+                        td data-label="Name" { a href={"/b/storage/" (url_path_encode(&r.name)) "/"} { (r.name) } }
                         td data-label="Visibility" {
                             @if r.public {
                                 span .badge.badge-success { "Public" }
@@ -235,6 +235,21 @@ pub fn group_objects_by_prefix<'a>(
     FolderListing { folders, files }
 }
 
+/// URL-encode a prefix (folder path) by splitting on '/', encoding each segment,
+/// and rejoining with '/'. Preserves the trailing slash if present.
+fn url_encode_prefix(prefix: &str) -> String {
+    if prefix.is_empty() {
+        return String::new();
+    }
+    // Split on '/', encode each segment, rejoin.
+    let trimmed = prefix.trim_end_matches('/');
+    let parts: Vec<String> = trimmed.split('/').map(url_path_encode).collect();
+    if parts.is_empty() {
+        return String::new();
+    }
+    parts.join("/") + "/"
+}
+
 /// Folder/file table for `/b/storage/{bucket}/...` views.
 ///
 /// Folder rows link into `/b/storage/{bucket}/{prefix}{folder}/`.
@@ -268,7 +283,7 @@ pub fn render_objects_table(
                     tr .row--folder {
                         td {} // bulk-select disabled on folders
                         td data-label="Name" {
-                            a href={"/b/storage/" (url_path_encode(bucket)) "/" (current_prefix) (url_path_encode(folder)) "/"} {
+                            a href={"/b/storage/" (url_path_encode(bucket)) "/" (url_encode_prefix(current_prefix)) (url_path_encode(folder)) "/"} {
                                 "📁 " (folder)
                             }
                         }
@@ -830,6 +845,18 @@ mod tests {
     }
 
     #[test]
+    fn render_buckets_table_url_encodes_bucket_name_in_href() {
+        let rows = vec![sample("my files", false, 0)];
+        let html = render_buckets_table(&rows).into_string();
+        assert!(
+            html.contains(r#"href="/b/storage/my%20files/""#),
+            "bucket href should URL-encode space: {html}"
+        );
+        // Display text remains raw (HTML-escaped by maud).
+        assert!(html.contains(">my files<"), "display text wrong: {html}");
+    }
+
+    #[test]
     fn group_objects_by_prefix_empty() {
         let g = group_objects_by_prefix(&[], "");
         assert!(g.folders.is_empty());
@@ -1011,6 +1038,25 @@ mod tests {
         assert!(
             html.contains(">report Q2.pdf<"),
             "filename text wrong: {html}"
+        );
+    }
+
+    #[test]
+    fn render_objects_table_url_encodes_prefix_with_spaces() {
+        let f1 = ObjectRow {
+            key: "my files/sub/c.png".into(),
+            size: 0,
+            modified: "x".into(),
+        };
+        let listing = FolderListing {
+            folders: vec!["sub".into()],
+            files: vec![&f1],
+        };
+        let html = render_objects_table("photos", "my files/", &listing).into_string();
+        // Folder href should encode the prefix's space.
+        assert!(
+            html.contains(r#"href="/b/storage/photos/my%20files/sub/""#),
+            "folder href should URL-encode prefix space: {html}"
         );
     }
 
