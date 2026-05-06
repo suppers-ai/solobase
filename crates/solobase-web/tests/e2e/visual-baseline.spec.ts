@@ -35,6 +35,14 @@ const ADMIN_ROUTES = [
   // the visual-baseline runner.
   { path: '/b/storage/', name: 'storage-buckets' },
   { path: '/b/cloudstorage/', name: 'cloudstorage' },
+  // Phase 5b PR-3: admin storage pages (empty-state baselines).
+  // admin-storage-shares deliberately excluded — the share-access log
+  // accumulates rows during baseline run and would drift between local/CI
+  // (same drift category Phase 4 PR-3 dropped admin-dashboard-mobile for,
+  // and PR-2 hit on admin-logs).
+  { path: '/b/storage/admin/', name: 'storage-admin-overview' },
+  { path: '/b/storage/admin/buckets', name: 'storage-admin-buckets' },
+  { path: '/b/storage/admin/quotas', name: 'storage-admin-quotas' },
 ];
 
 const COMMON_OPTS = {
