@@ -17,7 +17,7 @@ fn stage_copies_dist_and_content_skips_missing_public() {
     let tmp = tempdir().unwrap();
     let root = tmp.path();
     fs::create_dir_all(root.join("dist/sub")).unwrap();
-    fs::write(root.join("dist/index.html"), "<html/>").unwrap();
+    fs::write(root.join("dist/index.html"), "hello").unwrap();
     fs::write(root.join("dist/sub/app.js"), "console.log(1);").unwrap();
     fs::create_dir_all(root.join("content")).unwrap();
     fs::write(root.join("content/page.md"), "# hi").unwrap();
