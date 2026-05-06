@@ -420,6 +420,27 @@ async fn list_objects_in_bucket(ctx: &dyn Context, bucket: &str) -> Vec<ObjectRo
     }
 }
 
+/// Render the bootstrap JSON in a script tag, escaping `<` to prevent
+/// `</script>` sequences from terminating the JSON-typed script element.
+/// The escaped `<` (`<`) is valid JSON and decodes back to `<` when
+/// the browser reads it via `JSON.parse`.
+fn render_bootstrap_script(bucket: &str, current_prefix: &str) -> Markup {
+    let bootstrap = serde_json::json!({
+        "bucket": bucket,
+        "currentPrefix": current_prefix,
+    });
+    let bootstrap_json = serde_json::to_string(&bootstrap)
+        .unwrap_or_else(|_| "{}".to_string())
+        .replace('<', "\\u003c");
+    let js_url = crate::ui::assets::files_browser_js_url();
+    html! {
+        script type="application/json" id="files-browser-bootstrap" {
+            (PreEscaped(bootstrap_json))
+        }
+        script src=(js_url) defer {}
+    }
+}
+
 /// GET `/b/storage/{bucket}/[{prefix}/]` — object listing with synthesized
 /// folder navigation. 404s if the bucket doesn't exist for this user
 /// (cross-user isolation enforced by the `created_by` filter on lookup).
@@ -449,20 +470,10 @@ pub async fn object_list_page(
         format!("{bucket} / {}", current_prefix.trim_end_matches('/'))
     };
 
-    let bootstrap = serde_json::json!({
-        "bucket": bucket,
-        "currentPrefix": current_prefix,
-    });
-    let bootstrap_json = serde_json::to_string(&bootstrap).unwrap_or_else(|_| "{}".to_string());
-    let js_url = crate::ui::assets::files_browser_js_url();
-
     let table = render_objects_table(bucket, current_prefix, &listing);
     let table_with_js = html! {
         (table)
-        script type="application/json" id="files-browser-bootstrap" {
-            (PreEscaped(bootstrap_json))
-        }
-        script src=(js_url) defer {}
+        (render_bootstrap_script(bucket, current_prefix))
     };
 
     let body = list_page(
@@ -688,19 +699,9 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
-    let bootstrap = serde_json::json!({
-        "bucket": "",
-        "currentPrefix": "",
-    });
-    let bootstrap_json = serde_json::to_string(&bootstrap).unwrap_or_else(|_| "{}".to_string());
-    let js_url = crate::ui::assets::files_browser_js_url();
-
     let shares_with_js = html! {
         (render_shares_table(&shares))
-        script type="application/json" id="files-browser-bootstrap" {
-            (PreEscaped(bootstrap_json))
-        }
-        script src=(js_url) defer {}
+        (render_bootstrap_script("", ""))
     };
 
     let body = list_page(
@@ -1333,6 +1334,35 @@ mod integration_tests {
         assert!(
             body.contains(r#"data-label="Size">2048<"#),
             "size cell should be 2048 (got via TEXT fallback): {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn object_list_page_escapes_script_close_in_bootstrap() {
+        // A bucket name containing `</script>` would prematurely close the
+        // <script type="application/json"> bootstrap carrier. The render
+        // path must escape `<` so that no `</script>` appears in the JSON.
+        let ctx = TestContext::with_auth().await;
+        let mut bucket: HashMap<String, serde_json::Value> = HashMap::new();
+        bucket.insert("name".into(), json!("foo</script>bar"));
+        bucket.insert("created_by".into(), json!("admin_1"));
+        db::create(&ctx, BUCKETS_COLLECTION, bucket).await.expect("seed");
+
+        let msg = admin_msg("retrieve", "/b/storage/foo</script>bar/");
+        let body = output_html(
+            object_list_page(&ctx, &msg, "foo</script>bar", "").await
+        ).await;
+
+        // The dangerous substring must NOT appear in the rendered HTML.
+        // The escaped form `</script>` is the safe representation.
+        assert!(
+            !body.contains("</script>foo") && !body.contains("foo</script>bar\""),
+            "bootstrap is broken by unescaped </script>: {body}"
+        );
+        // The escaped form should appear (defensive — proves the escape ran).
+        assert!(
+            body.contains("\\u003c/script\\u003e") || body.contains("\\u003c/script>"),
+            "expected escaped </script> sequence in bootstrap: {body}"
         );
     }
 }
