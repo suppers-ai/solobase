@@ -17,7 +17,7 @@ use wafer_run::{
     block::Block,
     context::Context,
     streams::output::{BufferedResponse, TerminalNotResponse},
-    types::{ErrorCode, Message, WaferError},
+    types::{ErrorCode, Message, ResourceGrant, WaferError},
     InputStream, OutputStream,
 };
 
@@ -31,6 +31,13 @@ pub struct TestContext {
     pub config: Arc<Mutex<HashMap<String, String>>>,
     /// Placeholder for dynamically registered blocks — populated by Task 6.
     pub blocks: Arc<Mutex<HashMap<String, Arc<dyn Block>>>>,
+    /// WRAP-enforcement caller identity. `None` = WRAP checks skipped (the
+    /// default — keeps existing tests untouched). Set via [`with_wrap`].
+    caller_id: Option<String>,
+    /// Grants visible to the WRAP check. Empty unless [`with_wrap`] populates.
+    wrap_grants: Vec<ResourceGrant>,
+    /// Admin block id for the WRAP check (`""` = no admin override).
+    wrap_admin_block: String,
 }
 
 impl TestContext {
@@ -48,7 +55,36 @@ impl TestContext {
             database_block,
             config: Arc::new(Mutex::new(HashMap::new())),
             blocks: Arc::new(Mutex::new(HashMap::new())),
+            caller_id: None,
+            wrap_grants: Vec::new(),
+            wrap_admin_block: String::new(),
         }
+    }
+
+    /// Opt the test into WRAP enforcement on `call_block`.
+    ///
+    /// Until called, `call_block` ignores `wrap.resource` meta — this matches
+    /// pre-existing test behaviour. After calling, the same WRAP rules the
+    /// production runtime applies (own-resource, admin override, grant match)
+    /// gate every `call_block` invocation that carries `wrap.resource` meta.
+    /// Typed clients (`wafer_core::clients::database::*`, etc.) set this
+    /// meta automatically, so this is what makes a test exercise grants.
+    ///
+    /// `caller_id` is the block id the test is acting as — typically the
+    /// block whose handler is under test. `grants` is the list visible to
+    /// the WRAP check; tests that want to exercise a real block's grants
+    /// should source them from `<Block>::default().info().grants` rather
+    /// than re-listing grant literals.
+    pub fn with_wrap(
+        mut self,
+        caller_id: &str,
+        grants: Vec<ResourceGrant>,
+        admin_block: &str,
+    ) -> Self {
+        self.caller_id = Some(caller_id.to_string());
+        self.wrap_grants = grants;
+        self.wrap_admin_block = admin_block.to_string();
+        self
     }
 
     /// Build a `TestContext` with the auth-block migrations applied.
@@ -82,6 +118,33 @@ impl TestContext {
 #[async_trait::async_trait]
 impl Context for TestContext {
     async fn call_block(&self, name: &str, msg: Message, input: InputStream) -> OutputStream {
+        // WRAP enforcement (only when the test opted in via `with_wrap`).
+        // Mirrors `RuntimeContext::call_block` in wafer-run/crates/wafer-run/
+        // src/context.rs:138-163 — same `check_access` callsite shape so
+        // tests see identical permission behaviour to production.
+        if let Some(ref caller) = self.caller_id {
+            let resource = msg.get_meta(wafer_block::meta::META_WRAP_RESOURCE);
+            if !resource.is_empty() {
+                let is_write = msg.get_meta(wafer_block::meta::META_WRAP_ACCESS) == "write";
+                let rt_str = msg.get_meta(wafer_block::meta::META_WRAP_RESOURCE_TYPE);
+                let rt = if rt_str.is_empty() {
+                    None
+                } else {
+                    wafer_run::types::ResourceType::parse(rt_str)
+                };
+                if let Err(e) = wafer_block::wrap::check_access(
+                    Some(caller.as_str()),
+                    resource,
+                    is_write,
+                    rt.as_ref(),
+                    &self.wrap_grants,
+                    &self.wrap_admin_block,
+                ) {
+                    return OutputStream::error(e);
+                }
+            }
+        }
+
         match name {
             "wafer-run/database" => self.database_block.handle(self, msg, input).await,
             other => {
@@ -406,5 +469,62 @@ mod tests {
         let resp = ctx.call_block("test/echo", msg, InputStream::empty()).await;
         let body = output_html(resp).await;
         assert_eq!(body, "/echo-me");
+    }
+
+    #[tokio::test]
+    async fn with_wrap_denies_unowned_resource_without_grant() {
+        // Caller "block-x" tries to read auth-owned table; no grants → denied.
+        let ctx = TestContext::with_auth()
+            .await
+            .with_wrap("test/block-x", Vec::new(), "suppers-ai/admin");
+
+        let result = db::list(
+            &ctx,
+            "suppers_ai__auth__users",
+            &db::ListOptions::default(),
+        )
+        .await;
+
+        let err = result.expect_err("WRAP must deny call without grant");
+        assert!(
+            err.to_string().contains("WRAP"),
+            "error must mention WRAP, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn with_wrap_allows_call_when_grant_matches() {
+        let grants = vec![ResourceGrant::read(
+            "test/block-x",
+            "suppers_ai__auth__users",
+        )];
+        let ctx = TestContext::with_auth()
+            .await
+            .with_wrap("test/block-x", grants, "suppers-ai/admin");
+
+        // Empty users table — listing must succeed (zero rows is success).
+        let res = db::list(
+            &ctx,
+            "suppers_ai__auth__users",
+            &db::ListOptions::default(),
+        )
+        .await
+        .expect("WRAP must allow listing with matching grant");
+        assert_eq!(res.records.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn without_with_wrap_grants_are_unchecked() {
+        // Default TestContext (no `with_wrap`) keeps WRAP-bypassing legacy
+        // behaviour so existing tests aren't disturbed.
+        let ctx = TestContext::with_auth().await;
+        let res = db::list(
+            &ctx,
+            "suppers_ai__auth__users",
+            &db::ListOptions::default(),
+        )
+        .await
+        .expect("call must succeed without with_wrap");
+        assert_eq!(res.records.len(), 0);
     }
 }
