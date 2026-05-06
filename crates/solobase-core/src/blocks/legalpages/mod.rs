@@ -58,12 +58,10 @@ impl LegalPagesBlock {
         use wafer_core::clients::config;
 
         let site = SiteConfig::load(ctx).await;
-        let bg_color =
-            config::get_default(ctx, "SUPPERS_AI__LEGALPAGES__BG_COLOR", "").await;
+        let bg_color = config::get_default(ctx, "SUPPERS_AI__LEGALPAGES__BG_COLOR", "").await;
         let back_url = config::get_default(ctx, "SUPPERS_AI__LEGALPAGES__BACK_URL", "/").await;
         let custom_footer = config::get_default(ctx, "SUPPERS_AI__LEGALPAGES__FOOTER", "").await;
-        let primary_color =
-            config::get_default(ctx, "SOLOBASE_SHARED__PRIMARY_COLOR", "").await;
+        let primary_color = config::get_default(ctx, "SOLOBASE_SHARED__PRIMARY_COLOR", "").await;
 
         let type_label = if doc_type == "terms" {
             "Terms of Service"
@@ -374,7 +372,7 @@ struct LegalPageInputs<'a> {
     version: i64,
     meta: &'a str,
     back_url: &'a str,
-    bg_color: &'a str,    // empty string = use template default
+    bg_color: &'a str,      // empty string = use template default
     primary_color: &'a str, // empty string = use template default
     custom_footer: &'a str, // empty string = auto "© YEAR APP_NAME"
 }
