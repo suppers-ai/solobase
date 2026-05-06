@@ -87,6 +87,113 @@ pub fn make_config_service(vars: HashMap<String, String>) -> Arc<dyn ConfigServi
     Arc::new(config_service::HashMapConfigService::new(vars))
 }
 
+use solobase_core::builder::SolobaseBuilder;
+
+/// Worker entry shim: load D1 vars, wire services, run the consumer's
+/// block registrations, dispatch the request through WAFER.
+///
+/// Binding names are hardcoded: D1 = `"DB"`, R2 = `"STORAGE"`. Consumers'
+/// `wrangler.toml` must use these names. See `runner.rs` for the rationale.
+///
+/// `register_blocks` runs after the 6 services are attached to the builder
+/// and before `builder.build()` — register your blocks there.
+///
+/// On error in any step, returns a 500 response with the error message.
+/// The error is also logged via `worker::console_log!`.
+pub async fn run<F>(
+    req: worker::Request,
+    env: worker::Env,
+    _ctx: worker::Context,
+    register_blocks: F,
+) -> worker::Result<worker::Response>
+where
+    F: FnOnce(SolobaseBuilder) -> Result<SolobaseBuilder, Box<dyn std::error::Error>>,
+{
+    match run_inner(req, env, register_blocks).await {
+        Ok(response) => Ok(response),
+        Err(e) => {
+            worker::console_log!("solobase-cloudflare run error: {e}");
+            worker::Response::error(format!("solobase: {e}"), 500)
+        }
+    }
+}
+
+async fn run_inner<F>(
+    req: worker::Request,
+    env: worker::Env,
+    register_blocks: F,
+) -> Result<worker::Response, Box<dyn std::error::Error>>
+where
+    F: FnOnce(SolobaseBuilder) -> Result<SolobaseBuilder, Box<dyn std::error::Error>>,
+{
+    // 1. Construct D1 service first — env vars live in D1.
+    let db = make_d1_database_service(&env, runner::D1_BINDING)
+        .map_err(|e| format!("D1 binding {:?}: {e}", runner::D1_BINDING))?;
+
+    // 2. Load env vars; merge protected worker::Env bindings on top.
+    let mut env_vars = runner::load_env_vars(&db).await;
+    for key in PROTECTED_ENV_KEYS {
+        if let Ok(secret) = env.secret(key) {
+            env_vars.insert(key.to_string(), secret.to_string());
+        }
+    }
+
+    // 3. Construct remaining 5 services.
+    let bucket = make_r2_storage_service(&env, runner::R2_BINDING)
+        .map_err(|e| format!("R2 binding {:?}: {e}", runner::R2_BINDING))?;
+    let jwt_secret = env_vars
+        .get("SUPPERS_AI__AUTH__JWT_SECRET")
+        .cloned()
+        .unwrap_or_default();
+    let crypto = make_jwt_crypto_service(jwt_secret);
+    let network = make_fetch_network_service();
+    let logger = make_console_logger();
+    let cfg_svc = make_config_service(env_vars);
+
+    // 4. Build SolobaseBuilder, attach services + block settings.
+    let block_settings = runner::load_block_settings(&db).await;
+    let builder = SolobaseBuilder::new()
+        .database(db)
+        .storage(bucket)
+        .config(cfg_svc)
+        .crypto(crypto)
+        .network(network)
+        .logger(logger)
+        .block_settings(block_settings);
+
+    // 5. Consumer registers its blocks (consume + return matches the
+    //    SolobaseBuilder setter convention).
+    let builder = register_blocks(builder)?;
+
+    // 6. Build runtime.
+    let (mut wafer, storage_block) = builder
+        .build()
+        .map_err(|e| format!("builder.build: {e}"))?;
+    wafer
+        .start_without_bind()
+        .await
+        .map_err(|e| format!("wafer.start: {e}"))?;
+    solobase_core::builder::post_start(&wafer, &storage_block);
+
+    // 7. Convert request → message; preserve auth header in meta.
+    let auth_header = req.headers().get("authorization")?;
+    let (mut msg, input) = convert::worker_request_to_message(&req).await?;
+    if let Some(ref auth) = auth_header {
+        msg.set_meta("http.header.authorization", auth);
+    }
+
+    // 8. Dispatch and convert response.
+    let output = wafer.run("site-main", msg, input).await;
+    Ok(convert::output_to_response(output).await?)
+}
+
+/// Worker `Env` bindings that override D1 variables (set via
+/// `wrangler secret put`). Most config belongs in D1 so admins can
+/// manage it through the dashboard — this list stays short.
+const PROTECTED_ENV_KEYS: &[&str] = &[
+    "SUPPERS_AI__AUTH__JWT_SECRET",
+];
+
 #[cfg(test)]
 mod api_surface {
     //! Compile-time check that the public `make_*` surface exists and is
