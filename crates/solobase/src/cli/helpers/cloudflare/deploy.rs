@@ -2,8 +2,7 @@
 //! D1 migrations. All commands inherit stdout/stderr; errors propagate
 //! verbatim.
 
-use std::path::Path;
-use std::process::Command;
+use std::{path::Path, process::Command};
 
 use anyhow::{bail, Context, Result};
 
@@ -31,13 +30,7 @@ pub fn r2_upload_dir(bucket: &str, assets_root: &Path) -> Result<usize> {
         let key = rel.to_string_lossy().replace('\\', "/");
         let mime = mime_for_path(abs);
         let status = Command::new("wrangler")
-            .args([
-                "r2",
-                "object",
-                "put",
-                &format!("{bucket}/{key}"),
-                "--file",
-            ])
+            .args(["r2", "object", "put", &format!("{bucket}/{key}"), "--file"])
             .arg(abs)
             .args(["--content-type", mime, "--remote"])
             .status()
@@ -53,7 +46,14 @@ pub fn r2_upload_dir(bucket: &str, assets_root: &Path) -> Result<usize> {
 
 pub fn d1_migrate_remote(database_name: &str, wrangler_toml: &Path) -> Result<()> {
     let status = Command::new("wrangler")
-        .args(["d1", "migrations", "apply", database_name, "--remote", "--config"])
+        .args([
+            "d1",
+            "migrations",
+            "apply",
+            database_name,
+            "--remote",
+            "--config",
+        ])
         .arg(wrangler_toml)
         .status()
         .context("run wrangler d1 migrations apply --remote")?;

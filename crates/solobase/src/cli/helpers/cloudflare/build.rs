@@ -1,7 +1,6 @@
 //! Cross-compile the consumer crate via `worker-build`.
 
-use std::path::Path;
-use std::process::Command;
+use std::{path::Path, process::Command};
 
 use anyhow::{bail, Context, Result};
 
@@ -19,7 +18,10 @@ pub fn ensure_worker_build_installed() -> Result<()> {
         .status()
         .context("run `cargo install worker-build`")?;
     if !install.success() {
-        bail!("cargo install worker-build failed (exit {:?})", install.code());
+        bail!(
+            "cargo install worker-build failed (exit {:?})",
+            install.code()
+        );
     }
     Ok(())
 }

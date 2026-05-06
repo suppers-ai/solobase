@@ -1,12 +1,13 @@
 //! Embed × Cloudflare flow: cross-compile a consumer crate to wasm32,
 //! generate wrangler.toml + stage assets, optionally deploy via wrangler.
 
-use std::path::Path;
-use std::process::Command;
+use std::{path::Path, process::Command};
 
 use anyhow::{bail, Result};
 
-use crate::cli::helpers::cloudflare::{assets, build as cf_build, deploy as cf_deploy, env, wrangler};
+use crate::cli::helpers::cloudflare::{
+    assets, build as cf_build, deploy as cf_deploy, env, wrangler,
+};
 
 pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     let cfg = env::load(repo_root)?;
@@ -77,7 +78,7 @@ pub async fn serve(repo_root: &Path, release: bool, port: Option<u16>) -> Result
 
 pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {
     let cfg = env::load(repo_root)?;
-    let _ = env::require_deploy_env(&cfg)?;  // validates account_id + CLOUDFLARE_API_TOKEN
+    let _ = env::require_deploy_env(&cfg)?; // validates account_id + CLOUDFLARE_API_TOKEN
 
     build(repo_root, release).await?;
 
@@ -88,7 +89,10 @@ pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {
 
     let assets_root = out_dir.join("assets");
     let n = cf_deploy::r2_upload_dir(&cfg.r2.bucket_name, &assets_root)?;
-    println!("-> uploaded {} R2 objects to bucket {}", n, cfg.r2.bucket_name);
+    println!(
+        "-> uploaded {} R2 objects to bucket {}",
+        n, cfg.r2.bucket_name
+    );
 
     if repo_root.join("migrations").is_dir() {
         cf_deploy::d1_migrate_remote(&cfg.d1.database_name, &wrangler_toml)?;

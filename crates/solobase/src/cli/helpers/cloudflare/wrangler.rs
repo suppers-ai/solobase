@@ -31,19 +31,15 @@ pub struct R2Config {
     pub bucket_name: String,
 }
 
-pub fn generate(
-    cfg: &CloudflareConfig,
-    repo_root: &Path,
-    out_dir: &Path,
-) -> Result<PathBuf> {
+pub fn generate(cfg: &CloudflareConfig, repo_root: &Path, out_dir: &Path) -> Result<PathBuf> {
     let mut value = base_toml(cfg);
 
     if let Some(rel) = cfg.wrangler_overrides_path.as_ref() {
         let abs = repo_root.join(rel);
         let raw = std::fs::read_to_string(&abs)
             .with_context(|| format!("read overrides {}", abs.display()))?;
-        let overrides: toml::Value = toml::from_str(&raw)
-            .with_context(|| format!("parse overrides {}", abs.display()))?;
+        let overrides: toml::Value =
+            toml::from_str(&raw).with_context(|| format!("parse overrides {}", abs.display()))?;
         deep_merge(&mut value, overrides);
     }
 

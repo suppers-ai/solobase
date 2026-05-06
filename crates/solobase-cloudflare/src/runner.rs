@@ -11,10 +11,9 @@
 pub(crate) const D1_BINDING: &str = "DB";
 pub(crate) const R2_BINDING: &str = "STORAGE";
 
-pub(crate) use solobase_core::blocks::admin::{BLOCK_SETTINGS_COLLECTION, VARIABLES_COLLECTION};
-
 use std::{collections::HashMap, sync::Arc};
 
+pub(crate) use solobase_core::blocks::admin::{BLOCK_SETTINGS_COLLECTION, VARIABLES_COLLECTION};
 use solobase_core::features::BlockSettings;
 use wafer_core::interfaces::database::service::{DatabaseService, ListOptions};
 

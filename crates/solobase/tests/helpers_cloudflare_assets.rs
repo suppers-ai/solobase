@@ -1,15 +1,23 @@
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
 use solobase::cli::helpers::cloudflare::assets::{mime_for_path, stage};
 use tempfile::tempdir;
 
 #[test]
 fn mime_for_path_covers_common_extensions() {
-    assert_eq!(mime_for_path(Path::new("a.html")), "text/html; charset=utf-8");
+    assert_eq!(
+        mime_for_path(Path::new("a.html")),
+        "text/html; charset=utf-8"
+    );
     assert_eq!(mime_for_path(Path::new("x.WASM")), "application/wasm");
-    assert_eq!(mime_for_path(Path::new("y.unknown")), "application/octet-stream");
-    assert_eq!(mime_for_path(Path::new("noext")), "application/octet-stream");
+    assert_eq!(
+        mime_for_path(Path::new("y.unknown")),
+        "application/octet-stream"
+    );
+    assert_eq!(
+        mime_for_path(Path::new("noext")),
+        "application/octet-stream"
+    );
 }
 
 #[test]
@@ -28,8 +36,11 @@ fn stage_copies_dist_and_content_skips_missing_public() {
 
     let report = stage(root, &out).unwrap();
     assert_eq!(report.files_copied, 3);
-    assert!(report.dirs_skipped.contains(&"public"),
-        "expected 'public' in skipped dirs: {:?}", report.dirs_skipped);
+    assert!(
+        report.dirs_skipped.contains(&"public"),
+        "expected 'public' in skipped dirs: {:?}",
+        report.dirs_skipped
+    );
 
     assert!(out.join("assets/dist/index.html").is_file());
     assert!(out.join("assets/dist/sub/app.js").is_file());

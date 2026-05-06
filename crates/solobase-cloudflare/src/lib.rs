@@ -175,13 +175,10 @@ where
     let builder = register_blocks(builder)?;
 
     // 6. Build runtime.
-    let (mut wafer, storage_block) = builder
-        .build()
-        .map_err(|e| format!("builder.build: {e}"))?;
+    let (mut wafer, storage_block) = builder.build().map_err(|e| format!("builder.build: {e}"))?;
 
     // 6b. Consumer post-build hook (override flows / configs before start).
-    register_post_build(&mut wafer)
-        .map_err(|e| format!("register_post_build: {e}"))?;
+    register_post_build(&mut wafer).map_err(|e| format!("register_post_build: {e}"))?;
 
     // 6c. Start the runtime.
     wafer
@@ -205,9 +202,7 @@ where
 /// Worker `Env` bindings that override D1 variables (set via
 /// `wrangler secret put`). Most config belongs in D1 so admins can
 /// manage it through the dashboard — this list stays short.
-const PROTECTED_ENV_KEYS: &[&str] = &[
-    solobase_core::blocks::auth::JWT_SECRET_KEY,
-];
+const PROTECTED_ENV_KEYS: &[&str] = &[solobase_core::blocks::auth::JWT_SECRET_KEY];
 
 #[cfg(test)]
 mod api_surface {

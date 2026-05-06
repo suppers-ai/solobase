@@ -16,10 +16,9 @@ struct SolobaseTomlPartial {
 /// clear message if the file or section is missing.
 pub fn load(repo_root: &Path) -> Result<CloudflareConfig> {
     let path = repo_root.join("solobase.toml");
-    let raw = std::fs::read_to_string(&path)
-        .with_context(|| format!("read {}", path.display()))?;
-    let parsed: SolobaseTomlPartial = toml::from_str(&raw)
-        .with_context(|| format!("parse {}", path.display()))?;
+    let raw = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let parsed: SolobaseTomlPartial =
+        toml::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
     parsed.cloudflare.ok_or_else(|| {
         anyhow!(
             "{} is missing a [cloudflare] section — see \

@@ -32,8 +32,10 @@ fn load_errors_when_section_missing() {
     let tmp = tempdir().unwrap();
     fs::write(tmp.path().join("solobase.toml"), "# empty\n").unwrap();
     let err = load(tmp.path()).unwrap_err();
-    assert!(err.to_string().contains("missing a [cloudflare] section"),
-        "expected 'missing a [cloudflare] section' in: {err}");
+    assert!(
+        err.to_string().contains("missing a [cloudflare] section"),
+        "expected 'missing a [cloudflare] section' in: {err}"
+    );
 }
 
 #[test]
@@ -47,6 +49,8 @@ fn require_deploy_env_errors_on_missing_token() {
     // for v1; use `temp_env` crate later if it flakes.
     std::env::remove_var("CLOUDFLARE_API_TOKEN");
     let err = require_deploy_env(&cfg).unwrap_err();
-    assert!(err.to_string().contains("CLOUDFLARE_API_TOKEN"),
-        "expected 'CLOUDFLARE_API_TOKEN' in: {err}");
+    assert!(
+        err.to_string().contains("CLOUDFLARE_API_TOKEN"),
+        "expected 'CLOUDFLARE_API_TOKEN' in: {err}"
+    );
 }

@@ -38,8 +38,7 @@ pub fn stage(repo_root: &Path, out_dir: &Path) -> Result<StageReport> {
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path, report: &mut StageReport) -> Result<()> {
-    std::fs::create_dir_all(dst)
-        .with_context(|| format!("create {}", dst.display()))?;
+    std::fs::create_dir_all(dst).with_context(|| format!("create {}", dst.display()))?;
     for entry in std::fs::read_dir(src).with_context(|| format!("read {}", src.display()))? {
         let entry = entry?;
         let path = entry.path();
@@ -49,9 +48,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path, report: &mut StageReport) -> Resul
             copy_dir_recursive(&path, &dst_path, report)?;
         } else if ft.is_file() {
             let bytes = std::fs::copy(&path, &dst_path)
-                .with_context(|| {
-                    format!("copy {} -> {}", path.display(), dst_path.display())
-                })?;
+                .with_context(|| format!("copy {} -> {}", path.display(), dst_path.display()))?;
             report.files_copied += 1;
             report.bytes_copied += bytes;
         }
@@ -85,4 +82,3 @@ pub fn mime_for_path(path: &Path) -> &'static str {
         _ => "application/octet-stream",
     }
 }
-

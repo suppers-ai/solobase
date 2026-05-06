@@ -99,11 +99,7 @@ async fn dispatch_serve(
     }
 }
 
-async fn dispatch_deploy(
-    ctx: &ModeContext,
-    target: Target,
-    release: bool,
-) -> anyhow::Result<()> {
+async fn dispatch_deploy(ctx: &ModeContext, target: Target, release: bool) -> anyhow::Result<()> {
     let repo_root = &ctx.cwd;
     match (detect_mode(ctx), target) {
         (Mode::Embed, Target::Cloudflare) => embed_cloudflare::deploy(repo_root, release).await,

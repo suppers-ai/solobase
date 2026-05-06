@@ -60,24 +60,36 @@ compatibility_date = "2099-01-01"
 pattern = "wafer.run/*"
 zone_name = "wafer.run"
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut cfg = sample_cfg();
     cfg.wrangler_overrides_path = Some(
-        overrides_path.strip_prefix(repo_root).unwrap().to_path_buf(),
+        overrides_path
+            .strip_prefix(repo_root)
+            .unwrap()
+            .to_path_buf(),
     );
 
     let path = generate(&cfg, repo_root, &out).unwrap();
     let body = fs::read_to_string(&path).unwrap();
 
-    assert!(body.contains(r#"compatibility_date = "2099-01-01""#),
-        "override primitive should win:\n{body}");
-    assert!(body.contains(r#"pattern = "wafer.run/*""#),
-        "new array entry should be present:\n{body}");
-    assert!(body.contains(r#"name = "wafer-site""#),
-        "non-overridden default should remain:\n{body}");
-    assert!(body.contains(r#"binding = "DB""#),
-        "non-overridden d1 binding should remain:\n{body}");
+    assert!(
+        body.contains(r#"compatibility_date = "2099-01-01""#),
+        "override primitive should win:\n{body}"
+    );
+    assert!(
+        body.contains(r#"pattern = "wafer.run/*""#),
+        "new array entry should be present:\n{body}"
+    );
+    assert!(
+        body.contains(r#"name = "wafer-site""#),
+        "non-overridden default should remain:\n{body}"
+    );
+    assert!(
+        body.contains(r#"binding = "DB""#),
+        "non-overridden d1 binding should remain:\n{body}"
+    );
 }
 
 #[test]
@@ -89,6 +101,8 @@ fn generate_errors_on_missing_overrides_file() {
     fs::create_dir_all(&out).unwrap();
 
     let err = generate(&cfg, tmp.path(), &out).unwrap_err();
-    assert!(err.to_string().contains("does-not-exist.toml"),
-        "error should mention the missing path. got: {err}");
+    assert!(
+        err.to_string().contains("does-not-exist.toml"),
+        "error should mention the missing path. got: {err}"
+    );
 }
