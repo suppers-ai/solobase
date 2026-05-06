@@ -617,8 +617,9 @@ mod tests {
         })
         .into_string();
 
-        // Came from the shared template, not bare DOCTYPE in this file.
-        assert!(html.contains("<!DOCTYPE html>"));
+        // Came from the shared template, not bare page chrome in this file.
+        // grep-guard-html.sh forbids the page-chrome literals here, so we
+        // assert on the public_page wrapper class instead.
         assert!(html.contains(r#"<main class="public-page">"#));
         assert!(html.contains("public-page__head"));
         assert!(html.contains("public-page__content"));
