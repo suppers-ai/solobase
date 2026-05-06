@@ -246,10 +246,7 @@ pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<Sessi
     let res = db::list(ctx, TABLE, &opts)
         .await
         .map_err(|e| RepoError::Db(format!("session list_for_user: {e}")))?;
-    res.records
-        .iter()
-        .map(|r| row_from_map(&r.data))
-        .collect()
+    res.records.iter().map(|r| row_from_map(&r.data)).collect()
 }
 
 /// Delete a session row, but only if it belongs to `user_id`. Returns 0 if
