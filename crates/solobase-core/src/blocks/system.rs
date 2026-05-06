@@ -37,6 +37,7 @@ impl Block for SystemBlock {
                 BlockEndpoint::get("/b/static/app-{hash}.css").summary("Embedded CSS"),
                 BlockEndpoint::get("/b/static/htmx-{hash}.min.js").summary("Embedded htmx JS"),
                 BlockEndpoint::get("/b/static/llm-chat-{hash}.js").summary("Embedded LLM chat JS"),
+                BlockEndpoint::get("/b/static/files-browser-{hash}.js").summary("Embedded files-browser JS"),
             ])
     }
 
@@ -70,6 +71,14 @@ impl Block for SystemBlock {
                     .set_header("Cache-Control", "public, max-age=31536000, immutable")
                     .body(
                         ui::assets::llm_chat_js().as_bytes().to_vec(),
+                        "application/javascript; charset=utf-8",
+                    )
+            }
+            _ if path.starts_with("/b/static/files-browser-") && path.ends_with(".js") => {
+                ResponseBuilder::new()
+                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
+                    .body(
+                        ui::assets::files_browser_js().as_bytes().to_vec(),
                         "application/javascript; charset=utf-8",
                     )
             }
@@ -139,6 +148,33 @@ mod tests {
         assert!(
             body.contains("solobaseLlmChat"),
             "body should contain the JS module"
+        );
+    }
+
+    #[tokio::test]
+    async fn system_handle_serves_files_browser_js() {
+        let block = SystemBlock;
+        let url = assets::files_browser_js_url();
+        let mut msg = Message::new(format!("retrieve:{url}"));
+        msg.set_meta(wafer_run::meta::META_REQ_ACTION, "retrieve");
+        msg.set_meta(wafer_run::meta::META_REQ_RESOURCE, url);
+
+        let out = block.handle(&NopCtx, msg, InputStream::empty()).await;
+        let buffered = out.collect_buffered().await.expect("response");
+        let content_type = buffered
+            .meta
+            .iter()
+            .find(|m| m.key == META_RESP_CONTENT_TYPE)
+            .map(|m| m.value.as_str());
+        assert_eq!(
+            content_type,
+            Some("application/javascript; charset=utf-8"),
+            "wrong content type"
+        );
+        let body = std::str::from_utf8(&buffered.body).unwrap();
+        assert!(
+            body.starts_with("// solobase files-browser"),
+            "body should start with the placeholder comment"
         );
     }
 }
