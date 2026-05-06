@@ -3,7 +3,7 @@
 //! Pure render helpers live alongside async handlers; helpers are
 //! unit-tested directly without `Context`.
 
-use maud::{html, Markup};
+use maud::{html, Markup, PreEscaped};
 
 use super::super::helpers::url_path_encode;
 
@@ -449,6 +449,22 @@ pub async fn object_list_page(
         format!("{bucket} / {}", current_prefix.trim_end_matches('/'))
     };
 
+    let bootstrap = serde_json::json!({
+        "bucket": bucket,
+        "currentPrefix": current_prefix,
+    });
+    let bootstrap_json = serde_json::to_string(&bootstrap).unwrap_or_else(|_| "{}".to_string());
+    let js_url = crate::ui::assets::files_browser_js_url();
+
+    let table = render_objects_table(bucket, current_prefix, &listing);
+    let table_with_js = html! {
+        (table)
+        script type="application/json" id="files-browser-bootstrap" {
+            (PreEscaped(bootstrap_json))
+        }
+        script src=(js_url) defer {}
+    };
+
     let body = list_page(
         PageHeader {
             title: bucket,
@@ -456,7 +472,7 @@ pub async fn object_list_page(
             primary_action: None,
         },
         Some(render_breadcrumbs(bucket, current_prefix)),
-        render_objects_table(bucket, current_prefix, &listing),
+        table_with_js,
         None,
     );
 
@@ -672,6 +688,21 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
+    let bootstrap = serde_json::json!({
+        "bucket": "",
+        "currentPrefix": "",
+    });
+    let bootstrap_json = serde_json::to_string(&bootstrap).unwrap_or_else(|_| "{}".to_string());
+    let js_url = crate::ui::assets::files_browser_js_url();
+
+    let shares_with_js = html! {
+        (render_shares_table(&shares))
+        script type="application/json" id="files-browser-bootstrap" {
+            (PreEscaped(bootstrap_json))
+        }
+        script src=(js_url) defer {}
+    };
+
     let body = list_page(
         PageHeader {
             title: "Shares",
@@ -679,7 +710,7 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
             primary_action: None,
         },
         Some(render_quota_card(&quota)),
-        render_shares_table(&shares),
+        shares_with_js,
         None,
     );
 
@@ -1229,6 +1260,51 @@ mod integration_tests {
         let body = output_html(cloudstorage_page(&ctx, &msg).await).await;
         assert!(body.contains("mine"), "own share missing: {body}");
         assert!(!body.contains("theirs"), "other-user share leaked: {body}");
+    }
+
+    #[tokio::test]
+    async fn object_list_page_includes_files_browser_js() {
+        let ctx = TestContext::with_auth().await;
+        seed_two_buckets(&ctx, "admin_1").await;
+
+        let msg = admin_msg("retrieve", "/b/storage/photos/");
+        let resp = object_list_page(&ctx, &msg, "photos", "").await;
+        let body = output_html(resp).await;
+
+        assert!(
+            body.contains(r#"id="files-browser-bootstrap""#),
+            "bootstrap carrier missing: {body}"
+        );
+        assert!(
+            body.contains(r#""bucket":"photos""#),
+            "bootstrap bucket missing: {body}"
+        );
+        assert!(
+            body.contains(r#""currentPrefix":"""#) || body.contains(r#""currentPrefix": """#),
+            "bootstrap currentPrefix missing: {body}"
+        );
+        assert!(
+            body.contains("/b/static/files-browser-"),
+            "files-browser.js script tag missing: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn cloudstorage_page_includes_files_browser_js() {
+        let ctx = TestContext::with_auth().await;
+
+        let msg = admin_msg("retrieve", "/b/cloudstorage/");
+        let resp = cloudstorage_page(&ctx, &msg).await;
+        let body = output_html(resp).await;
+
+        assert!(
+            body.contains(r#"id="files-browser-bootstrap""#),
+            "bootstrap carrier missing: {body}"
+        );
+        assert!(
+            body.contains("/b/static/files-browser-"),
+            "files-browser.js script tag missing: {body}"
+        );
     }
 
     #[tokio::test]
