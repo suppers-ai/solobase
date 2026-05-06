@@ -45,11 +45,21 @@ impl FilesBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for FilesBlock {
     fn info(&self) -> BlockInfo {
+        use wafer_block::types::{ResourceGrant, ResourceType};
         use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/files", "0.0.1", "http-handler@v1", "File storage, sharing, quotas, and access logging")
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into(), "wafer-run/storage".into(), "wafer-run/config".into()])
+            // Storage WRAP grant: this block manages user-created buckets at
+            // arbitrary names ({bucket}/{key}). Without an explicit grant,
+            // `wafer-run/local-storage` denies all storage ops with caller
+            // `suppers-ai/files`. Owned by this block — no other block writes
+            // through these paths. (Network/Storage grants skip the owner
+            // check at startup; see `runtime/lifecycle.rs::collect_wrap_grants`.)
+            .grants(vec![
+                ResourceGrant::read_write("suppers-ai/files", "*").typed(ResourceType::Storage),
+            ])
             .collections(vec![
                 CollectionSchema::new(BUCKETS_COLLECTION)
                     .field("name", "string")

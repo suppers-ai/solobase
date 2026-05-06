@@ -365,7 +365,12 @@ pub fn render_objects_table(
                             a href=(download_href) { (filename) }
                         }
                         td data-label="Size" { (f.size) }
-                        td data-label="Modified" { (f.modified) }
+                        // Wrap the timestamp in <time> so the visual-baseline
+                        // mask `[data-relative-time], .relative-time, time`
+                        // catches it. The raw string is kept as the element
+                        // body for screen readers and the `datetime` attr
+                        // gives machine-readable parseable form.
+                        td data-label="Modified" { time datetime=(f.modified) { (f.modified) } }
                         td {
                             button .kebab-trigger
                                 type="button"
