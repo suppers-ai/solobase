@@ -11,8 +11,4 @@
 pub(crate) const D1_BINDING: &str = "DB";
 pub(crate) const R2_BINDING: &str = "STORAGE";
 
-/// Variables-table query: `(key, value)` rows from `suppers_ai__admin__variables`.
-pub(crate) const VARIABLES_TABLE: &str = "suppers_ai__admin__variables";
-
-/// Block-settings table: `(block_name, enabled)` rows.
-pub(crate) const BLOCK_SETTINGS_TABLE: &str = "suppers_ai__admin__block_settings";
+pub(crate) use solobase_core::blocks::admin::{BLOCK_SETTINGS_COLLECTION, VARIABLES_COLLECTION};
