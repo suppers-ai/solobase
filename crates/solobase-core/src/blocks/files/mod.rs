@@ -1,6 +1,6 @@
 mod cloud;
 pub(crate) mod models;
-mod pages;
+mod pages_admin;
 pub(crate) mod pages_user;
 mod quota;
 mod share;
@@ -122,10 +122,10 @@ impl Block for FilesBlock {
             }
             let sub = path.strip_prefix("/b/storage/admin").unwrap_or("/");
             return match sub {
-                "" | "/" => pages::overview(ctx, &msg).await,
-                "/buckets" => pages::buckets(ctx, &msg).await,
-                "/shares" => pages::shares(ctx, &msg).await,
-                "/quotas" => pages::quotas(ctx, &msg).await,
+                "" | "/" => pages_admin::overview(ctx, &msg).await,
+                "/buckets" => pages_admin::buckets(ctx, &msg).await,
+                "/shares" => pages_admin::shares(ctx, &msg).await,
+                "/quotas" => pages_admin::quotas(ctx, &msg).await,
                 _ => err_not_found("not found"),
             };
         }
