@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use solobase::cli::{
     cli_args::{Cli, Command, Target},
-    flows::{embed_native, embed_web, sealed_native, sealed_web},
+    flows::{embed_cloudflare, embed_native, embed_web, sealed_native, sealed_web},
     mode::{default_target, detect_mode, Mode, ModeContext},
 };
 
@@ -57,6 +57,10 @@ async fn run() -> anyhow::Result<()> {
             let target = default_target(&ctx, target)?;
             dispatch_serve(&ctx, target, release, port).await
         }
+        Command::Deploy { target, release } => {
+            let target = default_target(&ctx, target)?;
+            dispatch_deploy(&ctx, target, release).await
+        }
     }
 }
 
@@ -65,8 +69,12 @@ async fn dispatch_build(ctx: &ModeContext, target: Target, release: bool) -> any
     match (detect_mode(ctx), target) {
         (Mode::Sealed, Target::Native) => sealed_native::build(repo_root, release).await,
         (Mode::Sealed, Target::Web) => sealed_web::build(repo_root, release).await,
+        (Mode::Sealed, Target::Cloudflare) => anyhow::bail!(
+            "--target cloudflare requires a Cargo package; sealed mode not yet implemented"
+        ),
         (Mode::Embed, Target::Native) => embed_native::build(repo_root, release).await,
         (Mode::Embed, Target::Web) => embed_web::build(repo_root, release).await,
+        (Mode::Embed, Target::Cloudflare) => embed_cloudflare::build(repo_root, release).await,
     }
 }
 
@@ -80,7 +88,24 @@ async fn dispatch_serve(
     match (detect_mode(ctx), target) {
         (Mode::Sealed, Target::Native) => sealed_native::serve(repo_root, release, port).await,
         (Mode::Sealed, Target::Web) => sealed_web::serve(repo_root, release, port).await,
+        (Mode::Sealed, Target::Cloudflare) => anyhow::bail!(
+            "--target cloudflare requires a Cargo package; sealed mode not yet implemented"
+        ),
         (Mode::Embed, Target::Native) => embed_native::serve(repo_root, release, port).await,
         (Mode::Embed, Target::Web) => embed_web::serve(repo_root, release, port).await,
+        (Mode::Embed, Target::Cloudflare) => {
+            embed_cloudflare::serve(repo_root, release, port).await
+        }
+    }
+}
+
+async fn dispatch_deploy(ctx: &ModeContext, target: Target, release: bool) -> anyhow::Result<()> {
+    let repo_root = &ctx.cwd;
+    match (detect_mode(ctx), target) {
+        (Mode::Embed, Target::Cloudflare) => embed_cloudflare::deploy(repo_root, release).await,
+        (Mode::Sealed, Target::Cloudflare) => anyhow::bail!(
+            "--target cloudflare requires a Cargo package; sealed mode not yet implemented"
+        ),
+        _ => anyhow::bail!("solobase deploy is only implemented for --target cloudflare in v1"),
     }
 }

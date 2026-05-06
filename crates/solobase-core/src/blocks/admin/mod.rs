@@ -15,8 +15,8 @@ pub(crate) const REQUEST_LOGS_COLLECTION: &str = "suppers_ai__admin__request_log
 pub(crate) const NETWORK_REQUEST_LOGS_COLLECTION: &str = "suppers_ai__admin__network_request_logs";
 pub(crate) const STORAGE_ACCESS_LOGS_COLLECTION: &str = "suppers_ai__admin__storage_access_logs";
 pub(crate) const STORAGE_RULES_COLLECTION: &str = "suppers_ai__admin__storage_rules";
-pub(crate) const BLOCK_SETTINGS_COLLECTION: &str = "suppers_ai__admin__block_settings";
-pub(crate) const VARIABLES_COLLECTION: &str = "suppers_ai__admin__variables";
+pub const BLOCK_SETTINGS_COLLECTION: &str = "suppers_ai__admin__block_settings";
+pub const VARIABLES_COLLECTION: &str = "suppers_ai__admin__variables";
 pub(crate) const NETWORK_RULES_COLLECTION: &str = "suppers_ai__admin__network_rules";
 pub(crate) const WRAP_GRANTS_COLLECTION: &str = "suppers_ai__admin__wrap_grants";
 

@@ -231,7 +231,7 @@ impl SolobaseBuilder {
 
         // 2. Read JWT secret before registering config block
         let jwt_secret = config
-            .get("SUPPERS_AI__AUTH__JWT_SECRET")
+            .get(crate::blocks::auth::JWT_SECRET_KEY)
             .unwrap_or_default();
 
         // 3. Create runtime

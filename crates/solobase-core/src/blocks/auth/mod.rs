@@ -33,6 +33,12 @@ use crate::blocks::helpers::err_not_found;
 
 pub const AUTH_BLOCK_ID: &str = "suppers-ai/auth";
 
+/// Config key for the JWT signing secret used by the auth block.
+/// Owner: the `suppers-ai/auth` block. Read by the SolobaseRouter
+/// for token validation and by the Cloudflare adapter to seed the
+/// crypto service.
+pub const JWT_SECRET_KEY: &str = "SUPPERS_AI__AUTH__JWT_SECRET";
+
 pub struct AuthBlock {
     limiter: UserRateLimiter,
 }
@@ -442,7 +448,7 @@ impl Block for AuthBlock {
                 BlockEndpoint::post("/b/auth/api/api-keys").summary("Create API key").auth(AuthLevel::Authenticated),
             ])
             .config_keys(vec![
-                ConfigVar::new("SUPPERS_AI__AUTH__JWT_SECRET", "Secret key for signing auth tokens", "")
+                ConfigVar::new(JWT_SECRET_KEY, "Secret key for signing auth tokens", "")
                     .name("JWT Secret")
                     .input_type(InputType::Password)
                     .auto_generate()

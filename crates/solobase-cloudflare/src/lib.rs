@@ -15,6 +15,7 @@ pub mod database;
 pub mod helpers;
 pub mod logger_service;
 pub mod network_service;
+mod runner;
 pub mod schema;
 pub mod storage;
 
@@ -85,6 +86,123 @@ pub fn make_console_logger() -> Arc<dyn LoggerService> {
 pub fn make_config_service(vars: HashMap<String, String>) -> Arc<dyn ConfigService> {
     Arc::new(config_service::HashMapConfigService::new(vars))
 }
+
+use solobase_core::builder::SolobaseBuilder;
+
+/// Worker entry shim: load D1 vars, wire services, run the consumer's
+/// block registrations, dispatch the request through WAFER.
+///
+/// Two consumer hooks:
+/// - `register_blocks` runs against the `SolobaseBuilder` after the 6
+///   services are attached and before `builder.build()`. Use builder
+///   methods (`extra_block`, `add_route`, `block_config`).
+/// - `register_post_build` runs against `&mut Wafer` after build and
+///   before start. Use this for runtime-level operations like
+///   `add_flow_json` or overriding `add_block_config` for blocks that
+///   `SolobaseBuilder` auto-installs.
+///
+/// Binding names are hardcoded: D1 = `"DB"`, R2 = `"STORAGE"`. Consumers'
+/// `wrangler.toml` must use these names.
+///
+/// On error in any step, returns a 500 response with the error message.
+/// The error is also logged via `worker::console_log!`.
+pub async fn run<F, G>(
+    req: worker::Request,
+    env: worker::Env,
+    _ctx: worker::Context,
+    register_blocks: F,
+    register_post_build: G,
+) -> worker::Result<worker::Response>
+where
+    F: FnOnce(SolobaseBuilder) -> Result<SolobaseBuilder, Box<dyn std::error::Error>>,
+    G: FnOnce(&mut wafer_run::Wafer) -> Result<(), Box<dyn std::error::Error>>,
+{
+    match run_inner(req, env, register_blocks, register_post_build).await {
+        Ok(response) => Ok(response),
+        Err(e) => {
+            worker::console_log!("solobase-cloudflare run error: {e}");
+            worker::Response::error(format!("solobase: {e}"), 500)
+        }
+    }
+}
+
+async fn run_inner<F, G>(
+    req: worker::Request,
+    env: worker::Env,
+    register_blocks: F,
+    register_post_build: G,
+) -> Result<worker::Response, Box<dyn std::error::Error>>
+where
+    F: FnOnce(SolobaseBuilder) -> Result<SolobaseBuilder, Box<dyn std::error::Error>>,
+    G: FnOnce(&mut wafer_run::Wafer) -> Result<(), Box<dyn std::error::Error>>,
+{
+    // 1. Construct D1 service first — env vars live in D1.
+    let db = make_d1_database_service(&env, runner::D1_BINDING)
+        .map_err(|e| format!("D1 binding {:?}: {e}", runner::D1_BINDING))?;
+
+    // 2. Load env vars; merge protected worker::Env bindings on top.
+    let mut env_vars = runner::load_env_vars(&db).await;
+    for key in PROTECTED_ENV_KEYS {
+        if let Ok(secret) = env.secret(key) {
+            env_vars.insert(key.to_string(), secret.to_string());
+        }
+    }
+
+    // 3. Construct remaining 5 services.
+    let bucket = make_r2_storage_service(&env, runner::R2_BINDING)
+        .map_err(|e| format!("R2 binding {:?}: {e}", runner::R2_BINDING))?;
+    let jwt_secret = env_vars
+        .get(solobase_core::blocks::auth::JWT_SECRET_KEY)
+        .cloned()
+        .unwrap_or_default();
+    let crypto = make_jwt_crypto_service(jwt_secret);
+    let network = make_fetch_network_service();
+    let logger = make_console_logger();
+    let cfg_svc = make_config_service(env_vars);
+
+    // 4. Build SolobaseBuilder, attach services + block settings.
+    let block_settings = runner::load_block_settings(&db).await;
+    let builder = SolobaseBuilder::new()
+        .database(db)
+        .storage(bucket)
+        .config(cfg_svc)
+        .crypto(crypto)
+        .network(network)
+        .logger(logger)
+        .block_settings(block_settings);
+
+    // 5. Consumer registers its blocks.
+    let builder = register_blocks(builder)?;
+
+    // 6. Build runtime.
+    let (mut wafer, storage_block) = builder.build().map_err(|e| format!("builder.build: {e}"))?;
+
+    // 6b. Consumer post-build hook (override flows / configs before start).
+    register_post_build(&mut wafer).map_err(|e| format!("register_post_build: {e}"))?;
+
+    // 6c. Start the runtime.
+    wafer
+        .start_without_bind()
+        .await
+        .map_err(|e| format!("wafer.start: {e}"))?;
+    solobase_core::builder::post_start(&wafer, &storage_block);
+
+    // 7. Convert request → message; preserve auth header in meta.
+    let auth_header = req.headers().get("authorization")?;
+    let (mut msg, input) = convert::worker_request_to_message(&req).await?;
+    if let Some(ref auth) = auth_header {
+        msg.set_meta("http.header.authorization", auth);
+    }
+
+    // 8. Dispatch and convert response.
+    let output = wafer.run("site-main", msg, input).await;
+    Ok(convert::output_to_response(output).await?)
+}
+
+/// Worker `Env` bindings that override D1 variables (set via
+/// `wrangler secret put`). Most config belongs in D1 so admins can
+/// manage it through the dashboard — this list stays short.
+const PROTECTED_ENV_KEYS: &[&str] = &[solobase_core::blocks::auth::JWT_SECRET_KEY];
 
 #[cfg(test)]
 mod api_surface {

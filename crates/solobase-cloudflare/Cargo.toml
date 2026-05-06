@@ -6,7 +6,11 @@ license.workspace = true
 description = "Cloudflare Workers adapter for solobase (D1, R2, wasm crypto/network, worker entry helpers)"
 
 [lib]
-crate-type = ["cdylib"]
+# `rlib` so the `pub async fn run` worker entry shim is consumable from
+# other Rust crates (e.g. wafer-site's cloudflare cdylib calling
+# `solobase_cloudflare::run` from its `#[event(fetch)]` handler).
+# `cdylib` retained for direct use by `worker-build`.
+crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []

@@ -46,7 +46,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     // 6. Extract JWT secret and feature config from variables
     let jwt_secret = vars
-        .get("SUPPERS_AI__AUTH__JWT_SECRET")
+        .get(solobase_core::blocks::auth::JWT_SECRET_KEY)
         .cloned()
         .unwrap_or_default();
     let features = load_block_settings(&infra.db_path);

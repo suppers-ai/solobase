@@ -37,12 +37,22 @@ pub enum Command {
         #[arg(long)]
         port: Option<u16>,
     },
+    /// Build the app and deploy it to the target's hosting environment.
+    /// (v1: only `--target cloudflare` is supported.)
+    Deploy {
+        #[arg(long)]
+        target: Option<Target>,
+
+        #[arg(long)]
+        release: bool,
+    },
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     Native,
     Web,
+    Cloudflare,
 }
 
 impl Default for Cli {
