@@ -75,6 +75,7 @@ pub fn portal() -> Vec<NavGroup> {
             items: vec![
                 item("Products", "/b/products/", "package"),
                 item("Files", "/b/storage/", "folder"),
+                item("Shares", "/b/cloudstorage/", "link"),
                 item("Legal", "/b/legalpages/admin/privacy", "file-text"),
             ],
         },
@@ -178,7 +179,22 @@ mod tests {
         let groups = portal();
         let apps = &groups[1];
         let labels: Vec<&str> = apps.items.iter().map(|i| i.label.as_str()).collect();
-        assert_eq!(labels, vec!["Products", "Files", "Legal"]);
+        assert_eq!(labels, vec!["Products", "Files", "Shares", "Legal"]);
+    }
+
+    #[test]
+    fn portal_apps_includes_shares() {
+        let groups = portal();
+        let apps = groups
+            .iter()
+            .find(|g| g.label.as_deref() == Some("Apps"))
+            .expect("Apps group exists");
+        let shares = apps
+            .items
+            .iter()
+            .find(|i| i.label == "Shares")
+            .expect("Shares entry exists");
+        assert_eq!(shares.href, "/b/cloudstorage/");
     }
 
     #[test]
