@@ -4,7 +4,9 @@ use maud::{html, PreEscaped};
 use wafer_core::clients::{config, crypto, database as db};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{brand_panel, helpers::*, AuthBlock, USERS_COLLECTION};
+use super::{
+    brand_panel, helpers::*, repo::sessions, service::hash_token, AuthBlock, USERS_COLLECTION,
+};
 use crate::{
     blocks::{
         errors::{error_response, ErrorCode},
@@ -83,6 +85,18 @@ impl AuthBlock {
 
         // Store refresh token
         store_refresh_token(ctx, &user.id, &refresh_token, &family).await;
+
+        // Persist a session row so the userportal `/b/userportal/sessions`
+        // page can show this login. Failure must not block login — the
+        // session row is a UX signal, not a security gate (auth is still
+        // entirely JWT-based today).
+        if let Err(e) = sessions::create_for_user(ctx, &user.id, hash_token(&access_token), 1).await
+        {
+            tracing::warn!(
+                user_id = %user.id,
+                "failed to persist session row for JWT login: {e}"
+            );
+        }
 
         // Update last login
         let upd =
@@ -262,6 +276,14 @@ impl AuthBlock {
 
         store_refresh_token(ctx, &user.id, &refresh_token, &family).await;
 
+        if let Err(e) = sessions::create_for_user(ctx, &user.id, hash_token(&access_token), 1).await
+        {
+            tracing::warn!(
+                user_id = %user.id,
+                "failed to persist session row for JWT signup: {e}"
+            );
+        }
+
         let cookie = build_auth_cookie(&access_token, 86400, ctx).await;
 
         ResponseBuilder::new()
@@ -391,6 +413,14 @@ impl AuthBlock {
             };
 
         store_refresh_token(ctx, &user_id, &refresh_token, &new_family).await;
+
+        if let Err(e) = sessions::create_for_user(ctx, &user_id, hash_token(&access_token), 1).await
+        {
+            tracing::warn!(
+                user_id = %user_id,
+                "failed to persist session row for JWT refresh: {e}"
+            );
+        }
 
         let cookie = build_auth_cookie(&access_token, 86400, ctx).await;
 
