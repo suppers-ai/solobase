@@ -232,6 +232,110 @@ pub fn group_objects_by_prefix<'a>(
     FolderListing { folders, files }
 }
 
+/// Folder/file table for `/b/storage/{bucket}/...` views.
+///
+/// Folder rows link into `/b/storage/{bucket}/{prefix}{folder}/`.
+/// File rows show the filename portion (after the `current_prefix`),
+/// link to the download route, and carry a `data-action-menu` kebab
+/// trigger that the JS asset wires up to Share / Delete / Copy-link.
+pub fn render_objects_table(
+    bucket: &str,
+    current_prefix: &str,
+    listing: &FolderListing<'_>,
+) -> Markup {
+    if listing.folders.is_empty() && listing.files.is_empty() {
+        return html! {
+            div .empty-state {
+                p { "This folder is empty — drag files here to upload." }
+            }
+        };
+    }
+
+    html! {
+        table .data-table {
+            thead { tr {
+                th { input type="checkbox" .bulk-select-all data-bulk-toggle; }
+                th { "Name" }
+                th { "Size" }
+                th { "Modified" }
+                th {} // kebab column
+            } }
+            tbody {
+                @for folder in &listing.folders {
+                    tr .row--folder {
+                        td {} // bulk-select disabled on folders
+                        td data-label="Name" {
+                            a href={"/b/storage/" (bucket) "/" (current_prefix) (folder) "/"} {
+                                "📁 " (folder)
+                            }
+                        }
+                        td data-label="Size" { "—" }
+                        td data-label="Modified" { "—" }
+                        td {}
+                    }
+                }
+                @for f in &listing.files {
+                    @let filename = f.key.strip_prefix(current_prefix).unwrap_or(&f.key);
+                    @let download_href = format!(
+                        "/b/storage/api/buckets/{}/objects/{}",
+                        bucket, f.key,
+                    );
+                    tr data-object-key=(f.key) {
+                        td { input type="checkbox" .bulk-select data-key=(f.key); }
+                        td data-label="Name" {
+                            a href=(download_href) { (filename) }
+                        }
+                        td data-label="Size" { (f.size) }
+                        td data-label="Modified" { (f.modified) }
+                        td {
+                            button .kebab-trigger
+                                type="button"
+                                data-action-menu
+                                data-bucket=(bucket)
+                                data-key=(f.key)
+                                aria-label={"Actions for " (filename)}
+                            { "⋯" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Render breadcrumb crumbs for the topbar. The bucket and each prefix
+/// segment except the last are clickable; the last segment is plain text.
+/// The returned `Markup` is a `<nav class="breadcrumbs">` block.
+pub fn render_breadcrumbs(bucket: &str, current_prefix: &str) -> Markup {
+    let segments: Vec<&str> = current_prefix
+        .trim_end_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+    let last_idx = segments.len();
+
+    html! {
+        nav .breadcrumbs aria-label="Folder" {
+            a href="/b/storage/" { "Files" }
+            span .breadcrumbs__sep { " / " }
+            @if segments.is_empty() {
+                span { (bucket) }
+            } @else {
+                a href={"/b/storage/" (bucket) "/"} { (bucket) }
+                @for (i, seg) in segments.iter().enumerate() {
+                    span .breadcrumbs__sep { " / " }
+                    @if i + 1 == last_idx {
+                        span { (seg) }
+                    } @else {
+                        @let cumulative: String = segments[..=i].join("/");
+                        a href={"/b/storage/" (bucket) "/" (cumulative) "/"} { (seg) }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,6 +481,83 @@ mod tests {
         ];
         let g = group_objects_by_prefix(&objs, "");
         assert_eq!(g.folders, vec!["x".to_string()]);
+    }
+
+    #[test]
+    fn render_objects_table_empty_state() {
+        let listing = FolderListing {
+            folders: Vec::new(),
+            files: Vec::new(),
+        };
+        let html = render_objects_table("photos", "", &listing).into_string();
+        assert!(
+            html.contains("This folder is empty"),
+            "missing empty hint: {html}"
+        );
+    }
+
+    #[test]
+    fn render_objects_table_with_files_and_folders() {
+        let f1 = ObjectRow {
+            key: "a.png".into(),
+            size: 1024,
+            modified: "2026-05-06T10:00:00Z".into(),
+        };
+        let listing = FolderListing {
+            folders: vec!["nested".into()],
+            files: vec![&f1],
+        };
+        let html = render_objects_table("photos", "", &listing).into_string();
+        // folder row with "📁" icon + link into the prefix
+        assert!(html.contains("nested"), "folder name missing: {html}");
+        assert!(
+            html.contains(r#"href="/b/storage/photos/nested/""#),
+            "folder href wrong: {html}"
+        );
+        // file row: filename portion only, no leading prefix
+        assert!(html.contains(">a.png<"), "filename missing: {html}");
+        assert!(html.contains("1024"), "size missing");
+        // kebab menu trigger
+        assert!(html.contains(r#"data-action-menu"#), "kebab missing");
+    }
+
+    #[test]
+    fn render_objects_table_filename_strips_prefix() {
+        let f1 = ObjectRow {
+            key: "nested/sub/c.png".into(),
+            size: 0,
+            modified: "x".into(),
+        };
+        let listing = FolderListing {
+            folders: Vec::new(),
+            files: vec![&f1],
+        };
+        let html = render_objects_table("photos", "nested/sub/", &listing).into_string();
+        // The file row label is just the filename portion.
+        assert!(html.contains(">c.png<"), "filename portion missing: {html}");
+        // The download link still uses the full key.
+        assert!(
+            html.contains(r#"href="/b/storage/api/buckets/photos/objects/nested/sub/c.png""#),
+            "download href wrong: {html}"
+        );
+    }
+
+    #[test]
+    fn render_breadcrumbs_root_only() {
+        let html = render_breadcrumbs("photos", "").into_string();
+        // bucket name visible, no extra crumbs.
+        assert!(html.contains("photos"));
+        assert!(!html.contains("nested"));
+    }
+
+    #[test]
+    fn render_breadcrumbs_includes_each_segment() {
+        let html = render_breadcrumbs("photos", "nested/sub/").into_string();
+        // Each crumb except the last has a clickable link;
+        // the last segment is non-link text.
+        assert!(html.contains("photos"));
+        assert!(html.contains(r#"href="/b/storage/photos/nested/""#));
+        assert!(html.contains(">sub<"));
     }
 }
 
