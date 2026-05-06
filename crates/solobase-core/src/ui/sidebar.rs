@@ -23,7 +23,7 @@ pub fn nav_icon(name: &str) -> Markup {
         "hard-drive" | "storage" => icons::hard_drive(),
         "bar-chart" | "stats" => icons::bar_chart(),
         "dollar-sign" => icons::dollar_sign(),
-        "link" | "share-2" => icons::link(),
+        "link" => icons::link(),
         _ => icons::package(), // fallback
     }
 }
