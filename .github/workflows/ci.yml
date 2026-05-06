@@ -235,7 +235,7 @@ jobs:
         working-directory: crates/solobase-web
         env:
           TEST_PORT: 8093
-        run: npx playwright test --config=tests/playwright.config.ts tests/e2e/visual-baseline.spec.ts
+        run: npx playwright test --config=tests/playwright.visual-baseline.config.ts tests/e2e/visual-baseline.spec.ts
 
       - name: Stop servers
         if: always()

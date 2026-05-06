@@ -15,6 +15,9 @@ crates/solobase/data/
 *.db-wal
 test-results/
 playwright-report/
+# Playwright globalSetup writes a real session token here (see
+# crates/solobase-web/tests/e2e/fixtures/global-setup.ts). Never commit.
+crates/solobase-web/tests/.auth/
 
 # Env
 .env

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsAdmin } from './fixtures/auth';
+import { ADMIN_STATE_PATH, loginAsAdmin } from './fixtures/auth';
 
 const ANON_ROUTES = [
   { path: '/b/auth/login', name: 'auth-login' },
@@ -65,6 +65,7 @@ test.describe('visual baseline — anonymous', () => {
 });
 
 test.describe('visual baseline — admin', () => {
+  test.use({ storageState: ADMIN_STATE_PATH });
   test.beforeEach(async ({ page }) => {
     await loginAsAdmin(page);
   });
@@ -103,14 +104,10 @@ const MOBILE_ADMIN_ROUTES = [
   { path: '/b/userportal/security', name: 'portal-security' },
   { path: '/b/products/', name: 'portal-products' },
   { path: '/b/llm/', name: 'llm-chat' },
-  // Phase 5b PR-2: `/b/storage/` mobile baseline was here but was the LAST
-  // test in the suite. Login attempts late in the suite hit an auth-block
-  // rate-limit threshold (a fresh login per test × ~36 tests trips it),
-  // and the form-submit no-ops without redirecting → waitForURL times out.
-  // The desktop version of `storage-buckets` still covers the route; the
-  // <720px responsive CSS is exercised by unit + integration tests in
-  // `pages_user.rs`. Restore once the e2e auth fixture is refactored to
-  // share `storageState` across tests (1 login per worker, not per test).
+  // Phase 5d Item A's storageState refactor unblocks the cumulative auth
+  // rate-limit that PR-3 hit, so `/b/storage/` can safely sit at the end
+  // of MOBILE_ADMIN_ROUTES again.
+  { path: '/b/storage/', name: 'storage-buckets' },
 ];
 
 // ===== Phase 5b PR-1: vector index admin pages =====
@@ -125,6 +122,7 @@ const MOBILE_ADMIN_ROUTES = [
 // detail-page rendering is exercised by `pages_ui::integration_tests`.
 
 test.describe('visual baseline — admin vector', () => {
+  test.use({ storageState: ADMIN_STATE_PATH });
   test.beforeEach(async ({ page }) => {
     await loginAsAdmin(page);
   });
@@ -149,6 +147,7 @@ test.describe('visual baseline mobile — anonymous (375px)', () => {
 });
 
 test.describe('visual baseline mobile — admin (375px)', () => {
+  test.use({ storageState: ADMIN_STATE_PATH });
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await loginAsAdmin(page);
