@@ -41,7 +41,7 @@ pub async fn initialize() -> Result<(), JsValue> {
     let features = config::load_block_settings();
 
     let jwt_secret = vars
-        .get("SUPPERS_AI__AUTH__JWT_SECRET")
+        .get(solobase_core::blocks::auth::JWT_SECRET_KEY)
         .cloned()
         .unwrap_or_default();
 
