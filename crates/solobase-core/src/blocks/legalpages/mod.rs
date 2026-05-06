@@ -2,7 +2,7 @@ mod pages;
 
 use std::collections::HashMap;
 
-use maud::{html, Markup, PreEscaped, DOCTYPE};
+use maud::{html, Markup, PreEscaped};
 use wafer_core::clients::{
     database as db,
     database::{Filter, FilterOp, ListOptions, SortField},
@@ -18,7 +18,7 @@ use crate::{
     blocks::helpers::{
         self, err_bad_request, err_internal, err_not_found, json_map, ok_json, ResponseBuilder,
     },
-    ui::{self, SiteConfig},
+    ui::{self, templates, SiteConfig},
 };
 
 pub struct LegalPagesBlock;
@@ -59,11 +59,11 @@ impl LegalPagesBlock {
 
         let site = SiteConfig::load(ctx).await;
         let bg_color =
-            config::get_default(ctx, "SUPPERS_AI__LEGALPAGES__BG_COLOR", "#f8fafc").await;
+            config::get_default(ctx, "SUPPERS_AI__LEGALPAGES__BG_COLOR", "").await;
         let back_url = config::get_default(ctx, "SUPPERS_AI__LEGALPAGES__BACK_URL", "/").await;
         let custom_footer = config::get_default(ctx, "SUPPERS_AI__LEGALPAGES__FOOTER", "").await;
         let primary_color =
-            config::get_default(ctx, "SOLOBASE_SHARED__PRIMARY_COLOR", "#6366f1").await;
+            config::get_default(ctx, "SOLOBASE_SHARED__PRIMARY_COLOR", "").await;
 
         let type_label = if doc_type == "terms" {
             "Terms of Service"
@@ -94,67 +94,68 @@ impl LegalPagesBlock {
 
         let result = match db::list(ctx, COLLECTION, &opts).await {
             Ok(r) => r,
-            Err(e) => return err_internal(&format!("Database error: {e}")),
+            Err(e) => {
+                tracing::warn!(error = %e, "legalpages: db list failed");
+                return err_internal(&format!("Database error: {e}"));
+            }
         };
 
-        let page_config = PublicPageConfig {
-            app_name: &site.app_name,
-            favicon_url: &site.favicon_url,
-            bg_color: &bg_color,
-            back_url: &back_url,
-            custom_footer: &custom_footer,
-            primary_color: &primary_color,
-        };
-
-        if result.records.is_empty() {
-            let markup = public_page(
-                &page_config,
-                type_label,
-                "",
-                1,
-                "<p>No document has been published yet.</p>",
-            );
-            return ResponseBuilder::new().body(
-                markup.into_string().into_bytes(),
-                "text/html; charset=utf-8",
-            );
-        }
-
-        let record = &result.records[0];
-        let title = record
-            .data
-            .get("title")
-            .and_then(|v| v.as_str())
-            .unwrap_or(type_label);
-        let raw_content = record
-            .data
-            .get("content")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let content = sanitize_html(raw_content);
-        let published_at = record
-            .data
-            .get("published_at")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let version = record
-            .data
-            .get("version")
-            .and_then(|v| {
-                v.as_i64()
-                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-            })
-            .unwrap_or(1);
-        let meta = if !published_at.is_empty() {
-            format!(
-                "Last updated: {}",
-                published_at.get(..10).unwrap_or(published_at),
+        let (title, content, version, meta) = if result.records.is_empty() {
+            (
+                type_label.to_string(),
+                "<p>No document has been published yet.</p>".to_string(),
+                1_i64,
+                String::new(),
             )
         } else {
-            String::new()
+            let record = &result.records[0];
+            let title = record
+                .data
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or(type_label)
+                .to_string();
+            let raw_content = record
+                .data
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let content = sanitize_html(raw_content);
+            let published_at = record
+                .data
+                .get("published_at")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let version = record
+                .data
+                .get("version")
+                .and_then(|v| {
+                    v.as_i64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                })
+                .unwrap_or(1);
+            let meta = if !published_at.is_empty() {
+                format!(
+                    "Last updated: {}",
+                    published_at.get(..10).unwrap_or(published_at),
+                )
+            } else {
+                String::new()
+            };
+            (title, content, version, meta)
         };
 
-        let markup = public_page(&page_config, title, &meta, version, &content);
+        let markup = render_legal_page(LegalPageInputs {
+            site: &site,
+            title: &title,
+            content: &content,
+            version,
+            meta: &meta,
+            back_url: &back_url,
+            bg_color: &bg_color,
+            primary_color: &primary_color,
+            custom_footer: &custom_footer,
+        });
         ResponseBuilder::new().body(
             markup.into_string().into_bytes(),
             "text/html; charset=utf-8",
@@ -366,130 +367,85 @@ impl LegalPagesBlock {
 // Public page rendering
 // ---------------------------------------------------------------------------
 
-struct PublicPageConfig<'a> {
-    app_name: &'a str,
-    favicon_url: &'a str,
-    bg_color: &'a str,
+struct LegalPageInputs<'a> {
+    site: &'a SiteConfig,
+    title: &'a str,
+    content: &'a str, // pre-sanitized HTML
+    version: i64,
+    meta: &'a str,
     back_url: &'a str,
-    custom_footer: &'a str,
-    primary_color: &'a str,
+    bg_color: &'a str,    // empty string = use template default
+    primary_color: &'a str, // empty string = use template default
+    custom_footer: &'a str, // empty string = auto "© YEAR APP_NAME"
 }
 
-/// Render a professionally styled public legal page.
-fn public_page(
-    config: &PublicPageConfig,
-    title: &str,
-    meta: &str,
-    version: i64,
-    content: &str,
-) -> Markup {
-    let year = chrono::Utc::now().format("%Y");
-    let footer_text = if !config.custom_footer.is_empty() {
-        config.custom_footer.to_string()
-    } else if !config.app_name.is_empty() {
-        format!(
-            "\u{00a9} {} {}. All rights reserved.",
-            year, config.app_name
-        )
-    } else {
-        String::new()
-    };
-
-    html! {
-        (DOCTYPE)
-        html lang="en" {
-            head {
-                meta charset="utf-8";
-                meta name="viewport" content="width=device-width,initial-scale=1";
-                @if config.app_name.is_empty() {
-                    title { (title) }
-                } @else {
-                    title { (title) " \u{2014} " (config.app_name) }
-                }
-                @if !config.favicon_url.is_empty() {
-                    link rel="icon" href=(config.favicon_url);
-                }
-                style {
-                    (PreEscaped(format!(
-                        ":root{{--bg-page:{};--accent:{};}}",
-                        config.bg_color, config.primary_color
-                    )))
-                    (PreEscaped(PUBLIC_PAGE_CSS))
-                }
-            }
-            body {
-                header .legal-header {
-                    div .legal-header-inner {
-                        a .legal-back href=(config.back_url) title="Go back" {
-                            "\u{2190}"
-                        }
-                    }
-                }
-                main .legal-outer {
-                    div .legal-card {
-                        // Title + meta header
-                        div .legal-card-header {
-                            h1 { (title) }
-                            @if !meta.is_empty() || version > 0 {
-                                div .legal-meta {
-                                    @if !meta.is_empty() {
-                                        span { (meta) }
-                                    }
-                                    @if version > 0 {
-                                        span .legal-version { "v" (version) }
-                                    }
-                                }
-                            }
-                        }
-                        // Content
-                        div .legal-content { (PreEscaped(content)) }
-                    }
-                }
-                @if !footer_text.is_empty() {
-                    footer .legal-footer {
-                        (PreEscaped(footer_text))
+/// Render the legal-document body (title + meta + content) and delegate to
+/// `templates::public_page` for the chrome.
+fn render_legal_page(inputs: LegalPageInputs<'_>) -> Markup {
+    let body = html! {
+        div .public-page__head {
+            h1 { (inputs.title) }
+            @if !inputs.meta.is_empty() || inputs.version > 0 {
+                div .public-page__meta {
+                    @if !inputs.meta.is_empty() { span { (inputs.meta) } }
+                    @if inputs.version > 0 {
+                        span .public-page__version { "v" (inputs.version) }
                     }
                 }
             }
         }
-    }
-}
+        div .public-page__content { (PreEscaped(inputs.content)) }
+    };
 
-const PUBLIC_PAGE_CSS: &str = r#"
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:system-ui,-apple-system,sans-serif;color:#1e293b;background:var(--bg-page,#f8fafc);line-height:1.7;min-height:100vh;display:flex;flex-direction:column}
-.legal-header{background:transparent;padding:0.75rem 1.5rem;position:sticky;top:0;z-index:10}
-.legal-header-inner{max-width:800px;margin:0 auto;display:flex;align-items:center}
-.legal-back{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;text-decoration:none;color:#64748b;font-size:1.1rem;transition:all 0.15s}
-.legal-back:hover{color:var(--accent,#6366f1);background:rgba(0,0,0,0.05)}
-.legal-outer{flex:1;max-width:800px;width:100%;margin:2rem auto;padding:0 1.5rem}
-.legal-card{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);overflow:hidden}
-.legal-card-header{padding:2.5rem 3rem 0;border-bottom:none}
-.legal-card-header h1{font-size:1.85rem;font-weight:700;color:#0f172a;margin-bottom:0.5rem;line-height:1.3}
-.legal-meta{display:flex;align-items:center;gap:0.75rem;color:#94a3b8;font-size:0.85rem;padding-bottom:1.5rem;border-bottom:1px solid #f1f5f9}
-.legal-version{background:#f1f5f9;color:#64748b;padding:1px 8px;border-radius:10px;font-size:0.75rem;font-weight:600}
-.legal-content{padding:2rem 3rem 2.5rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;line-height:1.85;color:#334155}
-.legal-content h1{font-size:1.6rem;font-weight:700;margin:1.5rem 0 0.75rem;color:#0f172a;font-family:system-ui,sans-serif}
-.legal-content h2{font-size:1.35rem;font-weight:600;margin:2rem 0 0.75rem;color:#0f172a;font-family:system-ui,sans-serif}
-.legal-content h3{font-size:1.1rem;font-weight:600;margin:1.5rem 0 0.5rem;color:#1e293b;font-family:system-ui,sans-serif}
-.legal-content p{margin-bottom:1rem}
-.legal-content ul,.legal-content ol{margin:.5rem 0 1rem 1.5rem}
-.legal-content li{margin-bottom:.35rem}
-.legal-content a{color:var(--accent,#6366f1);text-decoration:underline;text-underline-offset:2px}
-.legal-content a:hover{opacity:.8}
-.legal-content blockquote{border-left:3px solid var(--accent,#6366f1);padding:0.75rem 1rem;margin:1rem 0;background:#f8fafc;border-radius:0 6px 6px 0;color:#475569;font-style:italic}
-.legal-content pre{background:#f1f5f9;padding:1rem;border-radius:6px;overflow-x:auto;font-family:monospace;font-size:.9rem;margin:1rem 0}
-.legal-content code{background:#f1f5f9;padding:2px 5px;border-radius:3px;font-size:.9em}
-.legal-content pre code{background:none;padding:0}
-.legal-content table{width:100%;border-collapse:collapse;margin:1rem 0}
-.legal-content th,.legal-content td{padding:.6rem .75rem;text-align:left;border-bottom:1px solid #e2e8f0}
-.legal-content th{font-weight:600;background:#f8fafc}
-.legal-content hr{border:none;border-top:1px solid #e2e8f0;margin:1.5rem 0}
-.legal-footer{text-align:center;color:#94a3b8;font-size:.8rem;padding:1.5rem 2rem 2rem}
-.legal-footer a{color:var(--accent,#6366f1);text-decoration:none}
-@media print{.legal-header,.legal-footer{display:none}.legal-outer{margin:0;padding:0}.legal-card{box-shadow:none;border-radius:0}}
-@media(max-width:640px){.legal-card-header{padding:1.5rem 1.25rem 0}.legal-content{padding:1.25rem 1.25rem 1.5rem}.legal-outer{padding:0 0.75rem;margin:1rem auto}}
-"#;
+    let footer_text = if !inputs.custom_footer.is_empty() {
+        inputs.custom_footer.to_string()
+    } else if !inputs.site.app_name.is_empty() {
+        let year = chrono::Utc::now().format("%Y");
+        format!(
+            "\u{00a9} {} {}. All rights reserved.",
+            year, inputs.site.app_name
+        )
+    } else {
+        String::new()
+    };
+    let footer = if footer_text.is_empty() {
+        None
+    } else {
+        // `custom_footer` allows admin-authored HTML; rendered with PreEscaped
+        // here matches prior behavior. No user input on this path beyond what
+        // the admin set.
+        Some(html! { (PreEscaped(footer_text)) })
+    };
+
+    let bg_color = if inputs.bg_color.is_empty() {
+        None
+    } else {
+        Some(inputs.bg_color)
+    };
+    let accent_color = if inputs.primary_color.is_empty() {
+        None
+    } else {
+        Some(inputs.primary_color)
+    };
+    let back_url = if inputs.back_url.is_empty() {
+        None
+    } else {
+        Some(inputs.back_url)
+    };
+
+    templates::public_page(
+        templates::PublicPage {
+            title: inputs.title,
+            config: inputs.site,
+            meta_description: None,
+            back_url,
+            bg_color,
+            accent_color,
+            footer,
+        },
+        body,
+    )
+}
 
 /// Sanitize admin-authored HTML content to prevent XSS.
 fn sanitize_html(input: &str) -> String {
@@ -550,9 +506,10 @@ impl Block for LegalPagesBlock {
                 BlockEndpoint::post("/b/legalpages/api/documents/{id}/publish").summary("Publish document").auth(AuthLevel::Admin),
             ])
             .config_keys(vec![
-                ConfigVar::new("SUPPERS_AI__LEGALPAGES__BG_COLOR", "Background color for public legal pages", "#f8fafc")
+                ConfigVar::new("SUPPERS_AI__LEGALPAGES__BG_COLOR", "Background color for public legal pages (empty = use design token default)", "")
                     .name("Background Color")
-                    .input_type(InputType::Color),
+                    .input_type(InputType::Color)
+                    .optional(),
                 ConfigVar::new("SUPPERS_AI__LEGALPAGES__BACK_URL", "Back button URL in the header (e.g., your website homepage)", "/")
                     .name("Back Button URL")
                     .input_type(InputType::Url),
@@ -631,3 +588,95 @@ impl Block for LegalPagesBlock {
 
 #[cfg(not(target_arch = "wasm32"))]
 ::wafer_run::register_static_block!("suppers-ai/legalpages", LegalPagesBlock);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn site() -> SiteConfig {
+        SiteConfig {
+            app_name: "Acme".to_string(),
+            logo_url: String::new(),
+            logo_icon_url: String::new(),
+            favicon_url: "/favicon.ico".to_string(),
+            embedded_scripts: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn render_legal_page_uses_public_page_template() {
+        let site_cfg = site();
+        let html = render_legal_page(LegalPageInputs {
+            site: &site_cfg,
+            title: "Terms of Service",
+            content: "<p>The terms.</p>",
+            version: 3,
+            meta: "Last updated: 2026-04-01",
+            back_url: "/",
+            bg_color: "#fafafa",
+            primary_color: "#6366f1",
+            custom_footer: "",
+        })
+        .into_string();
+
+        // Came from the shared template, not bare DOCTYPE in this file.
+        assert!(html.contains("<!DOCTYPE html>"));
+        assert!(html.contains(r#"<main class="public-page">"#));
+        assert!(html.contains("public-page__head"));
+        assert!(html.contains("public-page__content"));
+        assert!(html.contains("public-page__version"));
+        assert!(html.contains(">v3<"));
+        assert!(html.contains("Last updated: 2026-04-01"));
+        assert!(html.contains("Terms of Service"));
+        assert!(html.contains("The terms."));
+        // Color overrides applied as inline custom properties.
+        assert!(html.contains("--public-page-bg:#fafafa"));
+        assert!(html.contains("--public-page-accent:#6366f1"));
+        // Auto footer (year + app name).
+        assert!(html.contains("public-page__footer"));
+        assert!(html.contains("Acme"));
+        assert!(html.contains("All rights reserved"));
+        // Standard CSS bundle (not bespoke inline blob).
+        assert!(html.contains(r#"<link rel="stylesheet" href="/b/static/app-"#));
+    }
+
+    #[test]
+    fn render_legal_page_omits_color_inline_when_empty() {
+        let site_cfg = site();
+        let html = render_legal_page(LegalPageInputs {
+            site: &site_cfg,
+            title: "Privacy Policy",
+            content: "<p>x</p>",
+            version: 1,
+            meta: "",
+            back_url: "/",
+            bg_color: "",
+            primary_color: "",
+            custom_footer: "Custom <strong>footer</strong>",
+        })
+        .into_string();
+
+        assert!(!html.contains("--public-page-bg"));
+        assert!(!html.contains("--public-page-accent"));
+        // Custom footer renders verbatim (PreEscaped).
+        assert!(html.contains("Custom <strong>footer</strong>"));
+    }
+
+    #[test]
+    fn render_legal_page_no_meta_section_when_meta_empty_and_version_zero() {
+        let site_cfg = site();
+        let html = render_legal_page(LegalPageInputs {
+            site: &site_cfg,
+            title: "x",
+            content: "",
+            version: 0,
+            meta: "",
+            back_url: "/",
+            bg_color: "",
+            primary_color: "",
+            custom_footer: "",
+        })
+        .into_string();
+        assert!(!html.contains("public-page__meta"));
+    }
+}
