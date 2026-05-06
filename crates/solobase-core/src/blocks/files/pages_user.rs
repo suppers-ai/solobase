@@ -397,7 +397,14 @@ async fn list_objects_in_bucket(ctx: &dyn Context, bucket: &str) -> Vec<ObjectRo
             .into_iter()
             .map(|r| ObjectRow {
                 key: r.data.get("key").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                size: r.data.get("size").and_then(|v| v.as_i64()).unwrap_or(0),
+                size: r
+                    .data
+                    .get("size")
+                    .and_then(|v| {
+                        v.as_i64()
+                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                    })
+                    .unwrap_or(0),
                 modified: r
                     .data
                     .get("uploaded_at")
@@ -1222,5 +1229,34 @@ mod integration_tests {
         let body = output_html(cloudstorage_page(&ctx, &msg).await).await;
         assert!(body.contains("mine"), "own share missing: {body}");
         assert!(!body.contains("theirs"), "other-user share leaked: {body}");
+    }
+
+    #[tokio::test]
+    async fn object_list_page_shows_actual_size_from_text_columns() {
+        // SQLite TEXT columns store integers as strings (see MEMORY.md
+        // wafer-wrap-table-naming). The renderer must coerce both shapes.
+        let ctx = TestContext::with_auth().await;
+        let mut bucket: HashMap<String, serde_json::Value> = HashMap::new();
+        bucket.insert("name".into(), json!("photos"));
+        bucket.insert("created_by".into(), json!("admin_1"));
+        db::create(&ctx, BUCKETS_COLLECTION, bucket).await.expect("seed bucket");
+
+        let mut obj: HashMap<String, serde_json::Value> = HashMap::new();
+        obj.insert("bucket".into(), json!("photos"));
+        obj.insert("key".into(), json!("a.png"));
+        // Note: json!(2048) is a JSON number, but the SQLite backend will
+        // round-trip it as a string. The fallback in list_objects_in_bucket
+        // must accept both shapes.
+        obj.insert("size".into(), json!(2048));
+        obj.insert("uploaded_by".into(), json!("admin_1"));
+        db::create(&ctx, OBJECTS_COLLECTION, obj).await.expect("seed obj");
+
+        let msg = admin_msg("retrieve", "/b/storage/photos/");
+        let body = output_html(object_list_page(&ctx, &msg, "photos", "").await).await;
+        // The Size column should show 2048, not 0.
+        assert!(
+            body.contains(r#"data-label="Size">2048<"#),
+            "size cell should be 2048 (got via TEXT fallback): {body}"
+        );
     }
 }
