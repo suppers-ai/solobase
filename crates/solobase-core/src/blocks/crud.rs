@@ -2,6 +2,11 @@
 //!
 //! These encapsulate the repeated list/get/create/update/delete patterns
 //! so each handler reduces to a one-liner for pure-CRUD operations.
+//!
+// audit-allow-file: pure pass-through helpers — every db::* call here takes
+// the table name as a `collection: &str` parameter from the caller. WRAP
+// coverage is the caller's responsibility; static analysis at this file
+// would flag every line as unresolved without surfacing a real bug.
 
 use std::collections::HashMap;
 

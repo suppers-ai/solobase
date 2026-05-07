@@ -28,6 +28,15 @@
 #     only checks Database access. Those grant types follow different rules.
 #   - Tables outside the `{org}__{block}__` convention (none currently exist
 #     in solobase-core but flagged if found).
+#
+# Pragmas to silence individual findings (use sparingly, always with a reason):
+#   // audit-allow: <reason>          — preceding line: skips one db::* callsite
+#   // audit-allow-file: <reason>     — top of file (first 30 lines): skips all
+#                                       db::* callsites in that file
+#
+# Use cases: legacy migrations probing renamed-block tables, generic helpers
+# whose tables are passed in by callers, runtime-built table names. Reason is
+# required after the colon — the audit isn't supposed to be silenced silently.
 
 set -euo pipefail
 
@@ -314,11 +323,46 @@ check_coverage() {
   echo "MISSING"
 }
 
-declare -i total=0 missing=0 unresolved=0 nonconv=0
+declare -i total=0 missing=0 unresolved=0 nonconv=0 allowed=0
 declare -A SEEN_PAIRS
 MISSING_LINES=()
 UNRESOLVED_LINES=()
 NONCONV_LINES=()
+ALLOWED_LINES=()
+
+# True if the file has a top-of-file `// audit-allow-file: <reason>` pragma
+# in its first 30 lines. Used for pure pass-through helper files (e.g.
+# `crud.rs` whose db::* calls all take the table name as a parameter — the
+# real audit happens at the callers).
+declare -A FILE_ALLOW_CACHE
+file_allows_audit_skip() {
+  local file="$1"
+  if [ -n "${FILE_ALLOW_CACHE[$file]:-}" ]; then
+    [ "${FILE_ALLOW_CACHE[$file]}" = "yes" ]
+    return $?
+  fi
+  if head -n 30 "$file" 2>/dev/null | grep -qE "//[[:space:]]*audit-allow-file:[[:space:]]*[^[:space:]]"; then
+    FILE_ALLOW_CACHE["$file"]="yes"
+    return 0
+  fi
+  FILE_ALLOW_CACHE["$file"]="no"
+  return 1
+}
+
+# Returns "yes" if the previous source line in $file (relative to $lineno)
+# carries a `// audit-allow:` pragma. Reason after the colon is required.
+has_allow_pragma() {
+  local file="$1" lineno="$2"
+  if [ "$lineno" -lt 2 ]; then
+    return 1
+  fi
+  local prev
+  prev="$(sed -n "$((lineno - 1))p" "$file" 2>/dev/null)"
+  if [[ "$prev" =~ //[[:space:]]*audit-allow:[[:space:]]*[^[:space:]] ]]; then
+    return 0
+  fi
+  return 1
+}
 
 while IFS= read -r line; do
   file="${line%%:*}"
@@ -336,6 +380,15 @@ while IFS= read -r line; do
     [ -n "${SEEN_PAIRS[$pair_key]:-}" ] && continue
     SEEN_PAIRS["$pair_key"]=1
     total=$((total + 1))
+    # Honor `// audit-allow: <reason>` (per-line) and `// audit-allow-file: <reason>`
+    # (top-of-file) pragmas. Used for legitimate exceptions: legacy migrations
+    # probing renamed-block tables, generic helpers whose tables are passed in
+    # by callers, runtime-built table names (e.g. vector's per-index `_meta`).
+    if file_allows_audit_skip "$file" || has_allow_pragma "$file" "$lineno"; then
+      allowed=$((allowed + 1))
+      ALLOWED_LINES+=("${file}:${lineno}: ${caller} → ${table}")
+      continue
+    fi
     if [[ "$table" == "<unresolved:"* ]]; then
       unresolved=$((unresolved + 1))
       UNRESOLVED_LINES+=("${file}:${lineno}: ${caller} → ${table}")
@@ -364,6 +417,7 @@ echo "WRAP grant audit — $(date)"
 echo
 echo "Indexed: ${#CONST_VALUE[@]} constants, ${#GRANTS[@]} grant decls,"
 echo "         ${total} unique (caller, table) pairs across db::* callsites."
+echo "         ${allowed} skipped via // audit-allow: pragmas."
 echo
 
 if [ "${#MISSING_LINES[@]}" -gt 0 ]; then

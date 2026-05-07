@@ -123,6 +123,7 @@ pub(super) async fn migrate_legacy_providers(
 ) -> Result<(), String> {
     // Step 1: read the legacy table. NotFound (table doesn't exist) = already
     // migrated — return cleanly. All other errors bubble up to the caller.
+    // audit-allow: legacy-block-table — `provider-llm` was renamed to `llm`; the old block no longer registers, so no grant can exist. Probe is one-shot and swallows NotFound on the steady-state path.
     let legacy = match db::list(ctx, LEGACY_COLLECTION, &ListOptions::default()).await {
         Ok(r) => r,
         Err(e) if e.code == ErrorCode::NotFound => {

@@ -32,6 +32,9 @@ jobs:
       - name: Lint — no full-page html! outside ui/
         run: bash scripts/grep-guard-html.sh
 
+      - name: Lint — WRAP-grant coverage on cross-block db::* callsites
+        run: bash scripts/audit-wrap-grants.sh
+
       - name: Checkout wafer-run
         run: git clone --depth 1 https://github.com/wafer-run/wafer-run.git "$GITHUB_WORKSPACE/../wafer-run"
 
