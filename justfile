@@ -25,3 +25,8 @@ test-unit:
 clean:
     cargo clean
     rm -rf crates/solobase-web/pkg
+
+# Pull bundled font binaries from suppers-ai/site-kit. Run when site-kit
+# ships a font update, then commit the changed binaries.
+sync-fonts:
+    ./scripts/sync-fonts.sh
