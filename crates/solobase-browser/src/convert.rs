@@ -276,9 +276,7 @@ fn is_streaming_content_type(ct: &str) -> bool {
 /// first non-Meta event. Returns the accumulated meta and the next event
 /// (if any). Used by `output_to_response` to peek the response's headers
 /// before deciding whether to stream the body or buffer it.
-async fn drain_leading_meta(
-    output: &mut OutputStream,
-) -> (Vec<MetaEntry>, Option<StreamEvent>) {
+async fn drain_leading_meta(output: &mut OutputStream) -> (Vec<MetaEntry>, Option<StreamEvent>) {
     let mut meta = Vec::new();
     while let Some(ev) = output.next().await {
         match ev {
@@ -329,8 +327,11 @@ fn make_streaming_body(
                 // and close cleanly so the browser sees a normal end-of-body.
                 StreamEvent::Error(err) => {
                     web_sys::console::warn_1(
-                        &format!("solobase-browser: streaming response aborted: {}", err.message)
-                            .into(),
+                        &format!(
+                            "solobase-browser: streaming response aborted: {}",
+                            err.message
+                        )
+                        .into(),
                     );
                     return;
                 }
@@ -518,4 +519,3 @@ fn build_streaming_response(
     init.set_headers(&headers);
     web_sys::Response::new_with_opt_readable_stream_and_init(Some(&raw_js), &init)
 }
-
