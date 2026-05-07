@@ -57,31 +57,52 @@ fn row_from_map(m: &HashMap<String, Value>) -> Result<ProviderLink, RepoError> {
 
 /// Insert a link row, or update `user_id`, `provider_login`, `access_token`,
 /// `linked_at` in place when a row with the same `(provider, provider_ref)`
-/// already exists. Single SQL statement per spec §5 (OAuth callback).
+/// already exists. Manual two-step (list → update_by_filters or create) since
+/// `db::*` has no two-key upsert primitive.
 pub async fn upsert(ctx: &dyn Context, new: NewLink<'_>) -> Result<(), RepoError> {
     let now = now_iso();
-    db::exec_raw(
-        ctx,
-        &format!(
-            "INSERT INTO {TABLE} (provider, provider_ref, user_id, provider_login, access_token, linked_at) \
-             VALUES (?, ?, ?, ?, ?, ?) \
-             ON CONFLICT (provider, provider_ref) DO UPDATE SET \
-                 user_id = excluded.user_id, \
-                 provider_login = excluded.provider_login, \
-                 access_token = excluded.access_token, \
-                 linked_at = excluded.linked_at",
-        ),
-        &[
-            json!(new.provider),
-            json!(new.provider_ref),
-            json!(new.user_id),
-            json!(new.provider_login),
-            json!(new.access_token),
-            json!(now),
-        ],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("provider_links upsert: {e}")))?;
+    let filters = vec![
+        db::Filter {
+            field: "provider".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(new.provider),
+        },
+        db::Filter {
+            field: "provider_ref".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(new.provider_ref),
+        },
+    ];
+    let opts = db::ListOptions {
+        filters: filters.clone(),
+        limit: 1,
+        ..Default::default()
+    };
+    let existing = db::list(ctx, TABLE, &opts)
+        .await
+        .map_err(|e| RepoError::Db(format!("provider_links upsert lookup: {e}")))?;
+
+    let mut data: HashMap<String, Value> = HashMap::new();
+    data.insert("user_id".into(), json!(new.user_id));
+    data.insert("provider_login".into(), json!(new.provider_login));
+    data.insert("access_token".into(), json!(new.access_token));
+    data.insert("linked_at".into(), json!(now));
+
+    if existing.records.is_empty() {
+        // Insert: include the natural-key columns + a fresh synthetic id.
+        let id = uuid::Uuid::now_v7().to_string();
+        data.insert("id".into(), json!(id));
+        data.insert("provider".into(), json!(new.provider));
+        data.insert("provider_ref".into(), json!(new.provider_ref));
+        db::create(ctx, TABLE, data)
+            .await
+            .map_err(|e| RepoError::Db(format!("provider_links insert: {e}")))?;
+    } else {
+        // Update by the same (provider, provider_ref) filters — no synthetic id needed.
+        db::update_by_filters(ctx, TABLE, filters, data)
+            .await
+            .map_err(|e| RepoError::Db(format!("provider_links update: {e}")))?;
+    }
     Ok(())
 }
 
@@ -92,14 +113,26 @@ pub async fn find_by_provider_ref(
     provider: &str,
     provider_ref: &str,
 ) -> Result<Option<ProviderLink>, RepoError> {
-    let rows = db::query_raw(
-        ctx,
-        &format!("SELECT * FROM {TABLE} WHERE provider = ? AND provider_ref = ?"),
-        &[json!(provider), json!(provider_ref)],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("provider_links find: {e}")))?;
-    match rows.first() {
+    let opts = db::ListOptions {
+        filters: vec![
+            db::Filter {
+                field: "provider".into(),
+                operator: db::FilterOp::Equal,
+                value: json!(provider),
+            },
+            db::Filter {
+                field: "provider_ref".into(),
+                operator: db::FilterOp::Equal,
+                value: json!(provider_ref),
+            },
+        ],
+        limit: 1,
+        ..Default::default()
+    };
+    let res = db::list(ctx, TABLE, &opts)
+        .await
+        .map_err(|e| RepoError::Db(format!("provider_links find: {e}")))?;
+    match res.records.first() {
         Some(r) => Ok(Some(row_from_map(&r.data)?)),
         None => Ok(None),
     }
@@ -109,7 +142,7 @@ pub async fn find_by_provider_ref(
 /// user can only have at most one link per provider (enforced by the
 /// OAuth callback upserting on provider+provider_ref and users being
 /// unique per provider account), so there's at most one row in practice;
-/// the `ORDER BY linked_at DESC LIMIT 1` just makes that explicit.
+/// the `sort` + `limit: 1` just makes that explicit.
 ///
 /// Used by `AuthService::verify_org_admin` to retrieve the access token it
 /// needs to call into the provider's org-membership endpoint.
@@ -118,16 +151,30 @@ pub async fn find_by_user_provider(
     user_id: &str,
     provider: &str,
 ) -> Result<Option<ProviderLink>, RepoError> {
-    let rows = db::query_raw(
-        ctx,
-        &format!(
-            "SELECT * FROM {TABLE} WHERE user_id = ? AND provider = ? ORDER BY linked_at DESC LIMIT 1"
-        ),
-        &[json!(user_id), json!(provider)],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("provider_links find_by_user_provider: {e}")))?;
-    match rows.first() {
+    let opts = db::ListOptions {
+        filters: vec![
+            db::Filter {
+                field: "user_id".into(),
+                operator: db::FilterOp::Equal,
+                value: json!(user_id),
+            },
+            db::Filter {
+                field: "provider".into(),
+                operator: db::FilterOp::Equal,
+                value: json!(provider),
+            },
+        ],
+        sort: vec![db::SortField {
+            field: "linked_at".into(),
+            desc: true,
+        }],
+        limit: 1,
+        ..Default::default()
+    };
+    let res = db::list(ctx, TABLE, &opts)
+        .await
+        .map_err(|e| RepoError::Db(format!("provider_links find_by_user_provider: {e}")))?;
+    match res.records.first() {
         Some(r) => Ok(Some(row_from_map(&r.data)?)),
         None => Ok(None),
     }
@@ -164,6 +211,102 @@ pub async fn list_for_user(
         .await
         .map_err(|e| RepoError::Db(format!("provider_links list_for_user: {e}")))?;
     res.records.iter().map(|r| row_from_map(&r.data)).collect()
+}
+
+#[cfg(test)]
+mod typed_client_tests {
+    use super::*;
+    use crate::test_support::TestContext;
+
+    async fn seed_user(ctx: &TestContext, user_id: &str) {
+        wafer_core::clients::database::exec_raw(
+            ctx,
+            "INSERT INTO suppers_ai__auth__users \
+             (id, email, display_name, role, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+            &[
+                json!(user_id),
+                json!(format!("{user_id}@example.com")),
+                json!(user_id),
+                json!("user"),
+                json!("2026-01-01T00:00:00Z"),
+                json!("2026-01-01T00:00:00Z"),
+            ],
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn upsert_inserts_then_updates_under_wrap() {
+        // Seed BEFORE enabling WRAP — exec_raw fixture denied otherwise.
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+        let ctx = ctx.with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+
+        upsert(
+            &ctx,
+            NewLink {
+                provider: "github",
+                provider_ref: "gh-1",
+                user_id: "user-a",
+                provider_login: "alice",
+                access_token: "tok-old",
+            },
+        )
+        .await
+        .unwrap();
+        // Re-upsert with new access_token / login — should update in place,
+        // not insert a duplicate.
+        upsert(
+            &ctx,
+            NewLink {
+                provider: "github",
+                provider_ref: "gh-1",
+                user_id: "user-a",
+                provider_login: "alice2",
+                access_token: "tok-new",
+            },
+        )
+        .await
+        .unwrap();
+        let got = find_by_provider_ref(&ctx, "github", "gh-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.access_token, "tok-new");
+        assert_eq!(got.provider_login, "alice2");
+    }
+
+    #[tokio::test]
+    async fn find_by_user_provider_returns_most_recent() {
+        let ctx = TestContext::with_auth().await;
+        seed_user(&ctx, "user-a").await;
+        let ctx = ctx.with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+
+        upsert(
+            &ctx,
+            NewLink {
+                provider: "github",
+                provider_ref: "gh-1",
+                user_id: "user-a",
+                provider_login: "alice",
+                access_token: "tok-a",
+            },
+        )
+        .await
+        .unwrap();
+        let got = find_by_user_provider(&ctx, "user-a", "github")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.access_token, "tok-a");
+
+        let none = find_by_user_provider(&ctx, "user-a", "google")
+            .await
+            .unwrap();
+        assert!(none.is_none());
+    }
 }
 
 #[cfg(test)]
