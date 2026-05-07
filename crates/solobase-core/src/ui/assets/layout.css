@@ -455,7 +455,14 @@
 .status-page .btn { margin-top: var(--spacing-md); text-decoration: none; }
 
 /* ===== Sidebar groups (Phase 1) ===== */
-.sidebar__groups { display: flex; flex-direction: column; gap: var(--spacing-md); flex: 1; overflow-y: auto; }
+.sidebar__groups {
+	display: flex; flex-direction: column; gap: var(--spacing-md);
+	flex: 1; overflow-y: auto;
+	background: var(--surface-1);
+	border: 1px solid var(--border-color);
+	border-radius: var(--radius-lg);
+	padding: var(--spacing-sm);
+}
 .sidebar__group { display: flex; flex-direction: column; gap: 2px; }
 .sidebar__group-label {
 	font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em;
@@ -500,6 +507,33 @@
 	white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .sidebar__user-role { color: var(--text-muted); font-size: var(--text-xs); }
+
+.sidebar__collapse-toggle {
+	align-self: flex-end;
+	width: 28px; height: 28px;
+	display: flex; align-items: center; justify-content: center;
+	background: var(--surface-1); color: var(--text-secondary);
+	border: 1px solid var(--border-color); border-radius: var(--radius-md);
+	cursor: pointer; padding: 0;
+	transition: background-color 0.15s, color 0.15s;
+}
+.sidebar__collapse-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sidebar__collapse-icon-collapsed { display: none; }
+.sidebar.collapsed .sidebar__collapse-icon-expanded { display: none; }
+.sidebar.collapsed .sidebar__collapse-icon-collapsed { display: inline-flex; }
+
+/* Collapsed sidebar: icon-only mode */
+.shell:has(.sidebar.collapsed) { grid-template-columns: var(--sidebar-collapsed-width) minmax(0, 1fr); }
+.sidebar.collapsed { width: var(--sidebar-collapsed-width); }
+.sidebar.collapsed .sidebar__brand-wordmark,
+.sidebar.collapsed .sidebar__brand-name,
+.sidebar.collapsed .sidebar__group-label,
+.sidebar.collapsed .sidebar__nav-label,
+.sidebar.collapsed .sidebar__user-text { display: none; }
+.sidebar.collapsed .sidebar__brand { justify-content: center; padding: var(--spacing-md) 0 var(--spacing-sm); }
+.sidebar.collapsed .sidebar__nav-item { justify-content: center; padding: 0.4rem 0; }
+.sidebar.collapsed .sidebar__user { justify-content: center; }
+.sidebar.collapsed .sidebar__collapse-toggle { align-self: center; }
 
 /* ===== Shell + topbar (Phase 1) ===== */
 .shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); height: 100vh; gap: var(--spacing-md); padding: var(--spacing-md); background: var(--surface-2); }

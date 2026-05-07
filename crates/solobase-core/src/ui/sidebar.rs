@@ -19,6 +19,7 @@ pub fn nav_icon(name: &str) -> Markup {
         "folder" | "files" => icons::folder(),
         "user" | "account" => icons::user(),
         "globe" => icons::globe(),
+        "robot" | "bot" => icons::robot(),
         "network" => icons::network(),
         "hard-drive" | "storage" => icons::hard_drive(),
         "bar-chart" | "stats" => icons::bar_chart(),
@@ -84,6 +85,10 @@ pub fn sidebar_grouped(
                     }
                 }
             }
+            button .sidebar__collapse-toggle id="sidebar-collapse-btn" type="button" onclick="toggleSidebar()" aria-label="Toggle sidebar" {
+                span .sidebar__collapse-icon-expanded { (icons::chevron_left()) }
+                span .sidebar__collapse-icon-collapsed { (icons::chevron_right()) }
+            }
             @if let Some(u) = user {
                 div .sidebar__user-container {
                     button .sidebar__user id="user-menu-btn" type="button" onclick="toggleProfileMenu()" {
@@ -135,6 +140,20 @@ document.addEventListener('click', function(e) {
         m.style.display = 'none';
     }
 });
+function toggleSidebar() {
+    var s = document.querySelector('.sidebar');
+    if (!s) return;
+    s.classList.toggle('collapsed');
+    try { localStorage.setItem('sidebar.collapsed', s.classList.contains('collapsed') ? '1' : '0'); } catch (e) {}
+}
+(function() {
+    try {
+        if (localStorage.getItem('sidebar.collapsed') === '1') {
+            var s = document.querySelector('.sidebar');
+            if (s) s.classList.add('collapsed');
+        }
+    } catch (e) {}
+})();
 "#)) }
     }
 }

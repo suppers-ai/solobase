@@ -44,7 +44,7 @@ pub fn admin() -> Vec<NavGroup> {
             label: Some("Communication".to_string()),
             items: vec![
                 item("Messages", "/b/messages/", "file-text"),
-                item("LLM", "/b/llm/", "globe"),
+                item("LLM", "/b/llm/", "robot"),
             ],
         },
         NavGroup {
