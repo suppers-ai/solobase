@@ -168,19 +168,28 @@ done < <(grep -rEn "^use[[:space:]]" "$BLOCKS_DIR" 2>/dev/null || true)
 # Use grep -oE per-file to extract every match (a single line can contain
 # multiple alias pairs comma-separated inside one brace import).
 while IFS= read -r file; do
-  # First pass: pick up path-qualified aliases like `blocks::admin::VARIABLES_COLLECTION as VARIABLES`.
+  # First pass: pick up path-qualified aliases like `BLOCK::NAME as ALIAS`.
   # These also record the source block so the resolver disambiguates against
-  # bare-name collisions across blocks.
+  # bare-name collisions across blocks. The pattern matches both:
+  #   `blocks::admin::VARIABLES_COLLECTION as VARIABLES`  (single-line)
+  #   `        admin::VARIABLES_COLLECTION as VARIABLES,` (nested brace,
+  #     `blocks::` is on a previous line)
+  # We accept the second by matching just `BLOCK::NAME as ALIAS` and
+  # verifying BLOCK is a real block (has BLOCK_CONST entries).
   while IFS= read -r match; do
     [ -z "$match" ] && continue
-    if [[ "$match" =~ ^blocks::([a-z_]+)::([A-Z_]{4,})[[:space:]]+as[[:space:]]+([A-Z_]{2,})$ ]]; then
+    if [[ "$match" =~ ^([a-z_]+)::([A-Z_]{4,})[[:space:]]+as[[:space:]]+([A-Z_]{2,})$ ]]; then
       src_block="${BASH_REMATCH[1]}"
       src="${BASH_REMATCH[2]}"
       alias="${BASH_REMATCH[3]}"
-      FILE_USE_ALIAS["${file}::${alias}"]="$src"
-      FILE_USE_BLOCK["${file}::${alias}"]="$src_block"
+      # Only accept if `src_block::src` is known — filters out non-block
+      # path segments like `super::FOO as BAR`.
+      if [ -n "${BLOCK_CONST[${src_block}::${src}]:-}" ]; then
+        FILE_USE_ALIAS["${file}::${alias}"]="$src"
+        FILE_USE_BLOCK["${file}::${alias}"]="$src_block"
+      fi
     fi
-  done < <(grep -oE "blocks::[a-z_]+::[A-Z_]{4,}[[:space:]]+as[[:space:]]+[A-Z_]{2,}" "$file" 2>/dev/null || true)
+  done < <(grep -oE "[a-z_]+::[A-Z_]{4,}[[:space:]]+as[[:space:]]+[A-Z_]{2,}" "$file" 2>/dev/null || true)
   # Second pass: bare `X as Y` for everything else (super::-style, simple aliases).
   while IFS= read -r match; do
     [ -z "$match" ] && continue
