@@ -345,6 +345,14 @@ pub async fn seed_admin_user(ctx: &dyn Context) {
         }
     };
 
+    // Write every column declared in `USERS_COLLECTION`'s `CollectionSchema`
+    // (see `BlockInfo::collections` below). The cloudflare D1 backend
+    // materializes table schemas from data shape on first insert, and
+    // queries that filter on never-written columns (e.g. the admin user
+    // list's `WHERE deleted_at IS NULL`) fail with "no such column" until
+    // some other write adds that column. Writing the full set of declared
+    // columns here — even empty/null defaults — makes the table land
+    // complete on first cold-start.
     let mut data = json_map(serde_json::json!({
         "email": admin_email,
         "password_hash": password_hash,
@@ -354,7 +362,15 @@ pub async fn seed_admin_user(ctx: &dyn Context) {
         // first sign-in. Without this, the seeded admin would land in the
         // "unverified" state on /b/userportal/security and the require-
         // verification config could lock them out of their own deployment.
-        "email_verified": true
+        "email_verified": true,
+        "avatar_url": "",
+        "oauth_provider": "",
+        "verification_token": "",
+        "reset_token": "",
+        "reset_token_expires": null,
+        "last_verification_sent": null,
+        "last_login_at": null,
+        "deleted_at": null,
     }));
     super::helpers::stamp_created(&mut data);
 
