@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS suppers_ai__auth__users (
 
 -- Local credentials (empty for OAuth-only users)
 CREATE TABLE IF NOT EXISTS suppers_ai__auth__local_credentials (
-    user_id        TEXT PRIMARY KEY REFERENCES suppers_ai__auth__users(id) ON DELETE CASCADE,
+    id             TEXT PRIMARY KEY,
+    user_id        TEXT NOT NULL UNIQUE REFERENCES suppers_ai__auth__users(id) ON DELETE CASCADE,
     password_hash  TEXT NOT NULL,
     must_reset     INTEGER NOT NULL DEFAULT 0,
     created_at     TEXT NOT NULL
@@ -26,13 +27,14 @@ CREATE TABLE IF NOT EXISTS suppers_ai__auth__local_credentials (
 
 -- Provider links (github/google/microsoft)
 CREATE TABLE IF NOT EXISTS suppers_ai__auth__provider_links (
+    id             TEXT PRIMARY KEY,
     provider       TEXT NOT NULL,
     provider_ref   TEXT NOT NULL,
     user_id        TEXT NOT NULL REFERENCES suppers_ai__auth__users(id) ON DELETE CASCADE,
     provider_login TEXT NOT NULL,
     access_token   TEXT NOT NULL,
     linked_at      TEXT NOT NULL,
-    PRIMARY KEY (provider, provider_ref)
+    UNIQUE (provider, provider_ref)
 );
 
 -- Orgs
@@ -85,9 +87,12 @@ CREATE TABLE IF NOT EXISTS suppers_ai__auth__cli_exchange_codes (
 CREATE INDEX IF NOT EXISTS suppers_ai__auth__cli_exchange_codes_expires_at_idx
     ON suppers_ai__auth__cli_exchange_codes (expires_at);
 
--- Bootstrap tokens (first-run admin seeding)
+-- Bootstrap tokens (first-run admin seeding). token_hash stored as hex-encoded
+-- TEXT (lowercase, 64 chars for sha256) so the typed db::* client can use the
+-- synthetic id PK; the hash is unique per token, indexed for is_valid lookups.
 CREATE TABLE IF NOT EXISTS suppers_ai__auth__bootstrap_tokens (
-    token_hash     BLOB PRIMARY KEY,
+    id             TEXT PRIMARY KEY,
+    token_hash     TEXT NOT NULL UNIQUE,
     created_at     TEXT NOT NULL,
     expires_at     TEXT NOT NULL
 );

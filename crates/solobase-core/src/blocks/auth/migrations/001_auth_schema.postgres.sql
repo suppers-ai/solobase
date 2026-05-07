@@ -16,20 +16,22 @@ CREATE TABLE IF NOT EXISTS suppers_ai__auth__users (
 );
 
 CREATE TABLE IF NOT EXISTS suppers_ai__auth__local_credentials (
-    user_id        TEXT PRIMARY KEY REFERENCES suppers_ai__auth__users(id) ON DELETE CASCADE,
+    id             TEXT PRIMARY KEY,
+    user_id        TEXT NOT NULL UNIQUE REFERENCES suppers_ai__auth__users(id) ON DELETE CASCADE,
     password_hash  TEXT NOT NULL,
     must_reset     BOOLEAN NOT NULL DEFAULT FALSE,
     created_at     TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS suppers_ai__auth__provider_links (
+    id             TEXT PRIMARY KEY,
     provider       TEXT NOT NULL,
     provider_ref   TEXT NOT NULL,
     user_id        TEXT NOT NULL REFERENCES suppers_ai__auth__users(id) ON DELETE CASCADE,
     provider_login TEXT NOT NULL,
     access_token   TEXT NOT NULL,
     linked_at      TEXT NOT NULL,
-    PRIMARY KEY (provider, provider_ref)
+    UNIQUE (provider, provider_ref)
 );
 
 CREATE TABLE IF NOT EXISTS suppers_ai__auth__orgs (
@@ -79,7 +81,8 @@ CREATE INDEX IF NOT EXISTS suppers_ai__auth__cli_exchange_codes_expires_at_idx
     ON suppers_ai__auth__cli_exchange_codes (expires_at);
 
 CREATE TABLE IF NOT EXISTS suppers_ai__auth__bootstrap_tokens (
-    token_hash     BYTEA PRIMARY KEY,
+    id             TEXT PRIMARY KEY,
+    token_hash     TEXT NOT NULL UNIQUE,
     created_at     TEXT NOT NULL,
     expires_at     TEXT NOT NULL
 );
