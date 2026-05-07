@@ -69,10 +69,16 @@ fn base_toml(cfg: &CloudflareConfig) -> toml::Value {
     );
 
     let mut build = toml::map::Map::new();
+    // Pin to ^0.7 — worker-build 0.8.x rejects consumers using
+    // `worker < 0.8` (hard version check) and changed its output layout
+    // from `build/worker/shim.mjs` (which `main` points to) to
+    // `build/index.js`. Until we upgrade the `worker` crate, lock the
+    // toolchain to 0.7.x for both the local build and the wrangler-driven
+    // rebuild during deploy.
     build.insert(
         "command".into(),
         Value::String(
-            "cargo install worker-build --quiet && \
+            "cargo install worker-build --version ^0.7 --quiet && \
              worker-build --release --no-default-features \
              --features target-cloudflare"
                 .into(),
