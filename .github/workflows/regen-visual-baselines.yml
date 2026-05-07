@@ -122,12 +122,15 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          if git diff --quiet -- '.playwright-mcp/'; then
+          # Use `git status --porcelain` instead of `git diff` so this also
+          # picks up untracked baselines — i.e. ones that were deleted in
+          # the PR's prior commit and recreated by --update-snapshots.
+          if [ -z "$(git status --porcelain '.playwright-mcp/')" ]; then
             echo "::notice::No baseline drift — nothing to commit."
             exit 0
           fi
           echo "Baseline diff detected:"
-          git diff --stat -- '.playwright-mcp/'
+          git status --porcelain '.playwright-mcp/'
           git add .playwright-mcp/
           git commit -m "test(ui): regen visual baselines from CI render (auto-committed by regen-visual-baselines.yml against ${TARGET_BRANCH})"
           git push origin "HEAD:${TARGET_BRANCH}"
