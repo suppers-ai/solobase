@@ -225,7 +225,9 @@ fn rebuild_streaming(
                     return;
                 }
             }
-            Some(StreamEvent::Meta(_)) => unreachable!("drain_leading_meta consumed all leading Meta"),
+            Some(StreamEvent::Meta(_)) => {
+                unreachable!("drain_leading_meta consumed all leading Meta")
+            }
             Some(StreamEvent::Complete { meta }) => {
                 let _ = sink.complete(meta).await;
                 return;
