@@ -22,7 +22,12 @@ wasm = ["wafer-run/wasm"]
 # futures that are not Send on wasm32-unknown-unknown. Browser LLM
 # support arrives in Phase C via a separate `BrowserLlmService`.
 # Gate the whole block module off so wasm32 builds compile clean.
-llm = ["dep:tokio", "dep:tokio-stream"]
+#
+# `reqwest/stream` is gated here too because it pulls `wasm-streams 0.4`
+# on wasm32, which conflicts with `worker`'s `wasm-streams 0.5` — see
+# the FFI symbol clash in `worker-build`. OAuth providers don't need
+# streaming bodies; only the SSE LLM provider does.
+llm = ["dep:tokio", "dep:tokio-stream", "reqwest/stream"]
 # Native ONNX-backed embedding block (suppers-ai/fastembed) + SQLite
 # vector service. Pulls in wafer-block-fastembed (ONNX Runtime) and
 # enables the `vectors` feature of wafer-block-sqlite (sqlite-vec).
@@ -99,8 +104,10 @@ tokio = { workspace = true, optional = true }
 tokio-stream = { version = "0.1", optional = true }
 # HTTP client used by the OAuth provider implementations (always on) and
 # the LLM provider streaming service (gated behind `llm`). The `stream`
-# feature is required for SSE streaming in the LLM block.
-reqwest = { workspace = true, features = ["stream"] }
+# sub-feature — required for SSE streaming in the LLM block — is added
+# by the `llm` feature, not here, because it pulls `wasm-streams 0.4`
+# on wasm32 which conflicts with `worker`'s `wasm-streams 0.5`.
+reqwest = { workspace = true }
 
 # URL parsing/building for OAuth authorize_url assembly.
 url = "2"
