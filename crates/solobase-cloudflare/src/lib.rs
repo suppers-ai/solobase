@@ -97,9 +97,11 @@ use solobase_core::builder::SolobaseBuilder;
 ///   services are attached and before `builder.build()`. Use builder
 ///   methods (`extra_block`, `add_route`, `block_config`).
 /// - `register_post_build` runs against `&mut Wafer` after build and
-///   before start. Use this for runtime-level operations like
-///   `add_flow_json` or overriding `add_block_config` for blocks that
-///   `SolobaseBuilder` auto-installs.
+///   before start, and additionally receives the configured R2-backed
+///   `StorageService` so consumers can register blocks that need direct
+///   (un-namespaced) access to the bucket — for example, a static
+///   asset-serving block that reads a fixed key prefix uploaded by
+///   `solobase deploy --target cloudflare`.
 ///
 /// Binding names are hardcoded: D1 = `"DB"`, R2 = `"STORAGE"`. Consumers'
 /// `wrangler.toml` must use these names.
@@ -115,7 +117,10 @@ pub async fn run<F, G>(
 ) -> worker::Result<worker::Response>
 where
     F: FnOnce(SolobaseBuilder) -> Result<SolobaseBuilder, Box<dyn std::error::Error>>,
-    G: FnOnce(&mut wafer_run::Wafer) -> Result<(), Box<dyn std::error::Error>>,
+    G: FnOnce(
+        &mut wafer_run::Wafer,
+        Arc<dyn StorageService>,
+    ) -> Result<(), Box<dyn std::error::Error>>,
 {
     match run_inner(req, env, register_blocks, register_post_build).await {
         Ok(response) => Ok(response),
@@ -134,7 +139,10 @@ async fn run_inner<F, G>(
 ) -> Result<worker::Response, Box<dyn std::error::Error>>
 where
     F: FnOnce(SolobaseBuilder) -> Result<SolobaseBuilder, Box<dyn std::error::Error>>,
-    G: FnOnce(&mut wafer_run::Wafer) -> Result<(), Box<dyn std::error::Error>>,
+    G: FnOnce(
+        &mut wafer_run::Wafer,
+        Arc<dyn StorageService>,
+    ) -> Result<(), Box<dyn std::error::Error>>,
 {
     // 1. Construct D1 service first — env vars live in D1.
     let db = make_d1_database_service(&env, runner::D1_BINDING)
@@ -149,7 +157,7 @@ where
     }
 
     // 3. Construct remaining 5 services.
-    let bucket = make_r2_storage_service(&env, runner::R2_BINDING)
+    let bucket: Arc<dyn StorageService> = make_r2_storage_service(&env, runner::R2_BINDING)
         .map_err(|e| format!("R2 binding {:?}: {e}", runner::R2_BINDING))?;
     let jwt_secret = env_vars
         .get(solobase_core::blocks::auth::JWT_SECRET_KEY)
@@ -160,11 +168,14 @@ where
     let logger = make_console_logger();
     let cfg_svc = make_config_service(env_vars);
 
-    // 4. Build SolobaseBuilder, attach services + block settings.
+    // 4. Build SolobaseBuilder, attach services + block settings. Clone the
+    //    bucket Arc — `.storage()` consumes one and the post-build hook
+    //    receives the other so it can register blocks that need direct R2
+    //    access (e.g. a static-asset content block).
     let block_settings = runner::load_block_settings(&db).await;
     let builder = SolobaseBuilder::new()
         .database(db)
-        .storage(bucket)
+        .storage(bucket.clone())
         .config(cfg_svc)
         .crypto(crypto)
         .network(network)
@@ -178,7 +189,9 @@ where
     let (mut wafer, storage_block) = builder.build().map_err(|e| format!("builder.build: {e}"))?;
 
     // 6b. Consumer post-build hook (override flows / configs before start).
-    register_post_build(&mut wafer).map_err(|e| format!("register_post_build: {e}"))?;
+    //     Receives the R2-backed StorageService so consumers can register
+    //     blocks that need direct un-namespaced bucket access.
+    register_post_build(&mut wafer, bucket).map_err(|e| format!("register_post_build: {e}"))?;
 
     // 6c. Start the runtime.
     wafer
