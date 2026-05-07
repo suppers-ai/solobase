@@ -317,11 +317,16 @@ globalThis.__solobaseCompleteAssetLoad = _completeAssetLoad;
 //
 // Mirrors the loadAsset pattern: correlation-id keyed postMessage to a window
 // client; resolvers kept in a Map; sw.js routes replies via globalThis hook.
-// Streams use an async queue so Rust can `await` one chunk at a time while
-// many chunks are buffered in flight.
+//
+// One-shot operations (currently only `llmUnloadEngine`) use
+// `_pendingLlmRequests`. Streamed operations (chat, create-engine) share a
+// single `_activeLlmStreams` Map and a single page→SW frame envelope:
+//   { type: 'llm-stream-frame', id, kind: 'chunk'|'progress'|'done'|'error', payload? }
+// Each stream is a queue + waiter list so Rust can `await` one frame at a
+// time while many frames are buffered in flight.
 
-const _pendingLlmRequests = new Map();   // id -> { resolve, reject } (one-shot: create, unload)
-const _activeLlmStreams   = new Map();   // id -> { pushChunk, closeOk, closeErr, queue, waiters }
+const _pendingLlmRequests = new Map();   // id -> { resolve, reject } (one-shot)
+const _activeLlmStreams   = new Map();   // id -> { push, closeOk, closeErr, queue, waiters }
 
 async function _postToWindowClient(payload) {
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
@@ -335,18 +340,29 @@ function _mkLlmId(prefix) {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/**
- * Create + initialise a WebLLM engine on the page. Resolves when loaded.
- * @param {string} modelId
- * @returns {Promise<void>}
- */
-export async function llmCreateEngine(modelId) {
-    const id = _mkLlmId('llm-create');
-    const replyPromise = new Promise((resolve, reject) => {
-        _pendingLlmRequests.set(id, { resolve, reject });
+/** Create the queue/waiter pair for a new stream and register it. */
+function _registerStream(id) {
+    const queue = [];
+    const waiters = [];
+    const push = (frame) => {
+        if (waiters.length > 0) waiters.shift()(frame);
+        else queue.push(frame);
+    };
+    _activeLlmStreams.set(id, {
+        push,
+        closeOk: () => push({ kind: 'done' }),
+        closeErr: (err) => push({ kind: 'error', payload: err }),
+        queue,
+        waiters,
     });
-    await _postToWindowClient({ type: 'llm-create-engine-request', id, modelId });
-    return await replyPromise;
+}
+
+/** Start a streamed LLM operation. Returns the stream id. */
+async function _startLlmStream(requestType, idPrefix, extraPayload) {
+    const id = _mkLlmId(idPrefix);
+    _registerStream(id);
+    await _postToWindowClient({ type: requestType, id, ...extraPayload });
+    return id;
 }
 
 /**
@@ -364,40 +380,41 @@ export async function llmUnloadEngine(modelId) {
 }
 
 /**
- * Start a streaming chat completion. Returns a stream id the caller pumps
- * with `llmNextChunk`.
+ * Create + initialise a WebLLM engine on the page. Returns a stream id; the
+ * caller pumps `llmNextStreamFrame` to receive `progress` frames as the model
+ * downloads, terminating with `done` (success) or `error`.
+ *
+ * Streamed (rather than one-shot) so the SW fetch handler emits SSE bytes
+ * during the multi-minute cold download — without that, Chrome's idle
+ * keep-alive eventually drops the request and the page sees ERR_FAILED.
+ *
+ * @param {string} modelId
+ * @returns {Promise<string>} stream id
+ */
+export async function llmCreateEngineStream(modelId) {
+    return _startLlmStream('llm-create-engine-stream-request', 'llm-create', { modelId });
+}
+
+/**
+ * Start a streaming chat completion. Returns a stream id; pump with
+ * `llmNextStreamFrame`. Frames are `{kind:'chunk', payload:<openai chunk
+ * JSON>}` then a terminal `{kind:'done'}` or `{kind:'error', payload}`.
  * @param {string} bodyJson - JSON request body as built by Rust encode_request_body
  * @returns {Promise<string>} stream id
  */
 export async function llmChatStream(bodyJson) {
-    const id = _mkLlmId('llm-stream');
-    const queue = [];     // { kind: 'chunk'|'done'|'error', payload? }
-    const waiters = [];   // Array<(frame) => void>
-    const pushChunk = (frame) => {
-        if (waiters.length > 0) {
-            waiters.shift()(frame);
-        } else {
-            queue.push(frame);
-        }
-    };
-    _activeLlmStreams.set(id, {
-        pushChunk,
-        closeOk: () => pushChunk({ kind: 'done' }),
-        closeErr: (err) => pushChunk({ kind: 'error', payload: err }),
-        queue,
-        waiters,
-    });
-    await _postToWindowClient({ type: 'llm-chat-stream-request', id, body: bodyJson });
-    return id;
+    return _startLlmStream('llm-chat-stream-request', 'llm-chat', { body: bodyJson });
 }
 
 /**
- * Pull the next frame from a stream. Blocks until a frame arrives.
- * After a terminal frame (done/error) the stream entry is removed.
+ * Pull the next frame from any LLM stream (chat OR create-engine). Blocks
+ * until a frame arrives. After a terminal frame (done/error) the stream
+ * entry is removed.
  * @param {string} id
- * @returns {Promise<string>} JSON-encoded frame: {kind:'chunk',payload}|{kind:'done'}|{kind:'error',payload}
+ * @returns {Promise<string>} JSON-encoded frame:
+ *   {kind:'chunk',payload}|{kind:'progress',payload}|{kind:'done'}|{kind:'error',payload}
  */
-export async function llmNextChunk(id) {
+export async function llmNextStreamFrame(id) {
     const stream = _activeLlmStreams.get(id);
     if (!stream) {
         return JSON.stringify({ kind: 'error', payload: 'unknown stream id' });
@@ -425,7 +442,7 @@ export async function llmCancelStream(id) {
         // Rust side has already broken out of its loop).
         stream.closeErr('cancelled');
         // Remove the entry now rather than waiting for the (possibly never
-        // called) next llmNextChunk to notice the terminal frame — the Rust
+        // called) next pump call to notice the terminal frame — the Rust
         // side breaks its loop immediately after calling cancel_stream.
         _activeLlmStreams.delete(id);
     }
@@ -437,14 +454,13 @@ export async function llmCancelStream(id) {
  * or active stream by id.
  *
  * Page → SW message shapes:
- *   { type: 'llm-create-engine-response', id, error? }
- *   { type: 'llm-unload-response', id, error? }
- *   { type: 'llm-chat-stream-chunk', id, chunk }    // chunk = OpenAI chunk JSON string
- *   { type: 'llm-chat-stream-done', id }
- *   { type: 'llm-chat-stream-error', id, error }
+ *   { type: 'llm-unload-response', id, error? }                         (one-shot)
+ *   { type: 'llm-stream-frame', id, kind, payload? }                    (streams)
+ *     where `kind` is 'chunk' | 'progress' | 'done' | 'error' and
+ *     `payload` is the chunk/progress/error string (omitted for 'done').
  */
 export function _completeLlmMessage(msg) {
-    if (msg.type === 'llm-create-engine-response' || msg.type === 'llm-unload-response') {
+    if (msg.type === 'llm-unload-response') {
         const pending = _pendingLlmRequests.get(msg.id);
         if (!pending) return;
         _pendingLlmRequests.delete(msg.id);
@@ -452,14 +468,12 @@ export function _completeLlmMessage(msg) {
         else pending.resolve();
         return;
     }
-    const stream = _activeLlmStreams.get(msg.id);
-    if (!stream) return;
-    if (msg.type === 'llm-chat-stream-chunk') {
-        stream.pushChunk({ kind: 'chunk', payload: msg.chunk });
-    } else if (msg.type === 'llm-chat-stream-done') {
-        stream.closeOk();
-    } else if (msg.type === 'llm-chat-stream-error') {
-        stream.closeErr(msg.error ?? 'unknown error');
+    if (msg.type === 'llm-stream-frame') {
+        const stream = _activeLlmStreams.get(msg.id);
+        if (!stream) return;
+        if (msg.kind === 'done') stream.closeOk();
+        else if (msg.kind === 'error') stream.closeErr(msg.payload ?? 'unknown error');
+        else stream.push({ kind: msg.kind, payload: msg.payload });
     }
 }
 

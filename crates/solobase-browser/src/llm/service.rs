@@ -111,6 +111,18 @@ impl LlmService for BrowserLlmService {
                             break;
                         }
                     },
+                    StreamFrame::Progress(_) => {
+                        // Progress frames belong to create-engine streams, not chat.
+                        // The page-side handlers don't cross-emit, so this branch
+                        // only fires on a wire bug — surface as a backend error so
+                        // we don't silently drop frames.
+                        let _ = tx
+                            .send(Err(LlmError::BackendError(
+                                "webllm: unexpected progress frame on chat stream".into(),
+                            )))
+                            .await;
+                        break;
+                    }
                     StreamFrame::Done => break,
                     StreamFrame::Error(msg) => {
                         let _ = tx
@@ -158,7 +170,10 @@ impl LlmService for BrowserLlmService {
                 }
             }));
         }
-        let (mut tx, rx) = mpsc::channel::<Result<LoadProgress, LlmError>>(8);
+        // Channel buffer must be large enough that a burst of progress frames
+        // from WebLLM (1/sec during shard fetch) doesn't backpressure the
+        // spawn_local task. 32 is comfortably above WebLLM's tick rate.
+        let (mut tx, rx) = mpsc::channel::<Result<LoadProgress, LlmError>>(32);
         let loaded_model = Rc::clone(&self.loaded_model);
         let model_id = model_id.to_string();
 
@@ -166,28 +181,70 @@ impl LlmService for BrowserLlmService {
             if cancel.is_cancelled() {
                 return;
             }
-            let result = bridge::create_engine(&model_id).await;
-            // Re-check cancellation AFTER the await — model downloads run for
-            // tens of seconds and the consumer may have abandoned the load.
-            // We don't tell the page-side engine to abort (WebLLM has no
-            // cancel-load primitive), but we must avoid writing stale state
-            // and avoid sending on a channel whose receiver is gone.
-            if cancel.is_cancelled() {
-                // If the load happened to succeed, unload it so the page
-                // doesn't sit on an engine nobody asked for. Best-effort —
-                // ignore errors.
-                if result.is_ok() {
-                    let _ = bridge::unload_engine(&model_id).await;
-                }
-                return;
-            }
-            match result {
-                Ok(()) => {
-                    *loaded_model.borrow_mut() = Some(model_id.clone());
-                    let _ = tx.send(Ok(LoadProgress::new("ready"))).await;
-                }
+            // Start the page-side load. The returned stream will emit one
+            // `Progress` frame per WebLLM `initProgressCallback` tick (~1/sec
+            // during a cold download) and terminate with `Done` or `Error`.
+            // This is what keeps the SW fetch handler producing SSE bytes —
+            // a one-shot await over a multi-minute download lets Chrome's
+            // idle keep-alive drop the request mid-flight.
+            let stream_id = match bridge::start_create_engine_stream(&model_id).await {
+                Ok(id) => id,
                 Err(e) => {
                     let _ = tx.send(Err(e)).await;
+                    return;
+                }
+            };
+
+            loop {
+                if cancel.is_cancelled() {
+                    // WebLLM has no cancel-load primitive — the page-side
+                    // CreateMLCEngine call will run to completion. We
+                    // best-effort unload after the fact so the page doesn't
+                    // sit on an engine nobody asked for. Errors here are
+                    // intentionally swallowed.
+                    let _ = bridge::cancel_stream(&stream_id).await;
+                    let _ = bridge::unload_engine(&model_id).await;
+                    return;
+                }
+                let frame = match bridge::next_chunk(&stream_id).await {
+                    Ok(f) => f,
+                    Err(e) => {
+                        let _ = tx.send(Err(e)).await;
+                        return;
+                    }
+                };
+                match frame {
+                    StreamFrame::Progress(stage) => {
+                        if tx.send(Ok(LoadProgress::new(stage))).await.is_err() {
+                            // Consumer dropped — best-effort unload (the
+                            // download is still in flight on the page).
+                            let _ = bridge::cancel_stream(&stream_id).await;
+                            let _ = bridge::unload_engine(&model_id).await;
+                            return;
+                        }
+                    }
+                    StreamFrame::Done => {
+                        *loaded_model.borrow_mut() = Some(model_id.clone());
+                        let _ = tx.send(Ok(LoadProgress::new("ready"))).await;
+                        return;
+                    }
+                    StreamFrame::Error(msg) => {
+                        let _ = tx
+                            .send(Err(LlmError::BackendError(format!("webllm: {msg}"))))
+                            .await;
+                        return;
+                    }
+                    StreamFrame::Chunk(_) => {
+                        // Chunk frames belong to chat streams. As with the
+                        // mirrored arm in `chat_stream`, a wire bug is the
+                        // only way to land here — surface as a backend error.
+                        let _ = tx
+                            .send(Err(LlmError::BackendError(
+                                "webllm: unexpected chunk frame on create-engine stream".into(),
+                            )))
+                            .await;
+                        return;
+                    }
                 }
             }
         });

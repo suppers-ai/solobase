@@ -1,12 +1,21 @@
 // webllm-engine.js — page-side WebLLM engine + SW postMessage bridge.
 //
 // Runs in the window (WebGPU is window-only). Receives requests from the SW
-// via navigator.serviceWorker.message, runs WebLLM, streams chunks back.
+// via navigator.serviceWorker.message, runs WebLLM, streams frames back.
+//
+// Page → SW message shapes (see bridge.js for the consuming side):
+//   { type: 'llm-unload-response', id, error? }            // one-shot
+//   { type: 'llm-stream-frame',    id, kind, payload? }    // streams
+//     `kind` ∈ {'chunk','progress','done','error'};
+//     create-engine emits 'progress' frames during the cold model download
+//     and a terminal 'done' / 'error'; chat emits 'chunk' frames per token
+//     and a terminal 'done' / 'error'. The unified envelope means one
+//     dispatch arm in bridge.js and one Rust pump function for both ops.
 //
 // The @mlc-ai/web-llm import is lazy: a top-level static import would block
 // DOMContentLoaded for every page that loads this script (it's a multi-MB
 // jsdelivr ESM bundle), and most page loads never end up invoking the LLM.
-// Defer the import until handleCreateEngine actually needs it.
+// Defer the import until a handler actually needs it.
 
 let _CreateMLCEngine = null;
 async function loadCreateMLCEngine() {
@@ -18,14 +27,18 @@ async function loadCreateMLCEngine() {
 
 let _engine = null;
 let _engineModel = null;
-const _activeStreams = new Map(); // id -> AbortController
+const _activeStreams = new Map(); // id -> AbortController (chat only)
 
-async function swReply(payload) {
+async function swPost(payload) {
     const reg = await navigator.serviceWorker.ready;
     reg.active?.postMessage(payload);
 }
 
-async function handleCreateEngine(msg) {
+async function swStreamFrame(id, kind, payload) {
+    await swPost({ type: 'llm-stream-frame', id, kind, payload });
+}
+
+async function handleCreateEngineStream(msg) {
     try {
         if (_engineModel !== msg.modelId) {
             if (_engine) {
@@ -34,12 +47,22 @@ async function handleCreateEngine(msg) {
                 _engineModel = null;
             }
             const CreateMLCEngine = await loadCreateMLCEngine();
-            _engine = await CreateMLCEngine(msg.modelId, { /* progress swallowed */ });
+            // WebLLM emits InitProgressReport ticks (~1/sec during shard
+            // fetch) with a free-form `text` description like
+            // "Fetching params [3/14]: 23%". We forward `text` as the
+            // progress payload — gizza-app.js parses a percent out of it
+            // for the UI bar; consumers that just want to keep the SSE
+            // stream "warm" can ignore the contents.
+            _engine = await CreateMLCEngine(msg.modelId, {
+                initProgressCallback: (report) => {
+                    swStreamFrame(msg.id, 'progress', String(report?.text ?? ''));
+                },
+            });
             _engineModel = msg.modelId;
         }
-        await swReply({ type: 'llm-create-engine-response', id: msg.id });
+        await swStreamFrame(msg.id, 'done');
     } catch (e) {
-        await swReply({ type: 'llm-create-engine-response', id: msg.id, error: String(e) });
+        await swStreamFrame(msg.id, 'error', String(e));
     }
 }
 
@@ -50,15 +73,15 @@ async function handleUnload(msg) {
             _engine = null;
             _engineModel = null;
         }
-        await swReply({ type: 'llm-unload-response', id: msg.id });
+        await swPost({ type: 'llm-unload-response', id: msg.id });
     } catch (e) {
-        await swReply({ type: 'llm-unload-response', id: msg.id, error: String(e) });
+        await swPost({ type: 'llm-unload-response', id: msg.id, error: String(e) });
     }
 }
 
 async function handleChatStream(msg) {
     if (!_engine) {
-        await swReply({ type: 'llm-chat-stream-error', id: msg.id, error: 'no engine loaded' });
+        await swStreamFrame(msg.id, 'error', 'no engine loaded');
         return;
     }
     const ac = new AbortController();
@@ -72,15 +95,11 @@ async function handleChatStream(msg) {
         });
         for await (const chunk of iterator) {
             if (ac.signal.aborted) break;
-            await swReply({
-                type: 'llm-chat-stream-chunk',
-                id: msg.id,
-                chunk: JSON.stringify(chunk),
-            });
+            await swStreamFrame(msg.id, 'chunk', JSON.stringify(chunk));
         }
-        await swReply({ type: 'llm-chat-stream-done', id: msg.id });
+        await swStreamFrame(msg.id, 'done');
     } catch (e) {
-        await swReply({ type: 'llm-chat-stream-error', id: msg.id, error: String(e) });
+        await swStreamFrame(msg.id, 'error', String(e));
     } finally {
         _activeStreams.delete(msg.id);
     }
@@ -101,10 +120,10 @@ navigator.serviceWorker.addEventListener('message', (event) => {
     const msg = event.data;
     if (!msg || !msg.type) return;
     switch (msg.type) {
-        case 'llm-create-engine-request': handleCreateEngine(msg); break;
-        case 'llm-unload-request':        handleUnload(msg); break;
-        case 'llm-chat-stream-request':   handleChatStream(msg); break;
-        case 'llm-stream-cancel':         handleCancel(msg); break;
+        case 'llm-create-engine-stream-request': handleCreateEngineStream(msg); break;
+        case 'llm-unload-request':               handleUnload(msg); break;
+        case 'llm-chat-stream-request':          handleChatStream(msg); break;
+        case 'llm-stream-cancel':                handleCancel(msg); break;
     }
 });
 

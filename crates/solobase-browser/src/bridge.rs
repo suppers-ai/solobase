@@ -93,9 +93,11 @@ extern "C" {
 
     // ─── LLM bridge ───────────────────────────────────────────────────────────
 
-    /// Create + initialize a WebLLM engine on the page. Resolves when loaded.
-    #[wasm_bindgen(js_name = llmCreateEngine, catch)]
-    pub async fn llm_create_engine(model_id: &str) -> Result<JsValue, JsValue>;
+    /// Start creating + initialising a WebLLM engine on the page. Returns the
+    /// stream id; pump with `llm_next_stream_frame` to receive `progress`
+    /// frames during the cold download and a terminal `done` / `error`.
+    #[wasm_bindgen(js_name = llmCreateEngineStream, catch)]
+    pub async fn llm_create_engine_stream(model_id: &str) -> Result<JsValue, JsValue>;
 
     /// Unload the engine on the page.
     #[wasm_bindgen(js_name = llmUnloadEngine, catch)]
@@ -105,11 +107,12 @@ extern "C" {
     #[wasm_bindgen(js_name = llmChatStream, catch)]
     pub async fn llm_chat_stream(body_json: &str) -> Result<JsValue, JsValue>;
 
-    /// Pull the next frame from a stream.
+    /// Pull the next frame from any LLM stream (chat or create-engine).
     /// Frame JSON: `{kind:'chunk', payload:<openai chunk json>}` |
+    ///             `{kind:'progress', payload:<stage text>}` |
     ///             `{kind:'done'}` | `{kind:'error', payload:<string>}`.
-    #[wasm_bindgen(js_name = llmNextChunk, catch)]
-    pub async fn llm_next_chunk(stream_id: &str) -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(js_name = llmNextStreamFrame, catch)]
+    pub async fn llm_next_stream_frame(stream_id: &str) -> Result<JsValue, JsValue>;
 
     /// Cancel an in-flight stream.
     #[wasm_bindgen(js_name = llmCancelStream, catch)]
