@@ -29,11 +29,14 @@ fn now_iso() -> String {
 
 fn row_from_map(m: &HashMap<String, Value>) -> Result<LocalCredentialRow, RepoError> {
     let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
-    let must_reset = m
-        .get("must_reset")
-        .and_then(|v| v.as_i64())
-        .map(|n| n != 0)
-        .unwrap_or(false);
+    // Mirror `RecordExt::bool_field` so the column round-trips across both
+    // sqlite (INTEGER 0/1) and postgres (BOOLEAN -> JSON bool).
+    let must_reset = match m.get("must_reset") {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
+        Some(Value::String(s)) => s == "true" || s == "1",
+        _ => false,
+    };
     Ok(LocalCredentialRow {
         user_id: s("user_id").ok_or_else(|| RepoError::Db("missing user_id".into()))?,
         password_hash: s("password_hash")
@@ -125,5 +128,29 @@ mod typed_client_tests {
                 .await
                 .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
         assert!(find_by_user_id(&ctx, "ghost").await.unwrap().is_none());
+    }
+
+    /// Postgres returns BOOLEAN columns as JSON `bool`; sqlite returns INTEGER
+    /// 0/1. `row_from_map` must accept both. Pure-shape test on the
+    /// deserializer — no DB roundtrip — so the assertion holds regardless of
+    /// which backend the test fixture happens to use.
+    #[test]
+    fn row_from_map_accepts_bool_int_and_string_must_reset() {
+        let mk = |v: Value| {
+            let mut m = HashMap::new();
+            m.insert("user_id".into(), json!("u"));
+            m.insert("password_hash".into(), json!("h"));
+            m.insert("must_reset".into(), v);
+            m.insert("created_at".into(), json!("2026-01-01T00:00:00Z"));
+            row_from_map(&m).unwrap()
+        };
+        assert!(mk(json!(true)).must_reset, "JSON bool true (postgres)");
+        assert!(!mk(json!(false)).must_reset, "JSON bool false (postgres)");
+        assert!(mk(json!(1)).must_reset, "JSON int 1 (sqlite)");
+        assert!(!mk(json!(0)).must_reset, "JSON int 0 (sqlite)");
+        assert!(mk(json!("true")).must_reset, "string 'true'");
+        assert!(mk(json!("1")).must_reset, "string '1'");
+        assert!(!mk(json!("false")).must_reset, "string 'false'");
+        assert!(!mk(Value::Null).must_reset, "missing/null defaults false");
     }
 }
