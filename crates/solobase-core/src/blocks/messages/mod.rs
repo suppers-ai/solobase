@@ -33,6 +33,7 @@ impl Default for MessagesBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for MessagesBlock {
     fn info(&self) -> BlockInfo {
+        use wafer_block::types::ResourceGrant;
         use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new(
@@ -43,6 +44,15 @@ impl Block for MessagesBlock {
         )
         .instance_mode(InstanceMode::Singleton)
         .requires(vec!["wafer-run/database".into()])
+        // The chat UI in `suppers-ai/llm` reads thread + entry rows directly
+        // via the typed `db::list` client (see `llm/pages.rs`). Without these
+        // grants the WRAP runtime denies the call and the chat sidebar
+        // renders empty in production. Surfaced by the static
+        // `scripts/audit-wrap-grants.sh` audit (PR #84).
+        .grants(vec![
+            ResourceGrant::read("suppers-ai/llm", service::CONTEXTS_COLLECTION),
+            ResourceGrant::read("suppers-ai/llm", service::ENTRIES_COLLECTION),
+        ])
         .collections(vec![
             CollectionSchema::new(service::CONTEXTS_COLLECTION)
                 .field("type", "string")
