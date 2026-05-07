@@ -3,6 +3,7 @@
 mod bootstrap_run;
 mod common;
 mod fake_github;
+mod lifecycle_init;
 mod login_session_row;
 mod migrations_001;
 mod migrations_002;

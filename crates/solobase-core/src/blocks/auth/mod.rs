@@ -712,6 +712,15 @@ impl Block for AuthBlock {
         event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
+            // PR 1 of Plan A2: apply the new auth schema on first boot.
+            // Idempotent (CREATE TABLE IF NOT EXISTS / DROP TABLE IF
+            // EXISTS) so re-boots are safe, and additive — the legacy
+            // TEXT-everything tables that `seed_admin_user` writes to
+            // co-exist with the new schema until PR 2 retires the
+            // legacy path.
+            migrations::apply(ctx).await.map_err(|e| {
+                WaferError::new(ErrorCode::INTERNAL, format!("auth migrations: {e}"))
+            })?;
             seed_admin_user(ctx).await;
         }
         Ok(())
