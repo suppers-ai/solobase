@@ -52,41 +52,29 @@ fn row_from_map(m: &HashMap<String, Value>) -> Result<UserRow, RepoError> {
 pub async fn insert(ctx: &dyn Context, new: NewUser) -> Result<UserRow, RepoError> {
     let id = Uuid::now_v7().to_string();
     let now = now_iso();
-    db::exec_raw(
-        ctx,
-        &format!(
-            "INSERT INTO {TABLE} (id, email, display_name, avatar_url, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ),
-        &[
-            json!(id),
-            json!(new.email),
-            json!(new.display_name),
-            match new.avatar_url.as_deref() {
-                Some(a) => json!(a),
-                None => Value::Null,
-            },
-            json!(new.role),
-            json!(now),
-            json!(now),
-        ],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("insert: {e}")))?;
+    let mut data: HashMap<String, Value> = HashMap::new();
+    data.insert("id".into(), json!(id));
+    data.insert("email".into(), json!(new.email));
+    data.insert("display_name".into(), json!(new.display_name));
+    if let Some(a) = new.avatar_url.as_deref() {
+        data.insert("avatar_url".into(), json!(a));
+    }
+    data.insert("role".into(), json!(new.role));
+    data.insert("created_at".into(), json!(now));
+    data.insert("updated_at".into(), json!(now));
 
-    find_by_id(ctx, &id).await?.ok_or(RepoError::NotFound)
+    let rec = db::create(ctx, TABLE, data)
+        .await
+        .map_err(|e| RepoError::Db(format!("insert: {e}")))?;
+    row_from_map(&rec.data)
 }
 
 pub async fn find_by_email(ctx: &dyn Context, email: &str) -> Result<Option<UserRow>, RepoError> {
-    let rows = db::query_raw(
-        ctx,
-        &format!("SELECT * FROM {TABLE} WHERE email = ?"),
-        &[json!(email)],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("select by email: {e}")))?;
-    match rows.first() {
-        Some(r) => Ok(Some(row_from_map(&r.data)?)),
-        None => Ok(None),
+    use wafer_block::ErrorCode;
+    match db::get_by_field(ctx, TABLE, "email", json!(email)).await {
+        Ok(rec) => Ok(Some(row_from_map(&rec.data)?)),
+        Err(e) if e.code == ErrorCode::NOT_FOUND => Ok(None),
+        Err(e) => Err(RepoError::Db(format!("select by email: {e}"))),
     }
 }
 
@@ -95,28 +83,18 @@ pub async fn find_by_email(ctx: &dyn Context, email: &str) -> Result<Option<User
 /// Used by the block's bootstrap logic to decide whether to create the first
 /// admin user. A non-zero count means "already bootstrapped — no-op".
 pub async fn count(ctx: &dyn Context) -> Result<u64, RepoError> {
-    let rows = db::query_raw(ctx, &format!("SELECT COUNT(*) AS n FROM {TABLE}"), &[])
+    let n = db::count(ctx, TABLE, &[])
         .await
         .map_err(|e| RepoError::Db(format!("users count: {e}")))?;
-    let n = rows
-        .first()
-        .and_then(|r| r.data.get("n"))
-        .and_then(|v| v.as_i64())
-        .ok_or_else(|| RepoError::Db("count returned no rows".into()))?;
     Ok(n.max(0) as u64)
 }
 
 pub async fn find_by_id(ctx: &dyn Context, id: &str) -> Result<Option<UserRow>, RepoError> {
-    let rows = db::query_raw(
-        ctx,
-        &format!("SELECT * FROM {TABLE} WHERE id = ?"),
-        &[json!(id)],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("select by id: {e}")))?;
-    match rows.first() {
-        Some(r) => Ok(Some(row_from_map(&r.data)?)),
-        None => Ok(None),
+    use wafer_block::ErrorCode;
+    match db::get(ctx, TABLE, id).await {
+        Ok(rec) => Ok(Some(row_from_map(&rec.data)?)),
+        Err(e) if e.code == ErrorCode::NOT_FOUND => Ok(None),
+        Err(e) => Err(RepoError::Db(format!("select by id: {e}"))),
     }
 }
 
@@ -222,5 +200,79 @@ mod email_verified_tests {
             RepoError::Db(_) => {}
             other => panic!("expected Db error, got {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod typed_client_tests {
+    use super::*;
+    use crate::test_support::TestContext;
+
+    /// `repo::users::insert` must succeed when the auth block calls it under
+    /// WRAP enforcement (own-resource access). Today's `exec_raw` path
+    /// requires admin and would fail; this test guards the typed-client
+    /// rewrite.
+    #[tokio::test]
+    async fn insert_succeeds_under_wrap_for_auth_block() {
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let user = insert(
+            &ctx,
+            NewUser {
+                email: "a@b.c".into(),
+                display_name: "A".into(),
+                avatar_url: None,
+                role: "user".into(),
+            },
+        )
+        .await
+        .expect("insert under wrap");
+        assert_eq!(user.email, "a@b.c");
+        assert!(!user.id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn find_by_email_returns_inserted_row_under_wrap() {
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        insert(
+            &ctx,
+            NewUser {
+                email: "x@y.z".into(),
+                display_name: "X".into(),
+                avatar_url: Some("https://example.com/a.png".into()),
+                role: "admin".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let got = find_by_email(&ctx, "x@y.z").await.unwrap().unwrap();
+        assert_eq!(got.role, "admin");
+        assert_eq!(got.avatar_url.as_deref(), Some("https://example.com/a.png"));
+    }
+
+    #[tokio::test]
+    async fn count_reports_zero_then_one() {
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        assert_eq!(count(&ctx).await.unwrap(), 0);
+        insert(
+            &ctx,
+            NewUser {
+                email: "c@d.e".into(),
+                display_name: "C".into(),
+                avatar_url: None,
+                role: "user".into(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(count(&ctx).await.unwrap(), 1);
     }
 }
