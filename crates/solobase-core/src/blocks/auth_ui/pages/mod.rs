@@ -77,7 +77,12 @@ pub(super) fn site_config(settings: &HashMap<String, String>) -> SiteConfig {
         logo_url: {
             let auth_logo = get(settings, "SOLOBASE_SHARED__AUTH_LOGO_URL", "");
             if auth_logo.is_empty() {
-                get(settings, "SOLOBASE_SHARED__LOGO_URL", "").to_string()
+                get(
+                    settings,
+                    "SOLOBASE_SHARED__LOGO_URL",
+                    "https://solobase.dev/images/logo_long.png",
+                )
+                .to_string()
             } else {
                 auth_logo.to_string()
             }

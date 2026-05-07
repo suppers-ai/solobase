@@ -66,7 +66,7 @@ pub fn shared_config_vars() -> Vec<ConfigVar> {
         ConfigVar::new(
             "SOLOBASE_SHARED__LOGO_URL",
             "Logo shown in header and emails",
-            "",
+            "https://solobase.dev/images/logo_long.png",
         )
         .name("Logo URL")
         .input_type(InputType::Url),

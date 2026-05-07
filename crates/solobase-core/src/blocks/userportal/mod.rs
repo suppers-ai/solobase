@@ -184,7 +184,7 @@ impl UserPortalBlock {
         };
 
         let config_val = serde_json::json!({
-            "logo_url": config::get_default(ctx, "SOLOBASE_SHARED__LOGO_URL", "").await,
+            "logo_url": config::get_default(ctx, "SOLOBASE_SHARED__LOGO_URL", "https://solobase.dev/images/logo_long.png").await,
             "app_name": config::get_default(ctx, "SOLOBASE_SHARED__APP_NAME", "Solobase").await,
             "primary_color": config::get_default(ctx, "SOLOBASE_SHARED__PRIMARY_COLOR", "#6366f1").await,
             "enable_oauth": config::get_default(ctx, "SOLOBASE_SHARED__ENABLE_OAUTH", "false").await,
@@ -619,7 +619,7 @@ const PORTAL_SETTINGS_KEYS: &[(&str, &str, &str, &str, &str)] = &[
         "SOLOBASE_SHARED__LOGO_URL",
         "Logo URL",
         "URL of the logo image shown in the header and login pages.",
-        "",
+        "https://solobase.dev/images/logo_long.png",
         "text",
     ),
     (
