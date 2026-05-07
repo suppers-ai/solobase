@@ -2,6 +2,16 @@
 //!
 //! Implements the shared `DatabaseService` trait from wafer-core so D1Block
 //! can reuse the shared message handler.
+//!
+//! ## Lazy schema
+//!
+//! Mirrors `wafer-block-sqlite`'s lazy-schema semantics: reads against a
+//! missing table return empty/NotFound (instead of erroring), and the
+//! first `create()` against a collection runs `CREATE TABLE IF NOT EXISTS`
+//! to materialize the table from the data keys (TEXT columns, `id` as
+//! PRIMARY KEY). This keeps init code paths like `seed_reserved_orgs`
+//! working on a fresh D1 without external migrations — same behavior as
+//! a fresh native sqlite file.
 
 use std::collections::HashMap;
 
@@ -38,10 +48,11 @@ impl DatabaseService for D1DatabaseService {
             .bind(&[id.into()])
             .map_err(db_err)?;
 
-        let row = stmt
-            .first::<serde_json::Value>(None)
-            .await
-            .map_err(db_err)?;
+        let row = match stmt.first::<serde_json::Value>(None).await {
+            Ok(row) => row,
+            Err(e) if is_no_such_table(&e.to_string()) => return Err(DatabaseError::NotFound),
+            Err(e) => return Err(db_err(e)),
+        };
         match row {
             Some(val) => Ok(json_to_record(val)),
             None => Err(DatabaseError::NotFound),
@@ -55,14 +66,23 @@ impl DatabaseService for D1DatabaseService {
     ) -> Result<RecordList, DatabaseError> {
         let table = sanitize_ident(collection);
         let (where_sql, params) = build_where_clause(&opts.filters);
+        let limit_for_empty = if opts.limit > 0 { opts.limit } else { 100 };
 
         // Count query
         let count_sql = format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, where_sql);
         let count_stmt = self.db.prepare(&count_sql).bind(&params).map_err(db_err)?;
-        let count_row = count_stmt
-            .first::<serde_json::Value>(None)
-            .await
-            .map_err(db_err)?;
+        let count_row = match count_stmt.first::<serde_json::Value>(None).await {
+            Ok(row) => row,
+            Err(e) if is_no_such_table(&e.to_string()) => {
+                return Ok(RecordList {
+                    records: Vec::new(),
+                    total_count: 0,
+                    page: 1,
+                    page_size: limit_for_empty,
+                });
+            }
+            Err(e) => return Err(db_err(e)),
+        };
         let total_count = count_row
             .and_then(|v| v.get("cnt").and_then(|c| c.as_i64()))
             .unwrap_or(0);
@@ -116,15 +136,25 @@ impl DatabaseService for D1DatabaseService {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
-        let mut columns = vec!["id".to_string()];
-        let mut placeholders = vec!["?".to_string()];
-        let mut params: Vec<JsValue> = vec![id.clone().into()];
-
         let mut data = data;
         data.entry("created_at".to_string())
             .or_insert_with(|| serde_json::Value::String(now.clone()));
         data.entry("updated_at".to_string())
             .or_insert_with(|| serde_json::Value::String(now));
+
+        // Lazy schema: materialize the table on first insert. Mirrors the
+        // native sqlite service. The `id` column gets PRIMARY KEY; every
+        // other key from `data` becomes a TEXT column.
+        let ddl = ensure_table_sql(&table, data.keys().map(|k| k.as_str()));
+        self.db
+            .prepare(&ddl)
+            .run()
+            .await
+            .map_err(|e| db_err(format!("ensure_table {}: {e}", table)))?;
+
+        let mut columns = vec!["id".to_string()];
+        let mut placeholders = vec!["?".to_string()];
+        let mut params: Vec<JsValue> = vec![id.clone().into()];
 
         for (key, val) in &data {
             columns.push(sanitize_ident(key));
@@ -205,14 +235,18 @@ impl DatabaseService for D1DatabaseService {
 
         let sql = format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, where_sql);
 
-        let row = self
+        let row = match self
             .db
             .prepare(&sql)
             .bind(&params)
             .map_err(db_err)?
             .first::<serde_json::Value>(None)
             .await
-            .map_err(db_err)?;
+        {
+            Ok(row) => row,
+            Err(e) if is_no_such_table(&e.to_string()) => return Ok(0),
+            Err(e) => return Err(db_err(e)),
+        };
 
         Ok(row
             .and_then(|v| v.get("cnt").and_then(|c| c.as_i64()))
@@ -234,14 +268,18 @@ impl DatabaseService for D1DatabaseService {
             col, table, where_sql
         );
 
-        let row = self
+        let row = match self
             .db
             .prepare(&sql)
             .bind(&params)
             .map_err(db_err)?
             .first::<serde_json::Value>(None)
             .await
-            .map_err(db_err)?;
+        {
+            Ok(row) => row,
+            Err(e) if is_no_such_table(&e.to_string()) => return Ok(0.0),
+            Err(e) => return Err(db_err(e)),
+        };
 
         Ok(row
             .and_then(|v| v.get("s").and_then(|s| s.as_f64()))
@@ -429,6 +467,47 @@ fn db_err(e: impl std::fmt::Display) -> DatabaseError {
     DatabaseError::Internal(e.to_string())
 }
 
+/// Build the `CREATE TABLE IF NOT EXISTS` DDL for lazy schema
+/// materialization. Mirrors `wafer-block-sqlite::ensure_table`: TEXT for
+/// every column; `id` is PRIMARY KEY (added if not in the data keys).
+///
+/// Pure function so it can be unit-tested without a D1 instance.
+pub(crate) fn ensure_table_sql<'a>(
+    table: &str,
+    data_keys: impl IntoIterator<Item = &'a str>,
+) -> String {
+    let safe_table = sanitize_ident(table);
+    let mut col_defs: Vec<String> = Vec::new();
+    let mut has_id = false;
+    for key in data_keys {
+        let safe_key = sanitize_ident(key);
+        if key == "id" {
+            col_defs.insert(0, "id TEXT PRIMARY KEY".to_string());
+            has_id = true;
+        } else {
+            col_defs.push(format!("{safe_key} TEXT"));
+        }
+    }
+    if !has_id {
+        col_defs.insert(0, "id TEXT PRIMARY KEY".to_string());
+    }
+    format!(
+        "CREATE TABLE IF NOT EXISTS {} ({})",
+        safe_table,
+        col_defs.join(", ")
+    )
+}
+
+/// Whether a D1 error message indicates the target table doesn't exist.
+/// D1 surfaces SQLite's `no such table: X` verbatim through the JsValue
+/// error; we string-match because the `worker::Error` type doesn't expose
+/// SQLite's structured error code.
+///
+/// Pure function so it can be unit-tested.
+pub(crate) fn is_no_such_table(msg: &str) -> bool {
+    msg.contains("no such table")
+}
+
 /// Convert a D1 result row (as JSON) into a Record.
 fn json_to_record(val: serde_json::Value) -> Record {
     if let serde_json::Value::Object(mut map) = val {
@@ -448,3 +527,11 @@ fn json_to_record(val: serde_json::Value) -> Record {
         }
     }
 }
+
+// Note: unit tests for `ensure_table_sql` and `is_no_such_table` are
+// omitted because `solobase-cloudflare` only compiles on
+// `wasm32-unknown-unknown` (the R2/D1 services hold `!Send` JsFutures).
+// `cargo test -p solobase-cloudflare` errors before reaching the test
+// module. End-to-end validation comes from a real CF deploy against an
+// empty D1: registry-block init must seed the reserved orgs without
+// erroring on "no such table".
