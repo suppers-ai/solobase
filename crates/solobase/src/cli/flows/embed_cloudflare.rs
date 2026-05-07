@@ -78,7 +78,7 @@ pub async fn serve(repo_root: &Path, release: bool, port: Option<u16>) -> Result
 
 pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {
     let cfg = env::load(repo_root)?;
-    let _ = env::require_deploy_env(&cfg)?; // validates account_id + CLOUDFLARE_API_TOKEN
+    let _ = env::require_api_token()?; // account_id already validated by load()
 
     build(repo_root, release).await?;
 

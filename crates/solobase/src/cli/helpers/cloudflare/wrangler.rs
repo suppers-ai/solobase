@@ -1,12 +1,16 @@
 //! wrangler.toml generation + override merging.
+//!
+//! [`CloudflareConfig`] is the *resolved* shape consumed by [`generate`].
+//! Parsing solobase.toml + applying env-var overlays lives in
+//! [`super::env`], which produces this type.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct CloudflareConfig {
+    pub account_id: String,
     pub worker_name: String,
     pub compatibility_date: String,
     pub d1: D1Config,
@@ -14,18 +18,16 @@ pub struct CloudflareConfig {
     /// Path (relative to consumer repo root) to a TOML file whose contents
     /// are deep-merged over the generated defaults. None means "no overrides."
     pub wrangler_overrides_path: Option<PathBuf>,
-    /// Optional; falls back to env CLOUDFLARE_ACCOUNT_ID at deploy time.
-    pub account_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct D1Config {
     pub binding: String,
     pub database_name: String,
     pub database_id: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct R2Config {
     pub binding: String,
     pub bucket_name: String,

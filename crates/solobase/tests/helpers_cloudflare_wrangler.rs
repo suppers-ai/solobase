@@ -7,6 +7,7 @@ use tempfile::tempdir;
 
 fn sample_cfg() -> CloudflareConfig {
     CloudflareConfig {
+        account_id: "test-acct".into(),
         worker_name: "wafer-site".into(),
         compatibility_date: "2026-05-01".into(),
         d1: D1Config {
@@ -19,7 +20,6 @@ fn sample_cfg() -> CloudflareConfig {
             bucket_name: "wafer-site-assets".into(),
         },
         wrangler_overrides_path: None,
-        account_id: None,
     }
 }
 

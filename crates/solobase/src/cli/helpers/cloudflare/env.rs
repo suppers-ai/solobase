@@ -1,20 +1,53 @@
-//! Resolve the [cloudflare] section from solobase.toml + env vars.
+//! Resolve the `[cloudflare]` section from solobase.toml + env vars.
+//!
+//! Resolution rule for env-overlayable fields: **env > toml > error**.
+//! That makes clone-and-deploy work: a fresh checkout has no deployer
+//! identifiers committed, and a `.env` supplies them at deploy time.
+//!
+//! Bindings (`d1.binding`, `r2.binding`) stay toml-only because they're
+//! code contracts — the worker reads `env.DB` / `env.STORAGE` by exact
+//! name, so changing one without changing the other breaks the worker.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 
-use super::wrangler::CloudflareConfig;
+use super::wrangler::{CloudflareConfig, D1Config, R2Config};
+
+/// Toml-shaped, pre-resolution. Every field that can be supplied via env
+/// is `Option<String>`.
+#[derive(Debug, Deserialize)]
+pub struct RawCloudflareConfig {
+    pub account_id: Option<String>,
+    pub worker_name: Option<String>,
+    pub compatibility_date: Option<String>,
+    pub d1: RawD1Config,
+    pub r2: RawR2Config,
+    pub wrangler_overrides_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RawD1Config {
+    pub binding: String,
+    pub database_name: Option<String>,
+    pub database_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RawR2Config {
+    pub binding: String,
+    pub bucket_name: Option<String>,
+}
 
 #[derive(Debug, Deserialize)]
 struct SolobaseTomlPartial {
-    cloudflare: Option<CloudflareConfig>,
+    cloudflare: Option<RawCloudflareConfig>,
 }
 
-/// Load `[cloudflare]` from `<repo_root>/solobase.toml`. Errors with a
-/// clear message if the file or section is missing.
-pub fn load(repo_root: &Path) -> Result<CloudflareConfig> {
+/// Parse `<repo_root>/solobase.toml` and return the unresolved `[cloudflare]`
+/// section. Errors with a clear message if the file or section is missing.
+pub fn parse(repo_root: &Path) -> Result<RawCloudflareConfig> {
     let path = repo_root.join("solobase.toml");
     let raw = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
     let parsed: SolobaseTomlPartial =
@@ -28,23 +61,90 @@ pub fn load(repo_root: &Path) -> Result<CloudflareConfig> {
     })
 }
 
-/// Validate that environment variables required for `deploy` are set.
-/// Returns the (account_id, api_token) pair on success.
-pub fn require_deploy_env(cfg: &CloudflareConfig) -> Result<(String, String)> {
-    let account_id = cfg
-        .account_id
-        .clone()
-        .or_else(|| std::env::var("CLOUDFLARE_ACCOUNT_ID").ok())
-        .ok_or_else(|| {
-            anyhow!(
-                "missing account_id: set [cloudflare.account_id] in solobase.toml \
-                 or env CLOUDFLARE_ACCOUNT_ID"
-            )
-        })?;
-    let api_token = std::env::var("CLOUDFLARE_API_TOKEN").map_err(|_| {
+impl RawCloudflareConfig {
+    /// Apply env-var overlay and validate every required field is present.
+    /// `env` is a getter so callers (and tests) can inject any source.
+    pub fn resolve<F: Fn(&str) -> Option<String>>(self, env: F) -> Result<CloudflareConfig> {
+        let account_id = pick(
+            env("CLOUDFLARE_ACCOUNT_ID"),
+            self.account_id,
+            "account_id",
+            "CLOUDFLARE_ACCOUNT_ID",
+        )?;
+        let worker_name = pick(
+            env("SOLOBASE_CLOUDFLARE_WORKER_NAME"),
+            self.worker_name,
+            "worker_name",
+            "SOLOBASE_CLOUDFLARE_WORKER_NAME",
+        )?;
+        let compatibility_date = pick(
+            env("SOLOBASE_CLOUDFLARE_COMPATIBILITY_DATE"),
+            self.compatibility_date,
+            "compatibility_date",
+            "SOLOBASE_CLOUDFLARE_COMPATIBILITY_DATE",
+        )?;
+        let d1_database_name = pick(
+            env("SOLOBASE_CLOUDFLARE_D1_DATABASE_NAME"),
+            self.d1.database_name,
+            "d1.database_name",
+            "SOLOBASE_CLOUDFLARE_D1_DATABASE_NAME",
+        )?;
+        let d1_database_id = pick(
+            env("SOLOBASE_CLOUDFLARE_D1_DATABASE_ID"),
+            self.d1.database_id,
+            "d1.database_id",
+            "SOLOBASE_CLOUDFLARE_D1_DATABASE_ID",
+        )?;
+        let r2_bucket_name = pick(
+            env("SOLOBASE_CLOUDFLARE_R2_BUCKET_NAME"),
+            self.r2.bucket_name,
+            "r2.bucket_name",
+            "SOLOBASE_CLOUDFLARE_R2_BUCKET_NAME",
+        )?;
+        Ok(CloudflareConfig {
+            account_id,
+            worker_name,
+            compatibility_date,
+            d1: D1Config {
+                binding: self.d1.binding,
+                database_name: d1_database_name,
+                database_id: d1_database_id,
+            },
+            r2: R2Config {
+                binding: self.r2.binding,
+                bucket_name: r2_bucket_name,
+            },
+            wrangler_overrides_path: self.wrangler_overrides_path,
+        })
+    }
+}
+
+fn pick(
+    env_val: Option<String>,
+    toml_val: Option<String>,
+    toml_key: &str,
+    env_var: &str,
+) -> Result<String> {
+    env_val.or(toml_val).ok_or_else(|| {
+        anyhow!(
+            "missing required cloudflare config: set [cloudflare.{toml_key}] in solobase.toml \
+             or env {env_var}"
+        )
+    })
+}
+
+/// Production entry point — parse + resolve via `std::env::var`.
+pub fn load(repo_root: &Path) -> Result<CloudflareConfig> {
+    let raw = parse(repo_root)?;
+    raw.resolve(|name| std::env::var(name).ok())
+}
+
+/// Validate that `CLOUDFLARE_API_TOKEN` is set. Required for `deploy`,
+/// not for `build`/`serve`.
+pub fn require_api_token() -> Result<String> {
+    std::env::var("CLOUDFLARE_API_TOKEN").map_err(|_| {
         anyhow!(
             "missing env CLOUDFLARE_API_TOKEN — required for `solobase deploy --target cloudflare`"
         )
-    })?;
-    Ok((account_id, api_token))
+    })
 }
