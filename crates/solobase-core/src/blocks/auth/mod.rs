@@ -712,6 +712,15 @@ impl Block for AuthBlock {
         event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
+            // Apply auth-block schema migrations idempotently. Migrations
+            // route DDL through `db::ddl` (permissive `__ddl__` WRAP
+            // resource) so non-admin callers can boot under WRAP — this is
+            // the regression that closed PR #90.
+            crate::blocks::auth::migrations::apply(ctx)
+                .await
+                .map_err(|e| {
+                    WaferError::new(ErrorCode::INTERNAL, format!("auth migrations: {e}"))
+                })?;
             seed_admin_user(ctx).await;
         }
         Ok(())
