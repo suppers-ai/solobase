@@ -1,3 +1,9 @@
+// audit-allow-file: admin custom-tables — table names are user-defined at
+// runtime via the admin UI, so they don't follow the {org}__{block}__
+// convention that the static audit relies on. Authority is the admin role
+// itself (already required by the dispatcher); WRAP-grant coverage is not
+// the right gate for this surface.
+
 use std::collections::HashMap;
 
 use wafer_core::clients::{

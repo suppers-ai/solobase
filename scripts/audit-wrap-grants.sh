@@ -28,6 +28,15 @@
 #     only checks Database access. Those grant types follow different rules.
 #   - Tables outside the `{org}__{block}__` convention (none currently exist
 #     in solobase-core but flagged if found).
+#
+# Pragmas to silence individual findings (use sparingly, always with a reason):
+#   // audit-allow: <reason>          — preceding line: skips one db::* callsite
+#   // audit-allow-file: <reason>     — top of file (first 30 lines): skips all
+#                                       db::* callsites in that file
+#
+# Use cases: legacy migrations probing renamed-block tables, generic helpers
+# whose tables are passed in by callers, runtime-built table names. Reason is
+# required after the colon — the audit isn't supposed to be silenced silently.
 
 set -euo pipefail
 
@@ -57,7 +66,20 @@ declare -A CONST_VALUE          # bare_name -> value (latest seen — global fal
 declare -A FILE_CONST_VALUE     # "${file}::${bare_name}" -> value (per-file definitions)
 declare -A FILE_CONST_NAMES     # file -> space-separated list of locally-defined names
 declare -A FILE_USE_ALIAS       # "${file}::${alias}" -> source_name (from `use ... as alias`)
+declare -A FILE_USE_BLOCK       # "${file}::${alias}" -> block_name (path of the `use` statement, when known)
 declare -A SIBLING_CONST        # "${dir}::${name}" -> value (for `super::NAME` lookups)
+declare -A BLOCK_CONST          # "${block_name}::${name}" -> value (disambiguates colliding bare names across blocks)
+
+# Strip the absolute prefix from a file path to get the block directory name.
+# e.g. crates/solobase-core/src/blocks/admin/mod.rs   -> admin
+#      crates/solobase-core/src/blocks/admin/pages/x.rs -> admin
+#      crates/solobase-core/src/blocks/network.rs    -> network
+file_to_block_name() {
+  local path="$1"
+  local rel="${path#$BLOCKS_DIR/}"
+  local first="${rel%%/*}"
+  echo "${first%.rs}"
+}
 
 while IFS= read -r line; do
   # Format: file:lineno:    pub const NAME: &str = "VALUE";
@@ -74,6 +96,11 @@ while IFS= read -r line; do
     # Index the const at the directory level so siblings can look it up via `super::NAME`.
     dir="$(dirname "$file")"
     SIBLING_CONST["${dir}::${name}"]="$value"
+    # Also index by block name so `crate::blocks::BLOCK::NAME` lookups
+    # disambiguate when the same bare name exists in multiple blocks
+    # (e.g. `VARIABLES_COLLECTION` exists in both admin and products).
+    block_name="$(file_to_block_name "$file")"
+    BLOCK_CONST["${block_name}::${name}"]="$value"
   fi
 # Anchor at start-of-line so we skip function-scoped constants like
 #   `        const PROVIDERS_COLLECTION = "..."`
@@ -141,12 +168,36 @@ done < <(grep -rEn "^use[[:space:]]" "$BLOCKS_DIR" 2>/dev/null || true)
 # Use grep -oE per-file to extract every match (a single line can contain
 # multiple alias pairs comma-separated inside one brace import).
 while IFS= read -r file; do
+  # First pass: pick up path-qualified aliases like `BLOCK::NAME as ALIAS`.
+  # These also record the source block so the resolver disambiguates against
+  # bare-name collisions across blocks. The pattern matches both:
+  #   `blocks::admin::VARIABLES_COLLECTION as VARIABLES`  (single-line)
+  #   `        admin::VARIABLES_COLLECTION as VARIABLES,` (nested brace,
+  #     `blocks::` is on a previous line)
+  # We accept the second by matching just `BLOCK::NAME as ALIAS` and
+  # verifying BLOCK is a real block (has BLOCK_CONST entries).
+  while IFS= read -r match; do
+    [ -z "$match" ] && continue
+    if [[ "$match" =~ ^([a-z_]+)::([A-Z_]{4,})[[:space:]]+as[[:space:]]+([A-Z_]{2,})$ ]]; then
+      src_block="${BASH_REMATCH[1]}"
+      src="${BASH_REMATCH[2]}"
+      alias="${BASH_REMATCH[3]}"
+      # Only accept if `src_block::src` is known — filters out non-block
+      # path segments like `super::FOO as BAR`.
+      if [ -n "${BLOCK_CONST[${src_block}::${src}]:-}" ]; then
+        FILE_USE_ALIAS["${file}::${alias}"]="$src"
+        FILE_USE_BLOCK["${file}::${alias}"]="$src_block"
+      fi
+    fi
+  done < <(grep -oE "[a-z_]+::[A-Z_]{4,}[[:space:]]+as[[:space:]]+[A-Z_]{2,}" "$file" 2>/dev/null || true)
+  # Second pass: bare `X as Y` for everything else (super::-style, simple aliases).
   while IFS= read -r match; do
     [ -z "$match" ] && continue
     if [[ "$match" =~ ^([A-Z_]{4,})[[:space:]]+as[[:space:]]+([A-Z_]{2,})$ ]]; then
       src="${BASH_REMATCH[1]}"
       alias="${BASH_REMATCH[2]}"
-      if [ -n "${CONST_VALUE[$src]:-}" ]; then
+      # Don't overwrite a path-qualified entry from the first pass.
+      if [ -z "${FILE_USE_ALIAS[${file}::${alias}]:-}" ] && [ -n "${CONST_VALUE[$src]:-}" ]; then
         FILE_USE_ALIAS["${file}::${alias}"]="$src"
       fi
     fi
@@ -184,15 +235,46 @@ resolve_token() {
   fi
   # Stripped bare identifier (drop `module::path::` prefix).
   local bare="${tok##*::}"
+  # 0a. `crate::blocks::BLOCK::NAME` — full path. Disambiguates colliding
+  #     bare names across blocks (e.g. `VARIABLES_COLLECTION` exists in
+  #     both admin and products).
+  if [[ "$tok" =~ blocks::([a-z_]+)::([A-Z_]+)$ ]]; then
+    local qblock="${BASH_REMATCH[1]}"
+    local qname="${BASH_REMATCH[2]}"
+    if [ -n "${BLOCK_CONST[${qblock}::${qname}]:-}" ]; then
+      echo "${BLOCK_CONST[${qblock}::${qname}]}"
+      return
+    fi
+  fi
+  # 0b. `super::SIBLING::NAME` from a top-level block file — `super` exits
+  #     to the `blocks/` parent, then `SIBLING` enters the named sibling
+  #     block. Used by grant declarations like
+  #     `ResourceGrant::read(super::auth::AUTH_BLOCK_ID, ...)`.
+  if [[ "$tok" =~ ^super::([a-z_]+)::([A-Z_]+)$ ]]; then
+    local sblock="${BASH_REMATCH[1]}"
+    local sname="${BASH_REMATCH[2]}"
+    if [ -n "${BLOCK_CONST[${sblock}::${sname}]:-}" ]; then
+      echo "${BLOCK_CONST[${sblock}::${sname}]}"
+      return
+    fi
+  fi
   # 1. Per-file definition.
   if [ -n "${FILE_CONST_VALUE[${file}::${bare}]:-}" ]; then
     echo "${FILE_CONST_VALUE[${file}::${bare}]}"
     return
   fi
-  # 2. Per-file `use ... as` alias — chase to the source name. Look in
-  #    sibling modules first, then fall through to the global map.
+  # 2. Per-file `use ... as` alias — if the alias was indexed with a
+  #    specific source block, prefer that. Otherwise chase to the source
+  #    name through sibling modules, then global.
   if [ -n "${FILE_USE_ALIAS[${file}::${bare}]:-}" ]; then
     local src="${FILE_USE_ALIAS[${file}::${bare}]}"
+    if [ -n "${FILE_USE_BLOCK[${file}::${bare}]:-}" ]; then
+      local src_block="${FILE_USE_BLOCK[${file}::${bare}]}"
+      if [ -n "${BLOCK_CONST[${src_block}::${src}]:-}" ]; then
+        echo "${BLOCK_CONST[${src_block}::${src}]}"
+        return
+      fi
+    fi
     local parent_dir="$(dirname "$file")"
     if [ -n "${SIBLING_CONST[${parent_dir}::${src}]:-}" ]; then
       echo "${SIBLING_CONST[${parent_dir}::${src}]}"
@@ -314,11 +396,46 @@ check_coverage() {
   echo "MISSING"
 }
 
-declare -i total=0 missing=0 unresolved=0 nonconv=0
+declare -i total=0 missing=0 unresolved=0 nonconv=0 allowed=0
 declare -A SEEN_PAIRS
 MISSING_LINES=()
 UNRESOLVED_LINES=()
 NONCONV_LINES=()
+ALLOWED_LINES=()
+
+# True if the file has a top-of-file `// audit-allow-file: <reason>` pragma
+# in its first 30 lines. Used for pure pass-through helper files (e.g.
+# `crud.rs` whose db::* calls all take the table name as a parameter — the
+# real audit happens at the callers).
+declare -A FILE_ALLOW_CACHE
+file_allows_audit_skip() {
+  local file="$1"
+  if [ -n "${FILE_ALLOW_CACHE[$file]:-}" ]; then
+    [ "${FILE_ALLOW_CACHE[$file]}" = "yes" ]
+    return $?
+  fi
+  if head -n 30 "$file" 2>/dev/null | grep -qE "//[[:space:]]*audit-allow-file:[[:space:]]*[^[:space:]]"; then
+    FILE_ALLOW_CACHE["$file"]="yes"
+    return 0
+  fi
+  FILE_ALLOW_CACHE["$file"]="no"
+  return 1
+}
+
+# Returns "yes" if the previous source line in $file (relative to $lineno)
+# carries a `// audit-allow:` pragma. Reason after the colon is required.
+has_allow_pragma() {
+  local file="$1" lineno="$2"
+  if [ "$lineno" -lt 2 ]; then
+    return 1
+  fi
+  local prev
+  prev="$(sed -n "$((lineno - 1))p" "$file" 2>/dev/null)"
+  if [[ "$prev" =~ //[[:space:]]*audit-allow:[[:space:]]*[^[:space:]] ]]; then
+    return 0
+  fi
+  return 1
+}
 
 while IFS= read -r line; do
   file="${line%%:*}"
@@ -336,6 +453,15 @@ while IFS= read -r line; do
     [ -n "${SEEN_PAIRS[$pair_key]:-}" ] && continue
     SEEN_PAIRS["$pair_key"]=1
     total=$((total + 1))
+    # Honor `// audit-allow: <reason>` (per-line) and `// audit-allow-file: <reason>`
+    # (top-of-file) pragmas. Used for legitimate exceptions: legacy migrations
+    # probing renamed-block tables, generic helpers whose tables are passed in
+    # by callers, runtime-built table names (e.g. vector's per-index `_meta`).
+    if file_allows_audit_skip "$file" || has_allow_pragma "$file" "$lineno"; then
+      allowed=$((allowed + 1))
+      ALLOWED_LINES+=("${file}:${lineno}: ${caller} → ${table}")
+      continue
+    fi
     if [[ "$table" == "<unresolved:"* ]]; then
       unresolved=$((unresolved + 1))
       UNRESOLVED_LINES+=("${file}:${lineno}: ${caller} → ${table}")
@@ -364,6 +490,7 @@ echo "WRAP grant audit — $(date)"
 echo
 echo "Indexed: ${#CONST_VALUE[@]} constants, ${#GRANTS[@]} grant decls,"
 echo "         ${total} unique (caller, table) pairs across db::* callsites."
+echo "         ${allowed} skipped via // audit-allow: pragmas."
 echo
 
 if [ "${#MISSING_LINES[@]}" -gt 0 ]; then

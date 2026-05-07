@@ -124,6 +124,7 @@ async fn map_index_row(ctx: &dyn Context, rec: &db::Record) -> Option<IndexRow> 
     // not in the registry's `prefixed_name` table. Counting that meta
     // table is what gives a correct per-index vector count.
     let meta_table = format!("{storage_name}_meta");
+    // audit-allow: own-block per-index meta table — `storage_name` was just read out of the vector registry (line above), so the owner is always `suppers-ai/vector`. The runtime table name is dynamic; static analysis can't see it.
     let count = db::count(ctx, &meta_table, &[]).await.unwrap_or(0);
 
     Some(IndexRow {
