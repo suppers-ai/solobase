@@ -105,11 +105,7 @@ fn site_config(settings: &HashMap<String, String>) -> SiteConfig {
 ///
 /// These match what `oauth.rs` actually reads when building the auth_url.
 /// On cloudflare the values come from D1 via `load_variables`; on native
-/// they fall through to process env via `get()`. The legacy
-/// `SOLOBASE_SHARED__AUTH__<PROVIDER>__*` triple was tied to a per-provider
-/// callback path that's no longer wired up — checking it here would cause
-/// the button to silently disappear whenever a deployment configures the
-/// modern triple correctly.
+/// they fall through to process env via `get()`.
 fn oauth_provider_configured(settings: &HashMap<String, String>, provider: &str) -> bool {
     let up = provider.to_ascii_uppercase();
     !get(
