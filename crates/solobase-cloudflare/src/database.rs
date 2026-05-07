@@ -13,7 +13,7 @@
 //! working on a fresh D1 without external migrations — same behavior as
 //! a fresh native sqlite file.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use wafer_core::interfaces::database::service::{
     Column, DatabaseError, DatabaseService, Filter, FilterOp, ListOptions, Record, RecordList,
@@ -30,6 +30,59 @@ pub struct D1DatabaseService {
 impl D1DatabaseService {
     pub fn new(db: D1Database) -> Self {
         Self { db }
+    }
+
+    /// For each key in `data` that isn't already a column on `table`,
+    /// run `ALTER TABLE ... ADD COLUMN ... TEXT`. Best-effort: errors
+    /// (e.g. "duplicate column name" from a concurrent insert that
+    /// already added the column) are silently dropped — the caller's
+    /// subsequent INSERT will surface any real schema problem.
+    ///
+    /// `table` and the data keys are assumed to have already been
+    /// run through `sanitize_ident`.
+    async fn add_missing_columns(&self, table: &str, data: &HashMap<String, serde_json::Value>) {
+        let existing = match self.list_table_columns(table).await {
+            Ok(cols) => cols,
+            // If we can't even read the schema, skip and let INSERT fail
+            // with a real message rather than masking a deeper problem.
+            Err(_) => return,
+        };
+        for key in data.keys() {
+            let safe_key = sanitize_ident(key);
+            if existing.contains(&safe_key.to_lowercase()) {
+                continue;
+            }
+            let _ = self
+                .db
+                .prepare(&format!(
+                    "ALTER TABLE {} ADD COLUMN {} TEXT",
+                    table, safe_key
+                ))
+                .run()
+                .await;
+        }
+    }
+
+    /// Names of columns currently on `table`, lowercased for
+    /// case-insensitive comparison. Returns an empty set on missing
+    /// table — callers fall back to the same behaviour as if the table
+    /// had no extra columns to skip.
+    async fn list_table_columns(&self, table: &str) -> Result<HashSet<String>, DatabaseError> {
+        let stmt = self.db.prepare(&format!("PRAGMA table_info({})", table));
+        let result = match stmt.all().await {
+            Ok(r) => r,
+            Err(e) if is_no_such_table(&e.to_string()) => return Ok(HashSet::new()),
+            Err(e) => return Err(db_err(e)),
+        };
+        let rows: Vec<serde_json::Value> = result.results().map_err(db_err)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| {
+                r.get("name")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_lowercase)
+            })
+            .collect())
     }
 }
 
@@ -151,6 +204,18 @@ impl DatabaseService for D1DatabaseService {
             .run()
             .await
             .map_err(|e| db_err(format!("ensure_table {}: {e}", table)))?;
+
+        // Schema evolution: when the table already existed (e.g. seeded
+        // with a smaller column set by an earlier insert from a different
+        // code path), `IF NOT EXISTS` is a no-op — the new keys we're
+        // about to insert wouldn't have columns. Mirror native sqlite's
+        // `ensure_table` and ALTER TABLE ADD COLUMN for every data key
+        // not already on the table. Errors are intentionally swallowed:
+        // a concurrent insert may have added the same column already
+        // (D1 surfaces "duplicate column name" in that case), and we'd
+        // rather let the subsequent INSERT either succeed or fail with
+        // a clearer message than abort here on a benign race.
+        self.add_missing_columns(&table, &data).await;
 
         let mut columns = vec!["id".to_string()];
         let mut placeholders = vec!["?".to_string()];
