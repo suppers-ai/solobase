@@ -1,37 +1,12 @@
-//! OAuth provider abstraction for the `suppers-ai/auth` block.
-//!
-//! Each concrete provider (GitHub, Google, Microsoft — landed in Cluster 2)
-//! implements [`OAuthProvider`]. Callbacks in the block's HTTP layer
-//! (Cluster 3) dispatch to the trait via the [`registry::ProviderRegistry`]
-//! built at startup from env config.
+//! OAuth provider abstraction used by [`AuthService::verify_org_admin`] for
+//! upstream membership lookups. Concrete provider implementations are
+//! injected via [`registry::ProviderRegistry::from_map`]; production currently
+//! starts with an empty registry, and tests inject fakes (`FakeGithub`,
+//! `ScriptedGithub`).
 
 use thiserror::Error;
 
-pub(super) mod github;
-pub(super) mod google;
-pub(super) mod microsoft;
-pub mod pkce;
 pub mod registry;
-
-/// Build a reqwest client with a user-agent and a sensible default timeout on
-/// native targets.
-///
-/// On wasm32 the browser's fetch API controls timeouts — `ClientBuilder::timeout`
-/// is not available there, so the `timeout` argument is silently ignored.
-pub(super) fn oauth_http_client(
-    user_agent: &str,
-    timeout: std::time::Duration,
-) -> Result<reqwest::Client, reqwest::Error> {
-    #[allow(unused_mut)]
-    let mut builder = reqwest::Client::builder().user_agent(user_agent);
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        builder = builder.timeout(timeout);
-    }
-    #[cfg(target_arch = "wasm32")]
-    let _ = timeout;
-    builder.build()
-}
 
 /// Normalised profile returned by [`OAuthProvider::exchange_code`]. Upstream
 /// GitHub/Google/Microsoft shapes collapse into this single struct so the

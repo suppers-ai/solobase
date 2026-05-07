@@ -57,7 +57,7 @@ pub const PASSWORD_MIN_LENGTH_DEFAULT: u32 = 8;
 /// Appended to the existing legacy `config_keys` list; do not duplicate or
 /// re-order with the existing vars.
 pub fn auth_config_vars() -> Vec<ConfigVar> {
-    let mut vars = vec![
+    vec![
         ConfigVar::new(
             SESSION_LIFETIME_DAYS_KEY,
             "Lifetime of a session cookie in days (applied at issuance)",
@@ -100,53 +100,7 @@ pub fn auth_config_vars() -> Vec<ConfigVar> {
             &PASSWORD_MIN_LENGTH_DEFAULT.to_string(),
         )
         .name("Password Minimum Length"),
-    ];
-    vars.extend(oauth_provider_config_vars());
-    vars
-}
-
-/// Nine `ConfigVar`s (3 providers × 3 keys each) declaring the
-/// `SOLOBASE_SHARED__AUTH__{GITHUB,GOOGLE,MICROSOFT}__{CLIENT_ID,
-/// CLIENT_SECRET,REDIRECT_URL}` triple. All optional — a provider whose
-/// triple is incomplete is simply absent from the runtime registry.
-fn oauth_provider_config_vars() -> Vec<ConfigVar> {
-    let mut out = Vec::with_capacity(9);
-    for (provider_key, provider_name) in [
-        ("GITHUB", "GitHub"),
-        ("GOOGLE", "Google"),
-        ("MICROSOFT", "Microsoft"),
-    ] {
-        out.push(
-            ConfigVar::new(
-                &format!("SOLOBASE_SHARED__AUTH__{provider_key}__CLIENT_ID"),
-                &format!("{provider_name} OAuth client ID"),
-                "",
-            )
-            .name(&format!("{provider_name} Client ID"))
-            .optional(),
-        );
-        out.push(
-            ConfigVar::new(
-                &format!("SOLOBASE_SHARED__AUTH__{provider_key}__CLIENT_SECRET"),
-                &format!("{provider_name} OAuth client secret"),
-                "",
-            )
-            .name(&format!("{provider_name} Client Secret"))
-            .input_type(InputType::Password)
-            .optional(),
-        );
-        out.push(
-            ConfigVar::new(
-                &format!("SOLOBASE_SHARED__AUTH__{provider_key}__REDIRECT_URL"),
-                &format!("{provider_name} OAuth callback URL"),
-                "",
-            )
-            .name(&format!("{provider_name} Redirect URL"))
-            .input_type(InputType::Url)
-            .optional(),
-        );
-    }
-    out
+    ]
 }
 
 /// Runtime view of the auth block's config.
@@ -296,30 +250,6 @@ mod tests {
     }
 
     #[test]
-    fn auth_config_vars_declare_all_oauth_triples() {
-        let keys: Vec<String> = auth_config_vars().iter().map(|v| v.key.clone()).collect();
-        for provider in ["GITHUB", "GOOGLE", "MICROSOFT"] {
-            for suffix in ["CLIENT_ID", "CLIENT_SECRET", "REDIRECT_URL"] {
-                let expected = format!("SOLOBASE_SHARED__AUTH__{provider}__{suffix}");
-                assert!(keys.contains(&expected), "missing {expected}");
-            }
-        }
-    }
-
-    #[test]
-    fn oauth_client_secrets_are_marked_sensitive() {
-        for provider in ["GITHUB", "GOOGLE", "MICROSOFT"] {
-            let key = format!("SOLOBASE_SHARED__AUTH__{provider}__CLIENT_SECRET");
-            let var = auth_config_vars()
-                .into_iter()
-                .find(|v| v.key == key)
-                .unwrap_or_else(|| panic!("{key} declared"));
-            assert!(var.is_sensitive(), "{key} must be sensitive");
-            assert!(var.optional, "{key} must be optional");
-        }
-    }
-
-    #[test]
     fn auth_config_vars_declares_signup_enabled_and_password_min_length() {
         let keys: Vec<String> = auth_config_vars().iter().map(|v| v.key.clone()).collect();
         assert!(keys.contains(&SIGNUP_ENABLED_KEY.to_string()));
@@ -370,20 +300,5 @@ mod tests {
     fn password_min_length_defaults_to_eight_when_unset() {
         let cfg = AuthConfig::from_env_for_test(&[]);
         assert_eq!(cfg.password_min_length, 8);
-    }
-
-    #[test]
-    fn oauth_client_ids_and_redirect_urls_are_optional_and_not_sensitive() {
-        for provider in ["GITHUB", "GOOGLE", "MICROSOFT"] {
-            for suffix in ["CLIENT_ID", "REDIRECT_URL"] {
-                let key = format!("SOLOBASE_SHARED__AUTH__{provider}__{suffix}");
-                let var = auth_config_vars()
-                    .into_iter()
-                    .find(|v| v.key == key)
-                    .unwrap_or_else(|| panic!("{key} declared"));
-                assert!(var.optional, "{key} must be optional");
-                assert!(!var.is_sensitive(), "{key} must not be sensitive");
-            }
-        }
     }
 }
