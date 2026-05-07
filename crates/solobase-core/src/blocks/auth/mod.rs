@@ -82,8 +82,12 @@ mod helpers {
             .await
             .map_err(|e| format!("Failed to create user: {e}"))?;
 
-        let admin_email =
-            config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "").await;
+        let admin_email = config_client::get_default(
+            ctx,
+            crate::blocks::auth::config::BOOTSTRAP_ADMIN_EMAIL_KEY,
+            "",
+        )
+        .await;
         let user_email = user
             .data
             .get("email")
@@ -132,19 +136,19 @@ mod helpers {
     }
 
     /// Resolve user roles, idempotently granting `admin` if the user's email
-    /// matches the configured `SUPPERS_AI__AUTH__ADMIN_EMAIL` and they don't
-    /// already have it.
+    /// matches the configured `SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL`
+    /// and they don't already have it.
     ///
     /// This closes a real footgun: roles are normally only assigned at signup
-    /// (`create_user_and_assign_role`), so changing `ADMIN_EMAIL` after a
-    /// user already exists never elevates them. With this helper, every login
-    /// re-checks the rule and grants admin once when appropriate.
+    /// (`create_user_and_assign_role`), so changing the bootstrap admin email
+    /// after a user already exists never elevates them. With this helper,
+    /// every login re-checks the rule and grants admin once when appropriate.
     ///
     /// Intentionally **upgrade-only**: never removes a role, never demotes.
-    /// Unsetting `ADMIN_EMAIL` does not revoke admin from anyone — that has
-    /// to be done explicitly via the admin UI / DB. Removing roles silently
-    /// on login would be an availability foot-gun (one typo in env locks
-    /// everyone out).
+    /// Unsetting `BOOTSTRAP_ADMIN_EMAIL` does not revoke admin from anyone —
+    /// that has to be done explicitly via the admin UI / DB. Removing roles
+    /// silently on login would be an availability foot-gun (one typo in env
+    /// locks everyone out).
     pub(super) async fn ensure_admin_role(
         ctx: &dyn Context,
         user_id: &str,
@@ -152,8 +156,12 @@ mod helpers {
     ) -> Vec<String> {
         let mut roles = get_user_roles(ctx, user_id).await;
 
-        let admin_email =
-            config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "").await;
+        let admin_email = config_client::get_default(
+            ctx,
+            crate::blocks::auth::config::BOOTSTRAP_ADMIN_EMAIL_KEY,
+            "",
+        )
+        .await;
         if admin_email.is_empty()
             || !email.eq_ignore_ascii_case(&admin_email)
             || roles.iter().any(|r| r == "admin")
@@ -172,7 +180,7 @@ mod helpers {
                 tracing::info!(
                     user_id = %user_id,
                     email = %email,
-                    "granted admin role on login (email matches ADMIN_EMAIL)"
+                    "granted admin role on login (email matches BOOTSTRAP_ADMIN_EMAIL)"
                 );
                 roles.push("admin".to_string());
             }
@@ -303,89 +311,6 @@ mod helpers {
     }
 }
 
-/// Seed a default admin user if no users exist yet.
-pub async fn seed_admin_user(ctx: &dyn Context) {
-    let count = db::count(ctx, USERS_COLLECTION, &[]).await.unwrap_or(0);
-    if count > 0 {
-        return;
-    }
-
-    let admin_email_env =
-        config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "").await;
-    let admin_email = if admin_email_env.is_empty() {
-        tracing::warn!(
-            "SUPPERS_AI__AUTH__ADMIN_EMAIL not set — seeding admin@example.com; \
-             set SUPPERS_AI__AUTH__ADMIN_EMAIL in production"
-        );
-        "admin@example.com".to_string()
-    } else {
-        admin_email_env
-    };
-    let admin_password_env =
-        config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_PASSWORD", "").await;
-
-    let (password_to_use, was_randomly_generated) = if !admin_password_env.is_empty() {
-        (admin_password_env, false)
-    } else {
-        let random_bytes = match crypto::random_bytes(ctx, 16).await {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::error!("Failed to generate random password: {e}");
-                return;
-            }
-        };
-        (hex_encode(&random_bytes), true)
-    };
-
-    let password_hash = match crypto::hash(ctx, &password_to_use).await {
-        Ok(h) => h,
-        Err(e) => {
-            tracing::error!("Failed to hash default admin password: {e}");
-            return;
-        }
-    };
-
-    let mut data = json_map(serde_json::json!({
-        "email": admin_email,
-        "password_hash": password_hash,
-        "name": "Admin",
-        "disabled": false,
-        // Seeded admins are inherently trusted — no email loop needed before
-        // first sign-in. Without this, the seeded admin would land in the
-        // "unverified" state on /b/userportal/security and the require-
-        // verification config could lock them out of their own deployment.
-        "email_verified": true
-    }));
-    super::helpers::stamp_created(&mut data);
-
-    match db::create(ctx, USERS_COLLECTION, data).await {
-        Ok(user) => {
-            let role_data = json_map(serde_json::json!({
-                "user_id": user.id,
-                "role": "admin",
-                "assigned_at": super::helpers::now_rfc3339()
-            }));
-            if let Err(e) = db::create(ctx, USER_ROLES_COLLECTION, role_data).await {
-                tracing::warn!("Failed to assign admin role to seeded user: {e}");
-            }
-            tracing::info!("==========================================================");
-            tracing::info!("Default admin user seeded:");
-            tracing::info!("  Email:    {}", admin_email);
-            if was_randomly_generated {
-                // Log password to stderr only — never persist in log aggregation
-                eprintln!("  ADMIN PASSWORD (one-time display): {}", password_to_use);
-                tracing::info!("  Password: (displayed on stderr — CHANGE IMMEDIATELY)");
-            } else {
-                tracing::info!("  Password: (set via SUPPERS_AI__AUTH__ADMIN_PASSWORD env var)");
-            }
-            tracing::info!("==========================================================");
-        }
-        Err(e) => {
-            tracing::error!("Failed to seed admin user: {e}");
-        }
-    }
-}
-
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for AuthBlock {
@@ -467,6 +392,12 @@ impl Block for AuthBlock {
                 BlockEndpoint::get("/b/auth/api/api-keys").summary("List API keys").auth(AuthLevel::Authenticated),
                 BlockEndpoint::post("/b/auth/api/api-keys").summary("Create API key").auth(AuthLevel::Authenticated),
             ])
+            // Plan A2 SOLOBASE_SHARED__AUTH__* vars (BOOTSTRAP_ADMIN_*,
+            // session lifetime, signup gate, password policy, OAuth provider
+            // triples) live in `config_vars::shared_config_vars` and must
+            // not be claimed by this block (SOLOBASE_SHARED__* belongs to
+            // the shared bucket, admin-writable). Block-scoped legacy
+            // SUPPERS_AI__AUTH__* keys remain here.
             .config_keys(vec![
                 ConfigVar::new(JWT_SECRET_KEY, "Secret key for signing auth tokens", "")
                     .name("JWT Secret")
@@ -478,9 +409,6 @@ impl Block for AuthBlock {
                     .input_type(InputType::Toggle),
                 ConfigVar::new("SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS", "Restrict signup to specific email domains (comma-separated)", "")
                     .name("Allowed Email Domains")
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__AUTH__ADMIN_EMAIL", "Email address that gets the admin role on signup", "")
-                    .name("Admin Email")
                     .optional(),
                 ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_ID", "Google OAuth client ID", "")
                     .name("Google Client ID")
@@ -501,10 +429,6 @@ impl Block for AuthBlock {
                     .optional(),
                 ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_MICROSOFT_CLIENT_SECRET", "Microsoft OAuth client secret", "")
                     .name("Microsoft Client Secret")
-                    .input_type(InputType::Password)
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__AUTH__ADMIN_PASSWORD", "Password for the default admin account", "")
-                    .name("Admin Password")
                     .input_type(InputType::Password)
                     .optional(),
                 ConfigVar::new("SUPPERS_AI__AUTH__INTERNAL_SECRET", "Secret for internal API authentication", "")
@@ -712,7 +636,24 @@ impl Block for AuthBlock {
         event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
-            seed_admin_user(ctx).await;
+            // Apply Plan A2 migrations: idempotent CREATE TABLE IF NOT EXISTS.
+            // Uses the typed db::ddl client (available to any block, not
+            // admin-only) so the browser-WASM runtime path works under WRAP
+            // enforcement.
+            crate::blocks::auth::migrations::apply(ctx)
+                .await
+                .map_err(|e| {
+                    WaferError::new(ErrorCode::INTERNAL, format!("auth migrations: {e}"))
+                })?;
+            // Bootstrap admin via env vars
+            // (SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL+PASSWORD or
+            // SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_TOKEN), writing to the
+            // Plan A2 users + local_credentials tables. Replaces the legacy
+            // seed_admin_user path which wrote inline password_hash to a
+            // different schema. Bootstrap dual-writes legacy compat fields
+            // until PR 3 migrates login.rs to repo::local_credentials.
+            let cfg = crate::blocks::auth::config::AuthConfig::from_ctx(ctx).await;
+            crate::blocks::auth::bootstrap::run(ctx, &cfg).await?;
         }
         Ok(())
     }

@@ -27,8 +27,10 @@ import { dirname } from 'node:path';
  * `crates/solobase-core/src/blocks/auth/mod.rs::build_auth_cookie`).
  */
 
-export const ADMIN_EMAIL = process.env.SUPPERS_AI__AUTH__ADMIN_EMAIL ?? 'admin@example.com';
-export const ADMIN_PASSWORD = process.env.SUPPERS_AI__AUTH__ADMIN_PASSWORD ?? 'admin123';
+export const ADMIN_EMAIL =
+  process.env.SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL ?? 'admin@example.com';
+export const ADMIN_PASSWORD =
+  process.env.SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_PASSWORD ?? 'admin123';
 
 export const ADMIN_STATE_PATH = new URL('../../.auth/admin-state.json', import.meta.url).pathname;
 

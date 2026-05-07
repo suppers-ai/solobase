@@ -81,8 +81,8 @@ jobs:
           cd /tmp
           SOLOBASE_LISTEN="127.0.0.1:8093" \
           SOLOBASE_DB_PATH="/tmp/solobase-visual-baseline.db" \
-          SUPPERS_AI__AUTH__ADMIN_EMAIL="admin@example.com" \
-          SUPPERS_AI__AUTH__ADMIN_PASSWORD="admin123" \
+          SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL="admin@example.com" \
+          SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_PASSWORD="admin123" \
           SOLOBASE_BLOCK_ENABLED="suppers-ai/userportal,suppers-ai/vector" \
             solobase > /tmp/solobase-baseline.log 2>&1 &
           echo $! > /tmp/solobase-pid

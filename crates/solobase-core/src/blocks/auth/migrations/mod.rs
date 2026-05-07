@@ -5,10 +5,12 @@
 //! Falls back to `sqlite` when the config block is not registered — the same
 //! default solobase-native applies.
 //!
-//! Statements are executed one-by-one through `wafer-run/database`'s
-//! `exec_raw` message contract. The parser splits on bare `;` outside of
-//! `--` line comments. Embedded `;` inside string literals is NOT supported —
-//! the canonical migration files don't use any.
+//! Statements are executed one-by-one through the typed `db::ddl` client
+//! (rather than `db::exec_raw`) so the call goes through the WRAP `__ddl__`
+//! gate — any block can DDL its own tables without admin privileges. The
+//! parser splits on bare `;` outside of `--` line comments. Embedded `;`
+//! inside string literals is NOT supported — the canonical migration files
+//! don't use any.
 
 use wafer_core::clients::{config, database as db};
 use wafer_run::context::Context;
@@ -57,7 +59,11 @@ pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
     Ok(())
 }
 
-/// Execute each statement in `sql` via `db::exec_raw`.
+/// Execute each statement in `sql` via `db::ddl`.
+///
+/// Uses the typed DDL client (vs. `db::exec_raw`) so the runtime gates the
+/// call as a `__ddl__` resource and any block can DDL its own
+/// `{org}__{block}__*` tables without the admin block in the loop.
 ///
 /// Statements are split on `;` outside of `--` line comments so that a
 /// `-- ...;...` comment does not end a statement prematurely. Chunks with
@@ -68,9 +74,9 @@ async fn apply_script(ctx: &dyn Context, sql: &str) -> Result<(), String> {
             continue;
         }
         let trimmed = stmt.trim();
-        db::exec_raw(ctx, trimmed, &[])
+        db::ddl(ctx, trimmed)
             .await
-            .map_err(|e| format!("exec_raw failed on `{trimmed}`: {e}"))?;
+            .map_err(|e| format!("ddl failed on `{trimmed}`: {e}"))?;
     }
     Ok(())
 }
