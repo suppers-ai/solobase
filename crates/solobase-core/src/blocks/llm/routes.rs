@@ -8,14 +8,13 @@
 //! response or a Server-Sent Events stream.
 
 use futures::StreamExt;
-use wafer_block::{
-    codec,
-    wire::llm::{
-        ChatChunk, ChatContent, ChatMessage, ChatParams, ChatRequest, ChatRole, ChunkDelta,
-        LoadModelRequest, ModelInfo, ModelStatus, StatusRequest, UnloadModelRequest,
+use wafer_core::clients::{
+    database as db,
+    llm::{
+        self as llm_client, ChatChunk, ChatContent, ChatMessage, ChatParams, ChatRequest, ChatRole,
+        ChunkDelta, LoadModelRequest, NativeTypedFrameStream, StatusRequest, UnloadModelRequest,
     },
 };
-use wafer_core::clients::database as db;
 use wafer_run::{
     context::Context,
     meta::META_RESP_CONTENT_TYPE,
@@ -134,34 +133,18 @@ async fn resolve_backend_id(
 
 /// Build the `Message` used to dispatch `llm.chat` to `wafer-run/llm`,
 /// forwarding auth metadata from the incoming request.
-fn build_chat_call_msg(original_msg: &Message) -> Message {
-    let mut call_msg = Message::new(wafer_run::common::ServiceOp::LLM_CHAT);
-    // req.action mirrors the kind for observability. The wafer-run/llm block
-    // dispatches on kind alone, but downstream inspectors key off req.action.
-    call_msg.set_meta("req.action", wafer_run::common::ServiceOp::LLM_CHAT);
-    let user_id = original_msg.user_id().to_string();
-    if !user_id.is_empty() {
-        call_msg.set_meta("auth.user_id", &user_id);
-    }
-    let user_roles = original_msg.get_meta("auth.user_roles").to_string();
-    if !user_roles.is_empty() {
-        call_msg.set_meta("auth.user_roles", &user_roles);
-    }
-    call_msg
-}
-
 /// Common prelude for both chat handlers: parse the body, persist the user
 /// message, load history, resolve provider + model, build the `ChatRequest`,
-/// and dispatch to `wafer-run/llm`.
+/// and call `wafer-run/llm` via the typed client.
 ///
-/// Returns the streaming `OutputStream` from the service on success, or a
+/// Returns the typed `ChatChunk` stream from the service on success, or a
 /// ready-to-return error stream on any failure.
 async fn dispatch_chat(
     block: &LlmBlock,
     ctx: &dyn Context,
     msg: &Message,
     input: InputStream,
-) -> Result<(String, OutputStream), OutputStream> {
+) -> Result<(String, NativeTypedFrameStream<ChatChunk>), OutputStream> {
     let raw = input.collect_to_bytes().await;
     let body: ChatRequestBody = match serde_json::from_slice(&raw) {
         Ok(b) => b,
@@ -194,9 +177,8 @@ async fn dispatch_chat(
         Err(e) => return Err(err_internal(e)),
     };
 
-    // 5. Build the service request and dispatch. The wire request is encoded
-    //    via MessagePack — the new `wafer-run/llm` handler decodes via
-    //    `codec::decode` (no JSON path).
+    // 5. Build the service request and dispatch via the typed client.
+    let _ = msg; // auth-meta propagation removed — see PR description.
     let chat_req = ChatRequest {
         backend_id,
         model,
@@ -205,21 +187,11 @@ async fn dispatch_chat(
         tools: Vec::new(),
         extra: serde_json::Value::Null,
     };
-    let payload = match codec::encode(&chat_req) {
-        Ok(p) => p,
-        Err(e) => {
-            return Err(err_internal(&format!(
-                "serialize chat request: {}",
-                e.message
-            )))
-        }
+    let stream = match llm_client::chat_stream(ctx, &chat_req).await {
+        Ok(s) => s,
+        Err(e) => return Err(err_internal(&format!("llm chat dispatch: {}", e.message))),
     };
-
-    let call_msg = build_chat_call_msg(msg);
-    let out = ctx
-        .call_block("wafer-run/llm", call_msg, InputStream::from_bytes(payload))
-        .await;
-    Ok((thread_id, out))
+    Ok((thread_id, stream))
 }
 
 /// Buffered chat handler: collects the full `ChatChunk` stream, concatenates
@@ -230,28 +202,19 @@ pub(super) async fn handle_chat(
     msg: &Message,
     input: InputStream,
 ) -> OutputStream {
-    let (thread_id, out) = match dispatch_chat(block, ctx, msg, input).await {
+    let (thread_id, mut stream) = match dispatch_chat(block, ctx, msg, input).await {
         Ok(x) => x,
         Err(err) => return err,
     };
 
-    // Drain the service stream, concatenating `ChunkDelta::Text` bytes into
-    // the assistant reply. Propagate any error terminal as a 500. Each frame
-    // from the new `wafer-run/llm` handler is one MessagePack-encoded
-    // `ChatChunk`; decode per-frame rather than buffering and decoding once
-    // (concatenating MessagePack frames yields a sequence, not a single
-    // value, so there is no "buffered" single-decode option here).
+    // Drain the typed `ChatChunk` stream, concatenating `ChunkDelta::Text`
+    // bytes into the assistant reply. Propagate any error terminal as a 500.
     let mut content = String::new();
     let mut model_used = String::new();
-    let mut body_stream = Box::pin(out.body_stream_or_error());
-    while let Some(item) = body_stream.next().await {
-        let bytes = match item {
-            Ok(b) => b,
-            Err(e) => return err_internal(&format!("llm service error: {}", e.message)),
-        };
-        let chunk: ChatChunk = match codec::decode(&bytes) {
+    while let Some(item) = stream.next().await {
+        let chunk = match item {
             Ok(c) => c,
-            Err(e) => return err_internal(&format!("decode ChatChunk: {}", e.message)),
+            Err(e) => return err_internal(&format!("llm service error: {}", e.message)),
         };
         match chunk.delta {
             ChunkDelta::Text(s) => content.push_str(&s),
@@ -296,9 +259,10 @@ pub(super) async fn handle_chat_stream(
     msg: &Message,
     input: InputStream,
 ) -> OutputStream {
-    // Run the shared prelude. On success we own the service's streaming
-    // `OutputStream`; we re-emit it as SSE with a body-level content-type.
-    let (thread_id, out) = match dispatch_chat(block, ctx, msg, input).await {
+    // Run the shared prelude. On success we own the typed `ChatChunk`
+    // stream; we re-emit each chunk as JSON SSE with a body-level
+    // content-type.
+    let (thread_id, stream) = match dispatch_chat(block, ctx, msg, input).await {
         Ok(x) => x,
         Err(err) => return err,
     };
@@ -332,9 +296,9 @@ pub(super) async fn handle_chat_stream(
             })
             .await;
 
-        let mut body_stream = Box::pin(out.body_stream_or_error());
-        while let Some(item) = body_stream.next().await {
-            let Ok(bytes) = item else {
+        let mut stream = stream;
+        while let Some(item) = stream.next().await {
+            let Ok(chunk) = item else {
                 // Mid-stream service error: emit an `event: error` frame then
                 // stop. The consumer sees a final SSE event instead of an
                 // abrupt disconnect.
@@ -342,23 +306,12 @@ pub(super) async fn handle_chat_stream(
                 let _ = sink.send_chunk(frame).await;
                 return;
             };
-            // Each frame is a MessagePack-encoded `ChatChunk`. Decode and
-            // re-encode as JSON for the SSE wire — clients consume JSON.
-            let chunk: ChatChunk = match codec::decode(&bytes) {
-                Ok(c) => c,
-                Err(_) => {
-                    let frame = b"event: error\ndata: {}\n\n".to_vec();
-                    let _ = sink.send_chunk(frame).await;
-                    return;
-                }
-            };
-            let json = match serde_json::to_vec(&chunk) {
-                Ok(j) => j,
-                Err(_) => {
-                    let frame = b"event: error\ndata: {}\n\n".to_vec();
-                    let _ = sink.send_chunk(frame).await;
-                    return;
-                }
+            // Re-encode the typed chunk as JSON for the SSE wire — clients
+            // consume JSON.
+            let Ok(json) = serde_json::to_vec(&chunk) else {
+                let frame = b"event: error\ndata: {}\n\n".to_vec();
+                let _ = sink.send_chunk(frame).await;
+                return;
             };
             let mut frame = Vec::with_capacity(json.len() + 8);
             frame.extend_from_slice(b"data: ");
@@ -696,20 +649,6 @@ fn extract_model_path(msg: &Message) -> (String, String) {
 
 /// Build a `Message` to dispatch an LLM-service op, forwarding auth metadata
 /// from the incoming HTTP request.
-fn build_llm_service_msg(original: &Message, kind: &'static str) -> Message {
-    let mut call_msg = Message::new(kind);
-    call_msg.set_meta("req.action", kind);
-    let user_id = original.user_id().to_string();
-    if !user_id.is_empty() {
-        call_msg.set_meta("auth.user_id", &user_id);
-    }
-    let user_roles = original.get_meta("auth.user_roles").to_string();
-    if !user_roles.is_empty() {
-        call_msg.set_meta("auth.user_roles", &user_roles);
-    }
-    call_msg
-}
-
 /// `GET /b/llm/api/models` — aggregated list across all registered LLM
 /// backends. Authenticated (any logged-in user).
 pub(super) async fn list_models(
@@ -717,21 +656,10 @@ pub(super) async fn list_models(
     ctx: &dyn Context,
     _msg: &Message,
 ) -> OutputStream {
-    let call_msg = build_llm_service_msg(_msg, wafer_run::common::ServiceOp::LLM_LIST_MODELS);
-    let out = ctx
-        .call_block("wafer-run/llm", call_msg, InputStream::empty())
-        .await;
-    let buf = match out.collect_buffered().await {
-        Ok(b) => b,
-        Err(e) => return err_internal(&format!("llm list_models failed: {e:?}")),
-    };
-    // The service block returns a MessagePack-encoded `Vec<ModelInfo>` in
-    // a single buffered chunk. Decode then re-serialize to JSON for the UI.
-    let models: Vec<ModelInfo> = match codec::decode(&buf.body) {
-        Ok(v) => v,
-        Err(e) => return err_internal(&format!("decode list_models: {}", e.message)),
-    };
-    ok_json(&serde_json::json!({ "models": models }))
+    match llm_client::list_models(ctx).await {
+        Ok(models) => ok_json(&serde_json::json!({ "models": models })),
+        Err(e) => err_internal(&format!("llm list_models failed: {}", e.message)),
+    }
 }
 
 /// `GET /b/llm/api/models/:backend_id/:model_id/status` — per-(backend, model)
@@ -746,27 +674,13 @@ pub(super) async fn model_status(
         return err_bad_request("Missing backend_id or model_id");
     }
     let req = StatusRequest {
-        backend_id: backend_id.clone(),
-        model_id: model_id.clone(),
+        backend_id,
+        model_id,
     };
-    let body = match codec::encode(&req) {
-        Ok(b) => b,
-        Err(e) => return err_internal(&format!("serialize status req: {}", e.message)),
-    };
-
-    let call_msg = build_llm_service_msg(msg, wafer_run::common::ServiceOp::LLM_STATUS);
-    let out = ctx
-        .call_block("wafer-run/llm", call_msg, InputStream::from_bytes(body))
-        .await;
-    let buf = match out.collect_buffered().await {
-        Ok(b) => b,
-        Err(e) => return err_internal(&format!("llm status failed: {e:?}")),
-    };
-    let status: ModelStatus = match codec::decode(&buf.body) {
-        Ok(v) => v,
-        Err(e) => return err_internal(&format!("decode status: {}", e.message)),
-    };
-    ok_json(&serde_json::json!({ "status": status }))
+    match llm_client::status(ctx, &req).await {
+        Ok(status) => ok_json(&serde_json::json!({ "status": status })),
+        Err(e) => err_internal(&format!("llm status failed: {}", e.message)),
+    }
 }
 
 /// `POST /b/llm/api/models/:backend_id/:model_id/load` — start a model
@@ -784,18 +698,14 @@ pub(super) async fn load_model(
         return err_bad_request("Missing backend_id or model_id");
     }
     let req = LoadModelRequest {
-        backend_id: backend_id.clone(),
-        model_id: model_id.clone(),
+        backend_id,
+        model_id,
     };
-    let body = match codec::encode(&req) {
-        Ok(b) => b,
-        Err(e) => return err_internal(&format!("serialize load req: {}", e.message)),
+    let stream = match llm_client::load_model_stream(ctx, &req).await {
+        Ok(s) => s,
+        Err(e) => return err_internal(&format!("llm load_model failed: {}", e.message)),
     };
-
-    let call_msg = build_llm_service_msg(msg, wafer_run::common::ServiceOp::LLM_LOAD_MODEL);
-    let out = ctx
-        .call_block("wafer-run/llm", call_msg, InputStream::from_bytes(body))
-        .await;
+    let _ = msg;
 
     OutputStream::from_producer(move |sink, _cancel| async move {
         let _ = sink
@@ -805,30 +715,18 @@ pub(super) async fn load_model(
             })
             .await;
 
-        let mut body_stream = Box::pin(out.body_stream_or_error());
-        while let Some(item) = body_stream.next().await {
-            let Ok(bytes) = item else {
+        let mut stream = stream;
+        while let Some(item) = stream.next().await {
+            let Ok(progress) = item else {
                 let frame = b"event: error\ndata: {}\n\n".to_vec();
                 let _ = sink.send_chunk(frame).await;
                 return;
             };
-            // Each frame is a MessagePack-encoded `LoadProgress`. Decode and
-            // re-encode as JSON for the SSE wire.
-            let progress: wafer_block::wire::llm::LoadProgress = match codec::decode(&bytes) {
-                Ok(p) => p,
-                Err(_) => {
-                    let frame = b"event: error\ndata: {}\n\n".to_vec();
-                    let _ = sink.send_chunk(frame).await;
-                    return;
-                }
-            };
-            let json = match serde_json::to_vec(&progress) {
-                Ok(j) => j,
-                Err(_) => {
-                    let frame = b"event: error\ndata: {}\n\n".to_vec();
-                    let _ = sink.send_chunk(frame).await;
-                    return;
-                }
+            // Re-encode the typed progress event as JSON for the SSE wire.
+            let Ok(json) = serde_json::to_vec(&progress) else {
+                let frame = b"event: error\ndata: {}\n\n".to_vec();
+                let _ = sink.send_chunk(frame).await;
+                return;
             };
             let mut frame = Vec::with_capacity(json.len() + 8);
             frame.extend_from_slice(b"data: ");
@@ -857,21 +755,13 @@ pub(super) async fn unload_model(
         return err_bad_request("Missing backend_id or model_id");
     }
     let req = UnloadModelRequest {
-        backend_id: backend_id.clone(),
-        model_id: model_id.clone(),
+        backend_id,
+        model_id,
     };
-    let body = match codec::encode(&req) {
-        Ok(b) => b,
-        Err(e) => return err_internal(&format!("serialize unload req: {}", e.message)),
-    };
-
-    let call_msg = build_llm_service_msg(msg, wafer_run::common::ServiceOp::LLM_UNLOAD_MODEL);
-    let out = ctx
-        .call_block("wafer-run/llm", call_msg, InputStream::from_bytes(body))
-        .await;
-    match out.collect_buffered().await {
-        Ok(_) => ok_json(&serde_json::json!({ "unloaded": true })),
-        Err(e) => err_internal(&format!("llm unload_model failed: {e:?}")),
+    let _ = msg;
+    match llm_client::unload_model(ctx, &req).await {
+        Ok(()) => ok_json(&serde_json::json!({ "unloaded": true })),
+        Err(e) => err_internal(&format!("llm unload_model failed: {}", e.message)),
     }
 }
 

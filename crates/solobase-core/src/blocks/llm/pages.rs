@@ -10,7 +10,7 @@ use wafer_core::clients::{
     config, database as db,
     database::{Filter, FilterOp, ListOptions, SortField},
 };
-use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_run::{context::Context, types::*, OutputStream};
 
 use super::SETTINGS_COLLECTION;
 use crate::{
@@ -558,33 +558,12 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 /// Returns an empty vec on any failure — the picker falls back to the
 /// "Default (remote)" option and the user can still send a request.
 async fn load_models(ctx: &dyn Context, original_msg: &Message) -> Vec<serde_json::Value> {
-    let mut call_msg = Message::new(wafer_run::common::ServiceOp::LLM_LIST_MODELS);
-    call_msg.set_meta("req.action", wafer_run::common::ServiceOp::LLM_LIST_MODELS);
-    let user_id = original_msg.user_id().to_string();
-    if !user_id.is_empty() {
-        call_msg.set_meta("auth.user_id", &user_id);
-    }
-    let user_roles = original_msg.get_meta("auth.user_roles").to_string();
-    if !user_roles.is_empty() {
-        call_msg.set_meta("auth.user_roles", &user_roles);
-    }
-
-    let out = ctx
-        .call_block("wafer-run/llm", call_msg, InputStream::empty())
-        .await;
-    let Ok(buf) = out.collect_buffered().await else {
+    let _ = original_msg;
+    // The picker keys off `model_id` / `display_name` / `backend_id`. A
+    // dispatch failure is treated as "no models" so the picker still renders —
+    // the user can fall back to the default remote option.
+    let Ok(models) = wafer_core::clients::llm::list_models(ctx).await else {
         return vec![];
-    };
-    // The service block returns a MessagePack-encoded `Vec<ModelInfo>`.
-    // Decode then convert each model into a JSON value for template
-    // rendering (the picker keys off `model_id` / `display_name` /
-    // `backend_id`). A decode failure is treated as "no models" so the
-    // picker still renders — the user can fall back to the default remote
-    // option.
-    let models: Vec<wafer_block::wire::llm::ModelInfo> = match wafer_block::codec::decode(&buf.body)
-    {
-        Ok(v) => v,
-        Err(_) => return vec![],
     };
     models
         .into_iter()
