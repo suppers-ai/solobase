@@ -95,21 +95,36 @@ fn site_config(settings: &HashMap<String, String>) -> SiteConfig {
     }
 }
 
-/// True if the provider's full credential triple (CLIENT_ID + CLIENT_SECRET
-/// + REDIRECT_URL) is present in process env. Mirrors the check used by
-/// `providers::registry::build_providers`, so the login page only surfaces
-/// buttons that will actually succeed when clicked.
-fn oauth_provider_configured(provider: &str) -> bool {
+/// True if the provider has all three credentials needed for the modern
+/// single-callback OAuth flow (`/auth/oauth/login`, `/auth/oauth/callback`):
+///
+/// - `SUPPERS_AI__AUTH__OAUTH_<PROVIDER>_CLIENT_ID`
+/// - `SUPPERS_AI__AUTH__OAUTH_<PROVIDER>_CLIENT_SECRET`
+/// - `SUPPERS_AI__AUTH__OAUTH_REDIRECT_URI` (single URI, provider-agnostic;
+///    the provider is encoded in the signed `state` JWT)
+///
+/// These match what `oauth.rs` actually reads when building the auth_url.
+/// On cloudflare the values come from D1 via `load_variables`; on native
+/// they fall through to process env via `get()`. The legacy
+/// `SOLOBASE_SHARED__AUTH__<PROVIDER>__*` triple was tied to a per-provider
+/// callback path that's no longer wired up — checking it here would cause
+/// the button to silently disappear whenever a deployment configures the
+/// modern triple correctly.
+fn oauth_provider_configured(settings: &HashMap<String, String>, provider: &str) -> bool {
     let up = provider.to_ascii_uppercase();
-    !std::env::var(format!("SOLOBASE_SHARED__AUTH__{up}__CLIENT_ID"))
-        .unwrap_or_default()
+    !get(
+        settings,
+        &format!("SUPPERS_AI__AUTH__OAUTH_{up}_CLIENT_ID"),
+        "",
+    )
+    .is_empty()
+        && !get(
+            settings,
+            &format!("SUPPERS_AI__AUTH__OAUTH_{up}_CLIENT_SECRET"),
+            "",
+        )
         .is_empty()
-        && !std::env::var(format!("SOLOBASE_SHARED__AUTH__{up}__CLIENT_SECRET"))
-            .unwrap_or_default()
-            .is_empty()
-        && !std::env::var(format!("SOLOBASE_SHARED__AUTH__{up}__REDIRECT_URL"))
-            .unwrap_or_default()
-            .is_empty()
+        && !get(settings, "SUPPERS_AI__AUTH__OAUTH_REDIRECT_URI", "").is_empty()
 }
 
 /// Display label for an OAuth provider button.
@@ -300,7 +315,7 @@ pub async fn login_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         ["github", "google", "microsoft"]
             .iter()
             .copied()
-            .filter(|p| oauth_provider_configured(p))
+            .filter(|p| oauth_provider_configured(&settings, p))
             .collect()
     } else {
         Vec::new()
