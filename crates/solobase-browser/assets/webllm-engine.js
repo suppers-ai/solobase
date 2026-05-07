@@ -1,16 +1,20 @@
-// webllm-engine.js — page-side WebLLM engine + SW postMessage bridge.
+// webllm-engine.js — page-side WebLLM engine.
 //
-// Runs in the window (WebGPU is window-only). Receives requests from the SW
-// via navigator.serviceWorker.message, runs WebLLM, streams frames back.
+// Runs in the window (WebGPU is window-only). Two consumers:
 //
-// Page → SW message shapes (see bridge.js for the consuming side):
+// 1. Page-direct load (the only working path on Chrome due to its ~5-min
+//    FetchEvent cap): import { loadEngine } from '/webllm-engine.js' and
+//    call it from a window-side script.
+//
+// 2. SW-routed chat / unload / cancel: receives postMessages from the SW via
+//    navigator.serviceWorker.message, runs WebLLM, streams frames back.
+//
+// SW → Page message shapes (see bridge.js for the consuming side):
 //   { type: 'llm-unload-response', id, error? }            // one-shot
 //   { type: 'llm-stream-frame',    id, kind, payload? }    // streams
-//     `kind` ∈ {'chunk','progress','done','error'};
-//     create-engine emits 'progress' frames during the cold model download
-//     and a terminal 'done' / 'error'; chat emits 'chunk' frames per token
+//     `kind` ∈ {'chunk','done','error'}; chat emits 'chunk' frames per token
 //     and a terminal 'done' / 'error'. The unified envelope means one
-//     dispatch arm in bridge.js and one Rust pump function for both ops.
+//     dispatch arm in bridge.js and one Rust pump function.
 //
 // The @mlc-ai/web-llm import is lazy: a top-level static import would block
 // DOMContentLoaded for every page that loads this script (it's a multi-MB
@@ -114,6 +118,40 @@ function handleCancel(msg) {
     if (_engine && typeof _engine.interruptGenerate === 'function') {
         _engine.interruptGenerate();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Page-direct load API (ESM export).
+//
+// gizza-ai (and any future page-side consumer) imports this to drive
+// CreateMLCEngine in the window without going through the SW. Required because
+// Chrome's FetchEvent.respondWith() lifetime cap (~5 min) kills the SW-routed
+// load path on cold WebLLM downloads — see the handoff at
+// docs/superpowers/handoffs/2026-05-07-gizza-ai-model-load-page-direct-handoff.md.
+//
+// _engine / _engineModel are the same module-scoped state read by the SW chat
+// path's handleChatStream below. ESM modules are singletons within a realm, so
+// `import { loadEngine } from '/webllm-engine.js'` from another script that
+// lives in the same window shares this state.
+// ---------------------------------------------------------------------------
+export async function loadEngine(modelId, onProgress) {
+    if (_engineModel === modelId && _engine) {
+        return; // already loaded
+    }
+    if (_engine) {
+        try { await _engine.unload(); } catch (_e) {}
+        _engine = null;
+        _engineModel = null;
+    }
+    const CreateMLCEngine = await loadCreateMLCEngine();
+    _engine = await CreateMLCEngine(modelId, {
+        initProgressCallback: (report) => {
+            if (typeof onProgress === 'function') {
+                onProgress(String(report?.text ?? ''));
+            }
+        },
+    });
+    _engineModel = modelId;
 }
 
 navigator.serviceWorker.addEventListener('message', (event) => {
