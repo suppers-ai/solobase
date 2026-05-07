@@ -728,6 +728,15 @@ impl Block for AuthBlock {
         event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
+            // Apply Plan A2 migrations on first boot. Idempotent
+            // (CREATE TABLE IF NOT EXISTS) — safe across re-boots and
+            // alongside the legacy TEXT-everything tables that
+            // seed_admin_user still writes to (PR 2 retires that path).
+            crate::blocks::auth::migrations::apply(ctx)
+                .await
+                .map_err(|e| {
+                    WaferError::new(ErrorCode::INTERNAL, format!("auth migrations: {e}"))
+                })?;
             seed_admin_user(ctx).await;
         }
         Ok(())
