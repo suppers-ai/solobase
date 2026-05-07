@@ -18,6 +18,11 @@ web-sys = { version = "0.3", features = [
     "console",
 ] }
 js-sys = "0.3"
+# Bridges a Rust `Stream<Item = JsValue>` to a JS `ReadableStream`. Used by
+# `convert::output_to_response` so streaming feature blocks (text/event-stream
+# responses, etc.) can flush body chunks to the browser as they're produced
+# instead of buffering the entire response.
+wasm-streams = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { workspace = true }
