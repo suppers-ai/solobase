@@ -66,7 +66,20 @@ declare -A CONST_VALUE          # bare_name -> value (latest seen — global fal
 declare -A FILE_CONST_VALUE     # "${file}::${bare_name}" -> value (per-file definitions)
 declare -A FILE_CONST_NAMES     # file -> space-separated list of locally-defined names
 declare -A FILE_USE_ALIAS       # "${file}::${alias}" -> source_name (from `use ... as alias`)
+declare -A FILE_USE_BLOCK       # "${file}::${alias}" -> block_name (path of the `use` statement, when known)
 declare -A SIBLING_CONST        # "${dir}::${name}" -> value (for `super::NAME` lookups)
+declare -A BLOCK_CONST          # "${block_name}::${name}" -> value (disambiguates colliding bare names across blocks)
+
+# Strip the absolute prefix from a file path to get the block directory name.
+# e.g. crates/solobase-core/src/blocks/admin/mod.rs   -> admin
+#      crates/solobase-core/src/blocks/admin/pages/x.rs -> admin
+#      crates/solobase-core/src/blocks/network.rs    -> network
+file_to_block_name() {
+  local path="$1"
+  local rel="${path#$BLOCKS_DIR/}"
+  local first="${rel%%/*}"
+  echo "${first%.rs}"
+}
 
 while IFS= read -r line; do
   # Format: file:lineno:    pub const NAME: &str = "VALUE";
@@ -83,6 +96,11 @@ while IFS= read -r line; do
     # Index the const at the directory level so siblings can look it up via `super::NAME`.
     dir="$(dirname "$file")"
     SIBLING_CONST["${dir}::${name}"]="$value"
+    # Also index by block name so `crate::blocks::BLOCK::NAME` lookups
+    # disambiguate when the same bare name exists in multiple blocks
+    # (e.g. `VARIABLES_COLLECTION` exists in both admin and products).
+    block_name="$(file_to_block_name "$file")"
+    BLOCK_CONST["${block_name}::${name}"]="$value"
   fi
 # Anchor at start-of-line so we skip function-scoped constants like
 #   `        const PROVIDERS_COLLECTION = "..."`
@@ -150,12 +168,27 @@ done < <(grep -rEn "^use[[:space:]]" "$BLOCKS_DIR" 2>/dev/null || true)
 # Use grep -oE per-file to extract every match (a single line can contain
 # multiple alias pairs comma-separated inside one brace import).
 while IFS= read -r file; do
+  # First pass: pick up path-qualified aliases like `blocks::admin::VARIABLES_COLLECTION as VARIABLES`.
+  # These also record the source block so the resolver disambiguates against
+  # bare-name collisions across blocks.
+  while IFS= read -r match; do
+    [ -z "$match" ] && continue
+    if [[ "$match" =~ ^blocks::([a-z_]+)::([A-Z_]{4,})[[:space:]]+as[[:space:]]+([A-Z_]{2,})$ ]]; then
+      src_block="${BASH_REMATCH[1]}"
+      src="${BASH_REMATCH[2]}"
+      alias="${BASH_REMATCH[3]}"
+      FILE_USE_ALIAS["${file}::${alias}"]="$src"
+      FILE_USE_BLOCK["${file}::${alias}"]="$src_block"
+    fi
+  done < <(grep -oE "blocks::[a-z_]+::[A-Z_]{4,}[[:space:]]+as[[:space:]]+[A-Z_]{2,}" "$file" 2>/dev/null || true)
+  # Second pass: bare `X as Y` for everything else (super::-style, simple aliases).
   while IFS= read -r match; do
     [ -z "$match" ] && continue
     if [[ "$match" =~ ^([A-Z_]{4,})[[:space:]]+as[[:space:]]+([A-Z_]{2,})$ ]]; then
       src="${BASH_REMATCH[1]}"
       alias="${BASH_REMATCH[2]}"
-      if [ -n "${CONST_VALUE[$src]:-}" ]; then
+      # Don't overwrite a path-qualified entry from the first pass.
+      if [ -z "${FILE_USE_ALIAS[${file}::${alias}]:-}" ] && [ -n "${CONST_VALUE[$src]:-}" ]; then
         FILE_USE_ALIAS["${file}::${alias}"]="$src"
       fi
     fi
@@ -193,15 +226,46 @@ resolve_token() {
   fi
   # Stripped bare identifier (drop `module::path::` prefix).
   local bare="${tok##*::}"
+  # 0a. `crate::blocks::BLOCK::NAME` — full path. Disambiguates colliding
+  #     bare names across blocks (e.g. `VARIABLES_COLLECTION` exists in
+  #     both admin and products).
+  if [[ "$tok" =~ blocks::([a-z_]+)::([A-Z_]+)$ ]]; then
+    local qblock="${BASH_REMATCH[1]}"
+    local qname="${BASH_REMATCH[2]}"
+    if [ -n "${BLOCK_CONST[${qblock}::${qname}]:-}" ]; then
+      echo "${BLOCK_CONST[${qblock}::${qname}]}"
+      return
+    fi
+  fi
+  # 0b. `super::SIBLING::NAME` from a top-level block file — `super` exits
+  #     to the `blocks/` parent, then `SIBLING` enters the named sibling
+  #     block. Used by grant declarations like
+  #     `ResourceGrant::read(super::auth::AUTH_BLOCK_ID, ...)`.
+  if [[ "$tok" =~ ^super::([a-z_]+)::([A-Z_]+)$ ]]; then
+    local sblock="${BASH_REMATCH[1]}"
+    local sname="${BASH_REMATCH[2]}"
+    if [ -n "${BLOCK_CONST[${sblock}::${sname}]:-}" ]; then
+      echo "${BLOCK_CONST[${sblock}::${sname}]}"
+      return
+    fi
+  fi
   # 1. Per-file definition.
   if [ -n "${FILE_CONST_VALUE[${file}::${bare}]:-}" ]; then
     echo "${FILE_CONST_VALUE[${file}::${bare}]}"
     return
   fi
-  # 2. Per-file `use ... as` alias — chase to the source name. Look in
-  #    sibling modules first, then fall through to the global map.
+  # 2. Per-file `use ... as` alias — if the alias was indexed with a
+  #    specific source block, prefer that. Otherwise chase to the source
+  #    name through sibling modules, then global.
   if [ -n "${FILE_USE_ALIAS[${file}::${bare}]:-}" ]; then
     local src="${FILE_USE_ALIAS[${file}::${bare}]}"
+    if [ -n "${FILE_USE_BLOCK[${file}::${bare}]:-}" ]; then
+      local src_block="${FILE_USE_BLOCK[${file}::${bare}]}"
+      if [ -n "${BLOCK_CONST[${src_block}::${src}]:-}" ]; then
+        echo "${BLOCK_CONST[${src_block}::${src}]}"
+        return
+      fi
+    fi
     local parent_dir="$(dirname "$file")"
     if [ -n "${SIBLING_CONST[${parent_dir}::${src}]:-}" ]; then
       echo "${SIBLING_CONST[${parent_dir}::${src}]}"
