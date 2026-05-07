@@ -1,3 +1,4 @@
+use futures::{SinkExt, StreamExt};
 use js_sys::{ArrayBuffer, Uint8Array};
 use wafer_block::{
     meta::{
@@ -5,11 +6,12 @@ use wafer_block::{
         META_REQ_RESOURCE, META_RESP_CONTENT_TYPE, META_RESP_COOKIE_PREFIX,
         META_RESP_HEADER_PREFIX, META_RESP_STATUS,
     },
+    stream::StreamEvent,
     streams::{
         input::InputStream,
         output::{OutputStream, TerminalNotResponse},
     },
-    ErrorCode, Message, MetaAccess,
+    ErrorCode, Message, MetaAccess, MetaEntry,
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -262,12 +264,176 @@ fn make_response(
     }
 }
 
-/// Convert a WAFER `OutputStream` into a browser `web_sys::Response` by
-/// buffering the entire stream.
+/// True for content-types that should stream body chunks to the browser as
+/// they're produced rather than buffer the entire response. Today: SSE and
+/// generic byte streams (which feature blocks use for downloads / archives).
+fn is_streaming_content_type(ct: &str) -> bool {
+    let lower = ct.to_ascii_lowercase();
+    lower.starts_with("text/event-stream") || lower.starts_with("application/octet-stream")
+}
+
+/// Pull `Meta` events off the front of an `OutputStream`, stopping at the
+/// first non-Meta event. Returns the accumulated meta and the next event
+/// (if any). Used by `output_to_response` to peek the response's headers
+/// before deciding whether to stream the body or buffer it.
+async fn drain_leading_meta(
+    output: &mut OutputStream,
+) -> (Vec<MetaEntry>, Option<StreamEvent>) {
+    let mut meta = Vec::new();
+    while let Some(ev) = output.next().await {
+        match ev {
+            StreamEvent::Meta(entry) => meta.push(entry),
+            other => return (meta, Some(other)),
+        }
+    }
+    (meta, None)
+}
+
+/// Build a `ReadableStream` body that pipes remaining `Chunk` events from an
+/// `OutputStream` to the browser. The first chunk (already pulled from the
+/// stream) is pushed first, then the loop drains the rest.
 ///
-/// Mirrors `wafer_output_to_response()` from `wafer-block-http-listener`.
-pub async fn output_to_response(output: OutputStream) -> Result<web_sys::Response, JsValue> {
-    match output.collect_buffered().await {
+/// Terminal events (`Complete`, `Error`, `Drop`, `Continue`) close the stream.
+/// `Error` after we've already started writing the body is the stream just
+/// being aborted — there's no way to flip the HTTP status mid-response, so
+/// we close the stream and let the browser surface the truncation.
+/// Build a JS `ReadableStream` that yields `first_chunk` and then every
+/// subsequent `Chunk` event from `remaining`. Mid-body `Meta` is dropped
+/// (too late to apply to HTTP headers); any terminal closes the stream.
+fn make_streaming_body(
+    first_chunk: Vec<u8>,
+    mut remaining: OutputStream,
+) -> wasm_streams::ReadableStream {
+    use futures::channel::mpsc;
+    let (mut tx, rx) = mpsc::channel::<Result<JsValue, JsValue>>(8);
+
+    // Channel cap is 8 and we have one item to send — try_send fits. If it
+    // fails (caller dropped the stream before consuming) we just discard.
+    let _ = tx.try_send(Ok(JsValue::from(Uint8Array::from(first_chunk.as_slice()))));
+
+    wasm_bindgen_futures::spawn_local(async move {
+        while let Some(ev) = remaining.next().await {
+            match ev {
+                StreamEvent::Chunk(bytes) => {
+                    let val: Result<JsValue, JsValue> =
+                        Ok(JsValue::from(Uint8Array::from(bytes.as_slice())));
+                    if tx.send(val).await.is_err() {
+                        // Browser dropped the response stream — stop pumping.
+                        return;
+                    }
+                }
+                // Mid-body Meta is too late to apply to HTTP headers; drop it.
+                StreamEvent::Meta(_) => {}
+                // Any terminal closes the body. Error after partial body has
+                // already streamed bytes can't change the HTTP status — log
+                // and close cleanly so the browser sees a normal end-of-body.
+                StreamEvent::Error(err) => {
+                    web_sys::console::warn_1(
+                        &format!("solobase-browser: streaming response aborted: {}", err.message)
+                            .into(),
+                    );
+                    return;
+                }
+                StreamEvent::Complete { .. } | StreamEvent::Drop | StreamEvent::Continue(_) => {
+                    return;
+                }
+            }
+        }
+    });
+
+    wasm_streams::ReadableStream::from_stream(rx)
+}
+
+/// Convert a WAFER `OutputStream` into a browser `web_sys::Response`.
+///
+/// Two paths:
+/// 1. **Buffered** (default) — for blocks that emit `Chunk(bytes), Complete{meta}`
+///    via `respond_with_meta`. Status, headers, and body all live in the
+///    terminal `Complete{meta}` for those blocks, so we have to read the
+///    whole stream before we can build the `Response`. Same behaviour as
+///    before this commit.
+/// 2. **Streaming** — for blocks that emit leading `Meta` events declaring
+///    `Content-Type: text/event-stream` (or `application/octet-stream`)
+///    BEFORE the first `Chunk`. We build a `Response` with a `ReadableStream`
+///    body and pipe subsequent chunks straight to the browser, so a
+///    multi-minute SSE response doesn't get held back behind a buffer that
+///    flushes at the very end (which Chrome's idle keep-alive treats as a
+///    hung fetch and drops with `net::ERR_FAILED`).
+pub async fn output_to_response(mut output: OutputStream) -> Result<web_sys::Response, JsValue> {
+    // Peek leading Meta events without consuming Chunks. The streaming path
+    // is signalled by an early Content-Type meta; buffered blocks send no
+    // Meta before their first Chunk, so this just returns an empty vec for
+    // them and the loop below falls through to `collect_buffered`.
+    let (leading_meta, next_event) = drain_leading_meta(&mut output).await;
+
+    let leading_ct = MetaAccess::get(&leading_meta, META_RESP_CONTENT_TYPE)
+        .or_else(|| MetaAccess::get(&leading_meta, "Content-Type"));
+
+    if let (Some(ct), Some(StreamEvent::Chunk(first))) = (leading_ct, &next_event) {
+        if is_streaming_content_type(ct) {
+            return build_streaming_response(leading_meta, first.clone(), output);
+        }
+    }
+
+    // Buffered path — drain the rest, prepending whatever we've already
+    // pulled (leading meta + the next event we peeked).
+    let (terminal_result, mut prelude_meta, mut prelude_body) = match next_event {
+        Some(StreamEvent::Chunk(b)) => {
+            // Continue collecting from where we are. Build a synthetic stream
+            // that yields the rest of `output` and replays the chunk we just
+            // peeked at the front.
+            (output.collect_buffered().await, leading_meta, b)
+        }
+        Some(StreamEvent::Complete { meta }) => {
+            // Terminal landed before any chunk — this is a header-only OK.
+            // Combine prelude + terminal meta and emit an empty body.
+            let mut all_meta = leading_meta;
+            all_meta.extend(meta);
+            return finalise_buffered(Ok(buffered_view(Vec::new(), all_meta)));
+        }
+        Some(StreamEvent::Error(err)) => {
+            return finalise_buffered(Err(TerminalNotResponse::Error(*err)));
+        }
+        Some(StreamEvent::Drop) => {
+            return finalise_buffered(Err(TerminalNotResponse::Drop));
+        }
+        Some(StreamEvent::Continue(msg)) => {
+            return finalise_buffered(Err(TerminalNotResponse::Continue(msg)));
+        }
+        Some(StreamEvent::Meta(_)) => unreachable!("drain_leading_meta consumes Meta events"),
+        None => {
+            // Stream ended after meta-only with no terminal — malformed.
+            return finalise_buffered(Err(TerminalNotResponse::Malformed));
+        }
+    };
+
+    match terminal_result {
+        Ok(buf) => {
+            // Merge the leading meta we drained earlier with the buffered tail.
+            prelude_meta.extend(buf.meta);
+            prelude_body.extend(buf.body);
+            finalise_buffered(Ok(buffered_view(prelude_body, prelude_meta)))
+        }
+        Err(other) => finalise_buffered(Err(other)),
+    }
+}
+
+/// Local mirror of `wafer_block::streams::output::BufferedOutput` so we can
+/// re-enter the buffered finaliser with a synthetic value built from the
+/// leading-meta drain. Carries body bytes + accumulated meta.
+struct BufferedView {
+    body: Vec<u8>,
+    meta: Vec<MetaEntry>,
+}
+
+fn buffered_view(body: Vec<u8>, meta: Vec<MetaEntry>) -> BufferedView {
+    BufferedView { body, meta }
+}
+
+fn finalise_buffered(
+    result: Result<BufferedView, TerminalNotResponse>,
+) -> Result<web_sys::Response, JsValue> {
+    match result {
         Ok(buf) => {
             let status = get_status_code(&buf.meta, 200);
             let headers = Headers::new()?;
@@ -324,3 +490,32 @@ pub async fn output_to_response(output: OutputStream) -> Result<web_sys::Respons
         }
     }
 }
+
+/// Build a streaming `web_sys::Response` from the leading meta (carrying
+/// status + headers) and an `OutputStream` whose remaining events should be
+/// piped into the body.
+fn build_streaming_response(
+    leading_meta: Vec<MetaEntry>,
+    first_chunk: Vec<u8>,
+    remaining: OutputStream,
+) -> Result<web_sys::Response, JsValue> {
+    let status = get_status_code(&leading_meta, 200);
+    let headers = Headers::new()?;
+    apply_response_meta(&headers, &leading_meta)?;
+
+    let has_ct = MetaAccess::contains_key(&leading_meta, META_RESP_CONTENT_TYPE)
+        || MetaAccess::contains_key(&leading_meta, "Content-Type");
+    if !has_ct {
+        // Streaming bodies without an explicit Content-Type fall back to
+        // octet-stream rather than the JSON default the buffered path uses.
+        headers.set("Content-Type", "application/octet-stream")?;
+    }
+
+    let stream = make_streaming_body(first_chunk, remaining);
+    let raw_js = stream.into_raw();
+    let init = ResponseInit::new();
+    init.set_status(status);
+    init.set_headers(&headers);
+    web_sys::Response::new_with_opt_readable_stream_and_init(Some(&raw_js), &init)
+}
+

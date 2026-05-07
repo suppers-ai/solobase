@@ -4705,6 +4705,7 @@ dependencies = [
  "wafer-run",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams 0.4.2",
  "web-sys",
 ]
 
