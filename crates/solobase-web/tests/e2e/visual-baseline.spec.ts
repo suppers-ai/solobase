@@ -38,6 +38,13 @@ const ADMIN_ROUTES = [
   // the visual-baseline runner.
   { path: '/b/storage/', name: 'storage-buckets' },
   { path: '/b/cloudstorage/', name: 'cloudstorage' },
+  // Phase 5d Item C: seeded `photos` bucket with `a.png` (root) +
+  // `nested/b.png` (prefix), seeded by `global-setup.ts`. Restores the
+  // 5-baseline coverage PR-2 spec called for. The folder + file rows are
+  // pure HTML (no JS-rendered timestamps), so the existing time-mask still
+  // covers any `data-relative-time` cells that may appear later.
+  { path: '/b/storage/photos/', name: 'storage-objects' },
+  { path: '/b/storage/photos/nested/', name: 'storage-objects-prefix' },
   // Phase 5b PR-3: admin storage pages (empty-state baselines).
   // admin-storage-shares deliberately excluded — the share-access log
   // accumulates rows during baseline run and would drift between local/CI
@@ -108,6 +115,9 @@ const MOBILE_ADMIN_ROUTES = [
   // rate-limit that PR-3 hit, so `/b/storage/` can safely sit at the end
   // of MOBILE_ADMIN_ROUTES again.
   { path: '/b/storage/', name: 'storage-buckets' },
+  // Phase 5d Item C: seeded photos bucket — exercises the table-as-cards
+  // mobile rendering of the file browser, not just the bucket list.
+  { path: '/b/storage/photos/', name: 'storage-objects' },
 ];
 
 // ===== Phase 5b PR-1: vector index admin pages =====
