@@ -10,13 +10,56 @@ const BASE_CSS: &str = include_str!("assets/base.css");
 const COMPONENTS_CSS: &str = include_str!("assets/components.css");
 const LAYOUT_CSS: &str = include_str!("assets/layout.css");
 
+/// Itim font binaries, sourced from `suppers-ai/site-kit`'s `/fonts/` mirror
+/// and committed here so every solobase deployment ships its own glyphs
+/// (no cross-origin runtime dependency, no `https://solobase.dev/fonts/` 404).
+const ITIM_LATIN_WOFF2: &[u8] = include_bytes!("assets/fonts/itim-latin.woff2");
+const ITIM_LATIN_EXT_WOFF2: &[u8] = include_bytes!("assets/fonts/itim-latin-ext.woff2");
+
+/// Itim latin (basic) woff2 bytes.
+pub fn itim_latin_woff2() -> &'static [u8] {
+    ITIM_LATIN_WOFF2
+}
+
+/// Itim latin-ext woff2 bytes.
+pub fn itim_latin_ext_woff2() -> &'static [u8] {
+    ITIM_LATIN_EXT_WOFF2
+}
+
+/// Itim latin woff2 URL with content hash, e.g. `/b/static/itim-latin-a1b2c3d4.woff2`.
+pub fn itim_latin_woff2_url() -> &'static str {
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| {
+        format!(
+            "/b/static/itim-latin-{}.woff2",
+            short_hash(ITIM_LATIN_WOFF2)
+        )
+    })
+}
+
+/// Itim latin-ext woff2 URL with content hash, e.g. `/b/static/itim-latin-ext-a1b2c3d4.woff2`.
+pub fn itim_latin_ext_woff2_url() -> &'static str {
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| {
+        format!(
+            "/b/static/itim-latin-ext-{}.woff2",
+            short_hash(ITIM_LATIN_EXT_WOFF2)
+        )
+    })
+}
+
 /// Embedded CSS bundle — concatenation of tokens / base / components / layout.
 /// Served as one file at the URL returned by `css_url()` so a single
-/// `<link rel="stylesheet">` covers everything.
+/// `<link rel="stylesheet">` covers everything. The two font URL placeholders
+/// in tokens.css are substituted with the content-hashed worker-bundled
+/// URLs at bundle generation time.
 pub fn css_bundle() -> String {
+    let tokens = TOKENS_CSS
+        .replace("__ITIM_LATIN_URL__", itim_latin_woff2_url())
+        .replace("__ITIM_LATIN_EXT_URL__", itim_latin_ext_woff2_url());
     format!(
         "{}\n{}\n{}\n{}\n",
-        TOKENS_CSS, BASE_CSS, COMPONENTS_CSS, LAYOUT_CSS
+        tokens, BASE_CSS, COMPONENTS_CSS, LAYOUT_CSS
     )
 }
 
@@ -274,6 +317,45 @@ mod tests {
             "components layer missing"
         );
         assert!(s.contains(".shell"), "layout layer missing");
+    }
+
+    #[test]
+    fn css_bundle_substitutes_itim_font_urls() {
+        let s = super::css_bundle();
+        // No raw placeholders left in the served bundle.
+        assert!(
+            !s.contains("__ITIM_LATIN_URL__"),
+            "tokens.css placeholder __ITIM_LATIN_URL__ not substituted"
+        );
+        assert!(
+            !s.contains("__ITIM_LATIN_EXT_URL__"),
+            "tokens.css placeholder __ITIM_LATIN_EXT_URL__ not substituted"
+        );
+        // No reference to the old hardcoded external host.
+        assert!(
+            !s.contains("solobase.dev/fonts/"),
+            "stale solobase.dev font URL still in bundle"
+        );
+        // The hashed worker-bundled URLs are present.
+        assert!(
+            s.contains(super::itim_latin_woff2_url()),
+            "itim-latin URL missing from bundle"
+        );
+        assert!(
+            s.contains(super::itim_latin_ext_woff2_url()),
+            "itim-latin-ext URL missing from bundle"
+        );
+    }
+
+    #[test]
+    fn itim_font_urls_have_content_hash() {
+        for url in [
+            super::itim_latin_woff2_url(),
+            super::itim_latin_ext_woff2_url(),
+        ] {
+            assert!(url.starts_with("/b/static/itim-latin"));
+            assert!(url.ends_with(".woff2"));
+        }
     }
 
     #[test]

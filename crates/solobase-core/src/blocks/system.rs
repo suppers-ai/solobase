@@ -38,6 +38,8 @@ impl Block for SystemBlock {
                 BlockEndpoint::get("/b/static/htmx-{hash}.min.js").summary("Embedded htmx JS"),
                 BlockEndpoint::get("/b/static/llm-chat-{hash}.js").summary("Embedded LLM chat JS"),
                 BlockEndpoint::get("/b/static/files-browser-{hash}.js").summary("Embedded files-browser JS"),
+                BlockEndpoint::get("/b/static/itim-latin-{hash}.woff2").summary("Embedded Itim font (latin)"),
+                BlockEndpoint::get("/b/static/itim-latin-ext-{hash}.woff2").summary("Embedded Itim font (latin-ext)"),
             ])
     }
 
@@ -81,6 +83,18 @@ impl Block for SystemBlock {
                         ui::assets::files_browser_js().as_bytes().to_vec(),
                         "application/javascript; charset=utf-8",
                     )
+            }
+            // Order matters: latin-ext must come before latin so the longer
+            // prefix matches first.
+            _ if path.starts_with("/b/static/itim-latin-ext-") && path.ends_with(".woff2") => {
+                ResponseBuilder::new()
+                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
+                    .body(ui::assets::itim_latin_ext_woff2().to_vec(), "font/woff2")
+            }
+            _ if path.starts_with("/b/static/itim-latin-") && path.ends_with(".woff2") => {
+                ResponseBuilder::new()
+                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
+                    .body(ui::assets::itim_latin_woff2().to_vec(), "font/woff2")
             }
             _ => err_not_found("not found"),
         }
