@@ -68,10 +68,14 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
         expires_at: Option<String>,
     }
     let raw = input.collect_to_bytes().await;
-    let body: CreateKeyReq = match serde_json::from_slice(&raw) {
+    let parsed = crate::blocks::helpers::parse_body_value(&raw);
+    let body: CreateKeyReq = match serde_json::from_value(parsed) {
         Ok(b) => b,
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
+    if body.name.is_empty() {
+        return err_bad_request("API key name is required");
+    }
 
     // Generate random key
     let random_bytes = match crypto::random_bytes(ctx, 24).await {
@@ -101,13 +105,49 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
     }
 
     match db::create(ctx, API_KEYS_COLLECTION, data).await {
-        Ok(record) => ok_json(&serde_json::json!({
-            "id": record.id,
-            "key": key_string,
-            "name": record.str_field("name"),
-            "key_prefix": record.str_field("key_prefix"),
-            "message": "Save this key — it won't be shown again"
-        })),
+        Ok(record) => {
+            // htmx form callers want HTML back so the swap renders cleanly.
+            // Programmatic JSON callers (no HX-Request header) get the JSON
+            // payload as before so existing API consumers don't break.
+            if !msg.get_meta("http.header.hx-request").is_empty() {
+                let key_for_display = key_string.clone();
+                let name = record.str_field("name").to_string();
+                let markup = maud::html! {
+                    div .card style="margin-bottom: var(--spacing-md)" {
+                        div .card__head { h3 .card__title { "Key created — save it now" } }
+                        div .card__body {
+                            p style="margin:0 0 var(--spacing-sm); font-size: 13px; color: var(--text-secondary)" {
+                                "This is the only time the full key will be shown. Copy it now."
+                            }
+                            code style="display: block; padding: var(--spacing-sm); background: var(--bg-secondary); border-radius: var(--radius-md); font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all" {
+                                (key_for_display)
+                            }
+                            p style="margin: var(--spacing-sm) 0 0; font-size: var(--text-xs); color: var(--text-muted)" {
+                                "Name: " (name)
+                            }
+                        }
+                    }
+                    // Reload the api-keys tab below the new-key card by
+                    // pointing the form's swap target. We reuse the
+                    // existing JS toggle by triggering an HX event.
+                };
+                let trigger = r#"{"showToast":{"message":"API key created","type":"success"},"closeModal":{"id":"create-api-key"}}"#;
+                crate::blocks::helpers::ResponseBuilder::new()
+                    .set_header("HX-Trigger", trigger)
+                    .body(
+                        markup.into_string().into_bytes(),
+                        "text/html; charset=utf-8",
+                    )
+            } else {
+                ok_json(&serde_json::json!({
+                    "id": record.id,
+                    "key": key_string,
+                    "name": record.str_field("name"),
+                    "key_prefix": record.str_field("key_prefix"),
+                    "message": "Save this key — it won't be shown again"
+                }))
+            }
+        }
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
