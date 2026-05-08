@@ -61,20 +61,14 @@ fn row_from_map(m: &HashMap<String, Value>) -> Result<CliCodeRow, RepoError> {
 /// codes, so a collision is a programmer error, not an expected case.
 pub async fn insert(ctx: &dyn Context, new: NewCode<'_>) -> Result<(), RepoError> {
     let now = now_iso();
-    db::exec_raw(
-        ctx,
-        &format!(
-            "INSERT INTO {TABLE} (code_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)"
-        ),
-        &[
-            json!(new.code_hash),
-            json!(new.user_id),
-            json!(now),
-            json!(new.expires_at),
-        ],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("cli_codes insert: {e}")))?;
+    let mut data: HashMap<String, Value> = HashMap::new();
+    data.insert("code_hash".into(), json!(new.code_hash));
+    data.insert("user_id".into(), json!(new.user_id));
+    data.insert("created_at".into(), json!(now));
+    data.insert("expires_at".into(), json!(new.expires_at));
+    db::create(ctx, TABLE, data)
+        .await
+        .map_err(|e| RepoError::Db(format!("cli_codes insert: {e}")))?;
     Ok(())
 }
 
@@ -82,23 +76,29 @@ pub async fn insert(ctx: &dyn Context, new: NewCode<'_>) -> Result<(), RepoError
 /// `Ok(None)` if missing, or if the row was present but expired (the expired
 /// row is still deleted as a side effect — single-use even on timeout).
 ///
-/// Uses `DELETE … RETURNING` (sqlite 3.35+, postgres) so the read and delete
-/// are atomic in a single statement. Falls back to a no-op if the backend
-/// returns an empty row (e.g. `DELETE` matched nothing).
+/// Uses `db::take_by_filters` which dispatches to `DELETE … WHERE … RETURNING *`
+/// (sqlite 3.35+, postgres) so the read and delete are atomic in a single
+/// statement. Falls back to list-then-delete on backends that lack native
+/// RETURNING support (the default trait impl).
 pub async fn take(ctx: &dyn Context, code_hash: &[u8]) -> Result<Option<CliCodeRow>, RepoError> {
-    let rows = db::query_raw(
+    let rows = db::take_by_filters(
         ctx,
-        &format!("DELETE FROM {TABLE} WHERE code_hash = ? RETURNING user_id, expires_at"),
-        &[json!(code_hash)],
+        TABLE,
+        vec![db::Filter {
+            field: "code_hash".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(code_hash),
+        }],
     )
     .await
     .map_err(|e| RepoError::Db(format!("cli_codes take: {e}")))?;
-    let Some(r) = rows.first() else {
+    let Some(r) = rows.into_iter().next() else {
         return Ok(None);
     };
     let row = row_from_map(&r.data)?;
     if row.expires_at.as_str() < now_iso().as_str() {
-        // Already deleted by the RETURNING clause — just surface "not found".
+        // Row was present but expired — already deleted as a side effect.
+        // Surface "not found" so callers treat it the same as missing.
         return Ok(None);
     }
     Ok(Some(row))
@@ -108,14 +108,18 @@ pub async fn take(ctx: &dyn Context, code_hash: &[u8]) -> Result<Option<CliCodeR
 /// Called by the background sweeper (spec §6) — not required for correctness
 /// since [`take`] also drops expired rows on read.
 pub async fn delete_expired(ctx: &dyn Context, cutoff: &str) -> Result<u64, RepoError> {
-    let affected = db::exec_raw(
+    let n = db::delete_by_filters_count(
         ctx,
-        &format!("DELETE FROM {TABLE} WHERE expires_at < ?"),
-        &[json!(cutoff)],
+        TABLE,
+        vec![db::Filter {
+            field: "expires_at".into(),
+            operator: db::FilterOp::LessThan,
+            value: json!(cutoff),
+        }],
     )
     .await
     .map_err(|e| RepoError::Db(format!("cli_codes delete_expired: {e}")))?;
-    Ok(affected.max(0) as u64)
+    Ok(n.max(0) as u64)
 }
 
 // Re-expose the unused `decode_bytes` helper so future inspection of the
