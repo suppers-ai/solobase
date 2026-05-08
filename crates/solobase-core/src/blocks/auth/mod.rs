@@ -83,7 +83,8 @@ mod helpers {
             .map_err(|e| format!("Failed to create user: {e}"))?;
 
         let admin_email =
-            config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "").await;
+            config_client::get_default(ctx, "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL", "")
+                .await;
         let user_email = user
             .data
             .get("email")
@@ -108,6 +109,19 @@ mod helpers {
     }
 
     pub(super) async fn get_user_roles(ctx: &dyn Context, user_id: &str) -> Vec<String> {
+        // Plan A2 stores role inline on `users.role`; legacy
+        // USER_ROLES_COLLECTION carries multi-role-per-user history. Merge
+        // both: the inline role is the bootstrap path, the table is the
+        // legacy path. Dedup since both can produce "admin" for the
+        // bootstrapped admin.
+        use crate::blocks::helpers::RecordExt;
+        let mut roles: Vec<String> = Vec::new();
+        if let Ok(rec) = db::get(ctx, USERS_COLLECTION, user_id).await {
+            let inline = rec.str_field("role");
+            if !inline.is_empty() {
+                roles.push(inline.to_string());
+            }
+        }
         let opts = ListOptions {
             filters: vec![Filter {
                 field: "user_id".to_string(),
@@ -116,19 +130,16 @@ mod helpers {
             }],
             ..Default::default()
         };
-        match db::list(ctx, USER_ROLES_COLLECTION, &opts).await {
-            Ok(r) => r
-                .records
-                .iter()
-                .filter_map(|rec| {
-                    rec.data
-                        .get("role")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                })
-                .collect(),
-            Err(_) => Vec::new(),
+        if let Ok(r) = db::list(ctx, USER_ROLES_COLLECTION, &opts).await {
+            for rec in &r.records {
+                if let Some(role) = rec.data.get("role").and_then(|v| v.as_str()) {
+                    if !roles.iter().any(|r| r == role) {
+                        roles.push(role.to_string());
+                    }
+                }
+            }
         }
+        roles
     }
 
     /// Resolve user roles, idempotently granting `admin` if the user's email
@@ -153,7 +164,8 @@ mod helpers {
         let mut roles = get_user_roles(ctx, user_id).await;
 
         let admin_email =
-            config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "").await;
+            config_client::get_default(ctx, "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL", "")
+                .await;
         if admin_email.is_empty()
             || !email.eq_ignore_ascii_case(&admin_email)
             || roles.iter().any(|r| r == "admin")
