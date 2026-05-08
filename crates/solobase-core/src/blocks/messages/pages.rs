@@ -12,7 +12,7 @@ use super::service::{self, ListContextsParams, ListEntriesParams};
 use crate::{
     blocks::helpers::{err_internal, RecordExt},
     ui::{
-        self, components, nav_groups,
+        self, nav_groups,
         shell::{Crumb, Topbar},
         SiteConfig, UserInfo,
     },
@@ -24,6 +24,7 @@ fn messages_page<'a>(
     path: &str,
     user: Option<&UserInfo>,
     crumb_label: &'a str,
+    subtitle: Option<&'a str>,
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
@@ -34,7 +35,7 @@ fn messages_page<'a>(
             href: None,
         }],
         primary_action: None,
-        subtitle: None,
+        subtitle,
         show_palette: true,
     };
     crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
@@ -117,42 +118,32 @@ pub async fn context_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream
     };
 
     let content = html! {
-        (components::page_header(
-            "Messages",
-            Some("Manage contexts and entries"),
-            None,
-        ))
-
-        div .card style="margin-bottom:1.5rem" {
-            h3 style="font-size:1rem;font-weight:600;margin:0 0 0.75rem" { "New Context" }
-            form
-                hx-post="/b/messages/api/contexts"
-                hx-target="#context-list"
-                hx-swap="afterbegin"
-                hx-on--after-request="if(event.detail.successful){this.reset()}"
-            {
-                div style="display:flex;gap:0.5rem" {
-                    select .form-input name="type" style="width:auto" {
+        section .card .messages-new {
+            header .card__head {
+                h3 .card__title { "New context" }
+            }
+            div .card__body {
+                form .messages-new__form
+                    hx-post="/b/messages/api/contexts"
+                    hx-target="#context-list"
+                    hx-swap="afterbegin"
+                    hx-on--after-request="if(event.detail.successful){this.reset()}"
+                {
+                    select .form-input .messages-new__type name="type" {
                         option value="conversation" { "Conversation" }
                         option value="task" { "Task" }
                         option value="notification" { "Notification" }
                     }
-                    input .form-input
-                        type="text"
-                        name="title"
-                        placeholder="Title"
-                        required
-                        style="flex:1"
-                    ;
+                    input .form-input .messages-new__title type="text" name="title" placeholder="Title" required;
                     button .btn .btn-primary type="submit" { "Create" }
                 }
             }
         }
 
-        div #context-list {
+        div #context-list .messages-list {
             @if contexts.is_empty() {
-                div .text-center .text-muted style="padding:2rem" {
-                    "No contexts yet. Create one above."
+                div .messages-list__empty {
+                    p { "No contexts yet — create one above." }
                 }
             } @else {
                 @for context in &contexts {
@@ -162,24 +153,14 @@ pub async fn context_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream
                     @let status = context.str_field("status");
                     @let updated_at = context.str_field("updated_at");
                     @let date = updated_at.get(..10).unwrap_or(updated_at);
-                    a .card href={"/b/messages/contexts/" (id)}
-                        style="display:block;text-decoration:none;margin-bottom:0.5rem;transition:box-shadow 0.15s"
-                        onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'"
-                        onmouseout="this.style.boxShadow=''"
-                    {
-                        div style="display:flex;align-items:center;justify-content:space-between" {
-                            div style="display:flex;align-items:center;gap:0.5rem" {
-                                span .badge style="text-transform:capitalize" { (context_type) }
-                                span style="font-weight:500;color:var(--text-primary)" {
-                                    @if title.is_empty() { "Untitled" } @else { (title) }
-                                }
-                            }
-                            div style="display:flex;align-items:center;gap:0.5rem" {
-                                span .badge { (status) }
-                                @if !date.is_empty() {
-                                    span .text-muted style="font-size:0.8rem" { (date) }
-                                }
-                            }
+                    a .messages-list__item href={"/b/messages/contexts/" (id)} {
+                        span .badge .badge-info .messages-list__type { (context_type) }
+                        span .messages-list__title {
+                            @if title.is_empty() { "Untitled" } @else { (title) }
+                        }
+                        span .messages-list__status .badge { (status) }
+                        @if !date.is_empty() {
+                            span .messages-list__date .text-muted { (date) }
                         }
                     }
                 }
@@ -193,6 +174,7 @@ pub async fn context_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream
         &path,
         user.as_ref(),
         "Contexts",
+        Some("Conversations, tasks, and notifications"),
         content,
         msg,
     )

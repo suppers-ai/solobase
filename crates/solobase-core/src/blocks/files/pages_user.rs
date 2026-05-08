@@ -561,6 +561,10 @@ pub async fn object_list_page(
 
     let table = render_objects_table(bucket, current_prefix, &listing);
     let table_with_js = html! {
+        // Hidden file input that the topbar Upload button triggers via
+        // [data-action="open-upload"]. Multi-select so users can pick
+        // many files at once. Same upload endpoint as drag-drop.
+        input #file-upload-input type="file" multiple style="display: none";
         (table)
         (render_bootstrap_script(bucket, current_prefix))
     };
@@ -577,6 +581,12 @@ pub async fn object_list_page(
     );
 
     let groups = nav_groups::portal();
+    let upload_btn = crate::ui::components::button(
+        crate::ui::components::BtnVariant::Primary,
+        crate::ui::components::CtrlSize::Sm,
+        "+ Upload",
+        maud::PreEscaped(r#"type="button" data-action="open-upload""#.to_string()),
+    );
     let topbar = Topbar {
         crumbs: vec![
             Crumb {
@@ -588,8 +598,8 @@ pub async fn object_list_page(
                 href: None,
             },
         ],
-        primary_action: None,
-        subtitle: Some("Drag files here to upload."),
+        primary_action: Some(upload_btn),
+        subtitle: Some("Drag files here to upload, or use the Upload button."),
         show_palette: true,
     };
     shelled_response(

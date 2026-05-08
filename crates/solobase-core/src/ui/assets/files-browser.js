@@ -26,6 +26,44 @@
     );
   }
 
+  // Upload `files` (a FileList or array of File) to `bucket`/`prefix`.
+  // Shared by drag-drop and the explicit "+ Upload" button.
+  async function uploadFiles(files, bucket, prefix) {
+    const list = Array.from(files || []);
+    if (list.length === 0) return;
+    let successes = 0;
+    let failures = 0;
+    for (const f of list) {
+      const key = (prefix || '') + f.name;
+      const fd = new FormData();
+      fd.append('file', f);
+      const url =
+        '/b/storage/api/buckets/' +
+        encodeURIComponent(bucket) +
+        '/objects?key=' +
+        encodeURIComponent(key);
+      try {
+        const resp = await fetch(url, { method: 'POST', body: fd });
+        if (resp.ok) {
+          successes++;
+        } else {
+          failures++;
+        }
+      } catch (err) {
+        failures++;
+      }
+    }
+    if (successes > 0) {
+      showToast(
+        successes + ' uploaded' + (failures > 0 ? ', ' + failures + ' failed' : ''),
+        failures > 0 ? 'error' : 'success'
+      );
+    } else {
+      showToast(failures + ' upload failed', 'error');
+    }
+    window.location.reload();
+  }
+
   function dragDropHandler(boot) {
     const root = document.querySelector('.page--list');
     if (!root || !boot.bucket) return;
@@ -45,40 +83,18 @@
     root.addEventListener('drop', async (e) => {
       e.preventDefault();
       root.classList.remove('is-drop-target');
-      const files = Array.from(e.dataTransfer.files || []);
-      if (files.length === 0) return;
-      let successes = 0;
-      let failures = 0;
-      for (const f of files) {
-        const key = prefix + f.name;
-        const fd = new FormData();
-        fd.append('file', f);
-        const url =
-          '/b/storage/api/buckets/' +
-          encodeURIComponent(bucket) +
-          '/objects?key=' +
-          encodeURIComponent(key);
-        try {
-          const resp = await fetch(url, { method: 'POST', body: fd });
-          if (resp.ok) {
-            successes++;
-          } else {
-            failures++;
-          }
-        } catch (err) {
-          failures++;
-        }
-      }
-      if (successes > 0) {
-        showToast(
-          successes + ' uploaded' + (failures > 0 ? ', ' + failures + ' failed' : ''),
-          failures > 0 ? 'error' : 'success'
-        );
-      } else {
-        showToast(failures + ' upload failed', 'error');
-      }
-      window.location.reload();
+      await uploadFiles(e.dataTransfer.files, bucket, prefix);
     });
+
+    // Topbar Upload button: trigger the hidden file picker, then upload.
+    const trigger = document.querySelector('[data-action="open-upload"]');
+    const fileInput = document.getElementById('file-upload-input');
+    if (trigger && fileInput) {
+      trigger.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', async () => {
+        await uploadFiles(fileInput.files, bucket, prefix);
+      });
+    }
   }
 
   function bulkSelect() {

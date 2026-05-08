@@ -1139,3 +1139,72 @@ dialog.modal form .modal-actions {
 .custom-tab__empty { text-align: center; padding: var(--spacing-lg) var(--spacing-md); color: var(--text-muted); }
 .custom-tab__empty p { margin: 0; }
 .custom-tab__empty-hint { margin-top: var(--spacing-sm) !important; font-size: 13px; }
+
+/* ===== File drag-drop visual feedback ===== */
+.page--list.is-drop-target {
+	outline: 2px dashed var(--primary-color);
+	outline-offset: -8px;
+	background: rgba(254, 102, 39, 0.04);
+}
+.page--list.is-drop-target::after {
+	content: "Drop files to upload";
+	position: fixed;
+	top: 50%; left: 50%;
+	transform: translate(-50%, -50%);
+	background: var(--primary-color);
+	color: #fff;
+	padding: 12px 20px;
+	border-radius: var(--radius-md);
+	font-weight: 500;
+	font-size: 14px;
+	pointer-events: none;
+	z-index: 1000;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+/* ===== Messages context list ===== */
+.messages-new__form {
+	display: flex;
+	gap: var(--spacing-sm);
+	align-items: stretch;
+}
+.messages-new__type { width: auto; flex-shrink: 0; }
+.messages-new__title { flex: 1; min-width: 0; }
+.messages-list { display: flex; flex-direction: column; gap: 4px; }
+.messages-list__empty {
+	text-align: center;
+	padding: var(--spacing-xl) var(--spacing-md);
+	color: var(--text-muted);
+	background: var(--surface-1);
+	border: 1px solid var(--border-color);
+	border-radius: var(--radius-md);
+}
+.messages-list__empty p { margin: 0; }
+.messages-list__item {
+	display: flex;
+	align-items: center;
+	gap: var(--spacing-sm);
+	padding: 10px var(--spacing-md);
+	background: var(--surface-1);
+	border: 1px solid var(--border-color);
+	border-radius: var(--radius-md);
+	text-decoration: none;
+	color: var(--text-primary);
+	font-size: 13px;
+	transition: border-color 0.15s, box-shadow 0.15s;
+}
+.messages-list__item:hover {
+	border-color: var(--primary-color);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.messages-list__type { text-transform: capitalize; flex-shrink: 0; }
+.messages-list__title {
+	flex: 1;
+	min-width: 0;
+	font-weight: 500;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.messages-list__status { flex-shrink: 0; text-transform: capitalize; font-size: 11px; }
+.messages-list__date { flex-shrink: 0; font-size: 12px; }
