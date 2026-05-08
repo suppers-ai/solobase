@@ -374,9 +374,16 @@ impl SolobaseBuilder {
             wafer.add_block_config(&name, config);
         }
 
-        // 6. Register LlmBlock — it can't self-register via register_static_block!
-        //    because its constructor takes Arc<ProviderLlmService>. All other solobase
-        //    blocks self-register via register_static_block! at link time.
+        // 6. Register the framework AuthBlock — it can't self-register via
+        //    register_static_block! because its constructor takes
+        //    Arc<dyn AuthService>. The wrapped AuthServiceImpl picks up its
+        //    Context handle when the runtime fires the block's
+        //    lifecycle(Init) event.
+        crate::blocks::register_auth(&mut wafer)?;
+
+        // 6b. Register LlmBlock — it can't self-register via register_static_block!
+        //     because its constructor takes Arc<ProviderLlmService>. All other solobase
+        //     blocks self-register via register_static_block! at link time.
         #[cfg(feature = "llm")]
         crate::blocks::register_llm(&mut wafer, provider_llm_svc.clone())?;
 

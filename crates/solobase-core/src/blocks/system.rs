@@ -119,6 +119,7 @@ mod tests {
     use super::*;
     use crate::ui::assets;
 
+    #[derive(Clone)]
     struct NopCtx;
     #[async_trait::async_trait]
     impl Context for NopCtx {
@@ -135,6 +136,9 @@ mod tests {
         }
         fn config_get(&self, _key: &str) -> Option<&str> {
             None
+        }
+        fn clone_arc(&self) -> std::sync::Arc<dyn Context> {
+            std::sync::Arc::new(self.clone())
         }
     }
 

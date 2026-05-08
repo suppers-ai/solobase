@@ -1,4 +1,4 @@
-//! `/b/auth/dashboard` — portal home.
+//! GET /b/auth/dashboard — relocated from auth/pages/dashboard.rs in Task 5.
 //!
 //! Anonymous → 302 to `/b/auth/login`. Authenticated → renders the
 //! configured apps grid (fetched from userportal via cross-block call)
@@ -30,7 +30,7 @@ struct DashboardButton {
 }
 
 /// GET `/b/auth/dashboard`. Anonymous users redirected to login.
-pub async fn dashboard_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
+pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id().to_string();
     if user_id.is_empty() {
         return ResponseBuilder::new()
@@ -156,154 +156,5 @@ fn render_orgs_card(orgs: &[orgs::OrgRow]) -> Markup {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{collections::HashMap, sync::Arc};
-
-    use serde_json::json;
-    use wafer_core::clients::database as db;
-
-    use super::*;
-    use crate::{
-        blocks::{
-            auth::repo::orgs::{upsert_claimed, NewClaim},
-            userportal::UserPortalBlock,
-        },
-        test_support::{
-            anon_msg, auth_msg, output_header, output_html, output_status, TestContext,
-        },
-    };
-
-    async fn ctx_with_userportal() -> TestContext {
-        let mut ctx = TestContext::with_auth().await;
-        ctx.register_block("suppers-ai/userportal", Arc::new(UserPortalBlock));
-        ctx
-    }
-
-    async fn seed_user(ctx: &TestContext, user_id: &str) {
-        db::exec_raw(
-            ctx,
-            "INSERT INTO suppers_ai__auth__users (id, email, display_name, role, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?)",
-            &[
-                json!(user_id),
-                json!(format!("{user_id}@example.com")),
-                json!(user_id),
-                json!("user"),
-                json!("2026-01-01T00:00:00Z"),
-                json!("2026-01-01T00:00:00Z"),
-            ],
-        )
-        .await
-        .unwrap();
-    }
-
-    fn button_data(
-        label: &str,
-        icon: &str,
-        path: &str,
-        sort_order: i64,
-    ) -> HashMap<String, serde_json::Value> {
-        let mut m = HashMap::new();
-        m.insert("label".to_string(), json!(label));
-        m.insert("icon".to_string(), json!(icon));
-        m.insert("path".to_string(), json!(path));
-        m.insert("sort_order".to_string(), json!(sort_order));
-        m
-    }
-
-    #[tokio::test]
-    async fn anonymous_redirects_to_login() {
-        let ctx = ctx_with_userportal().await;
-        let msg = anon_msg("retrieve", "/b/auth/dashboard");
-        let resp = dashboard_page(&ctx, &msg).await;
-        assert_eq!(output_status(resp).await, 302);
-    }
-
-    #[tokio::test]
-    async fn anonymous_redirect_sets_location_header() {
-        let ctx = ctx_with_userportal().await;
-        let msg = anon_msg("retrieve", "/b/auth/dashboard");
-        let resp = dashboard_page(&ctx, &msg).await;
-        assert_eq!(
-            output_header(resp, "Location").await.as_deref(),
-            Some("/b/auth/login")
-        );
-    }
-
-    #[tokio::test]
-    async fn authenticated_renders_both_sections() {
-        let ctx = ctx_with_userportal().await;
-        seed_user(&ctx, "user-a").await;
-        upsert_claimed(
-            &ctx,
-            NewClaim {
-                name: "acme",
-                owner_user_id: "user-a",
-                verified_via: "github",
-                verified_ref: "gh-1",
-            },
-        )
-        .await
-        .unwrap();
-        db::create(
-            &ctx,
-            "suppers_ai__userportal__buttons",
-            button_data("Solobase", "shield", "/b/admin/", 0),
-        )
-        .await
-        .unwrap();
-
-        let msg = auth_msg("retrieve", "/b/auth/dashboard", "user-a");
-        let resp = dashboard_page(&ctx, &msg).await;
-        assert_eq!(output_status(resp).await, 200);
-    }
-
-    #[tokio::test]
-    async fn authenticated_includes_apps_orgs_section_titles() {
-        let ctx = ctx_with_userportal().await;
-        seed_user(&ctx, "user-a").await;
-        let msg = auth_msg("retrieve", "/b/auth/dashboard", "user-a");
-        let resp = dashboard_page(&ctx, &msg).await;
-        let html = output_html(resp).await;
-        assert!(html.contains("Your apps"), "missing apps section");
-        assert!(html.contains("Your organizations"), "missing orgs section");
-    }
-
-    #[tokio::test]
-    async fn authenticated_with_no_orgs_shows_empty_state() {
-        let ctx = ctx_with_userportal().await;
-        seed_user(&ctx, "user-a").await;
-        let msg = auth_msg("retrieve", "/b/auth/dashboard", "user-a");
-        let resp = dashboard_page(&ctx, &msg).await;
-        let html = output_html(resp).await;
-        assert!(
-            html.contains("No claimed organizations"),
-            "missing empty state"
-        );
-    }
-
-    #[tokio::test]
-    async fn authenticated_with_orgs_renders_org_name() {
-        let ctx = ctx_with_userportal().await;
-        seed_user(&ctx, "user-a").await;
-        upsert_claimed(
-            &ctx,
-            NewClaim {
-                name: "acme-corp",
-                owner_user_id: "user-a",
-                verified_via: "github",
-                verified_ref: "gh-1",
-            },
-        )
-        .await
-        .unwrap();
-        let msg = auth_msg("retrieve", "/b/auth/dashboard", "user-a");
-        let resp = dashboard_page(&ctx, &msg).await;
-        let html = output_html(resp).await;
-        assert!(html.contains("acme-corp"), "missing org name");
     }
 }

@@ -111,7 +111,7 @@ async fn boot() -> Harness {
     inner.insert("github", gh.clone() as Arc<dyn OAuthProvider>);
     let providers = Arc::new(ProviderRegistry::from_map(inner));
 
-    let state = BlockState::new(ctx.clone())
+    let state = BlockState::for_test(ctx.clone())
         .with_providers(providers)
         .with_org_admin_cache(OrgAdminCache::default());
     let svc = AuthServiceImpl::new(state);

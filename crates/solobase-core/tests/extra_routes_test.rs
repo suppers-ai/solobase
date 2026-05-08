@@ -16,7 +16,7 @@
 //! 5. Admin extra rejects non-admin.
 //! 6. Unmatched path falls through to 404.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use solobase_core::{
     features::FeatureConfig,
@@ -34,14 +34,15 @@ use wafer_run::{
 // Mock Context — records which block was called and returns a minimal OK response.
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 struct RecordingContext {
-    calls: Mutex<Vec<String>>,
+    calls: Arc<Mutex<Vec<String>>>,
 }
 
 impl RecordingContext {
     fn new() -> Self {
         Self {
-            calls: Mutex::new(Vec::new()),
+            calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -75,6 +76,10 @@ impl Context for RecordingContext {
 
     fn config_get(&self, _key: &str) -> Option<&str> {
         None
+    }
+
+    fn clone_arc(&self) -> Arc<dyn Context> {
+        Arc::new(self.clone())
     }
 }
 
@@ -162,8 +167,8 @@ async fn built_in_route_wins_over_extra_with_same_prefix() {
     let calls = ctx.calls();
     assert_eq!(calls.len(), 1, "exactly one dispatch should have happened");
     assert_eq!(
-        calls[0], "suppers-ai/auth",
-        "built-in Auth route must win over extra with same prefix"
+        calls[0], "suppers-ai/auth-ui",
+        "built-in auth-ui route must win over extra with same prefix"
     );
 }
 

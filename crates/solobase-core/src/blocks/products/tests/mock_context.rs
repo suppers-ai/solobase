@@ -520,6 +520,16 @@ impl Context for MockContext {
     fn config_get(&self, key: &str) -> Option<&str> {
         self.config.get(key).map(|s| s.as_str())
     }
+    fn clone_arc(&self) -> Arc<dyn Context> {
+        // Share the in-memory db handle and config; reset the id counter.
+        // No test today relies on `clone_arc` so this is purely a trait
+        // satisfaction shim — tests still construct MockContext directly.
+        Arc::new(MockContext {
+            db: self.db.clone(),
+            config: self.config.clone(),
+            next_id: AtomicU64::new(self.next_id.load(std::sync::atomic::Ordering::SeqCst)),
+        })
+    }
 }
 
 // --- Test message builders ---

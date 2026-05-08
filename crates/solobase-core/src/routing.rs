@@ -17,7 +17,12 @@ use crate::{blocks::helpers, features::FeatureConfig};
 pub enum BlockId {
     System,
     Inspector,
-    Auth,
+    /// `suppers-ai/auth-ui` — owns all `/b/auth/*` HTTP routes (login/signup/
+    /// OAuth/dashboard/orgs/bootstrap/api). The framework `suppers-ai/auth`
+    /// block (wafer-core's AuthBlock wrapping AuthServiceImpl) has no HTTP
+    /// surface — it exposes the `auth@v1` interface only — so it does not
+    /// appear in the routing table.
+    AuthUi,
     Admin,
     Files,
     LegalPages,
@@ -102,7 +107,7 @@ pub const ROUTES: &[Route] = &[
     Route {
         prefix: "/b/auth/",
         requires_admin: false,
-        block_id: BlockId::Auth,
+        block_id: BlockId::AuthUi,
     },
     // Admin settings — more specific prefix must come before the /b/admin/ catch-all
     Route {
@@ -247,7 +252,7 @@ fn block_id_short_name(id: BlockId) -> &'static str {
     match id {
         BlockId::System => "system",
         BlockId::Inspector => "inspector",
-        BlockId::Auth => "auth",
+        BlockId::AuthUi => "auth-ui",
         BlockId::Admin => "admin",
         BlockId::Files => "files",
         BlockId::LegalPages => "legalpages",
@@ -363,9 +368,9 @@ mod tests {
             ("/b/inspector", BlockId::Inspector),
             ("/b/inspector/blocks", BlockId::Inspector),
             // All block routes under /b/
-            ("/b/auth/login", BlockId::Auth),
-            ("/b/auth/signup", BlockId::Auth),
-            ("/b/auth/api/me", BlockId::Auth),
+            ("/b/auth/login", BlockId::AuthUi),
+            ("/b/auth/signup", BlockId::AuthUi),
+            ("/b/auth/api/me", BlockId::AuthUi),
             ("/b/admin/", BlockId::Admin),
             ("/b/admin/users", BlockId::Admin),
             ("/b/admin", BlockId::Admin),
@@ -501,7 +506,7 @@ mod tests {
     #[test]
     fn feature_gating_all_enabled() {
         let all = AllEnabled;
-        assert!(is_block_enabled(BlockId::Auth, &all));
+        assert!(is_block_enabled(BlockId::AuthUi, &all));
         assert!(is_block_enabled(BlockId::Admin, &all));
         assert!(is_block_enabled(BlockId::Files, &all));
         assert!(is_block_enabled(BlockId::Products, &all));
@@ -512,7 +517,7 @@ mod tests {
     #[test]
     fn feature_gating_all_disabled() {
         let none = NoneEnabled;
-        assert!(!is_block_enabled(BlockId::Auth, &none));
+        assert!(!is_block_enabled(BlockId::AuthUi, &none));
         assert!(!is_block_enabled(BlockId::Admin, &none));
         assert!(!is_block_enabled(BlockId::Files, &none));
         assert!(!is_block_enabled(BlockId::Products, &none));
