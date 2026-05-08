@@ -180,26 +180,34 @@ fn extract_creds(msg: &Message) -> Result<Creds, AuthError> {
 /// scope. Keep these in sync with the spec at
 /// `docs/superpowers/specs/2026-04-21-auth-block-design.md`.
 pub fn auth_grants() -> Vec<wafer_block::types::ResourceGrant> {
+    // String literals are used (instead of repo::*::TABLE consts) so the
+    // static WRAP-grant audit script (scripts/audit-wrap-grants.sh) can
+    // resolve every grant target — its const-resolver only follows
+    // top-level `super::NAME` paths, not nested module paths like
+    // `repo::users::TABLE`. Each literal must stay in sync with the
+    // corresponding `pub const TABLE` in repo/*.rs.
     vec![
         // auth-ui owns the SSR / JSON / OAuth handlers and writes every
         // auth table during login, signup, OAuth callback, etc. The
         // wildcard covers users / sessions / pats / provider_links /
         // bootstrap_tokens / orgs / api_keys without enumerating each.
         wafer_run::ResourceGrant::read_write("suppers-ai/auth-ui", "suppers_ai__auth__*"),
-        // Admin block reads auth tables for the admin dashboards.
-        wafer_run::ResourceGrant::read("suppers-ai/admin", users::TABLE),
-        wafer_run::ResourceGrant::read("suppers-ai/admin", sessions::TABLE),
+        // Admin block reads auth tables for the admin dashboards. The
+        // wildcard mirrors the legacy AuthBlock grant — admin/pages/users
+        // reads users, sessions, AND api_keys (the API-key tab) so the
+        // narrower per-table list would regress.
+        wafer_run::ResourceGrant::read("suppers-ai/admin", "suppers_ai__auth__*"),
         // Userportal `/b/userportal/sessions` page lists the caller's
         // sessions and revokes individual rows. Read+write because revoke
         // deletes the row; reads are scoped to the caller's user_id by
         // the repo helper.
-        wafer_run::ResourceGrant::read_write("suppers-ai/userportal", sessions::TABLE),
+        wafer_run::ResourceGrant::read_write("suppers-ai/userportal", "suppers_ai__auth__sessions"),
         // Userportal `/b/userportal/security` lists the caller's
         // linked OAuth providers. Read-only — unlinking goes
         // through an auth POST endpoint, not the userportal block.
-        wafer_run::ResourceGrant::read("suppers-ai/userportal", provider_links::TABLE),
-        wafer_run::ResourceGrant::read_write("suppers-ai/userportal", users::TABLE),
-        wafer_run::ResourceGrant::read("suppers-ai/products", users::TABLE),
+        wafer_run::ResourceGrant::read("suppers-ai/userportal", "suppers_ai__auth__provider_links"),
+        wafer_run::ResourceGrant::read_write("suppers-ai/userportal", "suppers_ai__auth__users"),
+        wafer_run::ResourceGrant::read("suppers-ai/products", "suppers_ai__auth__users"),
     ]
 }
 
