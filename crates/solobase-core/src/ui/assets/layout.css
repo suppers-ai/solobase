@@ -572,7 +572,7 @@
 }
 .topbar__palette:hover { background: var(--bg-hover); }
 .topbar__palette kbd { background: var(--bg-secondary); padding: 1px 5px; border-radius: 4px; font-size: 0.7rem; font-family: ui-monospace, Menlo, monospace; display: inline-flex; align-items: center; gap: 3px; }
-.topbar__palette-cmd { font-size: 0.95rem; line-height: 1; }
+.topbar__palette-cmd { font-size: 0.95rem; line-height: 1; margin-top: 1px; }
 .topbar__action { display: flex; align-items: center; }
 
 /* ===== Phase 4 PR-3: Mobile shell chrome (< 720px) ===== */
