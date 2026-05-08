@@ -65,6 +65,9 @@ fn render_topbar(t: &Topbar<'_>) -> Markup {
                 span .topbar__subtitle { (s) }
             }
             div .topbar__right {
+                @if let Some(a) = &t.primary_action {
+                    div .topbar__action { (a.clone()) }
+                }
                 @if t.show_palette {
                     button .topbar__palette type="button"
                         data-action="palette-open"
@@ -76,9 +79,6 @@ fn render_topbar(t: &Topbar<'_>) -> Markup {
                             span { "K" }
                         }
                     }
-                }
-                @if let Some(a) = &t.primary_action {
-                    div .topbar__action { (a.clone()) }
                 }
             }
         }
@@ -122,7 +122,7 @@ pub fn shell(
             (sidebar_grouped(nav_groups, user, current_path, logo_url, logo_icon_url))
             div .shell__main {
                 (render_topbar(&topbar))
-                div .shell__body { (body) }
+                div .shell__body #content { (body) }
             }
         }
     }
