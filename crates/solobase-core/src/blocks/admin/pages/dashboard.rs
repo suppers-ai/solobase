@@ -28,6 +28,13 @@ fn bar_chart_card(
     view_href: &str,
 ) -> maud::Markup {
     let max = data.iter().map(|(_, v)| *v).max().unwrap_or(0).max(1);
+    let fmt_short = |s: &str| -> String {
+        chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+            .map(|d| d.format("%b %-d").to_string())
+            .unwrap_or_else(|_| s.to_string())
+    };
+    let first_label = data.first().map(|(d, _)| fmt_short(d)).unwrap_or_default();
+    let last_label = data.last().map(|(d, _)| fmt_short(d)).unwrap_or_default();
     html! {
         section .card {
             header .card__head {
@@ -48,6 +55,10 @@ fn bar_chart_card(
                             }
                         }
                     }
+                }
+                div .charts-css__range {
+                    span { (first_label) }
+                    span { (last_label) }
                 }
             }
         }

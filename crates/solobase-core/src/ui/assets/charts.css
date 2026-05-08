@@ -102,3 +102,12 @@
 	white-space: nowrap;
 	text-overflow: ellipsis;
 }
+
+/* First / last date labels under the chart */
+.charts-css__range {
+	display: flex;
+	justify-content: space-between;
+	font-size: var(--text-xs);
+	color: var(--text-muted);
+	margin-top: var(--spacing-xs);
+}
