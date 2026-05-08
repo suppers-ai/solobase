@@ -9,6 +9,7 @@ const TOKENS_CSS: &str = include_str!("assets/tokens.css");
 const BASE_CSS: &str = include_str!("assets/base.css");
 const COMPONENTS_CSS: &str = include_str!("assets/components.css");
 const LAYOUT_CSS: &str = include_str!("assets/layout.css");
+const CHARTS_CSS: &str = include_str!("assets/charts.css");
 
 /// Itim font binaries, sourced from `suppers-ai/site-kit`'s `/fonts/` mirror
 /// and committed here so every solobase deployment ships its own glyphs
@@ -58,8 +59,8 @@ pub fn css_bundle() -> String {
         .replace("__ITIM_LATIN_URL__", itim_latin_woff2_url())
         .replace("__ITIM_LATIN_EXT_URL__", itim_latin_ext_woff2_url());
     format!(
-        "{}\n{}\n{}\n{}\n",
-        tokens, BASE_CSS, COMPONENTS_CSS, LAYOUT_CSS
+        "{}\n{}\n{}\n{}\n{}\n",
+        tokens, BASE_CSS, COMPONENTS_CSS, LAYOUT_CSS, CHARTS_CSS
     )
 }
 

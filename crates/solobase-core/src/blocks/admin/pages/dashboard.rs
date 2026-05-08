@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use maud::html;
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
 use wafer_run::{context::Context, types::*, OutputStream};
@@ -15,6 +17,84 @@ use crate::{
         SiteConfig, UserInfo,
     },
 };
+
+/// Render a 30-day column bar chart card. `data` is ordered
+/// chronologically; bars are normalized against the max count.
+fn bar_chart_card(
+    title: &str,
+    subtitle: &str,
+    data: &[(String, i64)],
+    color_var: &str,
+) -> maud::Markup {
+    let max = data.iter().map(|(_, v)| *v).max().unwrap_or(0).max(1);
+    html! {
+        section .card {
+            header .card__head {
+                div {
+                    h3 .card__title { (title) }
+                    p style="margin:0;font-size:var(--text-xs);color:var(--text-muted)" { (subtitle) }
+                }
+            }
+            div .card__body {
+                table .charts-css .column style=(format!("--chart-color: {color_var}")) {
+                    tbody {
+                        @for (day, val) in data {
+                            tr data-tooltip=(format!("{day}: {val}")) {
+                                td style=(format!("--size: {:.4}", *val as f64 / max as f64)) {
+                                    (val)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Run a daily-count query over the trailing 30-day window and zero-fill
+/// missing days. Returns 30 entries ordered oldest → newest.
+async fn daily_counts_30d(
+    ctx: &dyn Context,
+    table: &str,
+    extra_filters: Vec<Filter>,
+) -> Vec<(String, i64)> {
+    use chrono::Duration;
+
+    let today = chrono::Utc::now().date_naive();
+    let start = today - Duration::days(29);
+    let start_iso = format!("{start}T00:00:00");
+
+    let mut filters = vec![Filter {
+        field: "created_at".into(),
+        operator: FilterOp::GreaterEqual,
+        value: serde_json::json!(start_iso),
+    }];
+    filters.extend(extra_filters);
+
+    let (sql, vals) =
+        aggregate::build_daily_count(table, "created_at", &filters, Backend::Sqlite);
+    let rows = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .unwrap_or_default();
+
+    let counts: HashMap<String, i64> = rows
+        .iter()
+        .filter_map(|r| {
+            let day = r.data.get("day").and_then(|v| v.as_str())?;
+            let cnt = r.data.get("cnt").and_then(|v| v.as_i64())?;
+            Some((day.to_string(), cnt))
+        })
+        .collect();
+
+    (0..30)
+        .map(|i| {
+            let date = (start + Duration::days(i)).format("%Y-%m-%d").to_string();
+            let count = counts.get(&date).copied().unwrap_or(0);
+            (date, count)
+        })
+        .collect()
+}
 
 pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
@@ -337,6 +417,37 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         })
     };
 
+    // 30-day daily series for charts
+    let new_users_daily = daily_counts_30d(
+        ctx,
+        USERS,
+        vec![Filter {
+            field: "deleted_at".into(),
+            operator: FilterOp::IsNull,
+            value: serde_json::Value::Null,
+        }],
+    )
+    .await;
+    let requests_daily = daily_counts_30d(ctx, REQUEST_LOGS, vec![]).await;
+    let errors_daily = daily_counts_30d(
+        ctx,
+        REQUEST_LOGS,
+        vec![Filter {
+            field: "status".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::json!("ERROR"),
+        }],
+    )
+    .await;
+
+    let charts_section = html! {
+        div .dashboard-charts {
+            (bar_chart_card("New users", "Last 30 days", &new_users_daily, "var(--primary-color)"))
+            (bar_chart_card("Requests", "Last 30 days", &requests_daily, "var(--accent-info)"))
+            (bar_chart_card("Errors", "Last 30 days", &errors_daily, "var(--accent-danger)"))
+        }
+    };
+
     let body = dashboard_page(
         PageHeader {
             title: "",
@@ -347,7 +458,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         recent_users_card,
         recent_activity_card,
         recent_errors_card,
-        None,
+        Some(charts_section),
     );
 
     admin_page(
