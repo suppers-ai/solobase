@@ -17,6 +17,25 @@ use crate::{
     },
 };
 
+/// Tabs navigation across the storage-admin sub-pages
+/// (Overview / Buckets / Shares / Quotas). `active` matches the
+/// crumb label so the active tab can be highlighted.
+fn admin_tabs(active: &str) -> Markup {
+    let items: &[(&str, &str)] = &[
+        ("Overview", "/b/storage/admin/"),
+        ("Buckets", "/b/storage/admin/buckets"),
+        ("Shares", "/b/storage/admin/shares"),
+        ("Quotas", "/b/storage/admin/quotas"),
+    ];
+    html! {
+        div .tabs {
+            @for (label, href) in items {
+                a class={ "tab" @if *label == active { " active" } } href=(href) { (label) }
+            }
+        }
+    }
+}
+
 fn files_page<'a>(
     title: &str,
     config: &SiteConfig,
@@ -37,7 +56,11 @@ fn files_page<'a>(
         subtitle,
         show_palette: true,
     };
-    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
+    let body_with_tabs = html! {
+        (admin_tabs(crumb_label))
+        (content)
+    };
+    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, body_with_tabs)
 }
 
 // ---------------------------------------------------------------------------

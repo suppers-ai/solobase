@@ -84,7 +84,7 @@ pub async fn route(ctx: &dyn Context, msg: &Message, input: InputStream) -> Outp
     let path = msg.path();
 
     match (action, path) {
-        ("create", "/b/vector/api/indexes") => create_index(ctx, input).await,
+        ("create", "/b/vector/api/indexes") => create_index(ctx, msg, input).await,
         ("retrieve", "/b/vector/api/indexes") => list_indexes(ctx).await,
         ("create", "/b/vector/api/upsert") => upsert(ctx, input).await,
         ("create", "/b/vector/api/query") => query(ctx, input).await,
@@ -123,11 +123,39 @@ struct CreateIndexBody {
     keyword_search: bool,
 }
 
-async fn create_index(ctx: &dyn Context, input: InputStream) -> OutputStream {
+async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let raw = input.collect_to_bytes().await;
-    let body: CreateIndexBody = match serde_json::from_slice(&raw) {
-        Ok(b) => b,
-        Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
+    // Accept either JSON (programmatic clients) or URL-encoded form
+    // (htmx modal). Parse via the shared helper, then map fields explicitly
+    // — `keyword_search` is a checkbox, which arrives as the string "on"
+    // when checked and absent otherwise.
+    let parsed = crate::blocks::helpers::parse_body_value(&raw);
+    let body = CreateIndexBody {
+        name: parsed
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        model: parsed
+            .get("model")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from),
+        dimensions: parsed
+            .get("dimensions")
+            .and_then(|v| v.as_u64().map(|n| n as u32).or_else(|| v.as_str().and_then(|s| s.parse().ok()))),
+        metric: parsed
+            .get("metric")
+            .and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_value(serde_json::Value::String(s.to_string())).ok()),
+        keyword_search: matches!(
+            parsed.get("keyword_search"),
+            Some(serde_json::Value::Bool(true))
+                | Some(serde_json::Value::String(_))
+        ) && parsed.get("keyword_search").is_some_and(|v| {
+            v.as_bool().unwrap_or(false)
+                || matches!(v.as_str().unwrap_or(""), "on" | "true" | "1" | "yes")
+        }),
     };
 
     if body.name.is_empty() {
@@ -188,6 +216,22 @@ async fn create_index(ctx: &dyn Context, input: InputStream) -> OutputStream {
         return err_internal(&format!("registry write failed: {e}"));
     }
 
+    // htmx callers (the admin modal) want HTML back so the swap renders
+    // and HX-Trigger can close the modal + show a toast. Programmatic
+    // JSON callers still get the JSON payload.
+    if !msg.get_meta("http.header.hx-request").is_empty() {
+        let body_html = match super::pages_ui::render_index_list_fragment(ctx).await {
+            Ok(m) => m,
+            Err(e) => return err_internal(&format!("Failed to refresh: {e}")),
+        };
+        let trigger = r#"{"showToast":{"message":"Index created","type":"success"},"closeModal":{"id":"create-vector-index"}}"#;
+        return crate::blocks::helpers::ResponseBuilder::new()
+            .set_header("HX-Trigger", trigger)
+            .body(
+                body_html.into_string().into_bytes(),
+                "text/html; charset=utf-8",
+            );
+    }
     ok_json(&serde_json::json!({
         "name": body.name,
         "model": cfg.model,
