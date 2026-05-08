@@ -4,6 +4,7 @@
 //! `auth/` block in Task 5 of Plan A2 PR 5. Until then, every
 //! function panics with `unimplemented!()`.
 
+pub mod api_keys;
 pub mod bootstrap;
 pub mod change_password;
 pub mod forgot_password;

@@ -345,6 +345,17 @@ impl Block for AuthUiBlock {
             ("create", "/auth/api/change-password") => {
                 api::change_password::handle(ctx, &msg, input).await
             }
+            // API keys (admin user-management still hits these via htmx)
+            ("retrieve", "/auth/api/api-keys") => api::api_keys::handle_list(ctx, &msg).await,
+            ("create", "/auth/api/api-keys") => {
+                api::api_keys::handle_create(ctx, &msg, input).await
+            }
+            ("update", _) if path.starts_with("/auth/api/api-keys/") => {
+                api::api_keys::handle_revoke(ctx, &msg).await
+            }
+            ("delete", _) if path.starts_with("/auth/api/api-keys/") => {
+                api::api_keys::handle_delete(ctx, &msg).await
+            }
             // Email verification
             ("retrieve" | "create", "/auth/api/verify") => {
                 api::verify::handle(ctx, &msg, input).await
