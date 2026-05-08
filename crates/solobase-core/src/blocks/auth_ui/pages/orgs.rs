@@ -48,6 +48,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
             },
         ],
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
     let user = UserInfo::from_message(msg);

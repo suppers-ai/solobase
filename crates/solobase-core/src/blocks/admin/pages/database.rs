@@ -370,6 +370,7 @@ pub async fn database_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         Topbar {
             crumbs: crumb("Database"),
             primary_action: None,
+            subtitle: None,
             show_palette: true,
         },
         body,

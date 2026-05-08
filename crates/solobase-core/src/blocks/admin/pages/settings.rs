@@ -84,6 +84,7 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message, tab: &str) -> Outpu
         Topbar {
             crumbs: crumb("Settings"),
             primary_action: None,
+            subtitle: None,
             show_palette: true,
         },
         form_body,

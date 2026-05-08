@@ -144,6 +144,7 @@ pub async fn index_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             href: None,
         }],
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
     shelled_response(
@@ -225,6 +226,7 @@ pub async fn index_detail_page(ctx: &dyn Context, msg: &Message, name: &str) -> 
             },
         ],
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
     let groups = nav_groups::admin();

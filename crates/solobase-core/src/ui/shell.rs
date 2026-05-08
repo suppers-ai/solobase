@@ -17,6 +17,8 @@ pub struct Crumb<'a> {
 /// Topbar inputs declared by each page.
 pub struct Topbar<'a> {
     pub crumbs: Vec<Crumb<'a>>,
+    /// Subtitle shown after the crumbs separated by a vertical bar.
+    pub subtitle: Option<&'a str>,
     pub primary_action: Option<Markup>,
     /// Whether to render the ⌘K palette trigger (every shelled page = true).
     pub show_palette: bool,
@@ -26,6 +28,7 @@ impl<'a> Default for Topbar<'a> {
     fn default() -> Self {
         Self {
             crumbs: Vec::new(),
+            subtitle: None,
             primary_action: None,
             show_palette: true,
         }
@@ -35,7 +38,11 @@ impl<'a> Default for Topbar<'a> {
 fn render_topbar(t: &Topbar<'_>) -> Markup {
     // Skip rendering entirely when nothing was declared — avoids an empty
     // stripe on pages that don't need a topbar.
-    if t.crumbs.is_empty() && t.primary_action.is_none() && !t.show_palette {
+    if t.crumbs.is_empty()
+        && t.subtitle.is_none()
+        && t.primary_action.is_none()
+        && !t.show_palette
+    {
         return html! {};
     }
     html! {
@@ -52,6 +59,10 @@ fn render_topbar(t: &Topbar<'_>) -> Markup {
                         }
                     }
                 }
+            }
+            @if let Some(s) = t.subtitle {
+                span .topbar__sep aria-hidden="true" { "|" }
+                span .topbar__subtitle { (s) }
             }
             div .topbar__right {
                 @if t.show_palette {
@@ -151,6 +162,7 @@ mod tests {
                 },
             ],
             primary_action: None,
+            subtitle: None,
             show_palette: true,
         };
         let body = html! { p { "page body" } };

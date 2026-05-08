@@ -233,6 +233,7 @@ pub async fn bucket_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream 
             href: None,
         }],
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
     shelled_response(
@@ -588,6 +589,7 @@ pub async fn object_list_page(
             },
         ],
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
     shelled_response(
@@ -843,6 +845,7 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
             href: None,
         }],
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
     shelled_response(

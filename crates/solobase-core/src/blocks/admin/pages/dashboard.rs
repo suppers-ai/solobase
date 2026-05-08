@@ -364,8 +364,8 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = dashboard_page(
         PageHeader {
-            title: "Dashboard",
-            subtitle: Some("System overview"),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         stats,
@@ -383,6 +383,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         Topbar {
             crumbs: crumb("Dashboard"),
             primary_action: None,
+            subtitle: Some("System overview"),
             show_palette: true,
         },
         body,

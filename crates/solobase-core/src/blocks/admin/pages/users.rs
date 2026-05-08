@@ -97,6 +97,7 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         Topbar {
             crumbs: crumb("Users"),
             primary_action: None,
+            subtitle: None,
             show_palette: true,
         },
         body,

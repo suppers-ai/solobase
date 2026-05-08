@@ -73,6 +73,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
             href: None,
         }],
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
     shelled_response(

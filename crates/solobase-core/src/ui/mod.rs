@@ -325,6 +325,7 @@ mod tests {
                 href: None,
             }],
             primary_action: None,
+            subtitle: None,
             show_palette: true,
         };
         let body = html! { p { "hello" } };

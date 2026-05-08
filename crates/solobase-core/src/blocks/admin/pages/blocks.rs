@@ -227,6 +227,7 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         Topbar {
             crumbs: crumb("Blocks"),
             primary_action: None,
+            subtitle: None,
             show_palette: true,
         },
         body,

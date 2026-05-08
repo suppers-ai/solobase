@@ -82,6 +82,7 @@ pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         Topbar {
             crumbs: crumb("Storage"),
             primary_action: None,
+            subtitle: None,
             show_palette: true,
         },
         body,

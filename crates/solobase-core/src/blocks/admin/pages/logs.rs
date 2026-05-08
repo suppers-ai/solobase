@@ -77,6 +77,7 @@ pub async fn logs_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         Topbar {
             crumbs: crumb("Logs"),
             primary_action: None,
+            subtitle: None,
             show_palette: true,
         },
         body,
