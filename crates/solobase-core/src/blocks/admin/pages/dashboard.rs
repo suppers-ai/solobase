@@ -7,10 +7,7 @@ use wafer_sql_utils::{aggregate, query, value::sea_values_to_json, Backend};
 
 use super::{admin_page, crumb};
 use crate::{
-    blocks::{
-        admin::REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
-        auth::USERS_COLLECTION as USERS,
-    },
+    blocks::{admin::REQUEST_LOGS_COLLECTION as REQUEST_LOGS, auth::USERS_COLLECTION as USERS},
     ui::{
         shell::Topbar,
         templates::{dashboard_page, PageHeader, StatTile},
@@ -85,8 +82,7 @@ async fn daily_counts_30d(
     }];
     filters.extend(extra_filters);
 
-    let (sql, vals) =
-        aggregate::build_daily_count(table, "created_at", &filters, Backend::Sqlite);
+    let (sql, vals) = aggregate::build_daily_count(table, "created_at", &filters, Backend::Sqlite);
     let rows = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
         .await
         .unwrap_or_default();

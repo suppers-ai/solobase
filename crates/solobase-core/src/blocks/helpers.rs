@@ -168,7 +168,10 @@ pub fn parse_form_body(data: &[u8]) -> HashMap<String, String> {
 /// accept both htmx form posts and programmatic JSON clients without
 /// duplicating parse logic.
 pub fn parse_body_value(data: &[u8]) -> serde_json::Value {
-    let trimmed_start = data.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(0);
+    let trimmed_start = data
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .unwrap_or(0);
     if data.get(trimmed_start) == Some(&b'{') || data.get(trimmed_start) == Some(&b'[') {
         serde_json::from_slice(data).unwrap_or(serde_json::Value::Null)
     } else {

@@ -38,10 +38,7 @@ impl<'a> Default for Topbar<'a> {
 fn render_topbar(t: &Topbar<'_>) -> Markup {
     // Skip rendering entirely when nothing was declared — avoids an empty
     // stripe on pages that don't need a topbar.
-    if t.crumbs.is_empty()
-        && t.subtitle.is_none()
-        && t.primary_action.is_none()
-        && !t.show_palette
+    if t.crumbs.is_empty() && t.subtitle.is_none() && t.primary_action.is_none() && !t.show_palette
     {
         return html! {};
     }

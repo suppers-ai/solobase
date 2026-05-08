@@ -141,17 +141,18 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(String::from),
-        dimensions: parsed
-            .get("dimensions")
-            .and_then(|v| v.as_u64().map(|n| n as u32).or_else(|| v.as_str().and_then(|s| s.parse().ok()))),
+        dimensions: parsed.get("dimensions").and_then(|v| {
+            v.as_u64()
+                .map(|n| n as u32)
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        }),
         metric: parsed
             .get("metric")
             .and_then(|v| v.as_str())
             .and_then(|s| serde_json::from_value(serde_json::Value::String(s.to_string())).ok()),
         keyword_search: matches!(
             parsed.get("keyword_search"),
-            Some(serde_json::Value::Bool(true))
-                | Some(serde_json::Value::String(_))
+            Some(serde_json::Value::Bool(true)) | Some(serde_json::Value::String(_))
         ) && parsed.get("keyword_search").is_some_and(|v| {
             v.as_bool().unwrap_or(false)
                 || matches!(v.as_str().unwrap_or(""), "on" | "true" | "1" | "yes")

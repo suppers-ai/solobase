@@ -85,7 +85,16 @@ fn files_page_with_action<'a>(
         (admin_tabs(crumb_label))
         (content)
     };
-    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, body_with_tabs)
+    crate::ui::shelled_response(
+        msg,
+        title,
+        config,
+        &groups,
+        user,
+        path,
+        topbar,
+        body_with_tabs,
+    )
 }
 
 // ---------------------------------------------------------------------------

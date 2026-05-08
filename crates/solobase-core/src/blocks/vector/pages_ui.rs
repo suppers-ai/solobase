@@ -31,28 +31,32 @@ pub async fn render_index_list_fragment(ctx: &dyn Context) -> Result<Markup, Str
 /// next to the index list; opening it is a `openModal('create-vector-index')`
 /// onclick on the topbar action button.
 pub fn render_create_index_modal() -> Markup {
-    crate::ui::components::modal("create-vector-index", "Create vector index", html! {
-        form hx-post="/b/vector/api/indexes" hx-target="#vector-index-list" hx-swap="outerHTML" {
-            div .form-group {
-                label .form-label .required for="vec-name" { "Name" }
-                input .form-input type="text" #vec-name name="name" placeholder="e.g. docs" required;
-            }
-            div .form-group {
-                label .form-label for="vec-model" { "Embedding model" }
-                input .form-input type="text" #vec-model name="model" placeholder="(default — leave blank)";
-            }
-            div .form-group {
-                label .form-label .checkbox-inline {
-                    input type="checkbox" name="keyword_search" value="on";
-                    " Enable keyword (full-text) search alongside vectors"
+    crate::ui::components::modal(
+        "create-vector-index",
+        "Create vector index",
+        html! {
+            form hx-post="/b/vector/api/indexes" hx-target="#vector-index-list" hx-swap="outerHTML" {
+                div .form-group {
+                    label .form-label .required for="vec-name" { "Name" }
+                    input .form-input type="text" #vec-name name="name" placeholder="e.g. docs" required;
+                }
+                div .form-group {
+                    label .form-label for="vec-model" { "Embedding model" }
+                    input .form-input type="text" #vec-model name="model" placeholder="(default — leave blank)";
+                }
+                div .form-group {
+                    label .form-label .checkbox-inline {
+                        input type="checkbox" name="keyword_search" value="on";
+                        " Enable keyword (full-text) search alongside vectors"
+                    }
+                }
+                div .form-actions {
+                    button .btn .btn-secondary type="button" onclick="closeModal('create-vector-index')" { "Cancel" }
+                    button .btn .btn-primary type="submit" { "Create" }
                 }
             }
-            div .form-actions {
-                button .btn .btn-secondary type="button" onclick="closeModal('create-vector-index')" { "Cancel" }
-                button .btn .btn-primary type="submit" { "Create" }
-            }
-        }
-    })
+        },
+    )
 }
 
 pub fn render_index_list_table(rows: &[IndexRow]) -> Markup {

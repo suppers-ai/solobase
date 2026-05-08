@@ -450,9 +450,18 @@ pub async fn handle_user_invite(
     let bytes = input.collect_to_bytes().await;
     let body = parse_form_body(&bytes);
 
-    let email = body.get("email").map(String::as_str).unwrap_or("").trim().to_lowercase();
+    let email = body
+        .get("email")
+        .map(String::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
     let password = body.get("password").map(String::as_str).unwrap_or("");
-    let name = body.get("name").map(String::as_str).unwrap_or("").to_string();
+    let name = body
+        .get("name")
+        .map(String::as_str)
+        .unwrap_or("")
+        .to_string();
     if email.is_empty() {
         return err_bad_request("Email is required");
     }

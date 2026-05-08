@@ -223,5 +223,4 @@ mod tests {
         assert!(users.keywords.contains("/b/admin/users"));
         assert_eq!(users.kind_label, "Page");
     }
-
 }
