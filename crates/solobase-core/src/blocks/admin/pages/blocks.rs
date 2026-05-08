@@ -128,8 +128,8 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 }).collect();
 
                 // Runtime filter dropdown
-                div style="display:flex;justify-content:flex-end;margin-bottom:8px" {
-                    select .form-input style="width:auto;font-size:12px;padding:4px 8px"
+                div .block-cards__filter {
+                    select .form-input
                         onchange={"window.location.href='/b/admin/blocks?tab=" (active_tab) "&runtime='+this.value"}
                     {
                         option value="" selected[runtime_filter.is_empty()] { "All runtimes" }
@@ -147,48 +147,35 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     ))
                 }
 
-                div .cards style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px;align-items:start" {
-                    style { (maud::PreEscaped("
-                        .block-card-collapsed { min-height: 120px; }
-                        .block-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; }
-                    ")) }
+                div .block-cards {
                     @for block in &filtered {
                         @let is_enabled = block_enabled.get(&block.name).copied().unwrap_or(true);
-
                         @let encoded_name = block.name.replace('/', "--");
-                        div .card
-                            style={"cursor:pointer;height:100px;display:flex;flex-direction:column;justify-content:space-between;position:relative;" (if !is_enabled { "opacity:0.5;" } else { "" })}
+                        div class={ "block-card" @if !is_enabled { " block-card--disabled" } }
                             hx-get={"/b/admin/blocks/" (encoded_name) "/detail"}
                             hx-target="#block-detail-modal"
                             hx-swap="innerHTML"
                         {
-                            // Top-right: status icon + version + details link
-                            div style="position:absolute;top:12px;right:12px;display:flex;align-items:center;gap:6px" {
+                            div .block-card__head {
+                                h3 .block-card__title { (block.name) }
                                 @if is_enabled {
-                                    span style="color:#10b981;font-size:14px" title="Enabled" { "\u{2713}" }
+                                    span .block-card__check title="Enabled" { "\u{2713}" }
                                 } @else {
-                                    span style="color:#94a3b8;font-size:14px" title="Disabled" { "\u{2717}" }
+                                    span .block-card__check .block-card__check--off title="Disabled" { "\u{2717}" }
                                 }
+                            }
+                            p .block-card__summary { (block.summary) }
+                            div .block-card__meta {
                                 @if block.runtime == wafer_run::BlockRuntime::Wasm {
-                                    span .badge style="font-size:9px;padding:1px 5px;background:#8b5cf6;color:#fff" { "WASM" }
+                                    span .block-card__runtime .block-card__runtime--wasm { "WASM" }
                                 } @else {
-                                    span .badge style="font-size:9px;padding:1px 5px;background:#e2e8f0;color:#64748b" { "Native" }
+                                    span .block-card__runtime { "Native" }
                                 }
-                                span style="font-size:11px;color:#94a3b8" { "v" (block.version) }
-                                span style="color:#94a3b8;font-size:11px;display:flex;align-items:center;gap:2px" {
-                                    "Details" (icons::chevron_right())
-                                }
-                            }
-                            div {
-                                h3 style="font-size:14px;font-weight:600;color:#1e3a5f;margin:0 0 4px;padding-right:50px" { (block.name) }
-                                p .text-muted .block-summary style="font-size:13px;margin:0;line-height:1.4" { (block.summary) }
-                            }
-                            @if is_enabled && !block.admin_url.is_empty() {
-                                div style="position:absolute;bottom:10px;right:12px" {
-                                    a .btn .btn-sm .btn-primary
+                                span .block-card__version { "v" (block.version) }
+                                @if is_enabled && !block.admin_url.is_empty() {
+                                    a .btn .btn-sm .btn-primary .block-card__open
                                         href=(block.admin_url)
                                         onclick="event.stopPropagation()"
-                                        style="font-size:11px;padding:2px 8px"
                                     { "Open" }
                                 }
                             }
