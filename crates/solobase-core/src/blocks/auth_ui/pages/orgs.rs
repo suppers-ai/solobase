@@ -25,8 +25,8 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let orgs_list = orgs::list_for_user(ctx, &user_id).await.unwrap_or_default();
     let body = crate::ui::templates::list_page(
         crate::ui::templates::PageHeader {
-            title: "Organizations",
-            subtitle: Some("Orgs you've claimed via GitHub, Google, or Microsoft sign-in."),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         None,
@@ -48,7 +48,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
             },
         ],
         primary_action: None,
-        subtitle: None,
+        subtitle: Some("Orgs you've claimed via GitHub, Google, or Microsoft sign-in."),
         show_palette: true,
     };
     let user = UserInfo::from_message(msg);

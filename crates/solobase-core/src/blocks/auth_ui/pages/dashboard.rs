@@ -54,8 +54,8 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = crate::ui::templates::dashboard_page(
         crate::ui::templates::PageHeader {
-            title: title_owned.as_str(),
-            subtitle: Some("Your apps and connected organizations."),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         Vec::new(),
@@ -69,11 +69,11 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let groups = nav_groups::portal();
     let topbar = Topbar {
         crumbs: vec![Crumb {
-            label: "Dashboard",
+            label: title_owned.as_str(),
             href: None,
         }],
         primary_action: None,
-        subtitle: None,
+        subtitle: Some("Your apps and connected organizations."),
         show_palette: true,
     };
     shelled_response(

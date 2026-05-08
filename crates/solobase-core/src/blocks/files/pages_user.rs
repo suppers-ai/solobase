@@ -217,9 +217,9 @@ pub async fn bucket_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream 
 
     let body = list_page(
         PageHeader {
-            title: "Files",
-            subtitle: Some("Your buckets and their object counts."),
-            primary_action: Some(new_bucket_btn),
+            title: "",
+            subtitle: None,
+            primary_action: None,
         },
         None,
         table_with_modal,
@@ -232,8 +232,8 @@ pub async fn bucket_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream 
             label: "Files",
             href: None,
         }],
-        primary_action: None,
-        subtitle: None,
+        primary_action: Some(new_bucket_btn),
+        subtitle: Some("Your buckets and their object counts."),
         show_palette: true,
     };
     shelled_response(
@@ -567,8 +567,8 @@ pub async fn object_list_page(
 
     let body = list_page(
         PageHeader {
-            title: bucket,
-            subtitle: Some("Drag files here to upload."),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         Some(render_breadcrumbs(bucket, current_prefix)),
@@ -589,7 +589,7 @@ pub async fn object_list_page(
             },
         ],
         primary_action: None,
-        subtitle: None,
+        subtitle: Some("Drag files here to upload."),
         show_palette: true,
     };
     shelled_response(
@@ -829,8 +829,8 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
 
     let body = list_page(
         PageHeader {
-            title: "Shares",
-            subtitle: Some("Public links you've created and your storage quota."),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         Some(render_quota_card(&quota)),
@@ -845,7 +845,7 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
             href: None,
         }],
         primary_action: None,
-        subtitle: None,
+        subtitle: Some("Public links you've created and your storage quota."),
         show_palette: true,
     };
     shelled_response(

@@ -128,8 +128,8 @@ pub async fn index_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Vector indexes",
-            subtitle: Some("Per-index counts, model, dimensions"),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         None,
@@ -144,7 +144,7 @@ pub async fn index_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             href: None,
         }],
         primary_action: None,
-        subtitle: None,
+        subtitle: Some("Per-index counts, model, dimensions"),
         show_palette: true,
     };
     shelled_response(

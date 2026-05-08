@@ -61,7 +61,7 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message, tab: &str) -> Outpu
 
     let form_body = form_page(
         PageHeader {
-            title: "Settings",
+            title: "",
             subtitle: None,
             primary_action: None,
         },
@@ -84,7 +84,7 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message, tab: &str) -> Outpu
         Topbar {
             crumbs: crumb("Settings"),
             primary_action: None,
-            subtitle: None,
+            subtitle: Some(tab_title(active)),
             show_palette: true,
         },
         form_body,

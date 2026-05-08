@@ -60,9 +60,9 @@ pub async fn logs_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Logs",
-            subtitle: Some("System telemetry and admin audit trail"),
-            primary_action: Some(refresh_action),
+            title: "",
+            subtitle: None,
+            primary_action: None,
         },
         None,
         tabs_and_body,
@@ -76,8 +76,8 @@ pub async fn logs_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         user.as_ref(),
         Topbar {
             crumbs: crumb("Logs"),
-            primary_action: None,
-            subtitle: None,
+            primary_action: Some(refresh_action),
+            subtitle: Some("System telemetry and admin audit trail"),
             show_palette: true,
         },
         body,

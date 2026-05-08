@@ -210,9 +210,9 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Blocks",
-            subtitle: Some("Registered WAFER blocks"),
-            primary_action: Some(page_action),
+            title: "",
+            subtitle: None,
+            primary_action: None,
         },
         None,
         tabs_and_body,
@@ -226,8 +226,8 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         user.as_ref(),
         Topbar {
             crumbs: crumb("Blocks"),
-            primary_action: None,
-            subtitle: None,
+            primary_action: Some(page_action),
+            subtitle: Some("Registered WAFER blocks"),
             show_palette: true,
         },
         body,

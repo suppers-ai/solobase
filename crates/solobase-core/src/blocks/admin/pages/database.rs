@@ -348,9 +348,9 @@ pub async fn database_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Database",
-            subtitle: Some("Browse tables, view schema, run read-only SQL"),
-            primary_action: Some(backend_badge(tables.len())),
+            title: "",
+            subtitle: None,
+            primary_action: None,
         },
         None,
         html! {
@@ -369,8 +369,8 @@ pub async fn database_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         user.as_ref(),
         Topbar {
             crumbs: crumb("Database"),
-            primary_action: None,
-            subtitle: None,
+            primary_action: Some(backend_badge(tables.len())),
+            subtitle: Some("Browse tables, view schema, run read-only SQL"),
             show_palette: true,
         },
         body,

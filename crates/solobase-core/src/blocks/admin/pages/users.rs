@@ -75,14 +75,9 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Users & Access",
-            subtitle: Some("Manage accounts, roles, and API keys"),
-            primary_action: Some(button(
-                BtnVariant::Primary,
-                CtrlSize::Md,
-                "+ Invite user",
-                PreEscaped(r##"hx-get="/b/admin/users/new" hx-target="#content""##.to_string()),
-            )),
+            title: "",
+            subtitle: None,
+            primary_action: None,
         },
         Some(tabs_markup),
         tab_content,
@@ -96,8 +91,13 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         user.as_ref(),
         Topbar {
             crumbs: crumb("Users"),
-            primary_action: None,
-            subtitle: None,
+            primary_action: Some(button(
+                BtnVariant::Primary,
+                CtrlSize::Sm,
+                "+ Invite user",
+                PreEscaped(r##"hx-get="/b/admin/users/new" hx-target="#content""##.to_string()),
+            )),
+            subtitle: Some("Manage accounts, roles, and API keys"),
             show_palette: true,
         },
         body,

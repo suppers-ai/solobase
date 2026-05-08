@@ -23,6 +23,7 @@ fn files_page<'a>(
     path: &str,
     user: Option<&UserInfo>,
     crumb_label: &'a str,
+    subtitle: Option<&'a str>,
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
@@ -33,7 +34,7 @@ fn files_page<'a>(
             href: None,
         }],
         primary_action: None,
-        subtitle: None,
+        subtitle,
         show_palette: true,
     };
     crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
@@ -91,8 +92,8 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Storage",
-            subtitle: Some("File storage statistics"),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         Some(render_admin_overview_stats(&stats)),
@@ -106,6 +107,7 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "/b/storage/admin/",
         user.as_ref(),
         "Overview",
+        Some("File storage statistics"),
         body,
         msg,
     )
@@ -273,8 +275,8 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Buckets",
-            subtitle: Some("All storage buckets"),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         None,
@@ -288,6 +290,7 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "/b/storage/admin/buckets",
         user.as_ref(),
         "Buckets",
+        Some("All storage buckets"),
         body,
         msg,
     )
@@ -405,8 +408,8 @@ pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Active Shares",
-            subtitle: Some("Public file share links"),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         None,
@@ -420,6 +423,7 @@ pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "/b/storage/admin/shares",
         user.as_ref(),
         "Shares",
+        Some("Public file share links"),
         body,
         msg,
     )
@@ -504,8 +508,8 @@ pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Storage Quotas",
-            subtitle: Some("Per-user storage limits"),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         None,
@@ -519,6 +523,7 @@ pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "/b/storage/admin/quotas",
         user.as_ref(),
         "Quotas",
+        Some("Per-user storage limits"),
         body,
         msg,
     )

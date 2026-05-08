@@ -39,8 +39,8 @@ pub async fn sessions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = crate::ui::templates::list_page(
         crate::ui::templates::PageHeader {
-            title: "Active sessions",
-            subtitle: Some("Sessions signed in to your account. Revoke any you don't recognize."),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         None,
@@ -63,7 +63,7 @@ pub async fn sessions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             },
         ],
         primary_action: None,
-        subtitle: None,
+        subtitle: Some("Sessions signed in to your account. Revoke any you don't recognize."),
         show_palette: true,
     };
     shelled_response(
