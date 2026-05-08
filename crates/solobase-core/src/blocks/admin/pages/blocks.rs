@@ -511,67 +511,65 @@ pub async fn handle_block_detail(
 
 fn custom_tab_content() -> maud::Markup {
     html! {
-        // Install from Registry
-        div .card style="margin-bottom:16px" {
-            h3 style="font-size:14px;font-weight:600;margin:0 0 12px" {
-                (icons::arrow_up_right()) " Install from Registry"
-            }
-            p .text-muted style="font-size:13px;margin:0 0 12px" {
-                "Enter a manifest URL from the "
-                a href="https://wafer.run/registry" target="_blank" { "WAFER registry" }
-                " to install a custom WASM block."
-            }
-            form
-                hx-post="/b/admin/custom-blocks/install"
-                hx-target="#custom-blocks-list"
-                hx-swap="outerHTML"
-                style="display:flex;gap:8px;align-items:flex-end"
-            {
-                div style="flex:1" {
-                    label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px" {
-                        "Manifest URL"
+        div .custom-tab {
+            // Install from Registry
+            section .card {
+                header .card__head {
+                    h3 .card__title { (icons::arrow_up_right()) " Install from Registry" }
+                }
+                div .card__body {
+                    p .custom-tab__hint {
+                        "Enter a manifest URL from the "
+                        a href="https://wafer.run/registry" target="_blank" { "WAFER registry" }
+                        " to install a custom WASM block."
                     }
-                    input .form-input type="text" name="manifest_url"
-                        placeholder="https://wafer.run/registry/org/block/manifest.json"
-                        style="width:100%";
-                }
-                button .btn .btn-primary type="submit" {
-                    (icons::arrow_up_right()) " Install"
-                }
-            }
-        }
-
-        // Upload .wasm
-        div .card style="margin-bottom:16px" {
-            h3 style="font-size:14px;font-weight:600;margin:0 0 12px" {
-                (icons::hard_drive()) " Upload .wasm"
-            }
-            p .text-muted style="font-size:13px;margin:0 0 12px" {
-                "Upload a compiled .wasm block directly. The block name will be derived from the filename."
-            }
-            form
-                hx-post="/b/admin/custom-blocks/upload"
-                hx-target="#custom-blocks-list"
-                hx-swap="outerHTML"
-                hx-encoding="multipart/form-data"
-                style="display:flex;gap:8px;align-items:flex-end"
-            {
-                div style="flex:1" {
-                    label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px" {
-                        "WASM file"
+                    form .custom-tab__form
+                        hx-post="/b/admin/custom-blocks/install"
+                        hx-target="#custom-blocks-list"
+                        hx-swap="outerHTML"
+                    {
+                        div .custom-tab__field {
+                            label { "Manifest URL" }
+                            input .form-input type="text" name="manifest_url"
+                                placeholder="https://wafer.run/registry/org/block/manifest.json";
+                        }
+                        button .btn .btn-primary type="submit" {
+                            (icons::arrow_up_right()) " Install"
+                        }
                     }
-                    input .form-input type="file" name="wasm_file" accept=".wasm"
-                        style="width:100%";
-                }
-                button .btn .btn-primary type="submit" {
-                    (icons::arrow_up_right()) " Upload"
                 }
             }
-        }
 
-        // Installed custom blocks list (initially empty placeholder)
-        div #custom-blocks-list {
-            (custom_blocks_list(&[]))
+            // Upload .wasm
+            section .card {
+                header .card__head {
+                    h3 .card__title { (icons::hard_drive()) " Upload .wasm" }
+                }
+                div .card__body {
+                    p .custom-tab__hint {
+                        "Upload a compiled .wasm block directly. The block name will be derived from the filename."
+                    }
+                    form .custom-tab__form
+                        hx-post="/b/admin/custom-blocks/upload"
+                        hx-target="#custom-blocks-list"
+                        hx-swap="outerHTML"
+                        hx-encoding="multipart/form-data"
+                    {
+                        div .custom-tab__field {
+                            label { "WASM file" }
+                            input .form-input type="file" name="wasm_file" accept=".wasm";
+                        }
+                        button .btn .btn-primary type="submit" {
+                            (icons::arrow_up_right()) " Upload"
+                        }
+                    }
+                }
+            }
+
+            // Installed custom blocks list (initially empty placeholder)
+            div #custom-blocks-list {
+                (custom_blocks_list(&[]))
+            }
         }
     }
 }
@@ -581,17 +579,19 @@ fn custom_tab_content() -> maud::Markup {
 pub fn custom_blocks_list(blocks: &[(&str, &str, &str)]) -> maud::Markup {
     html! {
         div #custom-blocks-list {
-            h3 style="font-size:14px;font-weight:600;margin:0 0 12px" {
-                (icons::package()) " Installed Custom Blocks"
-            }
-            @if blocks.is_empty() {
-                div .card style="text-align:center;padding:32px;color:#94a3b8" {
-                    p style="margin:0" { "No custom blocks installed yet." }
-                    p style="margin:8px 0 0;font-size:13px" {
-                        "Use the forms above to install from the registry or upload a .wasm file."
-                    }
+            section .card {
+                header .card__head {
+                    h3 .card__title { (icons::package()) " Installed Custom Blocks" }
                 }
-            } @else {
+                div .card__body {
+                    @if blocks.is_empty() {
+                        div .custom-tab__empty {
+                            p { "No custom blocks installed yet." }
+                            p .custom-tab__empty-hint {
+                                "Use the forms above to install from the registry or upload a .wasm file."
+                            }
+                        }
+                    } @else {
                 div .table-container {
                     table .table {
                         thead {
@@ -636,6 +636,8 @@ pub fn custom_blocks_list(blocks: &[(&str, &str, &str)]) -> maud::Markup {
                     }
                 }
             }
+        }
+    }
         }
     }
 }

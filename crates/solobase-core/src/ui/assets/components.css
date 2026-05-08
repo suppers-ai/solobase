@@ -1055,3 +1055,16 @@
 .block-card__runtime--wasm { background: #8b5cf6; color: #fff; }
 .block-card__version { font-size: 11px; color: var(--text-muted); }
 .block-card__open { margin-left: auto; }
+
+
+/* ===== Custom blocks tab (admin /b/admin/blocks?tab=custom) ===== */
+.custom-tab { display: flex; flex-direction: column; gap: var(--spacing-md); }
+.custom-tab__hint { margin: 0 0 var(--spacing-sm); font-size: 13px; color: var(--text-secondary); line-height: 1.4; }
+.custom-tab__hint a { color: var(--primary-color); text-decoration: underline; }
+.custom-tab__form { display: flex; gap: var(--spacing-sm); align-items: flex-end; }
+.custom-tab__field { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.custom-tab__field label { font-size: var(--text-xs); color: var(--text-muted); font-weight: 500; }
+.custom-tab__field .form-input { width: 100%; }
+.custom-tab__empty { text-align: center; padding: var(--spacing-lg) var(--spacing-md); color: var(--text-muted); }
+.custom-tab__empty p { margin: 0; }
+.custom-tab__empty-hint { margin-top: var(--spacing-sm) !important; font-size: 13px; }
