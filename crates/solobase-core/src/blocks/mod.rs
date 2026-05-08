@@ -156,9 +156,10 @@ pub fn register_all_static_blocks(
     use std::sync::Arc;
 
     wafer.register_block("suppers-ai/admin", Arc::new(admin::AdminBlock::new()))?;
-    // Framework AuthBlock + AuthServiceImpl. Mirrors the `register_auth`
-    // call from `SolobaseBuilder::build` on native.
-    register_auth(wafer)?;
+    // Framework `suppers-ai/auth` is registered unconditionally by
+    // `SolobaseBuilder::build` (after this fn returns) — don't duplicate
+    // here, the second register_block would fail with "block already
+    // registered" and abort the wasm boot.
     wafer.register_block(
         "suppers-ai/auth-ui",
         Arc::new(auth_ui::AuthUiBlock::default()),
