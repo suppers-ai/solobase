@@ -380,22 +380,6 @@ export async function llmUnloadEngine(modelId) {
 }
 
 /**
- * Create + initialise a WebLLM engine on the page. Returns a stream id; the
- * caller pumps `llmNextStreamFrame` to receive `progress` frames as the model
- * downloads, terminating with `done` (success) or `error`.
- *
- * Streamed (rather than one-shot) so the SW fetch handler emits SSE bytes
- * during the multi-minute cold download — without that, Chrome's idle
- * keep-alive eventually drops the request and the page sees ERR_FAILED.
- *
- * @param {string} modelId
- * @returns {Promise<string>} stream id
- */
-export async function llmCreateEngineStream(modelId) {
-    return _startLlmStream('llm-create-engine-stream-request', 'llm-create', { modelId });
-}
-
-/**
  * Start a streaming chat completion. Returns a stream id; pump with
  * `llmNextStreamFrame`. Frames are `{kind:'chunk', payload:<openai chunk
  * JSON>}` then a terminal `{kind:'done'}` or `{kind:'error', payload}`.
