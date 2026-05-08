@@ -145,6 +145,41 @@ fn extract_creds(msg: &Message) -> Result<Creds, AuthError> {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AuthService for AuthServiceImpl {
+    /// Apply auth migrations and run the bootstrap admin step. Invoked by the
+    /// framework `AuthBlock::lifecycle(Init)` (wafer-run #41/#45) once at
+    /// startup. Mirrors the body of the custom solobase `AuthBlock::lifecycle`
+    /// so the framework block has a self-sufficient service to delegate to.
+    async fn init(&self, ctx: &dyn Context) -> Result<(), AuthError> {
+        super::migrations::apply(ctx)
+            .await
+            .map_err(|e| AuthError::Internal(format!("auth migrations: {e}")))?;
+        let cfg = super::config::AuthConfig::from_ctx(ctx).await;
+        super::bootstrap::run(ctx, &cfg)
+            .await
+            .map_err(|e| AuthError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    /// WRAP grants the auth block declares for downstream consumers. The
+    /// framework `AuthBlock::info()` embeds these into `BlockInfo::grants`
+    /// (wafer-run #45) so the runtime registers them at startup.
+    fn grants(&self) -> Vec<wafer_block::types::ResourceGrant> {
+        vec![
+            wafer_run::ResourceGrant::read("suppers-ai/admin", "suppers_ai__auth__*"),
+            wafer_run::ResourceGrant::read_write("suppers-ai/userportal", users::TABLE),
+            // The userportal `/b/userportal/sessions` page lists the
+            // caller's sessions and revokes individual rows. Read+write
+            // because revoke deletes the row; reads are scoped to the
+            // caller's user_id by the repo helper.
+            wafer_run::ResourceGrant::read_write("suppers-ai/userportal", sessions::TABLE),
+            // Userportal `/b/userportal/security` lists the caller's
+            // linked OAuth providers. Read-only — unlinking goes
+            // through an auth POST endpoint, not the userportal block.
+            wafer_run::ResourceGrant::read("suppers-ai/userportal", provider_links::TABLE),
+            wafer_run::ResourceGrant::read("suppers-ai/products", users::TABLE),
+        ]
+    }
+
     async fn require_user(&self, msg: &Message) -> Result<UserId, AuthError> {
         let ctx = self.state.ctx.as_ref();
         match extract_creds(msg)? {
@@ -367,5 +402,88 @@ impl AuthService for AuthServiceImpl {
             role,
             orgs: Vec::new(), // populated by Plan C
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Trait-level dispatch tests for `init` + `grants`. The underlying
+    //! `migrations::apply` and `bootstrap::run` helpers have their own
+    //! integration tests in `tests/auth/` — what we exercise here is that
+    //! `<AuthServiceImpl as AuthService>::init` actually calls them, and
+    //! that `grants()` returns the expected consumer set.
+    use std::sync::Arc;
+
+    use wafer_core::{clients::database as db, interfaces::auth::service::AuthService as _};
+
+    use super::*;
+    use crate::test_support::TestContext;
+
+    #[tokio::test]
+    async fn init_applies_migrations_and_runs_bootstrap_on_fresh_ctx() {
+        // Fresh TestContext — no auth tables, no config block. Calling
+        // `service.init` must run migrations (creating the users table) and
+        // then run bootstrap (which is a no-op without admin env vars set).
+        let ctx = Arc::new(TestContext::new().await);
+        let service = AuthServiceImpl::new(BlockState::for_test(ctx.clone()));
+
+        service
+            .init(&*ctx)
+            .await
+            .expect("init applies migrations and runs bootstrap");
+
+        // Migrations applied → users table exists and is queryable.
+        let rows = db::list(&*ctx, users::TABLE, &db::ListOptions::default())
+            .await
+            .expect("users table exists after init");
+        // No bootstrap admin env vars → bootstrap no-ops, table stays empty.
+        assert_eq!(rows.records.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn init_is_idempotent() {
+        // Running init twice must be safe — migrations track applied
+        // versions and bootstrap short-circuits when users already exist.
+        let ctx = Arc::new(TestContext::new().await);
+        let service = AuthServiceImpl::new(BlockState::for_test(ctx.clone()));
+
+        service.init(&*ctx).await.expect("first init");
+        service
+            .init(&*ctx)
+            .await
+            .expect("second init is idempotent");
+    }
+
+    #[test]
+    fn grants_declares_expected_consumers() {
+        // We don't need a context for grants(); construct the service with
+        // a stub ctx and inspect the returned vec directly.
+        let rt = tokio::runtime::Runtime::new().expect("tokio rt");
+        let ctx = rt.block_on(async { Arc::new(TestContext::new().await) });
+        let service = AuthServiceImpl::new(BlockState::for_test(ctx));
+
+        let grants = service.grants();
+
+        // The grant struct exposes grantee + resource as public fields;
+        // we just check coverage of the four consumers.
+        let consumers: Vec<&str> = grants.iter().map(|g| g.grantee.as_str()).collect();
+        assert!(
+            consumers.contains(&"suppers-ai/admin"),
+            "grants must include admin: {consumers:?}"
+        );
+        assert!(
+            consumers.contains(&"suppers-ai/userportal"),
+            "grants must include userportal: {consumers:?}"
+        );
+        assert!(
+            consumers.contains(&"suppers-ai/products"),
+            "grants must include products: {consumers:?}"
+        );
+        // Sanity: at least one grant exists per consumer (non-empty list).
+        assert!(
+            grants.len() >= 4,
+            "expected ≥4 grants, got {}",
+            grants.len()
+        );
     }
 }
