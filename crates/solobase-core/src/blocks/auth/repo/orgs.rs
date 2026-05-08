@@ -65,14 +65,18 @@ fn row_from_map(m: &HashMap<String, Value>) -> Result<OrgRow, OrgsRepoError> {
 /// Look up a single org by its `name` column (UNIQUE). Returns `Ok(None)` if
 /// no such row exists.
 pub async fn find_by_name(ctx: &dyn Context, name: &str) -> Result<Option<OrgRow>, OrgsRepoError> {
-    let rows = db::query_raw(
+    let rows = db::list_all(
         ctx,
-        &format!("SELECT * FROM {TABLE} WHERE name = ?"),
-        &[json!(name)],
+        TABLE,
+        vec![db::Filter {
+            field: "name".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(name),
+        }],
     )
     .await
     .map_err(|e| OrgsRepoError::Db(format!("orgs find_by_name: {e}")))?;
-    match rows.first() {
+    match rows.into_iter().next() {
         Some(r) => Ok(Some(row_from_map(&r.data)?)),
         None => Ok(None),
     }
@@ -81,14 +85,23 @@ pub async fn find_by_name(ctx: &dyn Context, name: &str) -> Result<Option<OrgRow
 /// Return all orgs owned by `user_id`, ordered by `created_at` ASC for
 /// stable rendering. Empty Vec if the user owns none.
 pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<OrgRow>, OrgsRepoError> {
-    let rows = db::query_raw(
-        ctx,
-        &format!("SELECT * FROM {TABLE} WHERE owner_user_id = ? ORDER BY created_at ASC"),
-        &[json!(user_id)],
-    )
-    .await
-    .map_err(|e| OrgsRepoError::Db(format!("orgs list_for_user: {e}")))?;
-    rows.iter().map(|r| row_from_map(&r.data)).collect()
+    let opts = db::ListOptions {
+        filters: vec![db::Filter {
+            field: "owner_user_id".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(user_id),
+        }],
+        sort: vec![db::SortField {
+            field: "created_at".into(),
+            desc: false,
+        }],
+        limit: 1000,
+        ..Default::default()
+    };
+    let res = db::list(ctx, TABLE, &opts)
+        .await
+        .map_err(|e| OrgsRepoError::Db(format!("orgs list_for_user: {e}")))?;
+    res.records.iter().map(|r| row_from_map(&r.data)).collect()
 }
 
 /// Payload for [`upsert_claimed`]. Borrowed fields — caller keeps ownership.
@@ -112,16 +125,30 @@ pub async fn upsert_claimed(
     claim: NewClaim<'_>,
 ) -> Result<OrgRow, OrgsRepoError> {
     // 1) (verified_via, verified_ref) already claimed → AlreadyClaimed.
-    let existing = db::query_raw(
+    let n = db::count(
         ctx,
-        &format!(
-            "SELECT id FROM {TABLE} WHERE verified_via = ? AND verified_ref = ? AND is_reserved = 0"
-        ),
-        &[json!(claim.verified_via), json!(claim.verified_ref)],
+        TABLE,
+        &[
+            db::Filter {
+                field: "verified_via".into(),
+                operator: db::FilterOp::Equal,
+                value: json!(claim.verified_via),
+            },
+            db::Filter {
+                field: "verified_ref".into(),
+                operator: db::FilterOp::Equal,
+                value: json!(claim.verified_ref),
+            },
+            db::Filter {
+                field: "is_reserved".into(),
+                operator: db::FilterOp::Equal,
+                value: json!(0),
+            },
+        ],
     )
     .await
     .map_err(|e| OrgsRepoError::Db(format!("orgs claim-check: {e}")))?;
-    if !existing.is_empty() {
+    if n > 0 {
         return Err(OrgsRepoError::AlreadyClaimed);
     }
 
@@ -133,23 +160,17 @@ pub async fn upsert_claimed(
     // 3) Insert.
     let id = Uuid::now_v7().to_string();
     let now = now_iso();
-    db::exec_raw(
-        ctx,
-        &format!(
-            "INSERT INTO {TABLE} (id, name, owner_user_id, verified_via, verified_ref, is_reserved, created_at) \
-             VALUES (?, ?, ?, ?, ?, 0, ?)"
-        ),
-        &[
-            json!(id),
-            json!(claim.name),
-            json!(claim.owner_user_id),
-            json!(claim.verified_via),
-            json!(claim.verified_ref),
-            json!(now),
-        ],
-    )
-    .await
-    .map_err(|e| OrgsRepoError::Db(format!("orgs insert: {e}")))?;
+    let mut data: HashMap<String, Value> = HashMap::new();
+    data.insert("id".into(), json!(id));
+    data.insert("name".into(), json!(claim.name));
+    data.insert("owner_user_id".into(), json!(claim.owner_user_id));
+    data.insert("verified_via".into(), json!(claim.verified_via));
+    data.insert("verified_ref".into(), json!(claim.verified_ref));
+    data.insert("is_reserved".into(), json!(0));
+    data.insert("created_at".into(), json!(now));
+    db::create(ctx, TABLE, data)
+        .await
+        .map_err(|e| OrgsRepoError::Db(format!("orgs insert: {e}")))?;
 
     find_by_name(ctx, claim.name)
         .await?

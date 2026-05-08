@@ -91,25 +91,18 @@ pub async fn insert(ctx: &dyn Context, new: NewPat) -> Result<(), RepoError> {
     let now = now_iso();
     let scopes_json = serde_json::to_string(&new.scopes)
         .map_err(|e| RepoError::Db(format!("scopes ser: {e}")))?;
-    db::exec_raw(
-        ctx,
-        &format!(
-            "INSERT INTO {TABLE} (token_hash, user_id, name, scopes, created_at, last_used_at, expires_at) VALUES (?, ?, ?, ?, ?, NULL, ?)",
-        ),
-        &[
-            json!(new.token_hash),
-            json!(new.user_id),
-            json!(new.name),
-            json!(scopes_json),
-            json!(now),
-            match new.expires_at.as_deref() {
-                Some(s) => json!(s),
-                None => Value::Null,
-            },
-        ],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("pat insert: {e}")))?;
+    let mut data: HashMap<String, Value> = HashMap::new();
+    data.insert("token_hash".into(), json!(new.token_hash));
+    data.insert("user_id".into(), json!(new.user_id));
+    data.insert("name".into(), json!(new.name));
+    data.insert("scopes".into(), json!(scopes_json));
+    data.insert("created_at".into(), json!(now));
+    if let Some(exp) = new.expires_at.as_deref() {
+        data.insert("expires_at".into(), json!(exp));
+    }
+    db::create(ctx, TABLE, data)
+        .await
+        .map_err(|e| RepoError::Db(format!("pat insert: {e}")))?;
     Ok(())
 }
 
@@ -119,28 +112,41 @@ pub async fn insert(ctx: &dyn Context, new: NewPat) -> Result<(), RepoError> {
 /// top". `token_hash` is returned on the row but API callers are expected to
 /// strip it before serialising to the client.
 pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<PatRow>, RepoError> {
-    let rows = db::query_raw(
-        ctx,
-        &format!("SELECT * FROM {TABLE} WHERE user_id = ? ORDER BY created_at DESC"),
-        &[json!(user_id)],
-    )
-    .await
-    .map_err(|e| RepoError::Db(format!("pat list: {e}")))?;
-    rows.iter().map(|r| row_from_map(&r.data)).collect()
+    let opts = db::ListOptions {
+        filters: vec![db::Filter {
+            field: "user_id".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(user_id),
+        }],
+        sort: vec![db::SortField {
+            field: "created_at".into(),
+            desc: true,
+        }],
+        limit: 1000,
+        ..Default::default()
+    };
+    let res = db::list(ctx, TABLE, &opts)
+        .await
+        .map_err(|e| RepoError::Db(format!("pat list: {e}")))?;
+    res.records.iter().map(|r| row_from_map(&r.data)).collect()
 }
 
 pub async fn find_by_token_hash(
     ctx: &dyn Context,
     hash: &[u8],
 ) -> Result<Option<PatRow>, RepoError> {
-    let rows = db::query_raw(
+    let rows = db::list_all(
         ctx,
-        &format!("SELECT * FROM {TABLE} WHERE token_hash = ?"),
-        &[json!(hash)],
+        TABLE,
+        vec![db::Filter {
+            field: "token_hash".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(hash),
+        }],
     )
     .await
     .map_err(|e| RepoError::Db(format!("pat select: {e}")))?;
-    match rows.first() {
+    match rows.into_iter().next() {
         Some(r) => Ok(Some(row_from_map(&r.data)?)),
         None => Ok(None),
     }
@@ -158,24 +164,42 @@ pub async fn delete_by_id(
     user_id: &str,
     token_hash: &[u8],
 ) -> Result<bool, RepoError> {
-    let affected = db::exec_raw(
+    let n = db::delete_by_filters_count(
         ctx,
-        &format!("DELETE FROM {TABLE} WHERE token_hash = ? AND user_id = ?"),
-        &[json!(token_hash), json!(user_id)],
+        TABLE,
+        vec![
+            db::Filter {
+                field: "token_hash".into(),
+                operator: db::FilterOp::Equal,
+                value: json!(token_hash),
+            },
+            db::Filter {
+                field: "user_id".into(),
+                operator: db::FilterOp::Equal,
+                value: json!(user_id),
+            },
+        ],
     )
     .await
     .map_err(|e| RepoError::Db(format!("pat delete: {e}")))?;
-    Ok(affected > 0)
+    Ok(n > 0)
 }
 
 /// Bumps `last_used_at` for the row identified by `hash`. Silently no-ops if
 /// the row is missing.
 pub async fn touch_last_used(ctx: &dyn Context, hash: &[u8]) -> Result<(), RepoError> {
     let now = now_iso();
-    db::exec_raw(
+    let mut data: HashMap<String, Value> = HashMap::new();
+    data.insert("last_used_at".into(), json!(now));
+    db::update_by_filters(
         ctx,
-        &format!("UPDATE {TABLE} SET last_used_at = ? WHERE token_hash = ?"),
-        &[json!(now), json!(hash)],
+        TABLE,
+        vec![db::Filter {
+            field: "token_hash".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(hash),
+        }],
+        data,
     )
     .await
     .map_err(|e| RepoError::Db(format!("pat touch: {e}")))?;
