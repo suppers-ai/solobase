@@ -8,7 +8,7 @@ use wafer_sql_utils::{aggregate, query, value::sea_values_to_json, Backend};
 use super::{admin_page, crumb};
 use crate::{
     blocks::{
-        admin::{AUDIT_LOGS_COLLECTION as AUDIT_LOGS, REQUEST_LOGS_COLLECTION as REQUEST_LOGS},
+        admin::REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
         auth::USERS_COLLECTION as USERS,
     },
     ui::{
@@ -25,6 +25,7 @@ fn bar_chart_card(
     subtitle: &str,
     data: &[(String, i64)],
     color_var: &str,
+    view_href: &str,
 ) -> maud::Markup {
     let max = data.iter().map(|(_, v)| *v).max().unwrap_or(0).max(1);
     html! {
@@ -34,6 +35,7 @@ fn bar_chart_card(
                     h3 .card__title { (title) }
                     p style="margin:0;font-size:var(--text-xs);color:var(--text-muted)" { (subtitle) }
                 }
+                a .btn .btn-ghost .btn-sm .card__actions href=(view_href) { "View" }
             }
             div .card__body {
                 table .charts-css .column style=(format!("--chart-color: {color_var}")) {
@@ -236,25 +238,6 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         .await
         .unwrap_or_default();
 
-    // Recent audit logs (last 5)
-    let (sql, vals) = query::build_select_columns(
-        AUDIT_LOGS,
-        &["action", "resource", "user_id", "created_at"],
-        &ListOptions {
-            sort: vec![SortField {
-                field: "created_at".into(),
-                desc: true,
-            }],
-            limit: 5,
-            ..Default::default()
-        },
-        None,
-        Backend::Sqlite,
-    );
-    let recent_audit = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
-        .await
-        .unwrap_or_default();
-
     // Recent errors (last 5)
     let or_cond = sea_query::Cond::any()
         .add(sea_query::Expr::col(wafer_sql_utils::ident::DynCol("status".into())).eq("ERROR"))
@@ -340,47 +323,16 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
-    let recent_activity_card = html! {
+    let recent_errors_card = html! {
         section .card {
             header .card__head {
-                h3 .card__title { "Recent Activity" }
-                a .btn .btn-ghost .btn-sm href="/b/admin/logs?tab=audit" { "View all" }
+                h3 .card__title { "Recent Errors" }
+                a .btn .btn-ghost .btn-sm .card__actions href="/b/admin/logs?status=ERROR" { "View all" }
             }
             div .card__body {
-                @if recent_audit.is_empty() {
-                    p .text-muted .text-sm { "No activity yet" }
+                @if recent_errors.is_empty() {
+                    p .text-muted .text-sm { "No errors recently" }
                 } @else {
-                    div .table-container {
-                        table .table {
-                            tbody {
-                                @for record in &recent_audit {
-                                    @let action = record.data.get("action").and_then(|v| v.as_str()).unwrap_or("");
-                                    @let resource = record.data.get("resource").and_then(|v| v.as_str()).unwrap_or("");
-                                    @let created = record.data.get("created_at").and_then(|v| v.as_str()).unwrap_or("");
-                                    tr {
-                                        td { span .badge .badge-info .text-xs { (action) } }
-                                        td .text-sm { (resource) }
-                                        td .text-muted .text-sm .text-right { (created.get(..19).unwrap_or(created)) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    };
-
-    let recent_errors_card = if recent_errors.is_empty() {
-        None
-    } else {
-        Some(html! {
-            section .card {
-                header .card__head {
-                    h3 .card__title { "Recent Errors" }
-                    a .btn .btn-ghost .btn-sm href="/b/admin/logs" { "View all" }
-                }
-                div .card__body {
                     div .table-container {
                         table .table {
                             thead {
@@ -388,7 +340,6 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
                                     th { "Status" }
                                     th { "Method" }
                                     th { "Path" }
-                                    th { "Duration" }
                                     th { "Time" }
                                 }
                             }
@@ -397,7 +348,6 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
                                     @let code = record.data.get("status_code").and_then(|v| v.as_i64()).unwrap_or(0);
                                     @let method = record.data.get("method").and_then(|v| v.as_str()).unwrap_or("");
                                     @let path = record.data.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                                    @let duration = record.data.get("duration_ms").and_then(|v| v.as_i64()).unwrap_or(0);
                                     @let created = record.data.get("created_at").and_then(|v| v.as_str()).unwrap_or("");
                                     tr {
                                         td {
@@ -405,7 +355,6 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
                                         }
                                         td .text-sm .font-medium { (method.to_uppercase()) }
                                         td .text-sm { (path) }
-                                        td .text-muted .text-sm { (duration) "ms" }
                                         td .text-muted .text-sm { (created.get(..19).unwrap_or(created)) }
                                     }
                                 }
@@ -414,7 +363,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     }
                 }
             }
-        })
+        }
     };
 
     // 30-day daily series for charts
@@ -442,9 +391,9 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let charts_section = html! {
         div .dashboard-charts {
-            (bar_chart_card("New users", "Last 30 days", &new_users_daily, "var(--primary-color)"))
-            (bar_chart_card("Requests", "Last 30 days", &requests_daily, "var(--accent-info)"))
-            (bar_chart_card("Errors", "Last 30 days", &errors_daily, "var(--accent-danger)"))
+            (bar_chart_card("New users", "Last 30 days", &new_users_daily, "var(--primary-color)", "/b/admin/users"))
+            (bar_chart_card("Requests", "Last 30 days", &requests_daily, "var(--accent-info)", "/b/admin/logs"))
+            (bar_chart_card("Errors", "Last 30 days", &errors_daily, "var(--accent-danger)", "/b/admin/logs?status=ERROR"))
         }
     };
 
@@ -456,8 +405,8 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         },
         stats,
         recent_users_card,
-        recent_activity_card,
         recent_errors_card,
+        None,
         Some(charts_section),
     );
 
