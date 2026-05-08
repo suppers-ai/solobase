@@ -384,7 +384,7 @@ impl Block for AuthBlock {
                 BlockEndpoint::post("/b/auth/api/api-keys").summary("Create API key").auth(AuthLevel::Authenticated),
             ])
             .config_keys({
-                let mut keys = vec![
+                vec![
                     ConfigVar::new(JWT_SECRET_KEY, "Secret key for signing auth tokens", "")
                         .name("JWT Secret")
                         .input_type(InputType::Password)
@@ -425,9 +425,11 @@ impl Block for AuthBlock {
                         .name("OAuth Redirect URI")
                         .input_type(InputType::Url)
                         .optional(),
-                ];
-                keys.extend(crate::blocks::auth::config::auth_config_vars());
-                keys
+                ]
+                // SOLOBASE_SHARED__AUTH__* vars are NOT block-scoped; they
+                // live in `solobase_core::config_vars::shared_config_vars()`
+                // (the central registry) and are validated against the
+                // shared prefix, not the block's own.
             })
             .admin_url("/b/auth/admin/settings")
     }
