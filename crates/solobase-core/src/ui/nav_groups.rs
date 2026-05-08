@@ -25,7 +25,6 @@ pub fn admin() -> Vec<NavGroup> {
         NavGroup {
             label: Some("Data".to_string()),
             items: vec![
-                item("Blocks", "/b/admin/blocks", "package"),
                 item("Storage", "/b/storage/admin/", "hard-drive"),
                 item("Database", "/b/admin/database", "server"),
                 item("Vector indexes", "/b/vector/", "network"),
@@ -41,6 +40,7 @@ pub fn admin() -> Vec<NavGroup> {
         NavGroup {
             label: Some("System".to_string()),
             items: vec![
+                item("Blocks", "/b/admin/blocks", "package"),
                 item("Logs", "/b/admin/logs", "file-text"),
                 item("Settings", "/b/admin/settings/email", "settings"),
             ],
