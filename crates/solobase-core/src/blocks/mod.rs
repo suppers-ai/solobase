@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod auth;
+pub mod auth_ui;
 pub mod crud;
 pub mod email;
 pub mod errors;
