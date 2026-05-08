@@ -167,8 +167,8 @@ async fn built_in_route_wins_over_extra_with_same_prefix() {
     let calls = ctx.calls();
     assert_eq!(calls.len(), 1, "exactly one dispatch should have happened");
     assert_eq!(
-        calls[0], "suppers-ai/auth",
-        "built-in Auth route must win over extra with same prefix"
+        calls[0], "suppers-ai/auth-ui",
+        "built-in auth-ui route must win over extra with same prefix"
     );
 }
 
