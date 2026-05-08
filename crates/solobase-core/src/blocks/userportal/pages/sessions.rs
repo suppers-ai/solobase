@@ -39,8 +39,8 @@ pub async fn sessions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = crate::ui::templates::list_page(
         crate::ui::templates::PageHeader {
-            title: "Active sessions",
-            subtitle: Some("Sessions signed in to your account. Revoke any you don't recognize."),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         None,
@@ -63,6 +63,7 @@ pub async fn sessions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             },
         ],
         primary_action: None,
+        subtitle: Some("Sessions signed in to your account. Revoke any you don't recognize."),
         show_palette: true,
     };
     shelled_response(
@@ -252,7 +253,8 @@ mod tests {
         let resp = sessions_page(&ctx, &msg).await;
         let html = output_html(resp).await;
 
-        assert!(html.contains("Active sessions"), "missing page title");
+        // Title moved to Topbar crumb + subtitle (see ui(pages) commit).
+        assert!(html.contains("Sessions"), "missing page title");
         // Two Revoke buttons (one per row).
         assert!(
             html.matches(">Revoke<").count() >= 2,

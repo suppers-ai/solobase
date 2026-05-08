@@ -161,6 +161,28 @@ pub fn parse_form_body(data: &[u8]) -> HashMap<String, String> {
     map
 }
 
+/// Parse a request body as either JSON or URL-encoded form into a JSON Value.
+///
+/// Inspects the first non-whitespace byte: `{` → JSON, anything else →
+/// URL-encoded form (then promoted to a flat object). Lets one handler
+/// accept both htmx form posts and programmatic JSON clients without
+/// duplicating parse logic.
+pub fn parse_body_value(data: &[u8]) -> serde_json::Value {
+    let trimmed_start = data
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .unwrap_or(0);
+    if data.get(trimmed_start) == Some(&b'{') || data.get(trimmed_start) == Some(&b'[') {
+        serde_json::from_slice(data).unwrap_or(serde_json::Value::Null)
+    } else {
+        let mut obj = serde_json::Map::new();
+        for (k, v) in parse_form_body(data) {
+            obj.insert(k, serde_json::Value::String(v));
+        }
+        serde_json::Value::Object(obj)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Response construction helpers for the streaming block protocol.
 // ---------------------------------------------------------------------------

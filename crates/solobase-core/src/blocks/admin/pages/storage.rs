@@ -65,9 +65,9 @@ pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Storage",
-            subtitle: Some("Per-block storage isolation and access rules"),
-            primary_action: Some(refresh_action),
+            title: "",
+            subtitle: None,
+            primary_action: None,
         },
         None,
         tabs_and_body,
@@ -81,7 +81,8 @@ pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         user.as_ref(),
         Topbar {
             crumbs: crumb("Storage"),
-            primary_action: None,
+            primary_action: Some(refresh_action),
+            subtitle: Some("Per-block storage isolation and access rules"),
             show_palette: true,
         },
         body,

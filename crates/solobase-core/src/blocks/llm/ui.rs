@@ -55,6 +55,7 @@ fn llm_page(
             href: None,
         }],
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
     crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)

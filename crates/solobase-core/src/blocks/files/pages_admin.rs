@@ -17,12 +17,57 @@ use crate::{
     },
 };
 
+/// Tabs navigation across the storage-admin sub-pages
+/// (Overview / Buckets / Shares / Quotas). `active` matches the
+/// crumb label so the active tab can be highlighted.
+fn admin_tabs(active: &str) -> Markup {
+    let items: &[(&str, &str)] = &[
+        ("Overview", "/b/storage/admin/"),
+        ("Buckets", "/b/storage/admin/buckets"),
+        ("Shares", "/b/storage/admin/shares"),
+        ("Quotas", "/b/storage/admin/quotas"),
+    ];
+    html! {
+        div .tabs {
+            @for (label, href) in items {
+                a class={ "tab" @if *label == active { " active" } } href=(href) { (label) }
+            }
+        }
+    }
+}
+
 fn files_page<'a>(
     title: &str,
     config: &SiteConfig,
     path: &str,
     user: Option<&UserInfo>,
     crumb_label: &'a str,
+    subtitle: Option<&'a str>,
+    content: Markup,
+    msg: &Message,
+) -> OutputStream {
+    files_page_with_action(
+        title,
+        config,
+        path,
+        user,
+        crumb_label,
+        subtitle,
+        None,
+        content,
+        msg,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn files_page_with_action<'a>(
+    title: &str,
+    config: &SiteConfig,
+    path: &str,
+    user: Option<&UserInfo>,
+    crumb_label: &'a str,
+    subtitle: Option<&'a str>,
+    primary_action: Option<Markup>,
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
@@ -32,10 +77,24 @@ fn files_page<'a>(
             label: crumb_label,
             href: None,
         }],
-        primary_action: None,
+        primary_action,
+        subtitle,
         show_palette: true,
     };
-    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
+    let body_with_tabs = html! {
+        (admin_tabs(crumb_label))
+        (content)
+    };
+    crate::ui::shelled_response(
+        msg,
+        title,
+        config,
+        &groups,
+        user,
+        path,
+        topbar,
+        body_with_tabs,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -90,8 +149,8 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Storage",
-            subtitle: Some("File storage statistics"),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         Some(render_admin_overview_stats(&stats)),
@@ -105,6 +164,7 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "/b/storage/admin/",
         user.as_ref(),
         "Overview",
+        Some("File storage statistics"),
         body,
         msg,
     )
@@ -270,23 +330,42 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
+    // Admin can create buckets the same way users do — re-use the
+    // native <dialog> modal + JS from `pages_user`. The bootstrap
+    // script with empty bucket/prefix is needed for the JS to wire
+    // the "+ New bucket" trigger; without it the JS bails on init.
+    let js_url = crate::ui::assets::files_browser_js_url();
     let body = list_page(
         PageHeader {
-            title: "Buckets",
-            subtitle: Some("All storage buckets"),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         None,
-        render_admin_buckets_table(&rows),
+        html! {
+            (render_admin_buckets_table(&rows))
+            (super::pages_user::render_new_bucket_modal())
+            script type="application/json" id="files-browser-bootstrap" {
+                "{}"
+            }
+            script src=(js_url) defer {}
+        },
         None,
     );
 
-    files_page(
+    files_page_with_action(
         "Buckets",
         &config,
         "/b/storage/admin/buckets",
         user.as_ref(),
         "Buckets",
+        Some("All storage buckets"),
+        Some(crate::ui::components::button(
+            crate::ui::components::BtnVariant::Primary,
+            crate::ui::components::CtrlSize::Sm,
+            "+ New bucket",
+            maud::PreEscaped(r#"type="button" data-action="open-new-bucket""#.to_string()),
+        )),
         body,
         msg,
     )
@@ -404,8 +483,8 @@ pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Active Shares",
-            subtitle: Some("Public file share links"),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         None,
@@ -419,6 +498,7 @@ pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "/b/storage/admin/shares",
         user.as_ref(),
         "Shares",
+        Some("Public file share links"),
         body,
         msg,
     )
@@ -503,8 +583,8 @@ pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Storage Quotas",
-            subtitle: Some("Per-user storage limits"),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         None,
@@ -518,6 +598,7 @@ pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "/b/storage/admin/quotas",
         user.as_ref(),
         "Quotas",
+        Some("Per-user storage limits"),
         body,
         msg,
     )

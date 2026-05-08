@@ -105,19 +105,66 @@ fn backend_badge(table_count: usize) -> Markup {
 }
 
 fn left_pane(tables: &[TableSummary], selected: Option<&str>, tab: Tab) -> Markup {
+    // Group tables by their `org__block` prefix (first two `__`-separated
+    // segments). Tables without `__` (e.g. legacy `variables`) go at the top
+    // level. The auto-expand of the active group is handled inline via the
+    // `open` attribute on the `<details>`.
+    use std::collections::BTreeMap;
+    let mut groups: BTreeMap<String, Vec<&TableSummary>> = BTreeMap::new();
+    let mut ungrouped: Vec<&TableSummary> = Vec::new();
+    for t in tables {
+        let parts: Vec<&str> = t.name.splitn(3, "__").collect();
+        if parts.len() == 3 {
+            let group_key = format!("{}__{}", parts[0], parts[1]);
+            groups.entry(group_key).or_default().push(t);
+        } else {
+            ungrouped.push(t);
+        }
+    }
+
     html! {
         aside .db-pane .db-pane--left {
             div .db-pane__head {
                 input #db-filter type="text"
                     placeholder="Filter tables…"
                     autocomplete="off"
-                    oninput="(function(e){var q=e.target.value.toLowerCase();document.querySelectorAll('[data-db-table]').forEach(function(li){var n=li.getAttribute('data-db-table');li.style.display=n.indexOf(q)>=0?'':'none';});})(event)";
+                    oninput="(function(e){var q=e.target.value.toLowerCase();document.querySelectorAll('[data-db-table]').forEach(function(li){var n=li.getAttribute('data-db-table');li.style.display=n.indexOf(q)>=0?'':'none';});document.querySelectorAll('.db-table-list__group').forEach(function(g){if(q){g.setAttribute('open','');}});})(event)";
             }
             ul .db-table-list {
                 @if tables.is_empty() {
                     li .db-table-list__empty .text-muted .text-sm { "No tables yet" }
                 }
-                @for t in tables {
+                @for (group_name, group_tables) in &groups {
+                    @let group_has_selected = group_tables.iter().any(|t| selected == Some(t.name.as_str()));
+                    li {
+                        details .db-table-list__group open[group_has_selected] {
+                            summary .db-table-list__group-summary {
+                                span .db-table-list__group-name { (group_name) }
+                                span .db-table-list__group-count .text-muted .text-xs { (group_tables.len()) }
+                            }
+                            ul .db-table-list .db-table-list--nested {
+                                @for t in group_tables {
+                                    @let active = selected == Some(t.name.as_str());
+                                    @let encoded_name = pct_encode(&t.name);
+                                    @let leaf = t.name.rsplit("__").next().unwrap_or(&t.name);
+                                    li data-db-table=(t.name.to_lowercase()) {
+                                        a .db-table-list__item .(if active { "is-active" } else { "" })
+                                            aria-current=[active.then_some("page")]
+                                            href={"/b/admin/database?table=" (encoded_name) "&tab=" (tab.as_query())}
+                                            hx-get={"/b/admin/database?table=" (encoded_name) "&tab=" (tab.as_query())}
+                                            hx-target="#content"
+                                            hx-push-url="true"
+                                        {
+                                            span .db-table-list__name { (leaf) }
+                                            span .db-table-list__count .text-muted .text-xs { (t.row_count) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                @for t in &ungrouped {
                     @let active = selected == Some(t.name.as_str());
                     @let encoded_name = pct_encode(&t.name);
                     li data-db-table=(t.name.to_lowercase()) {
@@ -348,9 +395,9 @@ pub async fn database_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let body = list_page(
         PageHeader {
-            title: "Database",
-            subtitle: Some("Browse tables, view schema, run read-only SQL"),
-            primary_action: Some(backend_badge(tables.len())),
+            title: "",
+            subtitle: None,
+            primary_action: None,
         },
         None,
         html! {
@@ -369,7 +416,8 @@ pub async fn database_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         user.as_ref(),
         Topbar {
             crumbs: crumb("Database"),
-            primary_action: None,
+            primary_action: Some(backend_badge(tables.len())),
+            subtitle: Some("Browse tables, view schema, run read-only SQL"),
             show_palette: true,
         },
         body,

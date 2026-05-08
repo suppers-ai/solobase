@@ -162,6 +162,7 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
             href: None,
         }],
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
     ui::shelled_response(

@@ -34,8 +34,18 @@ impl SiteConfig {
         let scripts_raw = config::get_default(ctx, "SOLOBASE_SHARED__EMBEDDED_SCRIPTS", "").await;
         Self {
             app_name: config::get_default(ctx, "SOLOBASE_SHARED__APP_NAME", "Solobase").await,
-            logo_url: config::get_default(ctx, "SOLOBASE_SHARED__LOGO_URL", "").await,
-            logo_icon_url: config::get_default(ctx, "SOLOBASE_SHARED__LOGO_ICON_URL", "").await,
+            logo_url: config::get_default(
+                ctx,
+                "SOLOBASE_SHARED__LOGO_URL",
+                "https://solobase.dev/images/logo_long.png",
+            )
+            .await,
+            logo_icon_url: config::get_default(
+                ctx,
+                "SOLOBASE_SHARED__LOGO_ICON_URL",
+                "https://solobase.dev/images/logo.png",
+            )
+            .await,
             favicon_url: config::get_default(ctx, "SOLOBASE_SHARED__FAVICON_URL", "").await,
             embedded_scripts: scripts_raw
                 .split(',')
@@ -315,6 +325,7 @@ mod tests {
                 href: None,
             }],
             primary_action: None,
+            subtitle: None,
             show_palette: true,
         };
         let body = html! { p { "hello" } };

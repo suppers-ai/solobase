@@ -350,19 +350,13 @@ pub async fn authenticate_api_key(
     msg.set_meta(META_AUTH_USER_ROLES, &roles_str);
 }
 
-use maud::html;
-
 use crate::ui::{templates::BrandPanel, SiteConfig};
 
 /// Shared brand panel used by `auth_ui::pages::*` (login / signup / reset /
 /// OAuth / change-password / bootstrap).
 pub(crate) fn brand_panel(config: &SiteConfig) -> BrandPanel<'_> {
     BrandPanel {
-        logo_html: if !config.logo_url.is_empty() {
-            Some(html! { img src=(config.logo_url) alt=(config.app_name); })
-        } else {
-            None
-        },
+        logo_html: None,
         headline: &config.app_name,
         tagline: Some("Sign in to continue."),
     }

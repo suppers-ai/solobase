@@ -16,10 +16,13 @@ pub struct PageHeader<'a> {
 }
 
 fn render_header(h: &PageHeader<'_>) -> Markup {
+    if h.title.is_empty() && h.subtitle.is_none() && h.primary_action.is_none() {
+        return html! {};
+    }
     html! {
         header .page-header {
             div .page-header__text {
-                h1 .page-header__title { (h.title) }
+                @if !h.title.is_empty() { h1 .page-header__title { (h.title) } }
                 @if let Some(s) = h.subtitle { p .page-header__subtitle { (s) } }
             }
             @if let Some(a) = &h.primary_action {

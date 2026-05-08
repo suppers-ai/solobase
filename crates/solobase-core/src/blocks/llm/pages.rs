@@ -197,6 +197,7 @@ pub async fn page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let topbar = Topbar {
         crumbs,
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
 
@@ -529,6 +530,7 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             href: None,
         }],
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
     crate::ui::shelled_response(

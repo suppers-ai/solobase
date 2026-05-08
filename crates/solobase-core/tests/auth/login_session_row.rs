@@ -222,9 +222,11 @@ async fn userportal_sessions_page_renders_row_after_login() {
     let buf = collect_or_panic(out).await;
     let html = String::from_utf8(buf.body).expect("body utf8");
 
+    // Title moved to Topbar crumb + subtitle (see ui(pages) commit that
+    // moved page-header content into the topbar).
     assert!(
-        html.contains("Active sessions"),
-        "page must render the Active sessions header: {html}"
+        html.contains("Sessions"),
+        "page must render the Sessions header: {html}"
     );
     assert!(
         html.contains(">Revoke<"),

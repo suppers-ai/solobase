@@ -217,9 +217,9 @@ pub async fn bucket_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream 
 
     let body = list_page(
         PageHeader {
-            title: "Files",
-            subtitle: Some("Your buckets and their object counts."),
-            primary_action: Some(new_bucket_btn),
+            title: "",
+            subtitle: None,
+            primary_action: None,
         },
         None,
         table_with_modal,
@@ -232,7 +232,8 @@ pub async fn bucket_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream 
             label: "Files",
             href: None,
         }],
-        primary_action: None,
+        primary_action: Some(new_bucket_btn),
+        subtitle: Some("Your buckets and their object counts."),
         show_palette: true,
     };
     shelled_response(
@@ -560,14 +561,18 @@ pub async fn object_list_page(
 
     let table = render_objects_table(bucket, current_prefix, &listing);
     let table_with_js = html! {
+        // Hidden file input that the topbar Upload button triggers via
+        // [data-action="open-upload"]. Multi-select so users can pick
+        // many files at once. Same upload endpoint as drag-drop.
+        input #file-upload-input type="file" multiple style="display: none";
         (table)
         (render_bootstrap_script(bucket, current_prefix))
     };
 
     let body = list_page(
         PageHeader {
-            title: bucket,
-            subtitle: Some("Drag files here to upload."),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         Some(render_breadcrumbs(bucket, current_prefix)),
@@ -576,6 +581,12 @@ pub async fn object_list_page(
     );
 
     let groups = nav_groups::portal();
+    let upload_btn = crate::ui::components::button(
+        crate::ui::components::BtnVariant::Primary,
+        crate::ui::components::CtrlSize::Sm,
+        "+ Upload",
+        maud::PreEscaped(r#"type="button" data-action="open-upload""#.to_string()),
+    );
     let topbar = Topbar {
         crumbs: vec![
             Crumb {
@@ -587,7 +598,8 @@ pub async fn object_list_page(
                 href: None,
             },
         ],
-        primary_action: None,
+        primary_action: Some(upload_btn),
+        subtitle: Some("Drag files here to upload, or use the Upload button."),
         show_palette: true,
     };
     shelled_response(
@@ -827,8 +839,8 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
 
     let body = list_page(
         PageHeader {
-            title: "Shares",
-            subtitle: Some("Public links you've created and your storage quota."),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         Some(render_quota_card(&quota)),
@@ -843,6 +855,7 @@ pub async fn cloudstorage_page(ctx: &dyn Context, msg: &Message) -> OutputStream
             href: None,
         }],
         primary_action: None,
+        subtitle: Some("Public links you've created and your storage quota."),
         show_palette: true,
     };
     shelled_response(
@@ -1303,11 +1316,11 @@ mod integration_tests {
         let msg = admin_msg("retrieve", "/b/storage/");
         let body = output_html(bucket_list_page(&ctx, &msg).await).await;
 
-        // Primary-action slot is populated (proves we're not still on
-        // `primary_action: None`).
+        // Primary-action lives in the Topbar slot now (see ui(pages) commit
+        // that moved page-header content into the topbar).
         assert!(
-            body.contains("page-header__action"),
-            "page-header action slot missing: {body}"
+            body.contains("topbar__action"),
+            "topbar action slot missing: {body}"
         );
         assert!(
             body.contains("+ New bucket"),

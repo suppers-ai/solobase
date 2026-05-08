@@ -14,12 +14,15 @@ name = "solobase"
 path = "src/main.rs"
 
 [features]
-default = ["sqlite", "storage-local"]
+default = ["sqlite", "storage-local", "llm"]
 sqlite = ["solobase-core/sqlite"]
 storage-local = ["solobase-core/storage-local"]
 otel = ["solobase-native/otel"]
 storage-s3 = ["solobase-core/storage-s3", "solobase-native/s3"]
 postgres = ["solobase-core/postgres", "solobase-native/postgres"]
+# Provider-backed LLM block (suppers-ai/llm). Native default — enables
+# the chat surface at /b/llm/.
+llm = ["solobase-core/llm"]
 # Native ONNX-backed embedding + SQLite vector service. Propagates to the
 # solobase library so `SolobaseBuilder::build()` will register the
 # `wafer-run/vector` runtime block and the `suppers-ai/vector` feature

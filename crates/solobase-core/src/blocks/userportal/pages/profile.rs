@@ -112,6 +112,7 @@ pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             },
         ],
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
     shelled_response(

@@ -12,15 +12,6 @@ fn item(label: &str, href: &str, icon: &'static str) -> NavItem {
     }
 }
 
-fn item_external(label: &str, href: &str, icon: &'static str) -> NavItem {
-    NavItem {
-        label: label.to_string(),
-        href: href.to_string(),
-        icon,
-        external: true,
-    }
-}
-
 /// Admin sidebar groups.
 pub fn admin() -> Vec<NavGroup> {
     vec![
@@ -34,7 +25,6 @@ pub fn admin() -> Vec<NavGroup> {
         NavGroup {
             label: Some("Data".to_string()),
             items: vec![
-                item("Blocks", "/b/admin/blocks", "package"),
                 item("Storage", "/b/storage/admin/", "hard-drive"),
                 item("Database", "/b/admin/database", "server"),
                 item("Vector indexes", "/b/vector/", "network"),
@@ -44,14 +34,14 @@ pub fn admin() -> Vec<NavGroup> {
             label: Some("Communication".to_string()),
             items: vec![
                 item("Messages", "/b/messages/", "file-text"),
-                item("LLM", "/b/llm/", "globe"),
+                item("LLM", "/b/llm/", "robot"),
             ],
         },
         NavGroup {
             label: Some("System".to_string()),
             items: vec![
+                item("Blocks", "/b/admin/blocks", "package"),
                 item("Logs", "/b/admin/logs", "file-text"),
-                item_external("Inspector", "/b/inspector/ui", "shield"),
                 item("Settings", "/b/admin/settings/email", "settings"),
             ],
         },
@@ -232,21 +222,5 @@ mod tests {
         assert!(users.keywords.contains("users"));
         assert!(users.keywords.contains("/b/admin/users"));
         assert_eq!(users.kind_label, "Page");
-    }
-
-    #[test]
-    fn admin_inspector_is_external_new_tab_link_to_inspector_ui() {
-        let groups = admin();
-        let system = groups
-            .iter()
-            .find(|g| g.label.as_deref() == Some("System"))
-            .unwrap();
-        let inspector = system
-            .items
-            .iter()
-            .find(|i| i.label == "Inspector")
-            .expect("System group must include Inspector");
-        assert!(inspector.external, "Inspector should open in a new tab");
-        assert_eq!(inspector.href, "/b/inspector/ui");
     }
 }

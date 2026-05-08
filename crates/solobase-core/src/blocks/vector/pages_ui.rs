@@ -15,6 +15,50 @@ use crate::ui::{
     SiteConfig, UserInfo,
 };
 
+/// htmx-friendly success render for `POST /b/vector/api/indexes` — re-loads
+/// the index list so the modal swap shows the new row.
+pub async fn render_index_list_fragment(ctx: &dyn Context) -> Result<Markup, String> {
+    let rows = super::service::list_index_rows(ctx)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(html! {
+        div #vector-index-list { (render_index_list_table(&rows)) }
+        (render_create_index_modal())
+    })
+}
+
+/// Modal markup for creating a vector index. Always shipped pre-rendered
+/// next to the index list; opening it is a `openModal('create-vector-index')`
+/// onclick on the topbar action button.
+pub fn render_create_index_modal() -> Markup {
+    crate::ui::components::modal(
+        "create-vector-index",
+        "Create vector index",
+        html! {
+            form hx-post="/b/vector/api/indexes" hx-target="#vector-index-list" hx-swap="outerHTML" {
+                div .form-group {
+                    label .form-label .required for="vec-name" { "Name" }
+                    input .form-input type="text" #vec-name name="name" placeholder="e.g. docs" required;
+                }
+                div .form-group {
+                    label .form-label for="vec-model" { "Embedding model" }
+                    input .form-input type="text" #vec-model name="model" placeholder="(default — leave blank)";
+                }
+                div .form-group {
+                    label .form-label .checkbox-inline {
+                        input type="checkbox" name="keyword_search" value="on";
+                        " Enable keyword (full-text) search alongside vectors"
+                    }
+                }
+                div .form-actions {
+                    button .btn .btn-secondary type="button" onclick="closeModal('create-vector-index')" { "Cancel" }
+                    button .btn .btn-primary type="submit" { "Create" }
+                }
+            }
+        },
+    )
+}
+
 pub fn render_index_list_table(rows: &[IndexRow]) -> Markup {
     if rows.is_empty() {
         return html! {
@@ -126,14 +170,41 @@ pub async fn index_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
+    // Native solobase doesn't ship a `wafer-run/vector` backend block —
+    // creating/upserting against an index would 500 with "block not found".
+    // Detect the missing backend at page render so we can hide the Create
+    // button and surface an actionable callout instead of letting the user
+    // hit a generic htmx error.
+    let backend_available = ctx
+        .registered_blocks()
+        .iter()
+        .any(|b| b.name == "wafer-run/vector");
+
     let body = list_page(
         PageHeader {
-            title: "Vector indexes",
-            subtitle: Some("Per-index counts, model, dimensions"),
+            title: "",
+            subtitle: None,
             primary_action: None,
         },
         None,
-        render_index_list_table(&rows),
+        html! {
+            @if !backend_available {
+                div .callout .callout--warning style="margin-bottom: var(--spacing-md); padding: var(--spacing-md); background: #fff8e1; border: 1px solid #f0d78c; border-radius: var(--radius-md); color: #92400e" {
+                    strong { "Vector backend not available" }
+                    p style="margin: 4px 0 0; font-size: 13px" {
+                        "The "
+                        code style="font-size: 12px; padding: 1px 4px; background: rgba(0,0,0,0.05); border-radius: 3px" { "wafer-run/vector" }
+                        " block isn't registered in this build, so indexes can't be created or queried here. Use the browser-WASM build (with "
+                        code style="font-size: 12px; padding: 1px 4px; background: rgba(0,0,0,0.05); border-radius: 3px" { "solobase-web" }
+                        ") or wire a vector service via your runtime config."
+                    }
+                }
+            }
+            div #vector-index-list { (render_index_list_table(&rows)) }
+            @if backend_available {
+                (render_create_index_modal())
+            }
+        },
         None,
     );
 
@@ -143,7 +214,19 @@ pub async fn index_list_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             label: "Vector indexes",
             href: None,
         }],
-        primary_action: None,
+        primary_action: if backend_available {
+            Some(crate::ui::components::button(
+                crate::ui::components::BtnVariant::Primary,
+                crate::ui::components::CtrlSize::Sm,
+                "+ Create index",
+                maud::PreEscaped(
+                    r#"type="button" onclick="openModal('create-vector-index')""#.to_string(),
+                ),
+            ))
+        } else {
+            None
+        },
+        subtitle: Some("Per-index counts, model, dimensions"),
         show_palette: true,
     };
     shelled_response(
@@ -225,6 +308,7 @@ pub async fn index_detail_page(ctx: &dyn Context, msg: &Message, name: &str) -> 
             },
         ],
         primary_action: None,
+        subtitle: None,
         show_palette: true,
     };
     let groups = nav_groups::admin();

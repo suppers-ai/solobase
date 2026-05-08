@@ -52,7 +52,11 @@ impl Block for AdminBlock {
 
         BlockInfo::new("suppers-ai/admin", "0.0.1", "http-handler@v1", "Admin panel: users, database, IAM, logs, settings, wafer introspection, custom tables")
             .instance_mode(InstanceMode::Singleton)
-            .requires(vec!["wafer-run/database".into(), "wafer-run/config".into()])
+            .requires(vec![
+                "wafer-run/database".into(),
+                "wafer-run/config".into(),
+                "wafer-run/crypto".into(),
+            ])
             .collections(vec![
                 CollectionSchema::new(ROLES_COLLECTION)
                     .field("name", "string")
@@ -295,6 +299,9 @@ impl Block for AdminBlock {
                 if !user_id.is_empty() {
                     return pages::handle_user_delete(ctx, &msg, &user_id).await;
                 }
+            }
+            if action == "create" && sub == "/users" {
+                return pages::handle_user_invite(ctx, &msg, input).await;
             }
             if action == "create" && sub == "/iam/roles" {
                 return pages::handle_create_role(ctx, &msg, input).await;
