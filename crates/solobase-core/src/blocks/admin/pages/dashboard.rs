@@ -16,31 +16,6 @@ use crate::{
     },
 };
 
-fn quick_actions_card() -> maud::Markup {
-    use maud::html;
-    html! {
-        // Phase 4 PR-3: friendly hint at < 720px (CSS-toggled). Admin views
-        // are desktop-first; this nudges users to switch to a wider screen
-        // rather than fight the table chrome at narrow widths.
-        p .admin-dashboard-mobile-hint {
-            "Admin views work better on a larger screen."
-        }
-        section .card .quick-actions {
-            header .card__head {
-                h3 .card__title { "Quick actions" }
-            }
-            div .card__body .quick-actions__grid {
-                a .btn .btn-secondary href="/b/admin/users" { "Invite user" }
-                a .btn .btn-secondary href="/b/admin/logs" { "View logs" }
-                a .btn .btn-secondary href="/b/admin/database" { "Open Database" }
-                a .btn .btn-secondary href="/b/inspector/ui"
-                  target="_blank" rel="noopener noreferrer"
-                { "Open Inspector" }
-            }
-        }
-    }
-}
-
 pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
@@ -372,7 +347,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         recent_users_card,
         recent_activity_card,
         recent_errors_card,
-        Some(quick_actions_card()),
+        None,
     );
 
     admin_page(
