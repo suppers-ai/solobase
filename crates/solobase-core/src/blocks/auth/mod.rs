@@ -63,16 +63,16 @@ pub(crate) const TOKENS_COLLECTION: &str = "suppers_ai__auth__tokens";
 pub(crate) const API_KEYS_COLLECTION: &str = "suppers_ai__auth__api_keys";
 
 /// Pre-computed Argon2id hash used for timing equalization when user is not found.
-const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+pub(crate) const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 use crate::blocks::admin::USER_ROLES_COLLECTION;
 
 // --- Shared helpers used by login.rs, oauth.rs, api_keys.rs ---
 
-mod helpers {
+pub(crate) mod helpers {
     use super::*;
 
-    pub(super) async fn get_user_roles(ctx: &dyn Context, user_id: &str) -> Vec<String> {
+    pub(crate) async fn get_user_roles(ctx: &dyn Context, user_id: &str) -> Vec<String> {
         // Plan A2 stores role inline on `users.role`; legacy
         // USER_ROLES_COLLECTION carries multi-role-per-user history. Merge
         // both: the inline role is the bootstrap path, the table is the
@@ -120,7 +120,7 @@ mod helpers {
     /// to be done explicitly via the admin UI / DB. Removing roles silently
     /// on login would be an availability foot-gun (one typo in env locks
     /// everyone out).
-    pub(super) async fn ensure_admin_role(
+    pub(crate) async fn ensure_admin_role(
         ctx: &dyn Context,
         user_id: &str,
         email: &str,
@@ -169,7 +169,7 @@ mod helpers {
     /// for OAuth (e.g. `"oauth.github"`). The claim rides on both access and
     /// refresh tokens so it survives refresh, letting downstream gates (like
     /// the wafer registry's publish endpoint) require a stronger method.
-    pub(super) async fn generate_tokens(
+    pub(crate) async fn generate_tokens(
         ctx: &dyn Context,
         user_id: &str,
         email: &str,
@@ -237,7 +237,7 @@ mod helpers {
         Ok((access_token, refresh_token, family))
     }
 
-    pub(super) async fn store_refresh_token(
+    pub(crate) async fn store_refresh_token(
         ctx: &dyn Context,
         user_id: &str,
         token: &str,
@@ -254,7 +254,7 @@ mod helpers {
         }
     }
 
-    pub(super) async fn build_auth_cookie(token: &str, max_age: u64, ctx: &dyn Context) -> String {
+    pub(crate) async fn build_auth_cookie(token: &str, max_age: u64, ctx: &dyn Context) -> String {
         let env =
             config_client::get_default(ctx, "SOLOBASE_SHARED__ENVIRONMENT", "development").await;
         let secure = env.to_lowercase() != "development";
@@ -266,7 +266,7 @@ mod helpers {
         )
     }
 
-    pub(super) fn urlencode(s: &str) -> String {
+    pub(crate) fn urlencode(s: &str) -> String {
         s.as_bytes()
             .iter()
             .map(|&b| match b {
