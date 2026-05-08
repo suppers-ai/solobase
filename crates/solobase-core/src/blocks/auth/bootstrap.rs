@@ -72,11 +72,11 @@ async fn bootstrap_with_email_password(
 
     // Write the admin user row directly with the union of Plan A2 columns
     // (display_name, role, email_verified) AND the legacy columns the rest
-    // of solobase still reads (`name`, `disabled`, `deleted_at`,
-    // `oauth_provider`). The single `db::create` call invokes the backend's
-    // `ensure_table` which auto-adds any missing columns — so even when
-    // migration 001 already created the Plan A2 schema, this insert
-    // materializes the legacy columns for downstream readers.
+    // of solobase still reads (`name`, `disabled`, `deleted_at`).
+    // The single `db::create` call invokes the backend's `ensure_table`
+    // which auto-adds any missing columns — so even when migration 001
+    // already created the Plan A2 schema, this insert materializes the
+    // legacy columns for downstream readers.
     //
     // Bypassing `repo::users::insert` here is intentional: bootstrap is a
     // one-shot operator action, not a steady-state user-creation flow.
@@ -84,7 +84,6 @@ async fn bootstrap_with_email_password(
     //   - `name` — userportal/profile.rs reads `display_name` first then
     //     `name`; admin pages still mix.
     //   - `disabled` / `deleted_at` — admin pages soft-delete + status.
-    //   - `oauth_provider` — auth/oauth.rs upsert payload.
     let mut data: std::collections::HashMap<String, serde_json::Value> =
         std::collections::HashMap::new();
     data.insert("id".to_string(), serde_json::Value::String(id.clone()));
@@ -120,10 +119,6 @@ async fn bootstrap_with_email_password(
     );
     data.insert("disabled".to_string(), serde_json::Value::Bool(false));
     data.insert("deleted_at".to_string(), serde_json::Value::Null);
-    data.insert(
-        "oauth_provider".to_string(),
-        serde_json::Value::String(String::new()),
-    );
 
     wafer_core::clients::database::create(ctx, users::TABLE, data).await?;
     local_credentials::insert(ctx, &id, &hash, false)

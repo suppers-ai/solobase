@@ -72,42 +72,6 @@ use crate::blocks::admin::USER_ROLES_COLLECTION;
 mod helpers {
     use super::*;
 
-    /// Create a new user record and assign the default role.
-    /// Admin role is granted only if the user's email matches the configured ADMIN_EMAIL.
-    pub(super) async fn create_user_and_assign_role(
-        ctx: &dyn Context,
-        data: HashMap<String, serde_json::Value>,
-    ) -> std::result::Result<(wafer_core::clients::database::Record, String), String> {
-        let user = db::create(ctx, USERS_COLLECTION, data)
-            .await
-            .map_err(|e| format!("Failed to create user: {e}"))?;
-
-        let admin_email =
-            config_client::get_default(ctx, "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL", "")
-                .await;
-        let user_email = user
-            .data
-            .get("email")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let role = if !admin_email.is_empty() && user_email.eq_ignore_ascii_case(&admin_email) {
-            "admin"
-        } else {
-            "user"
-        };
-
-        let role_data = json_map(serde_json::json!({
-            "user_id": user.id,
-            "role": role,
-            "assigned_at": crate::blocks::helpers::now_rfc3339()
-        }));
-        if let Err(e) = db::create(ctx, USER_ROLES_COLLECTION, role_data).await {
-            tracing::warn!("Failed to assign default role during signup: {e}");
-        }
-
-        Ok((user, role.to_string()))
-    }
-
     pub(super) async fn get_user_roles(ctx: &dyn Context, user_id: &str) -> Vec<String> {
         // Plan A2 stores role inline on `users.role`; legacy
         // USER_ROLES_COLLECTION carries multi-role-per-user history. Merge
@@ -146,10 +110,10 @@ mod helpers {
     /// matches the configured `SUPPERS_AI__AUTH__ADMIN_EMAIL` and they don't
     /// already have it.
     ///
-    /// This closes a real footgun: roles are normally only assigned at signup
-    /// (`create_user_and_assign_role`), so changing `ADMIN_EMAIL` after a
-    /// user already exists never elevates them. With this helper, every login
-    /// re-checks the rule and grants admin once when appropriate.
+    /// This closes a real footgun: roles are normally only assigned at signup,
+    /// so changing `ADMIN_EMAIL` after a user already exists never elevates
+    /// them. With this helper, every login re-checks the rule and grants admin
+    /// once when appropriate.
     ///
     /// Intentionally **upgrade-only**: never removes a role, never demotes.
     /// Unsetting `ADMIN_EMAIL` does not revoke admin from anyone — that has
@@ -330,7 +294,6 @@ impl Block for AuthBlock {
                     .field_default("name", "string", "")
                     .field_default("disabled", "bool", "false")
                     .field_default("avatar_url", "string", "")
-                    .field_default("oauth_provider", "string", "")
                     .field_default("email_verified", "bool", "false")
                     .field_default("verification_token", "string", "")
                     .field_default("reset_token", "string", "")

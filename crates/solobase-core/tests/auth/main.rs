@@ -7,6 +7,7 @@ mod lifecycle_init;
 mod login_session_row;
 mod migrations_001;
 mod migrations_002;
+mod oauth_callback_repo;
 mod pat_issue;
 mod repo_cli_codes;
 mod repo_orgs;
