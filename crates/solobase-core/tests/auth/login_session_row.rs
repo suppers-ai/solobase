@@ -9,7 +9,8 @@
 
 use serde_json::json;
 use solobase_core::blocks::{
-    auth::{repo::sessions, service::hash_token, AuthBlock, AUTH_BLOCK_ID},
+    auth::{repo::sessions, service::hash_token, AUTH_BLOCK_ID},
+    auth_ui::AuthUiBlock,
     userportal::UserPortalBlock,
 };
 use wafer_core::clients::crypto;
@@ -95,7 +96,7 @@ fn login_msg() -> Message {
 }
 
 async fn invoke_login(ctx: &MigrationTestCtx, email: &str, password: &str) -> String {
-    let block = AuthBlock::default();
+    let block = AuthUiBlock::default();
     let body = json!({"email": email, "password": password}).to_string();
     let msg = login_msg();
     let out = block
@@ -109,7 +110,7 @@ async fn invoke_login(ctx: &MigrationTestCtx, email: &str, password: &str) -> St
 /// it terminates with `Complete` or `Error` — used by the wrong-password test
 /// which expects an `Unauthenticated` error stream rather than a body.
 async fn invoke_login_drain(ctx: &MigrationTestCtx, email: &str, password: &str) {
-    let block = AuthBlock::default();
+    let block = AuthUiBlock::default();
     let body = json!({"email": email, "password": password}).to_string();
     let msg = login_msg();
     let out = block

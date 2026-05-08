@@ -1,11 +1,28 @@
-mod api_keys;
+//! `suppers-ai/auth` — service module.
+//!
+//! Plan A2 PR 5 split the old monolithic `AuthBlock` in two:
+//!
+//! - The framework `wafer_core::service_blocks::auth::AuthBlock` wraps
+//!   `service::AuthServiceImpl` and owns the `suppers-ai/auth` block id
+//!   (registered via `crate::blocks::register_auth`). It has no HTTP routes.
+//! - `crate::blocks::auth_ui::AuthUiBlock` owns every `/b/auth/*` HTTP
+//!   route (login, signup, OAuth, API keys, settings, dashboard, orgs, …).
+//!
+//! What lives in this module after the split:
+//!
+//! - Module decls for the supporting layers (`bootstrap`, `cache`, `config`,
+//!   `migrations`, `pat`, `providers`, `repo`, `service`, `session`).
+//! - Constants other blocks still reference (`AUTH_BLOCK_ID`, `JWT_SECRET_KEY`,
+//!   the four legacy `*_COLLECTION` table-name aliases, `DUMMY_HASH`).
+//! - `helpers` — token/cookie/role utilities consumed by `auth_ui::api::*`.
+//! - `brand_panel` — shared UI panel consumed by `auth_ui::pages::*`.
+//! - `authenticate_api_key` — called by `crate::pipeline` to populate auth
+//!   meta from an `Authorization: Bearer <api-key>` header.
+
 pub mod bootstrap;
 pub mod cache;
 pub mod config;
-mod login;
 pub mod migrations;
-mod oauth;
-mod pages;
 pub mod pat;
 pub mod providers;
 pub mod repo;
@@ -18,18 +35,8 @@ use wafer_core::clients::{
     config as config_client, crypto,
     database::{self as db, Filter, FilterOp, ListOptions},
 };
-use wafer_run::{
-    block::{Block, BlockInfo},
-    context::Context,
-    types::*,
-    InputStream, OutputStream,
-};
 
-use super::{
-    helpers::{hex_encode, json_map},
-    rate_limit::{check_rate_limit, RateLimit, RateLimitOutcome, UserRateLimiter},
-};
-use crate::blocks::helpers::err_not_found;
+use super::helpers::{hex_encode, json_map};
 
 pub const AUTH_BLOCK_ID: &str = "suppers-ai/auth";
 
@@ -39,25 +46,16 @@ pub const AUTH_BLOCK_ID: &str = "suppers-ai/auth";
 /// crypto service.
 pub const JWT_SECRET_KEY: &str = "SUPPERS_AI__AUTH__JWT_SECRET";
 
-pub struct AuthBlock {
-    limiter: UserRateLimiter,
-}
-
-impl Default for AuthBlock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AuthBlock {
-    pub fn new() -> Self {
-        Self {
-            limiter: UserRateLimiter::new(),
-        }
-    }
-}
-
+// Legacy table-name aliases. Plan A2 introduced per-module `TABLE` constants
+// in `repo/*`, but several cross-block consumers still reference the auth
+// tables by their old `*_COLLECTION` name (admin/, userportal/, products/,
+// rate_limit/, auth_ui/api/*). Keep these `pub(crate)` until those callers
+// migrate to the repo-owned constants.
 pub(crate) const USERS_COLLECTION: &str = "suppers_ai__auth__users";
+// Only consumer is `rate_limit::UserRateLimiter::check` on wasm32; native
+// code path doesn't reference it, so guard the warning rather than the const
+// (the table name itself is platform-agnostic).
+#[allow(dead_code)]
 pub(crate) const RATE_LIMITS_COLLECTION: &str = "suppers_ai__auth__rate_limits";
 pub(crate) const TOKENS_COLLECTION: &str = "suppers_ai__auth__tokens";
 pub(crate) const API_KEYS_COLLECTION: &str = "suppers_ai__auth__api_keys";
@@ -67,12 +65,15 @@ pub(crate) const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAA
 
 use crate::blocks::admin::USER_ROLES_COLLECTION;
 
-// --- Shared helpers used by login.rs, oauth.rs, api_keys.rs ---
+// --- Shared helpers used by auth_ui::api::* and auth_ui::oauth::* ---
 
 pub(crate) mod helpers {
     use super::*;
 
-    pub(crate) async fn get_user_roles(ctx: &dyn Context, user_id: &str) -> Vec<String> {
+    pub(crate) async fn get_user_roles(
+        ctx: &dyn wafer_run::context::Context,
+        user_id: &str,
+    ) -> Vec<String> {
         // Plan A2 stores role inline on `users.role`; legacy
         // USER_ROLES_COLLECTION carries multi-role-per-user history. Merge
         // both: the inline role is the bootstrap path, the table is the
@@ -121,7 +122,7 @@ pub(crate) mod helpers {
     /// on login would be an availability foot-gun (one typo in env locks
     /// everyone out).
     pub(crate) async fn ensure_admin_role(
-        ctx: &dyn Context,
+        ctx: &dyn wafer_run::context::Context,
         user_id: &str,
         email: &str,
     ) -> Vec<String> {
@@ -170,15 +171,15 @@ pub(crate) mod helpers {
     /// refresh tokens so it survives refresh, letting downstream gates (like
     /// the wafer registry's publish endpoint) require a stronger method.
     pub(crate) async fn generate_tokens(
-        ctx: &dyn Context,
+        ctx: &dyn wafer_run::context::Context,
         user_id: &str,
         email: &str,
         roles: &[String],
         auth_method: &str,
-    ) -> std::result::Result<(String, String, String), OutputStream> {
+    ) -> std::result::Result<(String, String, String), wafer_run::OutputStream> {
         let family = match crypto::random_bytes(ctx, 16).await {
             Ok(bytes) => hex_encode(&bytes),
-            Err(e) => return Err(OutputStream::error(e)),
+            Err(e) => return Err(wafer_run::OutputStream::error(e)),
         };
 
         let mut access_claims = HashMap::new();
@@ -206,7 +207,7 @@ pub(crate) mod helpers {
 
         let access_token = crypto::sign(ctx, &access_claims, Duration::from_secs(86400))
             .await
-            .map_err(OutputStream::error)?;
+            .map_err(wafer_run::OutputStream::error)?;
 
         let mut refresh_claims = HashMap::new();
         refresh_claims.insert(
@@ -232,13 +233,13 @@ pub(crate) mod helpers {
 
         let refresh_token = crypto::sign(ctx, &refresh_claims, Duration::from_secs(604800))
             .await
-            .map_err(OutputStream::error)?;
+            .map_err(wafer_run::OutputStream::error)?;
 
         Ok((access_token, refresh_token, family))
     }
 
     pub(crate) async fn store_refresh_token(
-        ctx: &dyn Context,
+        ctx: &dyn wafer_run::context::Context,
         user_id: &str,
         token: &str,
         family: &str,
@@ -254,7 +255,11 @@ pub(crate) mod helpers {
         }
     }
 
-    pub(crate) async fn build_auth_cookie(token: &str, max_age: u64, ctx: &dyn Context) -> String {
+    pub(crate) async fn build_auth_cookie(
+        token: &str,
+        max_age: u64,
+        ctx: &dyn wafer_run::context::Context,
+    ) -> String {
         let env =
             config_client::get_default(ctx, "SOLOBASE_SHARED__ENVIRONMENT", "development").await;
         let secure = env.to_lowercase() != "development";
@@ -279,346 +284,6 @@ pub(crate) mod helpers {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl Block for AuthBlock {
-    fn info(&self) -> BlockInfo {
-        use wafer_run::{types::CollectionSchema, AuthLevel};
-
-        BlockInfo::new(AUTH_BLOCK_ID, "0.0.1", "http-handler@v1", "Authentication: login, signup, JWT, refresh tokens, OAuth, API keys")
-            .instance_mode(InstanceMode::Singleton)
-            .requires(vec!["wafer-run/database".into(), "wafer-run/crypto".into(), "wafer-run/config".into(), "wafer-run/network".into(), "suppers-ai/email".into()])
-            .collections(vec![
-                CollectionSchema::new(USERS_COLLECTION)
-                    .field_unique("email", "string")
-                    .field_default("name", "string", "")
-                    .field_default("disabled", "bool", "false")
-                    .field_default("avatar_url", "string", "")
-                    .field_default("email_verified", "bool", "false")
-                    .field_default("verification_token", "string", "")
-                    .field_default("reset_token", "string", "")
-                    .field_optional("reset_token_expires", "datetime")
-                    .field_optional("last_verification_sent", "datetime")
-                    .field_optional("last_login_at", "datetime")
-                    .field_optional("deleted_at", "datetime"),
-                CollectionSchema::new(TOKENS_COLLECTION)
-                    .field_ref("user_id", "string", &format!("{}.id", USERS_COLLECTION))
-                    .field("token", "string")
-                    .index(&["user_id"]),
-                CollectionSchema::new(API_KEYS_COLLECTION)
-                    .field_ref("user_id", "string", &format!("{}.id", USERS_COLLECTION))
-                    .field_default("name", "string", "")
-                    .field("key_hash", "string")
-                    .field_default("key_prefix", "string", "")
-                    .field_optional("last_used", "datetime")
-                    .field_optional("revoked_at", "datetime")
-                    .field_optional("expires_at", "datetime")
-                    .index(&["user_id"]),
-                CollectionSchema::new(RATE_LIMITS_COLLECTION)
-                    .field_unique("key", "string")
-                    .field_default("count", "int", "0")
-                    .field_default("window_start", "int", "0"),
-            ])
-            .grants(vec![
-                wafer_run::ResourceGrant::read("suppers-ai/admin", "suppers_ai__auth__*"),
-                wafer_run::ResourceGrant::read_write("suppers-ai/userportal", USERS_COLLECTION),
-                // The userportal `/b/userportal/sessions` page lists the
-                // caller's sessions and revokes individual rows. Read+write
-                // because revoke deletes the row; reads are scoped to the
-                // caller's user_id by the repo helper.
-                wafer_run::ResourceGrant::read_write(
-                    "suppers-ai/userportal",
-                    crate::blocks::auth::repo::sessions::TABLE,
-                ),
-                // Userportal `/b/userportal/security` lists the caller's
-                // linked OAuth providers. Read-only — unlinking goes
-                // through an auth POST endpoint, not the userportal block.
-                wafer_run::ResourceGrant::read(
-                    "suppers-ai/userportal",
-                    crate::blocks::auth::repo::provider_links::TABLE,
-                ),
-                wafer_run::ResourceGrant::read("suppers-ai/products", USERS_COLLECTION),
-            ])
-            .category(wafer_run::BlockCategory::Feature)
-            .description("Handles user authentication, registration, and session management. Supports email/password login, OAuth providers (Google, GitHub, Microsoft), email verification, password reset, and API key management.")
-            .endpoints(vec![
-                // SSR pages
-                BlockEndpoint::get("/b/auth/login").summary("Login page"),
-                BlockEndpoint::get("/b/auth/signup").summary("Signup page"),
-                BlockEndpoint::get("/b/auth/change-password").summary("Change password page").auth(AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/auth/dashboard").summary("Portal home").auth(AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/auth/orgs").summary("Claimed organizations").auth(AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/auth/oauth/login").summary("Start OAuth flow"),
-                // JSON API
-                BlockEndpoint::post("/b/auth/api/login").summary("Authenticate with email/password"),
-                BlockEndpoint::post("/b/auth/api/signup").summary("Create account"),
-                BlockEndpoint::post("/b/auth/api/logout").summary("Sign out").auth(AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/auth/api/me").summary("Get current user").auth(AuthLevel::Authenticated),
-                BlockEndpoint::post("/b/auth/api/change-password").summary("Change password").auth(AuthLevel::Authenticated),
-                BlockEndpoint::get("/b/auth/api/api-keys").summary("List API keys").auth(AuthLevel::Authenticated),
-                BlockEndpoint::post("/b/auth/api/api-keys").summary("Create API key").auth(AuthLevel::Authenticated),
-            ])
-            .config_keys({
-                vec![
-                    ConfigVar::new(JWT_SECRET_KEY, "Secret key for signing auth tokens", "")
-                        .name("JWT Secret")
-                        .input_type(InputType::Password)
-                        .auto_generate()
-                        .warning("Changing this will invalidate all existing user sessions"),
-                    ConfigVar::new("SUPPERS_AI__AUTH__REQUIRE_VERIFICATION", "Require email verification before login", "false")
-                        .name("Require Email Verification")
-                        .input_type(InputType::Toggle),
-                    ConfigVar::new("SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS", "Restrict signup to specific email domains (comma-separated)", "")
-                        .name("Allowed Email Domains")
-                        .optional(),
-                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_ID", "Google OAuth client ID", "")
-                        .name("Google Client ID")
-                        .optional(),
-                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_SECRET", "Google OAuth client secret", "")
-                        .name("Google Client Secret")
-                        .input_type(InputType::Password)
-                        .optional(),
-                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GITHUB_CLIENT_ID", "GitHub OAuth client ID", "")
-                        .name("GitHub Client ID")
-                        .optional(),
-                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GITHUB_CLIENT_SECRET", "GitHub OAuth client secret", "")
-                        .name("GitHub Client Secret")
-                        .input_type(InputType::Password)
-                        .optional(),
-                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_MICROSOFT_CLIENT_ID", "Microsoft OAuth client ID", "")
-                        .name("Microsoft Client ID")
-                        .optional(),
-                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_MICROSOFT_CLIENT_SECRET", "Microsoft OAuth client secret", "")
-                        .name("Microsoft Client Secret")
-                        .input_type(InputType::Password)
-                        .optional(),
-                    ConfigVar::new("SUPPERS_AI__AUTH__INTERNAL_SECRET", "Secret for internal API authentication", "")
-                        .name("Internal Secret")
-                        .input_type(InputType::Password)
-                        .auto_generate(),
-                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_REDIRECT_URI", "OAuth callback URL", "")
-                        .name("OAuth Redirect URI")
-                        .input_type(InputType::Url)
-                        .optional(),
-                ]
-                // SOLOBASE_SHARED__AUTH__* vars are NOT block-scoped; they
-                // live in `solobase_core::config_vars::shared_config_vars()`
-                // (the central registry) and are validated against the
-                // shared prefix, not the block's own.
-            })
-            .admin_url("/b/auth/admin/settings")
-    }
-
-    fn ui_routes(&self) -> Vec<wafer_run::UiRoute> {
-        vec![
-            wafer_run::UiRoute::public("/login"),
-            wafer_run::UiRoute::public("/signup"),
-            wafer_run::UiRoute::authenticated("/change-password"),
-            wafer_run::UiRoute::authenticated("/dashboard"),
-            wafer_run::UiRoute::authenticated("/orgs"),
-            wafer_run::UiRoute::admin("/admin/settings"),
-        ]
-    }
-
-    async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
-        let action = msg.action().to_string();
-        // Normalize: /b/auth/... → /auth/...
-        let raw_path = msg.path().to_string();
-        let path = if let Some(stripped) = raw_path.strip_prefix("/b") {
-            stripped.to_string()
-        } else {
-            raw_path
-        };
-
-        // Apply per-user/IP rate limiting based on endpoint category
-        match (action.as_str(), path.as_str()) {
-            // Unauthenticated sensitive endpoints: rate limit by IP
-            ("create", "/auth/api/login") | ("create", "/auth/api/signup") => {
-                let ip = msg.remote_addr().to_string();
-                let identity = if ip.is_empty() {
-                    "unknown".to_string()
-                } else {
-                    ip
-                };
-                // TODO: RateLimitOutcome::Allowed(headers) is currently discarded.
-                // Injecting X-RateLimit-* headers requires a streaming middleware
-                // pattern that doesn't exist yet.
-                if let RateLimitOutcome::Limited(r) =
-                    check_rate_limit(&self.limiter, ctx, &identity, "auth", RateLimit::AUTH).await
-                {
-                    return r;
-                }
-            }
-            ("create", "/auth/api/refresh") => {
-                let ip = msg.remote_addr().to_string();
-                let identity = if ip.is_empty() {
-                    "unknown".to_string()
-                } else {
-                    ip
-                };
-                // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
-                if let RateLimitOutcome::Limited(r) =
-                    check_rate_limit(&self.limiter, ctx, &identity, "refresh", RateLimit::REFRESH)
-                        .await
-                {
-                    return r;
-                }
-            }
-            // Forgot/reset password + verification: rate limit by IP
-            ("create", "/auth/api/forgot-password")
-            | ("create", "/auth/api/reset-password")
-            | ("create", "/auth/api/resend-verification")
-            | ("retrieve" | "create", "/auth/api/verify") => {
-                let ip = msg.remote_addr().to_string();
-                let identity = if ip.is_empty() {
-                    "unknown".to_string()
-                } else {
-                    ip
-                };
-                // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
-                if let RateLimitOutcome::Limited(r) =
-                    check_rate_limit(&self.limiter, ctx, &identity, "auth", RateLimit::AUTH).await
-                {
-                    return r;
-                }
-            }
-            // Authenticated write endpoints: rate limit by user_id
-            ("update", _)
-            | ("create", "/auth/api/change-password")
-            | ("create", "/auth/api/api-keys")
-            | ("delete", _) => {
-                let user_id = msg.user_id().to_string();
-                if !user_id.is_empty() {
-                    // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
-                    if let RateLimitOutcome::Limited(r) = check_rate_limit(
-                        &self.limiter,
-                        ctx,
-                        &user_id,
-                        "auth_write",
-                        RateLimit::API_WRITE,
-                    )
-                    .await
-                    {
-                        return r;
-                    }
-                }
-            }
-            // Authenticated read endpoints: rate limit by user_id
-            ("retrieve", "/auth/api/me") | ("retrieve", "/auth/api/api-keys") => {
-                let user_id = msg.user_id().to_string();
-                if !user_id.is_empty() {
-                    // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
-                    if let RateLimitOutcome::Limited(r) = check_rate_limit(
-                        &self.limiter,
-                        ctx,
-                        &user_id,
-                        "auth_read",
-                        RateLimit::API_READ,
-                    )
-                    .await
-                    {
-                        return r;
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        match (action.as_str(), path.as_str()) {
-            // ── Admin settings ───────────────────────────────────────
-            ("retrieve", "/auth/admin/settings") => {
-                if !crate::blocks::helpers::is_admin(&msg) {
-                    return crate::ui::forbidden_response(&msg);
-                }
-                pages::settings_page(ctx, &msg).await
-            }
-            ("create", "/auth/admin/settings") => {
-                if !crate::blocks::helpers::is_admin(&msg) {
-                    return crate::ui::forbidden_response(&msg);
-                }
-                pages::handle_save_settings(ctx, input).await
-            }
-            // ── SSR pages (HTML) ──────────────────────────────────────
-            ("retrieve", "/auth/login") => pages::login_page(ctx, &msg).await,
-            ("retrieve", "/auth/signup") => pages::signup_page(ctx, &msg).await,
-            ("retrieve", "/auth/change-password") => {
-                if msg.user_id().is_empty() {
-                    return pages::login_page(ctx, &msg).await;
-                }
-                pages::change_password_page(ctx, &msg).await
-            }
-            ("retrieve", "/auth/dashboard") => pages::dashboard::dashboard_page(ctx, &msg).await,
-            ("retrieve", "/auth/orgs") => pages::orgs::orgs_page(ctx, &msg).await,
-            ("retrieve", "/auth/reset-password") => {
-                self.handle_reset_password_form(ctx, &msg).await
-            }
-            // OAuth browser redirects
-            ("retrieve", "/auth/oauth/login") => self.handle_oauth_login(ctx, &msg).await,
-            ("retrieve", "/auth/oauth/callback") => self.handle_oauth_callback(ctx, &msg).await,
-
-            // ── JSON API under /auth/api/ ─────────────────────────────
-            ("create", "/auth/api/login") => self.handle_login(ctx, input).await,
-            ("create", "/auth/api/signup") => self.handle_signup(ctx, input).await,
-            ("create", "/auth/api/refresh") => self.handle_refresh(ctx, input).await,
-            ("create", "/auth/api/logout") => self.handle_logout(ctx, &msg).await,
-            ("retrieve", "/auth/api/me") => self.handle_me_get(ctx, &msg).await,
-            ("update", "/auth/api/me") => self.handle_me_update(ctx, &msg, input).await,
-            ("create", "/auth/api/change-password") => {
-                self.handle_change_password(ctx, &msg, input).await
-            }
-            // API keys
-            ("retrieve", "/auth/api/api-keys") => self.handle_api_keys_list(ctx, &msg).await,
-            ("create", "/auth/api/api-keys") => self.handle_api_keys_create(ctx, &msg, input).await,
-            ("update", _) if path.starts_with("/auth/api/api-keys/") => {
-                self.handle_api_keys_revoke(ctx, &msg).await
-            }
-            ("delete", _) if path.starts_with("/auth/api/api-keys/") => {
-                self.handle_api_keys_delete(ctx, &msg).await
-            }
-            // Email verification
-            ("retrieve" | "create", "/auth/api/verify") => {
-                self.handle_verify_email(ctx, &msg, input).await
-            }
-            ("create", "/auth/api/resend-verification") => {
-                self.handle_resend_verification(ctx, input).await
-            }
-            // Password reset
-            ("create", "/auth/api/forgot-password") => {
-                self.handle_forgot_password(ctx, input).await
-            }
-            ("create", "/auth/api/reset-password") => self.handle_reset_password(ctx, input).await,
-            // OAuth API
-            ("retrieve", "/auth/api/oauth/providers") => self.handle_oauth_providers(ctx).await,
-            ("create", "/auth/api/oauth/sync-user") => {
-                self.handle_sync_user(ctx, &msg, input).await
-            }
-            _ => err_not_found("not found"),
-        }
-    }
-
-    async fn lifecycle(
-        &self,
-        ctx: &dyn Context,
-        event: LifecycleEvent,
-    ) -> std::result::Result<(), WaferError> {
-        if matches!(event.event_type, LifecycleType::Init) {
-            // Apply Plan A2 migrations on first boot. Idempotent
-            // (CREATE TABLE IF NOT EXISTS) — safe across re-boots.
-            crate::blocks::auth::migrations::apply(ctx)
-                .await
-                .map_err(|e| {
-                    WaferError::new(ErrorCode::INTERNAL, format!("auth migrations: {e}"))
-                })?;
-            // Bootstrap the first admin user via AuthConfig (typed-client path).
-            // Replaces the old seed_admin_user which wrote password_hash inline
-            // to USERS_COLLECTION — that column no longer exists in Plan A2 schema.
-            let cfg = crate::blocks::auth::config::AuthConfig::from_ctx(ctx).await;
-            crate::blocks::auth::bootstrap::run(ctx, &cfg).await?;
-        }
-        Ok(())
-    }
-}
-
 /// Authenticate a request using an API key.
 ///
 /// Hashes the key with SHA-256, looks it up in the database by key_hash,
@@ -630,7 +295,6 @@ pub async fn authenticate_api_key(
     api_key: &str,
     msg: &mut wafer_run::types::Message,
 ) {
-    use wafer_core::clients::database as db;
     use wafer_run::meta::*;
 
     use crate::blocks::helpers::{sha256_hex, RecordExt};
@@ -686,17 +350,12 @@ pub async fn authenticate_api_key(
     msg.set_meta(META_AUTH_USER_ROLES, &roles_str);
 }
 
-// AuthBlock self-registration removed in PR 5 Task 7: `suppers-ai/auth` is
-// now the framework `wafer_core::service_blocks::auth::AuthBlock` wrapping
-// `AuthServiceImpl`, registered explicitly via `crate::blocks::register_auth`
-// from `SolobaseBuilder::build`. The custom struct + impls below stay
-// compiling (Task 8 deletes them) but no longer self-register.
-
 use maud::html;
 
 use crate::ui::{templates::BrandPanel, SiteConfig};
 
-/// Shared brand panel used by login / signup / reset / OAuth pages.
+/// Shared brand panel used by `auth_ui::pages::*` (login / signup / reset /
+/// OAuth / change-password / bootstrap).
 pub(crate) fn brand_panel(config: &SiteConfig) -> BrandPanel<'_> {
     BrandPanel {
         logo_html: if !config.logo_url.is_empty() {
@@ -706,73 +365,5 @@ pub(crate) fn brand_panel(config: &SiteConfig) -> BrandPanel<'_> {
         },
         headline: &config.app_name,
         tagline: Some("Sign in to continue."),
-    }
-}
-
-#[cfg(test)]
-mod routing_tests {
-    use std::sync::Arc;
-
-    use serde_json::json;
-    use wafer_core::clients::database as db;
-    use wafer_run::block::Block;
-
-    use super::*;
-    use crate::{
-        blocks::userportal::UserPortalBlock,
-        test_support::{anon_msg, auth_msg, output_status, TestContext},
-    };
-
-    async fn ctx_with_userportal() -> TestContext {
-        let mut ctx = TestContext::with_auth().await;
-        ctx.register_block("suppers-ai/userportal", Arc::new(UserPortalBlock));
-        ctx
-    }
-
-    async fn seed_user(ctx: &TestContext, user_id: &str) {
-        db::exec_raw(
-            ctx,
-            "INSERT INTO suppers_ai__auth__users (id, email, display_name, role, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?)",
-            &[
-                json!(user_id),
-                json!(format!("{user_id}@example.com")),
-                json!(user_id),
-                json!("user"),
-                json!("2026-01-01T00:00:00Z"),
-                json!("2026-01-01T00:00:00Z"),
-            ],
-        )
-        .await
-        .unwrap();
-    }
-
-    #[tokio::test]
-    async fn dashboard_route_dispatches_to_handler() {
-        let ctx = ctx_with_userportal().await;
-        seed_user(&ctx, "user-a").await;
-        let block = AuthBlock::default();
-        let msg = auth_msg("retrieve", "/b/auth/dashboard", "user-a");
-        let resp = block.handle(&ctx, msg, InputStream::empty()).await;
-        assert_eq!(output_status(resp).await, 200);
-    }
-
-    #[tokio::test]
-    async fn orgs_route_dispatches_to_handler() {
-        let ctx = ctx_with_userportal().await;
-        seed_user(&ctx, "user-a").await;
-        let block = AuthBlock::default();
-        let msg = auth_msg("retrieve", "/b/auth/orgs", "user-a");
-        let resp = block.handle(&ctx, msg, InputStream::empty()).await;
-        assert_eq!(output_status(resp).await, 200);
-    }
-
-    #[tokio::test]
-    async fn dashboard_route_redirects_anonymous() {
-        let ctx = ctx_with_userportal().await;
-        let block = AuthBlock::default();
-        let msg = anon_msg("retrieve", "/b/auth/dashboard");
-        let resp = block.handle(&ctx, msg, InputStream::empty()).await;
-        assert_eq!(output_status(resp).await, 302);
     }
 }
