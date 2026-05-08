@@ -25,7 +25,7 @@ const ADMIN_ROUTES = [
   { path: '/b/admin/network', name: 'admin-network' },
   { path: '/b/admin/variables', name: 'admin-variables' },
   { path: '/b/admin/permissions', name: 'admin-permissions' },
-  { path: '/b/auth/dashboard', name: 'portal-dashboard' },
+  { path: '/b/userportal/', name: 'portal-dashboard' },
   { path: '/b/auth/orgs', name: 'portal-orgs' },
   { path: '/b/userportal/profile', name: 'portal-profile' },
   { path: '/b/userportal/sessions', name: 'portal-sessions' },
@@ -104,7 +104,7 @@ const MOBILE_ADMIN_ROUTES = [
   // "Recent Errors" table is fed by the request_log accumulated during
   // the rest of the baseline run, so its content + width drift between
   // local and CI.
-  { path: '/b/auth/dashboard', name: 'portal-dashboard' },
+  { path: '/b/userportal/', name: 'portal-dashboard' },
   { path: '/b/auth/orgs', name: 'portal-orgs' },
   { path: '/b/userportal/profile', name: 'portal-profile' },
   { path: '/b/userportal/sessions', name: 'portal-sessions' },

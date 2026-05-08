@@ -331,9 +331,9 @@ mod tests {
 
     #[test]
     fn auth_msg_sets_user_id() {
-        let m = auth_msg("retrieve", "/b/auth/dashboard", "user-a");
+        let m = auth_msg("retrieve", "/b/userportal/", "user-a");
         assert_eq!(m.action(), "retrieve");
-        assert_eq!(m.path(), "/b/auth/dashboard");
+        assert_eq!(m.path(), "/b/userportal/");
         assert_eq!(m.user_id(), "user-a");
     }
 

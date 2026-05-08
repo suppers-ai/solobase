@@ -55,7 +55,7 @@ pub async fn sessions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         crumbs: vec![
             Crumb {
                 label: "Dashboard",
-                href: Some("/b/auth/dashboard"),
+                href: Some("/b/userportal/"),
             },
             Crumb {
                 label: "Sessions",
