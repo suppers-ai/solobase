@@ -2,18 +2,17 @@
 //! userportal `/b/userportal/sessions` page renders meaningful data after a
 //! JWT login.
 //!
-//! These tests exercise the production code path WITHOUT applying migrations
-//! — production never applies them either; the live `users` and `sessions`
-//! tables are materialised through `ensure_table` on first `db::create`. The
-//! tests use the `MigrationTestCtx` for its real `wafer-run/crypto` routing
+//! These tests use `MigrationTestCtx` for its real `wafer-run/crypto` routing
 //! so password hashing and JWT signing work the same way as production.
+//! Plan A2: `seed_password_user` applies migrations before inserting so the
+//! typed schema (with `NOT NULL` constraints) is in place.
 
 use serde_json::json;
 use solobase_core::blocks::{
     auth::{repo::sessions, service::hash_token, AuthBlock, AUTH_BLOCK_ID},
     userportal::UserPortalBlock,
 };
-use wafer_core::clients::{crypto, database as db};
+use wafer_core::clients::crypto;
 use wafer_run::{
     block::Block,
     streams::output::{BufferedResponse, TerminalNotResponse},
@@ -38,21 +37,53 @@ async fn collect_or_panic(out: OutputStream) -> BufferedResponse {
     }
 }
 
-/// Seed a user via `db::create` (live TEXT-everything convention). Returns
-/// the user's id. Hashes the password through the registered crypto block
-/// the same way production `seed_admin_user` does. Adds an `email_verified`
-/// flag so the login flow doesn't gate on verification.
+/// Seed a user with a local credential. Returns the user's id.
+///
+/// Applies Plan A2 migrations first (idempotent), then inserts the user row
+/// and a `local_credentials` row via the typed repo helpers. `email_verified`
+/// is set to `true` directly via `exec_raw` after insert so the login flow
+/// doesn't gate on verification.
+///
+/// Plan A2 note: passwords live in `local_credentials`, not on the users row.
 async fn seed_password_user(ctx: &MigrationTestCtx, email: &str, password: &str) -> String {
+    use solobase_core::blocks::auth::{
+        migrations,
+        repo::{local_credentials, users},
+    };
+    use wafer_core::clients::database as db;
+
+    // Apply migrations so the typed schema (with NOT NULL constraints, etc.)
+    // is in place before any inserts. Idempotent.
+    migrations::apply(ctx).await.expect("migrations::apply");
+
     let password_hash = crypto::hash(ctx, password).await.expect("hash password");
-    let mut data = std::collections::HashMap::new();
-    data.insert("email".to_string(), json!(email));
-    data.insert("password_hash".to_string(), json!(password_hash));
-    data.insert("name".to_string(), json!(""));
-    data.insert("disabled".to_string(), json!("false"));
-    data.insert("email_verified".to_string(), json!("true"));
-    let user = db::create(ctx, "suppers_ai__auth__users", data)
+
+    let user = users::insert(
+        ctx,
+        users::NewUser {
+            email: email.to_string(),
+            display_name: String::new(),
+            avatar_url: None,
+            role: "user".to_string(),
+        },
+    )
+    .await
+    .expect("insert user");
+
+    // Set email_verified via exec_raw (test-fixture setup — CLAUDE.md exception).
+    db::exec_raw(
+        ctx,
+        "UPDATE suppers_ai__auth__users SET email_verified = 1 WHERE id = ?",
+        &[json!(&user.id)],
+    )
+    .await
+    .expect("set email_verified");
+
+    // Store the password in local_credentials.
+    local_credentials::insert(ctx, &user.id, &password_hash, false)
         .await
-        .expect("create user");
+        .expect("insert local_credentials");
+
     user.id
 }
 
