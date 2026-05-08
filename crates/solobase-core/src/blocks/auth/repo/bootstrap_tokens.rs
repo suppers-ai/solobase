@@ -80,6 +80,34 @@ pub async fn is_valid(ctx: &dyn Context, token_hash: &[u8]) -> Result<bool, Repo
     Ok(!res.records.is_empty())
 }
 
+/// Delete every row whose `token_hash` matches `token_hash`. Used by the
+/// `/b/auth/bootstrap` redemption flow to consume the token after a
+/// successful admin creation.
+///
+/// Single-use semantics: even if multiple rows happened to share the same
+/// hash (shouldn't, but the schema doesn't enforce uniqueness here), this
+/// removes all of them so subsequent `is_valid` calls return false.
+pub async fn delete_by_hash(ctx: &dyn Context, token_hash: &[u8]) -> Result<(), RepoError> {
+    let hex = hex_encode(token_hash);
+    let opts = db::ListOptions {
+        filters: vec![db::Filter {
+            field: "token_hash".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(hex),
+        }],
+        ..Default::default()
+    };
+    let res = db::list(ctx, TABLE, &opts)
+        .await
+        .map_err(|e| RepoError::Db(format!("bootstrap_tokens lookup for delete: {e}")))?;
+    for record in res.records {
+        db::delete(ctx, TABLE, &record.id)
+            .await
+            .map_err(|e| RepoError::Db(format!("bootstrap_tokens delete: {e}")))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod typed_client_tests {
     use super::*;
@@ -126,6 +154,19 @@ mod typed_client_tests {
                 .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
         let hash = vec![0xef_u8; 32];
         insert(&ctx, hash.clone(), &past_iso(3600)).await.unwrap();
+        assert!(!is_valid(&ctx, &hash).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn insert_then_delete_round_trips_under_wrap() {
+        let ctx =
+            TestContext::with_auth()
+                .await
+                .with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
+        let hash = vec![0xff_u8; 32];
+        insert(&ctx, hash.clone(), &future_iso(3600)).await.unwrap();
+        assert!(is_valid(&ctx, &hash).await.unwrap());
+        delete_by_hash(&ctx, &hash).await.unwrap();
         assert!(!is_valid(&ctx, &hash).await.unwrap());
     }
 }

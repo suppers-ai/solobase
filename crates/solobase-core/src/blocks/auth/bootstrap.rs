@@ -61,7 +61,7 @@ pub async fn run(ctx: &dyn Context, cfg: &AuthConfig) -> Result<(), WaferError> 
     Ok(())
 }
 
-async fn bootstrap_with_email_password(
+pub(crate) async fn bootstrap_with_email_password(
     ctx: &dyn Context,
     email: &str,
     password: &str,
