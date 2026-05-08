@@ -48,12 +48,12 @@ pub fn seed_and_load_variables() -> HashMap<String, String> {
     //    This is local-only (OPFS) so a simple default is acceptable.
     let _ = bridge::db_exec_raw(
         "INSERT OR IGNORE INTO suppers_ai__admin__variables (id, key, name, description, value, sensitive, created_at, updated_at)
-         VALUES ('var_admin_email', 'SUPPERS_AI__AUTH__ADMIN_EMAIL', 'Admin Email', 'Admin account email', 'admin@example.com', 0, datetime('now'), datetime('now'))",
+         VALUES ('var_admin_email', 'SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL', 'Admin Email', 'Admin account email', 'admin@example.com', 0, datetime('now'), datetime('now'))",
         "[]",
     );
     let _ = bridge::db_exec_raw(
         "INSERT OR IGNORE INTO suppers_ai__admin__variables (id, key, name, description, value, sensitive, created_at, updated_at)
-         VALUES ('var_admin_pass', 'SUPPERS_AI__AUTH__ADMIN_PASSWORD', 'Admin Password', 'Admin account password', 'admin123', 1, datetime('now'), datetime('now'))",
+         VALUES ('var_admin_pass', 'SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_PASSWORD', 'Admin Password', 'Admin account password', 'admin123', 1, datetime('now'), datetime('now'))",
         "[]",
     );
 

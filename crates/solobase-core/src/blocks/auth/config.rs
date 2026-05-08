@@ -14,7 +14,11 @@
 
 use std::collections::HashMap;
 
-use wafer_run::types::{ConfigVar, InputType};
+use wafer_core::clients::config as config_client;
+use wafer_run::{
+    context::Context,
+    types::{ConfigVar, InputType},
+};
 
 /// `SOLOBASE_SHARED__AUTH__SESSION_LIFETIME_DAYS` — how many days a freshly
 /// issued session cookie stays valid.
@@ -144,6 +148,29 @@ impl AuthConfig {
             signup_enabled,
             password_min_length,
         }
+    }
+
+    /// Build an [`AuthConfig`] by reading from the runtime config client.
+    ///
+    /// Called once at `Init` time from `AuthBlock::lifecycle`. Each key is
+    /// fetched with its declared default via `config_client::get_default` so
+    /// the behaviour matches the `BlockInfo::config_keys` declarations above.
+    pub async fn from_ctx(ctx: &dyn Context) -> Self {
+        let mut env = HashMap::new();
+        for key in &[
+            SESSION_LIFETIME_DAYS_KEY,
+            BOOTSTRAP_ADMIN_EMAIL_KEY,
+            BOOTSTRAP_ADMIN_PASSWORD_KEY,
+            BOOTSTRAP_ADMIN_TOKEN_KEY,
+            SIGNUP_ENABLED_KEY,
+            PASSWORD_MIN_LENGTH_KEY,
+        ] {
+            let val = config_client::get_default(ctx, key, "").await;
+            if !val.is_empty() {
+                env.insert(key.to_string(), val);
+            }
+        }
+        Self::from_map(&env)
     }
 
     /// Test helper: build an [`AuthConfig`] from a slice of `(key, value)`

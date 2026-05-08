@@ -67,18 +67,66 @@ async fn bootstrap_with_email_password(
     password: &str,
 ) -> Result<(), WaferError> {
     let hash = crypto::hash(ctx, password).await?;
-    let user = users::insert(
-        ctx,
-        users::NewUser {
-            email: email.to_string(),
-            display_name: "Admin".to_string(),
-            avatar_url: None,
-            role: "admin".to_string(),
-        },
-    )
-    .await
-    .map_err(internal)?;
-    local_credentials::insert(ctx, &user.id, &hash, false)
+    let id = uuid::Uuid::now_v7().to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+    // Write the admin user row directly with the union of Plan A2 columns
+    // (display_name, role, email_verified) AND the legacy columns the rest
+    // of solobase still reads (`name`, `disabled`, `deleted_at`,
+    // `oauth_provider`). The single `db::create` call invokes the backend's
+    // `ensure_table` which auto-adds any missing columns — so even when
+    // migration 001 already created the Plan A2 schema, this insert
+    // materializes the legacy columns for downstream readers.
+    //
+    // Bypassing `repo::users::insert` here is intentional: bootstrap is a
+    // one-shot operator action, not a steady-state user-creation flow.
+    // Each legacy field is removed when its readers migrate to Plan A2:
+    //   - `name` — userportal/profile.rs reads `display_name` first then
+    //     `name`; admin pages still mix.
+    //   - `disabled` / `deleted_at` — admin pages soft-delete + status.
+    //   - `oauth_provider` — auth/oauth.rs upsert payload.
+    let mut data: std::collections::HashMap<String, serde_json::Value> =
+        std::collections::HashMap::new();
+    data.insert("id".to_string(), serde_json::Value::String(id.clone()));
+    data.insert(
+        "email".to_string(),
+        serde_json::Value::String(email.to_string()),
+    );
+    data.insert(
+        "display_name".to_string(),
+        serde_json::Value::String("Admin".to_string()),
+    );
+    data.insert(
+        "avatar_url".to_string(),
+        serde_json::Value::String(String::new()),
+    );
+    data.insert(
+        "role".to_string(),
+        serde_json::Value::String("admin".to_string()),
+    );
+    // Bootstrapped admins are inherently trusted — they're the operator who
+    // set BOOTSTRAP_ADMIN_PASSWORD. Marking verified avoids the unverified
+    // state on /b/userportal/security on first login.
+    data.insert("email_verified".to_string(), serde_json::Value::Bool(true));
+    data.insert(
+        "created_at".to_string(),
+        serde_json::Value::String(now.clone()),
+    );
+    data.insert("updated_at".to_string(), serde_json::Value::String(now));
+    // Legacy companion columns — see comment block above.
+    data.insert(
+        "name".to_string(),
+        serde_json::Value::String("Admin".to_string()),
+    );
+    data.insert("disabled".to_string(), serde_json::Value::Bool(false));
+    data.insert("deleted_at".to_string(), serde_json::Value::Null);
+    data.insert(
+        "oauth_provider".to_string(),
+        serde_json::Value::String(String::new()),
+    );
+
+    wafer_core::clients::database::create(ctx, users::TABLE, data).await?;
+    local_credentials::insert(ctx, &id, &hash, false)
         .await
         .map_err(internal)?;
     Ok(())

@@ -636,12 +636,20 @@ const SETTINGS_KEYS: &[(&str, &str, &str, &str, bool, &str)] = &[
         "text",
     ),
     (
-        "SUPPERS_AI__AUTH__ADMIN_EMAIL",
-        "Admin Email",
-        "Email address that automatically gets the admin role on signup.",
+        "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL",
+        "Bootstrap Admin Email",
+        "Email of the admin user created on first startup (bootstrap only).",
         "",
         false,
         "text",
+    ),
+    (
+        "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_PASSWORD",
+        "Bootstrap Admin Password",
+        "Password for the bootstrap admin account (bootstrap only).",
+        "",
+        true,
+        "password",
     ),
     (
         "SOLOBASE_SHARED__ENABLE_OAUTH",

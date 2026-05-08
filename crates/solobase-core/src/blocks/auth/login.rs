@@ -5,7 +5,11 @@ use wafer_core::clients::{config, crypto, database as db};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::{
-    brand_panel, helpers::*, repo::sessions, service::hash_token, AuthBlock, USERS_COLLECTION,
+    brand_panel,
+    helpers::*,
+    repo::{local_credentials, sessions, users},
+    service::hash_token,
+    AuthBlock, USERS_COLLECTION,
 };
 use crate::{
     blocks::{
@@ -34,28 +38,38 @@ impl AuthBlock {
 
         let email_lower = body.email.trim().to_lowercase();
 
-        // Find user by email
-        let user = db::get_by_field(
-            ctx,
-            USERS_COLLECTION,
-            "email",
-            serde_json::Value::String(email_lower.clone()),
-        )
-        .await;
+        // Find user by email via typed repo.
+        let user_row = users::find_by_email(ctx, &email_lower).await.ok().flatten();
 
         // Always run Argon2 verification to prevent timing-based user enumeration.
-        // If user not found, compare against a dummy hash so the response time
-        // is indistinguishable from a wrong-password attempt.
-        let stored_hash = match &user {
-            Ok(u) => u.str_field("password_hash"),
-            Err(_) => super::DUMMY_HASH,
+        // If user not found or no local credentials, compare against a dummy hash
+        // so the response time is indistinguishable from a wrong-password attempt.
+        let stored_hash_owned: String;
+        let stored_hash: &str = match &user_row {
+            Some(u) => match local_credentials::find_by_user_id(ctx, &u.id).await {
+                Ok(Some(cred)) => {
+                    stored_hash_owned = cred.password_hash;
+                    &stored_hash_owned
+                }
+                _ => super::DUMMY_HASH,
+            },
+            None => super::DUMMY_HASH,
         };
         let password_ok = crypto::compare_hash(ctx, &body.password, stored_hash)
             .await
             .is_ok();
 
-        let user = match user {
-            Ok(u) if password_ok => u,
+        // Fetch the full DB record for the remaining fields (disabled, email_verified, etc.)
+        let user = match user_row {
+            Some(u) if password_ok => match db::get(ctx, USERS_COLLECTION, &u.id).await {
+                Ok(rec) => rec,
+                Err(_) => {
+                    return error_response(
+                        ErrorCode::InvalidCredentials,
+                        "Invalid email or password",
+                    )
+                }
+            },
             _ => return error_response(ErrorCode::InvalidCredentials, "Invalid email or password"),
         };
 
@@ -236,22 +250,54 @@ impl AuthBlock {
             String::new()
         };
 
-        let mut data = json_map(serde_json::json!({
-            "email": email_lower,
-            "password_hash": password_hash,
-            "name": body.name.unwrap_or_default(),
-            "disabled": false,
-            "email_verified": !require_verification,
-            "verification_token": verification_token
-        }));
-        crate::blocks::helpers::stamp_created(&mut data);
-
-        let (user, default_role) = match create_user_and_assign_role(ctx, data).await {
-            Ok(r) => r,
-            Err(e) => return err_internal(&e),
+        // Determine the role: admin if the email matches the configured bootstrap
+        // admin email (re-uses the same key as bootstrap for consistency).
+        let admin_email = config::get_default(
+            ctx,
+            crate::blocks::auth::config::BOOTSTRAP_ADMIN_EMAIL_KEY,
+            "",
+        )
+        .await;
+        let role = if !admin_email.is_empty() && email_lower.eq_ignore_ascii_case(&admin_email) {
+            "admin"
+        } else {
+            "user"
         };
 
-        let roles = vec![default_role];
+        // Insert via typed repo — no password_hash on the users row.
+        let user = match users::insert(
+            ctx,
+            users::NewUser {
+                email: email_lower.clone(),
+                display_name: body.name.unwrap_or_default(),
+                avatar_url: None,
+                role: role.to_string(),
+            },
+        )
+        .await
+        {
+            Ok(u) => u,
+            Err(e) => return err_internal(&format!("Failed to create user: {e}")),
+        };
+
+        if let Err(e) = local_credentials::insert(ctx, &user.id, &password_hash, false).await {
+            return err_internal(&format!("Failed to store credentials: {e}"));
+        }
+
+        // Set email_verified and verification_token on the legacy USERS_COLLECTION row
+        // (Plan A2 users table stores email_verified too — keep them in sync).
+        {
+            let mut upd = json_map(serde_json::json!({
+                "email_verified": !require_verification,
+                "verification_token": verification_token.clone(),
+            }));
+            crate::blocks::helpers::stamp_updated(&mut upd);
+            if let Err(e) = db::update(ctx, USERS_COLLECTION, &user.id, upd).await {
+                tracing::warn!("Failed to set email_verified on signup: {e}");
+            }
+        }
+
+        let roles = vec![role.to_string()];
 
         // Send verification email if required
         if require_verification {
@@ -299,7 +345,7 @@ impl AuthBlock {
                     "id": user.id,
                     "email": email_lower,
                     "roles": roles,
-                    "name": user.str_field("name")
+                    "name": user.display_name
                 }
             }))
     }
@@ -552,13 +598,25 @@ impl AuthBlock {
             );
         }
 
-        let user = match db::get(ctx, USERS_COLLECTION, user_id).await {
-            Ok(u) => u,
+        // Verify user exists
+        match db::get(ctx, USERS_COLLECTION, user_id).await {
+            Ok(_) => {}
             Err(_) => return err_not_found("User not found"),
         };
 
-        let stored_hash = user.str_field("password_hash");
-        if crypto::compare_hash(ctx, &body.current_password, stored_hash)
+        // Fetch existing credential row — must have one to change password.
+        let cred = match local_credentials::find_by_user_id(ctx, user_id).await {
+            Ok(Some(c)) => c,
+            Ok(None) => {
+                return error_response(
+                    ErrorCode::InvalidCredentials,
+                    "No password set for this account",
+                )
+            }
+            Err(e) => return err_internal(&format!("Credential lookup failed: {e}")),
+        };
+
+        if crypto::compare_hash(ctx, &body.current_password, &cred.password_hash)
             .await
             .is_err()
         {
@@ -573,10 +631,7 @@ impl AuthBlock {
             Err(e) => return err_internal(&format!("Hash failed: {e}")),
         };
 
-        let mut data = json_map(serde_json::json!({"password_hash": new_hash}));
-        crate::blocks::helpers::stamp_updated(&mut data);
-
-        match db::update(ctx, USERS_COLLECTION, user_id, data).await {
+        match local_credentials::update_password(ctx, user_id, &new_hash).await {
             Ok(_) => {
                 // Revoke all refresh tokens — force re-login with new password
                 db::delete_by_field(
@@ -1033,16 +1088,20 @@ async function handleReset(e){
             Err(e) => return err_internal(&format!("Hash failed: {e}")),
         };
 
-        // Update password, clear reset token
+        // Update credential row (typed path, no password_hash on users table).
+        if let Err(e) = local_credentials::update_password(ctx, &user.id, &new_hash).await {
+            return err_internal(&format!("Failed to update password: {e}"));
+        }
+
+        // Clear reset token on the users row.
         let mut data = json_map(serde_json::json!({
-            "password_hash": new_hash,
             "reset_token": "",
             "reset_token_expires": ""
         }));
         crate::blocks::helpers::stamp_updated(&mut data);
 
         if let Err(e) = db::update(ctx, USERS_COLLECTION, &user.id, data).await {
-            return err_internal(&format!("Failed to update password: {e}"));
+            return err_internal(&format!("Failed to clear reset token: {e}"));
         }
 
         // Revoke all refresh tokens — invalidate any stolen sessions

@@ -83,7 +83,8 @@ mod helpers {
             .map_err(|e| format!("Failed to create user: {e}"))?;
 
         let admin_email =
-            config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "").await;
+            config_client::get_default(ctx, "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL", "")
+                .await;
         let user_email = user
             .data
             .get("email")
@@ -108,6 +109,19 @@ mod helpers {
     }
 
     pub(super) async fn get_user_roles(ctx: &dyn Context, user_id: &str) -> Vec<String> {
+        // Plan A2 stores role inline on `users.role`; legacy
+        // USER_ROLES_COLLECTION carries multi-role-per-user history. Merge
+        // both: the inline role is the bootstrap path, the table is the
+        // legacy path. Dedup since both can produce "admin" for the
+        // bootstrapped admin.
+        use crate::blocks::helpers::RecordExt;
+        let mut roles: Vec<String> = Vec::new();
+        if let Ok(rec) = db::get(ctx, USERS_COLLECTION, user_id).await {
+            let inline = rec.str_field("role");
+            if !inline.is_empty() {
+                roles.push(inline.to_string());
+            }
+        }
         let opts = ListOptions {
             filters: vec![Filter {
                 field: "user_id".to_string(),
@@ -116,19 +130,16 @@ mod helpers {
             }],
             ..Default::default()
         };
-        match db::list(ctx, USER_ROLES_COLLECTION, &opts).await {
-            Ok(r) => r
-                .records
-                .iter()
-                .filter_map(|rec| {
-                    rec.data
-                        .get("role")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                })
-                .collect(),
-            Err(_) => Vec::new(),
+        if let Ok(r) = db::list(ctx, USER_ROLES_COLLECTION, &opts).await {
+            for rec in &r.records {
+                if let Some(role) = rec.data.get("role").and_then(|v| v.as_str()) {
+                    if !roles.iter().any(|r| r == role) {
+                        roles.push(role.to_string());
+                    }
+                }
+            }
         }
+        roles
     }
 
     /// Resolve user roles, idempotently granting `admin` if the user's email
@@ -153,7 +164,8 @@ mod helpers {
         let mut roles = get_user_roles(ctx, user_id).await;
 
         let admin_email =
-            config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "").await;
+            config_client::get_default(ctx, "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL", "")
+                .await;
         if admin_email.is_empty()
             || !email.eq_ignore_ascii_case(&admin_email)
             || roles.iter().any(|r| r == "admin")
@@ -303,105 +315,6 @@ mod helpers {
     }
 }
 
-/// Seed a default admin user if no users exist yet.
-pub async fn seed_admin_user(ctx: &dyn Context) {
-    let count = db::count(ctx, USERS_COLLECTION, &[]).await.unwrap_or(0);
-    if count > 0 {
-        return;
-    }
-
-    let admin_email_env =
-        config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_EMAIL", "").await;
-    let admin_email = if admin_email_env.is_empty() {
-        tracing::warn!(
-            "SUPPERS_AI__AUTH__ADMIN_EMAIL not set — seeding admin@example.com; \
-             set SUPPERS_AI__AUTH__ADMIN_EMAIL in production"
-        );
-        "admin@example.com".to_string()
-    } else {
-        admin_email_env
-    };
-    let admin_password_env =
-        config_client::get_default(ctx, "SUPPERS_AI__AUTH__ADMIN_PASSWORD", "").await;
-
-    let (password_to_use, was_randomly_generated) = if !admin_password_env.is_empty() {
-        (admin_password_env, false)
-    } else {
-        let random_bytes = match crypto::random_bytes(ctx, 16).await {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::error!("Failed to generate random password: {e}");
-                return;
-            }
-        };
-        (hex_encode(&random_bytes), true)
-    };
-
-    let password_hash = match crypto::hash(ctx, &password_to_use).await {
-        Ok(h) => h,
-        Err(e) => {
-            tracing::error!("Failed to hash default admin password: {e}");
-            return;
-        }
-    };
-
-    // Write every column declared in `USERS_COLLECTION`'s `CollectionSchema`
-    // (see `BlockInfo::collections` below). The cloudflare D1 backend
-    // materializes table schemas from data shape on first insert, and
-    // queries that filter on never-written columns (e.g. the admin user
-    // list's `WHERE deleted_at IS NULL`) fail with "no such column" until
-    // some other write adds that column. Writing the full set of declared
-    // columns here — even empty/null defaults — makes the table land
-    // complete on first cold-start.
-    let mut data = json_map(serde_json::json!({
-        "email": admin_email,
-        "password_hash": password_hash,
-        "name": "Admin",
-        "disabled": false,
-        // Seeded admins are inherently trusted — no email loop needed before
-        // first sign-in. Without this, the seeded admin would land in the
-        // "unverified" state on /b/userportal/security and the require-
-        // verification config could lock them out of their own deployment.
-        "email_verified": true,
-        "avatar_url": "",
-        "oauth_provider": "",
-        "verification_token": "",
-        "reset_token": "",
-        "reset_token_expires": null,
-        "last_verification_sent": null,
-        "last_login_at": null,
-        "deleted_at": null,
-    }));
-    super::helpers::stamp_created(&mut data);
-
-    match db::create(ctx, USERS_COLLECTION, data).await {
-        Ok(user) => {
-            let role_data = json_map(serde_json::json!({
-                "user_id": user.id,
-                "role": "admin",
-                "assigned_at": super::helpers::now_rfc3339()
-            }));
-            if let Err(e) = db::create(ctx, USER_ROLES_COLLECTION, role_data).await {
-                tracing::warn!("Failed to assign admin role to seeded user: {e}");
-            }
-            tracing::info!("==========================================================");
-            tracing::info!("Default admin user seeded:");
-            tracing::info!("  Email:    {}", admin_email);
-            if was_randomly_generated {
-                // Log password to stderr only — never persist in log aggregation
-                eprintln!("  ADMIN PASSWORD (one-time display): {}", password_to_use);
-                tracing::info!("  Password: (displayed on stderr — CHANGE IMMEDIATELY)");
-            } else {
-                tracing::info!("  Password: (set via SUPPERS_AI__AUTH__ADMIN_PASSWORD env var)");
-            }
-            tracing::info!("==========================================================");
-        }
-        Err(e) => {
-            tracing::error!("Failed to seed admin user: {e}");
-        }
-    }
-}
-
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for AuthBlock {
@@ -414,7 +327,6 @@ impl Block for AuthBlock {
             .collections(vec![
                 CollectionSchema::new(USERS_COLLECTION)
                     .field_unique("email", "string")
-                    .field_default("password_hash", "string", "")
                     .field_default("name", "string", "")
                     .field_default("disabled", "bool", "false")
                     .field_default("avatar_url", "string", "")
@@ -483,55 +395,54 @@ impl Block for AuthBlock {
                 BlockEndpoint::get("/b/auth/api/api-keys").summary("List API keys").auth(AuthLevel::Authenticated),
                 BlockEndpoint::post("/b/auth/api/api-keys").summary("Create API key").auth(AuthLevel::Authenticated),
             ])
-            .config_keys(vec![
-                ConfigVar::new(JWT_SECRET_KEY, "Secret key for signing auth tokens", "")
-                    .name("JWT Secret")
-                    .input_type(InputType::Password)
-                    .auto_generate()
-                    .warning("Changing this will invalidate all existing user sessions"),
-                ConfigVar::new("SUPPERS_AI__AUTH__REQUIRE_VERIFICATION", "Require email verification before login", "false")
-                    .name("Require Email Verification")
-                    .input_type(InputType::Toggle),
-                ConfigVar::new("SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS", "Restrict signup to specific email domains (comma-separated)", "")
-                    .name("Allowed Email Domains")
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__AUTH__ADMIN_EMAIL", "Email address that gets the admin role on signup", "")
-                    .name("Admin Email")
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_ID", "Google OAuth client ID", "")
-                    .name("Google Client ID")
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_SECRET", "Google OAuth client secret", "")
-                    .name("Google Client Secret")
-                    .input_type(InputType::Password)
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GITHUB_CLIENT_ID", "GitHub OAuth client ID", "")
-                    .name("GitHub Client ID")
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GITHUB_CLIENT_SECRET", "GitHub OAuth client secret", "")
-                    .name("GitHub Client Secret")
-                    .input_type(InputType::Password)
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_MICROSOFT_CLIENT_ID", "Microsoft OAuth client ID", "")
-                    .name("Microsoft Client ID")
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_MICROSOFT_CLIENT_SECRET", "Microsoft OAuth client secret", "")
-                    .name("Microsoft Client Secret")
-                    .input_type(InputType::Password)
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__AUTH__ADMIN_PASSWORD", "Password for the default admin account", "")
-                    .name("Admin Password")
-                    .input_type(InputType::Password)
-                    .optional(),
-                ConfigVar::new("SUPPERS_AI__AUTH__INTERNAL_SECRET", "Secret for internal API authentication", "")
-                    .name("Internal Secret")
-                    .input_type(InputType::Password)
-                    .auto_generate(),
-                ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_REDIRECT_URI", "OAuth callback URL", "")
-                    .name("OAuth Redirect URI")
-                    .input_type(InputType::Url)
-                    .optional(),
-            ])
+            .config_keys({
+                vec![
+                    ConfigVar::new(JWT_SECRET_KEY, "Secret key for signing auth tokens", "")
+                        .name("JWT Secret")
+                        .input_type(InputType::Password)
+                        .auto_generate()
+                        .warning("Changing this will invalidate all existing user sessions"),
+                    ConfigVar::new("SUPPERS_AI__AUTH__REQUIRE_VERIFICATION", "Require email verification before login", "false")
+                        .name("Require Email Verification")
+                        .input_type(InputType::Toggle),
+                    ConfigVar::new("SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS", "Restrict signup to specific email domains (comma-separated)", "")
+                        .name("Allowed Email Domains")
+                        .optional(),
+                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_ID", "Google OAuth client ID", "")
+                        .name("Google Client ID")
+                        .optional(),
+                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_SECRET", "Google OAuth client secret", "")
+                        .name("Google Client Secret")
+                        .input_type(InputType::Password)
+                        .optional(),
+                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GITHUB_CLIENT_ID", "GitHub OAuth client ID", "")
+                        .name("GitHub Client ID")
+                        .optional(),
+                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_GITHUB_CLIENT_SECRET", "GitHub OAuth client secret", "")
+                        .name("GitHub Client Secret")
+                        .input_type(InputType::Password)
+                        .optional(),
+                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_MICROSOFT_CLIENT_ID", "Microsoft OAuth client ID", "")
+                        .name("Microsoft Client ID")
+                        .optional(),
+                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_MICROSOFT_CLIENT_SECRET", "Microsoft OAuth client secret", "")
+                        .name("Microsoft Client Secret")
+                        .input_type(InputType::Password)
+                        .optional(),
+                    ConfigVar::new("SUPPERS_AI__AUTH__INTERNAL_SECRET", "Secret for internal API authentication", "")
+                        .name("Internal Secret")
+                        .input_type(InputType::Password)
+                        .auto_generate(),
+                    ConfigVar::new("SUPPERS_AI__AUTH__OAUTH_REDIRECT_URI", "OAuth callback URL", "")
+                        .name("OAuth Redirect URI")
+                        .input_type(InputType::Url)
+                        .optional(),
+                ]
+                // SOLOBASE_SHARED__AUTH__* vars are NOT block-scoped; they
+                // live in `solobase_core::config_vars::shared_config_vars()`
+                // (the central registry) and are validated against the
+                // shared prefix, not the block's own.
+            })
             .admin_url("/b/auth/admin/settings")
     }
 
@@ -728,7 +639,18 @@ impl Block for AuthBlock {
         event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
-            seed_admin_user(ctx).await;
+            // Apply Plan A2 migrations on first boot. Idempotent
+            // (CREATE TABLE IF NOT EXISTS) — safe across re-boots.
+            crate::blocks::auth::migrations::apply(ctx)
+                .await
+                .map_err(|e| {
+                    WaferError::new(ErrorCode::INTERNAL, format!("auth migrations: {e}"))
+                })?;
+            // Bootstrap the first admin user via AuthConfig (typed-client path).
+            // Replaces the old seed_admin_user which wrote password_hash inline
+            // to USERS_COLLECTION — that column no longer exists in Plan A2 schema.
+            let cfg = crate::blocks::auth::config::AuthConfig::from_ctx(ctx).await;
+            crate::blocks::auth::bootstrap::run(ctx, &cfg).await?;
         }
         Ok(())
     }

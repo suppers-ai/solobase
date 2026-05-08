@@ -32,9 +32,20 @@ pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let user_record = db::get(ctx, USERS_COLLECTION, &user_id).await.ok();
+    // Plan A2 schema uses `display_name`; legacy ensure_table rows may still
+    // have a `name` column. Read the new column first; fall back to the
+    // legacy one so existing deployments keep rendering until they're seeded
+    // through the new path.
     let display_name = user_record
         .as_ref()
-        .map(|r| r.str_field("name").to_string())
+        .map(|r| {
+            let v = r.str_field("display_name");
+            if v.is_empty() {
+                r.str_field("name").to_string()
+            } else {
+                v.to_string()
+            }
+        })
         .unwrap_or_default();
     let avatar_url = user_record
         .as_ref()
