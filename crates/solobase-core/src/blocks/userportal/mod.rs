@@ -79,7 +79,7 @@ impl Block for UserPortalBlock {
         .category(wafer_run::BlockCategory::Feature)
         .description("User-facing profile page with editable display name, admin-configurable navigation buttons, and portal configuration endpoint.")
         .endpoints(vec![
-            BlockEndpoint::get("/b/userportal/").summary("User profile page (redirects to /profile)").auth(AuthLevel::Authenticated),
+            BlockEndpoint::get("/b/userportal/").summary("Portal home (apps + orgs)").auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/userportal/profile").summary("Profile page").auth(AuthLevel::Authenticated),
             BlockEndpoint::post("/b/userportal/update-profile").summary("Update profile").auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/userportal/sessions").summary("Active sessions").auth(AuthLevel::Authenticated),
@@ -126,7 +126,7 @@ impl Block for UserPortalBlock {
         }
 
         match (action.as_str(), sub.as_str()) {
-            ("retrieve", "" | "/") => redirect_308("/b/userportal/profile"),
+            ("retrieve", "" | "/") => pages::dashboard::dashboard_page(ctx, &msg).await,
             ("retrieve", "/profile") => pages::profile::profile_page(ctx, &msg).await,
             ("create", "/update-profile") => handle_update_profile(ctx, &msg, input).await,
             ("retrieve", "/sessions") => pages::sessions::sessions_page(ctx, &msg).await,
@@ -247,13 +247,6 @@ impl UserPortalBlock {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-fn redirect_308(target: &str) -> OutputStream {
-    crate::blocks::helpers::ResponseBuilder::new()
-        .status(308)
-        .set_header("Location", target)
-        .body(Vec::new(), "text/plain")
-}
-
 fn render_page(
     title: &str,
     config: &SiteConfig,
@@ -320,8 +313,12 @@ async fn handle_update_profile(
         return err_internal(&format!("Failed to update profile: {}", e.message));
     }
 
-    // Re-render the profile page (htmx will swap content)
-    pages::profile::profile_page(ctx, msg).await
+    // Plain form POST → 303 See Other so the browser follows up with a GET
+    // and the back/forward stack stays clean.
+    crate::blocks::helpers::ResponseBuilder::new()
+        .status(303)
+        .set_header("Location", "/b/userportal/profile")
+        .body(Vec::new(), "text/plain")
 }
 
 // ---------------------------------------------------------------------------
@@ -807,37 +804,6 @@ mod cross_block_tests {
             .await;
         let parsed = output_json(resp).await;
         assert_eq!(parsed.as_array().unwrap().len(), 0);
-    }
-}
-
-#[cfg(test)]
-mod redirect_tests {
-    use wafer_run::block::Block;
-
-    use super::*;
-    use crate::test_support::{auth_msg, output_header, output_status, TestContext};
-
-    #[tokio::test]
-    async fn root_redirects_308_to_profile() {
-        let ctx = TestContext::with_auth().await;
-        let block = UserPortalBlock;
-
-        // First response: assert status.
-        let msg = auth_msg("retrieve", "/b/userportal/", "user-a");
-        let resp = block
-            .handle(&ctx, msg, wafer_run::InputStream::empty())
-            .await;
-        assert_eq!(output_status(resp).await, 308);
-
-        // Second response: assert Location header (status helper consumed the first).
-        let msg2 = auth_msg("retrieve", "/b/userportal/", "user-a");
-        let resp2 = block
-            .handle(&ctx, msg2, wafer_run::InputStream::empty())
-            .await;
-        assert_eq!(
-            output_header(resp2, "Location").await.as_deref(),
-            Some("/b/userportal/profile")
-        );
     }
 }
 

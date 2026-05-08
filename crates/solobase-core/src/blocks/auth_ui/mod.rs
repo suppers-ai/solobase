@@ -90,9 +90,6 @@ impl Block for AuthUiBlock {
             BlockEndpoint::get("/b/auth/change-password")
                 .summary("Change password page")
                 .auth(AuthLevel::Authenticated),
-            BlockEndpoint::get("/b/auth/dashboard")
-                .summary("Portal home")
-                .auth(AuthLevel::Authenticated),
             BlockEndpoint::get("/b/auth/orgs")
                 .summary("Claimed organizations")
                 .auth(AuthLevel::Authenticated),
@@ -194,7 +191,6 @@ impl Block for AuthUiBlock {
             wafer_run::UiRoute::public("/login"),
             wafer_run::UiRoute::public("/signup"),
             wafer_run::UiRoute::authenticated("/change-password"),
-            wafer_run::UiRoute::authenticated("/dashboard"),
             wafer_run::UiRoute::authenticated("/orgs"),
             wafer_run::UiRoute::admin("/admin/settings"),
         ]
@@ -328,7 +324,6 @@ impl Block for AuthUiBlock {
                 }
                 pages::change_password::handle(ctx, &msg).await
             }
-            ("retrieve", "/auth/dashboard") => pages::dashboard::handle(ctx, &msg).await,
             ("retrieve", "/auth/orgs") => pages::orgs::handle(ctx, &msg).await,
             ("retrieve", "/auth/reset-password") => pages::reset_password::handle(ctx, &msg).await,
             // Bootstrap token redemption (NEW — filled in Task 6)

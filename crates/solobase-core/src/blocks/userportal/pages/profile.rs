@@ -1,8 +1,6 @@
-//! `/b/userportal/profile` — profile card (avatar, name, email, edit name).
-//!
-//! Account actions (Change Password, Sign Out) live elsewhere — Sign Out
-//! in the sidebar profile menu (`ui/sidebar.rs:115`); Change Password on
-//! the security page. This page is just profile info + the rename form.
+//! `/b/userportal/profile` — profile info + display-name edit form, in
+//! the shared single-card layout. Sign Out lives in the card footer;
+//! Change Password lives on the security page.
 
 use maud::html;
 use wafer_core::clients::database as db;
@@ -13,11 +11,7 @@ use crate::{
         auth::USERS_COLLECTION,
         helpers::{RecordExt, ResponseBuilder},
     },
-    ui::{
-        components, nav_groups,
-        shell::{Crumb, Topbar},
-        shelled_response, SiteConfig, UserInfo,
-    },
+    ui::{self, components, SiteConfig, UserInfo},
 };
 
 pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -32,20 +26,9 @@ pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let user_record = db::get(ctx, USERS_COLLECTION, &user_id).await.ok();
-    // Plan A2 schema uses `display_name`; legacy ensure_table rows may still
-    // have a `name` column. Read the new column first; fall back to the
-    // legacy one so existing deployments keep rendering until they're seeded
-    // through the new path.
     let display_name = user_record
         .as_ref()
-        .map(|r| {
-            let v = r.str_field("display_name");
-            if v.is_empty() {
-                r.str_field("name").to_string()
-            } else {
-                v.to_string()
-            }
-        })
+        .map(|r| r.str_field("name").to_string())
         .unwrap_or_default();
     let avatar_url = user_record
         .as_ref()
@@ -54,11 +37,9 @@ pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let email = user.as_ref().map(|u| u.email.as_str()).unwrap_or("");
 
     let body = html! {
-        (components::page_header("Profile", Some("Your account profile."), None))
-
-        div .card style="margin-bottom:1.5rem" {
-            div style="display:flex;align-items:center;gap:1.5rem;padding:1.5rem" {
-                div .user-avatar style="width:64px;height:64px;font-size:1.5rem;flex-shrink:0" {
+        section .account-section {
+            div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem" {
+                div .user-avatar style="width:56px;height:56px;font-size:1.25rem;flex-shrink:0" {
                     @if !avatar_url.is_empty() {
                         img src=(avatar_url) alt="Avatar"
                             style="width:100%;height:100%;border-radius:50%;object-fit:cover";
@@ -67,12 +48,12 @@ pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     }
                 }
                 div style="flex:1;min-width:0" {
-                    h2 style="margin:0;font-size:1.25rem" {
+                    div style="font-weight:600;font-size:1rem" {
                         @if display_name.is_empty() { (email) } @else { (display_name) }
                     }
-                    p .text-muted style="margin:0.25rem 0 0" { (email) }
+                    div .text-muted style="font-size:0.875rem" { (email) }
                     @if let Some(u) = &user {
-                        div style="margin-top:0.5rem;display:flex;gap:0.25rem;flex-wrap:wrap" {
+                        div style="margin-top:0.375rem;display:flex;gap:0.25rem;flex-wrap:wrap" {
                             @for role in &u.roles {
                                 (components::status_badge(role))
                             }
@@ -80,51 +61,30 @@ pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     }
                 }
             }
-
-            div style="padding:0 1.5rem 1.5rem;border-top:1px solid var(--border-color)" {
-                form
-                    hx-post="/b/userportal/update-profile"
-                    hx-target="#content"
-                    hx-swap="innerHTML"
-                    style="display:flex;gap:0.5rem;align-items:end;margin-top:1rem"
-                {
-                    div .form-group style="flex:1;margin:0" {
-                        label .form-label for="display-name" { "Display Name" }
-                        input .form-input #display-name type="text" name="name"
-                            value=(display_name) placeholder="Enter your name";
-                    }
-                    button .btn .btn-primary type="submit" { "Save" }
+            form action="/b/userportal/update-profile" method="post" {
+                div .form-group {
+                    label .form-label for="display-name" { "Display name" }
+                    input .form-input #display-name type="text" name="name"
+                        value=(display_name) placeholder="Enter your name";
                 }
+                button .btn .btn-primary type="submit" style="width:100%" { "Save" }
             }
         }
     };
 
-    let groups = nav_groups::portal();
-    let topbar = Topbar {
-        crumbs: vec![
-            Crumb {
-                label: "Dashboard",
-                href: Some("/b/auth/dashboard"),
-            },
-            Crumb {
-                label: "Profile",
-                href: None,
-            },
-        ],
-        primary_action: None,
-        subtitle: None,
-        show_palette: true,
-    };
-    shelled_response(
-        msg,
+    let markup = ui::layout::page(
         "Profile",
         &site_config,
-        &groups,
-        user.as_ref(),
-        msg.path(),
-        topbar,
-        body,
-    )
+        ui::templates::account_card_page(
+            ui::templates::AccountCard {
+                logo_url: &site_config.logo_url,
+                title: "Profile",
+                back_href: Some("/b/userportal/"),
+            },
+            body,
+        ),
+    );
+    ui::html_response(markup)
 }
 
 #[cfg(test)]
@@ -141,23 +101,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn authenticated_renders_profile_with_no_buttons_grid() {
+    async fn authenticated_renders_profile_form() {
         let ctx = TestContext::with_auth().await;
         let msg = auth_msg("retrieve", "/b/userportal/profile", "user-a");
         let resp = profile_page(&ctx, &msg).await;
         let html = output_html(resp).await;
-        assert!(html.contains("Display Name"), "missing edit-name form");
-        // Negative assertions: the in-page Account card (with inline Sign Out
-        // form and Change Password button) is removed from the page body.
-        // The sidebar always includes Sign Out / Change Password in the profile
-        // menu, so we check for the content-area-specific markup instead.
+        assert!(html.contains("Display name"), "missing edit-name form");
         assert!(
-            !html.contains("btn-secondary"),
-            "in-page Account card buttons removed"
+            html.contains(r#"name="name""#),
+            "missing display-name field"
         );
+    }
+
+    #[tokio::test]
+    async fn renders_back_link_to_dashboard() {
+        let ctx = TestContext::with_auth().await;
+        let msg = auth_msg("retrieve", "/b/userportal/profile", "user-a");
+        let resp = profile_page(&ctx, &msg).await;
+        let html = output_html(resp).await;
         assert!(
-            !html.contains("grid-template-columns:repeat(auto-fill"),
-            "buttons grid should not be on profile page"
+            html.contains(r#"href="/b/userportal/""#) && html.contains("account-card__back"),
+            "missing back link to dashboard"
+        );
+    }
+
+    #[tokio::test]
+    async fn shell_chrome_is_absent() {
+        let ctx = TestContext::with_auth().await;
+        let msg = auth_msg("retrieve", "/b/userportal/profile", "user-a");
+        let resp = profile_page(&ctx, &msg).await;
+        let html = output_html(resp).await;
+        assert!(
+            !html.contains(r#"class="sidebar""#) && !html.contains(r#"class="topbar""#),
+            "single-card layout must not render shell sidebar/topbar"
         );
     }
 }

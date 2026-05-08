@@ -31,7 +31,7 @@ pub const JSON: &str = r#"{
 ///
 /// `/` is routed explicitly to `suppers-ai/router` (not the `/**` fallback)
 /// so the root redirect handler in `routing::route_to_block` fires:
-/// anonymous → `/b/auth/login`, authenticated → `/b/auth/dashboard`.
+/// anonymous → `/b/auth/login`, authenticated → `/b/userportal/`.
 pub fn default_routes() -> serde_json::Value {
     serde_json::json!([
         { "path": "/",                        "block": "suppers-ai/router" },

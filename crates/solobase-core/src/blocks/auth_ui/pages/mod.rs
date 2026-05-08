@@ -5,7 +5,6 @@
 
 pub mod bootstrap;
 pub mod change_password;
-pub mod dashboard;
 pub mod login;
 pub mod orgs;
 pub mod reset_password;

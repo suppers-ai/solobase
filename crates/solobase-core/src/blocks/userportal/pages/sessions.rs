@@ -9,10 +9,9 @@ use crate::{
         helpers::ResponseBuilder,
     },
     ui::{
+        self,
         components::{badge, BadgeVariant},
-        nav_groups,
-        shell::{Crumb, Topbar},
-        shelled_response, SiteConfig, UserInfo,
+        SiteConfig,
     },
 };
 
@@ -37,45 +36,27 @@ pub async fn sessions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let current_hash = current_session_hash(msg);
 
-    let body = crate::ui::templates::list_page(
-        crate::ui::templates::PageHeader {
-            title: "",
-            subtitle: None,
-            primary_action: None,
-        },
-        None,
-        render_table(&rows, current_hash.as_deref()),
-        None,
-    );
+    let body = html! {
+        p .text-muted style="margin:0 0 1rem;font-size:0.875rem" {
+            "Sessions signed in to your account. Revoke any you don't recognize."
+        }
+        (render_table(&rows, current_hash.as_deref()))
+    };
 
     let config = SiteConfig::load(ctx).await;
-    let groups = nav_groups::portal();
-    let user = UserInfo::from_message(msg);
-    let topbar = Topbar {
-        crumbs: vec![
-            Crumb {
-                label: "Dashboard",
-                href: Some("/b/auth/dashboard"),
-            },
-            Crumb {
-                label: "Sessions",
-                href: None,
-            },
-        ],
-        primary_action: None,
-        subtitle: Some("Sessions signed in to your account. Revoke any you don't recognize."),
-        show_palette: true,
-    };
-    shelled_response(
-        msg,
+    let markup = ui::layout::page(
         "Sessions",
         &config,
-        &groups,
-        user.as_ref(),
-        msg.path(),
-        topbar,
-        body,
-    )
+        ui::templates::account_card_page(
+            ui::templates::AccountCard {
+                logo_url: &config.logo_url,
+                title: "Sessions",
+                back_href: Some("/b/userportal/"),
+            },
+            body,
+        ),
+    );
+    ui::html_response(markup)
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
@@ -253,7 +234,6 @@ mod tests {
         let resp = sessions_page(&ctx, &msg).await;
         let html = output_html(resp).await;
 
-        // Title moved to Topbar crumb + subtitle (see ui(pages) commit).
         assert!(html.contains("Sessions"), "missing page title");
         // Two Revoke buttons (one per row).
         assert!(
@@ -443,12 +423,13 @@ mod tests {
 
     #[tokio::test]
     async fn wrap_allows_sessions_list_with_auth_block_grants() {
+        use crate::blocks::auth::service::auth_grants;
+
         let ctx = TestContext::with_auth().await;
         seed_user(&ctx, "user-a").await;
         insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
 
-        let auth_grants = crate::blocks::auth::service::auth_grants();
-        let ctx = ctx.with_wrap("suppers-ai/userportal", auth_grants, "suppers-ai/admin");
+        let ctx = ctx.with_wrap("suppers-ai/userportal", auth_grants(), "suppers-ai/admin");
 
         let rows = sessions::list_for_user(&ctx, "user-a")
             .await
@@ -458,12 +439,13 @@ mod tests {
 
     #[tokio::test]
     async fn wrap_allows_sessions_delete_with_auth_block_grants() {
+        use crate::blocks::auth::service::auth_grants;
+
         let ctx = TestContext::with_auth().await;
         seed_user(&ctx, "user-a").await;
         insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
 
-        let auth_grants = crate::blocks::auth::service::auth_grants();
-        let ctx = ctx.with_wrap("suppers-ai/userportal", auth_grants, "suppers-ai/admin");
+        let ctx = ctx.with_wrap("suppers-ai/userportal", auth_grants(), "suppers-ai/admin");
 
         let removed = sessions::delete_for_user(&ctx, "user-a", &[0x01u8; 32])
             .await

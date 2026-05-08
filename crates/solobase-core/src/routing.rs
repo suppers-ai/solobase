@@ -341,7 +341,7 @@ fn root_redirect(user_id_empty: bool) -> OutputStream {
     let target = if user_id_empty {
         "/b/auth/login"
     } else {
-        "/b/auth/dashboard"
+        "/b/userportal/"
     };
     crate::blocks::helpers::ResponseBuilder::new()
         .status(302)
@@ -477,7 +477,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn root_redirects_authenticated_to_dashboard() {
+    async fn root_redirects_authenticated_to_portal_home() {
         let out = super::root_redirect(false);
         let buf = out.collect_buffered().await.unwrap();
         let location = buf
@@ -486,7 +486,7 @@ mod tests {
             .find(|e| e.key == "resp.header.Location")
             .map(|e| e.value.as_str())
             .unwrap_or("");
-        assert_eq!(location, "/b/auth/dashboard");
+        assert_eq!(location, "/b/userportal/");
     }
 
     struct AllEnabled;

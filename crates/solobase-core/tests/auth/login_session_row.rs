@@ -225,7 +225,7 @@ async fn userportal_sessions_page_renders_row_after_login() {
     // Title moved to Topbar crumb + subtitle (see ui(pages) commit that
     // moved page-header content into the topbar).
     assert!(
-        html.contains("Sessions"),
+        html.contains("<h1 class=\"account-card__title\">Sessions</h1>"),
         "page must render the Sessions header: {html}"
     );
     assert!(
