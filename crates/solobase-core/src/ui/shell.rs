@@ -71,7 +71,10 @@ fn render_topbar(t: &Topbar<'_>) -> Markup {
                         aria-keyshortcuts="Meta+K Control+K"
                         aria-label="Open command palette" {
                         span { "Quick jump" }
-                        kbd { "⌘K" }
+                        kbd {
+                            span .topbar__palette-cmd { "⌘" }
+                            span { "K" }
+                        }
                     }
                 }
                 @if let Some(a) = &t.primary_action {
