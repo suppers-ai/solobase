@@ -2,9 +2,9 @@
 //
 // Runs in the window (WebGPU is window-only). Two consumers:
 //
-// 1. Page-direct load (the only working path on Chrome due to its ~5-min
-//    FetchEvent cap): import { loadEngine } from '/webllm-engine.js' and
-//    call it from a window-side script.
+// 1. Page-direct load: import { loadEngine } from '/webllm-engine.js' and
+//    call it from a window-side script (the only correct path on Chrome due
+//    to its ~5-min FetchEvent cap on SW-routed requests).
 //
 // 2. SW-routed chat / unload / cancel: receives postMessages from the SW via
 //    navigator.serviceWorker.message, runs WebLLM, streams frames back.
@@ -13,8 +13,7 @@
 //   { type: 'llm-unload-response', id, error? }            // one-shot
 //   { type: 'llm-stream-frame',    id, kind, payload? }    // streams
 //     `kind` ∈ {'chunk','done','error'}; chat emits 'chunk' frames per token
-//     and a terminal 'done' / 'error'. The unified envelope means one
-//     dispatch arm in bridge.js and one Rust pump function.
+//     and a terminal 'done' / 'error'.
 //
 // The @mlc-ai/web-llm import is lazy: a top-level static import would block
 // DOMContentLoaded for every page that loads this script (it's a multi-MB
@@ -40,34 +39,6 @@ async function swPost(payload) {
 
 async function swStreamFrame(id, kind, payload) {
     await swPost({ type: 'llm-stream-frame', id, kind, payload });
-}
-
-async function handleCreateEngineStream(msg) {
-    try {
-        if (_engineModel !== msg.modelId) {
-            if (_engine) {
-                try { await _engine.unload(); } catch (_e) {}
-                _engine = null;
-                _engineModel = null;
-            }
-            const CreateMLCEngine = await loadCreateMLCEngine();
-            // WebLLM emits InitProgressReport ticks (~1/sec during shard
-            // fetch) with a free-form `text` description like
-            // "Fetching params [3/14]: 23%". We forward `text` as the
-            // progress payload — gizza-app.js parses a percent out of it
-            // for the UI bar; consumers that just want to keep the SSE
-            // stream "warm" can ignore the contents.
-            _engine = await CreateMLCEngine(msg.modelId, {
-                initProgressCallback: (report) => {
-                    swStreamFrame(msg.id, 'progress', String(report?.text ?? ''));
-                },
-            });
-            _engineModel = msg.modelId;
-        }
-        await swStreamFrame(msg.id, 'done');
-    } catch (e) {
-        await swStreamFrame(msg.id, 'error', String(e));
-    }
 }
 
 async function handleUnload(msg) {
@@ -158,10 +129,9 @@ navigator.serviceWorker.addEventListener('message', (event) => {
     const msg = event.data;
     if (!msg || !msg.type) return;
     switch (msg.type) {
-        case 'llm-create-engine-stream-request': handleCreateEngineStream(msg); break;
-        case 'llm-unload-request':               handleUnload(msg); break;
-        case 'llm-chat-stream-request':          handleChatStream(msg); break;
-        case 'llm-stream-cancel':                handleCancel(msg); break;
+        case 'llm-unload-request':      handleUnload(msg); break;
+        case 'llm-chat-stream-request': handleChatStream(msg); break;
+        case 'llm-stream-cancel':       handleCancel(msg); break;
     }
 });
 
