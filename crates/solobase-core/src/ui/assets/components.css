@@ -1116,18 +1116,17 @@
 .account-card__foot {
 	padding: 1rem 1.5rem 1.5rem;
 	border-top: 1px solid var(--border-light);
-	background: var(--bg-secondary);
 }
 
 .account-card__signout {
 	width: 100%;
 	padding: 0.625rem 1rem;
-	background: var(--accent-danger);
-	color: #ffffff;
-	border: 1px solid var(--accent-danger);
+	background: var(--bg-primary);
+	color: var(--accent-danger);
+	border: 1px solid var(--border-color);
 	border-radius: var(--radius-md);
 	font-size: 0.95rem;
-	font-weight: 600;
+	font-weight: 500;
 	cursor: pointer;
 	display: inline-flex;
 	align-items: center;
@@ -1137,8 +1136,8 @@
 }
 
 .account-card__signout:hover {
-	background: #dc2626;
-	border-color: #dc2626;
+	background: var(--bg-hover);
+	border-color: var(--accent-danger);
 }
 
 .account-card__signout svg {
