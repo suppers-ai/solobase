@@ -46,7 +46,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     };
 
     solobase_browser::assets::write_to(&dist)?;
-    solobase_browser::tools::bundle::run(&dist, repo_root, !release, app)?;
+    solobase_browser::tools::bundle::run(&dist, repo_root, app)?;
 
     // 5. Apply overlays from solobase.toml if present.
     if let Some((cfg, root)) = cfg {

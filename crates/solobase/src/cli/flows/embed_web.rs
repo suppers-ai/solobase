@@ -38,7 +38,10 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
         extra_bypass_prefix: cfg.assets.extra_bypass_prefix.clone(),
     };
     solobase_browser::assets::write_to(&dist_dir)?;
-    solobase_browser::tools::bundle::run(&dist_dir, repo_root, !release, app)?;
+    solobase_browser::tools::bundle::run(&dist_dir, repo_root, app)?;
+    // `release` no longer flips the bundle path — every build is hashed so
+    // dev iterations don't get pinned to stale browser-cached modules.
+    let _ = release;
 
     // 4. Apply overlays.
     overlays::apply_overlays(&cfg, repo_root, &dist_dir)?;

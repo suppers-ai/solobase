@@ -1,9 +1,45 @@
+// Persists across the navigations sw.js triggers when it self-destructs,
+// so the very next page load hits the recovery path (below) instead of
+// re-registering the SW with the same stale browser-cached modules.
+const SW_RECOVER_KEY = '__solobase_sw_recover';
+
 async function boot() {
     const status = document.getElementById('status');
     if (!('serviceWorker' in navigator)) {
         status.textContent = 'Service Workers not supported in this browser.';
         return;
     }
+
+    // Recovery path: a previous boot's SW self-destructed and signalled the
+    // page to set the breaker. Wipe all SW + cache state, force a fresh
+    // document fetch via a cache-busting query string, and let the next
+    // load proceed normally.
+    if (sessionStorage.getItem(SW_RECOVER_KEY)) {
+        sessionStorage.removeItem(SW_RECOVER_KEY);
+        status.textContent = 'Recovering from stale cache...';
+        try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            for (const r of regs) await r.unregister();
+            const keys = await caches.keys();
+            for (const k of keys) await caches.delete(k);
+        } catch (e) {
+            console.error('[__APP_NAME__] cache wipe failed:', e);
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.set('_freshen', String(Date.now()));
+        window.location.replace(url.toString());
+        return;
+    }
+
+    // Listen for self-destruct notices. The SW posts this message just
+    // before re-navigating its clients, so by the time the navigation
+    // lands, the breaker is set and the recovery path above runs.
+    navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'sw-self-destruct') {
+            sessionStorage.setItem(SW_RECOVER_KEY, '1');
+        }
+    });
+
     try {
         status.textContent = 'Registering Service Worker...';
         const registration = await navigator.serviceWorker.register('/sw.js', {
