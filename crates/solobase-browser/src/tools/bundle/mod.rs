@@ -80,10 +80,17 @@ fn base_to_title(base: &str) -> String {
         .join(" ")
 }
 
-pub fn run(pkg_dir: &Path, repo_dir: &Path, dev: bool, app: AppConfig) -> Result<()> {
-    if dev {
-        return run_dev(pkg_dir, app);
-    }
+pub fn run(pkg_dir: &Path, repo_dir: &Path, app: AppConfig) -> Result<()> {
+    // --- Cleanup -------------------------------------------------------------
+    // Dev rebuilds re-run wasm-pack, which writes the un-hashed pair (e.g.
+    // `gizza_ai.js`, `gizza_ai_bg.wasm`) and then hits the same hashing path
+    // we're about to run again. Without cleanup, hashed copies from prior
+    // builds (`gizza_ai-abc123.js`, `gizza_ai_bg-def456.wasm`) accumulate in
+    // `pkg/`. Worse, a stale Service Worker registered against an old hash
+    // can keep finding the file via the SW bypass list and serve outdated
+    // bytes long after the user thought it was gone. Sweep them up so each
+    // build leaves a clean directory.
+    remove_previously_hashed(pkg_dir)?;
 
     // --- Discovery -----------------------------------------------------------
     let pair = discover_wasm_pair(pkg_dir)?;
@@ -203,42 +210,42 @@ pub fn run(pkg_dir: &Path, repo_dir: &Path, dev: bool, app: AppConfig) -> Result
     Ok(())
 }
 
-fn run_dev(pkg_dir: &Path, app: AppConfig) -> Result<()> {
-    let pair = discover_wasm_pair(pkg_dir)?;
-    if pair.is_none() {
-        eprintln!(
-            "warning: no *_bg.wasm found in {}; using fallback placeholder values",
-            pkg_dir.display()
-        );
+/// Sweep up `{base}-{8-hex}.js` and `{base}_bg-{8-hex}.wasm` files in
+/// `pkg_dir` left behind by previous bundle runs. Cheap (a single `read_dir`
+/// scan) and safe — the regex matches only the exact short-hash format we
+/// emit, so user files like `app-1.js` or `app_bg-final.wasm` are untouched.
+fn remove_previously_hashed(pkg_dir: &Path) -> Result<()> {
+    let entries = match std::fs::read_dir(pkg_dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(()),
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if is_hashed_artifact(&name) {
+            let _ = std::fs::remove_file(entry.path());
+        }
     }
-
-    let (wasm_js_val, wasm_bin_val, wasm_js_prefix_val, base_name_owned) =
-        if let Some((base, js, wasm)) = pair {
-            let prefix = format!("/{base}");
-            let js_url = format!("/{js}");
-            let wasm_url = format!("/{wasm}");
-            (js_url, wasm_url, prefix, base)
-        } else {
-            (
-                "/app.js".to_string(),
-                "/app_bg.wasm".to_string(),
-                "/app".to_string(),
-                "app".to_string(),
-            )
-        };
-
-    let vars = build_template_vars(
-        "dev".to_string(),
-        wasm_js_val,
-        wasm_bin_val,
-        wasm_js_prefix_val,
-        &base_name_owned,
-        &app,
-    );
-    render_if_exists(pkg_dir, "sw.js.tmpl", "sw.js", &vars)?;
-    render_if_exists(pkg_dir, "loader.js.tmpl", "loader.js", &vars)?;
-    render_if_exists(pkg_dir, "index.html.tmpl", "index.html", &vars)?;
     Ok(())
+}
+
+/// Match `*-XXXXXXXX.js` or `*_bg-XXXXXXXX.wasm` where X is hex.
+fn is_hashed_artifact(name: &str) -> bool {
+    if let Some(stem) = name.strip_suffix(".js") {
+        return ends_with_short_hash(stem, "-");
+    }
+    if let Some(stem) = name.strip_suffix(".wasm") {
+        return ends_with_short_hash(stem, "_bg-");
+    }
+    false
+}
+
+fn ends_with_short_hash(stem: &str, sep: &str) -> bool {
+    let Some(idx) = stem.rfind(sep) else {
+        return false;
+    };
+    let suffix = &stem[idx + sep.len()..];
+    suffix.len() == 8 && suffix.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// Build the complete template variable map from the resolved values and

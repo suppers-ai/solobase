@@ -18,10 +18,22 @@ async function selfDestruct(reason) {
         await self.registration.unregister();
         const clients = await self.clients.matchAll({ type: 'window' });
         for (const c of clients) {
-            // Re-navigate the page so the next request goes to the network
-            // (no controller now that we've unregistered) and loader.js runs
-            // again with the fresh /sw.js.
-            try { c.navigate(c.url); } catch (e) { console.warn('[__APP_NAME__] navigate() failed:', e); }
+            // Notify the page so loader.js sets its sessionStorage breaker
+            // BEFORE the navigation below. The breaker routes the next load
+            // through a recovery path (clear caches, drop any lingering SW,
+            // bust the document cache, reload once) — that breaks
+            // stale-module loops where a fresh `*_bg.wasm` can't link
+            // against a browser-cached previous-build `*.js`.
+            try {
+                c.postMessage({ type: 'sw-self-destruct', reason });
+            } catch (e) {
+                console.warn('[__APP_NAME__] postMessage failed:', e);
+            }
+            try {
+                c.navigate(c.url);
+            } catch (e) {
+                console.warn('[__APP_NAME__] navigate() failed:', e);
+            }
         }
     } catch (e) {
         console.error('[__APP_NAME__] self-destruct cleanup failed:', e);
@@ -144,17 +156,19 @@ async function handleFetch(request) {
         return await handle_request(request);
     } catch (error) {
         console.error('[__APP_NAME__] Error handling request:', error);
-        // wasm-bindgen surfaces a `RuntimeError` for an `unreachable` trap.
-        // Once the wasm instance traps it's permanently broken — every
-        // subsequent host call will fail. Self-destruct so the user doesn't
-        // get stuck behind a dead SW.
-        if (error instanceof WebAssembly.RuntimeError) {
-            await selfDestruct(`wasm trap during request: ${error}`);
-            return fetch(request);
+        // wasm-bindgen surfaces a `RuntimeError` for an `unreachable` trap;
+        // ensureInitialized() also synthesises errors for `init()` /
+        // `initialize()` failures (most often caused by a stale browser
+        // module cache pointing at filenames the new build no longer has).
+        // Both modes mean the wasm instance is unusable for the rest of
+        // this SW's life, so self-destruct (which posts the breaker
+        // message and triggers a re-navigation) and fall through to
+        // network — that lets the browser fetch the static boot HTML
+        // instead of seeing the raw error JSON, which is what runs
+        // loader.js's recovery path.
+        if (!poisoned) {
+            await selfDestruct(`error handling request: ${error}`);
         }
-        return new Response(
-            JSON.stringify({ error: 'internal_error', message: String(error) }),
-            { status: 500, headers: { 'Content-Type': 'application/json' } }
-        );
+        return fetch(request);
     }
 }

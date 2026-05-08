@@ -20,7 +20,7 @@ fn end_to_end_renames_rewrites_and_templates() {
     let tmp = tempfile::tempdir().unwrap();
     copy_dir(&fixture_path(), tmp.path());
 
-    run(tmp.path(), tmp.path(), /* dev */ false, default_app()).expect("bundler ok");
+    run(tmp.path(), tmp.path(), default_app()).expect("bundler ok");
 
     let manifest_body = fs::read_to_string(tmp.path().join("asset-manifest.json")).unwrap();
     assert!(manifest_body.contains("\"buildId\""));
@@ -64,8 +64,8 @@ fn deterministic_across_runs() {
     let tmp2 = tempfile::tempdir().unwrap();
     copy_dir(&fixture_path(), tmp1.path());
     copy_dir(&fixture_path(), tmp2.path());
-    solobase_browser::tools::bundle::run(tmp1.path(), tmp1.path(), false, default_app()).unwrap();
-    solobase_browser::tools::bundle::run(tmp2.path(), tmp2.path(), false, default_app()).unwrap();
+    solobase_browser::tools::bundle::run(tmp1.path(), tmp1.path(), default_app()).unwrap();
+    solobase_browser::tools::bundle::run(tmp2.path(), tmp2.path(), default_app()).unwrap();
 
     let m1 = fs::read_to_string(tmp1.path().join("asset-manifest.json")).unwrap();
     let m2 = fs::read_to_string(tmp2.path().join("asset-manifest.json")).unwrap();
