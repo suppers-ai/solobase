@@ -313,8 +313,12 @@ async fn handle_update_profile(
         return err_internal(&format!("Failed to update profile: {}", e.message));
     }
 
-    // Re-render the profile page (htmx will swap content)
-    pages::profile::profile_page(ctx, msg).await
+    // Plain form POST → 303 See Other so the browser follows up with a GET
+    // and the back/forward stack stays clean.
+    crate::blocks::helpers::ResponseBuilder::new()
+        .status(303)
+        .set_header("Location", "/b/userportal/profile")
+        .body(Vec::new(), "text/plain")
 }
 
 // ---------------------------------------------------------------------------

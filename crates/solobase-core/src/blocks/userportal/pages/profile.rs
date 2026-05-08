@@ -61,11 +61,7 @@ pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     }
                 }
             }
-            form
-                hx-post="/b/userportal/update-profile"
-                hx-target="closest section"
-                hx-swap="outerHTML"
-            {
+            form action="/b/userportal/update-profile" method="post" {
                 div .form-group {
                     label .form-label for="display-name" { "Display name" }
                     input .form-input #display-name type="text" name="name"
