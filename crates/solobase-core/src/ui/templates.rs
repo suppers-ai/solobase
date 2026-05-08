@@ -224,6 +224,48 @@ pub fn chat_page(
     }
 }
 
+/// Inputs for [`account_card_page`] — the single-card layout used by
+/// `/b/userportal/` and its sub-pages (profile, sessions, security). No
+/// shell, no sidebar; mobile-first centered card with logo + title header,
+/// page-specific body, and a sign-out footer.
+pub struct AccountCard<'a> {
+    pub logo_url: &'a str,
+    pub title: &'a str,
+    /// When `Some(href)`, render a "‹ Back" link in the top-left of the
+    /// header. Sub-pages use this to return to `/b/userportal/`; the
+    /// dashboard itself passes `None`.
+    pub back_href: Option<&'a str>,
+}
+
+pub fn account_card_page(opts: AccountCard<'_>, body: Markup) -> Markup {
+    html! {
+        div .account-page {
+            main .account-card {
+                header .account-card__head {
+                    @if let Some(href) = opts.back_href {
+                        a .account-card__back href=(href) aria-label="Back" {
+                            (crate::ui::icons::chevron_left()) " Back"
+                        }
+                    }
+                    @if !opts.logo_url.is_empty() {
+                        img .account-card__logo src=(opts.logo_url) alt="";
+                    }
+                    h1 .account-card__title { (opts.title) }
+                }
+                div .account-card__body { (body) }
+                footer .account-card__foot {
+                    form action="/b/auth/api/logout" method="post" {
+                        button .account-card__signout type="submit" {
+                            (crate::ui::icons::log_out())
+                            span { "Sign Out" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub struct BrandPanel<'a> {
     pub logo_html: Option<Markup>,
     pub headline: &'a str,

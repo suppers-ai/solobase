@@ -9,11 +9,7 @@ use crate::{
         auth::repo::{provider_links, users},
         helpers::ResponseBuilder,
     },
-    ui::{
-        nav_groups,
-        shell::{Crumb, Topbar},
-        shelled_response, SiteConfig, UserInfo,
-    },
+    ui::{self, SiteConfig},
 };
 
 pub async fn security_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -42,79 +38,70 @@ pub async fn security_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_email = msg.get_meta("auth.user_email").to_string();
 
     let body = html! {
-        section .security-section .card {
-            header .card__head { h2 .card__title { "Password" } }
-            div .card__body {
-                form
-                    hx-post="/b/auth/api/change-password"
-                    hx-target="#change-pw-result"
-                    hx-swap="innerHTML"
-                {
-                    div .form-group {
-                        label .form-label for="current-password" { "Current password" }
-                        input .form-input #current-password type="password"
-                            name="current_password" required;
-                    }
-                    div .form-group {
-                        label .form-label for="new-password" { "New password" }
-                        input .form-input #new-password type="password"
-                            name="new_password" required;
-                    }
-                    div #change-pw-result {}
-                    button .btn .btn-primary type="submit" { "Change password" }
+        section .account-section {
+            h2 .account-section__title { "Password" }
+            form
+                hx-post="/b/auth/api/change-password"
+                hx-target="#change-pw-result"
+                hx-swap="innerHTML"
+            {
+                div .form-group {
+                    label .form-label for="current-password" { "Current password" }
+                    input .form-input #current-password type="password"
+                        name="current_password" required;
                 }
+                div .form-group {
+                    label .form-label for="new-password" { "New password" }
+                    input .form-input #new-password type="password"
+                        name="new_password" required;
+                }
+                div #change-pw-result {}
+                button .btn .btn-primary type="submit" style="width:100%" { "Change password" }
             }
         }
-        section .security-section .card {
-            header .card__head { h2 .card__title { "Email verification" } }
-            div .card__body {
-                @if email_verified {
-                    p .text-muted {
-                        "Email verified"
-                        @if !user_email.is_empty() { " — " (user_email) }
-                    }
-                } @else {
-                    p .text-muted {
-                        "Email not verified"
-                        @if !user_email.is_empty() { " — " (user_email) }
-                    }
-                    div #resend-verification-result {}
-                    button .btn .btn-secondary
-                        type="button"
-                        // Inline handler: POST JSON, surface server message in
-                        // the result div. Avoids pulling in a wrapper API
-                        // under /b/userportal — the auth block already owns
-                        // the resend endpoint and rate limits it by IP.
-                        onclick=(format!(
-                            "(function(b){{b.disabled=true;b.textContent='Sending…';\
-                             fetch('/b/auth/api/resend-verification',{{method:'POST',\
-                             headers:{{'Content-Type':'application/json'}},\
-                             body:JSON.stringify({{email:{email_json}}})}})\
-                             .then(function(r){{return r.json();}})\
-                             .then(function(d){{document.getElementById('resend-verification-result').textContent=d.message||'Sent';}})\
-                             .catch(function(e){{document.getElementById('resend-verification-result').textContent='Error: '+e.message;}})\
-                             .finally(function(){{b.disabled=false;b.textContent='Resend verification email';}});}})(this)",
-                            email_json = serde_json::Value::String(user_email.clone())
-                        ))
-                    { "Resend verification email" }
+        section .account-section {
+            h2 .account-section__title { "Email verification" }
+            @if email_verified {
+                p .text-muted style="margin:0" {
+                    "Email verified"
+                    @if !user_email.is_empty() { " — " (user_email) }
                 }
+            } @else {
+                p .text-muted style="margin:0 0 0.75rem" {
+                    "Email not verified"
+                    @if !user_email.is_empty() { " — " (user_email) }
+                }
+                div #resend-verification-result {}
+                button .btn .btn-secondary
+                    type="button"
+                    style="width:100%"
+                    onclick=(format!(
+                        "(function(b){{b.disabled=true;b.textContent='Sending…';\
+                         fetch('/b/auth/api/resend-verification',{{method:'POST',\
+                         headers:{{'Content-Type':'application/json'}},\
+                         body:JSON.stringify({{email:{email_json}}})}})\
+                         .then(function(r){{return r.json();}})\
+                         .then(function(d){{document.getElementById('resend-verification-result').textContent=d.message||'Sent';}})\
+                         .catch(function(e){{document.getElementById('resend-verification-result').textContent='Error: '+e.message;}})\
+                         .finally(function(){{b.disabled=false;b.textContent='Resend verification email';}});}})(this)",
+                        email_json = serde_json::Value::String(user_email.clone())
+                    ))
+                { "Resend verification email" }
             }
         }
-        section .security-section .card {
-            header .card__head { h2 .card__title { "Linked accounts" } }
-            div .card__body {
-                @if links.is_empty() {
-                    p .text-muted {
-                        "No external accounts linked. Sign in with GitHub, Google, or Microsoft to link one."
-                    }
-                } @else {
-                    ul .linked-providers-list {
-                        @for l in &links {
-                            li .linked-provider {
-                                span .linked-provider__name { (l.provider) }
-                                span .linked-provider__login { (l.provider_login) }
-                                span .linked-provider__date { "linked " (l.linked_at) }
-                            }
+        section .account-section {
+            h2 .account-section__title { "Linked accounts" }
+            @if links.is_empty() {
+                p .text-muted style="margin:0" {
+                    "No external accounts linked. Sign in with GitHub, Google, or Microsoft to link one."
+                }
+            } @else {
+                ul .linked-providers-list {
+                    @for l in &links {
+                        li .linked-provider {
+                            span .linked-provider__name { (l.provider) }
+                            span .linked-provider__login { (l.provider_login) }
+                            span .linked-provider__date { "linked " (l.linked_at) }
                         }
                     }
                 }
@@ -123,33 +110,19 @@ pub async fn security_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     };
 
     let config = SiteConfig::load(ctx).await;
-    let groups = nav_groups::portal();
-    let user = UserInfo::from_message(msg);
-    let topbar = Topbar {
-        crumbs: vec![
-            Crumb {
-                label: "Dashboard",
-                href: Some("/b/userportal/"),
-            },
-            Crumb {
-                label: "Security",
-                href: None,
-            },
-        ],
-        primary_action: None,
-        subtitle: None,
-        show_palette: true,
-    };
-    shelled_response(
-        msg,
+    let markup = ui::layout::page(
         "Security",
         &config,
-        &groups,
-        user.as_ref(),
-        msg.path(),
-        topbar,
-        body,
-    )
+        ui::templates::account_card_page(
+            ui::templates::AccountCard {
+                logo_url: &config.logo_url,
+                title: "Security",
+                back_href: Some("/b/userportal/"),
+            },
+            body,
+        ),
+    );
+    ui::html_response(markup)
 }
 
 #[cfg(test)]
@@ -326,6 +299,8 @@ mod tests {
 
     #[tokio::test]
     async fn wrap_allows_provider_links_list_with_auth_block_grants() {
+        use crate::blocks::auth::service::auth_grants;
+
         let ctx = TestContext::with_auth().await;
         seed_user(&ctx, "user-a").await;
         upsert(
@@ -341,8 +316,7 @@ mod tests {
         .await
         .unwrap();
 
-        let auth_grants = crate::blocks::auth::service::auth_grants();
-        let ctx = ctx.with_wrap("suppers-ai/userportal", auth_grants, "suppers-ai/admin");
+        let ctx = ctx.with_wrap("suppers-ai/userportal", auth_grants(), "suppers-ai/admin");
 
         use crate::blocks::auth::repo::provider_links;
         let links = provider_links::list_for_user(&ctx, "user-a")

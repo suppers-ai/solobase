@@ -1,25 +1,18 @@
-//! `/b/userportal/` — portal home.
+//! `/b/userportal/` — portal home, single-card layout.
 //!
-//! Anonymous → 302 to `/b/auth/login`. Authenticated → renders the
-//! configured apps grid (from this block's own `buttons` collection)
-//! and the user's claimed orgs (read directly from auth/repo/orgs).
+//! Anonymous → 302 to `/b/auth/login`. Authenticated → renders a centered
+//! account card with: logo + "Account" header, fixed account-management
+//! links (Profile / Security / Sessions / Organizations), the configured
+//! app tiles from this block's `buttons` collection, and a Sign Out
+//! footer. No shell, no sidebar — mobile-first.
 
 use maud::{html, Markup};
 use wafer_core::clients::database::Record;
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::{
-    blocks::{
-        auth::repo::orgs,
-        helpers::{RecordExt, ResponseBuilder},
-    },
-    ui::{
-        nav_groups,
-        shell::{Crumb, Topbar},
-        shelled_response,
-        sidebar::nav_icon,
-        SiteConfig, UserInfo,
-    },
+    blocks::helpers::{RecordExt, ResponseBuilder},
+    ui::{self, icons, sidebar::nav_icon, SiteConfig},
 };
 
 struct DashboardButton {
@@ -39,52 +32,48 @@ pub async fn dashboard_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     let buttons = load_buttons(ctx).await;
-    let orgs_list = orgs::list_for_user(ctx, &user_id).await.unwrap_or_default();
-
-    let user = UserInfo::from_message(msg);
-    let welcome_subject = user
-        .as_ref()
-        .map(|u| u.email.clone())
-        .unwrap_or_else(|| "there".to_string());
-    let title_owned = format!("Welcome back, {welcome_subject}");
-
-    let apps_card = render_apps_card(&buttons);
-    let orgs_card = render_orgs_card(&orgs_list);
-
-    let body = crate::ui::templates::dashboard_page(
-        crate::ui::templates::PageHeader {
-            title: title_owned.as_str(),
-            subtitle: Some("Your apps and connected organizations."),
-            primary_action: None,
-        },
-        Vec::new(),
-        orgs_card,
-        html! { div {} },
-        None,
-        Some(apps_card),
-    );
-
     let config = SiteConfig::load(ctx).await;
-    let groups = nav_groups::portal();
-    let topbar = Topbar {
-        crumbs: vec![Crumb {
-            label: "Dashboard",
-            href: None,
-        }],
-        subtitle: None,
-        primary_action: None,
-        show_palette: true,
+
+    let body = html! {
+        ul .account-nav {
+            (nav_link("/b/userportal/profile", icons::user(), "Profile"))
+            (nav_link("/b/userportal/security", icons::lock(), "Security"))
+            (nav_link("/b/userportal/sessions", icons::shield(), "Sessions"))
+            (nav_link("/b/auth/orgs", icons::users(), "Organizations"))
+            @if !buttons.is_empty() {
+                hr .account-nav__divider;
+                @for b in &buttons {
+                    (nav_link(&b.path, nav_icon(&b.icon), &b.label))
+                }
+            }
+        }
     };
-    shelled_response(
-        msg,
-        "Dashboard",
+
+    let markup = ui::layout::page(
+        "Account",
         &config,
-        &groups,
-        user.as_ref(),
-        msg.path(),
-        topbar,
-        body,
-    )
+        ui::templates::account_card_page(
+            ui::templates::AccountCard {
+                logo_url: &config.logo_url,
+                title: "Account",
+                back_href: None,
+            },
+            body,
+        ),
+    );
+    ui::html_response(markup)
+}
+
+fn nav_link(href: &str, icon: Markup, label: &str) -> Markup {
+    html! {
+        li {
+            a .account-nav__item href=(href) {
+                span .account-nav__icon { (icon) }
+                span .account-nav__label { (label) }
+                span .account-nav__chev aria-hidden="true" { "›" }
+            }
+        }
+    }
 }
 
 async fn load_buttons(ctx: &dyn Context) -> Vec<DashboardButton> {
@@ -99,60 +88,6 @@ async fn load_buttons(ctx: &dyn Context) -> Vec<DashboardButton> {
         .collect()
 }
 
-fn render_apps_card(buttons: &[DashboardButton]) -> Markup {
-    html! {
-        section .card .dashboard-apps-card {
-            header .card__head { h3 .card__title { "Your apps" } }
-            div .card__body {
-                @if buttons.is_empty() {
-                    p .text-muted {
-                        "No apps configured. Ask an admin to add tiles in Portal settings."
-                    }
-                } @else {
-                    div .dashboard-apps-grid {
-                        @for b in buttons {
-                            a .dashboard-app-tile href=(b.path) {
-                                span .dashboard-app-tile__icon { (nav_icon(&b.icon)) }
-                                span .dashboard-app-tile__label { (b.label) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn render_orgs_card(orgs: &[orgs::OrgRow]) -> Markup {
-    html! {
-        section .card .dashboard-orgs-card {
-            header .card__head {
-                h3 .card__title { "Your organizations" }
-                a .card__head-action href="/b/auth/orgs" { "View all →" }
-            }
-            div .card__body {
-                @if orgs.is_empty() {
-                    p .text-muted {
-                        "No claimed organizations. Sign in with GitHub, Google, or Microsoft to claim one."
-                    }
-                } @else {
-                    ul .orgs-list {
-                        @for o in orgs.iter().take(5) {
-                            li .orgs-list-row {
-                                span .orgs-list-row__provider {
-                                    (o.verified_via.as_deref().unwrap_or("manual"))
-                                }
-                                span .orgs-list-row__name { (o.name) }
-                                span .orgs-list-row__date { "claimed " (o.created_at) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, sync::Arc};
@@ -162,10 +97,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        blocks::{
-            auth::repo::orgs::{upsert_claimed, NewClaim},
-            userportal::UserPortalBlock,
-        },
+        blocks::userportal::UserPortalBlock,
         test_support::{
             anon_msg, auth_msg, output_header, output_html, output_status, TestContext,
         },
@@ -229,75 +161,87 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn authenticated_renders_both_sections() {
+    async fn authenticated_returns_200() {
         let ctx = ctx_with_userportal().await;
         seed_user(&ctx, "user-a").await;
-        upsert_claimed(
-            &ctx,
-            NewClaim {
-                name: "acme",
-                owner_user_id: "user-a",
-                verified_via: "github",
-                verified_ref: "gh-1",
-            },
-        )
-        .await
-        .unwrap();
-        db::create(
-            &ctx,
-            "suppers_ai__userportal__buttons",
-            button_data("Solobase", "shield", "/b/admin/", 0),
-        )
-        .await
-        .unwrap();
-
         let msg = auth_msg("retrieve", "/b/userportal/", "user-a");
         let resp = dashboard_page(&ctx, &msg).await;
         assert_eq!(output_status(resp).await, 200);
     }
 
     #[tokio::test]
-    async fn authenticated_includes_apps_orgs_section_titles() {
+    async fn renders_account_links() {
         let ctx = ctx_with_userportal().await;
         seed_user(&ctx, "user-a").await;
         let msg = auth_msg("retrieve", "/b/userportal/", "user-a");
         let resp = dashboard_page(&ctx, &msg).await;
         let html = output_html(resp).await;
-        assert!(html.contains("Your apps"), "missing apps section");
-        assert!(html.contains("Your organizations"), "missing orgs section");
+        for (href, label) in [
+            ("/b/userportal/profile", "Profile"),
+            ("/b/userportal/security", "Security"),
+            ("/b/userportal/sessions", "Sessions"),
+            ("/b/auth/orgs", "Organizations"),
+        ] {
+            assert!(
+                html.contains(href) && html.contains(label),
+                "missing account link {label} -> {href}"
+            );
+        }
     }
 
     #[tokio::test]
-    async fn authenticated_with_no_orgs_shows_empty_state() {
+    async fn renders_signout_form() {
         let ctx = ctx_with_userportal().await;
         seed_user(&ctx, "user-a").await;
         let msg = auth_msg("retrieve", "/b/userportal/", "user-a");
         let resp = dashboard_page(&ctx, &msg).await;
         let html = output_html(resp).await;
         assert!(
-            html.contains("No claimed organizations"),
-            "missing empty state"
+            html.contains("/b/auth/api/logout") && html.contains("Sign Out"),
+            "missing sign-out form"
         );
     }
 
     #[tokio::test]
-    async fn authenticated_with_orgs_renders_org_name() {
+    async fn renders_configured_app_tiles() {
         let ctx = ctx_with_userportal().await;
         seed_user(&ctx, "user-a").await;
-        upsert_claimed(
+        db::create(
             &ctx,
-            NewClaim {
-                name: "acme-corp",
-                owner_user_id: "user-a",
-                verified_via: "github",
-                verified_ref: "gh-1",
-            },
+            "suppers_ai__userportal__buttons",
+            button_data("Files", "folder", "/b/storage/", 0),
         )
         .await
         .unwrap();
         let msg = auth_msg("retrieve", "/b/userportal/", "user-a");
         let resp = dashboard_page(&ctx, &msg).await;
         let html = output_html(resp).await;
-        assert!(html.contains("acme-corp"), "missing org name");
+        assert!(html.contains("Files") && html.contains("/b/storage/"));
+    }
+
+    #[tokio::test]
+    async fn no_apps_omits_divider() {
+        let ctx = ctx_with_userportal().await;
+        seed_user(&ctx, "user-a").await;
+        let msg = auth_msg("retrieve", "/b/userportal/", "user-a");
+        let resp = dashboard_page(&ctx, &msg).await;
+        let html = output_html(resp).await;
+        assert!(
+            !html.contains("account-nav__divider"),
+            "divider must only render when apps are configured"
+        );
+    }
+
+    #[tokio::test]
+    async fn shell_chrome_is_absent() {
+        let ctx = ctx_with_userportal().await;
+        seed_user(&ctx, "user-a").await;
+        let msg = auth_msg("retrieve", "/b/userportal/", "user-a");
+        let resp = dashboard_page(&ctx, &msg).await;
+        let html = output_html(resp).await;
+        assert!(
+            !html.contains(r#"class="sidebar""#) && !html.contains(r#"class="topbar""#),
+            "single-card layout must not render shell sidebar/topbar"
+        );
     }
 }
