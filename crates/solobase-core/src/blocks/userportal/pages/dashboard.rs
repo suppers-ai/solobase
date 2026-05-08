@@ -9,7 +9,10 @@ use wafer_core::clients::database::Record;
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::{
-    blocks::{auth::repo::orgs, helpers::ResponseBuilder, helpers::RecordExt},
+    blocks::{
+        auth::repo::orgs,
+        helpers::{RecordExt, ResponseBuilder},
+    },
     ui::{
         nav_groups,
         shell::{Crumb, Topbar},
