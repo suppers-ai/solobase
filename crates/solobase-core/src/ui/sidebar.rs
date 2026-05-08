@@ -59,35 +59,37 @@ pub fn sidebar_grouped(
                     span .sidebar__brand-name { "Solobase" }
                 }
             }
-            div .sidebar__groups {
-                @for g in groups {
-                    div .sidebar__group {
-                        @if let Some(l) = &g.label {
-                            div .sidebar__group-label { (l) }
-                        }
-                        ul .sidebar__nav {
-                            @for item in &g.items {
-                                @let active = current_path == item.href || current_path.starts_with(&format!("{}/", item.href));
-                                li {
-                                    a href=(item.href)
-                                      class={ "sidebar__nav-item" @if active { " is-active" } }
-                                      aria-current=[active.then_some("page")]
-                                      target=[item.external.then_some("_blank")]
-                                      rel=[item.external.then_some("noopener noreferrer")] {
-                                        span .sidebar__nav-icon {
-                                            (nav_icon(item.icon))
+            div .sidebar__panel {
+                div .sidebar__groups {
+                    @for g in groups {
+                        div .sidebar__group {
+                            @if let Some(l) = &g.label {
+                                div .sidebar__group-label { (l) }
+                            }
+                            ul .sidebar__nav {
+                                @for item in &g.items {
+                                    @let active = current_path == item.href || current_path.starts_with(&format!("{}/", item.href));
+                                    li {
+                                        a href=(item.href)
+                                          class={ "sidebar__nav-item" @if active { " is-active" } }
+                                          aria-current=[active.then_some("page")]
+                                          target=[item.external.then_some("_blank")]
+                                          rel=[item.external.then_some("noopener noreferrer")] {
+                                            span .sidebar__nav-icon {
+                                                (nav_icon(item.icon))
+                                            }
+                                            span .sidebar__nav-label { (item.label) }
                                         }
-                                        span .sidebar__nav-label { (item.label) }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
-            button .sidebar__collapse-toggle id="sidebar-collapse-btn" type="button" onclick="toggleSidebar()" aria-label="Toggle sidebar" {
-                span .sidebar__collapse-icon-expanded { (icons::chevron_left()) }
-                span .sidebar__collapse-icon-collapsed { (icons::chevron_right()) }
+                button .sidebar__collapse-toggle id="sidebar-collapse-btn" type="button" onclick="toggleSidebar()" aria-label="Toggle sidebar" {
+                    span .sidebar__collapse-icon-expanded { (icons::chevron_left()) }
+                    span .sidebar__collapse-icon-collapsed { (icons::chevron_right()) }
+                }
             }
             @if let Some(u) = user {
                 div .sidebar__user-container {

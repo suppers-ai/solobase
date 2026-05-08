@@ -70,9 +70,13 @@ pub fn shared_config_vars() -> Vec<ConfigVar> {
         )
         .name("Logo URL")
         .input_type(InputType::Url),
-        ConfigVar::new("SOLOBASE_SHARED__LOGO_ICON_URL", "Small icon logo", "")
-            .name("Logo Icon URL")
-            .input_type(InputType::Url),
+        ConfigVar::new(
+            "SOLOBASE_SHARED__LOGO_ICON_URL",
+            "Small icon logo (used when sidebar is collapsed)",
+            "https://solobase.dev/images/logo.png",
+        )
+        .name("Logo Icon URL")
+        .input_type(InputType::Url),
         ConfigVar::new(
             "SOLOBASE_SHARED__AUTH_LOGO_URL",
             "Logo on login/signup pages (falls back to Logo URL)",

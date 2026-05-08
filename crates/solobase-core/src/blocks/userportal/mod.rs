@@ -626,7 +626,7 @@ const PORTAL_SETTINGS_KEYS: &[(&str, &str, &str, &str, &str)] = &[
         "SOLOBASE_SHARED__LOGO_ICON_URL",
         "Logo Icon URL",
         "Small icon version of the logo (used in favicons and compact views).",
-        "",
+        "https://solobase.dev/images/logo.png",
         "text",
     ),
     (

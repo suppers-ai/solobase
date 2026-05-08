@@ -40,7 +40,12 @@ impl SiteConfig {
                 "https://solobase.dev/images/logo_long.png",
             )
             .await,
-            logo_icon_url: config::get_default(ctx, "SOLOBASE_SHARED__LOGO_ICON_URL", "").await,
+            logo_icon_url: config::get_default(
+                ctx,
+                "SOLOBASE_SHARED__LOGO_ICON_URL",
+                "https://solobase.dev/images/logo.png",
+            )
+            .await,
             favicon_url: config::get_default(ctx, "SOLOBASE_SHARED__FAVICON_URL", "").await,
             embedded_scripts: scripts_raw
                 .split(',')

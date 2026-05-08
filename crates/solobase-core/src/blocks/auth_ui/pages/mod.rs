@@ -87,7 +87,12 @@ pub(super) fn site_config(settings: &HashMap<String, String>) -> SiteConfig {
                 auth_logo.to_string()
             }
         },
-        logo_icon_url: get(settings, "SOLOBASE_SHARED__LOGO_ICON_URL", "").to_string(),
+        logo_icon_url: get(
+            settings,
+            "SOLOBASE_SHARED__LOGO_ICON_URL",
+            "https://solobase.dev/images/logo.png",
+        )
+        .to_string(),
         favicon_url: get(settings, "SOLOBASE_SHARED__FAVICON_URL", "").to_string(),
         embedded_scripts: get(settings, "SOLOBASE_SHARED__EMBEDDED_SCRIPTS", "")
             .split(',')
