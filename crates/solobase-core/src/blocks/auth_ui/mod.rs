@@ -121,23 +121,25 @@ impl Block for AuthUiBlock {
         ])
         .config_keys({
             // OAuth provider creds belong with the OAuth UI flows, so they
-            // live on auth-ui. The framework AuthBlock keeps JWT_SECRET,
-            // REQUIRE_VERIFICATION, ALLOWED_EMAIL_DOMAINS, INTERNAL_SECRET
-            // — those are auth identity infra used by AuthServiceImpl, not
-            // UI. Note: framework AuthBlock currently doesn't expose
-            // config_keys at all (declared in upstream wafer-run); that gap
-            // is not fixed in this task. Those vars still resolve via env
-            // for now.
+            // live on auth-ui under the auth-ui prefix
+            // (`SUPPERS_AI__AUTH_UI__OAUTH_*`). The framework AuthBlock
+            // owns JWT_SECRET / REQUIRE_VERIFICATION / ALLOWED_EMAIL_DOMAINS
+            // / INTERNAL_SECRET — those are auth identity infra used by
+            // AuthServiceImpl, not UI, and currently aren't exposed as
+            // declared config_keys (wafer-run gap; vars still resolve via
+            // env). Renaming from the legacy `SUPPERS_AI__AUTH__OAUTH_*`
+            // keeps the prefix-equals-block-name invariant the runtime
+            // enforces (see `block_name_to_var_prefix` in wafer-run).
             vec![
                 ConfigVar::new(
-                    "SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_ID",
+                    "SUPPERS_AI__AUTH_UI__OAUTH_GOOGLE_CLIENT_ID",
                     "Google OAuth client ID",
                     "",
                 )
                 .name("Google Client ID")
                 .optional(),
                 ConfigVar::new(
-                    "SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_SECRET",
+                    "SUPPERS_AI__AUTH_UI__OAUTH_GOOGLE_CLIENT_SECRET",
                     "Google OAuth client secret",
                     "",
                 )
@@ -145,14 +147,14 @@ impl Block for AuthUiBlock {
                 .input_type(InputType::Password)
                 .optional(),
                 ConfigVar::new(
-                    "SUPPERS_AI__AUTH__OAUTH_GITHUB_CLIENT_ID",
+                    "SUPPERS_AI__AUTH_UI__OAUTH_GITHUB_CLIENT_ID",
                     "GitHub OAuth client ID",
                     "",
                 )
                 .name("GitHub Client ID")
                 .optional(),
                 ConfigVar::new(
-                    "SUPPERS_AI__AUTH__OAUTH_GITHUB_CLIENT_SECRET",
+                    "SUPPERS_AI__AUTH_UI__OAUTH_GITHUB_CLIENT_SECRET",
                     "GitHub OAuth client secret",
                     "",
                 )
@@ -160,14 +162,14 @@ impl Block for AuthUiBlock {
                 .input_type(InputType::Password)
                 .optional(),
                 ConfigVar::new(
-                    "SUPPERS_AI__AUTH__OAUTH_MICROSOFT_CLIENT_ID",
+                    "SUPPERS_AI__AUTH_UI__OAUTH_MICROSOFT_CLIENT_ID",
                     "Microsoft OAuth client ID",
                     "",
                 )
                 .name("Microsoft Client ID")
                 .optional(),
                 ConfigVar::new(
-                    "SUPPERS_AI__AUTH__OAUTH_MICROSOFT_CLIENT_SECRET",
+                    "SUPPERS_AI__AUTH_UI__OAUTH_MICROSOFT_CLIENT_SECRET",
                     "Microsoft OAuth client secret",
                     "",
                 )
@@ -175,7 +177,7 @@ impl Block for AuthUiBlock {
                 .input_type(InputType::Password)
                 .optional(),
                 ConfigVar::new(
-                    "SUPPERS_AI__AUTH__OAUTH_REDIRECT_URI",
+                    "SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI",
                     "OAuth callback URL",
                     "",
                 )
@@ -388,9 +390,7 @@ impl Block for AuthUiBlock {
     }
 }
 
-// Static-block registration is enabled in Task 7 once the framework
-// AuthBlock takes over /b/auth/* routes. Until then, this stub auth_ui
-// would shadow the live auth block (both blocks would declare the same
-// /b/auth/* endpoints), and every dispatch arm panics on hit.
-// #[cfg(not(target_arch = "wasm32"))]
-// ::wafer_run::register_static_block!("suppers-ai/auth-ui", AuthUiBlock);
+// PR 5 Task 7: framework AuthBlock now owns `suppers-ai/auth` (the auth
+// service primitive); auth-ui owns the `/b/auth/*` HTTP surface.
+#[cfg(not(target_arch = "wasm32"))]
+::wafer_run::register_static_block!("suppers-ai/auth-ui", AuthUiBlock);

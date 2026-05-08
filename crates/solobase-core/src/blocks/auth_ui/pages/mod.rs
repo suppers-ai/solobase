@@ -96,9 +96,9 @@ pub(super) fn site_config(settings: &HashMap<String, String>) -> SiteConfig {
 /// True if the provider has all three credentials needed for the modern
 /// single-callback OAuth flow (`/auth/oauth/login`, `/auth/oauth/callback`):
 ///
-/// - `SUPPERS_AI__AUTH__OAUTH_<PROVIDER>_CLIENT_ID`
-/// - `SUPPERS_AI__AUTH__OAUTH_<PROVIDER>_CLIENT_SECRET`
-/// - `SUPPERS_AI__AUTH__OAUTH_REDIRECT_URI` (single URI, provider-agnostic;
+/// - `SUPPERS_AI__AUTH_UI__OAUTH_<PROVIDER>_CLIENT_ID`
+/// - `SUPPERS_AI__AUTH_UI__OAUTH_<PROVIDER>_CLIENT_SECRET`
+/// - `SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI` (single URI, provider-agnostic;
 ///    the provider is encoded in the signed `state` JWT)
 ///
 /// These match what `oauth.rs` actually reads when building the auth_url.
@@ -111,17 +111,17 @@ pub(super) fn oauth_provider_configured(
     let up = provider.to_ascii_uppercase();
     !get(
         settings,
-        &format!("SUPPERS_AI__AUTH__OAUTH_{up}_CLIENT_ID"),
+        &format!("SUPPERS_AI__AUTH_UI__OAUTH_{up}_CLIENT_ID"),
         "",
     )
     .is_empty()
         && !get(
             settings,
-            &format!("SUPPERS_AI__AUTH__OAUTH_{up}_CLIENT_SECRET"),
+            &format!("SUPPERS_AI__AUTH_UI__OAUTH_{up}_CLIENT_SECRET"),
             "",
         )
         .is_empty()
-        && !get(settings, "SUPPERS_AI__AUTH__OAUTH_REDIRECT_URI", "").is_empty()
+        && !get(settings, "SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI", "").is_empty()
 }
 
 /// Display label for an OAuth provider button.

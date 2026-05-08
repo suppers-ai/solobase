@@ -325,10 +325,6 @@ mod tests {
 
     #[tokio::test]
     async fn wrap_allows_provider_links_list_with_auth_block_grants() {
-        use wafer_run::block::Block;
-
-        use crate::blocks::auth::AuthBlock;
-
         let ctx = TestContext::with_auth().await;
         seed_user(&ctx, "user-a").await;
         upsert(
@@ -344,7 +340,7 @@ mod tests {
         .await
         .unwrap();
 
-        let auth_grants = AuthBlock::default().info().grants;
+        let auth_grants = crate::blocks::auth::service::auth_grants();
         let ctx = ctx.with_wrap("suppers-ai/userportal", auth_grants, "suppers-ai/admin");
 
         use crate::blocks::auth::repo::provider_links;

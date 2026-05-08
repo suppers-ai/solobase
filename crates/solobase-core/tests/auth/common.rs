@@ -19,6 +19,7 @@ use wafer_run::{
     InputStream, OutputStream,
 };
 
+#[derive(Clone)]
 pub struct MigrationTestCtx {
     db_block: Arc<dyn Block>,
     crypto_block: Arc<dyn Block>,
@@ -65,5 +66,9 @@ impl Context for MigrationTestCtx {
 
     fn config_get(&self, _key: &str) -> Option<&str> {
         None
+    }
+
+    fn clone_arc(&self) -> Arc<dyn Context> {
+        Arc::new(self.clone())
     }
 }

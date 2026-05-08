@@ -8,7 +8,7 @@
 //! See `docs/superpowers/specs/2026-04-21-auth-block-design.md` §4 for the
 //! cross-block contract and §6 for the bootstrap-token fallback.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use sha2::{Digest, Sha256};
 use wafer_core::interfaces::auth::service::{
@@ -22,17 +22,22 @@ use super::{
     repo::{orgs, pats, provider_links, sessions, users},
 };
 
-/// Per-block state captured at `register` time. Holds the [`Context`] handle
-/// so service methods can dispatch messages to `wafer-run/database` etc.,
-/// along with the OAuth provider registry (for `verify_org_admin` lookups)
-/// and the shared `OrgAdminCache`.
+/// Per-block state. Holds a lazy [`Context`] handle so service methods can
+/// dispatch messages to `wafer-run/database` etc., along with the OAuth
+/// provider registry (for `verify_org_admin` lookups) and the shared
+/// `OrgAdminCache`.
+///
+/// `ctx` is populated lazily because `AuthServiceImpl` is constructed at
+/// block-registration time (when no `Context` exists yet) and the framework
+/// `AuthBlock::lifecycle(Init)` later passes one in via
+/// [`AuthService::init`]. The Init hook calls `ctx.clone_arc()` (wafer-run
+/// #46) and stores the resulting `Arc<dyn Context>` in the cell.
 #[derive(Clone)]
 pub struct BlockState {
-    /// The auth block's context. In production this is the `&dyn Context`
-    /// forwarded from `Block::handle`; in tests it's the in-memory sqlite
-    /// context. Stored as `Arc` so `AuthServiceImpl` can be cloned into
-    /// multiple call sites.
-    pub ctx: Arc<dyn Context>,
+    /// Lazy auth context handle. Populated by [`AuthServiceImpl::init`] from
+    /// the framework AuthBlock's `lifecycle(Init)` hook; tests pre-populate
+    /// via [`BlockState::for_test`].
+    pub ctx: Arc<OnceLock<Arc<dyn Context>>>,
     /// OAuth provider registry. Defaults to empty — populated by
     /// `with_providers` when the block registers. `verify_org_admin` uses
     /// this to dispatch to `check_org_admin` for the caller's provider.
@@ -44,19 +49,27 @@ pub struct BlockState {
 }
 
 impl BlockState {
-    pub fn new(ctx: Arc<dyn Context>) -> Self {
+    /// Production constructor — context cell starts empty and is populated
+    /// later by [`AuthServiceImpl::init`] when the framework AuthBlock fires
+    /// its `Init` lifecycle event.
+    pub fn new() -> Self {
         Self {
-            ctx,
+            ctx: Arc::new(OnceLock::new()),
             providers: Arc::new(ProviderRegistry::empty()),
             org_admin_cache: OrgAdminCache::default(),
         }
     }
 
-    /// Test-only constructor. Kept simple on purpose — takes the same
-    /// `Arc<dyn Context>` as production but exists so test setup reads
-    /// naturally and so the two entry points are clearly labelled.
+    /// Test-only constructor. Pre-populates the context cell so service
+    /// methods can run without going through the full `init` lifecycle.
     pub fn for_test(ctx: Arc<dyn Context>) -> Self {
-        Self::new(ctx)
+        let cell = OnceLock::new();
+        let _ = cell.set(ctx);
+        Self {
+            ctx: Arc::new(cell),
+            providers: Arc::new(ProviderRegistry::empty()),
+            org_admin_cache: OrgAdminCache::default(),
+        }
     }
 
     /// Attach an OAuth provider registry. Returns `self` for builder-style
@@ -74,6 +87,12 @@ impl BlockState {
     }
 }
 
+impl Default for BlockState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// `AuthService` implementation backed by the auth block's repo layer.
 pub struct AuthServiceImpl {
     state: BlockState,
@@ -82,6 +101,18 @@ pub struct AuthServiceImpl {
 impl AuthServiceImpl {
     pub fn new(state: BlockState) -> Self {
         Self { state }
+    }
+
+    /// Borrow the lazy context handle. Returns `Err(Internal)` if `init`
+    /// hasn't run yet — callers that hit this path are pre-init dispatches
+    /// (a `handle` arriving before the framework AuthBlock's
+    /// `lifecycle(Init)`), which would only happen on a runtime bug.
+    fn ctx(&self) -> Result<&dyn Context, AuthError> {
+        self.state
+            .ctx
+            .get()
+            .map(|arc| arc.as_ref())
+            .ok_or_else(|| AuthError::Internal("auth service ctx not initialized".to_string()))
     }
 }
 
@@ -142,6 +173,36 @@ fn extract_creds(msg: &Message) -> Result<Creds, AuthError> {
     Err(AuthError::Unauthorized)
 }
 
+/// Static WRAP grants for the framework `suppers-ai/auth` block. Returned by
+/// both [`AuthService::grants`] (consumed by `AuthBlock::info()` so the
+/// runtime registers them at startup) and called directly by userportal
+/// pages that reflect over auth's grant list to compose their own WRAP
+/// scope. Keep these in sync with the spec at
+/// `docs/superpowers/specs/2026-04-21-auth-block-design.md`.
+pub fn auth_grants() -> Vec<wafer_block::types::ResourceGrant> {
+    vec![
+        // auth-ui owns the SSR / JSON / OAuth handlers and writes every
+        // auth table during login, signup, OAuth callback, etc. The
+        // wildcard covers users / sessions / pats / provider_links /
+        // bootstrap_tokens / orgs / api_keys without enumerating each.
+        wafer_run::ResourceGrant::read_write("suppers-ai/auth-ui", "suppers_ai__auth__*"),
+        // Admin block reads auth tables for the admin dashboards.
+        wafer_run::ResourceGrant::read("suppers-ai/admin", users::TABLE),
+        wafer_run::ResourceGrant::read("suppers-ai/admin", sessions::TABLE),
+        // Userportal `/b/userportal/sessions` page lists the caller's
+        // sessions and revokes individual rows. Read+write because revoke
+        // deletes the row; reads are scoped to the caller's user_id by
+        // the repo helper.
+        wafer_run::ResourceGrant::read_write("suppers-ai/userportal", sessions::TABLE),
+        // Userportal `/b/userportal/security` lists the caller's
+        // linked OAuth providers. Read-only — unlinking goes
+        // through an auth POST endpoint, not the userportal block.
+        wafer_run::ResourceGrant::read("suppers-ai/userportal", provider_links::TABLE),
+        wafer_run::ResourceGrant::read_write("suppers-ai/userportal", users::TABLE),
+        wafer_run::ResourceGrant::read("suppers-ai/products", users::TABLE),
+    ]
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl AuthService for AuthServiceImpl {
@@ -150,6 +211,15 @@ impl AuthService for AuthServiceImpl {
     /// startup. Mirrors the body of the custom solobase `AuthBlock::lifecycle`
     /// so the framework block has a self-sufficient service to delegate to.
     async fn init(&self, ctx: &dyn Context) -> Result<(), AuthError> {
+        // Capture an owning `Arc<dyn Context>` so subsequent `require_*`
+        // calls have a context handle to dispatch repo lookups through.
+        // wafer-run #46 added `Context::clone_arc` for exactly this. `set`
+        // returns `Err` if the cell was already populated (e.g. test
+        // pre-populated via `for_test`, or a duplicate `Init` event); both
+        // cases are harmless — the existing handle keeps pointing at the
+        // same shared snapshots.
+        let _ = self.state.ctx.set(ctx.clone_arc());
+
         super::migrations::apply(ctx)
             .await
             .map_err(|e| AuthError::Internal(format!("auth migrations: {e}")))?;
@@ -163,25 +233,17 @@ impl AuthService for AuthServiceImpl {
     /// WRAP grants the auth block declares for downstream consumers. The
     /// framework `AuthBlock::info()` embeds these into `BlockInfo::grants`
     /// (wafer-run #45) so the runtime registers them at startup.
+    ///
+    /// Delegates to the [`auth_grants`] free function so non-trait callers
+    /// (e.g. userportal's WRAP-grant reflection in `pages/sessions.rs` and
+    /// `pages/security.rs`) can see the same list without instantiating
+    /// the framework block.
     fn grants(&self) -> Vec<wafer_block::types::ResourceGrant> {
-        vec![
-            wafer_run::ResourceGrant::read("suppers-ai/admin", "suppers_ai__auth__*"),
-            wafer_run::ResourceGrant::read_write("suppers-ai/userportal", users::TABLE),
-            // The userportal `/b/userportal/sessions` page lists the
-            // caller's sessions and revokes individual rows. Read+write
-            // because revoke deletes the row; reads are scoped to the
-            // caller's user_id by the repo helper.
-            wafer_run::ResourceGrant::read_write("suppers-ai/userportal", sessions::TABLE),
-            // Userportal `/b/userportal/security` lists the caller's
-            // linked OAuth providers. Read-only — unlinking goes
-            // through an auth POST endpoint, not the userportal block.
-            wafer_run::ResourceGrant::read("suppers-ai/userportal", provider_links::TABLE),
-            wafer_run::ResourceGrant::read("suppers-ai/products", users::TABLE),
-        ]
+        auth_grants()
     }
 
     async fn require_user(&self, msg: &Message) -> Result<UserId, AuthError> {
-        let ctx = self.state.ctx.as_ref();
+        let ctx = self.ctx()?;
         match extract_creds(msg)? {
             Creds::Session(h) => {
                 let row = sessions::find_by_token_hash(ctx, &h)
@@ -215,7 +277,7 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn require_token(&self, msg: &Message, scope: TokenScope) -> Result<UserId, AuthError> {
-        let ctx = self.state.ctx.as_ref();
+        let ctx = self.ctx()?;
         let creds = extract_creds(msg)?;
         // Scopes live exclusively on PATs. A session cookie presented here is
         // a category error — treat it as Forbidden so the caller knows the
@@ -246,7 +308,7 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn require_role(&self, msg: &Message, role: Role) -> Result<UserId, AuthError> {
-        let ctx = self.state.ctx.as_ref();
+        let ctx = self.ctx()?;
 
         // Bootstrap-token fast path: if the caller presents a Bearer token
         // that matches an unexpired row in `bootstrap_tokens`, grant Admin.
@@ -296,7 +358,7 @@ impl AuthService for AuthServiceImpl {
             return Ok(cached);
         }
 
-        let ctx = self.state.ctx.as_ref();
+        let ctx = self.ctx()?;
 
         // 2) Look up the org by name. No row → not an admin. Reserved orgs
         //    are identified by name (migration 002 seeds them); claimed orgs
@@ -385,7 +447,7 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn user_profile(&self, user: UserId) -> Result<UserProfile, AuthError> {
-        let ctx = self.state.ctx.as_ref();
+        let ctx = self.ctx()?;
         let row = users::find_by_id(ctx, &user.0)
             .await
             .map_err(|e| AuthError::Internal(e.to_string()))?

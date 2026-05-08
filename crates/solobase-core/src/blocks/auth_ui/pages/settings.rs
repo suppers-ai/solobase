@@ -74,7 +74,7 @@ const SETTINGS_KEYS: &[(&str, &str, &str, &str, bool, &str)] = &[
         "toggle",
     ),
     (
-        "SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_ID",
+        "SUPPERS_AI__AUTH_UI__OAUTH_GOOGLE_CLIENT_ID",
         "Google Client ID",
         "OAuth client ID from Google Cloud Console.",
         "",
@@ -82,7 +82,7 @@ const SETTINGS_KEYS: &[(&str, &str, &str, &str, bool, &str)] = &[
         "text",
     ),
     (
-        "SUPPERS_AI__AUTH__OAUTH_GOOGLE_CLIENT_SECRET",
+        "SUPPERS_AI__AUTH_UI__OAUTH_GOOGLE_CLIENT_SECRET",
         "Google Client Secret",
         "OAuth client secret from Google Cloud Console.",
         "",
@@ -90,7 +90,7 @@ const SETTINGS_KEYS: &[(&str, &str, &str, &str, bool, &str)] = &[
         "password",
     ),
     (
-        "SUPPERS_AI__AUTH__OAUTH_GITHUB_CLIENT_ID",
+        "SUPPERS_AI__AUTH_UI__OAUTH_GITHUB_CLIENT_ID",
         "GitHub Client ID",
         "OAuth client ID from GitHub developer settings.",
         "",
@@ -98,7 +98,7 @@ const SETTINGS_KEYS: &[(&str, &str, &str, &str, bool, &str)] = &[
         "text",
     ),
     (
-        "SUPPERS_AI__AUTH__OAUTH_GITHUB_CLIENT_SECRET",
+        "SUPPERS_AI__AUTH_UI__OAUTH_GITHUB_CLIENT_SECRET",
         "GitHub Client Secret",
         "OAuth client secret from GitHub developer settings.",
         "",

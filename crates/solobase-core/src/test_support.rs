@@ -25,6 +25,13 @@ use wafer_run::{
 ///
 /// Routes `"wafer-run/database"` calls to the production `DatabaseBlock`.
 /// Other named blocks can be registered via `blocks` (unused until Task 6).
+///
+/// `Clone` is shallow — every interior field is already `Arc`/`Mutex`-shared
+/// (or trivially copyable), so a clone produces another handle pointing at
+/// the same database, blocks map, and config. Used by [`Context::clone_arc`]
+/// so service objects (e.g. `AuthServiceImpl`) can stash an owning context
+/// handle in a `OnceLock` past the lifetime of a `&TestContext` borrow.
+#[derive(Clone)]
 pub struct TestContext {
     database_block: Arc<dyn Block>,
     /// Placeholder for config values — populated by Task 5 (`with_auth`).
@@ -176,6 +183,11 @@ impl Context for TestContext {
         // leak a value into a thread-local or switch to a pre-computed snapshot
         // when `with_auth()` is called.
         None
+    }
+
+    fn clone_arc(&self) -> Arc<dyn Context> {
+        // Cheap — all interior state is `Arc`/`Mutex`-shared.
+        Arc::new(self.clone())
     }
 }
 

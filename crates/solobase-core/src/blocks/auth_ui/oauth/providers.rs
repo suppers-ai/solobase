@@ -11,7 +11,7 @@ pub async fn handle(ctx: &dyn Context) -> OutputStream {
 
     for provider_name in &["google", "github", "microsoft"] {
         let client_id_key = format!(
-            "SUPPERS_AI__AUTH__OAUTH_{}_CLIENT_ID",
+            "SUPPERS_AI__AUTH_UI__OAUTH_{}_CLIENT_ID",
             provider_name.to_uppercase()
         );
         if config::get(ctx, &client_id_key).await.is_ok() {

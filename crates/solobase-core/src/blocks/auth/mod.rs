@@ -686,8 +686,11 @@ pub async fn authenticate_api_key(
     msg.set_meta(META_AUTH_USER_ROLES, &roles_str);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-::wafer_run::register_static_block!("suppers-ai/auth", AuthBlock);
+// AuthBlock self-registration removed in PR 5 Task 7: `suppers-ai/auth` is
+// now the framework `wafer_core::service_blocks::auth::AuthBlock` wrapping
+// `AuthServiceImpl`, registered explicitly via `crate::blocks::register_auth`
+// from `SolobaseBuilder::build`. The custom struct + impls below stay
+// compiling (Task 8 deletes them) but no longer self-register.
 
 use maud::html;
 

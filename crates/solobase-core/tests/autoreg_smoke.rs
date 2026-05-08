@@ -1,10 +1,10 @@
 //! Smoke test for linkme-based block auto-registration.
 //!
-//! Asserts that the 11 zero-arg suppers-ai/* blocks self-register at link
-//! time via register_static_block! and that LlmBlock — which has a
-//! non-zero-arg constructor — does NOT auto-register (it's manually
-//! registered by `solobase_core::blocks::register_llm()` from
-//! `solobase::SolobaseBuilder::build()`).
+//! Asserts that zero-arg `suppers-ai/*` blocks self-register at link time
+//! via `register_static_block!` and that blocks whose constructors take
+//! arguments (`LlmBlock` / framework `AuthBlock`) do NOT auto-register —
+//! they're installed by helpers (`register_llm` / `register_auth`) called
+//! from `solobase::SolobaseBuilder::build()`.
 
 // Force solobase_core's object files to be linked so that the
 // register_static_block! distributed-slice entries inside each block module
@@ -18,13 +18,14 @@ use wafer_run::Wafer;
 fn all_zero_arg_blocks_auto_register() {
     let w = Wafer::new().expect("Wafer::new should succeed with no lockfile present");
 
-    // The 11 always-on zero-arg blocks. `vector` is unconditionally registered
-    // (its `pub mod vector;` in blocks/mod.rs has no cfg gate). Only `fastembed`
-    // is feature-gated under `native-embedding` and checked in the test below.
-    // `llm` requires a non-zero-arg constructor and is checked separately.
+    // Zero-arg blocks. `vector` is unconditionally registered (its
+    // `pub mod vector;` in blocks/mod.rs has no cfg gate). `fastembed` is
+    // feature-gated under `native-embedding` and checked in the test below.
+    // `llm` requires `Arc<ProviderLlmService>` and `auth` (framework) wraps
+    // `Arc<dyn AuthService>`; both are checked separately.
     let always_on = [
         "suppers-ai/admin",
-        "suppers-ai/auth",
+        "suppers-ai/auth-ui",
         "suppers-ai/email",
         "suppers-ai/files",
         "suppers-ai/legalpages",
@@ -47,6 +48,14 @@ fn all_zero_arg_blocks_auto_register() {
     assert!(
         !w.has_block("suppers-ai/llm"),
         "LlmBlock should not be auto-registered (constructor needs ProviderLlmService)"
+    );
+
+    // The framework AuthBlock wraps `Arc<dyn AuthService>`; can't
+    // auto-register. It's only present once SolobaseBuilder::build() calls
+    // `crate::blocks::register_auth()`.
+    assert!(
+        !w.has_block("suppers-ai/auth"),
+        "framework AuthBlock should not be auto-registered (constructor needs Arc<dyn AuthService>)"
     );
 }
 

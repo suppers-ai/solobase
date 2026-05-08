@@ -838,6 +838,7 @@ mod tests {
 
     /// Minimal Context that panics on `call_block` — the bad-request test
     /// must reject before any block dispatch.
+    #[derive(Clone)]
     struct PanicCtx;
 
     #[async_trait::async_trait]
@@ -855,6 +856,9 @@ mod tests {
         }
         fn config_get(&self, _key: &str) -> Option<&str> {
             None
+        }
+        fn clone_arc(&self) -> std::sync::Arc<dyn Context> {
+            std::sync::Arc::new(self.clone())
         }
     }
 

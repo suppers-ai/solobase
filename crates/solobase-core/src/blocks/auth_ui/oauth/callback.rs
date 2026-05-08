@@ -59,7 +59,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let client_id = config::get_default(
         ctx,
         &format!(
-            "SUPPERS_AI__AUTH__OAUTH_{}_CLIENT_ID",
+            "SUPPERS_AI__AUTH_UI__OAUTH_{}_CLIENT_ID",
             provider.to_uppercase()
         ),
         "",
@@ -68,7 +68,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let client_secret = config::get_default(
         ctx,
         &format!(
-            "SUPPERS_AI__AUTH__OAUTH_{}_CLIENT_SECRET",
+            "SUPPERS_AI__AUTH_UI__OAUTH_{}_CLIENT_SECRET",
             provider.to_uppercase()
         ),
         "",
@@ -76,7 +76,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     .await;
     let redirect_uri = config::get_default(
         ctx,
-        "SUPPERS_AI__AUTH__OAUTH_REDIRECT_URI",
+        "SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI",
         "http://localhost:8090/b/auth/oauth/callback",
     )
     .await;

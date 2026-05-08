@@ -36,7 +36,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     let client_id_key = format!(
-        "SUPPERS_AI__AUTH__OAUTH_{}_CLIENT_ID",
+        "SUPPERS_AI__AUTH_UI__OAUTH_{}_CLIENT_ID",
         provider.to_uppercase()
     );
     let client_id = match config::get(ctx, &client_id_key).await {
@@ -46,7 +46,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let redirect_uri = config::get_default(
         ctx,
-        "SUPPERS_AI__AUTH__OAUTH_REDIRECT_URI",
+        "SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI",
         "http://localhost:8090/b/auth/oauth/callback",
     )
     .await;

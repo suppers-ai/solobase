@@ -441,15 +441,11 @@ mod tests {
 
     #[tokio::test]
     async fn wrap_allows_sessions_list_with_auth_block_grants() {
-        use wafer_run::block::Block;
-
-        use crate::blocks::auth::AuthBlock;
-
         let ctx = TestContext::with_auth().await;
         seed_user(&ctx, "user-a").await;
         insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
 
-        let auth_grants = AuthBlock::default().info().grants;
+        let auth_grants = crate::blocks::auth::service::auth_grants();
         let ctx = ctx.with_wrap("suppers-ai/userportal", auth_grants, "suppers-ai/admin");
 
         let rows = sessions::list_for_user(&ctx, "user-a")
@@ -460,15 +456,11 @@ mod tests {
 
     #[tokio::test]
     async fn wrap_allows_sessions_delete_with_auth_block_grants() {
-        use wafer_run::block::Block;
-
-        use crate::blocks::auth::AuthBlock;
-
         let ctx = TestContext::with_auth().await;
         seed_user(&ctx, "user-a").await;
         insert(&ctx, fake_session("user-a", 0x01)).await.unwrap();
 
-        let auth_grants = AuthBlock::default().info().grants;
+        let auth_grants = crate::blocks::auth::service::auth_grants();
         let ctx = ctx.with_wrap("suppers-ai/userportal", auth_grants, "suppers-ai/admin");
 
         let removed = sessions::delete_for_user(&ctx, "user-a", &[0x01u8; 32])
