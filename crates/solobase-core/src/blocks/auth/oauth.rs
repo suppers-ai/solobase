@@ -5,8 +5,9 @@ use wafer_core::clients::{config, crypto, database as db, network};
 use wafer_run::{context::Context, types::*, OutputStream};
 
 use super::{helpers::*, AuthBlock, USERS_COLLECTION};
-use crate::blocks::helpers::{
-    err_bad_request, err_forbidden, err_internal, json_map, ok_json, RecordExt, ResponseBuilder,
+use crate::blocks::{
+    auth::repo::{provider_links, users},
+    helpers::{err_bad_request, err_forbidden, err_internal, json_map, ok_json, ResponseBuilder},
 };
 
 /// Generate a PKCE code verifier (43-128 chars, URL-safe).
@@ -360,78 +361,158 @@ impl AuthBlock {
             return err_internal("No email returned by OAuth provider");
         }
 
-        // Upsert user
-        let user = match db::get_by_field(
-            ctx,
-            USERS_COLLECTION,
-            "email",
-            serde_json::Value::String(email.clone()),
-        )
-        .await
-        {
-            Ok(existing) => {
-                // Check if the existing user account is disabled
-                if existing.bool_field("disabled") {
-                    return err_forbidden("Account is disabled");
-                }
-
-                let mut upd = json_map(serde_json::json!({
-                    "last_login_at": crate::blocks::helpers::now_rfc3339(),
-                    "oauth_provider": provider
-                }));
-                if !name.is_empty() {
-                    upd.insert("name".to_string(), serde_json::Value::String(name.clone()));
-                }
-                if !avatar.is_empty() {
-                    upd.insert(
-                        "avatar_url".to_string(),
-                        serde_json::Value::String(avatar.clone()),
-                    );
-                }
-                if let Err(e) = db::update(ctx, USERS_COLLECTION, &existing.id, upd).await {
-                    tracing::warn!("Failed to update OAuth user profile: {e}");
-                }
-                existing
+        // Extract the stable provider-side user identifier.
+        // GitHub returns `id` as a JSON number; Google returns `sub` (string);
+        // Microsoft returns `id` (string). Coerce to string in all cases.
+        let provider_ref = {
+            // Try `sub` first (Google OIDC), then `id` (GitHub, Microsoft).
+            let raw = user_info.get("sub").or_else(|| user_info.get("id"));
+            match raw {
+                Some(serde_json::Value::String(s)) => s.clone(),
+                Some(serde_json::Value::Number(n)) => n.to_string(),
+                _ => String::new(),
             }
-            Err(_) => {
-                // New user via OAuth — enforce ALLOW_SIGNUP
-                let allow_signup =
-                    config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_SIGNUP", "true").await;
-                if allow_signup != "true" && allow_signup != "1" {
-                    return err_forbidden("Signups are currently disabled");
-                }
+        };
+        if provider_ref.is_empty() {
+            return err_internal("OAuth provider did not return a stable user id");
+        }
 
-                // Enforce AUTH_ALLOWED_EMAIL_DOMAINS for new OAuth signups
-                let allowed_domains =
-                    config::get_default(ctx, "SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS", "").await;
-                if !allowed_domains.is_empty() {
-                    let email_domain = email.split_once('@').map(|x| x.1).unwrap_or("");
-                    let allowed = allowed_domains.split(',').any(|d| d.trim() == email_domain);
-                    if !allowed {
-                        return err_forbidden("Signups from this email domain are not allowed");
+        // Stable per-provider handle (GitHub `login`, others fall back to email local-part).
+        let provider_login = user_info
+            .get("login")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| email.split('@').next().unwrap_or(""))
+            .to_string();
+
+        // --- Step 1: look up existing link by (provider, provider_ref) ---
+        let existing_link =
+            match provider_links::find_by_provider_ref(ctx, &provider, &provider_ref).await {
+                Ok(l) => l,
+                Err(e) => return err_internal(&format!("provider_links lookup failed: {e}")),
+            };
+
+        // --- Step 2 / 3: resolve user_id ---
+        let user_id: String = if let Some(link) = existing_link {
+            // Known provider link — reuse the bound user.
+            link.user_id
+        } else {
+            // No link yet. Try email-based account merging.
+            match users::find_by_email(ctx, &email).await {
+                Ok(Some(existing_user)) => {
+                    // Check if the existing user account is disabled.
+                    if existing_user.role == "disabled" {
+                        return err_forbidden("Account is disabled");
+                    }
+                    // Reuse this account; the upsert below will create the new link.
+                    existing_user.id
+                }
+                Ok(None) => {
+                    // Brand-new user — enforce signup gates.
+                    let allow_signup =
+                        config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_SIGNUP", "true").await;
+                    if allow_signup != "true" && allow_signup != "1" {
+                        return err_forbidden("Signups are currently disabled");
+                    }
+
+                    let allowed_domains =
+                        config::get_default(ctx, "SUPPERS_AI__AUTH__ALLOWED_EMAIL_DOMAINS", "")
+                            .await;
+                    if !allowed_domains.is_empty() {
+                        let email_domain = email.split_once('@').map(|x| x.1).unwrap_or("");
+                        let allowed = allowed_domains.split(',').any(|d| d.trim() == email_domain);
+                        if !allowed {
+                            return err_forbidden("Signups from this email domain are not allowed");
+                        }
+                    }
+
+                    // Determine role: admin if email matches bootstrap email.
+                    let admin_email = config::get_default(
+                        ctx,
+                        "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL",
+                        "",
+                    )
+                    .await;
+                    let role =
+                        if !admin_email.is_empty() && email.eq_ignore_ascii_case(&admin_email) {
+                            "admin"
+                        } else {
+                            "user"
+                        };
+
+                    let display_name = if name.is_empty() {
+                        email.clone()
+                    } else {
+                        name.clone()
+                    };
+                    let new_user = users::NewUser {
+                        email: email.clone(),
+                        display_name,
+                        avatar_url: if avatar.is_empty() {
+                            None
+                        } else {
+                            Some(avatar.clone())
+                        },
+                        role: role.to_string(),
+                    };
+                    match users::insert(ctx, new_user).await {
+                        Ok(u) => {
+                            // Assign role row in USER_ROLES_COLLECTION for legacy readers.
+                            let role_data = json_map(serde_json::json!({
+                                "user_id": u.id,
+                                "role": role,
+                                "assigned_at": crate::blocks::helpers::now_rfc3339()
+                            }));
+                            if let Err(e) = db::create(
+                                ctx,
+                                crate::blocks::admin::USER_ROLES_COLLECTION,
+                                role_data,
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    "Failed to assign default role on OAuth signup: {e}"
+                                );
+                            }
+                            u.id
+                        }
+                        Err(e) => return err_internal(&format!("Failed to create user: {e}")),
                     }
                 }
-
-                let mut data = json_map(serde_json::json!({
-                    "email": email,
-                    "name": name,
-                    "avatar_url": avatar,
-                    "oauth_provider": provider,
-                    "disabled": false,
-                    "email_verified": true
-                }));
-                crate::blocks::helpers::stamp_created(&mut data);
-                match create_user_and_assign_role(ctx, data).await {
-                    Ok((u, _)) => u,
-                    Err(e) => return err_internal(&e),
-                }
+                Err(e) => return err_internal(&format!("User lookup failed: {e}")),
             }
         };
 
-        let roles = ensure_admin_role(ctx, &user.id, &email).await;
+        // --- Step 4: upsert the provider_links row ---
+        if let Err(e) = provider_links::upsert(
+            ctx,
+            provider_links::NewLink {
+                provider: &provider,
+                provider_ref: &provider_ref,
+                user_id: &user_id,
+                provider_login: &provider_login,
+                access_token: access_token_oauth,
+            },
+        )
+        .await
+        {
+            // Log but don't fail — the user is authenticated; link persistence
+            // is best-effort metadata. A failed upsert means re-login will
+            // fall back to email-based merging on next attempt.
+            tracing::warn!("Failed to upsert provider_links: {e}");
+        }
+
+        // Step 5: update last_login_at on the users row (best-effort).
+        let upd = json_map(serde_json::json!({
+            "last_login_at": crate::blocks::helpers::now_rfc3339()
+        }));
+        if let Err(e) = db::update(ctx, USERS_COLLECTION, &user_id, upd).await {
+            tracing::warn!("Failed to update last_login_at: {e}");
+        }
+
+        let roles = ensure_admin_role(ctx, &user_id, &email).await;
         let (jwt_token, refresh_token, family) = match generate_tokens(
             ctx,
-            &user.id,
+            &user_id,
             &email,
             &roles,
             &format!("oauth.{}", provider),
@@ -441,7 +522,7 @@ impl AuthBlock {
             Ok(t) => t,
             Err(r) => return r,
         };
-        store_refresh_token(ctx, &user.id, &refresh_token, &family).await;
+        store_refresh_token(ctx, &user_id, &refresh_token, &family).await;
 
         // Redirect to frontend — token is set via HttpOnly cookie only (not URL)
         let frontend_url = config::get_default(
