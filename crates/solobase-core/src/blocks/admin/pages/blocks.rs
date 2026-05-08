@@ -75,7 +75,7 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             {
                 (icons::arrow_up_right()) " Explore WASM blocks"
             }
-            a .btn .btn-primary .btn-sm href="/debug/inspector/ui" target="_blank" {
+            a .btn .btn-primary .btn-sm href="/b/inspector/ui" target="_blank" {
                 (icons::globe()) " Open Inspector"
             }
         }
