@@ -66,7 +66,7 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             @if active_tab == "users" {
                 (users_tab(ctx, msg, &current_uid).await)
             } @else if active_tab == "roles" {
-                (roles_tab(ctx).await)
+                div #iam-content { (roles_tab(ctx).await) }
             } @else {
                 (api_keys_tab(ctx).await)
             }
