@@ -253,7 +253,8 @@ mod tests {
         let resp = sessions_page(&ctx, &msg).await;
         let html = output_html(resp).await;
 
-        assert!(html.contains("Active sessions"), "missing page title");
+        // Title moved to Topbar crumb + subtitle (see ui(pages) commit).
+        assert!(html.contains("Sessions"), "missing page title");
         // Two Revoke buttons (one per row).
         assert!(
             html.matches(">Revoke<").count() >= 2,

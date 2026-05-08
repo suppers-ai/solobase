@@ -1316,11 +1316,11 @@ mod integration_tests {
         let msg = admin_msg("retrieve", "/b/storage/");
         let body = output_html(bucket_list_page(&ctx, &msg).await).await;
 
-        // Primary-action slot is populated (proves we're not still on
-        // `primary_action: None`).
+        // Primary-action lives in the Topbar slot now (see ui(pages) commit
+        // that moved page-header content into the topbar).
         assert!(
-            body.contains("page-header__action"),
-            "page-header action slot missing: {body}"
+            body.contains("topbar__action"),
+            "topbar action slot missing: {body}"
         );
         assert!(
             body.contains("+ New bucket"),
