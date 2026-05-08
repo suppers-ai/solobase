@@ -46,13 +46,38 @@ fn files_page<'a>(
     content: Markup,
     msg: &Message,
 ) -> OutputStream {
+    files_page_with_action(
+        title,
+        config,
+        path,
+        user,
+        crumb_label,
+        subtitle,
+        None,
+        content,
+        msg,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn files_page_with_action<'a>(
+    title: &str,
+    config: &SiteConfig,
+    path: &str,
+    user: Option<&UserInfo>,
+    crumb_label: &'a str,
+    subtitle: Option<&'a str>,
+    primary_action: Option<Markup>,
+    content: Markup,
+    msg: &Message,
+) -> OutputStream {
     let groups = nav_groups::admin();
     let topbar = Topbar {
         crumbs: vec![Crumb {
             label: crumb_label,
             href: None,
         }],
-        primary_action: None,
+        primary_action,
         subtitle,
         show_palette: true,
     };
@@ -296,6 +321,11 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
 
+    // Admin can create buckets the same way users do — re-use the
+    // native <dialog> modal + JS from `pages_user`. The bootstrap
+    // script with empty bucket/prefix is needed for the JS to wire
+    // the "+ New bucket" trigger; without it the JS bails on init.
+    let js_url = crate::ui::assets::files_browser_js_url();
     let body = list_page(
         PageHeader {
             title: "",
@@ -303,17 +333,30 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
             primary_action: None,
         },
         None,
-        render_admin_buckets_table(&rows),
+        html! {
+            (render_admin_buckets_table(&rows))
+            (super::pages_user::render_new_bucket_modal())
+            script type="application/json" id="files-browser-bootstrap" {
+                "{}"
+            }
+            script src=(js_url) defer {}
+        },
         None,
     );
 
-    files_page(
+    files_page_with_action(
         "Buckets",
         &config,
         "/b/storage/admin/buckets",
         user.as_ref(),
         "Buckets",
         Some("All storage buckets"),
+        Some(crate::ui::components::button(
+            crate::ui::components::BtnVariant::Primary,
+            crate::ui::components::CtrlSize::Sm,
+            "+ New bucket",
+            maud::PreEscaped(r#"type="button" data-action="open-new-bucket""#.to_string()),
+        )),
         body,
         msg,
     )
