@@ -21,6 +21,24 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     let wrangler_path = wrangler::generate(&cfg, repo_root, &out_dir)?;
     println!("-> {}", wrangler_path.display());
 
+    // Generate D1 migrations from registered blocks' CollectionSchema.
+    // Wrangler picks these up via `migrations_dir` in wrangler.toml when
+    // `wrangler d1 migrations apply` runs at deploy time.
+    let migrations_dir = out_dir.join("migrations");
+    std::fs::create_dir_all(&migrations_dir)?;
+    let block_infos = solobase_core::blocks::all_block_infos();
+    let collections: Vec<_> = block_infos
+        .iter()
+        .flat_map(|b| b.collections.iter().cloned())
+        .collect();
+    let sql = solobase_core::migrations::generate_initial_schema(&collections);
+    std::fs::write(migrations_dir.join("0001_initial_schema.sql"), &sql)?;
+    println!(
+        "-> wrote {} bytes of migrations to {}",
+        sql.len(),
+        migrations_dir.display()
+    );
+
     cf_build::run(repo_root, release)?;
 
     let report = assets::stage(repo_root, &out_dir)?;
