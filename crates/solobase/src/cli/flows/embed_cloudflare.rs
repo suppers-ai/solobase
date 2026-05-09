@@ -33,9 +33,18 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
         .collect();
     let sql = solobase_core::migrations::generate_initial_schema(&collections);
     std::fs::write(migrations_dir.join("0001_initial_schema.sql"), &sql)?;
+
+    // Hand-authored migrations for blocks whose schema isn't declared via
+    // CollectionSchema (e.g. wafer-core's AuthBlock). Embedded at compile
+    // time; written alongside the auto-generated initial schema.
+    for (name, content) in solobase_core::migrations::extra_migrations() {
+        std::fs::write(migrations_dir.join(name), content)?;
+    }
+
+    let migration_count = std::fs::read_dir(&migrations_dir)?.count();
     println!(
-        "-> wrote {} bytes of migrations to {}",
-        sql.len(),
+        "-> wrote {} migration files to {}",
+        migration_count,
         migrations_dir.display()
     );
 
