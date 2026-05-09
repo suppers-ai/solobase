@@ -61,4 +61,20 @@ mod tests {
         assert_eq!(*v, 42);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
+
+    #[tokio::test]
+    async fn second_call_within_ttl_does_not_refetch() {
+        let cache: TtlCache<u32> = TtlCache::new(Duration::from_secs(60));
+        let calls = AtomicUsize::new(0);
+        let _ = cache.get_or_load(|| async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            7
+        }).await;
+        let v = cache.get_or_load(|| async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            99
+        }).await;
+        assert_eq!(*v, 7, "should return cached value, not new fetcher result");
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "fetcher should not run twice");
+    }
 }
