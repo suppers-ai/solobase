@@ -6,6 +6,7 @@
 
 pub mod blocks;
 pub mod builder;
+pub mod cache;
 pub mod config_vars;
 pub mod crypto;
 pub mod features;
