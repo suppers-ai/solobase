@@ -59,6 +59,27 @@ mod tests {
     }
 
     #[test]
+    fn render_create_table_unique_and_typed_fields() {
+        let schema = CollectionSchema::new("suppers_ai__demo__items")
+            .field_unique("slug", "text")
+            .field("count", "int")
+            .field("ratio", "real")
+            .field("payload", "blob");
+        let sql = render_create_table(&schema);
+        let expected = "\
+CREATE TABLE IF NOT EXISTS suppers_ai__demo__items (
+    id TEXT PRIMARY KEY,
+    slug TEXT UNIQUE,
+    count INTEGER,
+    ratio REAL,
+    payload BLOB,
+    created_at TEXT,
+    updated_at TEXT
+)";
+        assert_eq!(sql, expected);
+    }
+
+    #[test]
     fn render_create_table_simple_text_fields() {
         let schema = CollectionSchema::new("suppers_ai__demo__widgets")
             .field("name", "text")
