@@ -29,7 +29,9 @@ impl<T> TtlCache<T> {
         Fut: std::future::Future<Output = T>,
     {
         if let Some((value, loaded_at)) = &*self.state.lock().expect("TtlCache poisoned") {
-            if loaded_at.elapsed() < self.ttl {
+            // `Duration::MAX` means "never expire" — short-circuit so we don't call
+            // `loaded_at.elapsed()`, which panics on `wasm32-unknown-unknown`.
+            if self.ttl == Duration::MAX || loaded_at.elapsed() < self.ttl {
                 return Arc::clone(value);
             }
         }
@@ -102,7 +104,7 @@ mod tests {
             })
             .await;
 
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
 
         let v = cache
             .get_or_load(|| async {
@@ -138,5 +140,37 @@ mod tests {
 
         assert_eq!(*v, 2);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn duration_max_ttl_never_expires_and_returns_cached() {
+        let cache: TtlCache<u32> = TtlCache::new(Duration::MAX);
+        let calls = AtomicUsize::new(0);
+
+        let v1 = cache
+            .get_or_load(|| async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                5
+            })
+            .await;
+
+        // Even after a sleep that would exceed any reasonable finite TTL,
+        // Duration::MAX means we should still hit the cache without ever
+        // calling `loaded_at.elapsed()`.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let v2 = cache
+            .get_or_load(|| async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                999
+            })
+            .await;
+
+        assert_eq!(*v2, 5);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(
+            Arc::ptr_eq(&v1, &v2),
+            "same Arc should be returned for cache hits"
+        );
     }
 }
