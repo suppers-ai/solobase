@@ -3,17 +3,22 @@
 //! Implements the shared `DatabaseService` trait from wafer-core so D1Block
 //! can reuse the shared message handler.
 //!
-//! ## Lazy schema
+//! ## Lazy schema (cached)
 //!
 //! Mirrors `wafer-block-sqlite`'s lazy-schema semantics: reads against a
 //! missing table return empty/NotFound (instead of erroring), and the
 //! first `create()` against a collection runs `CREATE TABLE IF NOT EXISTS`
-//! to materialize the table from the data keys (TEXT columns, `id` as
-//! PRIMARY KEY). This keeps init code paths like `seed_reserved_orgs`
-//! working on a fresh D1 without external migrations — same behavior as
-//! a fresh native sqlite file.
+//! + `PRAGMA table_info` to materialize the table from the data keys.
+//!
+//! Schema checks are cached per-isolate via `SCHEMA_CACHE`. After a table
+//! is verified once, subsequent inserts to the same columns skip the
+//! schema work entirely. Migrations applied at deploy time pre-populate
+//! most tables so even cold-isolate first-requests benefit.
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::OnceLock,
+};
 
 use wafer_core::interfaces::database::service::{
     Column, DatabaseError, DatabaseService, Filter, FilterOp, ListOptions, Record, RecordList,
@@ -84,6 +89,73 @@ impl D1DatabaseService {
             })
             .collect())
     }
+
+    /// Ensure `table` exists and has columns for every key in `data`.
+    /// First call per (isolate, table) runs CREATE TABLE + PRAGMA + ALTER
+    /// as needed; subsequent calls hit the in-memory cache and skip the
+    /// schema work entirely.
+    async fn ensure_schema(
+        &self,
+        table: &str,
+        data: &HashMap<String, serde_json::Value>,
+    ) -> Result<(), DatabaseError> {
+        let needed: HashSet<String> = data
+            .keys()
+            .map(|k| sanitize_ident(k).to_lowercase())
+            .collect();
+
+        // Fast path: cached set covers all needed columns.
+        {
+            let cache = schema_cache().lock().expect("schema cache poisoned");
+            if let Some(known) = cache.get(table) {
+                if needed.iter().all(|k| known.contains(k)) {
+                    return Ok(());
+                }
+            }
+        }
+
+        // Slow path: ensure the table exists with the needed columns.
+        let ddl = ensure_table_sql(table, data.keys().map(|k| k.as_str()));
+        self.db
+            .prepare(&ddl)
+            .run()
+            .await
+            .map_err(|e| db_err(format!("ensure_table {}: {e}", table)))?;
+        self.add_missing_columns(table, data).await;
+
+        // Re-read the column set and update the cache so subsequent
+        // inserts see the now-superset and take the fast path.
+        if let Ok(cols) = self.list_table_columns(table).await {
+            schema_cache()
+                .lock()
+                .expect("schema cache poisoned")
+                .insert(table.to_string(), cols);
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-isolate schema cache
+// ---------------------------------------------------------------------------
+
+/// Per-isolate cache of "tables we've already verified exist with these
+/// columns" — keyed by sanitized table name, value is the lowercased
+/// column-name set.
+///
+/// On every Worker request we'd otherwise run `CREATE TABLE IF NOT EXISTS`
+/// + `PRAGMA table_info` for every insert. This cache makes that work
+/// run once per (isolate, table) pair instead — first request after a
+/// cold isolate pays the cost; warm-isolate requests skip both queries.
+///
+/// Migrations applied at deploy time pre-populate most tables so the
+/// "first cold-start request" cost is reduced too — but the cache is the
+/// safety net for any block whose schema isn't declared via
+/// CollectionSchema (and so isn't in the generated migrations).
+static SCHEMA_CACHE: OnceLock<std::sync::Mutex<HashMap<String, HashSet<String>>>> = OnceLock::new();
+
+fn schema_cache() -> &'static std::sync::Mutex<HashMap<String, HashSet<String>>> {
+    SCHEMA_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
 // Safety: wasm32-unknown-unknown is single-threaded.
@@ -195,27 +267,12 @@ impl DatabaseService for D1DatabaseService {
         data.entry("updated_at".to_string())
             .or_insert_with(|| serde_json::Value::String(now));
 
-        // Lazy schema: materialize the table on first insert. Mirrors the
-        // native sqlite service. The `id` column gets PRIMARY KEY; every
-        // other key from `data` becomes a TEXT column.
-        let ddl = ensure_table_sql(&table, data.keys().map(|k| k.as_str()));
-        self.db
-            .prepare(&ddl)
-            .run()
-            .await
-            .map_err(|e| db_err(format!("ensure_table {}: {e}", table)))?;
-
-        // Schema evolution: when the table already existed (e.g. seeded
-        // with a smaller column set by an earlier insert from a different
-        // code path), `IF NOT EXISTS` is a no-op — the new keys we're
-        // about to insert wouldn't have columns. Mirror native sqlite's
-        // `ensure_table` and ALTER TABLE ADD COLUMN for every data key
-        // not already on the table. Errors are intentionally swallowed:
-        // a concurrent insert may have added the same column already
-        // (D1 surfaces "duplicate column name" in that case), and we'd
-        // rather let the subsequent INSERT either succeed or fail with
-        // a clearer message than abort here on a benign race.
-        self.add_missing_columns(&table, &data).await;
+        // Lazy schema: materialize the table on first insert. Cached per
+        // isolate — first call per (isolate, table) runs CREATE TABLE IF
+        // NOT EXISTS + PRAGMA table_info + any ALTER TABLE ADD COLUMN
+        // needed; subsequent calls hit the in-memory cache and skip all
+        // schema work.
+        self.ensure_schema(&table, &data).await?;
 
         let mut columns = vec!["id".to_string()];
         let mut placeholders = vec!["?".to_string()];
