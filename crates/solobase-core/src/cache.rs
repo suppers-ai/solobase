@@ -77,4 +77,25 @@ mod tests {
         assert_eq!(*v, 7, "should return cached value, not new fetcher result");
         assert_eq!(calls.load(Ordering::SeqCst), 1, "fetcher should not run twice");
     }
+
+    #[tokio::test]
+    async fn refetch_after_ttl_expires() {
+        let cache: TtlCache<u32> = TtlCache::new(Duration::from_millis(10));
+        let calls = AtomicUsize::new(0);
+
+        let _ = cache.get_or_load(|| async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            1
+        }).await;
+
+        tokio::time::sleep(Duration::from_millis(25)).await;
+
+        let v = cache.get_or_load(|| async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            2
+        }).await;
+
+        assert_eq!(*v, 2, "should refetch after TTL");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
 }
