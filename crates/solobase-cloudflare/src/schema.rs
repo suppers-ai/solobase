@@ -426,21 +426,8 @@ const MIGRATIONS: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_suppers_ai__admin__request_logs_created ON suppers_ai__admin__request_logs (created_at)",
 
     // =========================================================================
-    // ADMIN BLOCK — outbound network request logs and rules
+    // ADMIN BLOCK — network rules
     // =========================================================================
-
-    "CREATE TABLE IF NOT EXISTS suppers_ai__admin__network_request_logs (
-        id TEXT PRIMARY KEY,
-        source_block TEXT DEFAULT '',
-        method TEXT DEFAULT '',
-        url TEXT DEFAULT '',
-        status_code INTEGER DEFAULT 0,
-        duration_ms INTEGER DEFAULT 0,
-        error_message TEXT DEFAULT '',
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now'))
-    )",
-    "CREATE INDEX IF NOT EXISTS idx_suppers_ai__admin__network_request_logs_created ON suppers_ai__admin__network_request_logs (created_at)",
 
     "CREATE TABLE IF NOT EXISTS suppers_ai__admin__network_rules (
         id TEXT PRIMARY KEY,
