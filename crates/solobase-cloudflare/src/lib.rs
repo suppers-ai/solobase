@@ -9,6 +9,7 @@
 //! This crate is wasm-only; building for native targets is not supported.
 
 pub mod config_service;
+mod config_cache;
 pub mod convert;
 pub mod crypto_service;
 pub mod database;
