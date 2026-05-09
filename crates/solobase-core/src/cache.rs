@@ -4,9 +4,10 @@
 //! a Worker isolate's lifetime. Generic so the unit tests live here on the
 //! native target — the cloudflare crate has no `cargo test` surface.
 
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
-use std::sync::Arc;
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 pub struct TtlCache<T> {
     state: Mutex<Option<(Arc<T>, Instant)>>,
@@ -47,17 +48,20 @@ impl<T> TtlCache<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
 
     #[tokio::test]
     async fn first_call_runs_fetcher() {
         let cache: TtlCache<u32> = TtlCache::new(Duration::from_secs(60));
         let calls = AtomicUsize::new(0);
-        let v = cache.get_or_load(|| async {
-            calls.fetch_add(1, Ordering::SeqCst);
-            42
-        }).await;
+        let v = cache
+            .get_or_load(|| async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                42
+            })
+            .await;
         assert_eq!(*v, 42);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
@@ -66,16 +70,24 @@ mod tests {
     async fn second_call_within_ttl_does_not_refetch() {
         let cache: TtlCache<u32> = TtlCache::new(Duration::from_secs(60));
         let calls = AtomicUsize::new(0);
-        let _ = cache.get_or_load(|| async {
-            calls.fetch_add(1, Ordering::SeqCst);
-            7
-        }).await;
-        let v = cache.get_or_load(|| async {
-            calls.fetch_add(1, Ordering::SeqCst);
-            99
-        }).await;
+        let _ = cache
+            .get_or_load(|| async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                7
+            })
+            .await;
+        let v = cache
+            .get_or_load(|| async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                99
+            })
+            .await;
         assert_eq!(*v, 7, "should return cached value, not new fetcher result");
-        assert_eq!(calls.load(Ordering::SeqCst), 1, "fetcher should not run twice");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "fetcher should not run twice"
+        );
     }
 
     #[tokio::test]
@@ -83,19 +95,48 @@ mod tests {
         let cache: TtlCache<u32> = TtlCache::new(Duration::from_millis(10));
         let calls = AtomicUsize::new(0);
 
-        let _ = cache.get_or_load(|| async {
-            calls.fetch_add(1, Ordering::SeqCst);
-            1
-        }).await;
+        let _ = cache
+            .get_or_load(|| async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                1
+            })
+            .await;
 
         tokio::time::sleep(Duration::from_millis(25)).await;
 
-        let v = cache.get_or_load(|| async {
-            calls.fetch_add(1, Ordering::SeqCst);
-            2
-        }).await;
+        let v = cache
+            .get_or_load(|| async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                2
+            })
+            .await;
 
         assert_eq!(*v, 2, "should refetch after TTL");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn invalidate_forces_refetch() {
+        let cache: TtlCache<u32> = TtlCache::new(Duration::from_secs(60));
+        let calls = AtomicUsize::new(0);
+
+        let _ = cache
+            .get_or_load(|| async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                1
+            })
+            .await;
+
+        cache.invalidate();
+
+        let v = cache
+            .get_or_load(|| async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                2
+            })
+            .await;
+
+        assert_eq!(*v, 2);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 }
