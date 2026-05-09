@@ -13,6 +13,7 @@ pub trait FeatureConfig: wafer_run::MaybeSend + wafer_run::MaybeSync {
 
 /// Generic block settings backed by a HashMap.
 /// Blocks default to enabled unless explicitly disabled.
+#[derive(Clone)]
 pub struct BlockSettings {
     enabled: HashMap<String, bool>,
 }

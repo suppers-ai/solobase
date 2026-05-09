@@ -11,12 +11,13 @@
 //! handled by *this* isolate; other isolates pick up changes when they
 //! recycle naturally (or by future PR work that adds proper signalling).
 
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
-use solobase_core::cache::TtlCache;
-use solobase_core::features::BlockSettings;
+use solobase_core::{cache::TtlCache, features::BlockSettings};
 
 pub type ConfigSnapshot = (HashMap<String, String>, BlockSettings);
 

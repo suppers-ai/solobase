@@ -8,8 +8,8 @@
 //!
 //! This crate is wasm-only; building for native targets is not supported.
 
-pub mod config_service;
 mod config_cache;
+pub mod config_service;
 pub mod convert;
 pub mod crypto_service;
 pub mod database;
@@ -149,8 +149,17 @@ where
     let db = make_d1_database_service(&env, runner::D1_BINDING)
         .map_err(|e| format!("D1 binding {:?}: {e}", runner::D1_BINDING))?;
 
-    // 2. Load env vars; merge protected worker::Env bindings on top.
-    let mut env_vars = runner::load_env_vars(&db).await;
+    // 2. Load env vars + block settings via per-isolate cache.
+    //    First request after isolate cold-start hits D1 twice; subsequent
+    //    requests serve from RAM. Merge protected worker::Env bindings on
+    //    top freshly each request — they're CF env bindings, not D1 vars.
+    let snapshot = config_cache::get_or_load(|| async {
+        let env_vars = runner::load_env_vars(&db).await;
+        let block_settings = runner::load_block_settings(&db).await;
+        (env_vars, block_settings)
+    })
+    .await;
+    let mut env_vars = snapshot.0.clone();
     for key in PROTECTED_ENV_KEYS {
         if let Ok(secret) = env.secret(key) {
             env_vars.insert(key.to_string(), secret.to_string());
@@ -173,7 +182,7 @@ where
     //    bucket Arc — `.storage()` consumes one and the post-build hook
     //    receives the other so it can register blocks that need direct R2
     //    access (e.g. a static-asset content block).
-    let block_settings = runner::load_block_settings(&db).await;
+    let block_settings = snapshot.1.clone();
     let builder = SolobaseBuilder::new()
         .database(db)
         .storage(bucket.clone())
