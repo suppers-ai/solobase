@@ -103,6 +103,15 @@ pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {
     let out_dir = repo_root.join("target/solobase-cloudflare");
     let wrangler_toml = out_dir.join("wrangler.toml");
 
+    // Apply D1 migrations BEFORE pushing the worker bundle. The new code
+    // expects tables to exist (no more lazy ensure_table()), so migrations
+    // must land first.
+    let migrations_dir = out_dir.join("migrations");
+    if migrations_dir.is_dir() {
+        cf_deploy::d1_migrate_remote(&cfg.d1.database_name, &wrangler_toml)?;
+        println!("-> D1 migrations applied to {}", cfg.d1.database_name);
+    }
+
     cf_deploy::wrangler_deploy(&wrangler_toml)?;
 
     let assets_root = out_dir.join("assets");
@@ -111,11 +120,6 @@ pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {
         "-> uploaded {} R2 objects to bucket {}",
         n, cfg.r2.bucket_name
     );
-
-    if repo_root.join("migrations").is_dir() {
-        cf_deploy::d1_migrate_remote(&cfg.d1.database_name, &wrangler_toml)?;
-        println!("-> D1 migrations applied to {}", cfg.d1.database_name);
-    }
 
     println!();
     println!("deploy complete");
