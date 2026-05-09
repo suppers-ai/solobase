@@ -6,6 +6,31 @@
 
 use wafer_block::types::{CollectionSchema, IndexSchema};
 
+/// Hand-authored migration SQL that can't be derived from `CollectionSchema`.
+///
+/// Auth declares its schema through the `service_blocks::auth::AuthBlock`,
+/// whose `info()` method does not declare any `CollectionSchema` — so the
+/// auto-generator can't reach those tables. They live as hand-authored SQL
+/// shipped at `blocks/auth/migrations/*.sqlite.sql` and embedded here at
+/// compile time.
+///
+/// Returned as `(filename, content)` pairs. The build script writes them
+/// alongside the auto-generated `0001_initial_schema.sql`. Filenames begin
+/// at `0002_` so `wrangler d1 migrations apply` runs them after the
+/// auto-generated initial schema.
+pub fn extra_migrations() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (
+            "0002_auth_schema.sql",
+            include_str!("blocks/auth/migrations/001_auth_schema.sqlite.sql"),
+        ),
+        (
+            "0003_reserved_orgs.sql",
+            include_str!("blocks/auth/migrations/002_reserved_orgs.sqlite.sql"),
+        ),
+    ]
+}
+
 /// Render a single CREATE TABLE statement (without trailing semicolon).
 pub fn render_create_table(schema: &CollectionSchema) -> String {
     let mut col_lines = vec!["    id TEXT PRIMARY KEY".to_string()];
