@@ -10,7 +10,7 @@ use std::{
 };
 
 pub struct TtlCache<T> {
-    state: Mutex<Option<(Arc<T>, Instant)>>,
+    state: Mutex<Option<(Arc<T>, Option<Instant>)>>,
     ttl: Duration,
 }
 
@@ -23,22 +23,31 @@ impl<T> TtlCache<T> {
     }
 
     /// Returns the cached value if fresh, otherwise runs `fetcher` and caches the result.
+    ///
+    /// `Instant::now()` and `Instant::elapsed()` panic on `wasm32-unknown-unknown`
+    /// (no `time` syscall). Callers targeting wasm pass `Duration::MAX` as the TTL —
+    /// the cache then never calls into `Instant`, on either the read or write side.
     pub async fn get_or_load<F, Fut>(&self, fetcher: F) -> Arc<T>
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = T>,
     {
         if let Some((value, loaded_at)) = &*self.state.lock().expect("TtlCache poisoned") {
-            // `Duration::MAX` means "never expire" — short-circuit so we don't call
-            // `loaded_at.elapsed()`, which panics on `wasm32-unknown-unknown`.
-            if self.ttl == Duration::MAX || loaded_at.elapsed() < self.ttl {
+            if self.ttl == Duration::MAX
+                || loaded_at.as_ref().map_or(false, |t| t.elapsed() < self.ttl)
+            {
                 return Arc::clone(value);
             }
         }
         let fresh = fetcher().await;
         let arc = Arc::new(fresh);
+        let loaded_at = if self.ttl == Duration::MAX {
+            None
+        } else {
+            Some(Instant::now())
+        };
         let mut guard = self.state.lock().expect("TtlCache poisoned");
-        *guard = Some((Arc::clone(&arc), Instant::now()));
+        *guard = Some((Arc::clone(&arc), loaded_at));
         arc
     }
 
