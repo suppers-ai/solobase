@@ -46,7 +46,25 @@ pub fn generate_initial_schema(collections: &[CollectionSchema]) -> String {
     if collections.is_empty() {
         return String::new();
     }
-    todo!("Task 5 will implement non-empty path")
+    let mut out = String::new();
+    for s in collections {
+        out.push_str(&render_create_table(s));
+        out.push_str(";\n\n");
+    }
+    for s in collections {
+        for idx in &s.indexes {
+            out.push_str(&render_create_index(&s.name, idx));
+            out.push('\n');
+        }
+    }
+    out
+}
+
+fn render_create_index(table: &str, idx: &IndexSchema) -> String {
+    let cols = idx.fields.join("__");
+    let unique = if idx.unique { "UNIQUE " } else { "" };
+    let cols_csv = idx.fields.join(", ");
+    format!("CREATE {unique}INDEX IF NOT EXISTS idx_{table}__{cols} ON {table} ({cols_csv});")
 }
 
 #[cfg(test)]
@@ -56,6 +74,22 @@ mod tests {
     #[test]
     fn empty_input_produces_empty_string() {
         assert_eq!(generate_initial_schema(&[]), "");
+    }
+
+    #[test]
+    fn generate_initial_schema_emits_all_tables_and_indexes() {
+        let widgets = CollectionSchema::new("suppers_ai__demo__widgets").field("name", "text");
+        let things = CollectionSchema::new("suppers_ai__demo__things")
+            .field("widget_id", "text")
+            .index(&["widget_id"]);
+        let sql = generate_initial_schema(&[widgets, things]);
+        assert!(sql.contains("CREATE TABLE IF NOT EXISTS suppers_ai__demo__widgets"));
+        assert!(sql.contains("CREATE TABLE IF NOT EXISTS suppers_ai__demo__things"));
+        assert!(sql.contains(
+            "CREATE INDEX IF NOT EXISTS idx_suppers_ai__demo__things__widget_id \
+             ON suppers_ai__demo__things (widget_id);"
+        ));
+        assert!(sql.ends_with(";\n"));
     }
 
     #[test]
