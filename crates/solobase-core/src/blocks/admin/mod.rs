@@ -12,7 +12,6 @@ pub(crate) const PERMISSIONS_COLLECTION: &str = "suppers_ai__admin__permissions"
 pub(crate) const USER_ROLES_COLLECTION: &str = "suppers_ai__admin__user_roles";
 pub(crate) const AUDIT_LOGS_COLLECTION: &str = "suppers_ai__admin__audit_logs";
 pub(crate) const REQUEST_LOGS_COLLECTION: &str = "suppers_ai__admin__request_logs";
-pub(crate) const NETWORK_REQUEST_LOGS_COLLECTION: &str = "suppers_ai__admin__network_request_logs";
 pub(crate) const STORAGE_ACCESS_LOGS_COLLECTION: &str = "suppers_ai__admin__storage_access_logs";
 pub(crate) const STORAGE_RULES_COLLECTION: &str = "suppers_ai__admin__storage_rules";
 pub const BLOCK_SETTINGS_COLLECTION: &str = "suppers_ai__admin__block_settings";
@@ -98,14 +97,6 @@ impl Block for AdminBlock {
                     .field_default("client_ip", "string", "")
                     .field_default("user_id", "string", "")
                     .index(&["created_at"]),
-                CollectionSchema::new(NETWORK_REQUEST_LOGS_COLLECTION)
-                    .field_default("source_block", "string", "")
-                    .field_default("method", "string", "")
-                    .field_default("url", "string", "")
-                    .field_default("status_code", "int", "0")
-                    .field_default("duration_ms", "int", "0")
-                    .field_default("error_message", "string", "")
-                    .index(&["created_at"]),
                 CollectionSchema::new(STORAGE_ACCESS_LOGS_COLLECTION)
                     .field_default("source_block", "string", "")
                     .field_default("operation", "string", "")
@@ -126,8 +117,7 @@ impl Block for AdminBlock {
                 wafer_run::ResourceGrant::read_write(super::auth::AUTH_BLOCK_ID, USER_ROLES_COLLECTION),
                 wafer_run::ResourceGrant::read(super::auth::AUTH_BLOCK_ID, VARIABLES_COLLECTION),
                 wafer_run::ResourceGrant::read("suppers-ai/userportal", BLOCK_SETTINGS_COLLECTION),
-                // Infrastructure logging: network/storage wrappers + pipeline write logs
-                wafer_run::ResourceGrant::read_write("*", NETWORK_REQUEST_LOGS_COLLECTION),
+                // Infrastructure logging: storage wrapper + pipeline write logs
                 wafer_run::ResourceGrant::read_write("*", STORAGE_ACCESS_LOGS_COLLECTION),
                 wafer_run::ResourceGrant::read_write("*", REQUEST_LOGS_COLLECTION),
                 // Default: allow all blocks to make outbound network requests.
@@ -360,9 +350,6 @@ impl Block for AdminBlock {
             // Network detail fragments (htmx)
             if action == "retrieve" && sub == "/network/detail/inbound" {
                 return pages::network_inbound_detail(ctx, &msg).await;
-            }
-            if action == "retrieve" && sub == "/network/detail/outbound" {
-                return pages::network_outbound_detail(ctx, &msg).await;
             }
 
             // WRAP grants CRUD (htmx)
