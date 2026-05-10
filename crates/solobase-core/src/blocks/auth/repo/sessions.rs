@@ -287,13 +287,10 @@ mod tests_phase_4 {
         }
     }
 
-    /// Seed a user using the live (TEXT-everything) convention via
-    /// `db::create`, matching how `seed_admin_user` writes rows in
-    /// production. This sidesteps the migration's NOT NULL on
-    /// `display_name`/`role` so the test can use the unwired-migration
-    /// schema while still mirroring production.
+    /// Seed a user row directly via SQL so the test can pin a deterministic
+    /// `user_id` — `db::create` would generate one. The row provides every
+    /// NOT NULL column required by the auth migration.
     async fn seed_user(ctx: &TestContext, user_id: &str) {
-        // Use exec_raw so we can pin the id (db::create would generate one).
         db::exec_raw(
             ctx,
             "INSERT INTO suppers_ai__auth__users (id, email, display_name, role, created_at, updated_at) \
