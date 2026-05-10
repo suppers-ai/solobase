@@ -41,32 +41,16 @@ pub(super) async fn load_variables(ctx: &dyn Context) -> HashMap<String, String>
     settings
 }
 
-// Lookup precedence: DB > env > default. See `get` below.
-/// Lookup precedence for shared / block-scoped settings:
-///
-/// 1. Admin-managed value persisted in the variables table (`settings` map).
-/// 2. Process environment variable of the same name — lets `.env` bootstrap
-///    a fresh deployment (e.g. `SOLOBASE_SHARED__ALLOW_SIGNUP=false`)
-///    before any admin has touched the UI.
-/// 3. Hardcoded `default`.
-///
-/// The fallback uses a `Box::leak`-free pattern: we cache the env lookup
-/// in a thread-local so the borrow can outlive the closure. Simpler:
-/// rebind via `String::leak` — but we want a clean borrow lifetime, so the
-/// signature returns `Cow<'a, str>`. Callers compare with `==` or pass the
-/// result through `to_string()`, which both work transparently.
+/// Lookup a shared / block-scoped setting from the variables table, falling
+/// back to `default` when the key is absent. The variables table is the
+/// single source of truth — process env is only read at first cold-start by
+/// `admin::settings::seed_admin_variables` to populate this table.
 pub(super) fn get<'a>(
     settings: &'a HashMap<String, String>,
     key: &str,
     default: &'a str,
-) -> std::borrow::Cow<'a, str> {
-    if let Some(v) = settings.get(key) {
-        return std::borrow::Cow::Borrowed(v.as_str());
-    }
-    if let Ok(v) = std::env::var(key) {
-        return std::borrow::Cow::Owned(v);
-    }
-    std::borrow::Cow::Borrowed(default)
+) -> &'a str {
+    settings.get(key).map(String::as_str).unwrap_or(default)
 }
 
 /// Build SiteConfig from the variables settings map.
@@ -108,11 +92,11 @@ pub(super) fn site_config(settings: &HashMap<String, String>) -> SiteConfig {
 /// - `SUPPERS_AI__AUTH_UI__OAUTH_<PROVIDER>_CLIENT_ID`
 /// - `SUPPERS_AI__AUTH_UI__OAUTH_<PROVIDER>_CLIENT_SECRET`
 /// - `SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI` (single URI, provider-agnostic;
-///    the provider is encoded in the signed `state` JWT)
+///   the provider is encoded in the signed `state` JWT)
 ///
 /// These match what `oauth.rs` actually reads when building the auth_url.
-/// On cloudflare the values come from D1 via `load_variables`; on native
-/// they fall through to process env via `get()`.
+/// Values come from the variables table via `load_variables` on both
+/// native (sqlite) and cloudflare (D1).
 pub(super) fn oauth_provider_configured(
     settings: &HashMap<String, String>,
     provider: &str,
