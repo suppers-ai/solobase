@@ -4,10 +4,10 @@
 //! "is admin" outcome plus an `Instant` at which the entry was inserted;
 //! entries expire after a configurable TTL (5 minutes in production).
 //!
-//! Successful provider calls (including a definitive "not an admin") are
-//! cached. Transient errors (provider 5xx → `ProviderError::Upstream`) are
-//! NOT cached — the caller's error bubbles up so a GitHub outage doesn't
-//! poison the cache for 5 minutes.
+//! Both positive and negative outcomes are cached. The current
+//! `verify_org_admin` implementation is fully DB-driven (reserved-org check
+//! + owner short-circuit) and never returns a transient error, so every
+//! computed answer is safe to memoize.
 //!
 //! Thread-safety is provided by a single `Mutex<HashMap<…>>`. At launch
 //! traffic the lock contention is negligible; if that changes we can swap
