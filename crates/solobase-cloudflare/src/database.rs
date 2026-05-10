@@ -12,8 +12,10 @@
 //!
 //! Schema checks are cached per-isolate via `SCHEMA_CACHE`. After a table
 //! is verified once, subsequent inserts to the same columns skip the
-//! schema work entirely. Migrations applied at deploy time pre-populate
-//! most tables so even cold-isolate first-requests benefit.
+//! schema work entirely. Blocks that own their schema (e.g. `auth`,
+//! `admin`) materialize tables via per-block `migrations/*.sql` applied
+//! from `Init` lifecycle — `ensure_schema` is the fallback for blocks
+//! that don't declare a schema.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -148,10 +150,9 @@ impl D1DatabaseService {
 /// run once per (isolate, table) pair instead — first request after a
 /// cold isolate pays the cost; warm-isolate requests skip both queries.
 ///
-/// Migrations applied at deploy time pre-populate most tables so the
-/// "first cold-start request" cost is reduced too — but the cache is the
-/// safety net for any block whose schema isn't declared via
-/// CollectionSchema (and so isn't in the generated migrations).
+/// Blocks that own their schema apply per-block migrations from `Init`
+/// (see `auth/migrations/`, `admin/migrations/`); the cache is the fallback
+/// for blocks whose schema isn't declared via per-block migrations.
 static SCHEMA_CACHE: OnceLock<std::sync::Mutex<HashMap<String, HashSet<String>>>> = OnceLock::new();
 
 fn schema_cache() -> &'static std::sync::Mutex<HashMap<String, HashSet<String>>> {
@@ -278,7 +279,11 @@ impl DatabaseService for D1DatabaseService {
         let mut placeholders = vec!["?".to_string()];
         let mut params: Vec<JsValue> = vec![id.clone().into()];
 
-        for (key, val) in &data {
+        // Sorted-key iteration — keep the generated INSERT stable across
+        // isolates so D1 sees one prepared statement per (table, column-set).
+        let mut entries: Vec<(&String, &serde_json::Value)> = data.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        for (key, val) in &entries {
             columns.push(sanitize_ident(key));
             placeholders.push("?".to_string());
             params.push(json_value_to_js(val));
@@ -317,7 +322,13 @@ impl DatabaseService for D1DatabaseService {
         let mut data = data;
         data.insert("updated_at".to_string(), serde_json::Value::String(now));
 
-        for (key, val) in &data {
+        // Iterate in sorted-key order so the generated SET clause is stable
+        // across calls. HashMap order is randomized per isolate, which would
+        // otherwise produce N permutations of the same UPDATE — each treated
+        // as a distinct prepared statement by D1's plan cache.
+        let mut entries: Vec<(&String, &serde_json::Value)> = data.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        for (key, val) in &entries {
             sets.push(format!("{} = ?", sanitize_ident(key)));
             params.push(json_value_to_js(val));
         }
@@ -472,7 +483,10 @@ impl DatabaseService for D1DatabaseService {
         let mut sets = Vec::new();
         let mut params: Vec<JsValue> = Vec::new();
 
-        for (key, val) in &data {
+        // Sorted-key iteration — see `update()` above for the rationale.
+        let mut entries: Vec<(&String, &serde_json::Value)> = data.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        for (key, val) in &entries {
             sets.push(format!("{} = ?", sanitize_ident(key)));
             params.push(json_value_to_js(val));
         }
