@@ -24,7 +24,6 @@ pub mod cache;
 pub mod config;
 pub mod migrations;
 pub mod pat;
-pub mod providers;
 pub mod repo;
 pub mod service;
 pub mod session;

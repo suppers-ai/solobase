@@ -138,48 +138,6 @@ pub async fn find_by_provider_ref(
     }
 }
 
-/// Look up the most-recently-linked row for `(user_id, provider)`. A given
-/// user can only have at most one link per provider (enforced by the
-/// OAuth callback upserting on provider+provider_ref and users being
-/// unique per provider account), so there's at most one row in practice;
-/// the `sort` + `limit: 1` just makes that explicit.
-///
-/// Used by `AuthService::verify_org_admin` to retrieve the access token it
-/// needs to call into the provider's org-membership endpoint.
-pub async fn find_by_user_provider(
-    ctx: &dyn Context,
-    user_id: &str,
-    provider: &str,
-) -> Result<Option<ProviderLink>, RepoError> {
-    let opts = db::ListOptions {
-        filters: vec![
-            db::Filter {
-                field: "user_id".into(),
-                operator: db::FilterOp::Equal,
-                value: json!(user_id),
-            },
-            db::Filter {
-                field: "provider".into(),
-                operator: db::FilterOp::Equal,
-                value: json!(provider),
-            },
-        ],
-        sort: vec![db::SortField {
-            field: "linked_at".into(),
-            desc: true,
-        }],
-        limit: 1,
-        ..Default::default()
-    };
-    let res = db::list(ctx, TABLE, &opts)
-        .await
-        .map_err(|e| RepoError::Db(format!("provider_links find_by_user_provider: {e}")))?;
-    match res.records.first() {
-        Some(r) => Ok(Some(row_from_map(&r.data)?)),
-        None => Ok(None),
-    }
-}
-
 /// Return all OAuth provider links owned by `user_id`, ordered by
 /// `linked_at` ASC for stable rendering on the security page.
 ///
@@ -187,10 +145,9 @@ pub async fn find_by_user_provider(
 /// only entry point in this module called cross-block — userportal's
 /// `/b/userportal/security` page reads it. Raw SQL is admin-only under
 /// WRAP, so the cross-block call must go through the namespaced path.
-/// The other lookups in this module (`find_by_provider_ref`,
-/// `find_by_user_provider`) remain on raw SQL because they're called
-/// only by auth itself (the resource owner — own-resource access is
-/// always permitted, regardless of typed-vs-raw).
+/// The auth-internal lookup (`find_by_provider_ref`) remains on raw SQL
+/// because it's called only by auth itself (the resource owner —
+/// own-resource access is always permitted, regardless of typed-vs-raw).
 pub async fn list_for_user(
     ctx: &dyn Context,
     user_id: &str,
@@ -276,36 +233,6 @@ mod typed_client_tests {
             .unwrap();
         assert_eq!(got.access_token, "tok-new");
         assert_eq!(got.provider_login, "alice2");
-    }
-
-    #[tokio::test]
-    async fn find_by_user_provider_returns_most_recent() {
-        let ctx = TestContext::with_auth().await;
-        seed_user(&ctx, "user-a").await;
-        let ctx = ctx.with_wrap("suppers-ai/auth", vec![], "suppers-ai/admin");
-
-        upsert(
-            &ctx,
-            NewLink {
-                provider: "github",
-                provider_ref: "gh-1",
-                user_id: "user-a",
-                provider_login: "alice",
-                access_token: "tok-a",
-            },
-        )
-        .await
-        .unwrap();
-        let got = find_by_user_provider(&ctx, "user-a", "github")
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(got.access_token, "tok-a");
-
-        let none = find_by_user_provider(&ctx, "user-a", "google")
-            .await
-            .unwrap();
-        assert!(none.is_none());
     }
 }
 
