@@ -107,16 +107,16 @@ pub(crate) mod helpers {
     }
 
     /// Resolve user roles, idempotently granting `admin` if the user's email
-    /// matches the configured `SUPPERS_AI__AUTH__ADMIN_EMAIL` and they don't
-    /// already have it.
+    /// matches the configured `SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL`
+    /// and they don't already have it.
     ///
     /// This closes a real footgun: roles are normally only assigned at signup,
-    /// so changing `ADMIN_EMAIL` after a user already exists never elevates
-    /// them. With this helper, every login re-checks the rule and grants admin
-    /// once when appropriate.
+    /// so changing the configured admin email after a user already exists
+    /// never elevates them. With this helper, every login re-checks the rule
+    /// and grants admin once when appropriate.
     ///
     /// Intentionally **upgrade-only**: never removes a role, never demotes.
-    /// Unsetting `ADMIN_EMAIL` does not revoke admin from anyone — that has
+    /// Unsetting the admin email does not revoke admin from anyone — that has
     /// to be done explicitly via the admin UI / DB. Removing roles silently
     /// on login would be an availability foot-gun (one typo in env locks
     /// everyone out).
