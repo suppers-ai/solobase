@@ -164,6 +164,13 @@ where
             env_vars.insert(key.to_string(), secret.to_string());
         }
     }
+    // Fan-out block_settings into the config snapshot so consumer blocks
+    // (e.g. userportal) can read enablement state via `ctx.config_get`
+    // without re-querying the `block_settings` D1 table per request.
+    env_vars.insert(
+        solobase_core::features::BLOCK_SETTINGS_CONFIG_KEY.to_string(),
+        snapshot.1.to_config_json(),
+    );
 
     // 3. Construct remaining 5 services.
     let bucket: Arc<dyn StorageService> = make_r2_storage_service(&env, runner::R2_BINDING)
