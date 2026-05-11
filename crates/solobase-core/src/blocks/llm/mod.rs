@@ -7,10 +7,7 @@ pub mod ui;
 
 use std::sync::Arc;
 
-use wafer_core::clients::{
-    config, database as db,
-    database::{Filter, FilterOp, ListOptions},
-};
+use wafer_core::clients::{config, database as db};
 use wafer_run::{
     block::{Block, BlockInfo},
     context::Context,
@@ -191,18 +188,17 @@ impl LlmBlock {
         ctx: &dyn Context,
         thread_id: &str,
     ) -> Option<std::collections::HashMap<String, serde_json::Value>> {
-        let opts = ListOptions {
-            filters: vec![Filter {
-                field: "thread_id".to_string(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(thread_id.to_string()),
-            }],
-            limit: 1,
-            ..Default::default()
-        };
-        let result = db::list(ctx, SETTINGS_COLLECTION, &opts).await.ok()?;
-        let record = result.records.into_iter().next()?;
-        Some(record.data)
+        match db::get_by_field(
+            ctx,
+            SETTINGS_COLLECTION,
+            "thread_id",
+            serde_json::Value::String(thread_id.to_string()),
+        )
+        .await
+        {
+            Ok(record) => Some(record.data),
+            Err(_) => None,
+        }
     }
 
     /// Get the first enabled provider ID from the provider-llm block DB.
@@ -212,25 +208,9 @@ impl LlmBlock {
     /// against `suppers_ai__llm__providers` via `routes::resolve_backend_id`.
     #[allow(dead_code)]
     pub(super) async fn get_default_provider_id(&self, ctx: &dyn Context) -> String {
-        use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
-
         const PROVIDERS_COLLECTION: &str = "suppers_ai__provider_llm__providers";
-        let opts = ListOptions {
-            filters: vec![Filter {
-                field: "enabled".to_string(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(1),
-            }],
-            limit: 1,
-            ..Default::default()
-        };
-        match db::list(ctx, PROVIDERS_COLLECTION, &opts).await {
-            Ok(r) => r
-                .records
-                .into_iter()
-                .next()
-                .map(|rec| rec.id)
-                .unwrap_or_default(),
+        match db::get_by_field(ctx, PROVIDERS_COLLECTION, "enabled", serde_json::json!(1)).await {
+            Ok(rec) => rec.id,
             Err(_) => String::new(),
         }
     }
@@ -269,31 +249,30 @@ impl LlmBlock {
 
             if let Some(mut data) = existing {
                 // Update existing record — find record ID
-                let opts = ListOptions {
-                    filters: vec![Filter {
-                        field: "thread_id".to_string(),
-                        operator: FilterOp::Equal,
-                        value: serde_json::Value::String(thread_id.clone()),
-                    }],
-                    limit: 1,
-                    ..Default::default()
-                };
-                let result = match db::list(ctx, SETTINGS_COLLECTION, &opts).await {
+                let record = match db::get_by_field(
+                    ctx,
+                    SETTINGS_COLLECTION,
+                    "thread_id",
+                    serde_json::Value::String(thread_id.clone()),
+                )
+                .await
+                {
                     Ok(r) => r,
+                    Err(e) if e.code == ErrorCode::NotFound => {
+                        return err_internal("Thread setting vanished between read and update")
+                    }
                     Err(e) => return err_internal(&format!("Database error: {e}")),
                 };
-                if let Some(record) = result.records.into_iter().next() {
-                    if let Some(pb) = body.provider_block {
-                        data.insert("provider_block".to_string(), serde_json::json!(pb));
-                    }
-                    if let Some(m) = body.model {
-                        data.insert("model".to_string(), serde_json::json!(m));
-                    }
-                    helpers::stamp_updated(&mut data);
-                    match db::update(ctx, SETTINGS_COLLECTION, &record.id, data).await {
-                        Ok(r) => return ok_json(&r),
-                        Err(e) => return err_internal(&format!("Database error: {e}")),
-                    }
+                if let Some(pb) = body.provider_block {
+                    data.insert("provider_block".to_string(), serde_json::json!(pb));
+                }
+                if let Some(m) = body.model {
+                    data.insert("model".to_string(), serde_json::json!(m));
+                }
+                helpers::stamp_updated(&mut data);
+                match db::update(ctx, SETTINGS_COLLECTION, &record.id, data).await {
+                    Ok(r) => return ok_json(&r),
+                    Err(e) => return err_internal(&format!("Database error: {e}")),
                 }
             } else {
                 // Create new per-thread setting

@@ -113,15 +113,11 @@ async fn resolve_backend_id(
         return Ok(provider_block.to_string());
     }
 
-    let opts = db::ListOptions {
-        limit: 100,
-        ..Default::default()
-    };
-    let result = db::list(ctx, PROVIDERS_COLLECTION, &opts)
+    let records = db::list_all(ctx, PROVIDERS_COLLECTION, vec![])
         .await
         .map_err(|_| "provider lookup failed")?;
 
-    for record in result.records {
+    for record in records {
         if let Ok(cfg) = row_to_config(&record) {
             if cfg.enabled {
                 return Ok(cfg.name);
@@ -388,15 +384,11 @@ pub(super) async fn reload_provider_service(
     block: &LlmBlock,
     ctx: &dyn Context,
 ) -> Result<(), String> {
-    let opts = db::ListOptions {
-        limit: 200,
-        ..Default::default()
-    };
-    let result = db::list(ctx, PROVIDERS_COLLECTION, &opts)
+    let records = db::list_all(ctx, PROVIDERS_COLLECTION, vec![])
         .await
         .map_err(|e| format!("provider reload list failed: {e}"))?;
-    let mut configs: Vec<ProviderConfig> = Vec::with_capacity(result.records.len());
-    for rec in &result.records {
+    let mut configs: Vec<ProviderConfig> = Vec::with_capacity(records.len());
+    for rec in &records {
         match row_to_config(rec) {
             Ok(cfg) if cfg.enabled => configs.push(cfg),
             Ok(_) => {} // disabled — skip
@@ -423,16 +415,11 @@ pub(super) async fn list_providers(
     if !helpers::is_admin(msg) {
         return err_forbidden("admin role required");
     }
-    let opts = db::ListOptions {
-        limit: 200,
-        ..Default::default()
-    };
-    let result = match db::list(ctx, PROVIDERS_COLLECTION, &opts).await {
+    let records = match db::list_all(ctx, PROVIDERS_COLLECTION, vec![]).await {
         Ok(r) => r,
         Err(e) => return err_internal(&format!("Database error: {e}")),
     };
-    let providers: Vec<serde_json::Value> = result
-        .records
+    let providers: Vec<serde_json::Value> = records
         .iter()
         .filter_map(|rec| {
             row_to_config(rec)
