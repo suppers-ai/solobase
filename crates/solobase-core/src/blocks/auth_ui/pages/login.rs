@@ -4,8 +4,8 @@ use maud::{html, PreEscaped};
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use super::{
-    get, load_variables, login_script, oauth_button_script, oauth_provider_configured,
-    oauth_provider_icon, oauth_provider_label, pw_field, pw_toggle_js, site_config,
+    login_script, oauth_button_script, oauth_provider_configured, oauth_provider_icon,
+    oauth_provider_label, pw_field, pw_toggle_js, site_config,
 };
 use crate::{
     blocks::auth::brand_panel,
@@ -13,10 +13,14 @@ use crate::{
 };
 
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let settings = load_variables(ctx).await;
-    let config = site_config(&settings);
-    let app_name = get(&settings, "SOLOBASE_SHARED__APP_NAME", "Solobase");
-    let allow_signup = get(&settings, "SOLOBASE_SHARED__ALLOW_SIGNUP", "true") == "true";
+    let config = site_config(ctx);
+    let app_name = ctx
+        .config_get("SOLOBASE_SHARED__APP_NAME")
+        .unwrap_or("Solobase");
+    let allow_signup = ctx
+        .config_get("SOLOBASE_SHARED__ALLOW_SIGNUP")
+        .unwrap_or("true")
+        == "true";
     let raw_redirect = msg.get_meta("req.query.redirect").to_string();
     // Validate redirect — only allow relative paths (prevent open redirect)
     let redirect = if raw_redirect.starts_with('/') && !raw_redirect.starts_with("//") {
@@ -24,12 +28,10 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     } else {
         String::new()
     };
-    let post_login_raw = get(
-        &settings,
-        "SOLOBASE_SHARED__POST_LOGIN_REDIRECT",
-        "/b/admin/",
-    )
-    .to_string();
+    let post_login_raw = ctx
+        .config_get("SOLOBASE_SHARED__POST_LOGIN_REDIRECT")
+        .unwrap_or("/b/admin/")
+        .to_string();
     let post_login = if post_login_raw.starts_with('/') && !post_login_raw.starts_with("//") {
         post_login_raw
     } else {
@@ -47,12 +49,15 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // full credential triple (CLIENT_ID + CLIENT_SECRET + REDIRECT_URL) is
     // present in env. Avoids rendering a "Continue with GitHub" button that
     // would 4xx as soon as it's clicked.
-    let oauth_enabled = get(&settings, "SOLOBASE_SHARED__ENABLE_OAUTH", "false") == "true";
+    let oauth_enabled = ctx
+        .config_get("SOLOBASE_SHARED__ENABLE_OAUTH")
+        .unwrap_or("false")
+        == "true";
     let oauth_providers: Vec<&'static str> = if oauth_enabled {
         ["github", "google", "microsoft"]
             .iter()
             .copied()
-            .filter(|p| oauth_provider_configured(&settings, p))
+            .filter(|p| oauth_provider_configured(ctx, p))
             .collect()
     } else {
         Vec::new()

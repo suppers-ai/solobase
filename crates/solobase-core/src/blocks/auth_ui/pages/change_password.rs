@@ -3,15 +3,14 @@
 use maud::{html, PreEscaped};
 use wafer_run::{context::Context, types::Message, OutputStream};
 
-use super::{load_variables, pw_field, pw_toggle_js, site_config};
+use super::{pw_field, pw_toggle_js, site_config};
 use crate::{
     blocks::auth::brand_panel,
     ui::{self, templates::auth_split},
 };
 
 pub async fn handle(ctx: &dyn Context, _msg: &Message) -> OutputStream {
-    let settings = load_variables(ctx).await;
-    let config = site_config(&settings);
+    let config = site_config(ctx);
     let app_name = &config.app_name;
     let logo_url = &config.logo_url;
 

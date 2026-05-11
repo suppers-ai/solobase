@@ -3,17 +3,21 @@
 use maud::{html, PreEscaped};
 use wafer_run::{context::Context, types::Message, OutputStream};
 
-use super::{get, load_variables, pw_field, pw_toggle_js, site_config};
+use super::{pw_field, pw_toggle_js, site_config};
 use crate::{
     blocks::auth::brand_panel,
     ui::{self, templates::auth_split},
 };
 
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let settings = load_variables(ctx).await;
-    let config = site_config(&settings);
-    let app_name = get(&settings, "SOLOBASE_SHARED__APP_NAME", "Solobase");
-    let allow_signup = get(&settings, "SOLOBASE_SHARED__ALLOW_SIGNUP", "true") == "true";
+    let config = site_config(ctx);
+    let app_name = ctx
+        .config_get("SOLOBASE_SHARED__APP_NAME")
+        .unwrap_or("Solobase");
+    let allow_signup = ctx
+        .config_get("SOLOBASE_SHARED__ALLOW_SIGNUP")
+        .unwrap_or("true")
+        == "true";
     let raw_redirect = msg.get_meta("req.query.redirect").to_string();
     // Validate redirect — only allow relative paths (prevent open redirect)
     let redirect = if raw_redirect.starts_with('/') && !raw_redirect.starts_with("//") {

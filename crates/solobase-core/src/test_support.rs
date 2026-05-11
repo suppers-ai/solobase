@@ -34,8 +34,10 @@ use wafer_run::{
 #[derive(Clone)]
 pub struct TestContext {
     database_block: Arc<dyn Block>,
-    /// Placeholder for config values — populated by Task 5 (`with_auth`).
-    pub config: Arc<Mutex<HashMap<String, String>>>,
+    /// Config snapshot used by `config_get`. Immutable after construction so
+    /// `config_get` can return `Option<&str>` without holding a lock.
+    /// Populated via [`with_config`] or [`set_config`].
+    config: Arc<HashMap<String, String>>,
     /// Placeholder for dynamically registered blocks — populated by Task 6.
     pub blocks: Arc<Mutex<HashMap<String, Arc<dyn Block>>>>,
     /// WRAP-enforcement caller identity. `None` = WRAP checks skipped (the
@@ -60,12 +62,30 @@ impl TestContext {
 
         Self {
             database_block,
-            config: Arc::new(Mutex::new(HashMap::new())),
+            config: Arc::new(HashMap::new()),
             blocks: Arc::new(Mutex::new(HashMap::new())),
             caller_id: None,
             wrap_grants: Vec::new(),
             wrap_admin_block: String::new(),
         }
+    }
+
+    /// Replace the config snapshot with `vars`. Builder-style: returns `self`.
+    ///
+    /// Use before the first call that exercises `ctx.config_get(...)`.
+    pub fn with_config(mut self, vars: HashMap<String, String>) -> Self {
+        self.config = Arc::new(vars);
+        self
+    }
+
+    /// Insert a single config entry into the snapshot.
+    ///
+    /// Makes a fresh `Arc<HashMap>` clone on each call — fine for tests,
+    /// where the number of entries is small and mutations happen at setup time.
+    pub fn set_config(&mut self, key: &str, value: &str) {
+        let mut map = (*self.config).clone();
+        map.insert(key.to_string(), value.to_string());
+        self.config = Arc::new(map);
     }
 
     /// Opt the test into WRAP enforcement on `call_block`.
@@ -175,14 +195,8 @@ impl Context for TestContext {
         false
     }
 
-    fn config_get(&self, _key: &str) -> Option<&str> {
-        // TODO(test_support): returning None here is a deliberate stub.
-        // Borrowing a &str out of the Mutex<HashMap> would require holding the
-        // guard for the lifetime of the return value, which the `Context` trait
-        // signature (&self → Option<&str>) does not allow. Task 5 will either
-        // leak a value into a thread-local or switch to a pre-computed snapshot
-        // when `with_auth()` is called.
-        None
+    fn config_get(&self, key: &str) -> Option<&str> {
+        self.config.get(key).map(String::as_str)
     }
 
     fn clone_arc(&self) -> Arc<dyn Context> {
