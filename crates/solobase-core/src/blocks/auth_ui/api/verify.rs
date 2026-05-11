@@ -15,15 +15,10 @@ use crate::{
 };
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    let logo_url = db::get_by_field(
-        ctx,
-        crate::blocks::admin::VARIABLES_COLLECTION,
-        "key",
-        serde_json::Value::String("SOLOBASE_SHARED__AUTH_LOGO_URL".into()),
-    )
-    .await
-    .map(|r| r.str_field("value").to_string())
-    .unwrap_or_default();
+    let logo_url = ctx
+        .config_get("SOLOBASE_SHARED__AUTH_LOGO_URL")
+        .unwrap_or("")
+        .to_string();
 
     // Token comes from query param or body
     let token = {

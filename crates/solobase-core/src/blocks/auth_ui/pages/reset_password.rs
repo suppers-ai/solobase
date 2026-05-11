@@ -2,25 +2,15 @@
 //! in Task 5.
 
 use maud::{html, PreEscaped};
-use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::Message, OutputStream};
 
-use crate::{
-    blocks::{auth::brand_panel, helpers::RecordExt},
-    ui,
-    ui::templates::auth_split,
-};
+use crate::{blocks::auth::brand_panel, ui, ui::templates::auth_split};
 
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let logo_url = db::get_by_field(
-        ctx,
-        crate::blocks::admin::VARIABLES_COLLECTION,
-        "key",
-        serde_json::Value::String("SOLOBASE_SHARED__AUTH_LOGO_URL".into()),
-    )
-    .await
-    .map(|r| r.str_field("value").to_string())
-    .unwrap_or_default();
+    let logo_url = ctx
+        .config_get("SOLOBASE_SHARED__AUTH_LOGO_URL")
+        .unwrap_or("")
+        .to_string();
 
     let token = msg.get_meta("req.query.token").to_string();
     if token.is_empty() {
