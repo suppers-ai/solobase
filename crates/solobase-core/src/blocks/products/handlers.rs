@@ -818,12 +818,8 @@ async fn handle_user_group_products(ctx: &dyn Context, msg: &Message) -> OutputS
 
 // User-accessible group templates (read-only)
 async fn handle_user_list_group_templates(ctx: &dyn Context, _msg: &Message) -> OutputStream {
-    let opts = ListOptions {
-        limit: 1000,
-        ..Default::default()
-    };
-    match db::list(ctx, super::GROUP_TEMPLATES_COLLECTION, &opts).await {
-        Ok(result) => ok_json(&result),
+    match db::list_all(ctx, super::GROUP_TEMPLATES_COLLECTION, vec![]).await {
+        Ok(records) => ok_json(&records),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }

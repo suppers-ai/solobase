@@ -275,17 +275,11 @@ impl Block for ProductsBlock {
         if event.event_type == LifecycleType::Init {
             // Seed default templates if they don't exist — these are required by FK constraints
             // on the groups and products tables.
-            use db::ListOptions;
             use wafer_core::clients::database as db;
 
-            let check_opts = ListOptions {
-                limit: 1,
-                ..Default::default()
-            };
-
             // Default group template
-            match db::list(ctx, GROUP_TEMPLATES_COLLECTION, &check_opts).await {
-                Ok(list) if list.records.is_empty() => {
+            match db::list_all(ctx, GROUP_TEMPLATES_COLLECTION, vec![]).await {
+                Ok(records) if records.is_empty() => {
                     let mut data = std::collections::HashMap::new();
                     data.insert(
                         "name".to_string(),
@@ -305,8 +299,8 @@ impl Block for ProductsBlock {
             }
 
             // Default product template
-            match db::list(ctx, PRODUCT_TEMPLATES_COLLECTION, &check_opts).await {
-                Ok(list) if list.records.is_empty() => {
+            match db::list_all(ctx, PRODUCT_TEMPLATES_COLLECTION, vec![]).await {
+                Ok(records) if records.is_empty() => {
                     let mut data = std::collections::HashMap::new();
                     data.insert(
                         "name".to_string(),
