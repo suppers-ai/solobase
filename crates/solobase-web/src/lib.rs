@@ -49,6 +49,13 @@ pub async fn initialize() -> Result<(), JsValue> {
     for (key, value) in &vars {
         config_svc.set(key, value);
     }
+    // Fan-out block_settings into the config snapshot so consumer blocks
+    // (e.g. userportal) can read enablement state via `ctx.config_get`
+    // without re-querying the `block_settings` browser-DB table per request.
+    config_svc.set(
+        solobase_core::features::BLOCK_SETTINGS_CONFIG_KEY,
+        &features.to_config_json(),
+    );
 
     let browser_llm: Arc<dyn wafer_core::interfaces::llm::service::LlmService> =
         Arc::new(solobase_browser::llm::BrowserLlmService::new());

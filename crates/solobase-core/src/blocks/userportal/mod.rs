@@ -170,17 +170,14 @@ impl UserPortalBlock {
     }
 
     async fn handle_config(&self, ctx: &dyn Context) -> OutputStream {
-        let block_rows = db::list_all(ctx, crate::blocks::admin::BLOCK_SETTINGS_COLLECTION, vec![])
-            .await
-            .unwrap_or_default();
+        let settings = ctx
+            .config_get(crate::features::BLOCK_SETTINGS_CONFIG_KEY)
+            .map(crate::features::BlockSettings::from_config_json)
+            .unwrap_or_else(|| crate::features::BlockSettings::from_map(Default::default()));
 
         let is_enabled = |name: &str| -> bool {
-            block_rows
-                .iter()
-                .find(|r| r.data.get("block_name").and_then(|v| v.as_str()) == Some(name))
-                .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
-                .map(|v| v != 0)
-                .unwrap_or(true)
+            use crate::features::FeatureConfig;
+            settings.is_block_enabled(name)
         };
 
         let config_val = serde_json::json!({

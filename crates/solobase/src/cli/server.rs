@@ -56,6 +56,13 @@ pub async fn run() -> anyhow::Result<()> {
     for (key, value) in &vars {
         config_service.set(key, value);
     }
+    // Fan-out block_settings into the config snapshot so consumer blocks
+    // (e.g. userportal) can read enablement state via `ctx.config_get`
+    // without re-querying the `block_settings` SQLite table per request.
+    config_service.set(
+        solobase_core::features::BLOCK_SETTINGS_CONFIG_KEY,
+        &features.to_config_json(),
+    );
 
     let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(solobase_native::make_sqlite_database_service(
