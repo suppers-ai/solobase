@@ -192,17 +192,14 @@ async fn users_table(records: &[db::Record], ctx: &dyn Context, current_user_id:
     let mut user_roles: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
     for record in records {
-        let roles_opts = ListOptions {
-            filters: vec![Filter {
-                field: "user_id".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(record.id.clone()),
-            }],
-            ..Default::default()
-        };
-        let roles: Vec<String> = match db::list(ctx, USER_ROLES_COLLECTION, &roles_opts).await {
-            Ok(r) => r
-                .records
+        let role_filters = vec![Filter {
+            field: "user_id".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(record.id.clone()),
+        }];
+        let roles: Vec<String> = match db::list_all(ctx, USER_ROLES_COLLECTION, role_filters).await
+        {
+            Ok(records) => records
                 .iter()
                 .map(|rec| rec.str_field("role").to_string())
                 .filter(|s| !s.is_empty())
@@ -299,17 +296,13 @@ async fn user_row_fragment(ctx: &dyn Context, user_id: &str) -> Markup {
         Err(_) => return html! {},
     };
 
-    let roles_opts = ListOptions {
-        filters: vec![Filter {
-            field: "user_id".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(user_id.to_string()),
-        }],
-        ..Default::default()
-    };
-    let roles: Vec<String> = match db::list(ctx, USER_ROLES_COLLECTION, &roles_opts).await {
-        Ok(r) => r
-            .records
+    let role_filters = vec![Filter {
+        field: "user_id".into(),
+        operator: FilterOp::Equal,
+        value: serde_json::Value::String(user_id.to_string()),
+    }];
+    let roles: Vec<String> = match db::list_all(ctx, USER_ROLES_COLLECTION, role_filters).await {
+        Ok(records) => records
             .iter()
             .map(|rec| rec.str_field("role").to_string())
             .filter(|s| !s.is_empty())
@@ -471,24 +464,17 @@ pub async fn handle_user_invite(
 
     // Reject duplicate email — emails are unique in practice though the
     // table doesn't carry a UNIQUE constraint.
-    let existing = db::list(
+    match db::get_by_field(
         ctx,
         USERS,
-        &ListOptions {
-            filters: vec![Filter {
-                field: "email".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(email.clone()),
-            }],
-            limit: 1,
-            ..Default::default()
-        },
+        "email",
+        serde_json::Value::String(email.clone()),
     )
-    .await;
-    if let Ok(list) = existing {
-        if !list.records.is_empty() {
-            return err_bad_request("A user with that email already exists");
-        }
+    .await
+    {
+        Ok(_) => return err_bad_request("A user with that email already exists"),
+        Err(e) if e.code == ErrorCode::NotFound => {}
+        Err(_) => {}
     }
 
     let password_hash = match crypto::hash(ctx, password).await {

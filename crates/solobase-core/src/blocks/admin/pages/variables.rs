@@ -1,5 +1,5 @@
 use maud::{html, Markup};
-use wafer_core::clients::database::{self as db, ListOptions};
+use wafer_core::clients::database::{self as db};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::{
@@ -94,15 +94,11 @@ async fn variables_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
 /// "All Variables" tab -- flat table of all config variables from the DB.
 async fn config_all_tab(ctx: &dyn Context) -> Markup {
-    let opts = ListOptions {
-        limit: 200,
-        ..Default::default()
-    };
-    let settings = db::list(ctx, VARIABLES, &opts).await;
+    let settings = db::list_all(ctx, VARIABLES, vec![]).await;
 
     html! {
         @match &settings {
-            Ok(list) => {
+            Ok(records) => {
                 div .table-container {
                     table .table {
                         thead {
@@ -114,7 +110,7 @@ async fn config_all_tab(ctx: &dyn Context) -> Markup {
                             }
                         }
                         tbody {
-                            @for record in &list.records {
+                            @for record in records {
                                 @let key = record.str_field("key");
                                 @let value = record.str_field("value");
                                 @let description = record.str_field("description");

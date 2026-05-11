@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use wafer_core::clients::{database as db, database::ListOptions};
+use wafer_core::clients::database as db;
 use wafer_run::{
     context::Context,
     types::{self, *},
@@ -99,14 +99,9 @@ fn validate_url_value(value: &str) -> Result<(), String> {
 }
 
 async fn handle_list_full(ctx: &dyn Context) -> OutputStream {
-    let opts = ListOptions {
-        limit: 1000,
-        ..Default::default()
-    };
-    match db::list(ctx, COLLECTION, &opts).await {
-        Ok(result) => {
-            let vars: Vec<_> = result
-                .records
+    match db::list_all(ctx, COLLECTION, vec![]).await {
+        Ok(records) => {
+            let vars: Vec<_> = records
                 .iter()
                 .map(|record| {
                     let key = record.str_field("key").to_string();
@@ -139,15 +134,11 @@ async fn handle_list_full(ctx: &dyn Context) -> OutputStream {
 }
 
 async fn handle_list(ctx: &dyn Context) -> OutputStream {
-    let opts = ListOptions {
-        limit: 1000,
-        ..Default::default()
-    };
-    match db::list(ctx, COLLECTION, &opts).await {
-        Ok(result) => {
+    match db::list_all(ctx, COLLECTION, vec![]).await {
+        Ok(records) => {
             // Convert to key-value map, masking sensitive values
             let mut settings = HashMap::new();
-            for record in &result.records {
+            for record in &records {
                 let key = record.str_field("key");
                 let is_sensitive = record.i64_field("sensitive") == 1;
                 let value = if is_sensitive {
