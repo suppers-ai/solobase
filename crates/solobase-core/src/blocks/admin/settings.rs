@@ -339,51 +339,62 @@ pub async fn seed_defaults(ctx: &dyn Context) {
             &var.name
         };
 
-        // Check if key exists already
-        let exists = db::get_by_field(
+        // Check if key exists already and only refresh metadata when at
+        // least one declared field actually differs. Without this guard
+        // every isolate cold-start re-writes every shared config var
+        // (~80 vars × cold-starts/day ≈ ~900 useless UPDATEs/day in prod).
+        match db::get_by_field(
             ctx,
             COLLECTION,
             "key",
             serde_json::Value::String(var.key.clone()),
         )
         .await
-        .is_ok();
-        if exists {
-            // Update metadata (name, description, warning) but keep existing value
-            let data = json_map(serde_json::json!({
-                "name": name,
-                "description": var.description,
-                "warning": var.warning,
-                "sensitive": sensitive,
-            }));
-            let _ = db::upsert(
-                ctx,
-                COLLECTION,
-                "key",
-                serde_json::Value::String(var.key.clone()),
-                data,
-            )
-            .await;
-        } else {
-            // Seed from process env when set (lets `.env` bootstrap a
-            // fresh deployment), otherwise fall back to the declared
-            // default. Empty env values are treated as unset so that
-            // `FOO=` doesn't accidentally clear a meaningful default.
-            let seed_value = std::env::var(&var.key)
-                .ok()
-                .filter(|v| !v.is_empty())
-                .unwrap_or_else(|| var.default.clone());
-            if !seed_value.is_empty() {
+        {
+            Ok(record) => {
+                let same_name = record.str_field("name") == name.as_str();
+                let same_desc = record.str_field("description") == var.description;
+                let same_warn = record.str_field("warning") == var.warning;
+                let same_sens = record.i64_field("sensitive") == sensitive as i64;
+                if same_name && same_desc && same_warn && same_sens {
+                    continue;
+                }
                 let data = json_map(serde_json::json!({
-                    "key": var.key,
                     "name": name,
                     "description": var.description,
-                    "value": seed_value,
                     "warning": var.warning,
                     "sensitive": sensitive,
-                    "created_at": helpers::now_rfc3339()
                 }));
-                let _ = db::create(ctx, COLLECTION, data).await;
+                let _ = db::upsert(
+                    ctx,
+                    COLLECTION,
+                    "key",
+                    serde_json::Value::String(var.key.clone()),
+                    data,
+                )
+                .await;
+            }
+            Err(_) => {
+                // Seed from process env when set (lets `.env` bootstrap a
+                // fresh deployment), otherwise fall back to the declared
+                // default. Empty env values are treated as unset so that
+                // `FOO=` doesn't accidentally clear a meaningful default.
+                let seed_value = std::env::var(&var.key)
+                    .ok()
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| var.default.clone());
+                if !seed_value.is_empty() {
+                    let data = json_map(serde_json::json!({
+                        "key": var.key,
+                        "name": name,
+                        "description": var.description,
+                        "value": seed_value,
+                        "warning": var.warning,
+                        "sensitive": sensitive,
+                        "created_at": helpers::now_rfc3339()
+                    }));
+                    let _ = db::create(ctx, COLLECTION, data).await;
+                }
             }
         }
     }

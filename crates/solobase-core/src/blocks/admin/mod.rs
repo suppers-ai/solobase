@@ -2,6 +2,7 @@ mod custom_tables;
 mod database;
 mod iam;
 mod logs;
+mod migrations;
 mod pages;
 mod settings;
 mod users;
@@ -427,6 +428,12 @@ impl Block for AdminBlock {
         event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
+            if let Err(e) = migrations::apply(ctx).await {
+                return Err(WaferError::new(
+                    ErrorCode::INTERNAL,
+                    format!("admin migrations: {e}"),
+                ));
+            }
             iam::seed_defaults(ctx).await;
             settings::seed_defaults(ctx).await;
         }
