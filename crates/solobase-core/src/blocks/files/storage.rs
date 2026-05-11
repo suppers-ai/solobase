@@ -81,24 +81,20 @@ async fn is_bucket_access_denied(ctx: &dyn Context, msg: &Message, bucket: &str)
     }
 
     let user_id = msg.user_id();
-    let opts = ListOptions {
-        filters: vec![
-            Filter {
-                field: "name".to_string(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(bucket.to_string()),
-            },
-            Filter {
-                field: "created_by".to_string(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(user_id.to_string()),
-            },
-        ],
-        limit: 1,
-        ..Default::default()
-    };
-    match db::list(ctx, BUCKETS_COLLECTION, &opts).await {
-        Ok(result) if !result.records.is_empty() => false,
+    let filters = vec![
+        Filter {
+            field: "name".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(bucket.to_string()),
+        },
+        Filter {
+            field: "created_by".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id.to_string()),
+        },
+    ];
+    match db::list_all(ctx, BUCKETS_COLLECTION, filters).await {
+        Ok(records) if !records.is_empty() => false,
         _ => true, // denied
     }
 }
@@ -124,19 +120,14 @@ async fn handle_list_buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
             Err(e) => err_internal(&format!("Storage error: {e}")),
         }
     } else {
-        let opts = ListOptions {
-            filters: vec![Filter {
-                field: "created_by".to_string(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(user_id.to_string()),
-            }],
-            limit: 1000,
-            ..Default::default()
-        };
-        match db::list(ctx, BUCKETS_COLLECTION, &opts).await {
-            Ok(result) => {
-                let names: Vec<&str> = result
-                    .records
+        let filters = vec![Filter {
+            field: "created_by".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id.to_string()),
+        }];
+        match db::list_all(ctx, BUCKETS_COLLECTION, filters).await {
+            Ok(records) => {
+                let names: Vec<&str> = records
                     .iter()
                     .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
                     .collect();

@@ -428,27 +428,24 @@ pub fn render_breadcrumbs(bucket: &str, current_prefix: &str) -> Markup {
 }
 
 async fn user_owns_bucket(ctx: &dyn Context, user_id: &str, bucket: &str) -> bool {
-    use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
+    use wafer_core::clients::database::{Filter, FilterOp};
 
     use super::BUCKETS_COLLECTION;
 
-    let opts = ListOptions {
-        filters: vec![
-            Filter {
-                field: "name".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(bucket.into()),
-            },
-            Filter {
-                field: "created_by".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(user_id.into()),
-            },
-        ],
-        ..Default::default()
-    };
-    match db::list(ctx, BUCKETS_COLLECTION, &opts).await {
-        Ok(rl) => !rl.records.is_empty(),
+    let filters = vec![
+        Filter {
+            field: "name".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(bucket.into()),
+        },
+        Filter {
+            field: "created_by".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id.into()),
+        },
+    ];
+    match db::list_all(ctx, BUCKETS_COLLECTION, filters).await {
+        Ok(records) => !records.is_empty(),
         Err(e) => {
             tracing::warn!(error = %e, bucket = %bucket, "bucket-ownership check failed");
             false
@@ -761,30 +758,28 @@ async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow>
 }
 
 async fn load_quota_info(ctx: &dyn Context, user_id: &str) -> QuotaInfo {
-    use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
+    use wafer_core::clients::database::{Filter, FilterOp};
+    use wafer_run::types::ErrorCode;
 
     use super::{OBJECTS_COLLECTION, QUOTAS_COLLECTION};
 
-    let limit_opts = ListOptions {
-        filters: vec![Filter {
-            field: "user_id".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(user_id.into()),
-        }],
-        ..Default::default()
-    };
-    let limit = match db::list(ctx, QUOTAS_COLLECTION, &limit_opts).await {
-        Ok(rl) => rl
-            .records
-            .into_iter()
-            .next()
-            .and_then(|r| {
-                r.data.get("max_storage_bytes").and_then(|v| {
-                    v.as_i64()
-                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-                })
+    let limit = match db::get_by_field(
+        ctx,
+        QUOTAS_COLLECTION,
+        "user_id",
+        serde_json::Value::String(user_id.into()),
+    )
+    .await
+    {
+        Ok(r) => r
+            .data
+            .get("max_storage_bytes")
+            .and_then(|v| {
+                v.as_i64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
             })
             .unwrap_or(1_073_741_824),
+        Err(e) if e.code == ErrorCode::NotFound => 1_073_741_824,
         Err(e) => {
             tracing::warn!(error = %e, "quota lookup failed");
             1_073_741_824

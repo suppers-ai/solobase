@@ -86,24 +86,20 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
     let is_admin = helpers::is_admin(&msg);
     if !is_admin {
         let user_id = msg.user_id();
-        let opts = wafer_core::clients::database::ListOptions {
-            filters: vec![
-                wafer_core::clients::database::Filter {
-                    field: "name".to_string(),
-                    operator: wafer_core::clients::database::FilterOp::Equal,
-                    value: serde_json::Value::String(body.bucket.clone()),
-                },
-                wafer_core::clients::database::Filter {
-                    field: "created_by".to_string(),
-                    operator: wafer_core::clients::database::FilterOp::Equal,
-                    value: serde_json::Value::String(user_id.to_string()),
-                },
-            ],
-            limit: 1,
-            ..Default::default()
-        };
-        let owns_bucket = match db::list(ctx, BUCKETS_COLLECTION, &opts).await {
-            Ok(result) => !result.records.is_empty(),
+        let filters = vec![
+            wafer_core::clients::database::Filter {
+                field: "name".to_string(),
+                operator: wafer_core::clients::database::FilterOp::Equal,
+                value: serde_json::Value::String(body.bucket.clone()),
+            },
+            wafer_core::clients::database::Filter {
+                field: "created_by".to_string(),
+                operator: wafer_core::clients::database::FilterOp::Equal,
+                value: serde_json::Value::String(user_id.to_string()),
+            },
+        ];
+        let owns_bucket = match db::list_all(ctx, BUCKETS_COLLECTION, filters).await {
+            Ok(records) => !records.is_empty(),
             _ => false,
         };
         if !owns_bucket {
