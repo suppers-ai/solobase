@@ -50,19 +50,16 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     }
 
     // Validate refresh token exists in DB (prevents use of revoked tokens)
-    let token_filter = wafer_core::clients::database::Filter {
-        field: "token".to_string(),
-        operator: wafer_core::clients::database::FilterOp::Equal,
-        value: serde_json::Value::String(body.refresh_token.clone()),
-    };
-    let token_opts = wafer_core::clients::database::ListOptions {
-        filters: vec![token_filter],
-        limit: 1,
-        ..Default::default()
-    };
-    match db::list(ctx, TOKENS_COLLECTION, &token_opts).await {
-        Ok(result) if !result.records.is_empty() => {} // Token exists — proceed
-        _ => return error_response(ErrorCode::InvalidToken, "Refresh token has been revoked"),
+    match db::get_by_field(
+        ctx,
+        TOKENS_COLLECTION,
+        "token",
+        serde_json::Value::String(body.refresh_token.clone()),
+    )
+    .await
+    {
+        Ok(_) => {} // Token exists — proceed
+        Err(_) => return error_response(ErrorCode::InvalidToken, "Refresh token has been revoked"),
     }
 
     // Get user and verify account is still active

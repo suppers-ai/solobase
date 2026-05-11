@@ -32,7 +32,7 @@ use std::{collections::HashMap, time::Duration};
 
 use wafer_core::clients::{
     config as config_client, crypto,
-    database::{self as db, Filter, FilterOp, ListOptions},
+    database::{self as db, Filter, FilterOp},
 };
 
 use super::helpers::{hex_encode, json_map};
@@ -86,16 +86,13 @@ pub(crate) mod helpers {
                 roles.push(inline.to_string());
             }
         }
-        let opts = ListOptions {
-            filters: vec![Filter {
-                field: "user_id".to_string(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String(user_id.to_string()),
-            }],
-            ..Default::default()
-        };
-        if let Ok(r) = db::list(ctx, USER_ROLES_COLLECTION, &opts).await {
-            for rec in &r.records {
+        let filters = vec![Filter {
+            field: "user_id".to_string(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id.to_string()),
+        }];
+        if let Ok(records) = db::list_all(ctx, USER_ROLES_COLLECTION, filters).await {
+            for rec in &records {
                 if let Some(role) = rec.data.get("role").and_then(|v| v.as_str()) {
                     if !roles.iter().any(|r| r == role) {
                         roles.push(role.to_string());

@@ -73,12 +73,7 @@ pub async fn upsert(ctx: &dyn Context, new: NewLink<'_>) -> Result<(), RepoError
             value: json!(new.provider_ref),
         },
     ];
-    let opts = db::ListOptions {
-        filters: filters.clone(),
-        limit: 1,
-        ..Default::default()
-    };
-    let existing = db::list(ctx, TABLE, &opts)
+    let existing = db::list_all(ctx, TABLE, filters.clone())
         .await
         .map_err(|e| RepoError::Db(format!("provider_links upsert lookup: {e}")))?;
 
@@ -88,7 +83,7 @@ pub async fn upsert(ctx: &dyn Context, new: NewLink<'_>) -> Result<(), RepoError
     data.insert("access_token".into(), json!(new.access_token));
     data.insert("linked_at".into(), json!(now));
 
-    if existing.records.is_empty() {
+    if existing.is_empty() {
         // Insert: include the natural-key columns + a fresh synthetic id.
         let id = uuid::Uuid::now_v7().to_string();
         data.insert("id".into(), json!(id));
@@ -113,26 +108,22 @@ pub async fn find_by_provider_ref(
     provider: &str,
     provider_ref: &str,
 ) -> Result<Option<ProviderLink>, RepoError> {
-    let opts = db::ListOptions {
-        filters: vec![
-            db::Filter {
-                field: "provider".into(),
-                operator: db::FilterOp::Equal,
-                value: json!(provider),
-            },
-            db::Filter {
-                field: "provider_ref".into(),
-                operator: db::FilterOp::Equal,
-                value: json!(provider_ref),
-            },
-        ],
-        limit: 1,
-        ..Default::default()
-    };
-    let res = db::list(ctx, TABLE, &opts)
+    let filters = vec![
+        db::Filter {
+            field: "provider".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(provider),
+        },
+        db::Filter {
+            field: "provider_ref".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(provider_ref),
+        },
+    ];
+    let records = db::list_all(ctx, TABLE, filters)
         .await
         .map_err(|e| RepoError::Db(format!("provider_links find: {e}")))?;
-    match res.records.first() {
+    match records.first() {
         Some(r) => Ok(Some(row_from_map(&r.data)?)),
         None => Ok(None),
     }
