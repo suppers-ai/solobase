@@ -14,9 +14,7 @@ use crate::{
 
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = site_config(ctx);
-    let app_name = ctx
-        .config_get("SOLOBASE_SHARED__APP_NAME")
-        .unwrap_or("Solobase");
+    let app_name = &config.app_name;
     let allow_signup = ctx
         .config_get("SOLOBASE_SHARED__ALLOW_SIGNUP")
         .unwrap_or("true")

@@ -69,8 +69,6 @@ pub(super) fn site_config(ctx: &dyn Context) -> SiteConfig {
 ///   the provider is encoded in the signed `state` JWT)
 ///
 /// These match what `oauth.rs` actually reads when building the auth_url.
-/// Values come from the config snapshot via `ctx.config_get` on both native
-/// (sqlite) and cloudflare (D1) targets.
 pub(super) fn oauth_provider_configured(ctx: &dyn Context, provider: &str) -> bool {
     let up = provider.to_ascii_uppercase();
     !ctx.config_get(&format!("SUPPERS_AI__AUTH_UI__OAUTH_{up}_CLIENT_ID"))

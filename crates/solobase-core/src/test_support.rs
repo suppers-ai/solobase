@@ -36,7 +36,7 @@ pub struct TestContext {
     database_block: Arc<dyn Block>,
     /// Config snapshot used by `config_get`. Immutable after construction so
     /// `config_get` can return `Option<&str>` without holding a lock.
-    /// Populated via [`with_config`] or [`set_config`].
+    /// Populated via [`set_config`].
     config: Arc<HashMap<String, String>>,
     /// Placeholder for dynamically registered blocks — populated by Task 6.
     pub blocks: Arc<Mutex<HashMap<String, Arc<dyn Block>>>>,
@@ -68,14 +68,6 @@ impl TestContext {
             wrap_grants: Vec::new(),
             wrap_admin_block: String::new(),
         }
-    }
-
-    /// Replace the config snapshot with `vars`. Builder-style: returns `self`.
-    ///
-    /// Use before the first call that exercises `ctx.config_get(...)`.
-    pub fn with_config(mut self, vars: HashMap<String, String>) -> Self {
-        self.config = Arc::new(vars);
-        self
     }
 
     /// Insert a single config entry into the snapshot.
