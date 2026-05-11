@@ -11,78 +11,52 @@ pub mod reset_password;
 pub mod settings;
 pub mod signup;
 
-use std::collections::HashMap;
-
 use maud::{html, Markup};
-use wafer_core::clients::{database as db, database::ListOptions};
 use wafer_run::context::Context;
 
-use crate::{
-    blocks::helpers::RecordExt,
-    ui::{self, SiteConfig},
-};
+use crate::ui::{self, SiteConfig};
 
-/// Read all key-value pairs from the variables table.
-pub(super) async fn load_variables(ctx: &dyn Context) -> HashMap<String, String> {
-    let opts = ListOptions {
-        limit: 100,
-        ..Default::default()
+/// Build SiteConfig directly from `ctx.config_get(...)`.
+///
+/// Values come from the cached config snapshot — on cloudflare, populated
+/// once per isolate by `solobase-cloudflare::config_cache::get_or_load`;
+/// on native, populated at boot by `seed_and_load_variables` in
+/// `solobase::cli::server`. No D1 / SQLite read happens here.
+pub(super) fn site_config(ctx: &dyn Context) -> SiteConfig {
+    let auth_logo = ctx
+        .config_get("SOLOBASE_SHARED__AUTH_LOGO_URL")
+        .unwrap_or("");
+    let logo_url = if auth_logo.is_empty() {
+        ctx.config_get("SOLOBASE_SHARED__LOGO_URL")
+            .unwrap_or("https://solobase.dev/images/logo_long.png")
+    } else {
+        auth_logo
     };
-    let mut settings = HashMap::new();
-    if let Ok(result) = db::list(ctx, crate::blocks::admin::VARIABLES_COLLECTION, &opts).await {
-        for record in &result.records {
-            let key = record.str_field("key").to_string();
-            let value = record.str_field("value").to_string();
-            if !key.is_empty() {
-                settings.insert(key, value);
-            }
-        }
-    }
-    settings
-}
 
-/// Lookup a shared / block-scoped setting from the variables table, falling
-/// back to `default` when the key is absent. The variables table is the
-/// single source of truth — process env is only read at first cold-start by
-/// `admin::settings::seed_admin_variables` to populate this table.
-pub(super) fn get<'a>(
-    settings: &'a HashMap<String, String>,
-    key: &str,
-    default: &'a str,
-) -> &'a str {
-    settings.get(key).map(String::as_str).unwrap_or(default)
-}
+    let embedded_scripts = ctx
+        .config_get("SOLOBASE_SHARED__EMBEDDED_SCRIPTS")
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
 
-/// Build SiteConfig from the variables settings map.
-pub(super) fn site_config(settings: &HashMap<String, String>) -> SiteConfig {
     SiteConfig {
-        app_name: get(settings, "SOLOBASE_SHARED__APP_NAME", "Solobase").to_string(),
-        logo_url: {
-            let auth_logo = get(settings, "SOLOBASE_SHARED__AUTH_LOGO_URL", "");
-            if auth_logo.is_empty() {
-                get(
-                    settings,
-                    "SOLOBASE_SHARED__LOGO_URL",
-                    "https://solobase.dev/images/logo_long.png",
-                )
-                .to_string()
-            } else {
-                auth_logo.to_string()
-            }
-        },
-        logo_icon_url: get(
-            settings,
-            "SOLOBASE_SHARED__LOGO_ICON_URL",
-            "https://solobase.dev/images/logo.png",
-        )
-        .to_string(),
-        favicon_url: get(settings, "SOLOBASE_SHARED__FAVICON_URL", "").to_string(),
-        embedded_scripts: get(settings, "SOLOBASE_SHARED__EMBEDDED_SCRIPTS", "")
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .collect(),
+        app_name: ctx
+            .config_get("SOLOBASE_SHARED__APP_NAME")
+            .unwrap_or("Solobase")
+            .to_string(),
+        logo_url: logo_url.to_string(),
+        logo_icon_url: ctx
+            .config_get("SOLOBASE_SHARED__LOGO_ICON_URL")
+            .unwrap_or("https://solobase.dev/images/logo.png")
+            .to_string(),
+        favicon_url: ctx
+            .config_get("SOLOBASE_SHARED__FAVICON_URL")
+            .unwrap_or("")
+            .to_string(),
+        embedded_scripts,
     }
 }
 
@@ -95,26 +69,19 @@ pub(super) fn site_config(settings: &HashMap<String, String>) -> SiteConfig {
 ///   the provider is encoded in the signed `state` JWT)
 ///
 /// These match what `oauth.rs` actually reads when building the auth_url.
-/// Values come from the variables table via `load_variables` on both
-/// native (sqlite) and cloudflare (D1).
-pub(super) fn oauth_provider_configured(
-    settings: &HashMap<String, String>,
-    provider: &str,
-) -> bool {
+pub(super) fn oauth_provider_configured(ctx: &dyn Context, provider: &str) -> bool {
     let up = provider.to_ascii_uppercase();
-    !get(
-        settings,
-        &format!("SUPPERS_AI__AUTH_UI__OAUTH_{up}_CLIENT_ID"),
-        "",
-    )
-    .is_empty()
-        && !get(
-            settings,
-            &format!("SUPPERS_AI__AUTH_UI__OAUTH_{up}_CLIENT_SECRET"),
-            "",
-        )
+    !ctx.config_get(&format!("SUPPERS_AI__AUTH_UI__OAUTH_{up}_CLIENT_ID"))
+        .unwrap_or("")
         .is_empty()
-        && !get(settings, "SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI", "").is_empty()
+        && !ctx
+            .config_get(&format!("SUPPERS_AI__AUTH_UI__OAUTH_{up}_CLIENT_SECRET"))
+            .unwrap_or("")
+            .is_empty()
+        && !ctx
+            .config_get("SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI")
+            .unwrap_or("")
+            .is_empty()
 }
 
 /// Display label for an OAuth provider button.
@@ -258,5 +225,100 @@ async function handleForgot(){
   showInfo('If that email is registered, a password reset link has been sent.');
 }
 "#
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::TestContext;
+
+    #[tokio::test]
+    async fn site_config_reads_from_ctx_config_get_with_defaults() {
+        let ctx = TestContext::new().await;
+        let cfg = site_config(&ctx);
+
+        assert_eq!(cfg.app_name, "Solobase");
+        assert_eq!(cfg.logo_url, "https://solobase.dev/images/logo_long.png");
+        assert_eq!(cfg.logo_icon_url, "https://solobase.dev/images/logo.png");
+        assert!(cfg.favicon_url.is_empty());
+        assert!(cfg.embedded_scripts.is_empty());
+    }
+
+    #[tokio::test]
+    async fn site_config_picks_auth_logo_when_set() {
+        let mut ctx = TestContext::new().await;
+        ctx.set_config(
+            "SOLOBASE_SHARED__AUTH_LOGO_URL",
+            "https://example.com/auth.png",
+        );
+        ctx.set_config("SOLOBASE_SHARED__LOGO_URL", "https://example.com/main.png");
+
+        let cfg = site_config(&ctx);
+        assert_eq!(cfg.logo_url, "https://example.com/auth.png");
+    }
+
+    #[tokio::test]
+    async fn site_config_falls_back_to_logo_url_when_auth_logo_empty() {
+        let mut ctx = TestContext::new().await;
+        ctx.set_config("SOLOBASE_SHARED__LOGO_URL", "https://example.com/main.png");
+
+        let cfg = site_config(&ctx);
+        assert_eq!(cfg.logo_url, "https://example.com/main.png");
+    }
+
+    #[tokio::test]
+    async fn site_config_app_name_override() {
+        let mut ctx = TestContext::new().await;
+        ctx.set_config("SOLOBASE_SHARED__APP_NAME", "MyApp");
+
+        let cfg = site_config(&ctx);
+        assert_eq!(cfg.app_name, "MyApp");
+    }
+
+    #[tokio::test]
+    async fn site_config_embedded_scripts_splits_csv() {
+        let mut ctx = TestContext::new().await;
+        ctx.set_config(
+            "SOLOBASE_SHARED__EMBEDDED_SCRIPTS",
+            "https://a.example.com/a.js, https://b.example.com/b.js,",
+        );
+
+        let cfg = site_config(&ctx);
+        assert_eq!(
+            cfg.embedded_scripts,
+            vec![
+                "https://a.example.com/a.js".to_string(),
+                "https://b.example.com/b.js".to_string()
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn oauth_provider_configured_requires_all_three_keys() {
+        let mut ctx = TestContext::new().await;
+        ctx.set_config("SUPPERS_AI__AUTH_UI__OAUTH_GITHUB_CLIENT_ID", "id");
+        ctx.set_config("SUPPERS_AI__AUTH_UI__OAUTH_GITHUB_CLIENT_SECRET", "secret");
+        assert!(
+            !oauth_provider_configured(&ctx, "github"),
+            "should be false without REDIRECT_URI"
+        );
+
+        ctx.set_config(
+            "SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI",
+            "https://example.com/cb",
+        );
+        assert!(
+            oauth_provider_configured(&ctx, "github"),
+            "should be true once all three are set"
+        );
+    }
+
+    #[tokio::test]
+    async fn oauth_provider_configured_false_when_missing_any_key() {
+        let ctx = TestContext::new().await;
+        assert!(!oauth_provider_configured(&ctx, "github"));
+        assert!(!oauth_provider_configured(&ctx, "google"));
+        assert!(!oauth_provider_configured(&ctx, "microsoft"));
     }
 }
