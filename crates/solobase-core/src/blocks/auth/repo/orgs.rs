@@ -85,23 +85,22 @@ pub async fn find_by_name(ctx: &dyn Context, name: &str) -> Result<Option<OrgRow
 /// Return all orgs owned by `user_id`, ordered by `created_at` ASC for
 /// stable rendering. Empty Vec if the user owns none.
 pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<OrgRow>, OrgsRepoError> {
-    let opts = db::ListOptions {
-        filters: vec![db::Filter {
+    let records = db::list_sorted(
+        ctx,
+        TABLE,
+        vec![db::Filter {
             field: "owner_user_id".into(),
             operator: db::FilterOp::Equal,
             value: json!(user_id),
         }],
-        sort: vec![db::SortField {
+        vec![db::SortField {
             field: "created_at".into(),
             desc: false,
         }],
-        limit: 1000,
-        ..Default::default()
-    };
-    let res = db::list(ctx, TABLE, &opts)
-        .await
-        .map_err(|e| OrgsRepoError::Db(format!("orgs list_for_user: {e}")))?;
-    res.records.iter().map(|r| row_from_map(&r.data)).collect()
+    )
+    .await
+    .map_err(|e| OrgsRepoError::Db(format!("orgs list_for_user: {e}")))?;
+    records.iter().map(|r| row_from_map(&r.data)).collect()
 }
 
 /// Payload for [`upsert_claimed`]. Borrowed fields — caller keeps ownership.
