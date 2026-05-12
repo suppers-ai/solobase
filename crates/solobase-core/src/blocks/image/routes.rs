@@ -6,13 +6,11 @@
 //! `ErrorCode`.
 
 use serde::Deserialize;
-use wafer_block::context::Context;
-use wafer_block::WaferError;
+use wafer_block::{context::Context, WaferError};
 use wafer_core::clients::image::{self as image_client, ImageParams, ImageRequest};
-use wafer_run::OutputStream;
+use wafer_run::{InputStream, OutputStream};
 
 use crate::blocks::helpers::{err_bad_request, err_internal, ok_json, ResponseBuilder};
-use wafer_run::InputStream;
 
 #[derive(Debug, Deserialize)]
 struct GenerateBody {
