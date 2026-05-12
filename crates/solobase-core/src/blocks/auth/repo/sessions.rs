@@ -221,22 +221,22 @@ pub async fn delete_expired(ctx: &dyn Context, cutoff: &str) -> Result<u64, Repo
 /// Return all active sessions for `user_id`, ordered by `last_used_at` DESC
 /// so the most recently active session sorts first.
 pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<SessionRow>, RepoError> {
-    let opts = db::ListOptions {
-        filters: vec![db::Filter {
+    let records = db::list_sorted(
+        ctx,
+        TABLE,
+        vec![db::Filter {
             field: "user_id".into(),
             operator: db::FilterOp::Equal,
             value: json!(user_id),
         }],
-        sort: vec![db::SortField {
+        vec![db::SortField {
             field: "last_used_at".into(),
             desc: true,
         }],
-        ..Default::default()
-    };
-    let res = db::list(ctx, TABLE, &opts)
-        .await
-        .map_err(|e| RepoError::Db(format!("session list_for_user: {e}")))?;
-    res.records.iter().map(|r| row_from_map(&r.data)).collect()
+    )
+    .await
+    .map_err(|e| RepoError::Db(format!("session list_for_user: {e}")))?;
+    records.iter().map(|r| row_from_map(&r.data)).collect()
 }
 
 /// Delete a session row, but only if it belongs to `user_id`. Returns 0 if
