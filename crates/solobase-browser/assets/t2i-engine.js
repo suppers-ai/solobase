@@ -154,4 +154,46 @@ navigator.serviceWorker.addEventListener('message', (event) => {
     }
 });
 
+// ---------------------------------------------------------------------------
+// Page-direct load API (ESM exports).
+//
+// Mirrors `webllm-engine.js::{loadEngine,unloadEngine}`. Page-side consumers
+// (e.g. the gizza-ai model picker) import these to drive the transformers.js
+// pipeline directly in the window without bouncing through the service-worker
+// bridge. Required because Chrome's FetchEvent.respondWith() lifetime cap
+// kills SW-routed model downloads on cold (~500 MB) loads.
+//
+// `_pipe` / `_pipeModel` are the same module-scoped state used by the SW
+// generate path's `handleGenerateStream` above. ESM modules are singletons
+// within a realm, so `import { loadEngine } from '/t2i-engine.js'` from
+// another script in the same window shares this state.
+// ---------------------------------------------------------------------------
+export async function loadEngine(modelId, onProgress) {
+    const { pipeline } = await loadTransformers();
+    if (_pipeModel === modelId && _pipe) {
+        return; // already loaded
+    }
+    if (_pipe) {
+        try { await _pipe.dispose?.(); } catch (_e) {}
+        _pipe = null;
+        _pipeModel = null;
+    }
+    _pipe = await pipeline('text-to-image', modelId, {
+        device: 'webgpu',
+        progress_callback: (report) => {
+            if (typeof onProgress === 'function') {
+                onProgress(String(report?.status ?? report?.file ?? ''));
+            }
+        },
+    });
+    _pipeModel = modelId;
+}
+
+export async function unloadEngine() {
+    if (!_pipe) return;
+    try { await _pipe.dispose?.(); } catch (_e) {}
+    _pipe = null;
+    _pipeModel = null;
+}
+
 console.log('t2i-engine.js loaded');
