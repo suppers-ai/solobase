@@ -46,27 +46,10 @@ fn products_page<'a>(
 pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
-    let one = ListOptions {
-        limit: 1,
-        ..Default::default()
-    };
-
-    let products_count = db::list(ctx, PRODUCTS_COLLECTION, &one)
-        .await
-        .map(|r| r.total_count)
-        .unwrap_or(0);
-    let groups_count = db::list(ctx, GROUPS_COLLECTION, &one)
-        .await
-        .map(|r| r.total_count)
-        .unwrap_or(0);
-    let purchases_count = db::list(ctx, PURCHASES_COLLECTION, &one)
-        .await
-        .map(|r| r.total_count)
-        .unwrap_or(0);
-    let pricing_count = db::list(ctx, PRICING_COLLECTION, &one)
-        .await
-        .map(|r| r.total_count)
-        .unwrap_or(0);
+    let products_count = db::count(ctx, PRODUCTS_COLLECTION, &[]).await.unwrap_or(0);
+    let groups_count = db::count(ctx, GROUPS_COLLECTION, &[]).await.unwrap_or(0);
+    let purchases_count = db::count(ctx, PURCHASES_COLLECTION, &[]).await.unwrap_or(0);
+    let pricing_count = db::count(ctx, PRICING_COLLECTION, &[]).await.unwrap_or(0);
 
     let content = html! {
         (components::page_header("Products Overview", Some("Product catalog statistics"), None))

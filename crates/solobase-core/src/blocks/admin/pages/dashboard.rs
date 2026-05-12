@@ -112,21 +112,16 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
     // Total users
-    let user_count = db::list(
+    let user_count = db::count(
         ctx,
         USERS,
-        &ListOptions {
-            filters: vec![Filter {
-                field: "deleted_at".into(),
-                operator: FilterOp::IsNull,
-                value: serde_json::Value::Null,
-            }],
-            limit: 1,
-            ..Default::default()
-        },
+        &[Filter {
+            field: "deleted_at".into(),
+            operator: FilterOp::IsNull,
+            value: serde_json::Value::Null,
+        }],
     )
     .await
-    .map(|r| r.total_count)
     .unwrap_or(0);
 
     // New users today
