@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wafer_core::clients::{
     database as db,
-    database::{Filter, FilterOp, ListOptions, SortField},
+    database::{Filter, FilterOp, SortField},
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use wafer_sql_utils::{value::sea_values_to_json, Backend};
@@ -307,17 +307,13 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     // Get line items
-    let items_opts = ListOptions {
-        filters: vec![Filter {
-            field: "purchase_id".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(id.to_string()),
-        }],
-        ..Default::default()
-    };
-    let line_items = db::list(ctx, LINE_ITEMS_COLLECTION, &items_opts)
+    let items_filters = vec![Filter {
+        field: "purchase_id".to_string(),
+        operator: FilterOp::Equal,
+        value: serde_json::Value::String(id.to_string()),
+    }];
+    let line_items = db::list_all(ctx, LINE_ITEMS_COLLECTION, items_filters)
         .await
-        .map(|r| r.records)
         .unwrap_or_default();
 
     ok_json(&serde_json::json!({

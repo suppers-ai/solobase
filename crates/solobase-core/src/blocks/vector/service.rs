@@ -5,7 +5,7 @@
 //! prefixed storage name (e.g. `"suppers_ai__vector__docs"`) at the block
 //! boundary — no magic mapping elsewhere in the stack.
 
-use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::database::{self as db, ListOptions, SortField};
 use wafer_run::{
     context::Context,
     types::{ErrorCode, WaferError},
@@ -172,18 +172,17 @@ pub async fn get_index_row(
     ctx: &dyn Context,
     storage_name: &str,
 ) -> Result<Option<IndexRow>, WaferError> {
-    let opts = ListOptions {
-        filters: vec![Filter {
-            field: "prefixed_name".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(storage_name.to_string()),
-        }],
-        limit: 1,
-        ..Default::default()
-    };
-    let result = db::list(ctx, "suppers_ai__vector__registry", &opts).await?;
-    let Some(rec) = result.records.into_iter().next() else {
-        return Ok(None);
+    let rec = match db::get_by_field(
+        ctx,
+        "suppers_ai__vector__registry",
+        "prefixed_name",
+        serde_json::Value::String(storage_name.to_string()),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) if e.code == ErrorCode::NotFound => return Ok(None),
+        Err(e) => return Err(e),
     };
     Ok(map_index_row(ctx, &rec).await)
 }
