@@ -125,6 +125,16 @@ export async function loadEngine(modelId, onProgress) {
     _engineModel = modelId;
 }
 
+// Page-direct unload — releases GPU memory but leaves IndexedDB-cached
+// weights intact. Used by the picker's "Download" action: load → unload
+// caches the model without keeping it as the active engine.
+export async function unloadEngine() {
+    if (!_engine) return;
+    try { await _engine.unload(); } catch (_e) {}
+    _engine = null;
+    _engineModel = null;
+}
+
 navigator.serviceWorker.addEventListener('message', (event) => {
     const msg = event.data;
     if (!msg || !msg.type) return;
