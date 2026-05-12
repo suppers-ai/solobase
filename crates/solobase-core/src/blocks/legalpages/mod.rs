@@ -179,6 +179,7 @@ impl LegalPagesBlock {
             }],
             limit: page_size as i64,
             offset: offset as i64,
+            skip_count: false,
         };
         match db::list(ctx, COLLECTION, &opts).await {
             Ok(result) => ok_json(&result),

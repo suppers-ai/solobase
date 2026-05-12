@@ -105,6 +105,7 @@ pub async fn list_contexts(
         }],
         limit: params.page_size,
         offset: params.offset,
+        skip_count: false,
     };
 
     db::list(ctx, CONTEXTS_COLLECTION, &opts)
@@ -234,6 +235,7 @@ pub async fn list_entries(
         }],
         limit: params.page_size,
         offset: params.offset,
+        skip_count: false,
     };
 
     db::list(ctx, ENTRIES_COLLECTION, &opts)
