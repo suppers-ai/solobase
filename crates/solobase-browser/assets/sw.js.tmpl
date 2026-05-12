@@ -110,6 +110,15 @@ self.addEventListener('message', (event) => {
         }
         return;
     }
+
+    // Image bridge: route all image-* replies (one-shot responses and stream
+    // frames) from the page to bridge.js's handler.
+    if (typeof msg.type === 'string' && msg.type.startsWith('image-')) {
+        if (typeof globalThis.__solobaseCompleteImageMessage === 'function') {
+            globalThis.__solobaseCompleteImageMessage(msg);
+        }
+        return;
+    }
 });
 
 // ---------------------------------------------------------------------------
@@ -136,6 +145,7 @@ self.addEventListener('fetch', (event) => {
         url.pathname === '/asset-manifest.json' ||
         url.pathname === '/webllm-engine.js' ||
         url.pathname === '/embed-engine.js' ||
+        url.pathname === '/t2i-engine.js' ||
         url.pathname.startsWith('__WASM_JS_PREFIX__') ||
         url.pathname.startsWith('/snippets/') ||
         url.pathname.startsWith('/vendor/') ||

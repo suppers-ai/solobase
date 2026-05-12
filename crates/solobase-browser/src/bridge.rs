@@ -111,6 +111,33 @@ extern "C" {
     #[wasm_bindgen(js_name = llmCancelStream, catch)]
     pub async fn llm_cancel_stream(stream_id: &str) -> Result<JsValue, JsValue>;
 
+    // ─── Image bridge ─────────────────────────────────────────────────────────
+
+    /// Load the page-side T2I engine for `model_id`. One-shot — resolves when
+    /// the model is fully loaded onto the WebGPU device.
+    #[wasm_bindgen(js_name = imageLoadEngine, catch)]
+    pub async fn image_load_engine(model_id: &str) -> Result<JsValue, JsValue>;
+
+    /// Unload the page-side T2I engine.
+    #[wasm_bindgen(js_name = imageUnloadEngine, catch)]
+    pub async fn image_unload_engine() -> Result<JsValue, JsValue>;
+
+    /// Start an image generation. Returns the request id as a JS string. Pump
+    /// frames with `imageNextFrame`.
+    #[wasm_bindgen(js_name = imageStartGenerate, catch)]
+    pub async fn image_start_generate(body_json: &str) -> Result<JsValue, JsValue>;
+
+    /// Pull the next frame from an image generation. Frame JSON:
+    ///   `{kind:'progress', payload:{stage, bytes_downloaded?, bytes_total?}}` |
+    ///   `{kind:'done', payload:{data:<base64>, mime_type}}` |
+    ///   `{kind:'error', payload:<string>}`.
+    #[wasm_bindgen(js_name = imageNextFrame, catch)]
+    pub async fn image_next_frame(request_id: &str) -> Result<JsValue, JsValue>;
+
+    /// Cancel an in-flight generation.
+    #[wasm_bindgen(js_name = imageCancelStream, catch)]
+    pub async fn image_cancel_stream(request_id: &str) -> Result<JsValue, JsValue>;
+
     // ─── Embed bridge ─────────────────────────────────────────────────────────
 
     /// Embed `texts` using the page-resident Transformers.js pipeline for

@@ -54,6 +54,10 @@ const ASSETS: &[Asset] = &[
         path: "embed-engine.js",
         bytes: include_bytes!("../assets/embed-engine.js"),
     },
+    Asset {
+        path: "t2i-engine.js",
+        bytes: include_bytes!("../assets/t2i-engine.js"),
+    },
 ];
 
 #[cfg(test)]
@@ -70,6 +74,7 @@ mod tests {
         assert!(paths.contains(&"vendor/sql-wasm.wasm"));
         assert!(paths.contains(&"webllm-engine.js"));
         assert!(paths.contains(&"embed-engine.js"));
+        assert!(paths.contains(&"t2i-engine.js"));
     }
 
     #[test]

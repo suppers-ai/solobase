@@ -18,8 +18,9 @@ use wafer_block_security_headers as _;
 use wafer_block_web as _;
 use wafer_core::interfaces::{
     config::service::ConfigService, crypto::service::CryptoService,
-    database::service::DatabaseService, llm::service::LlmService, logger::service::LoggerService,
-    network::service::NetworkService, storage::service::StorageService,
+    database::service::DatabaseService, image::service::ImageService, llm::service::LlmService,
+    logger::service::LoggerService, network::service::NetworkService,
+    storage::service::StorageService,
 };
 use wafer_run::{block::Block, RuntimeError, Wafer};
 
@@ -47,6 +48,12 @@ pub struct SolobaseBuilder {
     /// providers (OpenAI/Anthropic/etc.) take precedence over any backend
     /// added here for overlapping `backend_id`s.
     extra_llm_services: Vec<(String, Arc<dyn LlmService>)>,
+    /// Additional `ImageService` backends to register on the
+    /// `MultiBackendImageService` router backing `wafer-run/image`. Same
+    /// shape and order semantics as `extra_llm_services`. No built-in
+    /// provider on native — the prototype's only backend is
+    /// `BrowserImageService` from `solobase-web`.
+    extra_image_services: Vec<(String, Arc<dyn ImageService>)>,
     /// Routes registered by downstream projects via `add_route`. Checked
     /// after built-in `ROUTES` — built-ins always win on prefix collision.
     extra_routes: Vec<ExtraRoute>,
@@ -86,6 +93,7 @@ impl SolobaseBuilder {
             block_configs: Vec::new(),
             extra_blocks: Vec::new(),
             extra_llm_services: Vec::new(),
+            extra_image_services: Vec::new(),
             extra_routes: Vec::new(),
             sqlite_db_path: None,
             extra_vector_service: None,
@@ -151,6 +159,19 @@ impl SolobaseBuilder {
     /// it just contains only the backends passed in via this setter.
     pub fn llm_service(mut self, label: impl Into<String>, service: Arc<dyn LlmService>) -> Self {
         self.extra_llm_services.push((label.into(), service));
+        self
+    }
+
+    /// Register an additional `ImageService` backend on the router backing
+    /// `wafer-run/image`. Mirrors `llm_service` — `label` is for tracing,
+    /// dispatch is by `claims_backend`. Order semantics: first
+    /// `claims_backend` match wins.
+    pub fn image_service(
+        mut self,
+        label: impl Into<String>,
+        service: Arc<dyn ImageService>,
+    ) -> Self {
+        self.extra_image_services.push((label.into(), service));
         self
     }
 
@@ -290,6 +311,18 @@ impl SolobaseBuilder {
         }
 
         wafer_core::service_blocks::llm::register_with(&mut wafer, Arc::new(llm_router))?;
+
+        // 4a-bis. Build the image router and register the service block
+        // backing `wafer-run/image`. Mirrors the LLM path above — no built-in
+        // native provider for the prototype; backends are populated entirely
+        // from `.image_service(...)` entries (typically a `BrowserImageService`
+        // from `solobase-web`).
+        let mut image_router =
+            wafer_core::interfaces::image::router::MultiBackendImageService::new();
+        for (label, svc) in self.extra_image_services {
+            image_router.register(label, svc);
+        }
+        wafer_core::service_blocks::image::register_with(&mut wafer, Arc::new(image_router))?;
 
         // 4b. Register the `wafer-run/vector` runtime block when the
         // `native-embedding` feature is on. `suppers-ai/vector` declares
