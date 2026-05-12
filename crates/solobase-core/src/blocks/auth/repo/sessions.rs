@@ -151,19 +151,12 @@ async fn find_record_by_hash(
     ctx: &dyn Context,
     hash: &[u8],
 ) -> Result<Option<wafer_core::clients::database::Record>, RepoError> {
-    let opts = db::ListOptions {
-        filters: vec![db::Filter {
-            field: "token_hash".into(),
-            operator: db::FilterOp::Equal,
-            value: json!(hex_encode(hash)),
-        }],
-        limit: 1,
-        ..Default::default()
-    };
-    let res = db::list(ctx, TABLE, &opts)
-        .await
-        .map_err(|e| RepoError::Db(format!("session lookup: {e}")))?;
-    Ok(res.records.into_iter().next())
+    use wafer_block::ErrorCode;
+    match db::get_by_field(ctx, TABLE, "token_hash", json!(hex_encode(hash))).await {
+        Ok(rec) => Ok(Some(rec)),
+        Err(e) if e.code == ErrorCode::NOT_FOUND => Ok(None),
+        Err(e) => Err(RepoError::Db(format!("session lookup: {e}"))),
+    }
 }
 
 pub async fn find_by_token_hash(
@@ -208,19 +201,16 @@ pub async fn delete_by_token_hash(ctx: &dyn Context, hash: &[u8]) -> Result<u64,
 /// `cutoff` is compared as an ISO-8601 string; rows store timestamps in the
 /// same text format (see [`now_iso`]).
 pub async fn delete_expired(ctx: &dyn Context, cutoff: &str) -> Result<u64, RepoError> {
-    let opts = db::ListOptions {
-        filters: vec![db::Filter {
-            field: "expires_at".into(),
-            operator: db::FilterOp::LessThan,
-            value: json!(cutoff),
-        }],
-        ..Default::default()
-    };
-    let res = db::list(ctx, TABLE, &opts)
+    let filters = vec![db::Filter {
+        field: "expires_at".into(),
+        operator: db::FilterOp::LessThan,
+        value: json!(cutoff),
+    }];
+    let records = db::list_all(ctx, TABLE, filters)
         .await
         .map_err(|e| RepoError::Db(format!("delete expired list: {e}")))?;
     let mut deleted = 0u64;
-    for record in res.records {
+    for record in records {
         if db::delete(ctx, TABLE, &record.id).await.is_ok() {
             deleted += 1;
         }

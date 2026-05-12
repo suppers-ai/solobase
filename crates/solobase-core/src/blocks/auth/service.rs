@@ -430,11 +430,11 @@ mod tests {
             .expect("init applies migrations and runs bootstrap");
 
         // Migrations applied → users table exists and is queryable.
-        let rows = db::list(&*ctx, users::TABLE, &db::ListOptions::default())
+        let rows = db::list_all(&*ctx, users::TABLE, vec![])
             .await
             .expect("users table exists after init");
         // No bootstrap admin env vars → bootstrap no-ops, table stays empty.
-        assert_eq!(rows.records.len(), 0);
+        assert_eq!(rows.len(), 0);
     }
 
     #[tokio::test]

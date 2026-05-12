@@ -78,27 +78,23 @@ pub async fn update_password(
     user_id: &str,
     new_hash: &str,
 ) -> Result<(), RepoError> {
-    let opts = db::ListOptions {
-        filters: vec![db::Filter {
-            field: "user_id".into(),
-            operator: db::FilterOp::Equal,
-            value: serde_json::json!(user_id),
-        }],
-        limit: 1,
-        ..Default::default()
-    };
-    let existing = db::list(ctx, TABLE, &opts)
-        .await
-        .map_err(|e| RepoError::Db(format!("local_credentials lookup: {e}")))?;
-    if existing.records.is_empty() {
-        insert(ctx, user_id, new_hash, false).await
-    } else {
-        let mut data: HashMap<String, Value> = HashMap::new();
-        data.insert("password_hash".into(), json!(new_hash));
-        db::update_by_filters(ctx, TABLE, opts.filters, data)
-            .await
-            .map_err(|e| RepoError::Db(format!("local_credentials update_password: {e}")))?;
-        Ok(())
+    use wafer_block::ErrorCode;
+    let filters = vec![db::Filter {
+        field: "user_id".into(),
+        operator: db::FilterOp::Equal,
+        value: serde_json::json!(user_id),
+    }];
+    match db::get_by_field(ctx, TABLE, "user_id", json!(user_id)).await {
+        Ok(_) => {
+            let mut data: HashMap<String, Value> = HashMap::new();
+            data.insert("password_hash".into(), json!(new_hash));
+            db::update_by_filters(ctx, TABLE, filters, data)
+                .await
+                .map_err(|e| RepoError::Db(format!("local_credentials update_password: {e}")))?;
+            Ok(())
+        }
+        Err(e) if e.code == ErrorCode::NOT_FOUND => insert(ctx, user_id, new_hash, false).await,
+        Err(e) => Err(RepoError::Db(format!("local_credentials lookup: {e}"))),
     }
 }
 

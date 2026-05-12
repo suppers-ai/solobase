@@ -58,26 +58,22 @@ fn hex_encode(bytes: &[u8]) -> String {
 pub async fn is_valid(ctx: &dyn Context, token_hash: &[u8]) -> Result<bool, RepoError> {
     let now = now_iso();
     let hex = hex_encode(token_hash);
-    let opts = db::ListOptions {
-        filters: vec![
-            db::Filter {
-                field: "token_hash".into(),
-                operator: db::FilterOp::Equal,
-                value: json!(hex),
-            },
-            db::Filter {
-                field: "expires_at".into(),
-                operator: db::FilterOp::GreaterEqual,
-                value: json!(now),
-            },
-        ],
-        limit: 1,
-        ..Default::default()
-    };
-    let res = db::list(ctx, TABLE, &opts)
+    let filters = vec![
+        db::Filter {
+            field: "token_hash".into(),
+            operator: db::FilterOp::Equal,
+            value: json!(hex),
+        },
+        db::Filter {
+            field: "expires_at".into(),
+            operator: db::FilterOp::GreaterEqual,
+            value: json!(now),
+        },
+    ];
+    let records = db::list_all(ctx, TABLE, filters)
         .await
         .map_err(|e| RepoError::Db(format!("bootstrap_tokens lookup: {e}")))?;
-    Ok(!res.records.is_empty())
+    Ok(!records.is_empty())
 }
 
 /// Delete every row whose `token_hash` matches `token_hash`. Used by the
@@ -89,18 +85,15 @@ pub async fn is_valid(ctx: &dyn Context, token_hash: &[u8]) -> Result<bool, Repo
 /// removes all of them so subsequent `is_valid` calls return false.
 pub async fn delete_by_hash(ctx: &dyn Context, token_hash: &[u8]) -> Result<(), RepoError> {
     let hex = hex_encode(token_hash);
-    let opts = db::ListOptions {
-        filters: vec![db::Filter {
-            field: "token_hash".into(),
-            operator: db::FilterOp::Equal,
-            value: json!(hex),
-        }],
-        ..Default::default()
-    };
-    let res = db::list(ctx, TABLE, &opts)
+    let filters = vec![db::Filter {
+        field: "token_hash".into(),
+        operator: db::FilterOp::Equal,
+        value: json!(hex),
+    }];
+    let records = db::list_all(ctx, TABLE, filters)
         .await
         .map_err(|e| RepoError::Db(format!("bootstrap_tokens lookup for delete: {e}")))?;
-    for record in res.records {
+    for record in records {
         db::delete(ctx, TABLE, &record.id)
             .await
             .map_err(|e| RepoError::Db(format!("bootstrap_tokens delete: {e}")))?;
