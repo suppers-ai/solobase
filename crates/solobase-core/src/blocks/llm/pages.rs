@@ -403,14 +403,9 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let default_model = config::get_default(ctx, DEFAULT_MODEL_VAR, "").await;
 
     // Load per-thread overrides
-    let overrides_opts = ListOptions {
-        limit: 100,
-        ..Default::default()
-    };
-    let overrides = match db::list(ctx, SETTINGS_COLLECTION, &overrides_opts).await {
-        Ok(r) => r.records,
-        Err(_) => vec![],
-    };
+    let overrides: Vec<db::Record> = db::list_all(ctx, SETTINGS_COLLECTION, vec![])
+        .await
+        .unwrap_or_default();
 
     let content = html! {
         (components::page_header(

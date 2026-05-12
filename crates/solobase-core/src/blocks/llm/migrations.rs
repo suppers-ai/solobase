@@ -22,7 +22,7 @@
 
 use std::collections::HashMap;
 
-use wafer_core::clients::database::{self as db, ListOptions, Record};
+use wafer_core::clients::database::{self as db, Record};
 use wafer_run::{context::Context, types::ErrorCode};
 
 use super::{
@@ -124,7 +124,7 @@ pub(super) async fn migrate_legacy_providers(
     // Step 1: read the legacy table. NotFound (table doesn't exist) = already
     // migrated — return cleanly. All other errors bubble up to the caller.
     // audit-allow: legacy-block-table — `provider-llm` was renamed to `llm`; the old block no longer registers, so no grant can exist. Probe is one-shot and swallows NotFound on the steady-state path.
-    let legacy = match db::list(ctx, LEGACY_COLLECTION, &ListOptions::default()).await {
+    let legacy_records = match db::list_all(ctx, LEGACY_COLLECTION, vec![]).await {
         Ok(r) => r,
         Err(e) if e.code == ErrorCode::NotFound => {
             // Already migrated or never needed — common path on every subsequent
@@ -137,7 +137,7 @@ pub(super) async fn migrate_legacy_providers(
         }
     };
 
-    if legacy.records.is_empty() {
+    if legacy_records.is_empty() {
         // Empty legacy table — nothing to copy, but we still drop it so the
         // next boot takes the short-circuit path above.
         drop_legacy_table(ctx).await;
@@ -146,12 +146,12 @@ pub(super) async fn migrate_legacy_providers(
 
     tracing::info!(
         "migrating {} legacy provider row(s) from {LEGACY_COLLECTION} → {PROVIDERS_COLLECTION}",
-        legacy.records.len()
+        legacy_records.len()
     );
 
     let mut migrated = 0usize;
     let mut skipped = 0usize;
-    for record in &legacy.records {
+    for record in &legacy_records {
         match migrate_one(ctx, record).await {
             MigrateOutcome::Inserted => migrated += 1,
             MigrateOutcome::Skipped => skipped += 1,
@@ -228,12 +228,8 @@ async fn drop_legacy_table(ctx: &dyn Context) {
 /// Mirrors `routes::reload_provider_service` but is intentionally duplicated
 /// here to keep the migration self-contained (no cross-module coupling).
 async fn reload_service(ctx: &dyn Context, provider_svc: &ProviderLlmService) {
-    let opts = ListOptions {
-        limit: 200,
-        ..Default::default()
-    };
-    let records = match db::list(ctx, PROVIDERS_COLLECTION, &opts).await {
-        Ok(r) => r.records,
+    let records = match db::list_all(ctx, PROVIDERS_COLLECTION, vec![]).await {
+        Ok(r) => r,
         Err(e) => {
             tracing::warn!("post-migration reload list failed: {e}");
             return;

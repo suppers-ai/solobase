@@ -16,7 +16,7 @@
 //! function directly (tests, future router changes).
 
 use maud::{html, Markup};
-use wafer_core::clients::{database as db, database::ListOptions};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use super::{
@@ -84,14 +84,9 @@ pub(super) async fn providers_page(
 
     // Load all provider rows (both enabled and disabled) — the admin UI
     // wants the full picture, not just the in-flight set.
-    let opts = ListOptions {
-        limit: 200,
-        ..Default::default()
-    };
     let configs: Vec<(String, ProviderConfig)> =
-        match db::list(ctx, PROVIDERS_COLLECTION, &opts).await {
-            Ok(r) => r
-                .records
+        match db::list_all(ctx, PROVIDERS_COLLECTION, vec![]).await {
+            Ok(records) => records
                 .into_iter()
                 .filter_map(|rec| row_to_config(&rec).ok().map(|cfg| (rec.id, cfg)))
                 .collect(),
