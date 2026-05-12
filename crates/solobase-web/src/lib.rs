@@ -60,6 +60,9 @@ pub async fn initialize() -> Result<(), JsValue> {
     let browser_llm: Arc<dyn wafer_core::interfaces::llm::service::LlmService> =
         Arc::new(solobase_browser::llm::BrowserLlmService::new());
 
+    let browser_image: Arc<dyn wafer_core::interfaces::image::service::ImageService> =
+        Arc::new(solobase_browser::image::BrowserImageService::new());
+
     let browser_vector: Arc<dyn wafer_core::interfaces::vector::service::VectorService> =
         Arc::new(solobase_browser::vector::BrowserVectorService::new());
 
@@ -80,6 +83,7 @@ pub async fn initialize() -> Result<(), JsValue> {
         .network(solobase_browser::make_network_service())
         .logger(solobase_browser::make_console_logger())
         .llm_service("browser", browser_llm)
+        .image_service("browser", browser_image)
         .vector_service(browser_vector)
         .embedding_service(browser_embedding)
         .block_settings(features)
