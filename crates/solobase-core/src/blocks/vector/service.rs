@@ -5,7 +5,7 @@
 //! prefixed storage name (e.g. `"suppers_ai__vector__docs"`) at the block
 //! boundary — no magic mapping elsewhere in the stack.
 
-use wafer_core::clients::database::{self as db, ListOptions, SortField};
+use wafer_core::clients::database::{self as db, SortField};
 use wafer_run::{
     context::Context,
     types::{ErrorCode, WaferError},
@@ -147,18 +147,19 @@ async fn map_index_row(ctx: &dyn Context, rec: &db::Record) -> Option<IndexRow> 
 /// collections, so `db::list` gives us `Ok(empty)` rather than an
 /// error. Same for `db::count` against the per-index meta table.
 pub async fn list_index_rows(ctx: &dyn Context) -> Result<Vec<IndexRow>, WaferError> {
-    let opts = ListOptions {
-        limit: 1000,
-        sort: vec![SortField {
+    let records = db::list_sorted(
+        ctx,
+        "suppers_ai__vector__registry",
+        vec![],
+        vec![SortField {
             field: "prefixed_name".to_string(),
             desc: false,
         }],
-        ..Default::default()
-    };
-    let result = db::list(ctx, "suppers_ai__vector__registry", &opts).await?;
+    )
+    .await?;
 
-    let mut rows = Vec::with_capacity(result.records.len());
-    for rec in result.records {
+    let mut rows = Vec::with_capacity(records.len());
+    for rec in records {
         if let Some(row) = map_index_row(ctx, &rec).await {
             rows.push(row);
         }
