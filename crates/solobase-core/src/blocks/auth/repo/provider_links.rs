@@ -143,22 +143,22 @@ pub async fn list_for_user(
     ctx: &dyn Context,
     user_id: &str,
 ) -> Result<Vec<ProviderLink>, RepoError> {
-    let opts = db::ListOptions {
-        filters: vec![db::Filter {
+    let records = db::list_sorted(
+        ctx,
+        TABLE,
+        vec![db::Filter {
             field: "user_id".into(),
             operator: db::FilterOp::Equal,
             value: json!(user_id),
         }],
-        sort: vec![db::SortField {
+        vec![db::SortField {
             field: "linked_at".into(),
             desc: false,
         }],
-        ..Default::default()
-    };
-    let res = db::list(ctx, TABLE, &opts)
-        .await
-        .map_err(|e| RepoError::Db(format!("provider_links list_for_user: {e}")))?;
-    res.records.iter().map(|r| row_from_map(&r.data)).collect()
+    )
+    .await
+    .map_err(|e| RepoError::Db(format!("provider_links list_for_user: {e}")))?;
+    records.iter().map(|r| row_from_map(&r.data)).collect()
 }
 
 #[cfg(test)]
