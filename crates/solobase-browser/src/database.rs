@@ -350,22 +350,29 @@ impl DatabaseService for BrowserDatabaseService {
 
         let (where_clause, filter_params) = build_where(&opts.filters);
 
-        // COUNT
-        let count_sql = format!(
-            "SELECT COUNT(*) as cnt FROM {} {}",
-            quote_ident(&table),
-            where_clause
-        );
         let params_json = params_to_json(&filter_params);
-        let count_json = bridge::db_query_raw(&count_sql, &params_json)
-            .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
-        let count_rows: Vec<serde_json::Value> =
-            serde_json::from_str(&count_json).unwrap_or_default();
-        let total_count: i64 = count_rows
-            .first()
-            .and_then(|r| r.get("cnt"))
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+
+        // Count total — skipped when caller passed skip_count: true.
+        let total_count: Option<i64> = if opts.skip_count {
+            None
+        } else {
+            let count_sql = format!(
+                "SELECT COUNT(*) as cnt FROM {} {}",
+                quote_ident(&table),
+                where_clause
+            );
+            let count_json = bridge::db_query_raw(&count_sql, &params_json)
+                .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
+            let count_rows: Vec<serde_json::Value> =
+                serde_json::from_str(&count_json).unwrap_or_default();
+            Some(
+                count_rows
+                    .first()
+                    .and_then(|r| r.get("cnt"))
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0),
+            )
+        };
 
         // SELECT
         let mut select_sql = format!("SELECT * FROM {} {}", quote_ident(&table), where_clause);
@@ -399,6 +406,7 @@ impl DatabaseService for BrowserDatabaseService {
             1
         };
 
+        let total_count = total_count.unwrap_or(records.len() as i64);
         Ok(RecordList {
             records,
             total_count,
