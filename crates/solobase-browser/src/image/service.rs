@@ -71,7 +71,9 @@ impl ImageService for BrowserImageService {
                     continue;
                 }
                 Frame::Done { bytes, mime_type } => {
-                    return Ok(ImageResponse::new(vec![GeneratedImage::new(bytes, mime_type)]));
+                    return Ok(ImageResponse::new(vec![GeneratedImage::new(
+                        bytes, mime_type,
+                    )]));
                 }
                 Frame::Error(msg) => {
                     return Err(ImageError::BackendError(format!("transformers: {msg}")));

@@ -18,8 +18,8 @@ use wafer_block_security_headers as _;
 use wafer_block_web as _;
 use wafer_core::interfaces::{
     config::service::ConfigService, crypto::service::CryptoService,
-    database::service::DatabaseService, image::service::ImageService,
-    llm::service::LlmService, logger::service::LoggerService, network::service::NetworkService,
+    database::service::DatabaseService, image::service::ImageService, llm::service::LlmService,
+    logger::service::LoggerService, network::service::NetworkService,
     storage::service::StorageService,
 };
 use wafer_run::{block::Block, RuntimeError, Wafer};
