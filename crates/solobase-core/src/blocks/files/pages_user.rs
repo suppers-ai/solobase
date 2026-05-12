@@ -119,25 +119,26 @@ use crate::ui::{
 /// If this gets hot, fold into a single aggregate query via
 /// `wafer-sql-utils::aggregate` (do **not** use raw SQL — CLAUDE.md).
 pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<BucketRow> {
-    use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+    use wafer_core::clients::database::{Filter, FilterOp, SortField};
 
     use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION};
 
-    let opts = ListOptions {
-        filters: vec![Filter {
+    let recs = match db::list_sorted(
+        ctx,
+        BUCKETS_COLLECTION,
+        vec![Filter {
             field: "created_by".into(),
             operator: FilterOp::Equal,
             value: serde_json::Value::String(user_id.into()),
         }],
-        sort: vec![SortField {
+        vec![SortField {
             field: "name".into(),
             desc: false,
         }],
-        ..Default::default()
-    };
-
-    let recs = match db::list(ctx, BUCKETS_COLLECTION, &opts).await {
-        Ok(rl) => rl.records,
+    )
+    .await
+    {
+        Ok(records) => records,
         Err(e) => {
             tracing::warn!(error = %e, "files bucket list failed");
             Vec::new()
@@ -691,24 +692,25 @@ pub fn render_shares_table(rows: &[ShareRow]) -> Markup {
 }
 
 async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow> {
-    use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+    use wafer_core::clients::database::{Filter, FilterOp, SortField};
 
     use super::SHARES_COLLECTION;
-    let opts = ListOptions {
-        filters: vec![Filter {
+    match db::list_sorted(
+        ctx,
+        SHARES_COLLECTION,
+        vec![Filter {
             field: "created_by".into(),
             operator: FilterOp::Equal,
             value: serde_json::Value::String(user_id.into()),
         }],
-        sort: vec![SortField {
+        vec![SortField {
             field: "created_at".into(),
             desc: true,
         }],
-        ..Default::default()
-    };
-    match db::list(ctx, SHARES_COLLECTION, &opts).await {
-        Ok(rl) => rl
-            .records
+    )
+    .await
+    {
+        Ok(records) => records
             .into_iter()
             .map(|r| ShareRow {
                 token: r
