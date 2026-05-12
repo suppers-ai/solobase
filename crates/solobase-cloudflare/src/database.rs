@@ -194,24 +194,30 @@ impl DatabaseService for D1DatabaseService {
         let (where_sql, params) = build_where_clause(&opts.filters);
         let limit_for_empty = if opts.limit > 0 { opts.limit } else { 100 };
 
-        // Count query
-        let count_sql = format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, where_sql);
-        let count_stmt = self.db.prepare(&count_sql).bind(&params).map_err(db_err)?;
-        let count_row = match count_stmt.first::<serde_json::Value>(None).await {
-            Ok(row) => row,
-            Err(e) if is_no_such_table(&e.to_string()) => {
-                return Ok(RecordList {
-                    records: Vec::new(),
-                    total_count: 0,
-                    page: 1,
-                    page_size: limit_for_empty,
-                });
-            }
-            Err(e) => return Err(db_err(e)),
+        // Count total — skipped when caller passed skip_count: true.
+        let total_count: Option<i64> = if opts.skip_count {
+            None
+        } else {
+            let count_sql = format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, where_sql);
+            let count_stmt = self.db.prepare(&count_sql).bind(&params).map_err(db_err)?;
+            let count_row = match count_stmt.first::<serde_json::Value>(None).await {
+                Ok(row) => row,
+                Err(e) if is_no_such_table(&e.to_string()) => {
+                    return Ok(RecordList {
+                        records: Vec::new(),
+                        total_count: 0,
+                        page: 1,
+                        page_size: limit_for_empty,
+                    });
+                }
+                Err(e) => return Err(db_err(e)),
+            };
+            Some(
+                count_row
+                    .and_then(|v| v.get("cnt").and_then(|c| c.as_i64()))
+                    .unwrap_or(0),
+            )
         };
-        let total_count = count_row
-            .and_then(|v| v.get("cnt").and_then(|c| c.as_i64()))
-            .unwrap_or(0);
 
         // Data query
         let mut sql = format!("SELECT * FROM {} WHERE {}", table, where_sql);
@@ -236,7 +242,18 @@ impl DatabaseService for D1DatabaseService {
         sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, opts.offset));
 
         let stmt = self.db.prepare(&sql).bind(&params).map_err(db_err)?;
-        let results = stmt.all().await.map_err(db_err)?;
+        let results = match stmt.all().await {
+            Ok(r) => r,
+            Err(e) if is_no_such_table(&e.to_string()) => {
+                return Ok(RecordList {
+                    records: Vec::new(),
+                    total_count: total_count.unwrap_or(0),
+                    page: 1,
+                    page_size: limit_for_empty,
+                });
+            }
+            Err(e) => return Err(db_err(e)),
+        };
         let rows: Vec<serde_json::Value> = results.results().map_err(db_err)?;
 
         let page = if limit > 0 {
@@ -245,8 +262,10 @@ impl DatabaseService for D1DatabaseService {
             1
         };
 
+        let records: Vec<Record> = rows.into_iter().map(json_to_record).collect();
+        let total_count = total_count.unwrap_or(records.len() as i64);
         Ok(RecordList {
-            records: rows.into_iter().map(json_to_record).collect(),
+            records,
             total_count,
             page,
             page_size: limit,
