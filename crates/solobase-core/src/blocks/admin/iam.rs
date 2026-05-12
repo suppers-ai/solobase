@@ -151,12 +151,16 @@ async fn handle_delete_role(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 async fn handle_list_permissions(ctx: &dyn Context) -> OutputStream {
-    let opts = ListOptions {
-        limit: 1000,
-        ..Default::default()
-    };
-    match db::list(ctx, PERMISSIONS_COLLECTION, &opts).await {
-        Ok(result) => ok_json(&result),
+    match db::list_all(ctx, PERMISSIONS_COLLECTION, vec![]).await {
+        Ok(records) => {
+            let total_count = records.len() as i64;
+            ok_json(&db::RecordList {
+                records,
+                total_count,
+                page: 1,
+                page_size: total_count,
+            })
+        }
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }
@@ -208,13 +212,16 @@ async fn handle_list_user_roles(ctx: &dyn Context, msg: &Message) -> OutputStrea
             value: serde_json::Value::String(user_id),
         });
     }
-    let opts = ListOptions {
-        filters,
-        limit: 1000,
-        ..Default::default()
-    };
-    match db::list(ctx, USER_ROLES_COLLECTION, &opts).await {
-        Ok(result) => ok_json(&result),
+    match db::list_all(ctx, USER_ROLES_COLLECTION, filters).await {
+        Ok(records) => {
+            let total_count = records.len() as i64;
+            ok_json(&db::RecordList {
+                records,
+                total_count,
+                page: 1,
+                page_size: total_count,
+            })
+        }
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
 }

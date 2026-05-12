@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wafer_core::clients::{
     database as db,
-    database::{Filter, FilterOp, ListOptions, SortField},
+    database::{Filter, FilterOp, SortField},
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
@@ -62,18 +62,14 @@ async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
             // Strip password hashes and enrich with roles
             for record in &mut result.records {
                 record.data.remove("password_hash");
-                let roles_opts = ListOptions {
-                    filters: vec![Filter {
-                        field: "user_id".to_string(),
-                        operator: FilterOp::Equal,
-                        value: serde_json::Value::String(record.id.clone()),
-                    }],
-                    ..Default::default()
-                };
+                let role_filters = vec![Filter {
+                    field: "user_id".to_string(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::Value::String(record.id.clone()),
+                }];
                 let roles: Vec<String> =
-                    match db::list(ctx, USER_ROLES_COLLECTION, &roles_opts).await {
-                        Ok(r) => r
-                            .records
+                    match db::list_all(ctx, USER_ROLES_COLLECTION, role_filters).await {
+                        Ok(records) => records
                             .iter()
                             .map(|rec| rec.str_field("role").to_string())
                             .filter(|s| !s.is_empty())
@@ -109,23 +105,20 @@ async fn get_user(ctx: &dyn Context, id: &str) -> OutputStream {
         Ok(mut record) => {
             record.data.remove("password_hash");
             // Get roles
-            let roles_opts = ListOptions {
-                filters: vec![Filter {
-                    field: "user_id".to_string(),
-                    operator: FilterOp::Equal,
-                    value: serde_json::Value::String(id.to_string()),
-                }],
-                ..Default::default()
-            };
-            let roles: Vec<String> = match db::list(ctx, USER_ROLES_COLLECTION, &roles_opts).await {
-                Ok(r) => r
-                    .records
-                    .iter()
-                    .map(|rec| rec.str_field("role").to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect(),
-                Err(_) => Vec::new(),
-            };
+            let role_filters = vec![Filter {
+                field: "user_id".to_string(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(id.to_string()),
+            }];
+            let roles: Vec<String> =
+                match db::list_all(ctx, USER_ROLES_COLLECTION, role_filters).await {
+                    Ok(records) => records
+                        .iter()
+                        .map(|rec| rec.str_field("role").to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect(),
+                    Err(_) => Vec::new(),
+                };
             let mut resp = serde_json::to_value(&record).unwrap_or_default();
             if let Some(obj) = resp.as_object_mut() {
                 obj.insert("roles".to_string(), serde_json::json!(roles));
