@@ -9,3 +9,5 @@ pub mod catalog;
 pub mod service;
 
 pub use catalog::{default_catalog, ModelCatalog};
+#[cfg(target_arch = "wasm32")]
+pub use service::BrowserImageService;

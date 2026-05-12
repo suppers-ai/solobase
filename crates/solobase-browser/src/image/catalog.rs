@@ -40,9 +40,8 @@ fn sd_turbo_caps() -> ModelCapabilities {
 }
 
 fn default_models() -> Vec<ModelInfo> {
-    let mut sd_turbo = ModelInfo::new(BACKEND_ID, "Xenova/sd-turbo", "SD-Turbo (≈500 MB)");
-    sd_turbo.capabilities = sd_turbo_caps();
-    vec![sd_turbo]
+    vec![ModelInfo::new(BACKEND_ID, "Xenova/sd-turbo", "SD-Turbo (≈500 MB)")
+        .with_capabilities(sd_turbo_caps())]
 }
 
 #[cfg(test)]
