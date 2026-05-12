@@ -463,6 +463,146 @@ export function _completeLlmMessage(msg) {
 
 globalThis.__solobaseCompleteLlmMessage = _completeLlmMessage;
 
+// ─── Image (SW → page postMessage bridge) ───────────────────────────────────
+//
+// Mirrors the LLM bridge. One-shot operations (`imageLoadEngine`,
+// `imageUnloadEngine`) use `_pendingImageRequests`. Streamed generation
+// (`imageStartGenerate` + `imageNextFrame`) shares `_activeImageStreams` with
+// a page→SW frame envelope:
+//   { type: 'image-stream-frame', id, kind: 'progress'|'done'|'error', payload? }
+
+const _pendingImageRequests = new Map(); // id -> { resolve, reject }
+const _activeImageStreams   = new Map(); // id -> { push, closeOk, closeErr, queue, waiters }
+
+function _mkImageId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function _registerImageStream(id) {
+    const queue = [];
+    const waiters = [];
+    const push = (frame) => {
+        if (waiters.length > 0) waiters.shift()(frame);
+        else queue.push(frame);
+    };
+    _activeImageStreams.set(id, {
+        push,
+        closeOk: (payload) => push({ kind: 'done', payload }),
+        closeErr: (err) => push({ kind: 'error', payload: err }),
+        queue,
+        waiters,
+    });
+}
+
+/**
+ * Load the page-side T2I engine for `modelId`. Resolves when the model is
+ * fully loaded onto the WebGPU device. One-shot.
+ * @param {string} modelId
+ * @returns {Promise<void>}
+ */
+export async function imageLoadEngine(modelId) {
+    const id = _mkImageId('image-load');
+    const replyPromise = new Promise((resolve, reject) => {
+        _pendingImageRequests.set(id, { resolve, reject });
+    });
+    await _postToWindowClient({ type: 'image-load-request', id, modelId });
+    return await replyPromise;
+}
+
+/**
+ * Unload the page-side T2I engine. One-shot.
+ * @returns {Promise<void>}
+ */
+export async function imageUnloadEngine() {
+    const id = _mkImageId('image-unload');
+    const replyPromise = new Promise((resolve, reject) => {
+        _pendingImageRequests.set(id, { resolve, reject });
+    });
+    await _postToWindowClient({ type: 'image-unload-request', id });
+    return await replyPromise;
+}
+
+/**
+ * Start a streamed image generation. Returns a request id; pump with
+ * `imageNextFrame`. Frames are `{kind:'progress',payload}` (rare on SD-Turbo)
+ * then a terminal `{kind:'done', payload:{data:<base64>, mime_type}}` or
+ * `{kind:'error', payload:<string>}`.
+ * @param {string} bodyJson - JSON-encoded ImageRequest
+ * @returns {Promise<string>} request id
+ */
+export async function imageStartGenerate(bodyJson) {
+    const id = _mkImageId('image-gen');
+    _registerImageStream(id);
+    await _postToWindowClient({ type: 'image-generate-stream-request', id, body: bodyJson });
+    return id;
+}
+
+/**
+ * Pull the next frame from an image generation. Blocks until a frame arrives.
+ * After a terminal frame the stream entry is removed.
+ * @param {string} id
+ * @returns {Promise<string>} JSON-encoded frame
+ */
+export async function imageNextFrame(id) {
+    const stream = _activeImageStreams.get(id);
+    if (!stream) {
+        return JSON.stringify({ kind: 'error', payload: 'unknown request id' });
+    }
+    let frame;
+    if (stream.queue.length > 0) {
+        frame = stream.queue.shift();
+    } else {
+        frame = await new Promise((resolve) => stream.waiters.push(resolve));
+    }
+    if (frame.kind === 'done' || frame.kind === 'error') {
+        _activeImageStreams.delete(id);
+    }
+    return JSON.stringify(frame);
+}
+
+/**
+ * Cancel an in-flight image generation.
+ * @param {string} id
+ */
+export async function imageCancelStream(id) {
+    const stream = _activeImageStreams.get(id);
+    if (stream) {
+        stream.closeErr('cancelled');
+        _activeImageStreams.delete(id);
+    }
+    await _postToWindowClient({ type: 'image-stream-cancel', id });
+}
+
+/**
+ * Called by sw.js when a page image reply arrives. Routes to the pending
+ * one-shot or active stream by id.
+ *
+ * Page → SW message shapes:
+ *   { type: 'image-load-response',   id, error? }                      (one-shot)
+ *   { type: 'image-unload-response', id, error? }                      (one-shot)
+ *   { type: 'image-stream-frame',    id, kind, payload? }              (streams)
+ *     `kind` ∈ {'progress','done','error'}; payload shape varies by kind.
+ */
+export function _completeImageMessage(msg) {
+    if (msg.type === 'image-load-response' || msg.type === 'image-unload-response') {
+        const pending = _pendingImageRequests.get(msg.id);
+        if (!pending) return;
+        _pendingImageRequests.delete(msg.id);
+        if (msg.error) pending.reject(new Error(msg.error));
+        else pending.resolve();
+        return;
+    }
+    if (msg.type === 'image-stream-frame') {
+        const stream = _activeImageStreams.get(msg.id);
+        if (!stream) return;
+        if (msg.kind === 'done') stream.closeOk(msg.payload);
+        else if (msg.kind === 'error') stream.closeErr(msg.payload ?? 'unknown error');
+        else stream.push({ kind: msg.kind, payload: msg.payload });
+    }
+}
+
+globalThis.__solobaseCompleteImageMessage = _completeImageMessage;
+
 // ─── Embed (SW → page postMessage bridge) ───────────────────────────────────
 //
 // Mirrors the LLM bridge pattern: correlation-id keyed postMessage to a window
