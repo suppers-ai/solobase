@@ -472,6 +472,7 @@ async fn handle_search(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }],
         limit: page_size as i64,
         offset: offset as i64,
+        skip_count: false,
     };
 
     match db::list(ctx, OBJECTS_META_COLLECTION, &opts).await {

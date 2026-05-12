@@ -236,6 +236,7 @@ async fn handle_access_logs(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }],
         limit: page_size as i64,
         offset: ((page - 1) * page_size) as i64,
+        skip_count: false,
     };
 
     match db::list(ctx, ACCESS_LOGS_COLLECTION, &opts).await {
