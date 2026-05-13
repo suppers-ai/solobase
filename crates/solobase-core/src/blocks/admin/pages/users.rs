@@ -134,18 +134,40 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
     let search = msg.query("search").to_string();
 
     let result = if !search.is_empty() {
-        // Search by email OR id -- uses OR condition + SELECT * which needs raw SQL
+        // Search by email OR id. The OR group + SELECT * shape needs
+        // `build_select_with_condition` rather than the flat-filters
+        // `db::paginated_list` typed client.
+        use sea_query::{Cond, Expr};
+        use wafer_sql_utils::{ident::DynCol, query, value::sea_values_to_json, Backend};
+
         let like = format!("%{search}%");
         let offset = ((page - 1) * page_size) as i64;
-        let records = db::query_raw(
-            ctx,
-            &format!(
-                "SELECT * FROM {USERS} WHERE \"deleted_at\" IS NULL AND (\"email\" LIKE ?1 OR \"id\" LIKE ?1) \
-                 ORDER BY \"created_at\" DESC LIMIT ?2 OFFSET ?3"
-            ),
-            &[serde_json::json!(like), serde_json::json!(page_size), serde_json::json!(offset)],
-        ).await;
-        // Wrap in RecordList format
+        let or_group = Cond::any()
+            .add(Expr::col(DynCol("email".into())).like(like.clone()))
+            .add(Expr::col(DynCol("id".into())).like(like.clone()));
+
+        let (sql, vals) = query::build_select_with_condition(
+            USERS,
+            &ListOptions {
+                filters: vec![Filter {
+                    field: "deleted_at".into(),
+                    operator: FilterOp::IsNull,
+                    value: serde_json::Value::Null,
+                }],
+                sort: vec![SortField {
+                    field: "created_at".into(),
+                    desc: true,
+                }],
+                limit: page_size as i64,
+                offset,
+                ..Default::default()
+            },
+            Some(or_group),
+            Backend::Sqlite,
+        );
+        let records = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await;
+        // Wrap in RecordList format. total_count is the in-page count here;
+        // the search UI doesn't paginate beyond what fits in one page.
         match records {
             Ok(rows) => Ok(db::RecordList {
                 total_count: rows.len() as i64,
