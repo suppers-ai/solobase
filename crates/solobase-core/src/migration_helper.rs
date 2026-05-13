@@ -62,7 +62,12 @@ pub async fn apply_if_blessed(
         return Ok(());
     }
 
-    let should_apply = run_requested || state.blessed_hash == code_hash;
+    // Fresh install (no previous apply) bootstraps without operator consent —
+    // there's no prior schema to protect, and dev/test/browser-WASM modes
+    // can't pass `--run-migrations`. Operator gating still applies to
+    // SCHEMA CHANGES (current_hash non-empty + different code_hash below).
+    let is_fresh = state.current_hash.is_empty();
+    let should_apply = is_fresh || run_requested || state.blessed_hash == code_hash;
     if !should_apply {
         tracing::warn!(
             block = %block_name,

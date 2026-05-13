@@ -43,11 +43,13 @@ fn bare_solobase_uses_serve_native_default() {
         target,
         release,
         port,
+        run_migrations,
     } = cli.command
     {
         assert_eq!(target, Some(Target::Native));
         assert!(!release);
         assert_eq!(port, None);
+        assert!(!run_migrations);
     } else {
         panic!("expected Serve");
     }
