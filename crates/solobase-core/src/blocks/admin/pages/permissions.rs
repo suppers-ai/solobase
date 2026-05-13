@@ -5,8 +5,8 @@ use wafer_run::{context::Context, types::*, OutputStream};
 use super::{network::network_rules_tab, storage::storage_rules_tab};
 use crate::{
     blocks::admin::{
-        NETWORK_RULES_COLLECTION as NETWORK_RULES, STORAGE_RULES_COLLECTION as STORAGE_RULES,
-        WRAP_GRANTS_COLLECTION as WRAP_GRANTS,
+        NETWORK_RULES_TABLE as NETWORK_RULES, STORAGE_RULES_TABLE as STORAGE_RULES,
+        WRAP_GRANTS_TABLE as WRAP_GRANTS,
     },
     ui::{components, icons},
 };

@@ -6,7 +6,7 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{ACCESS_LOGS_COLLECTION, BUCKETS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION};
+use super::{ACCESS_LOGS_TABLE, BUCKETS_TABLE, QUOTAS_TABLE, SHARES_TABLE};
 use crate::blocks::helpers::{
     self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json,
 };
@@ -51,7 +51,7 @@ async fn handle_list_shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
         ..Default::default()
     };
 
-    match db::list(ctx, SHARES_COLLECTION, &opts).await {
+    match db::list(ctx, SHARES_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -98,7 +98,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
                 value: serde_json::Value::String(user_id.to_string()),
             },
         ];
-        let owns_bucket = match db::list_all(ctx, BUCKETS_COLLECTION, filters).await {
+        let owns_bucket = match db::list_all(ctx, BUCKETS_TABLE, filters).await {
             Ok(records) => !records.is_empty(),
             _ => false,
         };
@@ -153,7 +153,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
         data.insert("max_access_count".to_string(), serde_json::json!(max));
     }
 
-    match db::create(ctx, SHARES_COLLECTION, data).await {
+    match db::create(ctx, SHARES_TABLE, data).await {
         Ok(record) => ok_json(&serde_json::json!({
             "id": record.id,
             "token": token,
@@ -171,7 +171,7 @@ async fn handle_delete_share(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     // Verify ownership
-    if let Ok(share) = db::get(ctx, SHARES_COLLECTION, id).await {
+    if let Ok(share) = db::get(ctx, SHARES_TABLE, id).await {
         let owner = share
             .data
             .get("created_by")
@@ -182,7 +182,7 @@ async fn handle_delete_share(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     }
 
-    match db::delete(ctx, SHARES_COLLECTION, id).await {
+    match db::delete(ctx, SHARES_TABLE, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Share not found"),
         Err(e) => err_internal(&format!("Database error: {e}")),
@@ -209,7 +209,7 @@ async fn handle_admin_list_shares(ctx: &dyn Context, msg: &Message) -> OutputStr
         offset: ((page - 1) * page_size) as i64,
         ..Default::default()
     };
-    match db::list(ctx, SHARES_COLLECTION, &opts).await {
+    match db::list(ctx, SHARES_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -239,7 +239,7 @@ async fn handle_access_logs(ctx: &dyn Context, msg: &Message) -> OutputStream {
         skip_count: false,
     };
 
-    match db::list(ctx, ACCESS_LOGS_COLLECTION, &opts).await {
+    match db::list(ctx, ACCESS_LOGS_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -250,7 +250,7 @@ async fn handle_admin_quotas(ctx: &dyn Context, _msg: &Message) -> OutputStream 
         limit: 1000,
         ..Default::default()
     };
-    match db::list(ctx, QUOTAS_COLLECTION, &opts).await {
+    match db::list(ctx, QUOTAS_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -283,7 +283,7 @@ async fn handle_update_quota(ctx: &dyn Context, msg: &Message, input: InputStrea
 
     match db::upsert(
         ctx,
-        QUOTAS_COLLECTION,
+        QUOTAS_TABLE,
         "user_id",
         serde_json::Value::String(user_id.to_string()),
         data,

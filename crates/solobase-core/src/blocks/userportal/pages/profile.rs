@@ -8,7 +8,7 @@ use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::{
     blocks::{
-        auth::USERS_COLLECTION,
+        auth::USERS_TABLE,
         helpers::{RecordExt, ResponseBuilder},
     },
     ui::{self, components, SiteConfig, UserInfo},
@@ -25,7 +25,7 @@ pub async fn profile_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
-    let user_record = db::get(ctx, USERS_COLLECTION, &user_id).await.ok();
+    let user_record = db::get(ctx, USERS_TABLE, &user_id).await.ok();
     let display_name = user_record
         .as_ref()
         .map(|r| r.str_field("name").to_string())

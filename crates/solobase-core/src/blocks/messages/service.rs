@@ -11,8 +11,8 @@ use wafer_run::{context::Context, WaferError};
 
 use crate::blocks::helpers::{self, json_map};
 
-pub const CONTEXTS_COLLECTION: &str = "suppers_ai__messages__contexts";
-pub const ENTRIES_COLLECTION: &str = "suppers_ai__messages__entries";
+pub const CONTEXTS_TABLE: &str = "suppers_ai__messages__contexts";
+pub const ENTRIES_TABLE: &str = "suppers_ai__messages__entries";
 
 // ---------------------------------------------------------------------------
 // Context operations
@@ -44,13 +44,13 @@ pub async fn create_context(
 
     helpers::stamp_created(&mut data);
 
-    db::create(ctx, CONTEXTS_COLLECTION, data)
+    db::create(ctx, CONTEXTS_TABLE, data)
         .await
         .map_err(|e| format!("Database error: {e}"))
 }
 
 pub async fn get_context(ctx: &dyn Context, id: &str) -> Result<db::Record, WaferError> {
-    db::get(ctx, CONTEXTS_COLLECTION, id).await
+    db::get(ctx, CONTEXTS_TABLE, id).await
 }
 
 pub struct ListContextsParams {
@@ -108,7 +108,7 @@ pub async fn list_contexts(
         skip_count: false,
     };
 
-    db::list(ctx, CONTEXTS_COLLECTION, &opts)
+    db::list(ctx, CONTEXTS_TABLE, &opts)
         .await
         .map_err(|e| format!("Database error: {e}"))
 }
@@ -127,7 +127,7 @@ pub async fn update_context(
     }
     helpers::stamp_updated(&mut data);
 
-    db::update(ctx, CONTEXTS_COLLECTION, id, data).await
+    db::update(ctx, CONTEXTS_TABLE, id, data).await
 }
 
 pub async fn delete_context(ctx: &dyn Context, id: &str) -> Result<(), String> {
@@ -137,11 +137,11 @@ pub async fn delete_context(ctx: &dyn Context, id: &str) -> Result<(), String> {
         operator: FilterOp::Equal,
         value: serde_json::Value::String(id.to_string()),
     }];
-    if let Err(e) = db::delete_by_filters(ctx, ENTRIES_COLLECTION, filters).await {
+    if let Err(e) = db::delete_by_filters(ctx, ENTRIES_TABLE, filters).await {
         tracing::warn!("Failed to cascade delete entries for context {id}: {e}");
     }
 
-    db::delete(ctx, CONTEXTS_COLLECTION, id)
+    db::delete(ctx, CONTEXTS_TABLE, id)
         .await
         .map_err(|e| format!("Database error: {e}"))
 }
@@ -176,14 +176,14 @@ pub async fn add_entry(
         "created_at": now,
     }));
 
-    let record = db::create(ctx, ENTRIES_COLLECTION, data)
+    let record = db::create(ctx, ENTRIES_TABLE, data)
         .await
         .map_err(|e| format!("Database error: {e}"))?;
 
     // Bump parent context's updated_at
     let mut context_update = std::collections::HashMap::new();
     helpers::stamp_updated(&mut context_update);
-    if let Err(e) = db::update(ctx, CONTEXTS_COLLECTION, context_id, context_update).await {
+    if let Err(e) = db::update(ctx, CONTEXTS_TABLE, context_id, context_update).await {
         tracing::warn!("Failed to update context updated_at after add_entry: {e}");
     }
 
@@ -191,7 +191,7 @@ pub async fn add_entry(
 }
 
 pub async fn get_entry(ctx: &dyn Context, id: &str) -> Result<db::Record, WaferError> {
-    db::get(ctx, ENTRIES_COLLECTION, id).await
+    db::get(ctx, ENTRIES_TABLE, id).await
 }
 
 pub struct ListEntriesParams {
@@ -238,11 +238,11 @@ pub async fn list_entries(
         skip_count: false,
     };
 
-    db::list(ctx, ENTRIES_COLLECTION, &opts)
+    db::list(ctx, ENTRIES_TABLE, &opts)
         .await
         .map_err(|e| format!("Database error: {e}"))
 }
 
 pub async fn delete_entry(ctx: &dyn Context, id: &str) -> Result<(), WaferError> {
-    db::delete(ctx, ENTRIES_COLLECTION, id).await
+    db::delete(ctx, ENTRIES_TABLE, id).await
 }

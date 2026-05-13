@@ -8,7 +8,7 @@ use crate::blocks::{
         helpers::{build_auth_cookie, ensure_admin_role, generate_tokens, store_refresh_token},
         repo::sessions,
         service::hash_token,
-        TOKENS_COLLECTION, USERS_COLLECTION,
+        TOKENS_TABLE, USERS_TABLE,
     },
     errors::{error_response, ErrorCode},
     helpers::{err_bad_request, RecordExt, ResponseBuilder},
@@ -52,7 +52,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Validate refresh token exists in DB (prevents use of revoked tokens)
     match db::get_by_field(
         ctx,
-        TOKENS_COLLECTION,
+        TOKENS_TABLE,
         "token",
         serde_json::Value::String(body.refresh_token.clone()),
     )
@@ -63,7 +63,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     }
 
     // Get user and verify account is still active
-    let user = match db::get(ctx, USERS_COLLECTION, &user_id).await {
+    let user = match db::get(ctx, USERS_TABLE, &user_id).await {
         Ok(u) => u,
         Err(_) => return error_response(ErrorCode::NotAuthenticated, "User not found"),
     };
@@ -92,7 +92,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     if !family.is_empty() {
         db::delete_by_field(
             ctx,
-            TOKENS_COLLECTION,
+            TOKENS_TABLE,
             "family",
             serde_json::Value::String(family),
         )

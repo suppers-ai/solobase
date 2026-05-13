@@ -7,11 +7,17 @@ use wafer_core::clients::{
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use wafer_sql_utils::{value::sea_values_to_json, Backend};
 
-use super::{LINE_ITEMS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION};
+use super::{PRICING_TABLE, PRODUCTS_TABLE};
 use crate::blocks::helpers::{
     self, err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, ok_json,
     RecordExt,
 };
+
+/// Purchase header table — one row per checkout / order.
+pub(crate) const PURCHASES_TABLE: &str = "suppers_ai__products__purchases";
+
+/// Purchase line-item table — one row per product line in a purchase.
+pub(crate) const LINE_ITEMS_TABLE: &str = "suppers_ai__products__line_items";
 
 pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     #[derive(serde::Deserialize)]
@@ -52,7 +58,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
         if item.quantity <= 0 {
             return err_bad_request("Quantity must be positive");
         }
-        let product = match db::get(ctx, PRODUCTS_COLLECTION, &item.product_id).await {
+        let product = match db::get(ctx, PRODUCTS_TABLE, &item.product_id).await {
             Ok(p) => p,
             Err(_) => return err_not_found(&format!("Product {} not found", item.product_id)),
         };
@@ -93,7 +99,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
             .and_then(|v| v.as_str())
         {
             if !template_id.is_empty() {
-                if let Ok(template) = db::get(ctx, PRICING_COLLECTION, template_id).await {
+                if let Ok(template) = db::get(ctx, PRICING_TABLE, template_id).await {
                     let formula = template
                         .data
                         .get("price_formula")
@@ -174,7 +180,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
         serde_json::Value::String(now.clone()),
     );
 
-    let purchase = match db::create(ctx, PURCHASES_COLLECTION, purchase_data).await {
+    let purchase = match db::create(ctx, PURCHASES_TABLE, purchase_data).await {
         Ok(p) => p,
         Err(e) => return err_internal(&format!("Failed to create purchase: {e}")),
     };
@@ -202,9 +208,9 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
             "created_at".to_string(),
             serde_json::Value::String(now.clone()),
         );
-        if let Err(e) = db::create(ctx, LINE_ITEMS_COLLECTION, item_data).await {
+        if let Err(e) = db::create(ctx, LINE_ITEMS_TABLE, item_data).await {
             // Clean up the purchase since line items are incomplete
-            let _ = db::delete(ctx, PURCHASES_COLLECTION, &purchase.id).await;
+            let _ = db::delete(ctx, PURCHASES_TABLE, &purchase.id).await;
             return err_internal(&format!("Failed to create line item: {e}"));
         }
     }
@@ -233,7 +239,7 @@ pub async fn handle_list_user(ctx: &dyn Context, msg: &Message) -> OutputStream 
 
     match db::paginated_list(
         ctx,
-        PURCHASES_COLLECTION,
+        PURCHASES_TABLE,
         page as i64,
         page_size as i64,
         filters,
@@ -274,7 +280,7 @@ pub async fn handle_list_admin(ctx: &dyn Context, msg: &Message) -> OutputStream
 
     match db::paginated_list(
         ctx,
-        PURCHASES_COLLECTION,
+        PURCHASES_TABLE,
         page as i64,
         page_size as i64,
         filters,
@@ -294,7 +300,7 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
         return err_bad_request("Missing purchase ID");
     }
 
-    let purchase = match db::get(ctx, PURCHASES_COLLECTION, id).await {
+    let purchase = match db::get(ctx, PURCHASES_TABLE, id).await {
         Ok(p) => p,
         Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Purchase not found"),
         Err(e) => return err_internal(&format!("Database error: {e}")),
@@ -312,7 +318,7 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
         operator: FilterOp::Equal,
         value: serde_json::Value::String(id.to_string()),
     }];
-    let line_items = db::list_all(ctx, LINE_ITEMS_COLLECTION, items_filters)
+    let line_items = db::list_all(ctx, LINE_ITEMS_TABLE, items_filters)
         .await
         .unwrap_or_default();
 
@@ -342,7 +348,7 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream)
     let body: RefundReq = serde_json::from_slice(&raw).unwrap_or_default();
 
     // Verify purchase exists
-    if let Err(e) = db::get(ctx, PURCHASES_COLLECTION, &id).await {
+    if let Err(e) = db::get(ctx, PURCHASES_TABLE, &id).await {
         if e.code == ErrorCode::NotFound {
             return err_not_found("Purchase not found");
         }
@@ -355,7 +361,7 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream)
     let reason_val = body.reason.unwrap_or_default();
 
     let (sql, vals) = wafer_sql_utils::query::build_update_where(
-        PURCHASES_COLLECTION,
+        PURCHASES_TABLE,
         &[
             ("status".to_string(), serde_json::json!("refunded")),
             ("refunded_at".to_string(), serde_json::json!(&now)),
@@ -387,7 +393,7 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream)
     }
 
     // Fetch the updated record for the response
-    match db::get(ctx, PURCHASES_COLLECTION, &id).await {
+    match db::get(ctx, PURCHASES_TABLE, &id).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }

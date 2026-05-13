@@ -7,10 +7,17 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION as OBJECTS_META_COLLECTION};
 use crate::blocks::helpers::{
     self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json, ResponseBuilder,
 };
+
+/// Buckets table — user-created storage containers (one row per bucket).
+pub(crate) const BUCKETS_TABLE: &str = "suppers_ai__files__buckets";
+
+/// Object metadata table — one row per uploaded file (sibling of the raw
+/// storage blob in `wafer-run/storage`). Tracks size, content type, status,
+/// uploader and timestamps.
+pub(crate) const OBJECTS_TABLE: &str = "suppers_ai__files__objects";
 
 pub async fn handle(ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
     let action = msg.action();
@@ -93,7 +100,7 @@ async fn is_bucket_access_denied(ctx: &dyn Context, msg: &Message, bucket: &str)
             value: serde_json::Value::String(user_id.to_string()),
         },
     ];
-    match db::list_all(ctx, BUCKETS_COLLECTION, filters).await {
+    match db::list_all(ctx, BUCKETS_TABLE, filters).await {
         Ok(records) if !records.is_empty() => false,
         _ => true, // denied
     }
@@ -125,7 +132,7 @@ async fn handle_list_buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
             operator: FilterOp::Equal,
             value: serde_json::Value::String(user_id.to_string()),
         }];
-        match db::list_all(ctx, BUCKETS_COLLECTION, filters).await {
+        match db::list_all(ctx, BUCKETS_TABLE, filters).await {
             Ok(records) => {
                 let names: Vec<&str> = records
                     .iter()
@@ -179,7 +186,7 @@ async fn handle_create_bucket(
                 "created_at".to_string(),
                 serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
             );
-            if let Err(e) = db::create(ctx, BUCKETS_COLLECTION, data).await {
+            if let Err(e) = db::create(ctx, BUCKETS_TABLE, data).await {
                 tracing::warn!("Failed to track bucket creation in database: {e}");
             }
             ok_json(&serde_json::json!({"name": body.name, "created": true}))
@@ -206,7 +213,7 @@ async fn handle_delete_bucket(ctx: &dyn Context, msg: &Message) -> OutputStream 
             // Clean up DB metadata for the bucket and its objects
             db::delete_by_field(
                 ctx,
-                BUCKETS_COLLECTION,
+                BUCKETS_TABLE,
                 "name",
                 serde_json::Value::String(bucket.to_string()),
             )
@@ -214,7 +221,7 @@ async fn handle_delete_bucket(ctx: &dyn Context, msg: &Message) -> OutputStream 
             .ok();
             db::delete_by_field(
                 ctx,
-                OBJECTS_META_COLLECTION,
+                OBJECTS_TABLE,
                 "bucket",
                 serde_json::Value::String(bucket.to_string()),
             )
@@ -286,7 +293,7 @@ async fn handle_get_object(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "viewed_at".to_string(),
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
-    if let Err(e) = db::create(ctx, super::VIEWS_COLLECTION, data).await {
+    if let Err(e) = db::create(ctx, super::VIEWS_TABLE, data).await {
         tracing::warn!("Failed to track storage object view: {e}");
     }
 
@@ -361,7 +368,7 @@ async fn handle_upload_object(
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
 
-    let pending_record = match db::create(ctx, OBJECTS_META_COLLECTION, pending_data).await {
+    let pending_record = match db::create(ctx, OBJECTS_TABLE, pending_data).await {
         Ok(record) => record,
         Err(e) => return err_internal(&format!("Failed to reserve upload slot: {e}")),
     };
@@ -374,22 +381,14 @@ async fn handle_upload_object(
                 "status".to_string(),
                 serde_json::Value::String("complete".to_string()),
             );
-            if let Err(e) = db::update(
-                ctx,
-                OBJECTS_META_COLLECTION,
-                &pending_record.id,
-                update_data,
-            )
-            .await
-            {
+            if let Err(e) = db::update(ctx, OBJECTS_TABLE, &pending_record.id, update_data).await {
                 tracing::warn!("Failed to mark upload as complete: {e}");
             }
             ok_json(&serde_json::json!({"bucket": bucket, "key": key, "uploaded": true}))
         }
         Err(e) => {
             // Upload failed — delete the pending record so it doesn't block quota.
-            if let Err(del_err) = db::delete(ctx, OBJECTS_META_COLLECTION, &pending_record.id).await
-            {
+            if let Err(del_err) = db::delete(ctx, OBJECTS_TABLE, &pending_record.id).await {
                 tracing::warn!("Failed to clean up pending record: {del_err}");
             }
             err_internal(&format!("Upload failed: {e}"))
@@ -416,7 +415,7 @@ async fn handle_delete_object(ctx: &dyn Context, msg: &Message) -> OutputStream 
             // Clean up metadata
             db::delete_by_filters(
                 ctx,
-                OBJECTS_META_COLLECTION,
+                OBJECTS_TABLE,
                 vec![
                     Filter {
                         field: "bucket".to_string(),
@@ -475,7 +474,7 @@ async fn handle_search(ctx: &dyn Context, msg: &Message) -> OutputStream {
         skip_count: false,
     };
 
-    match db::list(ctx, OBJECTS_META_COLLECTION, &opts).await {
+    match db::list(ctx, OBJECTS_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal(&format!("Search failed: {e}")),
     }
@@ -498,7 +497,7 @@ async fn handle_recent(ctx: &dyn Context, msg: &Message) -> OutputStream {
         ..Default::default()
     };
 
-    match db::list(ctx, super::VIEWS_COLLECTION, &opts).await {
+    match db::list(ctx, super::VIEWS_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -582,10 +581,10 @@ async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
         operator: FilterOp::Equal,
         value: serde_json::Value::String("complete".to_string()),
     }];
-    let total_objects = db::count(ctx, OBJECTS_META_COLLECTION, complete_filter)
+    let total_objects = db::count(ctx, OBJECTS_TABLE, complete_filter)
         .await
         .unwrap_or(0);
-    let total_size = db::sum(ctx, OBJECTS_META_COLLECTION, "size", complete_filter)
+    let total_size = db::sum(ctx, OBJECTS_TABLE, "size", complete_filter)
         .await
         .unwrap_or(0.0);
     let bucket_count = store::list_folders(ctx).await.map(|f| f.len()).unwrap_or(0);

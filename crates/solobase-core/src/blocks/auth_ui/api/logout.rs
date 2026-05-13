@@ -4,7 +4,7 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::blocks::{
-    auth::{helpers::build_auth_cookie, TOKENS_COLLECTION},
+    auth::{helpers::build_auth_cookie, TOKENS_TABLE},
     helpers::ResponseBuilder,
 };
 
@@ -13,7 +13,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     if !user_id.is_empty() {
         db::delete_by_field(
             ctx,
-            TOKENS_COLLECTION,
+            TOKENS_TABLE,
             "user_id",
             serde_json::Value::String(user_id.to_string()),
         )

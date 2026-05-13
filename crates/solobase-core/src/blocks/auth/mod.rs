@@ -13,7 +13,8 @@
 //! - Module decls for the supporting layers (`bootstrap`, `cache`, `config`,
 //!   `migrations`, `pat`, `providers`, `repo`, `service`, `session`).
 //! - Constants other blocks still reference (`AUTH_BLOCK_ID`, `JWT_SECRET_KEY`,
-//!   the four legacy `*_COLLECTION` table-name aliases, `DUMMY_HASH`).
+//!   the four `*_TABLE` re-exports from `repo/{api_keys,rate_limits,tokens,
+//!   users}.rs`, `DUMMY_HASH`).
 //! - `helpers` — token/cookie/role utilities consumed by `auth_ui::api::*`.
 //! - `brand_panel` — shared UI panel consumed by `auth_ui::pages::*`.
 //! - `authenticate_api_key` — called by `crate::pipeline` to populate auth
@@ -45,24 +46,24 @@ pub const AUTH_BLOCK_ID: &str = "suppers-ai/auth";
 /// crypto service.
 pub const JWT_SECRET_KEY: &str = "SUPPERS_AI__AUTH__JWT_SECRET";
 
-// Legacy table-name aliases. Plan A2 introduced per-module `TABLE` constants
-// in `repo/*`, but several cross-block consumers still reference the auth
-// tables by their old `*_COLLECTION` name (admin/, userportal/, products/,
-// rate_limit/, auth_ui/api/*). Keep these `pub(crate)` until those callers
-// migrate to the repo-owned constants.
-pub(crate) const USERS_COLLECTION: &str = "suppers_ai__auth__users";
+// Cross-block table-name re-exports. Each auth table is owned by its repo
+// module (`repo/users.rs`, `repo/tokens.rs`, etc.). These aliases keep
+// existing crate-local consumers (admin/, userportal/, products/,
+// rate_limit/, auth_ui/api/*) on stable identifiers without forcing them
+// to import the qualified `repo::*::TABLE` path.
 // Only consumer is `rate_limit::UserRateLimiter::check` on wasm32; native
-// code path doesn't reference it, so guard the warning rather than the const
-// (the table name itself is platform-agnostic).
-#[allow(dead_code)]
-pub(crate) const RATE_LIMITS_COLLECTION: &str = "suppers_ai__auth__rate_limits";
-pub(crate) const TOKENS_COLLECTION: &str = "suppers_ai__auth__tokens";
-pub(crate) const API_KEYS_COLLECTION: &str = "suppers_ai__auth__api_keys";
+// code path doesn't reference it. Re-export separately so we can attach
+// the dead-code allow on the import binding.
+#[allow(unused_imports)]
+pub(crate) use repo::rate_limits::TABLE as RATE_LIMITS_TABLE;
+pub(crate) use repo::{
+    api_keys::TABLE as API_KEYS_TABLE, tokens::TABLE as TOKENS_TABLE, users::TABLE as USERS_TABLE,
+};
 
 /// Pre-computed Argon2id hash used for timing equalization when user is not found.
 pub(crate) const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
-use crate::blocks::admin::USER_ROLES_COLLECTION;
+use crate::blocks::admin::USER_ROLES_TABLE;
 
 // --- Shared helpers used by auth_ui::api::* and auth_ui::oauth::* ---
 
@@ -74,13 +75,19 @@ pub(crate) mod helpers {
         user_id: &str,
     ) -> Vec<String> {
         // Plan A2 stores role inline on `users.role`; legacy
-        // USER_ROLES_COLLECTION carries multi-role-per-user history. Merge
+        // USER_ROLES_TABLE carries multi-role-per-user history. Merge
         // both: the inline role is the bootstrap path, the table is the
         // legacy path. Dedup since both can produce "admin" for the
         // bootstrapped admin.
         use crate::blocks::helpers::RecordExt;
         let mut roles: Vec<String> = Vec::new();
-        if let Ok(rec) = db::get(ctx, USERS_COLLECTION, user_id).await {
+        // Intra-block access (auth → auth::users); no grant needed. Resolver
+        // can't follow `repo::users::TABLE as USERS_TABLE` re-exports so it
+        // mis-targets via the ambiguous global `TABLE` map — see
+        // auth/service.rs::auth_grants comment. Resolver fix is tracked
+        // separately.
+        // audit-allow: intra-block auth → auth::users; resolver mis-targets re-export
+        if let Ok(rec) = db::get(ctx, USERS_TABLE, user_id).await {
             let inline = rec.str_field("role");
             if !inline.is_empty() {
                 roles.push(inline.to_string());
@@ -91,7 +98,7 @@ pub(crate) mod helpers {
             operator: FilterOp::Equal,
             value: serde_json::Value::String(user_id.to_string()),
         }];
-        if let Ok(records) = db::list_all(ctx, USER_ROLES_COLLECTION, filters).await {
+        if let Ok(records) = db::list_all(ctx, USER_ROLES_TABLE, filters).await {
             for rec in &records {
                 if let Some(role) = rec.data.get("role").and_then(|v| v.as_str()) {
                     if !roles.iter().any(|r| r == role) {
@@ -140,7 +147,7 @@ pub(crate) mod helpers {
             "role": "admin",
             "assigned_at": crate::blocks::helpers::now_rfc3339(),
         }));
-        match db::create(ctx, USER_ROLES_COLLECTION, role_data).await {
+        match db::create(ctx, USER_ROLES_TABLE, role_data).await {
             Ok(_) => {
                 tracing::info!(
                     user_id = %user_id,
@@ -246,7 +253,7 @@ pub(crate) mod helpers {
             "family": family,
             "created_at": crate::blocks::helpers::now_rfc3339()
         }));
-        if let Err(e) = db::create(ctx, TOKENS_COLLECTION, data).await {
+        if let Err(e) = db::create(ctx, TOKENS_TABLE, data).await {
             tracing::warn!("Failed to store refresh token: {e}");
         }
     }
@@ -300,7 +307,7 @@ pub async fn authenticate_api_key(
     // Look up by key_hash
     let key_record = match db::get_by_field(
         ctx,
-        API_KEYS_COLLECTION,
+        API_KEYS_TABLE,
         "key_hash",
         serde_json::Value::String(key_hash),
     )
@@ -331,7 +338,7 @@ pub async fn authenticate_api_key(
         return;
     }
 
-    let user = match db::get(ctx, USERS_COLLECTION, user_id).await {
+    let user = match db::get(ctx, USERS_TABLE, user_id).await {
         Ok(u) => u,
         Err(_) => return,
     };

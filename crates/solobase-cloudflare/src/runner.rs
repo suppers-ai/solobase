@@ -13,7 +13,7 @@ pub(crate) const R2_BINDING: &str = "STORAGE";
 
 use std::{collections::HashMap, sync::Arc};
 
-pub(crate) use solobase_core::blocks::admin::{BLOCK_SETTINGS_COLLECTION, VARIABLES_COLLECTION};
+pub(crate) use solobase_core::blocks::admin::{BLOCK_SETTINGS_TABLE, VARIABLES_TABLE};
 use solobase_core::features::BlockSettings;
 use wafer_core::interfaces::database::service::{DatabaseService, ListOptions};
 
@@ -29,7 +29,7 @@ pub(crate) async fn load_env_vars(db: &Arc<dyn DatabaseService>) -> HashMap<Stri
         limit: 10_000,
         ..Default::default()
     };
-    match db.list(VARIABLES_COLLECTION, &opts).await {
+    match db.list(VARIABLES_TABLE, &opts).await {
         Ok(record_list) => record_list
             .records
             .into_iter()
@@ -56,7 +56,7 @@ pub(crate) async fn load_block_settings(db: &Arc<dyn DatabaseService>) -> BlockS
         limit: 10_000,
         ..Default::default()
     };
-    match db.list(BLOCK_SETTINGS_COLLECTION, &opts).await {
+    match db.list(BLOCK_SETTINGS_TABLE, &opts).await {
         Ok(record_list) => {
             let map: HashMap<String, bool> = record_list
                 .records

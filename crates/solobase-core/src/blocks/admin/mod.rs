@@ -8,17 +8,16 @@ mod settings;
 mod users;
 mod wafer_info;
 
-pub(crate) const ROLES_COLLECTION: &str = "suppers_ai__admin__roles";
-pub(crate) const PERMISSIONS_COLLECTION: &str = "suppers_ai__admin__permissions";
-pub(crate) const USER_ROLES_COLLECTION: &str = "suppers_ai__admin__user_roles";
-pub(crate) const AUDIT_LOGS_COLLECTION: &str = "suppers_ai__admin__audit_logs";
-pub(crate) const REQUEST_LOGS_COLLECTION: &str = "suppers_ai__admin__request_logs";
-pub(crate) const STORAGE_ACCESS_LOGS_COLLECTION: &str = "suppers_ai__admin__storage_access_logs";
-pub(crate) const STORAGE_RULES_COLLECTION: &str = "suppers_ai__admin__storage_rules";
-pub const BLOCK_SETTINGS_COLLECTION: &str = "suppers_ai__admin__block_settings";
-pub const VARIABLES_COLLECTION: &str = "suppers_ai__admin__variables";
-pub(crate) const NETWORK_RULES_COLLECTION: &str = "suppers_ai__admin__network_rules";
-pub(crate) const WRAP_GRANTS_COLLECTION: &str = "suppers_ai__admin__wrap_grants";
+pub(crate) use iam::{PERMISSIONS_TABLE, ROLES_TABLE, USER_ROLES_TABLE};
+pub(crate) use logs::{AUDIT_LOGS_TABLE, REQUEST_LOGS_TABLE, STORAGE_ACCESS_LOGS_TABLE};
+pub use settings::{BLOCK_SETTINGS_TABLE, VARIABLES_TABLE};
+
+/// Storage-permission rule rows (bucket/key pattern → ACL).
+pub(crate) const STORAGE_RULES_TABLE: &str = "suppers_ai__admin__storage_rules";
+/// Network-permission rule rows (egress allow/deny by URL pattern).
+pub(crate) const NETWORK_RULES_TABLE: &str = "suppers_ai__admin__network_rules";
+/// WRAP grant rows (block-to-resource access tokens).
+pub(crate) const WRAP_GRANTS_TABLE: &str = "suppers_ai__admin__wrap_grants";
 
 use wafer_run::{
     block::{Block, BlockInfo},
@@ -58,22 +57,22 @@ impl Block for AdminBlock {
                 "wafer-run/crypto".into(),
             ])
             .collections(vec![
-                CollectionSchema::new(ROLES_COLLECTION)
+                CollectionSchema::new(ROLES_TABLE)
                     .field("name", "string")
                     .field_default("description", "string", "")
                     .field_default("permissions", "json", "[]")
                     .field_default("is_system", "bool", "false"),
-                CollectionSchema::new(PERMISSIONS_COLLECTION)
+                CollectionSchema::new(PERMISSIONS_TABLE)
                     .field("name", "string")
                     .field_default("resource", "string", "")
                     .field_default("actions", "json", "[]"),
-                CollectionSchema::new(USER_ROLES_COLLECTION)
-                    .field_ref("user_id", "string", &format!("{}.id", crate::blocks::auth::USERS_COLLECTION))
+                CollectionSchema::new(USER_ROLES_TABLE)
+                    .field_ref("user_id", "string", &format!("{}.id", crate::blocks::auth::USERS_TABLE))
                     .field("role", "string")
                     .field_optional("assigned_at", "datetime")
                     .field_default("assigned_by", "string", "")
                     .index(&["user_id"]),
-                CollectionSchema::new(VARIABLES_COLLECTION)
+                CollectionSchema::new(VARIABLES_TABLE)
                     .field_unique("key", "string")
                     .field_default("name", "string", "")
                     .field_default("description", "string", "")
@@ -81,13 +80,13 @@ impl Block for AdminBlock {
                     .field_default("warning", "string", "")
                     .field_default("sensitive", "int", "0")
                     .field_default("updated_by", "string", ""),
-                CollectionSchema::new(AUDIT_LOGS_COLLECTION)
+                CollectionSchema::new(AUDIT_LOGS_TABLE)
                     .field_default("user_id", "string", "")
                     .field("action", "string")
                     .field_default("resource", "string", "")
                     .field_default("ip_address", "string", "")
                     .index(&["created_at"]),
-                CollectionSchema::new(REQUEST_LOGS_COLLECTION)
+                CollectionSchema::new(REQUEST_LOGS_TABLE)
                     .field_default("flow_id", "string", "")
                     .field_default("method", "string", "")
                     .field_default("path", "string", "")
@@ -98,16 +97,16 @@ impl Block for AdminBlock {
                     .field_default("client_ip", "string", "")
                     .field_default("user_id", "string", "")
                     .index(&["created_at"]),
-                CollectionSchema::new(STORAGE_ACCESS_LOGS_COLLECTION)
+                CollectionSchema::new(STORAGE_ACCESS_LOGS_TABLE)
                     .field_default("source_block", "string", "")
                     .field_default("operation", "string", "")
                     .field_default("path", "string", "")
                     .field_default("status", "string", "")
                     .index(&["created_at"]),
-                CollectionSchema::new(BLOCK_SETTINGS_COLLECTION)
+                CollectionSchema::new(BLOCK_SETTINGS_TABLE)
                     .field_unique("block_name", "string")
                     .field_default("enabled", "int", "1"),
-                CollectionSchema::new(WRAP_GRANTS_COLLECTION)
+                CollectionSchema::new(WRAP_GRANTS_TABLE)
                     .field("grantee", "string")
                     .field("resource", "string")
                     .field_default("write", "int", "0")
@@ -115,12 +114,12 @@ impl Block for AdminBlock {
                     .field_default("description", "string", ""),
             ])
             .grants(vec![
-                wafer_run::ResourceGrant::read_write(super::auth::AUTH_BLOCK_ID, USER_ROLES_COLLECTION),
-                wafer_run::ResourceGrant::read(super::auth::AUTH_BLOCK_ID, VARIABLES_COLLECTION),
-                wafer_run::ResourceGrant::read("suppers-ai/userportal", BLOCK_SETTINGS_COLLECTION),
+                wafer_run::ResourceGrant::read_write(super::auth::AUTH_BLOCK_ID, USER_ROLES_TABLE),
+                wafer_run::ResourceGrant::read(super::auth::AUTH_BLOCK_ID, VARIABLES_TABLE),
+                wafer_run::ResourceGrant::read("suppers-ai/userportal", BLOCK_SETTINGS_TABLE),
                 // Infrastructure logging: storage wrapper + pipeline write logs
-                wafer_run::ResourceGrant::read_write("*", STORAGE_ACCESS_LOGS_COLLECTION),
-                wafer_run::ResourceGrant::read_write("*", REQUEST_LOGS_COLLECTION),
+                wafer_run::ResourceGrant::read_write("*", STORAGE_ACCESS_LOGS_TABLE),
+                wafer_run::ResourceGrant::read_write("*", REQUEST_LOGS_TABLE),
                 // Default: allow all blocks to make outbound network requests.
                 // Remove this grant via the admin UI to restrict network access.
                 wafer_run::ResourceGrant::read("*", "*")
@@ -488,7 +487,7 @@ async fn handle_create_wrap_grant(
     data.insert("write".into(), serde_json::json!(if write { 1 } else { 0 }));
     data.insert("resource_type".into(), serde_json::json!(resource_type));
     data.insert("description".into(), serde_json::json!(description));
-    let _ = db::create(ctx, WRAP_GRANTS_COLLECTION, data).await;
+    let _ = db::create(ctx, WRAP_GRANTS_TABLE, data).await;
 
     msg.set_meta("req.query.subtab", "database");
     pages::permissions_page(ctx, &msg).await
@@ -499,7 +498,7 @@ async fn handle_delete_wrap_grant(
     mut msg: Message,
     grant_id: &str,
 ) -> OutputStream {
-    let _ = db::delete(ctx, WRAP_GRANTS_COLLECTION, grant_id).await;
+    let _ = db::delete(ctx, WRAP_GRANTS_TABLE, grant_id).await;
     msg.set_meta("req.query.subtab", "database");
     pages::permissions_page(ctx, &msg).await
 }

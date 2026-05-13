@@ -7,7 +7,7 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, types::*, OutputStream};
 
-use super::{BUCKETS_COLLECTION, OBJECTS_COLLECTION, QUOTAS_COLLECTION, SHARES_COLLECTION};
+use super::{BUCKETS_TABLE, OBJECTS_TABLE, QUOTAS_TABLE, SHARES_TABLE};
 use crate::{
     blocks::helpers::RecordExt,
     ui::{
@@ -171,7 +171,7 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 async fn load_admin_stats(ctx: &dyn Context) -> AdminStats {
-    let buckets = db::count(ctx, BUCKETS_COLLECTION, &[])
+    let buckets = db::count(ctx, BUCKETS_TABLE, &[])
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e.message, "admin overview: bucket count failed");
@@ -184,28 +184,24 @@ async fn load_admin_stats(ctx: &dyn Context) -> AdminStats {
         value: serde_json::Value::String("complete".into()),
     }];
 
-    let files = db::count(ctx, OBJECTS_COLLECTION, &complete_filter)
+    let files = db::count(ctx, OBJECTS_TABLE, &complete_filter)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e.message, "admin overview: files count failed");
             0
         });
 
-    let shares = db::count(ctx, SHARES_COLLECTION, &[])
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e.message, "admin overview: shares count failed");
-            0
-        });
+    let shares = db::count(ctx, SHARES_TABLE, &[]).await.unwrap_or_else(|e| {
+        tracing::warn!(error = %e.message, "admin overview: shares count failed");
+        0
+    });
 
-    let quotas_count = db::count(ctx, QUOTAS_COLLECTION, &[])
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e.message, "admin overview: quotas count failed");
-            0
-        });
+    let quotas_count = db::count(ctx, QUOTAS_TABLE, &[]).await.unwrap_or_else(|e| {
+        tracing::warn!(error = %e.message, "admin overview: quotas count failed");
+        0
+    });
 
-    let total_size_bytes = db::sum(ctx, OBJECTS_COLLECTION, "size", &complete_filter)
+    let total_size_bytes = db::sum(ctx, OBJECTS_TABLE, "size", &complete_filter)
         .await
         .map(|s| s as i64)
         .unwrap_or_else(|e| {
@@ -280,7 +276,7 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
         ..Default::default()
     };
 
-    let rows: Vec<AdminBucketRow> = match db::list(ctx, BUCKETS_COLLECTION, &opts).await {
+    let rows: Vec<AdminBucketRow> = match db::list(ctx, BUCKETS_TABLE, &opts).await {
         Ok(list) => list
             .records
             .into_iter()
@@ -418,7 +414,7 @@ pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
         ..Default::default()
     };
 
-    let rows: Vec<AdminShareRow> = match db::list(ctx, SHARES_COLLECTION, &opts).await {
+    let rows: Vec<AdminShareRow> = match db::list(ctx, SHARES_TABLE, &opts).await {
         Ok(list) => list
             .records
             .into_iter()
@@ -539,7 +535,7 @@ pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
         ..Default::default()
     };
 
-    let rows: Vec<AdminQuotaRow> = match db::list(ctx, QUOTAS_COLLECTION, &opts).await {
+    let rows: Vec<AdminQuotaRow> = match db::list(ctx, QUOTAS_TABLE, &opts).await {
         Ok(list) => list
             .records
             .into_iter()

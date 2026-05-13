@@ -5,7 +5,7 @@ use wafer_run::{context::Context, types::*, OutputStream};
 use super::{admin_page, crumb};
 use crate::{
     blocks::{
-        admin::{AUDIT_LOGS_COLLECTION as AUDIT_LOGS, REQUEST_LOGS_COLLECTION as REQUEST_LOGS},
+        admin::{AUDIT_LOGS_TABLE as AUDIT_LOGS, REQUEST_LOGS_TABLE as REQUEST_LOGS},
         helpers::RecordExt,
     },
     ui::{

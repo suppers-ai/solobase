@@ -7,7 +7,7 @@ use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
 use crate::{
     blocks::{
-        auth::{brand_panel, USERS_COLLECTION},
+        auth::{brand_panel, USERS_TABLE},
         helpers::{err_bad_request, err_internal, hex_encode, json_map, ok_json, RecordExt},
     },
     ui,
@@ -45,7 +45,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     // Find user by verification token
     let user = match db::get_by_field(
         ctx,
-        USERS_COLLECTION,
+        USERS_TABLE,
         "verification_token",
         serde_json::Value::String(token.clone()),
     )
@@ -78,7 +78,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     }));
     crate::blocks::helpers::stamp_updated(&mut data);
 
-    if let Err(e) = db::update(ctx, USERS_COLLECTION, &user.id, data).await {
+    if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, data).await {
         return err_internal(&format!("Failed to verify email: {e}"));
     }
 
@@ -106,7 +106,7 @@ pub async fn handle_resend(ctx: &dyn Context, input: InputStream) -> OutputStrea
 
     let user = match db::get_by_field(
         ctx,
-        USERS_COLLECTION,
+        USERS_TABLE,
         "email",
         serde_json::Value::String(email_lower.clone()),
     )
@@ -148,7 +148,7 @@ pub async fn handle_resend(ctx: &dyn Context, input: InputStream) -> OutputStrea
     }));
     crate::blocks::helpers::stamp_updated(&mut data);
 
-    if let Err(e) = db::update(ctx, USERS_COLLECTION, &user.id, data).await {
+    if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, data).await {
         return err_internal(&format!("Failed to update token: {e}"));
     }
 

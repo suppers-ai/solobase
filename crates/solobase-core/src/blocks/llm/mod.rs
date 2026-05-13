@@ -39,7 +39,7 @@ impl LlmBlock {
     }
 }
 
-pub(crate) const SETTINGS_COLLECTION: &str = "suppers_ai__llm__settings";
+pub(crate) const SETTINGS_TABLE: &str = "suppers_ai__llm__settings";
 
 const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
 const DEFAULT_MODEL_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_MODEL";
@@ -190,7 +190,7 @@ impl LlmBlock {
     ) -> Option<std::collections::HashMap<String, serde_json::Value>> {
         match db::get_by_field(
             ctx,
-            SETTINGS_COLLECTION,
+            SETTINGS_TABLE,
             "thread_id",
             serde_json::Value::String(thread_id.to_string()),
         )
@@ -208,8 +208,8 @@ impl LlmBlock {
     /// against `suppers_ai__llm__providers` via `routes::resolve_backend_id`.
     #[allow(dead_code)]
     pub(super) async fn get_default_provider_id(&self, ctx: &dyn Context) -> String {
-        const PROVIDERS_COLLECTION: &str = "suppers_ai__provider_llm__providers";
-        match db::get_by_field(ctx, PROVIDERS_COLLECTION, "enabled", serde_json::json!(1)).await {
+        const LEGACY_PROVIDERS_TABLE: &str = "suppers_ai__provider_llm__providers";
+        match db::get_by_field(ctx, LEGACY_PROVIDERS_TABLE, "enabled", serde_json::json!(1)).await {
             Ok(rec) => rec.id,
             Err(_) => String::new(),
         }
@@ -251,7 +251,7 @@ impl LlmBlock {
                 // Update existing record — find record ID
                 let record = match db::get_by_field(
                     ctx,
-                    SETTINGS_COLLECTION,
+                    SETTINGS_TABLE,
                     "thread_id",
                     serde_json::Value::String(thread_id.clone()),
                 )
@@ -270,7 +270,7 @@ impl LlmBlock {
                     data.insert("model".to_string(), serde_json::json!(m));
                 }
                 helpers::stamp_updated(&mut data);
-                match db::update(ctx, SETTINGS_COLLECTION, &record.id, data).await {
+                match db::update(ctx, SETTINGS_TABLE, &record.id, data).await {
                     Ok(r) => return ok_json(&r),
                     Err(e) => return err_internal(&format!("Database error: {e}")),
                 }
@@ -282,7 +282,7 @@ impl LlmBlock {
                     "model": body.model.unwrap_or_default(),
                 }));
                 helpers::stamp_created(&mut data);
-                match db::create(ctx, SETTINGS_COLLECTION, data).await {
+                match db::create(ctx, SETTINGS_TABLE, data).await {
                     Ok(r) => return ok_json(&r),
                     Err(e) => return err_internal(&format!("Database error: {e}")),
                 }
@@ -329,7 +329,7 @@ impl Block for LlmBlock {
             "wafer-run/config".into(),
         ])
         .collections(vec![
-            CollectionSchema::new(SETTINGS_COLLECTION)
+            CollectionSchema::new(SETTINGS_TABLE)
                 .field("thread_id", "string")
                 .field_default("provider_block", "string", "")
                 .field_default("model", "string", "")

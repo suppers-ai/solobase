@@ -7,7 +7,7 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{GROUPS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION};
+use super::{GROUPS_TABLE, PRICING_TABLE, PRODUCTS_TABLE, PURCHASES_TABLE};
 use crate::{
     blocks::helpers::{ok_json, RecordExt},
     ui::{
@@ -46,10 +46,10 @@ fn products_page<'a>(
 pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
-    let products_count = db::count(ctx, PRODUCTS_COLLECTION, &[]).await.unwrap_or(0);
-    let groups_count = db::count(ctx, GROUPS_COLLECTION, &[]).await.unwrap_or(0);
-    let purchases_count = db::count(ctx, PURCHASES_COLLECTION, &[]).await.unwrap_or(0);
-    let pricing_count = db::count(ctx, PRICING_COLLECTION, &[]).await.unwrap_or(0);
+    let products_count = db::count(ctx, PRODUCTS_TABLE, &[]).await.unwrap_or(0);
+    let groups_count = db::count(ctx, GROUPS_TABLE, &[]).await.unwrap_or(0);
+    let purchases_count = db::count(ctx, PURCHASES_TABLE, &[]).await.unwrap_or(0);
+    let pricing_count = db::count(ctx, PRICING_TABLE, &[]).await.unwrap_or(0);
 
     let content = html! {
         (components::page_header("Products Overview", Some("Product catalog statistics"), None))
@@ -101,7 +101,7 @@ pub async fn manage_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }];
     let result = db::paginated_list(
         ctx,
-        PRODUCTS_COLLECTION,
+        PRODUCTS_TABLE,
         page as i64,
         page_size as i64,
         filters,
@@ -185,7 +185,7 @@ pub async fn groups(ctx: &dyn Context, msg: &Message) -> OutputStream {
         limit: 100,
         ..Default::default()
     };
-    let result = db::list(ctx, GROUPS_COLLECTION, &opts).await;
+    let result = db::list(ctx, GROUPS_TABLE, &opts).await;
 
     let content = html! {
         (components::page_header("Groups", Some("Organize products into groups"), None))
@@ -243,7 +243,7 @@ pub async fn pricing(ctx: &dyn Context, msg: &Message) -> OutputStream {
         limit: 100,
         ..Default::default()
     };
-    let result = db::list(ctx, PRICING_COLLECTION, &opts).await;
+    let result = db::list(ctx, PRICING_TABLE, &opts).await;
 
     let content = html! {
         (components::page_header("Pricing Templates", Some("Define pricing formulas for products"), None))
@@ -310,7 +310,7 @@ pub async fn purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }];
     let result = db::paginated_list(
         ctx,
-        PURCHASES_COLLECTION,
+        PURCHASES_TABLE,
         page as i64,
         page_size as i64,
         filters,
@@ -404,7 +404,7 @@ pub async fn my_products(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }];
     let result = db::paginated_list(
         ctx,
-        PRODUCTS_COLLECTION,
+        PRODUCTS_TABLE,
         page as i64,
         page_size as i64,
         filters,
@@ -475,7 +475,7 @@ pub async fn my_purchases(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }];
     let result = db::paginated_list(
         ctx,
-        PURCHASES_COLLECTION,
+        PURCHASES_TABLE,
         page as i64,
         page_size as i64,
         filters,

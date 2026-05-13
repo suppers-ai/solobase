@@ -8,7 +8,7 @@ use crate::blocks::{
         helpers::{build_auth_cookie, ensure_admin_role, generate_tokens, store_refresh_token},
         repo::{local_credentials, sessions, users},
         service::hash_token,
-        DUMMY_HASH, USERS_COLLECTION,
+        DUMMY_HASH, USERS_TABLE,
     },
     errors::{error_response, ErrorCode},
     helpers::{err_bad_request, json_map, RecordExt, ResponseBuilder},
@@ -51,7 +51,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     // Fetch the full DB record for the remaining fields (disabled, email_verified, etc.)
     let user = match user_row {
-        Some(u) if password_ok => match db::get(ctx, USERS_COLLECTION, &u.id).await {
+        Some(u) if password_ok => match db::get(ctx, USERS_TABLE, &u.id).await {
             Ok(rec) => rec,
             Err(_) => {
                 return error_response(ErrorCode::InvalidCredentials, "Invalid email or password")
@@ -100,7 +100,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     // Update last login
     let upd = json_map(serde_json::json!({"last_login_at": crate::blocks::helpers::now_rfc3339()}));
-    if let Err(e) = db::update(ctx, USERS_COLLECTION, &user.id, upd).await {
+    if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, upd).await {
         tracing::warn!("Failed to update last login time: {e}");
     }
 

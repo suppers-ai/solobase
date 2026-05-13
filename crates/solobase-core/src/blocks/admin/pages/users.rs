@@ -5,8 +5,8 @@ use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use super::{admin_page, crumb};
 use crate::{
     blocks::{
-        admin::{ROLES_COLLECTION, USER_ROLES_COLLECTION},
-        auth::{API_KEYS_COLLECTION as API_KEYS, USERS_COLLECTION as USERS},
+        admin::{ROLES_TABLE, USER_ROLES_TABLE},
+        auth::{API_KEYS_TABLE as API_KEYS, USERS_TABLE as USERS},
         helpers::{
             self, err_bad_request, err_forbidden, err_internal, parse_form_body, RecordExt,
             ResponseBuilder,
@@ -219,8 +219,7 @@ async fn users_table(records: &[db::Record], ctx: &dyn Context, current_user_id:
             operator: FilterOp::Equal,
             value: serde_json::Value::String(record.id.clone()),
         }];
-        let roles: Vec<String> = match db::list_all(ctx, USER_ROLES_COLLECTION, role_filters).await
-        {
+        let roles: Vec<String> = match db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
             Ok(records) => records
                 .iter()
                 .map(|rec| rec.str_field("role").to_string())
@@ -323,7 +322,7 @@ async fn user_row_fragment(ctx: &dyn Context, user_id: &str) -> Markup {
         operator: FilterOp::Equal,
         value: serde_json::Value::String(user_id.to_string()),
     }];
-    let roles: Vec<String> = match db::list_all(ctx, USER_ROLES_COLLECTION, role_filters).await {
+    let roles: Vec<String> = match db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
         Ok(records) => records
             .iter()
             .map(|rec| rec.str_field("role").to_string())
@@ -575,7 +574,7 @@ pub async fn handle_create_role(
     }
     helpers::stamp_created(&mut data);
 
-    if let Err(e) = db::create(ctx, ROLES_COLLECTION, data).await {
+    if let Err(e) = db::create(ctx, ROLES_TABLE, data).await {
         return err_internal(&format!("Failed: {}", e.message));
     }
     super::super::logs::audit_log(ctx, &admin_id, "role.create", &format!("roles/{name}"), &ip)
@@ -596,13 +595,13 @@ pub async fn handle_delete_role(ctx: &dyn Context, msg: &Message, role_id: &str)
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
     // Check if system role
-    if let Ok(record) = db::get(ctx, ROLES_COLLECTION, role_id).await {
+    if let Ok(record) = db::get(ctx, ROLES_TABLE, role_id).await {
         if record.bool_field("is_system") {
             return err_forbidden("Cannot delete system role");
         }
     }
 
-    if let Err(e) = db::delete(ctx, ROLES_COLLECTION, role_id).await {
+    if let Err(e) = db::delete(ctx, ROLES_TABLE, role_id).await {
         return err_internal(&format!("Failed: {}", e.message));
     }
     super::super::logs::audit_log(
@@ -627,7 +626,7 @@ async fn roles_tab(ctx: &dyn Context) -> Markup {
         limit: 100,
         ..Default::default()
     };
-    let result = db::list(ctx, ROLES_COLLECTION, &opts).await;
+    let result = db::list(ctx, ROLES_TABLE, &opts).await;
 
     html! {
         div .flex .items-center .justify-between .mb-4 {

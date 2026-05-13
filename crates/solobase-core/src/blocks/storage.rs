@@ -31,7 +31,7 @@ use wafer_run::{
 };
 
 use super::{
-    admin::STORAGE_ACCESS_LOGS_COLLECTION,
+    admin::STORAGE_ACCESS_LOGS_TABLE,
     helpers::{json_map, now_millis},
 };
 
@@ -354,7 +354,7 @@ async fn log_storage_access(
 ) -> Result<(), WaferError> {
     db::create(
         ctx,
-        STORAGE_ACCESS_LOGS_COLLECTION,
+        STORAGE_ACCESS_LOGS_TABLE,
         json_map(serde_json::json!({
             "source_block": source_block,
             "operation": operation,

@@ -7,7 +7,7 @@ use wafer_sql_utils::{aggregate, query, value::sea_values_to_json, Backend};
 
 use super::{admin_page, crumb};
 use crate::{
-    blocks::{admin::REQUEST_LOGS_COLLECTION as REQUEST_LOGS, auth::USERS_COLLECTION as USERS},
+    blocks::{admin::REQUEST_LOGS_TABLE as REQUEST_LOGS, auth::USERS_TABLE as USERS},
     ui::{
         shell::Topbar,
         templates::{dashboard_page, PageHeader, StatTile},

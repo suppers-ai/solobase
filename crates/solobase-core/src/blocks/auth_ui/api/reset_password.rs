@@ -4,7 +4,7 @@ use wafer_core::clients::{crypto, database as db};
 use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
-    auth::{repo::local_credentials, TOKENS_COLLECTION, USERS_COLLECTION},
+    auth::{repo::local_credentials, TOKENS_TABLE, USERS_TABLE},
     errors::{error_response, ErrorCode},
     helpers::{err_bad_request, err_internal, json_map, ok_json, RecordExt},
 };
@@ -37,7 +37,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Find user by reset token
     let user = match db::get_by_field(
         ctx,
-        USERS_COLLECTION,
+        USERS_TABLE,
         "reset_token",
         serde_json::Value::String(body.token.clone()),
     )
@@ -90,14 +90,14 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     }));
     crate::blocks::helpers::stamp_updated(&mut data);
 
-    if let Err(e) = db::update(ctx, USERS_COLLECTION, &user.id, data).await {
+    if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, data).await {
         return err_internal(&format!("Failed to clear reset token: {e}"));
     }
 
     // Revoke all refresh tokens — invalidate any stolen sessions
     db::delete_by_field(
         ctx,
-        TOKENS_COLLECTION,
+        TOKENS_TABLE,
         "user_id",
         serde_json::Value::String(user.id.clone()),
     )

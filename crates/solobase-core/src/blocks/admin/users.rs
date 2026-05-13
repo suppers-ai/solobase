@@ -6,9 +6,9 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::USER_ROLES_COLLECTION;
+use super::USER_ROLES_TABLE;
 use crate::blocks::{
-    auth::USERS_COLLECTION as COLLECTION,
+    auth::USERS_TABLE as COLLECTION,
     helpers::{self, err_bad_request, err_internal, err_not_found, ok_json, RecordExt},
 };
 
@@ -68,7 +68,7 @@ async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     value: serde_json::Value::String(record.id.clone()),
                 }];
                 let roles: Vec<String> =
-                    match db::list_all(ctx, USER_ROLES_COLLECTION, role_filters).await {
+                    match db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
                         Ok(records) => records
                             .iter()
                             .map(|rec| rec.str_field("role").to_string())
@@ -101,6 +101,12 @@ async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 async fn get_user(ctx: &dyn Context, id: &str) -> OutputStream {
+    // admin → auth::users is granted by `auth_grants()` (wildcard read on
+    // `suppers_ai__auth__*`). Resolver can't follow
+    // `auth::USERS_TABLE as COLLECTION` through the new `repo::users::TABLE`
+    // re-export so it mis-targets via the ambiguous global `TABLE` map.
+    // Resolver fix is tracked separately.
+    // audit-allow: admin → auth::users covered by auth_grants wildcard; resolver mis-targets re-export
     match db::get(ctx, COLLECTION, id).await {
         Ok(mut record) => {
             record.data.remove("password_hash");
@@ -110,15 +116,14 @@ async fn get_user(ctx: &dyn Context, id: &str) -> OutputStream {
                 operator: FilterOp::Equal,
                 value: serde_json::Value::String(id.to_string()),
             }];
-            let roles: Vec<String> =
-                match db::list_all(ctx, USER_ROLES_COLLECTION, role_filters).await {
-                    Ok(records) => records
-                        .iter()
-                        .map(|rec| rec.str_field("role").to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect(),
-                    Err(_) => Vec::new(),
-                };
+            let roles: Vec<String> = match db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
+                Ok(records) => records
+                    .iter()
+                    .map(|rec| rec.str_field("role").to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+                Err(_) => Vec::new(),
+            };
             let mut resp = serde_json::to_value(&record).unwrap_or_default();
             if let Some(obj) = resp.as_object_mut() {
                 obj.insert("roles".to_string(), serde_json::json!(roles));

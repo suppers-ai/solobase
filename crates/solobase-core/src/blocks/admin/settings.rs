@@ -7,10 +7,22 @@ use wafer_run::{
     InputStream, OutputStream,
 };
 
-use super::VARIABLES_COLLECTION as COLLECTION;
 use crate::blocks::helpers::{
     self, err_bad_request, err_internal, err_not_found, json_map, ok_json, RecordExt,
 };
+
+/// Per-block enable/config settings (one row per block).
+///
+/// `pub` (not `pub(crate)`) because consumers outside `solobase-core`
+/// reference this table by name.
+pub const BLOCK_SETTINGS_TABLE: &str = "suppers_ai__admin__block_settings";
+
+/// Admin-managed configuration variables (key/value/scope/sensitive).
+///
+/// `pub` (not `pub(crate)`) because consumers outside `solobase-core`
+/// reference this table by name.
+pub const VARIABLES_TABLE: &str = "suppers_ai__admin__variables";
+
 const MASKED_VALUE: &str = "********";
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -99,7 +111,7 @@ fn validate_url_value(value: &str) -> Result<(), String> {
 }
 
 async fn handle_list_full(ctx: &dyn Context) -> OutputStream {
-    match db::list_all(ctx, COLLECTION, vec![]).await {
+    match db::list_all(ctx, VARIABLES_TABLE, vec![]).await {
         Ok(records) => {
             let vars: Vec<_> = records
                 .iter()
@@ -134,7 +146,7 @@ async fn handle_list_full(ctx: &dyn Context) -> OutputStream {
 }
 
 async fn handle_list(ctx: &dyn Context) -> OutputStream {
-    match db::list_all(ctx, COLLECTION, vec![]).await {
+    match db::list_all(ctx, VARIABLES_TABLE, vec![]).await {
         Ok(records) => {
             // Convert to key-value map, masking sensitive values
             let mut settings = HashMap::new();
@@ -172,7 +184,7 @@ async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match db::get_by_field(
         ctx,
-        COLLECTION,
+        VARIABLES_TABLE,
         "key",
         serde_json::Value::String(key.to_string()),
     )
@@ -235,7 +247,7 @@ async fn handle_set(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
 
     match db::upsert(
         ctx,
-        COLLECTION,
+        VARIABLES_TABLE,
         "key",
         serde_json::Value::String(key.to_string()),
         data,
@@ -282,7 +294,7 @@ async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> 
         "updated_by": msg.user_id(),
         "created_at": helpers::now_rfc3339()
     }));
-    match db::create(ctx, COLLECTION, data).await {
+    match db::create(ctx, VARIABLES_TABLE, data).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -301,13 +313,13 @@ async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match db::get_by_field(
         ctx,
-        COLLECTION,
+        VARIABLES_TABLE,
         "key",
         serde_json::Value::String(key.to_string()),
     )
     .await
     {
-        Ok(record) => match db::delete(ctx, COLLECTION, &record.id).await {
+        Ok(record) => match db::delete(ctx, VARIABLES_TABLE, &record.id).await {
             Ok(_) => ok_json(&serde_json::json!({"deleted": key})),
             Err(e) => err_internal(&format!("Database error: {e}")),
         },
@@ -336,7 +348,7 @@ pub async fn seed_defaults(ctx: &dyn Context) {
         // (~80 vars × cold-starts/day ≈ ~900 useless UPDATEs/day in prod).
         match db::get_by_field(
             ctx,
-            COLLECTION,
+            VARIABLES_TABLE,
             "key",
             serde_json::Value::String(var.key.clone()),
         )
@@ -358,7 +370,7 @@ pub async fn seed_defaults(ctx: &dyn Context) {
                 }));
                 let _ = db::upsert(
                     ctx,
-                    COLLECTION,
+                    VARIABLES_TABLE,
                     "key",
                     serde_json::Value::String(var.key.clone()),
                     data,
@@ -384,7 +396,7 @@ pub async fn seed_defaults(ctx: &dyn Context) {
                         "sensitive": sensitive,
                         "created_at": helpers::now_rfc3339()
                     }));
-                    let _ = db::create(ctx, COLLECTION, data).await;
+                    let _ = db::create(ctx, VARIABLES_TABLE, data).await;
                 }
             }
         }

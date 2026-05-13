@@ -4,7 +4,7 @@ use wafer_core::clients::{config, database as db};
 use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
 use crate::blocks::{
-    auth::USERS_COLLECTION,
+    auth::USERS_TABLE,
     helpers::{err_bad_request, err_forbidden, err_internal, err_unauthorized, json_map, ok_json},
 };
 
@@ -34,7 +34,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     let email_lower = body.email.trim().to_lowercase();
     let user = match db::get_by_field(
         ctx,
-        USERS_COLLECTION,
+        USERS_TABLE,
         "email",
         serde_json::Value::String(email_lower.clone()),
     )
@@ -49,7 +49,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
                 "disabled": false
             }));
             crate::blocks::helpers::stamp_created(&mut data);
-            match db::create(ctx, USERS_COLLECTION, data).await {
+            match db::create(ctx, USERS_TABLE, data).await {
                 Ok(u) => u,
                 Err(e) => return err_internal(&format!("Create failed: {e}")),
             }

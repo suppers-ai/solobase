@@ -6,11 +6,19 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{PERMISSIONS_COLLECTION, ROLES_COLLECTION, USER_ROLES_COLLECTION};
 use crate::blocks::helpers::{
     self, err_bad_request, err_conflict, err_forbidden, err_internal, err_not_found, json_map,
     ok_json, RecordExt,
 };
+
+/// Role definitions table (one row per named role).
+pub(crate) const ROLES_TABLE: &str = "suppers_ai__admin__roles";
+
+/// Per-role permission rows (resource + actions tuples).
+pub(crate) const PERMISSIONS_TABLE: &str = "suppers_ai__admin__permissions";
+
+/// User → role assignment table (many-to-many via row per pair).
+pub(crate) const USER_ROLES_TABLE: &str = "suppers_ai__admin__user_roles";
 
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
@@ -51,7 +59,7 @@ async fn handle_list_roles(ctx: &dyn Context) -> OutputStream {
         limit: 1000,
         ..Default::default()
     };
-    match db::list(ctx, ROLES_COLLECTION, &opts).await {
+    match db::list(ctx, ROLES_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -76,7 +84,7 @@ async fn handle_create_role(ctx: &dyn Context, input: InputStream) -> OutputStre
         "is_system": false
     }));
     helpers::stamp_created(&mut data);
-    match db::create(ctx, ROLES_COLLECTION, data).await {
+    match db::create(ctx, ROLES_TABLE, data).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -96,7 +104,7 @@ async fn handle_update_role(ctx: &dyn Context, msg: &Message, input: InputStream
     };
 
     // Protect system roles from name changes (renaming "admin" would break auth)
-    if let Ok(existing) = db::get(ctx, ROLES_COLLECTION, id).await {
+    if let Ok(existing) = db::get(ctx, ROLES_TABLE, id).await {
         if existing.bool_field("is_system") {
             if body_peek.contains_key("name") {
                 return err_forbidden("Cannot rename system roles");
@@ -108,7 +116,7 @@ async fn handle_update_role(ctx: &dyn Context, msg: &Message, input: InputStream
                 }
             }
             helpers::stamp_updated(&mut data);
-            return match db::update(ctx, ROLES_COLLECTION, id, data).await {
+            return match db::update(ctx, ROLES_TABLE, id, data).await {
                 Ok(record) => ok_json(&record),
                 Err(e) => err_internal(&format!("Database error: {e}")),
             };
@@ -122,7 +130,7 @@ async fn handle_update_role(ctx: &dyn Context, msg: &Message, input: InputStream
         }
     }
     helpers::stamp_updated(&mut data);
-    match db::update(ctx, ROLES_COLLECTION, id, data).await {
+    match db::update(ctx, ROLES_TABLE, id, data).await {
         Ok(record) => ok_json(&record),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Role not found"),
         Err(e) => err_internal(&format!("Database error: {e}")),
@@ -137,13 +145,13 @@ async fn handle_delete_role(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     // Check if system role
-    if let Ok(role) = db::get(ctx, ROLES_COLLECTION, id).await {
+    if let Ok(role) = db::get(ctx, ROLES_TABLE, id).await {
         if role.bool_field("is_system") {
             return err_forbidden("Cannot delete system role");
         }
     }
 
-    match db::delete(ctx, ROLES_COLLECTION, id).await {
+    match db::delete(ctx, ROLES_TABLE, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Role not found"),
         Err(e) => err_internal(&format!("Database error: {e}")),
@@ -151,7 +159,7 @@ async fn handle_delete_role(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 async fn handle_list_permissions(ctx: &dyn Context) -> OutputStream {
-    match db::list_all(ctx, PERMISSIONS_COLLECTION, vec![]).await {
+    match db::list_all(ctx, PERMISSIONS_TABLE, vec![]).await {
         Ok(records) => {
             let total_count = records.len() as i64;
             ok_json(&db::RecordList {
@@ -183,7 +191,7 @@ async fn handle_create_permission(ctx: &dyn Context, input: InputStream) -> Outp
         "actions": body.actions
     }));
     helpers::stamp_created(&mut data);
-    match db::create(ctx, PERMISSIONS_COLLECTION, data).await {
+    match db::create(ctx, PERMISSIONS_TABLE, data).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -195,7 +203,7 @@ async fn handle_delete_permission(ctx: &dyn Context, msg: &Message) -> OutputStr
     if id.is_empty() {
         return err_bad_request("Missing permission ID");
     }
-    match db::delete(ctx, PERMISSIONS_COLLECTION, id).await {
+    match db::delete(ctx, PERMISSIONS_TABLE, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Permission not found"),
         Err(e) => err_internal(&format!("Database error: {e}")),
@@ -212,7 +220,7 @@ async fn handle_list_user_roles(ctx: &dyn Context, msg: &Message) -> OutputStrea
             value: serde_json::Value::String(user_id),
         });
     }
-    match db::list_all(ctx, USER_ROLES_COLLECTION, filters).await {
+    match db::list_all(ctx, USER_ROLES_TABLE, filters).await {
         Ok(records) => {
             let total_count = records.len() as i64;
             ok_json(&db::RecordList {
@@ -241,7 +249,7 @@ async fn handle_assign_role(ctx: &dyn Context, msg: &Message, input: InputStream
     // Check if already assigned
     let existing = db::list_all(
         ctx,
-        USER_ROLES_COLLECTION,
+        USER_ROLES_TABLE,
         vec![
             Filter {
                 field: "user_id".to_string(),
@@ -268,7 +276,7 @@ async fn handle_assign_role(ctx: &dyn Context, msg: &Message, input: InputStream
         "assigned_at": helpers::now_rfc3339(),
         "assigned_by": msg.user_id()
     }));
-    match db::create(ctx, USER_ROLES_COLLECTION, data).await {
+    match db::create(ctx, USER_ROLES_TABLE, data).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -282,7 +290,7 @@ async fn handle_remove_role(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     // Prevent admins from removing their own admin role (self-lockout)
-    match db::get(ctx, USER_ROLES_COLLECTION, id).await {
+    match db::get(ctx, USER_ROLES_TABLE, id).await {
         Ok(record) => {
             let role_user = record.str_field("user_id");
             let role_name = record.str_field("role");
@@ -298,7 +306,7 @@ async fn handle_remove_role(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     }
 
-    match db::delete(ctx, USER_ROLES_COLLECTION, id).await {
+    match db::delete(ctx, USER_ROLES_TABLE, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("User-role assignment not found"),
         Err(e) => err_internal(&format!("Database error: {e}")),
@@ -306,7 +314,7 @@ async fn handle_remove_role(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 pub async fn seed_defaults(ctx: &dyn Context) {
-    let count = db::count(ctx, ROLES_COLLECTION, &[]).await.unwrap_or(0);
+    let count = db::count(ctx, ROLES_TABLE, &[]).await.unwrap_or(0);
     if count > 0 {
         return;
     }
@@ -323,7 +331,7 @@ pub async fn seed_defaults(ctx: &dyn Context) {
             "created_at": now,
             "permissions": []
         }));
-        if let Err(e) = db::create(ctx, ROLES_COLLECTION, data).await {
+        if let Err(e) = db::create(ctx, ROLES_TABLE, data).await {
             tracing::warn!("Failed to seed default role '{name}': {e}");
         }
     }
