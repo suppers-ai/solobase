@@ -2,21 +2,18 @@
 //!
 //! Each block's `migrations::apply()` calls [`apply_if_blessed`], which:
 //!
-//! 1. Fast-path: checks a per-isolate `AtomicBool` — if true, returns.
-//! 2. Reads the block's `MigrationState` from the cached `BlockSettings`.
-//! 3. Computes the SQL's SHA-256.
-//! 4. If `current_hash` matches the code's hash → already applied, return.
-//! 5. If `blessed_hash` matches OR the `SOLOBASE_RUN_MIGRATIONS` env var is
+//! 1. Reads the block's `MigrationState` from the cached `BlockSettings`.
+//! 2. Computes the SQL's SHA-256.
+//! 3. If `current_hash` matches the code's hash → already applied, return.
+//! 4. If `blessed_hash` matches OR the `SOLOBASE_RUN_MIGRATIONS` env var is
 //!    set to `"1"` → apply all statements via `db::ddl`, then upsert the
 //!    block's row in `suppers_ai__admin__block_settings` with the new hash.
-//! 6. Otherwise → log warning and return (operator must redeploy with
+//! 5. Otherwise → log warning and return (operator must redeploy with
 //!    `--run-migrations` to bless this schema).
 //!
 //! The statement splitter handles `;` outside `--` comments. Block comments
 //! `/* ... */` and `;` inside string literals are not supported — the
 //! canonical .sql files don't use either.
-
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use sha2::{Digest, Sha256};
 use wafer_core::clients::database as db;
@@ -33,22 +30,16 @@ pub const RUN_MIGRATIONS_KEY: &str = "SOLOBASE_RUN_MIGRATIONS";
 const BLOCK_SETTINGS_TABLE: &str = "suppers_ai__admin__block_settings";
 
 /// Apply `sql` against `db::ddl` iff the operator has blessed it or
-/// `SOLOBASE_RUN_MIGRATIONS=1`. Idempotent within an isolate (the
-/// `applied` flag short-circuits subsequent calls).
+/// `SOLOBASE_RUN_MIGRATIONS=1`. Idempotent across calls: returns early
+/// once `current_hash` in the cached `BlockSettings` matches the SQL's hash.
 ///
 /// `block_name` is the full block name (e.g. `"suppers-ai/files"`).
 /// `sql` is the embedded migration SQL (usually `include_str!(...)`).
-/// `applied` is a `&'static AtomicBool` owned by the caller block.
 pub async fn apply_if_blessed(
     ctx: &dyn Context,
     block_name: &str,
     sql: &str,
-    applied: &AtomicBool,
 ) -> Result<(), String> {
-    if applied.load(Ordering::Relaxed) {
-        return Ok(());
-    }
-
     let code_hash = sha256_hex(sql);
     let state = read_state(ctx, block_name);
     // Read directly from the config snapshot (env-var sourced key). The
@@ -58,7 +49,6 @@ pub async fn apply_if_blessed(
     let run_requested = ctx.config_get(RUN_MIGRATIONS_KEY) == Some("1");
 
     if state.current_hash == code_hash {
-        applied.store(true, Ordering::Relaxed);
         return Ok(());
     }
 
@@ -76,7 +66,6 @@ pub async fn apply_if_blessed(
             code = %code_hash,
             "schema drift; redeploy with --run-migrations to apply"
         );
-        applied.store(true, Ordering::Relaxed);
         return Ok(());
     }
 
@@ -96,7 +85,6 @@ pub async fn apply_if_blessed(
     };
     write_state(ctx, block_name, &new_state).await?;
 
-    applied.store(true, Ordering::Relaxed);
     Ok(())
 }
 
@@ -172,21 +160,6 @@ async fn write_state(
         Err(e) => return Err(format!("write_state lookup: {e}")),
     }
     Ok(())
-}
-
-/// Split `sql` into statements for direct use by test fixtures.
-/// Identical to the private `split_statements` — exposed for `apply_direct`
-/// helpers in block migration modules.
-#[cfg(test)]
-pub(crate) fn split_statements_for_test(sql: &str) -> Vec<String> {
-    split_statements(sql)
-}
-
-/// Returns true if `stmt` has executable content — exposed for `apply_direct`
-/// helpers in block migration modules.
-#[cfg(test)]
-pub(crate) fn has_executable_content_for_test(stmt: &str) -> bool {
-    has_executable_content(stmt)
 }
 
 fn sha256_hex(sql: &str) -> String {

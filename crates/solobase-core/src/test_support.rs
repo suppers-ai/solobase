@@ -111,14 +111,9 @@ impl TestContext {
     /// Convenience constructor for tests that need the
     /// `suppers_ai__auth__{users,orgs,sessions,provider_links,...}` schema
     /// in place — most repo and handler tests do.
-    ///
-    /// Uses `apply_direct` (bypasses the hash-gate and per-process
-    /// `APPLIED` AtomicBool guard) so each test starts with a clean
-    /// in-memory SQLite DB that has the schema applied — concurrent tests
-    /// that each create fresh DBs cannot safely share the static guard.
     pub async fn with_auth() -> Self {
         let ctx = Self::new().await;
-        crate::blocks::auth::migrations::apply_direct(&ctx)
+        crate::blocks::auth::migrations::apply(&ctx)
             .await
             .expect("apply auth migrations in test fixture");
         ctx
