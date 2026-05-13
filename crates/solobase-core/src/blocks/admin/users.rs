@@ -116,15 +116,14 @@ async fn get_user(ctx: &dyn Context, id: &str) -> OutputStream {
                 operator: FilterOp::Equal,
                 value: serde_json::Value::String(id.to_string()),
             }];
-            let roles: Vec<String> =
-                match db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
-                    Ok(records) => records
-                        .iter()
-                        .map(|rec| rec.str_field("role").to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect(),
-                    Err(_) => Vec::new(),
-                };
+            let roles: Vec<String> = match db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
+                Ok(records) => records
+                    .iter()
+                    .map(|rec| rec.str_field("role").to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+                Err(_) => Vec::new(),
+            };
             let mut resp = serde_json::to_value(&record).unwrap_or_default();
             if let Some(obj) = resp.as_object_mut() {
                 obj.insert("roles".to_string(), serde_json::json!(roles));

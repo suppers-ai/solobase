@@ -346,8 +346,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
                             "assigned_at": crate::blocks::helpers::now_rfc3339()
                         }));
                         if let Err(e) =
-                            db::create(ctx, crate::blocks::admin::USER_ROLES_TABLE, role_data)
-                                .await
+                            db::create(ctx, crate::blocks::admin::USER_ROLES_TABLE, role_data).await
                         {
                             tracing::warn!("Failed to assign default role on OAuth signup: {e}");
                         }

@@ -51,15 +51,14 @@ pub const JWT_SECRET_KEY: &str = "SUPPERS_AI__AUTH__JWT_SECRET";
 // existing crate-local consumers (admin/, userportal/, products/,
 // rate_limit/, auth_ui/api/*) on stable identifiers without forcing them
 // to import the qualified `repo::*::TABLE` path.
-pub(crate) use repo::{
-    api_keys::TABLE as API_KEYS_TABLE, tokens::TABLE as TOKENS_TABLE,
-    users::TABLE as USERS_TABLE,
-};
 // Only consumer is `rate_limit::UserRateLimiter::check` on wasm32; native
 // code path doesn't reference it. Re-export separately so we can attach
 // the dead-code allow on the import binding.
 #[allow(unused_imports)]
 pub(crate) use repo::rate_limits::TABLE as RATE_LIMITS_TABLE;
+pub(crate) use repo::{
+    api_keys::TABLE as API_KEYS_TABLE, tokens::TABLE as TOKENS_TABLE, users::TABLE as USERS_TABLE,
+};
 
 /// Pre-computed Argon2id hash used for timing equalization when user is not found.
 pub(crate) const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";

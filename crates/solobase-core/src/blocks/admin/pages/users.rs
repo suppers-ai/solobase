@@ -219,8 +219,7 @@ async fn users_table(records: &[db::Record], ctx: &dyn Context, current_user_id:
             operator: FilterOp::Equal,
             value: serde_json::Value::String(record.id.clone()),
         }];
-        let roles: Vec<String> = match db::list_all(ctx, USER_ROLES_TABLE, role_filters).await
-        {
+        let roles: Vec<String> = match db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
             Ok(records) => records
                 .iter()
                 .map(|rec| rec.str_field("role").to_string())
