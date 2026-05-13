@@ -128,10 +128,11 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
                 .unwrap_or(0.0)
         };
 
-        // Reject negative or zero unit prices (prevent price manipulation via variables)
-        if unit_price < 0.0 {
+        // Reject non-positive / sub-minimum unit prices (prevent price manipulation
+        // via variables or zero-priced freebies sneaking past).
+        if let Err(e) = super::pricing::validate_price(unit_price) {
             return err_bad_request(&format!(
-                "Invalid price for product {}: price cannot be negative",
+                "Invalid price for product {}: {e}",
                 item.product_id
             ));
         }
