@@ -55,15 +55,24 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
     }
 
     // Check product dependency (requires field)
-    let line_items = db::query_raw(
-        ctx,
-        &format!(
-            "SELECT product_id FROM {} WHERE purchase_id = ?1 LIMIT 1",
-            LINE_ITEMS_TABLE
-        ),
-        &[serde_json::Value::String(body.purchase_id.clone())],
-    )
-    .await;
+    let line_items_opts = ListOptions {
+        filters: vec![Filter {
+            field: "purchase_id".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::json!(body.purchase_id),
+        }],
+        limit: 1,
+        ..Default::default()
+    };
+    let (line_items_sql, line_items_vals) = wafer_sql_utils::query::build_select_columns(
+        LINE_ITEMS_TABLE,
+        &["product_id"],
+        &line_items_opts,
+        None,
+        Backend::Sqlite,
+    );
+    let line_items_args = sea_values_to_json(line_items_vals);
+    let line_items = db::query_raw(ctx, &line_items_sql, &line_items_args).await;
 
     if let Ok(items) = &line_items {
         for item in items {
@@ -698,40 +707,108 @@ fn hmac_sha256_local(key: &[u8], data: &[u8]) -> Vec<u8> {
 /// Check if a user owns a product — either via an active subscription that
 /// references it, or a completed purchase containing it as a line item.
 async fn user_owns_product(ctx: &dyn Context, user_id: &str, product_id: &str) -> bool {
-    // Check subscriptions: the plan field may reference the product
-    let sub_rows = db::query_raw(
-        ctx,
-        &format!(
-            "SELECT 1 FROM {} WHERE user_id = ?1 AND status = 'active' AND plan = ?2 LIMIT 1",
-            SUBSCRIPTIONS_TABLE
-        ),
-        &[
-            serde_json::Value::String(user_id.to_string()),
-            serde_json::Value::String(product_id.to_string()),
+    // Active subscription whose plan references the product.
+    let sub_opts = ListOptions {
+        filters: vec![
+            Filter {
+                field: "user_id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(user_id),
+            },
+            Filter {
+                field: "status".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!("active"),
+            },
+            Filter {
+                field: "plan".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(product_id),
+            },
         ],
-    )
-    .await;
-
-    if matches!(&sub_rows, Ok(rows) if !rows.is_empty()) {
-        return true;
+        limit: 1,
+        ..Default::default()
+    };
+    let (sub_sql, sub_vals) = wafer_sql_utils::query::build_select_columns(
+        SUBSCRIPTIONS_TABLE,
+        &["id"],
+        &sub_opts,
+        None,
+        Backend::Sqlite,
+    );
+    let sub_args = sea_values_to_json(sub_vals);
+    if let Ok(rows) = db::query_raw(ctx, &sub_sql, &sub_args).await {
+        if !rows.is_empty() {
+            return true;
+        }
     }
 
-    // Check completed purchases containing this product as a line item
-    let purchase_rows = db::query_raw(
-        ctx,
-        &format!(
-            "SELECT 1 FROM {} p JOIN {} li ON li.purchase_id = p.id \
-             WHERE p.user_id = ?1 AND p.status = 'completed' AND li.product_id = ?2 LIMIT 1",
-            PURCHASES_TABLE, LINE_ITEMS_TABLE,
-        ),
-        &[
-            serde_json::Value::String(user_id.to_string()),
-            serde_json::Value::String(product_id.to_string()),
+    // Completed purchase containing this product as a line item. Done as two
+    // queries (purchase IDs then line-item probe with IN) because
+    // wafer-sql-utils has no JOIN builder; adding one for a single call site
+    // would be disproportionate. The IN-list stays small in practice (a single
+    // user's completed purchases).
+    let purchase_opts = ListOptions {
+        filters: vec![
+            Filter {
+                field: "user_id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(user_id),
+            },
+            Filter {
+                field: "status".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!("completed"),
+            },
         ],
-    )
-    .await;
+        ..Default::default()
+    };
+    let (purchase_sql, purchase_vals) = wafer_sql_utils::query::build_select_columns(
+        PURCHASES_TABLE,
+        &["id"],
+        &purchase_opts,
+        None,
+        Backend::Sqlite,
+    );
+    let purchase_args = sea_values_to_json(purchase_vals);
+    let purchase_ids: Vec<serde_json::Value> =
+        match db::query_raw(ctx, &purchase_sql, &purchase_args).await {
+            Ok(rows) => rows
+                .into_iter()
+                .filter_map(|r| r.data.get("id").and_then(|v| v.as_str()).map(String::from))
+                .map(serde_json::Value::String)
+                .collect(),
+            Err(_) => return false,
+        };
+    if purchase_ids.is_empty() {
+        return false;
+    }
 
-    matches!(&purchase_rows, Ok(rows) if !rows.is_empty())
+    let line_item_opts = ListOptions {
+        filters: vec![
+            Filter {
+                field: "purchase_id".into(),
+                operator: FilterOp::In,
+                value: serde_json::Value::Array(purchase_ids),
+            },
+            Filter {
+                field: "product_id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(product_id),
+            },
+        ],
+        limit: 1,
+        ..Default::default()
+    };
+    let (li_sql, li_vals) = wafer_sql_utils::query::build_select_columns(
+        LINE_ITEMS_TABLE,
+        &["id"],
+        &line_item_opts,
+        None,
+        Backend::Sqlite,
+    );
+    let li_args = sea_values_to_json(li_vals);
+    matches!(db::query_raw(ctx, &li_sql, &li_args).await, Ok(rows) if !rows.is_empty())
 }
 
 /// Sync addon column totals from Stripe subscription items.
@@ -778,26 +855,37 @@ async fn sync_addon_totals_from_items(ctx: &dyn Context, user_id: &str, items: &
     }
 
     let now = chrono::Utc::now().to_rfc3339();
-    let sql = format!(
-        "UPDATE {SUBSCRIPTIONS_TABLE} SET \
-           addon_projects = ?1, addon_requests = ?2, \
-           addon_r2_bytes = ?3, addon_d1_bytes = ?4, \
-           updated_at = ?5 \
-         WHERE user_id = ?6 AND status = 'active'"
-    );
-    let _ = db::exec_raw(
-        ctx,
-        &sql,
+    let (sql, vals) = wafer_sql_utils::query::build_update_where(
+        SUBSCRIPTIONS_TABLE,
         &[
-            serde_json::json!(total_projects),
-            serde_json::json!(total_requests),
-            serde_json::json!(total_r2),
-            serde_json::json!(total_d1),
-            serde_json::Value::String(now),
-            serde_json::Value::String(user_id.to_string()),
+            (
+                "addon_projects".to_string(),
+                serde_json::json!(total_projects),
+            ),
+            (
+                "addon_requests".to_string(),
+                serde_json::json!(total_requests),
+            ),
+            ("addon_r2_bytes".to_string(), serde_json::json!(total_r2)),
+            ("addon_d1_bytes".to_string(), serde_json::json!(total_d1)),
+            ("updated_at".to_string(), serde_json::json!(now)),
         ],
-    )
-    .await;
+        &[
+            Filter {
+                field: "user_id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(user_id),
+            },
+            Filter {
+                field: "status".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!("active"),
+            },
+        ],
+        Backend::Sqlite,
+    );
+    let args = sea_values_to_json(vals);
+    let _ = db::exec_raw(ctx, &sql, &args).await;
 }
 
 #[cfg(test)]
