@@ -58,32 +58,69 @@ pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
 }
 
 async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
-    let search = msg.query("search").to_string();
-
-    let (where_clause, args) = if search.is_empty() {
-        (String::new(), vec![])
-    } else {
-        (
-            " WHERE path LIKE ?1".to_string(),
-            vec![serde_json::json!(format!("%{search}%"))],
-        )
+    use sea_query::{Alias, Expr, ExprTrait};
+    use wafer_sql_utils::{
+        aggregate::{self, AggFunc, AggregateColumn, GroupedQueryConfig},
+        ident::DynCol,
     };
 
-    // Uses SUM(CASE WHEN...) which is too complex for the grouped query builder.
-    let summary = db::query_raw(
-        ctx,
-        &format!(
-            "SELECT method, path, COUNT(*) as cnt, \
-             CAST(AVG(duration_ms) AS INTEGER) as avg_ms, \
-             SUM(CASE WHEN CAST(status_code AS INTEGER) >= 400 THEN 1 ELSE 0 END) as errors, \
-             MAX(created_at) as last_seen \
-             FROM {REQUEST_LOGS}{where_clause} \
-             GROUP BY method, path ORDER BY cnt DESC LIMIT 50"
-        ),
-        &args,
-    )
-    .await
-    .unwrap_or_default();
+    let search = msg.query("search").to_string();
+
+    let filters = if search.is_empty() {
+        vec![]
+    } else {
+        vec![Filter {
+            field: "path".into(),
+            operator: FilterOp::Like,
+            value: serde_json::json!(format!("%{search}%")),
+        }]
+    };
+
+    // status_code is stored as TEXT, so the conditional SUM has to cast
+    // before the comparison; mirrors the previous hand-written SQL.
+    let status_code_int = Expr::col(DynCol("status_code".into())).cast_as(Alias::new("INTEGER"));
+
+    let (sql, vals) = aggregate::build_grouped_query(
+        GroupedQueryConfig {
+            table: REQUEST_LOGS.to_string(),
+            select_columns: vec!["method".into(), "path".into()],
+            aggregates: vec![
+                AggregateColumn {
+                    func: AggFunc::Count,
+                    field: None,
+                    alias: "cnt".into(),
+                    cast_as: None,
+                    inner_expr: None,
+                },
+                AggregateColumn {
+                    func: AggFunc::Avg,
+                    field: Some("duration_ms".into()),
+                    alias: "avg_ms".into(),
+                    cast_as: Some("INTEGER".into()),
+                    inner_expr: None,
+                },
+                AggregateColumn::case_when_sum("errors", status_code_int.gte(400)),
+                AggregateColumn {
+                    func: AggFunc::Max,
+                    field: Some("created_at".into()),
+                    alias: "last_seen".into(),
+                    cast_as: None,
+                    inner_expr: None,
+                },
+            ],
+            filters,
+            group_by: vec!["method".into(), "path".into()],
+            order_by: vec![SortField {
+                field: "cnt".into(),
+                desc: true,
+            }],
+            limit: Some(50),
+        },
+        Backend::Sqlite,
+    );
+    let summary = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        .await
+        .unwrap_or_default();
 
     html! {
         div .filter-bar {
