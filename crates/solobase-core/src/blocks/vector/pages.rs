@@ -37,6 +37,7 @@
 use wafer_core::{
     clients::{
         database as db,
+        database::{Filter, FilterOp, ListOptions},
         vector::{
             self as vclient, DistanceMetric, MetadataFilter, SearchMode, VectorEntry,
             VectorIndexConfig,
@@ -45,6 +46,7 @@ use wafer_core::{
     interfaces::vector::{get_model, DEFAULT_MODEL},
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
+use wafer_sql_utils::{ddl, introspect, query, upsert, value::sea_values_to_json, Backend};
 
 use super::{
     ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO},
@@ -59,18 +61,22 @@ use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_js
 /// model to re-embed text with, and whether keyword search was enabled —
 /// without spelunking through DDL on every query.
 ///
-/// The name is embedded in each SQL statement below (no string
-/// interpolation: it's a compile-time literal and sharing a single place
-/// to grep is more valuable than DRYing two or three usages).
-///
 /// Schema: `suppers_ai__vector__registry(prefixed_name TEXT PK, model TEXT,
 /// dimensions INTEGER, keyword_search INTEGER)`.
-const REGISTRY_CREATE_SQL: &str = "CREATE TABLE IF NOT EXISTS suppers_ai__vector__registry(\
-    prefixed_name TEXT PRIMARY KEY,\
-    model TEXT NOT NULL,\
-    dimensions INTEGER NOT NULL,\
-    keyword_search INTEGER NOT NULL\
-)";
+const REGISTRY_TABLE: &str = "suppers_ai__vector__registry";
+
+/// `Table` builder for the registry — fed through `ddl::build_create_table`
+/// so the DDL is dialect-portable even though the rest of the vector block
+/// is SQLite-only (sqlite-vec extension).
+fn registry_schema() -> wafer_core::interfaces::database::service::Table {
+    use wafer_core::interfaces::database::service::{col_int, col_text, pk, Table};
+    let mut table = Table::new(REGISTRY_TABLE);
+    table.columns.push(pk("prefixed_name"));
+    table.columns.push(col_text("model"));
+    table.columns.push(col_int("dimensions"));
+    table.columns.push(col_int("keyword_search"));
+    table
+}
 
 /// Route dispatcher for the `suppers-ai/vector` block.
 ///
@@ -202,18 +208,22 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
     if let Err(e) = ensure_registry(ctx).await {
         return err_internal(&format!("registry init failed: {e}"));
     }
-    if let Err(e) = db::exec_raw(
-        ctx,
-        "INSERT OR REPLACE INTO suppers_ai__vector__registry(prefixed_name, model, dimensions, keyword_search) VALUES (?1, ?2, ?3, ?4)",
+    let (sql, vals) = upsert::build_upsert(
+        REGISTRY_TABLE,
         &[
-            serde_json::Value::String(cfg.name.clone()),
-            serde_json::Value::String(cfg.model.clone()),
-            serde_json::Value::Number(serde_json::Number::from(cfg.dimensions)),
-            serde_json::Value::Number(serde_json::Number::from(cfg.keyword_search as i64)),
+            ("prefixed_name".to_string(), serde_json::json!(cfg.name)),
+            ("model".to_string(), serde_json::json!(cfg.model)),
+            ("dimensions".to_string(), serde_json::json!(cfg.dimensions)),
+            (
+                "keyword_search".to_string(),
+                serde_json::json!(cfg.keyword_search as i64),
+            ),
         ],
-    )
-    .await
-    {
+        &["prefixed_name"],
+        &["model", "dimensions", "keyword_search"],
+        Backend::Sqlite,
+    );
+    if let Err(e) = db::exec_raw(ctx, &sql, &sea_values_to_json(vals)).await {
         return err_internal(&format!("registry write failed: {e}"));
     }
 
@@ -244,9 +254,8 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
 
 /// Idempotently create the registry table.
 async fn ensure_registry(ctx: &dyn Context) -> Result<(), WaferError> {
-    db::exec_raw(ctx, REGISTRY_CREATE_SQL, &[])
-        .await
-        .map(|_| ())
+    let sql = ddl::build_create_table(&registry_schema(), Backend::Sqlite);
+    db::exec_raw(ctx, &sql, &[]).await.map(|_| ())
 }
 
 // ---------------------------------------------------------------------------
@@ -269,13 +278,11 @@ async fn list_indexes(ctx: &dyn Context) -> OutputStream {
 /// The registry is the source of truth for *per-index metadata* (model,
 /// keyword_search flag), not for existence.
 async fn discover_indexes(ctx: &dyn Context) -> Result<Vec<String>, WaferError> {
-    let pattern = format!("{TABLE_PREFIX}%_meta");
-    let rows = db::query_raw(
-        ctx,
-        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE ? ORDER BY name",
-        &[serde_json::Value::String(pattern)],
-    )
-    .await?;
+    // The builder pattern is `prefix%`; we want `prefix%_meta`. Filter the
+    // suffix in Rust after the prefix scan rather than adding a new builder
+    // overload — cheap because the table count is tiny (one row per index).
+    let (sql, args) = introspect::build_list_tables_like(TABLE_PREFIX, Backend::Sqlite);
+    let rows = db::query_raw(ctx, &sql, &args).await?;
 
     let mut indexes: Vec<String> = Vec::with_capacity(rows.len());
     for row in rows {
@@ -311,12 +318,16 @@ async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
             // (pre-registry deployment) is not a failure, so we only surface
             // errors that aren't about the table itself. The row-level
             // `OR REPLACE` in create_index makes this robustly idempotent.
-            let _ = db::exec_raw(
-                ctx,
-                "DELETE FROM suppers_ai__vector__registry WHERE prefixed_name = ?1",
-                &[serde_json::Value::String(prefixed)],
-            )
-            .await;
+            let (sql, vals) = query::build_delete_where(
+                REGISTRY_TABLE,
+                &[Filter {
+                    field: "prefixed_name".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(prefixed),
+                }],
+                Backend::Sqlite,
+            );
+            let _ = db::exec_raw(ctx, &sql, &sea_values_to_json(vals)).await;
             ok_json(&serde_json::json!({ "ok": true }))
         }
         Err(e) if e.code == ErrorCode::NotFound => {
@@ -569,12 +580,22 @@ async fn load_index_metadata(
 ) -> Result<(String, bool), WaferError> {
     // First try the registry. An error here (e.g. the table doesn't exist)
     // is treated as "no row", not fatal — we fall through to the scan.
-    let rows = db::query_raw(
-        ctx,
-        "SELECT model, keyword_search FROM suppers_ai__vector__registry WHERE prefixed_name = ?1",
-        &[serde_json::Value::String(prefixed_index.to_string())],
-    )
-    .await;
+    let (sql, vals) = query::build_select_columns(
+        REGISTRY_TABLE,
+        &["model", "keyword_search"],
+        &ListOptions {
+            filters: vec![Filter {
+                field: "prefixed_name".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(prefixed_index),
+            }],
+            limit: 1,
+            ..Default::default()
+        },
+        None,
+        Backend::Sqlite,
+    );
+    let rows = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await;
 
     if let Ok(rows) = rows {
         if let Some(row) = rows.into_iter().next() {
@@ -599,6 +620,10 @@ async fn load_index_metadata(
     // `{prefixed}_fts` when keyword_search is enabled and nothing when it
     // isn't, so the row count for that exact name is a reliable signal.
     let fts_name = format!("{prefixed_index}_fts");
+    // Direct `sqlite_master` lookup — the vector block is SQLite-only by
+    // design (sqlite-vec extension), so no dialect-portable equivalent is
+    // needed. `wafer-sql-utils::introspect` doesn't expose a "table exists"
+    // single-name probe; adding one is out of scope for this PR.
     let fts_rows = db::query_raw(
         ctx,
         "SELECT name FROM sqlite_master WHERE type='table' AND name = ?1",
@@ -688,6 +713,11 @@ async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // document_id before we add the new ones. If the metadata table isn't
     // there yet (first-ever ingest, or fresh index) the query fails and we
     // take that as "no prior chunks", not as a fatal error.
+    //
+    // `json_extract(metadata, '$.document_id')` is a SQLite-specific JSON
+    // function the metadata column relies on. The vector block is
+    // SQLite-only by design (sqlite-vec extension), so a dialect-portable
+    // builder is neither needed nor possible — the query stays raw.
     if let Ok(rows) = db::query_raw(
         ctx,
         &format!(
