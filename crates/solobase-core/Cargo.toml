@@ -77,6 +77,7 @@ serde_json = { workspace = true }
 
 # Crypto
 sha2 = { workspace = true }
+hex = { workspace = true }
 hmac = "0.12"
 hkdf = "0.12"
 base64 = "0.22"

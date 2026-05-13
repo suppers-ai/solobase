@@ -48,30 +48,54 @@ pub(crate) async fn load_env_vars(db: &Arc<dyn DatabaseService>) -> HashMap<Stri
 
 /// Read the admin block-settings collection and convert to `BlockSettings`.
 ///
-/// Returns `BlockSettings::from_map(empty)` on missing collection or query
+/// Returns `BlockSettings::default()` on missing collection or query
 /// failure — matches the existing solobase-cloud worker's error tolerance.
 pub(crate) async fn load_block_settings(db: &Arc<dyn DatabaseService>) -> BlockSettings {
+    use solobase_core::features::{BlockState, MigrationState};
+
     let opts = ListOptions {
         offset: 0,
         limit: 10_000,
+        skip_count: true,
         ..Default::default()
     };
     match db.list(BLOCK_SETTINGS_TABLE, &opts).await {
         Ok(record_list) => {
-            let map: HashMap<String, bool> = record_list
+            let blocks: HashMap<String, BlockState> = record_list
                 .records
                 .into_iter()
                 .filter_map(|r| {
                     let name = r.data.get("block_name")?.as_str()?.to_string();
                     let enabled = r.data.get("enabled")?.as_i64()? != 0;
-                    Some((name, enabled))
+                    let current_hash = r
+                        .data
+                        .get("current_hash")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let blessed_hash = r
+                        .data
+                        .get("blessed_hash")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    Some((
+                        name,
+                        BlockState {
+                            enabled,
+                            migration: MigrationState {
+                                current_hash,
+                                blessed_hash,
+                            },
+                        },
+                    ))
                 })
                 .collect();
-            BlockSettings::from_map(map)
+            BlockSettings::from_blocks(blocks)
         }
         Err(e) => {
             worker::console_log!("warn: load_block_settings failed: {e}");
-            BlockSettings::from_map(HashMap::new())
+            BlockSettings::default()
         }
     }
 }
