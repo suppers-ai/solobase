@@ -117,6 +117,8 @@ impl Block for AdminBlock {
                 wafer_run::ResourceGrant::read_write(super::auth::AUTH_BLOCK_ID, USER_ROLES_TABLE),
                 wafer_run::ResourceGrant::read(super::auth::AUTH_BLOCK_ID, VARIABLES_TABLE),
                 wafer_run::ResourceGrant::read("suppers-ai/userportal", BLOCK_SETTINGS_TABLE),
+                // Every block may upsert its own migration state into block_settings.
+                wafer_run::ResourceGrant::read_write("*", BLOCK_SETTINGS_TABLE),
                 // Infrastructure logging: storage wrapper + pipeline write logs
                 wafer_run::ResourceGrant::read_write("*", STORAGE_ACCESS_LOGS_TABLE),
                 wafer_run::ResourceGrant::read_write("*", REQUEST_LOGS_TABLE),

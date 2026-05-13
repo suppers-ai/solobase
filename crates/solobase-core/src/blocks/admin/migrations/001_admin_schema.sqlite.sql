@@ -106,14 +106,17 @@ CREATE TABLE IF NOT EXISTS suppers_ai__admin__storage_access_logs (
 CREATE INDEX IF NOT EXISTS suppers_ai__admin__storage_access_logs_created_at_idx
     ON suppers_ai__admin__storage_access_logs (created_at);
 
--- Block settings (per-block on/off toggles) ------------------------------
+-- Block settings (per-block on/off toggles + migration state) -----------
 CREATE TABLE IF NOT EXISTS suppers_ai__admin__block_settings (
-    id         TEXT PRIMARY KEY,
-    block_name TEXT NOT NULL UNIQUE,
-    enabled    INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    id            TEXT PRIMARY KEY,
+    block_name    TEXT NOT NULL UNIQUE,
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    current_hash  TEXT NOT NULL DEFAULT '',
+    blessed_hash  TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
 );
+
 CREATE UNIQUE INDEX IF NOT EXISTS suppers_ai__admin__block_settings_block_name_uniq
     ON suppers_ai__admin__block_settings (block_name);
 

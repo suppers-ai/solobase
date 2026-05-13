@@ -53,11 +53,22 @@ async fn run() -> anyhow::Result<()> {
             target,
             release,
             port,
+            run_migrations,
         } => {
+            if run_migrations {
+                std::env::set_var("SOLOBASE_RUN_MIGRATIONS", "1");
+            }
             let target = default_target(&ctx, target)?;
             dispatch_serve(&ctx, target, release, port).await
         }
-        Command::Deploy { target, release } => {
+        Command::Deploy {
+            target,
+            release,
+            run_migrations,
+        } => {
+            if run_migrations {
+                std::env::set_var("SOLOBASE_RUN_MIGRATIONS", "1");
+            }
             let target = default_target(&ctx, target)?;
             dispatch_deploy(&ctx, target, release).await
         }

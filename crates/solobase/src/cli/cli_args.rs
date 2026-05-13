@@ -36,6 +36,12 @@ pub enum Command {
         /// Override the listen port. Native: from .env. Web: defaults to 8080.
         #[arg(long)]
         port: Option<u16>,
+
+        /// Apply pending block migrations on startup. Sets SOLOBASE_RUN_MIGRATIONS=1.
+        /// Blocks whose SQL hash has changed will be applied and their blessed_hash updated.
+        /// Safe to run on every deploy but slower; omit once schema is stable.
+        #[arg(long)]
+        run_migrations: bool,
     },
     /// Build the app and deploy it to the target's hosting environment.
     /// (v1: only `--target cloudflare` is supported.)
@@ -45,6 +51,12 @@ pub enum Command {
 
         #[arg(long)]
         release: bool,
+
+        /// Apply pending block migrations on deploy. Sets SOLOBASE_RUN_MIGRATIONS=1.
+        /// Required after adding or modifying migration SQL in any block.
+        /// The first deploy after upgrading solobase must pass this flag.
+        #[arg(long)]
+        run_migrations: bool,
     },
 }
 
@@ -62,6 +74,7 @@ impl Default for Cli {
                 target: Some(Target::Native),
                 release: false,
                 port: None,
+                run_migrations: false,
             },
         }
     }
