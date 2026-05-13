@@ -8,7 +8,6 @@ pub mod errors;
 pub mod fastembed;
 pub mod files;
 pub mod helpers;
-pub mod image;
 pub mod legalpages;
 #[cfg(feature = "llm")]
 pub mod llm;
@@ -77,7 +76,6 @@ pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
         auth_ui::AuthUiBlock::default().info(),
         email::EmailBlock::new().info(),
         files::FilesBlock::new().info(),
-        image::ImageBlock::new().info(),
         legalpages::LegalPagesBlock::new().info(),
         messages::MessagesBlock::new().info(),
         products::ProductsBlock::new().info(),
@@ -168,7 +166,6 @@ pub fn register_all_static_blocks(
     )?;
     wafer.register_block("suppers-ai/email", Arc::new(email::EmailBlock::new()))?;
     wafer.register_block("suppers-ai/files", Arc::new(files::FilesBlock::new()))?;
-    wafer.register_block("suppers-ai/image", Arc::new(image::ImageBlock::new()))?;
     wafer.register_block(
         "suppers-ai/legalpages",
         Arc::new(legalpages::LegalPagesBlock::new()),
