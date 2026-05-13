@@ -25,7 +25,7 @@ use wafer_run::{
 use super::{
     messages_create, messages_list,
     providers::config::{ProviderConfig, ProviderProtocol},
-    schema::{config_to_row, row_to_config, PROVIDERS_COLLECTION},
+    schema::{config_to_row, row_to_config, TABLE as PROVIDERS_TABLE},
     LlmBlock, DEFAULT_PROVIDER,
 };
 use crate::blocks::helpers::{
@@ -113,7 +113,7 @@ async fn resolve_backend_id(
         return Ok(provider_block.to_string());
     }
 
-    let records = db::list_all(ctx, PROVIDERS_COLLECTION, vec![])
+    let records = db::list_all(ctx, PROVIDERS_TABLE, vec![])
         .await
         .map_err(|_| "provider lookup failed")?;
 
@@ -384,7 +384,7 @@ pub(super) async fn reload_provider_service(
     block: &LlmBlock,
     ctx: &dyn Context,
 ) -> Result<(), String> {
-    let records = db::list_all(ctx, PROVIDERS_COLLECTION, vec![])
+    let records = db::list_all(ctx, PROVIDERS_TABLE, vec![])
         .await
         .map_err(|e| format!("provider reload list failed: {e}"))?;
     let mut configs: Vec<ProviderConfig> = Vec::with_capacity(records.len());
@@ -415,7 +415,7 @@ pub(super) async fn list_providers(
     if !helpers::is_admin(msg) {
         return err_forbidden("admin role required");
     }
-    let records = match db::list_all(ctx, PROVIDERS_COLLECTION, vec![]).await {
+    let records = match db::list_all(ctx, PROVIDERS_TABLE, vec![]).await {
         Ok(r) => r,
         Err(e) => return err_internal(&format!("Database error: {e}")),
     };
@@ -486,7 +486,7 @@ pub(super) async fn create_provider(
     let mut data = config_to_row(&cfg);
     helpers::stamp_created(&mut data);
 
-    let record = match db::create(ctx, PROVIDERS_COLLECTION, data).await {
+    let record = match db::create(ctx, PROVIDERS_TABLE, data).await {
         Ok(r) => r,
         Err(e) => return err_internal(&format!("Database error: {e}")),
     };
@@ -520,7 +520,7 @@ pub(super) async fn update_provider(
     };
 
     // Load existing record so we can apply the patch on top of stored values.
-    let existing = match db::get(ctx, PROVIDERS_COLLECTION, &id).await {
+    let existing = match db::get(ctx, PROVIDERS_TABLE, &id).await {
         Ok(r) => r,
         Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
             return err_not_found("Provider not found")
@@ -561,7 +561,7 @@ pub(super) async fn update_provider(
     let mut data = config_to_row(&cfg);
     helpers::stamp_updated(&mut data);
 
-    let record = match db::update(ctx, PROVIDERS_COLLECTION, &id, data).await {
+    let record = match db::update(ctx, PROVIDERS_TABLE, &id, data).await {
         Ok(r) => r,
         Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
             return err_not_found("Provider not found")
@@ -589,7 +589,7 @@ pub(super) async fn delete_provider(
     if id.is_empty() {
         return err_bad_request("Missing provider ID");
     }
-    match db::delete(ctx, PROVIDERS_COLLECTION, &id).await {
+    match db::delete(ctx, PROVIDERS_TABLE, &id).await {
         Ok(()) => {}
         Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
             return err_not_found("Provider not found")
@@ -770,7 +770,7 @@ pub(super) async fn discover_models(
 
     // Resolve the provider name from the row — discover_models is keyed by
     // provider name (== ProviderConfig::name), not by row id.
-    let existing = match db::get(ctx, PROVIDERS_COLLECTION, &id).await {
+    let existing = match db::get(ctx, PROVIDERS_TABLE, &id).await {
         Ok(r) => r,
         Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
             return err_not_found("Provider not found")
@@ -799,7 +799,7 @@ pub(super) async fn discover_models(
 
     let mut data = config_to_row(&cfg);
     helpers::stamp_updated(&mut data);
-    if let Err(e) = db::update(ctx, PROVIDERS_COLLECTION, &id, data).await {
+    if let Err(e) = db::update(ctx, PROVIDERS_TABLE, &id, data).await {
         return err_internal(&format!("Database error: {e}"));
     }
 

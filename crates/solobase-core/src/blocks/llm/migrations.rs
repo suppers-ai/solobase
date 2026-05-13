@@ -30,12 +30,12 @@ use super::{
         config::{ProviderConfig, ProviderProtocol},
         ProviderLlmService,
     },
-    schema::{config_to_row, PROVIDERS_COLLECTION},
+    schema::{config_to_row, TABLE as PROVIDERS_TABLE},
 };
 
 /// The legacy providers collection. Owned by the provider-llm block (still
 /// present on-disk on upgrade paths) — we read once, migrate, and drop.
-pub(super) const LEGACY_COLLECTION: &str = "suppers_ai__provider_llm__providers";
+pub(super) const LEGACY_TABLE: &str = "suppers_ai__provider_llm__providers";
 
 const LEGACY_OPENAI_KEY_VAR: &str = "SUPPERS_AI__PROVIDER_LLM__OPENAI_KEY";
 const LEGACY_ANTHROPIC_KEY_VAR: &str = "SUPPERS_AI__PROVIDER_LLM__ANTHROPIC_KEY";
@@ -124,7 +124,7 @@ pub(super) async fn migrate_legacy_providers(
     // Step 1: read the legacy table. NotFound (table doesn't exist) = already
     // migrated — return cleanly. All other errors bubble up to the caller.
     // audit-allow: legacy-block-table — `provider-llm` was renamed to `llm`; the old block no longer registers, so no grant can exist. Probe is one-shot and swallows NotFound on the steady-state path.
-    let legacy_records = match db::list_all(ctx, LEGACY_COLLECTION, vec![]).await {
+    let legacy_records = match db::list_all(ctx, LEGACY_TABLE, vec![]).await {
         Ok(r) => r,
         Err(e) if e.code == ErrorCode::NotFound => {
             // Already migrated or never needed — common path on every subsequent
@@ -145,7 +145,7 @@ pub(super) async fn migrate_legacy_providers(
     }
 
     tracing::info!(
-        "migrating {} legacy provider row(s) from {LEGACY_COLLECTION} → {PROVIDERS_COLLECTION}",
+        "migrating {} legacy provider row(s) from {LEGACY_TABLE} → {PROVIDERS_TABLE}",
         legacy_records.len()
     );
 
@@ -191,7 +191,7 @@ async fn migrate_one(ctx: &dyn Context, record: &Record) -> MigrateOutcome {
     };
 
     let row = config_to_row(&cfg);
-    match db::create(ctx, PROVIDERS_COLLECTION, row).await {
+    match db::create(ctx, PROVIDERS_TABLE, row).await {
         Ok(_) => MigrateOutcome::Inserted,
         Err(e) if e.code == ErrorCode::AlreadyExists => {
             // Admin has already recreated this provider in the new table
@@ -218,9 +218,9 @@ async fn migrate_one(ctx: &dyn Context, record: &Record) -> MigrateOutcome {
 /// is a one-shot cleanup. Errors are warnings, not fatal: the next boot will
 /// just try again and still find nothing to migrate (empty / NotFound).
 async fn drop_legacy_table(ctx: &dyn Context) {
-    let stmt = format!("DROP TABLE IF EXISTS {LEGACY_COLLECTION}");
+    let stmt = format!("DROP TABLE IF EXISTS {LEGACY_TABLE}");
     if let Err(e) = db::exec_raw(ctx, &stmt, &[]).await {
-        tracing::warn!("failed to drop legacy table {LEGACY_COLLECTION}: {e}");
+        tracing::warn!("failed to drop legacy table {LEGACY_TABLE}: {e}");
     }
 }
 
@@ -228,7 +228,7 @@ async fn drop_legacy_table(ctx: &dyn Context) {
 /// Mirrors `routes::reload_provider_service` but is intentionally duplicated
 /// here to keep the migration self-contained (no cross-module coupling).
 async fn reload_service(ctx: &dyn Context, provider_svc: &ProviderLlmService) {
-    let records = match db::list_all(ctx, PROVIDERS_COLLECTION, vec![]).await {
+    let records = match db::list_all(ctx, PROVIDERS_TABLE, vec![]).await {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!("post-migration reload list failed: {e}");

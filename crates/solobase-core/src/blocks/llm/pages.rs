@@ -12,7 +12,7 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, types::*, OutputStream};
 
-use super::SETTINGS_COLLECTION;
+use super::SETTINGS_TABLE;
 use crate::{
     blocks::{
         helpers::RecordExt,
@@ -403,7 +403,7 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let default_model = config::get_default(ctx, DEFAULT_MODEL_VAR, "").await;
 
     // Load per-thread overrides
-    let overrides: Vec<db::Record> = db::list_all(ctx, SETTINGS_COLLECTION, vec![])
+    let overrides: Vec<db::Record> = db::list_all(ctx, SETTINGS_TABLE, vec![])
         .await
         .unwrap_or_default();
 

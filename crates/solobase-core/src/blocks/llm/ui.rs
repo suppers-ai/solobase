@@ -22,7 +22,7 @@ use wafer_run::{context::Context, types::Message, OutputStream};
 use super::{
     providers::config::ProviderConfig,
     routes,
-    schema::{row_to_config, PROVIDERS_COLLECTION},
+    schema::{row_to_config, TABLE as PROVIDERS_TABLE},
     LlmBlock,
 };
 use crate::{
@@ -85,7 +85,7 @@ pub(super) async fn providers_page(
     // Load all provider rows (both enabled and disabled) — the admin UI
     // wants the full picture, not just the in-flight set.
     let configs: Vec<(String, ProviderConfig)> =
-        match db::list_all(ctx, PROVIDERS_COLLECTION, vec![]).await {
+        match db::list_all(ctx, PROVIDERS_TABLE, vec![]).await {
             Ok(records) => records
                 .into_iter()
                 .filter_map(|rec| row_to_config(&rec).ok().map(|cfg| (rec.id, cfg)))

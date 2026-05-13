@@ -18,11 +18,11 @@ use wafer_run::types::CollectionSchema;
 
 use super::providers::config::{ProviderConfig, ProviderProtocol};
 
-pub const PROVIDERS_COLLECTION: &str = "suppers_ai__llm__providers";
+pub const TABLE: &str = "suppers_ai__llm__providers";
 
 /// Table declaration for `suppers_ai__llm__providers`.
 pub fn providers_schema() -> CollectionSchema {
-    CollectionSchema::new(PROVIDERS_COLLECTION)
+    CollectionSchema::new(TABLE)
         .field_unique("name", "string")
         .field("protocol", "string")
         .field("endpoint", "string")
@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn schema_declares_collection_name() {
         let s = providers_schema();
-        assert_eq!(s.name, PROVIDERS_COLLECTION);
+        assert_eq!(s.name, TABLE);
     }
 
     #[test]
