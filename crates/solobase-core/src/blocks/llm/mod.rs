@@ -45,6 +45,25 @@ const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
 const DEFAULT_MODEL_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_MODEL";
 pub(super) const DEFAULT_PROVIDER: &str = "suppers-ai/provider-llm";
 
+/// Read the cross-block default LLM target — the `(provider_block, model)`
+/// pair other blocks (e.g. vector contextual retrieval) should use when they
+/// have no caller-supplied preference.
+///
+/// Returns `None` when no model is configured. The provider falls back to
+/// [`DEFAULT_PROVIDER`] if its env var is unset, but the model has no built-in
+/// default — operators must set `SUPPERS_AI__LLM__DEFAULT_MODEL` for a target
+/// to be available. Callers should treat `None` as "no LLM configured" and
+/// take a degraded path (skip the LLM step, return an error, etc.).
+pub(crate) async fn default_target(ctx: &dyn Context) -> Option<(String, String)> {
+    let provider = config::get_default(ctx, DEFAULT_PROVIDER_VAR, DEFAULT_PROVIDER).await;
+    let model = config::get_default(ctx, DEFAULT_MODEL_VAR, "").await;
+    if model.is_empty() || provider.is_empty() {
+        None
+    } else {
+        Some((provider, model))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Inter-block call helpers
 // ---------------------------------------------------------------------------

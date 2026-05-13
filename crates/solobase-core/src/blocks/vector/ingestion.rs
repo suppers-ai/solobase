@@ -2,19 +2,27 @@
 //!
 //! This module provides the building blocks used by the `POST
 //! /b/vector/api/ingest` route to split a document into embedding-sized
-//! chunks and (eventually) prepend per-chunk context summaries via an LLM.
+//! chunks and (optionally) prepend a short LLM-generated context summary
+//! to each chunk before embedding.
 //!
 //! The chunker is intentionally simple: we whitespace-split as a token
-//! proxy, which is close enough for bge-m3 / MiniLM at this granularity.
-//! A real tokenizer would drift by a handful of tokens per chunk but
-//! costs a dependency + runtime work that buys us nothing at ingest time.
+//! proxy. `vector/pages.rs::handle_ingest` ratio-adjusts the threshold by
+//! the embedder's BPE token count when available, so the whitespace
+//! approximation only sets the chunk shape, not its real BPE budget.
 //!
-//! `add_context` is a stub right now — it returns the chunks unchanged.
-//! Hooking it up to an LLM lives in a follow-up task; wiring the call
-//! into the ingest route today means the route doesn't have to change
-//! when that lands.
+//! `add_context` runs one LLM call per ingest (not per chunk — that would
+//! be N round-trips per document) to produce a document-level context
+//! summary, then prepends that summary to every chunk. This is a
+//! simplification of Anthropic's per-chunk contextual retrieval recipe
+//! and trades some precision for one wire call instead of N.
 
+use wafer_block::wire::llm::{
+    ChatContent, ChatMessage, ChatRequest, ChatRole, ChunkDelta,
+};
+use wafer_core::clients::llm;
 use wafer_run::{context::Context, types::WaferError};
+
+use crate::blocks::llm as llm_block;
 
 /// Approximate max tokens per chunk. We use whitespace-split as a proxy
 /// for tokenization — close enough for bge-m3 / MiniLM at this
@@ -64,25 +72,87 @@ pub fn chunk(text: &str, chunk_tokens: usize, overlap_ratio: f32) -> Vec<String>
     out
 }
 
-/// Prepend a context summary to each chunk using an LLM.
+/// Prepend a short LLM-generated context summary to each chunk.
 ///
-/// This is a scaffold: today it just returns the chunks unchanged so the
-/// ingest route can call into it without a surface-area change when the
-/// real LLM integration lands. `document` is the full source document
-/// (so a future implementation can ask the LLM to summarize each chunk
-/// in the context of the whole), `chunks` is the output of `chunk()`.
+/// Cost model: one LLM call per ingest (not per chunk). The call sees the
+/// full `document` and is asked for a 1–2 sentence summary; that single
+/// summary is prepended to every chunk. This is cheaper than the
+/// per-chunk Anthropic Contextual Retrieval recipe (which makes N LLM
+/// calls per document) at the cost of less per-chunk specificity.
+///
+/// Degrades silently — `chunks` is returned unchanged — when:
+///   * no LLM is configured (`SUPPERS_AI__LLM__DEFAULT_MODEL` empty),
+///   * the chat call errors (block not registered, transport failure, …),
+///   * the LLM returns no text (empty stream).
+///
+/// The ingest must not fail because the contextual step couldn't run; the
+/// raw chunks are still useful for retrieval.
 pub async fn add_context(
     ctx: &dyn Context,
     document: &str,
     chunks: Vec<String>,
 ) -> Result<Vec<String>, WaferError> {
-    // Explicitly discard the unused args to make the "stub for now"
-    // intent visible — rather than leaving `_ctx`/`_document` in the
-    // signature, which would mask future compiler warnings once those
-    // args start being used.
-    let _ = (ctx, document);
-    Ok(chunks)
+    if chunks.is_empty() {
+        return Ok(chunks);
+    }
+    let Some((provider, model)) = llm_block::default_target(ctx).await else {
+        tracing::debug!("contextual retrieval skipped: no default LLM model configured");
+        return Ok(chunks);
+    };
+
+    let request = ChatRequest {
+        backend_id: provider,
+        model,
+        messages: vec![
+            ChatMessage {
+                role: ChatRole::System,
+                content: ChatContent::Text(CONTEXTUAL_SYSTEM_PROMPT.into()),
+                tool_call_id: None,
+                tool_calls: Vec::new(),
+            },
+            ChatMessage {
+                role: ChatRole::User,
+                content: ChatContent::Text(document.into()),
+                tool_call_id: None,
+                tool_calls: Vec::new(),
+            },
+        ],
+        params: Default::default(),
+        tools: Vec::new(),
+        extra: serde_json::Value::Null,
+    };
+
+    let response_chunks = match llm::chat(ctx, &request).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %e, "contextual retrieval LLM call failed; skipping");
+            return Ok(chunks);
+        }
+    };
+
+    let mut context = String::new();
+    for chunk in response_chunks {
+        if let ChunkDelta::Text(t) = chunk.delta {
+            context.push_str(&t);
+        }
+    }
+    let context = context.trim();
+    if context.is_empty() {
+        return Ok(chunks);
+    }
+
+    Ok(chunks
+        .into_iter()
+        .map(|c| format!("{context}\n\n{c}"))
+        .collect())
 }
+
+const CONTEXTUAL_SYSTEM_PROMPT: &str = "\
+You are summarizing a document so retrieval excerpts from it are easier to \
+understand out of context. Return one or two short sentences describing what \
+the document is about and who or what it concerns. Do not preface with \
+\"This document\" or \"Summary:\" — write the description plainly. No \
+markdown, no bullet points, no quotes around the answer.";
 
 #[cfg(test)]
 mod tests {
