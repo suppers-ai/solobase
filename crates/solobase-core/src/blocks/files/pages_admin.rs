@@ -171,72 +171,47 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 async fn load_admin_stats(ctx: &dyn Context) -> AdminStats {
-    let one = ListOptions {
-        limit: 1,
-        ..Default::default()
-    };
-    let buckets = match db::list(ctx, BUCKETS_COLLECTION, &one).await {
-        Ok(r) => r.total_count,
-        Err(e) => {
+    let buckets = db::count(ctx, BUCKETS_COLLECTION, &[])
+        .await
+        .unwrap_or_else(|e| {
             tracing::warn!(error = %e.message, "admin overview: bucket count failed");
             0
-        }
-    };
+        });
 
-    let complete_only = ListOptions {
-        filters: vec![Filter {
-            field: "status".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String("complete".into()),
-        }],
-        limit: 1,
-        ..Default::default()
-    };
-    let files = match db::list(ctx, OBJECTS_COLLECTION, &complete_only).await {
-        Ok(r) => r.total_count,
-        Err(e) => {
+    let complete_filter = [Filter {
+        field: "status".into(),
+        operator: FilterOp::Equal,
+        value: serde_json::Value::String("complete".into()),
+    }];
+
+    let files = db::count(ctx, OBJECTS_COLLECTION, &complete_filter)
+        .await
+        .unwrap_or_else(|e| {
             tracing::warn!(error = %e.message, "admin overview: files count failed");
             0
-        }
-    };
+        });
 
-    let shares = match db::list(ctx, SHARES_COLLECTION, &one).await {
-        Ok(r) => r.total_count,
-        Err(e) => {
+    let shares = db::count(ctx, SHARES_COLLECTION, &[])
+        .await
+        .unwrap_or_else(|e| {
             tracing::warn!(error = %e.message, "admin overview: shares count failed");
             0
-        }
-    };
+        });
 
-    let quotas_count = match db::list(ctx, QUOTAS_COLLECTION, &one).await {
-        Ok(r) => r.total_count,
-        Err(e) => {
+    let quotas_count = db::count(ctx, QUOTAS_COLLECTION, &[])
+        .await
+        .unwrap_or_else(|e| {
             tracing::warn!(error = %e.message, "admin overview: quotas count failed");
             0
-        }
-    };
+        });
 
-    let total_size_bytes: i64 = match db::list(
-        ctx,
-        OBJECTS_COLLECTION,
-        &ListOptions {
-            filters: vec![Filter {
-                field: "status".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::Value::String("complete".into()),
-            }],
-            limit: 10000,
-            ..Default::default()
-        },
-    )
-    .await
-    {
-        Ok(r) => r.records.iter().map(|rec| rec.i64_field("size")).sum(),
-        Err(e) => {
+    let total_size_bytes = db::sum(ctx, OBJECTS_COLLECTION, "size", &complete_filter)
+        .await
+        .map(|s| s as i64)
+        .unwrap_or_else(|e| {
             tracing::warn!(error = %e.message, "admin overview: total size sum failed");
             0
-        }
-    };
+        });
 
     AdminStats {
         buckets,
