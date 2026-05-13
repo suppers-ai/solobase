@@ -14,7 +14,10 @@ use wafer_run::{context::Context, types::*, OutputStream};
 
 use super::SETTINGS_COLLECTION;
 use crate::{
-    blocks::helpers::RecordExt,
+    blocks::{
+        helpers::RecordExt,
+        messages::service::{CONTEXTS_TABLE, ENTRIES_TABLE},
+    },
     ui::{
         components, icons, nav_groups,
         shell::{Crumb, Topbar},
@@ -25,9 +28,6 @@ use crate::{
 const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
 const DEFAULT_MODEL_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_MODEL";
 const DEFAULT_PROVIDER: &str = "suppers-ai/provider-llm";
-
-const CONTEXTS_COLLECTION: &str = "suppers_ai__messages__contexts";
-const ENTRIES_COLLECTION: &str = "suppers_ai__messages__entries";
 
 // ---------------------------------------------------------------------------
 // Unified chat page (handles `/b/llm/` and `/b/llm/threads/{id}`)
@@ -125,7 +125,7 @@ pub async fn page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         limit: 50,
         ..Default::default()
     };
-    let threads = match db::list(ctx, CONTEXTS_COLLECTION, &opts).await {
+    let threads = match db::list(ctx, CONTEXTS_TABLE, &opts).await {
         Ok(r) => r.records,
         Err(_) => vec![],
     };
@@ -146,7 +146,7 @@ pub async fn page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 limit: 200,
                 ..Default::default()
             };
-            db::list(ctx, ENTRIES_COLLECTION, &messages_opts)
+            db::list(ctx, ENTRIES_TABLE, &messages_opts)
                 .await
                 .map(|r| r.records)
                 .unwrap_or_default()

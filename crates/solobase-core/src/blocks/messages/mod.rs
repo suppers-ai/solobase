@@ -50,11 +50,11 @@ impl Block for MessagesBlock {
         // renders empty in production. Surfaced by the static
         // `scripts/audit-wrap-grants.sh` audit (PR #84).
         .grants(vec![
-            ResourceGrant::read("suppers-ai/llm", service::CONTEXTS_COLLECTION),
-            ResourceGrant::read("suppers-ai/llm", service::ENTRIES_COLLECTION),
+            ResourceGrant::read("suppers-ai/llm", service::CONTEXTS_TABLE),
+            ResourceGrant::read("suppers-ai/llm", service::ENTRIES_TABLE),
         ])
         .collections(vec![
-            CollectionSchema::new(service::CONTEXTS_COLLECTION)
+            CollectionSchema::new(service::CONTEXTS_TABLE)
                 .field("type", "string")
                 .field_default("status", "string", "active")
                 .field_default("title", "string", "")
@@ -67,11 +67,11 @@ impl Block for MessagesBlock {
                 .index(&["parent_id"])
                 .index(&["updated_at"])
                 .index(&["sender_id"]),
-            CollectionSchema::new(service::ENTRIES_COLLECTION)
+            CollectionSchema::new(service::ENTRIES_TABLE)
                 .field_ref(
                     "context_id",
                     "string",
-                    &format!("{}.id", service::CONTEXTS_COLLECTION),
+                    &format!("{}.id", service::CONTEXTS_TABLE),
                 )
                 .field_default("kind", "string", "message")
                 .field_default("role", "string", "")
