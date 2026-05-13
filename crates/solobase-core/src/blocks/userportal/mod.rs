@@ -23,7 +23,7 @@ use crate::{
 
 mod pages;
 
-const BUTTONS_COLLECTION: &str = "suppers_ai__userportal__buttons";
+const TABLE: &str = "suppers_ai__userportal__buttons";
 
 /// Known icon names available for button configuration.
 const ICON_OPTIONS: &[(&str, &str)] = &[
@@ -71,7 +71,7 @@ impl Block for UserPortalBlock {
         )
         .instance_mode(InstanceMode::Singleton)
         .requires(vec!["wafer-run/database".into(), "wafer-run/config".into()])
-        .collections(vec![CollectionSchema::new(BUTTONS_COLLECTION)
+        .collections(vec![CollectionSchema::new(TABLE)
             .field("label", "string")
             .field_default("icon", "string", "package")
             .field("path", "string")
@@ -269,7 +269,7 @@ fn render_page(
 async fn load_buttons(ctx: &dyn Context) -> Vec<wafer_core::clients::database::Record> {
     db::list(
         ctx,
-        BUTTONS_COLLECTION,
+        TABLE,
         &ListOptions {
             sort: vec![SortField {
                 field: "sort_order".into(),
@@ -487,7 +487,7 @@ async fn handle_create_button(ctx: &dyn Context, input: InputStream) -> OutputSt
     }));
     super::helpers::stamp_created(&mut data);
 
-    if let Err(e) = db::create(ctx, BUTTONS_COLLECTION, data).await {
+    if let Err(e) = db::create(ctx, TABLE, data).await {
         return err_internal(&format!("Failed to create button: {}", e.message));
     }
 
@@ -497,7 +497,7 @@ async fn handle_create_button(ctx: &dyn Context, input: InputStream) -> OutputSt
 }
 
 async fn handle_edit_button_form(ctx: &dyn Context, id: &str) -> OutputStream {
-    let record = match db::get(ctx, BUTTONS_COLLECTION, id).await {
+    let record = match db::get(ctx, TABLE, id).await {
         Ok(r) => r,
         Err(_) => return err_not_found("Button not found"),
     };
@@ -580,7 +580,7 @@ async fn handle_update_button(ctx: &dyn Context, input: InputStream, id: &str) -
     }));
     stamp_updated(&mut data);
 
-    if let Err(e) = db::update(ctx, BUTTONS_COLLECTION, id, data).await {
+    if let Err(e) = db::update(ctx, TABLE, id, data).await {
         return err_internal(&format!("Failed to update button: {}", e.message));
     }
 
@@ -590,7 +590,7 @@ async fn handle_update_button(ctx: &dyn Context, input: InputStream, id: &str) -
 }
 
 async fn handle_delete_button(ctx: &dyn Context, id: &str) -> OutputStream {
-    if let Err(e) = db::delete(ctx, BUTTONS_COLLECTION, id).await {
+    if let Err(e) = db::delete(ctx, TABLE, id).await {
         return err_internal(&format!("Failed to delete button: {}", e.message));
     }
 
@@ -762,14 +762,14 @@ mod cross_block_tests {
         // Seed two buttons via db::create (lazy table creation).
         db::create(
             &ctx,
-            BUTTONS_COLLECTION,
+            TABLE,
             button_data("Solobase", "shield", "/b/admin/", 0),
         )
         .await
         .expect("seed first button");
         db::create(
             &ctx,
-            BUTTONS_COLLECTION,
+            TABLE,
             button_data("Inspector", "search", "/b/inspector/ui", 1),
         )
         .await
