@@ -6,10 +6,7 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{
-    GROUPS_COLLECTION, PRICING_COLLECTION, PRODUCTS_COLLECTION, PURCHASES_COLLECTION,
-    SUBSCRIPTIONS, TYPES_COLLECTION,
-};
+use super::{PRICING_TABLE, PURCHASES_TABLE};
 use crate::blocks::{
     crud,
     helpers::{
@@ -17,6 +14,24 @@ use crate::blocks::{
         field_as_string, ok_json, RecordExt,
     },
 };
+
+/// Products catalog table — one row per product offering.
+pub(crate) const PRODUCTS_TABLE: &str = "suppers_ai__products__products";
+
+/// Product groups (categories / bundles) table.
+pub(crate) const GROUPS_TABLE: &str = "suppers_ai__products__groups";
+
+/// Product types (taxonomy) table.
+pub(crate) const TYPES_TABLE: &str = "suppers_ai__products__types";
+
+/// Reusable group template definitions (admin-authored).
+pub(crate) const GROUP_TEMPLATES_TABLE: &str = "suppers_ai__products__group_templates";
+
+/// Reusable product template definitions (admin-authored).
+pub(crate) const PRODUCT_TEMPLATES_TABLE: &str = "suppers_ai__products__product_templates";
+
+/// Active subscription rows (one per user subscription).
+pub(crate) const SUBSCRIPTIONS_TABLE: &str = "suppers_ai__products__subscriptions";
 
 async fn user_products_enabled(ctx: &dyn Context) -> bool {
     config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS", "false").await == "true"
@@ -216,14 +231,14 @@ async fn handle_list_products(ctx: &dyn Context, msg: &Message) -> OutputStream 
         });
     }
 
-    crud::crud_list(ctx, msg, PRODUCTS_COLLECTION, filters).await
+    crud::crud_list(ctx, msg, PRODUCTS_TABLE, filters).await
 }
 
 async fn handle_get_product(ctx: &dyn Context, msg: &Message) -> OutputStream {
     crud::crud_get(
         ctx,
         msg,
-        PRODUCTS_COLLECTION,
+        PRODUCTS_TABLE,
         "/admin/b/products/products/",
         "Product",
     )
@@ -244,7 +259,7 @@ async fn handle_create_product(
         "created_by".to_string(),
         serde_json::Value::String(msg.user_id().to_string()),
     );
-    crud::crud_create(ctx, msg, input, PRODUCTS_COLLECTION, defaults).await
+    crud::crud_create(ctx, msg, input, PRODUCTS_TABLE, defaults).await
 }
 
 async fn handle_update_product(
@@ -256,7 +271,7 @@ async fn handle_update_product(
         ctx,
         msg,
         input,
-        PRODUCTS_COLLECTION,
+        PRODUCTS_TABLE,
         "/admin/b/products/products/",
         "Product",
     )
@@ -267,7 +282,7 @@ async fn handle_delete_product(ctx: &dyn Context, msg: &Message) -> OutputStream
     crud::crud_delete(
         ctx,
         msg,
-        PRODUCTS_COLLECTION,
+        PRODUCTS_TABLE,
         "/admin/b/products/products/",
         "Product",
     )
@@ -277,7 +292,7 @@ async fn handle_delete_product(ctx: &dyn Context, msg: &Message) -> OutputStream
 // --- Groups ---
 
 async fn handle_list_groups(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_list(ctx, msg, GROUPS_COLLECTION, vec![]).await
+    crud::crud_list(ctx, msg, GROUPS_TABLE, vec![]).await
 }
 
 async fn handle_create_group(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -286,7 +301,7 @@ async fn handle_create_group(ctx: &dyn Context, msg: &Message, input: InputStrea
         "user_id".to_string(),
         serde_json::Value::String(msg.user_id().to_string()),
     );
-    crud::crud_create(ctx, msg, input, GROUPS_COLLECTION, defaults).await
+    crud::crud_create(ctx, msg, input, GROUPS_TABLE, defaults).await
 }
 
 async fn handle_update_group(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -294,7 +309,7 @@ async fn handle_update_group(ctx: &dyn Context, msg: &Message, input: InputStrea
         ctx,
         msg,
         input,
-        GROUPS_COLLECTION,
+        GROUPS_TABLE,
         "/admin/b/products/groups/",
         "Group",
     )
@@ -305,7 +320,7 @@ async fn handle_delete_group(ctx: &dyn Context, msg: &Message) -> OutputStream {
     crud::crud_delete(
         ctx,
         msg,
-        GROUPS_COLLECTION,
+        GROUPS_TABLE,
         "/admin/b/products/groups/",
         "Group",
     )
@@ -315,18 +330,18 @@ async fn handle_delete_group(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // --- Types ---
 
 async fn handle_list_types(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_list(ctx, msg, TYPES_COLLECTION, vec![]).await
+    crud::crud_list(ctx, msg, TYPES_TABLE, vec![]).await
 }
 
 async fn handle_create_type(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
-    crud::crud_create(ctx, msg, input, TYPES_COLLECTION, HashMap::new()).await
+    crud::crud_create(ctx, msg, input, TYPES_TABLE, HashMap::new()).await
 }
 
 async fn handle_delete_type(ctx: &dyn Context, msg: &Message) -> OutputStream {
     crud::crud_delete(
         ctx,
         msg,
-        TYPES_COLLECTION,
+        TYPES_TABLE,
         "/admin/b/products/types/",
         "Type",
     )
@@ -336,7 +351,7 @@ async fn handle_delete_type(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // --- Pricing Templates ---
 
 async fn handle_list_pricing(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_list(ctx, msg, PRICING_COLLECTION, vec![]).await
+    crud::crud_list(ctx, msg, PRICING_TABLE, vec![]).await
 }
 
 async fn handle_create_pricing(
@@ -344,7 +359,7 @@ async fn handle_create_pricing(
     msg: &Message,
     input: InputStream,
 ) -> OutputStream {
-    crud::crud_create(ctx, msg, input, PRICING_COLLECTION, HashMap::new()).await
+    crud::crud_create(ctx, msg, input, PRICING_TABLE, HashMap::new()).await
 }
 
 async fn handle_update_pricing(
@@ -356,7 +371,7 @@ async fn handle_update_pricing(
         ctx,
         msg,
         input,
-        PRICING_COLLECTION,
+        PRICING_TABLE,
         "/admin/b/products/pricing/",
         "Pricing template",
     )
@@ -367,7 +382,7 @@ async fn handle_delete_pricing(ctx: &dyn Context, msg: &Message) -> OutputStream
     crud::crud_delete(
         ctx,
         msg,
-        PRICING_COLLECTION,
+        PRICING_TABLE,
         "/admin/b/products/pricing/",
         "Pricing template",
     )
@@ -389,7 +404,7 @@ async fn handle_catalog(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }];
     match db::paginated_list(
         ctx,
-        PRODUCTS_COLLECTION,
+        PRODUCTS_TABLE,
         page as i64,
         page_size as i64,
         filters,
@@ -409,7 +424,7 @@ async fn handle_get_product_public(ctx: &dyn Context, msg: &Message) -> OutputSt
         return err_bad_request("Missing product ID");
     }
 
-    match db::get(ctx, PRODUCTS_COLLECTION, id).await {
+    match db::get(ctx, PRODUCTS_TABLE, id).await {
         Ok(record) => {
             let status = record.str_field("status");
             if status != "active" {
@@ -467,7 +482,7 @@ async fn handle_user_list_products(ctx: &dyn Context, msg: &Message) -> OutputSt
     }];
     match db::paginated_list(
         ctx,
-        PRODUCTS_COLLECTION,
+        PRODUCTS_TABLE,
         page as i64,
         page_size as i64,
         filters,
@@ -488,7 +503,7 @@ async fn handle_user_get_product(ctx: &dyn Context, msg: &Message) -> OutputStre
         return err_bad_request("Missing product ID");
     }
 
-    match db::get(ctx, PRODUCTS_COLLECTION, id).await {
+    match db::get(ctx, PRODUCTS_TABLE, id).await {
         Ok(record) => {
             if field_as_string(&record, "created_by") != user_id {
                 return err_not_found("Product not found");
@@ -526,7 +541,7 @@ async fn handle_user_create_product(
         })
         .unwrap_or_default();
     if !group_id_str.is_empty() {
-        match db::get(ctx, GROUPS_COLLECTION, &group_id_str).await {
+        match db::get(ctx, GROUPS_TABLE, &group_id_str).await {
             Ok(group) => {
                 if field_as_string(&group, "user_id") != user_id {
                     return err_bad_request("You don't own this group");
@@ -549,7 +564,7 @@ async fn handle_user_create_product(
     data.entry("product_template_id".to_string())
         .or_insert(serde_json::json!(1));
 
-    match db::create(ctx, PRODUCTS_COLLECTION, data).await {
+    match db::create(ctx, PRODUCTS_TABLE, data).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -571,7 +586,7 @@ async fn handle_user_update_product(
     }
 
     // Verify ownership
-    match db::get(ctx, PRODUCTS_COLLECTION, &id).await {
+    match db::get(ctx, PRODUCTS_TABLE, &id).await {
         Ok(record) => {
             if field_as_string(&record, "created_by") != user_id {
                 return err_not_found("Product not found");
@@ -592,7 +607,7 @@ async fn handle_user_update_product(
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
 
-    match db::update(ctx, PRODUCTS_COLLECTION, &id, body).await {
+    match db::update(ctx, PRODUCTS_TABLE, &id, body).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -610,7 +625,7 @@ async fn handle_user_delete_product(ctx: &dyn Context, msg: &Message) -> OutputS
     }
 
     // Verify ownership
-    match db::get(ctx, PRODUCTS_COLLECTION, &id).await {
+    match db::get(ctx, PRODUCTS_TABLE, &id).await {
         Ok(record) => {
             if field_as_string(&record, "created_by") != user_id {
                 return err_not_found("Product not found");
@@ -620,7 +635,7 @@ async fn handle_user_delete_product(ctx: &dyn Context, msg: &Message) -> OutputS
         Err(e) => return err_internal(&format!("Database error: {e}")),
     }
 
-    match db::delete(ctx, PRODUCTS_COLLECTION, &id).await {
+    match db::delete(ctx, PRODUCTS_TABLE, &id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -647,7 +662,7 @@ async fn handle_user_list_groups(ctx: &dyn Context, msg: &Message) -> OutputStre
         limit: 1000,
         ..Default::default()
     };
-    match db::list(ctx, GROUPS_COLLECTION, &opts).await {
+    match db::list(ctx, GROUPS_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -661,7 +676,7 @@ async fn handle_user_get_group(ctx: &dyn Context, msg: &Message) -> OutputStream
         return err_bad_request("Missing group ID");
     }
 
-    match db::get(ctx, GROUPS_COLLECTION, id).await {
+    match db::get(ctx, GROUPS_TABLE, id).await {
         Ok(record) => {
             if field_as_string(&record, "user_id") != user_id {
                 return err_not_found("Group not found");
@@ -697,7 +712,7 @@ async fn handle_user_create_group(
     body.entry("group_template_id".to_string())
         .or_insert(serde_json::json!(1));
 
-    match db::create(ctx, GROUPS_COLLECTION, body).await {
+    match db::create(ctx, GROUPS_TABLE, body).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -719,7 +734,7 @@ async fn handle_user_update_group(
     }
 
     // Verify ownership
-    match db::get(ctx, GROUPS_COLLECTION, &id).await {
+    match db::get(ctx, GROUPS_TABLE, &id).await {
         Ok(record) => {
             if field_as_string(&record, "user_id") != user_id {
                 return err_not_found("Group not found");
@@ -736,7 +751,7 @@ async fn handle_user_update_group(
     };
     body.remove("user_id"); // prevent ownership change
 
-    match db::update(ctx, GROUPS_COLLECTION, &id, body).await {
+    match db::update(ctx, GROUPS_TABLE, &id, body).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -754,7 +769,7 @@ async fn handle_user_delete_group(ctx: &dyn Context, msg: &Message) -> OutputStr
     }
 
     // Verify ownership
-    match db::get(ctx, GROUPS_COLLECTION, &id).await {
+    match db::get(ctx, GROUPS_TABLE, &id).await {
         Ok(record) => {
             if field_as_string(&record, "user_id") != user_id {
                 return err_not_found("Group not found");
@@ -764,7 +779,7 @@ async fn handle_user_delete_group(ctx: &dyn Context, msg: &Message) -> OutputStr
         Err(e) => return err_internal(&format!("Database error: {e}")),
     }
 
-    match db::delete(ctx, GROUPS_COLLECTION, &id).await {
+    match db::delete(ctx, GROUPS_TABLE, &id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -782,7 +797,7 @@ async fn handle_user_group_products(ctx: &dyn Context, msg: &Message) -> OutputS
     }
 
     // Verify group ownership
-    match db::get(ctx, GROUPS_COLLECTION, group_id).await {
+    match db::get(ctx, GROUPS_TABLE, group_id).await {
         Ok(record) => {
             if field_as_string(&record, "user_id") != user_id {
                 return err_not_found("Group not found");
@@ -803,7 +818,7 @@ async fn handle_user_group_products(ctx: &dyn Context, msg: &Message) -> OutputS
     }];
     match db::paginated_list(
         ctx,
-        PRODUCTS_COLLECTION,
+        PRODUCTS_TABLE,
         page as i64,
         page_size as i64,
         filters,
@@ -818,7 +833,7 @@ async fn handle_user_group_products(ctx: &dyn Context, msg: &Message) -> OutputS
 
 // User-accessible group templates (read-only)
 async fn handle_user_list_group_templates(ctx: &dyn Context, _msg: &Message) -> OutputStream {
-    match db::list_all(ctx, super::GROUP_TEMPLATES_COLLECTION, vec![]).await {
+    match db::list_all(ctx, GROUP_TEMPLATES_TABLE, vec![]).await {
         Ok(records) => ok_json(&records),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -841,7 +856,7 @@ async fn handle_subscription(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 COALESCE(addon_r2_bytes, 0) as addon_r2_bytes, \
                 COALESCE(addon_d1_bytes, 0) as addon_d1_bytes, \
                 created_at, updated_at \
-         FROM {SUBSCRIPTIONS} WHERE user_id = ?1"
+         FROM {SUBSCRIPTIONS_TABLE} WHERE user_id = ?1"
         ),
         &[serde_json::Value::String(user_id)],
     )
@@ -858,10 +873,10 @@ async fn handle_subscription(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // --- Stats ---
 
 async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
-    let total_products = db::count(ctx, PRODUCTS_COLLECTION, &[]).await.unwrap_or(0);
+    let total_products = db::count(ctx, PRODUCTS_TABLE, &[]).await.unwrap_or(0);
     let active_products = db::count(
         ctx,
-        PRODUCTS_COLLECTION,
+        PRODUCTS_TABLE,
         &[Filter {
             field: "status".to_string(),
             operator: FilterOp::Equal,
@@ -870,10 +885,10 @@ async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
     )
     .await
     .unwrap_or(0);
-    let total_purchases = db::count(ctx, PURCHASES_COLLECTION, &[]).await.unwrap_or(0);
+    let total_purchases = db::count(ctx, PURCHASES_TABLE, &[]).await.unwrap_or(0);
     let total_revenue = db::sum(
         ctx,
-        PURCHASES_COLLECTION,
+        PURCHASES_TABLE,
         "total_cents",
         &[Filter {
             field: "status".to_string(),
@@ -883,7 +898,7 @@ async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
     )
     .await
     .unwrap_or(0.0);
-    let total_groups = db::count(ctx, GROUPS_COLLECTION, &[]).await.unwrap_or(0);
+    let total_groups = db::count(ctx, GROUPS_TABLE, &[]).await.unwrap_or(0);
 
     ok_json(&serde_json::json!({
         "total_products": total_products,

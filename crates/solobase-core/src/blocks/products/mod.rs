@@ -19,16 +19,13 @@ use wafer_run::{
 use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
 use crate::blocks::helpers::{self, err_not_found};
 
-pub(crate) const PRODUCTS_COLLECTION: &str = "suppers_ai__products__products";
-pub(crate) const GROUPS_COLLECTION: &str = "suppers_ai__products__groups";
-pub(crate) const TYPES_COLLECTION: &str = "suppers_ai__products__types";
-pub(crate) const PRICING_COLLECTION: &str = "suppers_ai__products__pricing_templates";
-pub(crate) const PURCHASES_COLLECTION: &str = "suppers_ai__products__purchases";
-pub(crate) const LINE_ITEMS_COLLECTION: &str = "suppers_ai__products__line_items";
-pub(crate) const GROUP_TEMPLATES_COLLECTION: &str = "suppers_ai__products__group_templates";
-pub(crate) const PRODUCT_TEMPLATES_COLLECTION: &str = "suppers_ai__products__product_templates";
-pub(crate) const SUBSCRIPTIONS: &str = "suppers_ai__products__subscriptions";
-pub(crate) const VARIABLES_COLLECTION: &str = "suppers_ai__products__variables";
+pub(crate) use handlers::{
+    GROUPS_TABLE, GROUP_TEMPLATES_TABLE, PRODUCTS_TABLE, PRODUCT_TEMPLATES_TABLE,
+    SUBSCRIPTIONS_TABLE, TYPES_TABLE,
+};
+pub(crate) use pricing::TABLE as PRICING_TABLE;
+pub(crate) use purchase::{LINE_ITEMS_TABLE, PURCHASES_TABLE};
+pub(crate) use variables::TABLE as VARIABLES_TABLE;
 
 pub struct ProductsBlock {
     limiter: UserRateLimiter,
@@ -58,7 +55,7 @@ impl Block for ProductsBlock {
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into(), "wafer-run/config".into(), "wafer-run/network".into()])
             .collections(vec![
-                CollectionSchema::new(PRODUCTS_COLLECTION)
+                CollectionSchema::new(PRODUCTS_TABLE)
                     .field("name", "string")
                     .field_default("description", "text", "")
                     .field_default("slug", "string", "")
@@ -82,7 +79,7 @@ impl Block for ProductsBlock {
                     .index(&["status"])
                     .index(&["group_id"])
                     .index(&["created_by"]),
-                CollectionSchema::new(GROUPS_COLLECTION)
+                CollectionSchema::new(GROUPS_TABLE)
                     .field("name", "string")
                     .field_default("description", "string", "")
                     .field_default("template_id", "string", "")
@@ -90,15 +87,15 @@ impl Block for ProductsBlock {
                     .field_default("user_id", "string", "")
                     .field_default("status", "string", "active")
                     .field_default("created_by", "string", ""),
-                CollectionSchema::new(TYPES_COLLECTION)
+                CollectionSchema::new(TYPES_TABLE)
                     .field("name", "string")
                     .field_default("description", "string", "")
                     .field_default("is_system", "bool", "false"),
-                CollectionSchema::new(PRICING_COLLECTION)
+                CollectionSchema::new(PRICING_TABLE)
                     .field("name", "string")
                     .field_default("price_formula", "string", "")
                     .field_default("template_data", "json", "{}"),
-                CollectionSchema::new(PURCHASES_COLLECTION)
+                CollectionSchema::new(PURCHASES_TABLE)
                     .field_ref("user_id", "string", &format!("{}.id", crate::blocks::auth::USERS_COLLECTION))
                     .field_default("status", "string", "pending")
                     .field_default("total_cents", "int", "0")
@@ -113,7 +110,7 @@ impl Block for ProductsBlock {
                     .field_optional("payment_at", "datetime")
                     .index(&["user_id"])
                     .index(&["status"]),
-                CollectionSchema::new(LINE_ITEMS_COLLECTION)
+                CollectionSchema::new(LINE_ITEMS_TABLE)
                     .field("purchase_id", "string")
                     .field("product_id", "string")
                     .field_default("product_name", "string", "")
@@ -122,13 +119,13 @@ impl Block for ProductsBlock {
                     .field_default("total_price", "float", "0")
                     .field_default("variables", "json", "{}")
                     .index(&["purchase_id"]),
-                CollectionSchema::new(GROUP_TEMPLATES_COLLECTION)
+                CollectionSchema::new(GROUP_TEMPLATES_TABLE)
                     .field("name", "string")
                     .field_default("display_name", "string", ""),
-                CollectionSchema::new(PRODUCT_TEMPLATES_COLLECTION)
+                CollectionSchema::new(PRODUCT_TEMPLATES_TABLE)
                     .field("name", "string")
                     .field_default("display_name", "string", ""),
-                CollectionSchema::new(VARIABLES_COLLECTION)
+                CollectionSchema::new(VARIABLES_TABLE)
                     .field("name", "string")
                     .field_default("var_type", "string", "number")
                     .field_optional("default_value", "string")
@@ -278,7 +275,7 @@ impl Block for ProductsBlock {
             use wafer_core::clients::database as db;
 
             // Default group template
-            match db::list_all(ctx, GROUP_TEMPLATES_COLLECTION, vec![]).await {
+            match db::list_all(ctx, GROUP_TEMPLATES_TABLE, vec![]).await {
                 Ok(records) if records.is_empty() => {
                     let mut data = std::collections::HashMap::new();
                     data.insert(
@@ -289,7 +286,7 @@ impl Block for ProductsBlock {
                         "display_name".to_string(),
                         serde_json::Value::String("Default".to_string()),
                     );
-                    match db::create(ctx, GROUP_TEMPLATES_COLLECTION, data).await {
+                    match db::create(ctx, GROUP_TEMPLATES_TABLE, data).await {
                         Ok(_) => tracing::info!("seeded default group template"),
                         Err(e) => tracing::warn!("failed to seed group template: {e}"),
                     }
@@ -299,7 +296,7 @@ impl Block for ProductsBlock {
             }
 
             // Default product template
-            match db::list_all(ctx, PRODUCT_TEMPLATES_COLLECTION, vec![]).await {
+            match db::list_all(ctx, PRODUCT_TEMPLATES_TABLE, vec![]).await {
                 Ok(records) if records.is_empty() => {
                     let mut data = std::collections::HashMap::new();
                     data.insert(
@@ -310,7 +307,7 @@ impl Block for ProductsBlock {
                         "display_name".to_string(),
                         serde_json::Value::String("Default".to_string()),
                     );
-                    match db::create(ctx, PRODUCT_TEMPLATES_COLLECTION, data).await {
+                    match db::create(ctx, PRODUCT_TEMPLATES_TABLE, data).await {
                         Ok(_) => tracing::info!("seeded default product template"),
                         Err(e) => tracing::warn!("failed to seed product template: {e}"),
                     }

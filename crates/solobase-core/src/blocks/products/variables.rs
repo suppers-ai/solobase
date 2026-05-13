@@ -6,8 +6,11 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::VARIABLES_COLLECTION as COLLECTION;
 use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json};
+
+/// Pricing-variable definitions (e.g. user-defined inputs available to
+/// pricing-template formulas).
+pub(crate) const TABLE: &str = "suppers_ai__products__variables";
 
 pub async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let mut filters = Vec::new();
@@ -38,7 +41,7 @@ pub async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
         ..Default::default()
     };
 
-    match db::list(ctx, COLLECTION, &opts).await {
+    match db::list(ctx, TABLE, &opts).await {
         Ok(result) => ok_json(&result),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -80,7 +83,7 @@ pub async fn handle_create(ctx: &dyn Context, input: InputStream) -> OutputStrea
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
 
-    match db::create(ctx, COLLECTION, data).await {
+    match db::create(ctx, TABLE, data).await {
         Ok(record) => ok_json(&record),
         Err(e) => err_internal(&format!("Database error: {e}")),
     }
@@ -106,7 +109,7 @@ pub async fn handle_update(ctx: &dyn Context, msg: &Message, input: InputStream)
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
 
-    match db::update(ctx, COLLECTION, &id, body).await {
+    match db::update(ctx, TABLE, &id, body).await {
         Ok(record) => ok_json(&record),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Variable not found"),
         Err(e) => err_internal(&format!("Database error: {e}")),
@@ -121,7 +124,7 @@ pub async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
     if id.is_empty() {
         return err_bad_request("Missing variable ID");
     }
-    match db::delete(ctx, COLLECTION, id).await {
+    match db::delete(ctx, TABLE, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Variable not found"),
         Err(e) => err_internal(&format!("Database error: {e}")),

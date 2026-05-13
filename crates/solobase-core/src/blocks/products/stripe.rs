@@ -7,7 +7,7 @@ use wafer_core::{
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use wafer_sql_utils::{value::sea_values_to_json, Backend};
 
-use super::{PURCHASES_COLLECTION, SUBSCRIPTIONS};
+use super::{LINE_ITEMS_TABLE, PRODUCTS_TABLE, PURCHASES_TABLE, SUBSCRIPTIONS_TABLE};
 use crate::blocks::helpers::{
     err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, hex_encode,
     ok_json,
@@ -32,7 +32,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
     };
 
     // Get purchase and verify ownership
-    let purchase = match db::get(ctx, PURCHASES_COLLECTION, &body.purchase_id).await {
+    let purchase = match db::get(ctx, PURCHASES_TABLE, &body.purchase_id).await {
         Ok(p) => p,
         Err(_) => return err_not_found("Purchase not found"),
     };
@@ -59,7 +59,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
         ctx,
         &format!(
             "SELECT product_id FROM {} WHERE purchase_id = ?1 LIMIT 1",
-            super::LINE_ITEMS_COLLECTION
+            LINE_ITEMS_TABLE
         ),
         &[serde_json::Value::String(body.purchase_id.clone())],
     )
@@ -75,7 +75,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
             if product_id.is_empty() {
                 continue;
             }
-            if let Ok(product) = db::get(ctx, super::PRODUCTS_COLLECTION, product_id).await {
+            if let Ok(product) = db::get(ctx, PRODUCTS_TABLE, product_id).await {
                 let requires = product
                     .data
                     .get("requires")
@@ -95,7 +95,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
 
     // Atomic status transition: pending -> checkout_started (prevents double-checkout race)
     let (sql, vals) = wafer_sql_utils::query::build_update_where(
-        PURCHASES_COLLECTION,
+        PURCHASES_TABLE,
         &[
             ("status".to_string(), serde_json::json!("checkout_started")),
             (
@@ -191,7 +191,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
     if resp.status_code >= 400 {
         // Revert status back to pending so user can retry
         let (revert_sql, revert_vals) = wafer_sql_utils::query::build_update_where(
-            PURCHASES_COLLECTION,
+            PURCHASES_TABLE,
             &[
                 ("status".to_string(), serde_json::json!("pending")),
                 (
@@ -244,7 +244,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
         "updated_at".to_string(),
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
-    if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &body.purchase_id, upd).await {
+    if let Err(e) = db::update(ctx, PURCHASES_TABLE, &body.purchase_id, upd).await {
         tracing::warn!("Failed to update purchase with Stripe session ID: {e}");
     }
 
@@ -304,7 +304,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                 // Atomic: only complete if still in checkout_started (or pending for backwards compat)
                 let now = chrono::Utc::now().to_rfc3339();
                 let (sql, vals) = wafer_sql_utils::query::build_update_where(
-                    PURCHASES_COLLECTION,
+                    PURCHASES_TABLE,
                     &[
                         ("status".to_string(), serde_json::json!("completed")),
                         (
@@ -361,7 +361,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                 let sub_id = format!("sub_{}_{}", user_id, chrono::Utc::now().timestamp_millis());
 
                 let (sql, vals) = wafer_sql_utils::upsert::build_upsert(
-                    SUBSCRIPTIONS,
+                    SUBSCRIPTIONS_TABLE,
                     &[
                         ("id".to_string(), serde_json::json!(sub_id)),
                         ("user_id".to_string(), serde_json::json!(user_id)),
@@ -428,7 +428,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                     data.push(("plan".to_string(), serde_json::json!(plan)));
                 }
                 let (sql, vals) = wafer_sql_utils::query::build_update_where(
-                    SUBSCRIPTIONS,
+                    SUBSCRIPTIONS_TABLE,
                     &data,
                     &sub_filter,
                     Backend::Sqlite,
@@ -470,7 +470,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                 let now = chrono::Utc::now().to_rfc3339();
                 let grace_end = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
                 let (sql, vals) = wafer_sql_utils::query::build_update_where(
-                    SUBSCRIPTIONS,
+                    SUBSCRIPTIONS_TABLE,
                     &[
                         ("status".to_string(), serde_json::json!("past_due")),
                         (
@@ -499,7 +499,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
 
             // Cancel subscription and reset all addon columns to 0
             let (sql, vals) = wafer_sql_utils::query::build_update_where(
-                SUBSCRIPTIONS,
+                SUBSCRIPTIONS_TABLE,
                 &[
                     ("status".to_string(), serde_json::json!("cancelled")),
                     ("addon_projects".to_string(), serde_json::json!(0)),
@@ -540,7 +540,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
             if !payment_intent.is_empty() {
                 if let Ok(purchase) = db::get_by_field(
                     ctx,
-                    PURCHASES_COLLECTION,
+                    PURCHASES_TABLE,
                     "provider_payment_intent_id",
                     serde_json::Value::String(payment_intent),
                 )
@@ -559,7 +559,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                         "updated_at".to_string(),
                         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
                     );
-                    if let Err(e) = db::update(ctx, PURCHASES_COLLECTION, &purchase.id, data).await
+                    if let Err(e) = db::update(ctx, PURCHASES_TABLE, &purchase.id, data).await
                     {
                         tracing::error!("Failed to mark purchase as refunded: {e}");
                         return err_internal(&format!("Failed to update purchase: {e}"));
@@ -587,7 +587,7 @@ async fn get_user_for_stripe_sub(ctx: &dyn Context, stripe_sub_id: &str) -> Opti
         ..Default::default()
     };
     let (sql, vals) = wafer_sql_utils::query::build_select_columns(
-        SUBSCRIPTIONS,
+        SUBSCRIPTIONS_TABLE,
         &["user_id"],
         &opts,
         None,
@@ -704,7 +704,7 @@ async fn user_owns_product(ctx: &dyn Context, user_id: &str, product_id: &str) -
         ctx,
         &format!(
             "SELECT 1 FROM {} WHERE user_id = ?1 AND status = 'active' AND plan = ?2 LIMIT 1",
-            SUBSCRIPTIONS
+            SUBSCRIPTIONS_TABLE
         ),
         &[
             serde_json::Value::String(user_id.to_string()),
@@ -723,8 +723,8 @@ async fn user_owns_product(ctx: &dyn Context, user_id: &str, product_id: &str) -
         &format!(
             "SELECT 1 FROM {} p JOIN {} li ON li.purchase_id = p.id \
              WHERE p.user_id = ?1 AND p.status = 'completed' AND li.product_id = ?2 LIMIT 1",
-            super::PURCHASES_COLLECTION,
-            super::LINE_ITEMS_COLLECTION,
+            PURCHASES_TABLE,
+            LINE_ITEMS_TABLE,
         ),
         &[
             serde_json::Value::String(user_id.to_string()),
@@ -781,7 +781,7 @@ async fn sync_addon_totals_from_items(ctx: &dyn Context, user_id: &str, items: &
 
     let now = chrono::Utc::now().to_rfc3339();
     let sql = format!(
-        "UPDATE {SUBSCRIPTIONS} SET \
+        "UPDATE {SUBSCRIPTIONS_TABLE} SET \
            addon_projects = ?1, addon_requests = ?2, \
            addon_r2_bytes = ?3, addon_d1_bytes = ?4, \
            updated_at = ?5 \
