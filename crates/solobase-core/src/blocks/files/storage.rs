@@ -381,22 +381,14 @@ async fn handle_upload_object(
                 "status".to_string(),
                 serde_json::Value::String("complete".to_string()),
             );
-            if let Err(e) = db::update(
-                ctx,
-                OBJECTS_TABLE,
-                &pending_record.id,
-                update_data,
-            )
-            .await
-            {
+            if let Err(e) = db::update(ctx, OBJECTS_TABLE, &pending_record.id, update_data).await {
                 tracing::warn!("Failed to mark upload as complete: {e}");
             }
             ok_json(&serde_json::json!({"bucket": bucket, "key": key, "uploaded": true}))
         }
         Err(e) => {
             // Upload failed — delete the pending record so it doesn't block quota.
-            if let Err(del_err) = db::delete(ctx, OBJECTS_TABLE, &pending_record.id).await
-            {
+            if let Err(del_err) = db::delete(ctx, OBJECTS_TABLE, &pending_record.id).await {
                 tracing::warn!("Failed to clean up pending record: {del_err}");
             }
             err_internal(&format!("Upload failed: {e}"))

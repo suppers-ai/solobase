@@ -6,7 +6,7 @@ use super::{admin_page, crumb};
 use crate::{
     blocks::{
         admin::{ROLES_COLLECTION, USER_ROLES_COLLECTION},
-        auth::{API_KEYS_COLLECTION as API_KEYS, USERS_COLLECTION as USERS},
+        auth::{API_KEYS_TABLE as API_KEYS, USERS_TABLE as USERS},
         helpers::{
             self, err_bad_request, err_forbidden, err_internal, parse_form_body, RecordExt,
             ResponseBuilder,

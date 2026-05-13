@@ -12,7 +12,7 @@ use crate::blocks::{
             build_auth_cookie, ensure_admin_role, generate_tokens, store_refresh_token, urlencode,
         },
         repo::{provider_links, users},
-        USERS_COLLECTION,
+        USERS_TABLE,
     },
     helpers::{err_bad_request, err_forbidden, err_internal, json_map, ResponseBuilder},
 };
@@ -383,7 +383,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let upd = json_map(serde_json::json!({
         "last_login_at": crate::blocks::helpers::now_rfc3339()
     }));
-    if let Err(e) = db::update(ctx, USERS_COLLECTION, &user_id, upd).await {
+    if let Err(e) = db::update(ctx, USERS_TABLE, &user_id, upd).await {
         tracing::warn!("Failed to update last_login_at: {e}");
     }
 

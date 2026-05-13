@@ -306,7 +306,7 @@ async fn handle_update_profile(
     data.insert("name".to_string(), serde_json::json!(name));
     stamp_updated(&mut data);
 
-    if let Err(e) = db::update(ctx, crate::blocks::auth::USERS_COLLECTION, &user_id, data).await {
+    if let Err(e) = db::update(ctx, crate::blocks::auth::USERS_TABLE, &user_id, data).await {
         return err_internal(&format!("Failed to update profile: {}", e.message));
     }
 

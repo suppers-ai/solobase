@@ -8,7 +8,7 @@ use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::USER_ROLES_COLLECTION;
 use crate::blocks::{
-    auth::USERS_COLLECTION as COLLECTION,
+    auth::USERS_TABLE as COLLECTION,
     helpers::{self, err_bad_request, err_internal, err_not_found, ok_json, RecordExt},
 };
 

@@ -4,7 +4,7 @@ use wafer_core::clients::{crypto, database as db};
 use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
 use crate::blocks::{
-    auth::{repo::local_credentials, TOKENS_COLLECTION, USERS_COLLECTION},
+    auth::{repo::local_credentials, TOKENS_TABLE, USERS_TABLE},
     errors::{error_response, ErrorCode},
     helpers::{err_bad_request, err_internal, err_not_found, ok_json},
 };
@@ -40,7 +40,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     }
 
     // Verify user exists
-    match db::get(ctx, USERS_COLLECTION, user_id).await {
+    match db::get(ctx, USERS_TABLE, user_id).await {
         Ok(_) => {}
         Err(_) => return err_not_found("User not found"),
     };
@@ -77,7 +77,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
             // Revoke all refresh tokens — force re-login with new password
             db::delete_by_field(
                 ctx,
-                TOKENS_COLLECTION,
+                TOKENS_TABLE,
                 "user_id",
                 serde_json::Value::String(user_id.to_string()),
             )

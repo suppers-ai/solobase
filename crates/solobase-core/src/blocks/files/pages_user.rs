@@ -1222,9 +1222,7 @@ mod integration_tests {
 
     use super::*;
     use crate::{
-        blocks::files::{
-            BUCKETS_TABLE, OBJECTS_TABLE, QUOTAS_TABLE, SHARES_TABLE,
-        },
+        blocks::files::{BUCKETS_TABLE, OBJECTS_TABLE, QUOTAS_TABLE, SHARES_TABLE},
         test_support::{admin_msg, output_html, TestContext},
     };
 
@@ -1431,9 +1429,7 @@ mod integration_tests {
         let mut row: HashMap<String, serde_json::Value> = HashMap::new();
         row.insert("name".into(), json!("secrets"));
         row.insert("created_by".into(), json!("other_user"));
-        db::create(&ctx, BUCKETS_TABLE, row)
-            .await
-            .expect("seed");
+        db::create(&ctx, BUCKETS_TABLE, row).await.expect("seed");
 
         let mut msg = admin_msg("retrieve", "/b/storage/secrets/");
         msg.set_meta("http.header.accept", "text/html");
@@ -1609,9 +1605,7 @@ mod integration_tests {
         let mut bucket: HashMap<String, serde_json::Value> = HashMap::new();
         bucket.insert("name".into(), json!("foo</script>bar"));
         bucket.insert("created_by".into(), json!("admin_1"));
-        db::create(&ctx, BUCKETS_TABLE, bucket)
-            .await
-            .expect("seed");
+        db::create(&ctx, BUCKETS_TABLE, bucket).await.expect("seed");
 
         let msg = admin_msg("retrieve", "/b/storage/foo</script>bar/");
         let body = output_html(object_list_page(&ctx, &msg, "foo</script>bar", "").await).await;

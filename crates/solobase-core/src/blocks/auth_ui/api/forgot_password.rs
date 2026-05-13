@@ -4,7 +4,7 @@ use wafer_core::clients::{crypto, database as db};
 use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
 use crate::blocks::{
-    auth::USERS_COLLECTION,
+    auth::USERS_TABLE,
     helpers::{err_bad_request, err_internal, hex_encode, json_map, ok_json},
 };
 
@@ -24,7 +24,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     let user = match db::get_by_field(
         ctx,
-        USERS_COLLECTION,
+        USERS_TABLE,
         "email",
         serde_json::Value::String(email_lower.clone()),
     )
@@ -47,7 +47,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     }));
     crate::blocks::helpers::stamp_updated(&mut data);
 
-    if let Err(e) = db::update(ctx, USERS_COLLECTION, &user.id, data).await {
+    if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, data).await {
         return err_internal(&format!("Failed to store reset token: {e}"));
     }
 

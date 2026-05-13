@@ -191,19 +191,15 @@ async fn load_admin_stats(ctx: &dyn Context) -> AdminStats {
             0
         });
 
-    let shares = db::count(ctx, SHARES_TABLE, &[])
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e.message, "admin overview: shares count failed");
-            0
-        });
+    let shares = db::count(ctx, SHARES_TABLE, &[]).await.unwrap_or_else(|e| {
+        tracing::warn!(error = %e.message, "admin overview: shares count failed");
+        0
+    });
 
-    let quotas_count = db::count(ctx, QUOTAS_TABLE, &[])
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e.message, "admin overview: quotas count failed");
-            0
-        });
+    let quotas_count = db::count(ctx, QUOTAS_TABLE, &[]).await.unwrap_or_else(|e| {
+        tracing::warn!(error = %e.message, "admin overview: quotas count failed");
+        0
+    });
 
     let total_size_bytes = db::sum(ctx, OBJECTS_TABLE, "size", &complete_filter)
         .await

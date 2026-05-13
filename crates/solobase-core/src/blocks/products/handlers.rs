@@ -317,14 +317,7 @@ async fn handle_update_group(ctx: &dyn Context, msg: &Message, input: InputStrea
 }
 
 async fn handle_delete_group(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_delete(
-        ctx,
-        msg,
-        GROUPS_TABLE,
-        "/admin/b/products/groups/",
-        "Group",
-    )
-    .await
+    crud::crud_delete(ctx, msg, GROUPS_TABLE, "/admin/b/products/groups/", "Group").await
 }
 
 // --- Types ---
@@ -338,14 +331,7 @@ async fn handle_create_type(ctx: &dyn Context, msg: &Message, input: InputStream
 }
 
 async fn handle_delete_type(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    crud::crud_delete(
-        ctx,
-        msg,
-        TYPES_TABLE,
-        "/admin/b/products/types/",
-        "Type",
-    )
-    .await
+    crud::crud_delete(ctx, msg, TYPES_TABLE, "/admin/b/products/types/", "Type").await
 }
 
 // --- Pricing Templates ---

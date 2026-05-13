@@ -6,7 +6,7 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
 use crate::blocks::{
-    auth::{helpers::get_user_roles, USERS_COLLECTION},
+    auth::{helpers::get_user_roles, USERS_TABLE},
     errors::{error_response, ErrorCode},
     helpers::{err_bad_request, err_internal, err_not_found, ok_json, RecordExt},
 };
@@ -16,7 +16,7 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     if user_id.is_empty() {
         return error_response(ErrorCode::NotAuthenticated, "Not authenticated");
     }
-    let user = match db::get(ctx, USERS_COLLECTION, user_id).await {
+    let user = match db::get(ctx, USERS_TABLE, user_id).await {
         Ok(u) => u,
         Err(_) => return err_not_found("User not found"),
     };
@@ -54,7 +54,7 @@ pub async fn handle_update(ctx: &dyn Context, msg: &Message, input: InputStream)
     }
     crate::blocks::helpers::stamp_updated(&mut data);
 
-    match db::update(ctx, USERS_COLLECTION, user_id, data).await {
+    match db::update(ctx, USERS_TABLE, user_id, data).await {
         Ok(user) => {
             let roles = get_user_roles(ctx, user_id).await;
             ok_json(&serde_json::json!({

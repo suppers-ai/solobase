@@ -68,7 +68,7 @@ impl Block for AdminBlock {
                     .field_default("resource", "string", "")
                     .field_default("actions", "json", "[]"),
                 CollectionSchema::new(USER_ROLES_COLLECTION)
-                    .field_ref("user_id", "string", &format!("{}.id", crate::blocks::auth::USERS_COLLECTION))
+                    .field_ref("user_id", "string", &format!("{}.id", crate::blocks::auth::USERS_TABLE))
                     .field("role", "string")
                     .field_optional("assigned_at", "datetime")
                     .field_default("assigned_by", "string", "")

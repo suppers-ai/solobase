@@ -8,7 +8,7 @@ use crate::blocks::{
         helpers::{build_auth_cookie, generate_tokens, store_refresh_token},
         repo::{local_credentials, sessions, users},
         service::hash_token,
-        USERS_COLLECTION,
+        USERS_TABLE,
     },
     errors::{error_response, ErrorCode},
     helpers::{err_bad_request, err_internal, hex_encode, json_map, ResponseBuilder},
@@ -89,7 +89,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Check if user exists
     if db::get_by_field(
         ctx,
-        USERS_COLLECTION,
+        USERS_TABLE,
         "email",
         serde_json::Value::String(email_lower.clone()),
     )
@@ -154,7 +154,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         return err_internal(&format!("Failed to store credentials: {e}"));
     }
 
-    // Set email_verified and verification_token on the legacy USERS_COLLECTION row
+    // Set email_verified and verification_token on the legacy USERS_TABLE row
     // (Plan A2 users table stores email_verified too — keep them in sync).
     {
         let mut upd = json_map(serde_json::json!({
@@ -162,7 +162,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
             "verification_token": verification_token.clone(),
         }));
         crate::blocks::helpers::stamp_updated(&mut upd);
-        if let Err(e) = db::update(ctx, USERS_COLLECTION, &user.id, upd).await {
+        if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, upd).await {
             tracing::warn!("Failed to set email_verified on signup: {e}");
         }
     }

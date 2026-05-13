@@ -559,8 +559,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                         "updated_at".to_string(),
                         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
                     );
-                    if let Err(e) = db::update(ctx, PURCHASES_TABLE, &purchase.id, data).await
-                    {
+                    if let Err(e) = db::update(ctx, PURCHASES_TABLE, &purchase.id, data).await {
                         tracing::error!("Failed to mark purchase as refunded: {e}");
                         return err_internal(&format!("Failed to update purchase: {e}"));
                     }
@@ -723,8 +722,7 @@ async fn user_owns_product(ctx: &dyn Context, user_id: &str, product_id: &str) -
         &format!(
             "SELECT 1 FROM {} p JOIN {} li ON li.purchase_id = p.id \
              WHERE p.user_id = ?1 AND p.status = 'completed' AND li.product_id = ?2 LIMIT 1",
-            PURCHASES_TABLE,
-            LINE_ITEMS_TABLE,
+            PURCHASES_TABLE, LINE_ITEMS_TABLE,
         ),
         &[
             serde_json::Value::String(user_id.to_string()),

@@ -5,13 +5,16 @@
 //! by migration 001. Errors collapse into the [`RepoError`] enum so higher
 //! layers don't have to reason about the underlying `db` client's error type.
 
+pub mod api_keys;
 pub mod bootstrap_tokens;
 pub mod cli_codes;
 pub mod local_credentials;
 pub mod orgs;
 pub mod pats;
 pub mod provider_links;
+pub mod rate_limits;
 pub mod sessions;
+pub mod tokens;
 pub mod users;
 
 /// Errors surfaced by the auth repo layer.

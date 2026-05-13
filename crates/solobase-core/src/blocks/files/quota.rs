@@ -53,9 +53,7 @@ pub async fn get_user_usage(ctx: &dyn Context, user_id: &str) -> serde_json::Val
     let total_bytes = db::sum(ctx, OBJECTS_TABLE, "size", &filters)
         .await
         .unwrap_or(0.0) as i64;
-    let file_count = db::count(ctx, OBJECTS_TABLE, &filters)
-        .await
-        .unwrap_or(0);
+    let file_count = db::count(ctx, OBJECTS_TABLE, &filters).await.unwrap_or(0);
 
     serde_json::json!({
         "total_bytes": total_bytes,

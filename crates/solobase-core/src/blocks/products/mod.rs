@@ -9,6 +9,13 @@ mod variables;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use handlers::{
+    GROUPS_TABLE, GROUP_TEMPLATES_TABLE, PRODUCTS_TABLE, PRODUCT_TEMPLATES_TABLE,
+    SUBSCRIPTIONS_TABLE, TYPES_TABLE,
+};
+pub(crate) use pricing::TABLE as PRICING_TABLE;
+pub(crate) use purchase::{LINE_ITEMS_TABLE, PURCHASES_TABLE};
+pub(crate) use variables::TABLE as VARIABLES_TABLE;
 use wafer_run::{
     block::{Block, BlockInfo},
     context::Context,
@@ -18,14 +25,6 @@ use wafer_run::{
 
 use super::rate_limit::{check_user_rate_limit, RateLimitOutcome, UserRateLimiter};
 use crate::blocks::helpers::{self, err_not_found};
-
-pub(crate) use handlers::{
-    GROUPS_TABLE, GROUP_TEMPLATES_TABLE, PRODUCTS_TABLE, PRODUCT_TEMPLATES_TABLE,
-    SUBSCRIPTIONS_TABLE, TYPES_TABLE,
-};
-pub(crate) use pricing::TABLE as PRICING_TABLE;
-pub(crate) use purchase::{LINE_ITEMS_TABLE, PURCHASES_TABLE};
-pub(crate) use variables::TABLE as VARIABLES_TABLE;
 
 pub struct ProductsBlock {
     limiter: UserRateLimiter,
@@ -96,7 +95,7 @@ impl Block for ProductsBlock {
                     .field_default("price_formula", "string", "")
                     .field_default("template_data", "json", "{}"),
                 CollectionSchema::new(PURCHASES_TABLE)
-                    .field_ref("user_id", "string", &format!("{}.id", crate::blocks::auth::USERS_COLLECTION))
+                    .field_ref("user_id", "string", &format!("{}.id", crate::blocks::auth::USERS_TABLE))
                     .field_default("status", "string", "pending")
                     .field_default("total_cents", "int", "0")
                     .field_default("amount_cents", "int", "0")
