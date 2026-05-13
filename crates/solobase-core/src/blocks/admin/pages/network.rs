@@ -5,7 +5,7 @@ use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
 
 use crate::{
     blocks::admin::{
-        NETWORK_RULES_COLLECTION as NETWORK_RULES, REQUEST_LOGS_COLLECTION as REQUEST_LOGS,
+        NETWORK_RULES_TABLE as NETWORK_RULES, REQUEST_LOGS_TABLE as REQUEST_LOGS,
     },
     ui::{components, icons},
 };

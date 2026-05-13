@@ -6,8 +6,8 @@ use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
 use super::{admin_page, crumb};
 use crate::{
     blocks::admin::{
-        STORAGE_ACCESS_LOGS_COLLECTION as STORAGE_ACCESS_LOGS,
-        STORAGE_RULES_COLLECTION as STORAGE_RULES,
+        STORAGE_ACCESS_LOGS_TABLE as STORAGE_ACCESS_LOGS,
+        STORAGE_RULES_TABLE as STORAGE_RULES,
     },
     ui::{
         components, icons,

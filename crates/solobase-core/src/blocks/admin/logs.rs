@@ -4,8 +4,16 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, types::*, OutputStream};
 
-use super::{AUDIT_LOGS_COLLECTION as COLLECTION, REQUEST_LOGS_COLLECTION};
 use crate::blocks::helpers::{err_internal, err_not_found, ok_json};
+
+/// Audit log entries (admin-initiated mutations).
+pub(crate) const AUDIT_LOGS_TABLE: &str = "suppers_ai__admin__audit_logs";
+
+/// HTTP request log entries (one row per inbound request).
+pub(crate) const REQUEST_LOGS_TABLE: &str = "suppers_ai__admin__request_logs";
+
+/// Storage access log entries (one row per object read/write).
+pub(crate) const STORAGE_ACCESS_LOGS_TABLE: &str = "suppers_ai__admin__storage_access_logs";
 
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let action = msg.action();
@@ -54,7 +62,7 @@ async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match db::paginated_list(
         ctx,
-        COLLECTION,
+        AUDIT_LOGS_TABLE,
         page as i64,
         page_size as i64,
         filters,
@@ -95,7 +103,7 @@ async fn handle_system_logs(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match db::paginated_list(
         ctx,
-        REQUEST_LOGS_COLLECTION,
+        REQUEST_LOGS_TABLE,
         page as i64,
         page_size as i64,
         filters,
@@ -128,7 +136,7 @@ pub async fn audit_log(
     data.insert("ip_address".to_string(), serde_json::json!(ip_address));
     crate::blocks::helpers::stamp_created(&mut data);
 
-    if let Err(e) = db::create(ctx, COLLECTION, data).await {
+    if let Err(e) = db::create(ctx, AUDIT_LOGS_TABLE, data).await {
         tracing::warn!(action, resource, "audit_log write failed: {}", e.message);
     }
 }

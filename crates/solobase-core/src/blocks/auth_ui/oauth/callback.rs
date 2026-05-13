@@ -339,14 +339,14 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 };
                 match users::insert(ctx, new_user).await {
                     Ok(u) => {
-                        // Assign role row in USER_ROLES_COLLECTION for legacy readers.
+                        // Assign role row in USER_ROLES_TABLE for legacy readers.
                         let role_data = json_map(serde_json::json!({
                             "user_id": u.id,
                             "role": role,
                             "assigned_at": crate::blocks::helpers::now_rfc3339()
                         }));
                         if let Err(e) =
-                            db::create(ctx, crate::blocks::admin::USER_ROLES_COLLECTION, role_data)
+                            db::create(ctx, crate::blocks::admin::USER_ROLES_TABLE, role_data)
                                 .await
                         {
                             tracing::warn!("Failed to assign default role on OAuth signup: {e}");

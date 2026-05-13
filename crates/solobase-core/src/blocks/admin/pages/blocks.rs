@@ -5,7 +5,7 @@ use wafer_sql_utils::{query, upsert, value::sea_values_to_json, Backend};
 
 use super::{admin_page, crumb};
 use crate::{
-    blocks::admin::BLOCK_SETTINGS_COLLECTION as BLOCK_SETTINGS,
+    blocks::admin::BLOCK_SETTINGS_TABLE as BLOCK_SETTINGS,
     ui::{
         self,
         components::empty_state,

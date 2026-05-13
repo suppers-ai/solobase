@@ -6,7 +6,7 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::USER_ROLES_COLLECTION;
+use super::USER_ROLES_TABLE;
 use crate::blocks::{
     auth::USERS_TABLE as COLLECTION,
     helpers::{self, err_bad_request, err_internal, err_not_found, ok_json, RecordExt},
@@ -68,7 +68,7 @@ async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     value: serde_json::Value::String(record.id.clone()),
                 }];
                 let roles: Vec<String> =
-                    match db::list_all(ctx, USER_ROLES_COLLECTION, role_filters).await {
+                    match db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
                         Ok(records) => records
                             .iter()
                             .map(|rec| rec.str_field("role").to_string())
@@ -111,7 +111,7 @@ async fn get_user(ctx: &dyn Context, id: &str) -> OutputStream {
                 value: serde_json::Value::String(id.to_string()),
             }];
             let roles: Vec<String> =
-                match db::list_all(ctx, USER_ROLES_COLLECTION, role_filters).await {
+                match db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
                     Ok(records) => records
                         .iter()
                         .map(|rec| rec.str_field("role").to_string())

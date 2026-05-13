@@ -13,7 +13,8 @@
 //! - Module decls for the supporting layers (`bootstrap`, `cache`, `config`,
 //!   `migrations`, `pat`, `providers`, `repo`, `service`, `session`).
 //! - Constants other blocks still reference (`AUTH_BLOCK_ID`, `JWT_SECRET_KEY`,
-//!   the four legacy `*_COLLECTION` table-name aliases, `DUMMY_HASH`).
+//!   the four `*_TABLE` re-exports from `repo/{api_keys,rate_limits,tokens,
+//!   users}.rs`, `DUMMY_HASH`).
 //! - `helpers` — token/cookie/role utilities consumed by `auth_ui::api::*`.
 //! - `brand_panel` — shared UI panel consumed by `auth_ui::pages::*`.
 //! - `authenticate_api_key` — called by `crate::pipeline` to populate auth
@@ -63,7 +64,7 @@ pub(crate) use repo::rate_limits::TABLE as RATE_LIMITS_TABLE;
 /// Pre-computed Argon2id hash used for timing equalization when user is not found.
 pub(crate) const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
-use crate::blocks::admin::USER_ROLES_COLLECTION;
+use crate::blocks::admin::USER_ROLES_TABLE;
 
 // --- Shared helpers used by auth_ui::api::* and auth_ui::oauth::* ---
 
@@ -75,7 +76,7 @@ pub(crate) mod helpers {
         user_id: &str,
     ) -> Vec<String> {
         // Plan A2 stores role inline on `users.role`; legacy
-        // USER_ROLES_COLLECTION carries multi-role-per-user history. Merge
+        // USER_ROLES_TABLE carries multi-role-per-user history. Merge
         // both: the inline role is the bootstrap path, the table is the
         // legacy path. Dedup since both can produce "admin" for the
         // bootstrapped admin.
@@ -92,7 +93,7 @@ pub(crate) mod helpers {
             operator: FilterOp::Equal,
             value: serde_json::Value::String(user_id.to_string()),
         }];
-        if let Ok(records) = db::list_all(ctx, USER_ROLES_COLLECTION, filters).await {
+        if let Ok(records) = db::list_all(ctx, USER_ROLES_TABLE, filters).await {
             for rec in &records {
                 if let Some(role) = rec.data.get("role").and_then(|v| v.as_str()) {
                     if !roles.iter().any(|r| r == role) {
@@ -141,7 +142,7 @@ pub(crate) mod helpers {
             "role": "admin",
             "assigned_at": crate::blocks::helpers::now_rfc3339(),
         }));
-        match db::create(ctx, USER_ROLES_COLLECTION, role_data).await {
+        match db::create(ctx, USER_ROLES_TABLE, role_data).await {
             Ok(_) => {
                 tracing::info!(
                     user_id = %user_id,

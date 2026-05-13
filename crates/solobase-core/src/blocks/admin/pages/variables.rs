@@ -4,7 +4,7 @@ use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::{
     blocks::{
-        admin::VARIABLES_COLLECTION as VARIABLES,
+        admin::VARIABLES_TABLE as VARIABLES,
         helpers::{self, err_bad_request, err_internal, err_not_found, parse_form_body, RecordExt},
     },
     ui::{self, components, icons},
