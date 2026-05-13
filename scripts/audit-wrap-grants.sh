@@ -69,6 +69,8 @@ declare -A FILE_USE_ALIAS       # "${file}::${alias}" -> source_name (from `use 
 declare -A FILE_USE_BLOCK       # "${file}::${alias}" -> block_name (path of the `use` statement, when known)
 declare -A SIBLING_CONST        # "${dir}::${name}" -> value (for `super::NAME` lookups)
 declare -A BLOCK_CONST          # "${block_name}::${name}" -> value (disambiguates colliding bare names across blocks)
+declare -A MODULE_REEXPORT      # "${block_name}::${alias}" -> value (from `pub use ... as alias` in any file of the block)
+declare -A FILE_USE_VALUE       # "${file}::${alias}" -> directly-resolved value (when Phase 1.6 could resolve the `use` target deterministically; skips the ambiguous bare-name fallback for cases like `use repo::users::TABLE as USERS_TABLE` where multiple files declare `pub const TABLE`)
 
 # Strip the absolute prefix from a file path to get the block directory name.
 # e.g. crates/solobase-core/src/blocks/admin/mod.rs   -> admin
@@ -204,6 +206,266 @@ while IFS= read -r file; do
   done < <(grep -oE "[A-Z_]{4,}[[:space:]]+as[[:space:]]+[A-Z_]{2,}" "$file" 2>/dev/null || true)
 done < <(find "$BLOCKS_DIR" -name '*.rs' 2>/dev/null)
 
+# ---------- Phase 1.6: re-exports + multi-line brace imports ----------
+# After Cleanup A (May 2026) every `auth/repo/*.rs` declares `pub const TABLE`.
+# Mod files re-export those under unique aliases:
+#   pub(crate) use repo::users::TABLE as USERS_TABLE;
+# Consumers then refer to the alias either fully-qualified
+# (`crate::blocks::auth::USERS_TABLE`) or via brace import
+# (`use crate::blocks::auth::{TOKENS_TABLE, USERS_TABLE}`).
+#
+# Phase 1.5 above is line-based: it misses multi-line braces and the
+# non-aliased brace items (`{TOKENS_TABLE, USERS_TABLE}` has no `as`).
+# Phase 1.6 fills both gaps by reading entire `use ...;` statements
+# (multi-line aware) and resolving paths to their target files.
+
+# Print every `use ...;` statement in $file as a single line, with internal
+# whitespace collapsed. Handles multi-line brace forms.
+read_use_statements() {
+  awk '
+    /^[[:space:]]*(pub(\([^)]+\))?[[:space:]]+)?use[[:space:]]/ {
+      buf = $0
+      while (buf !~ /;/) {
+        if ((getline next_line) <= 0) break
+        buf = buf " " next_line
+      }
+      gsub(/[[:space:]]+/, " ", buf)
+      sub(/^ /, "", buf)
+      print buf
+    }
+  ' "$1"
+}
+
+# Walk a Rust module path (e.g. "repo::users", "super::auth::repo::users",
+# "crate::blocks::auth::repo::users") from $start_file's module location to
+# the target .rs file. Returns empty string if the file doesn't exist.
+resolve_module_path() {
+  local start_file="$1"
+  local path="$2"
+  local start_dir
+  start_dir="$(dirname "$start_file")"
+
+  if [[ "$path" == crate::blocks::* ]]; then
+    path="${path#crate::blocks::}"
+    start_dir="$BLOCKS_DIR"
+  elif [[ "$path" == crate::* ]]; then
+    # crate:: outside blocks/ is uncommon for the names we care about; bail.
+    echo ""; return
+  fi
+  while [[ "$path" == super::* ]]; do
+    start_dir="$(dirname "$start_dir")"
+    path="${path#super::}"
+  done
+  if [[ "$path" == self::* ]]; then
+    path="${path#self::}"
+  fi
+  # Strip the trailing `::` segment if any const-only path snuck through.
+  path="${path%::}"
+  local fs_path="${path//::/\/}"
+
+  if [ -z "$fs_path" ]; then
+    [ -f "$start_dir/mod.rs" ] && { echo "$start_dir/mod.rs"; return; }
+    echo ""; return
+  fi
+  [ -f "$start_dir/$fs_path.rs" ] && { echo "$start_dir/$fs_path.rs"; return; }
+  [ -f "$start_dir/$fs_path/mod.rs" ] && { echo "$start_dir/$fs_path/mod.rs"; return; }
+  echo ""
+}
+
+# Look up the value of $const_name in $target_file: prefer the file's own
+# definition, then chase one level of re-export through MODULE_REEXPORT.
+# Returns empty if neither has it.
+lookup_const_in_file() {
+  local target_file="$1" const_name="$2"
+  local v="${FILE_CONST_VALUE[${target_file}::${const_name}]:-}"
+  if [ -n "$v" ]; then echo "$v"; return; fi
+  local target_block
+  target_block="$(file_to_block_name "$target_file")"
+  echo "${MODULE_REEXPORT[${target_block}::${const_name}]:-}"
+}
+
+# Parse a `use` statement body (everything between `use ` and `;`) into
+# leaf entries. Each entry is printed on its own line in the form:
+#   <source_path>|<alias>
+# where source_path is the full module path (possibly empty for bare names)
+# and alias is the local name the entry binds.
+#
+# Handles arbitrarily nested brace forms by recursing on `{...}` groups and
+# concatenating the path prefix collected so far with each leaf:
+#   use crate::{ blocks::{ auth::{X, Y as Z} } };
+#     → crate::blocks::auth::X|X
+#       crate::blocks::auth::Y|Z
+explode_use_body() {
+  local body="$1"
+  body="${body# }"; body="${body% }"
+  _explode_use_recur "" "$body"
+}
+
+_explode_use_recur() {
+  local prefix="$1" content="$2"
+  local n=${#content}
+  local depth=0 i=0 ch run=""
+  while [ "$i" -lt "$n" ]; do
+    ch="${content:$i:1}"
+    if [ "$ch" = "{" ]; then
+      # `run` so far is the path before the brace. Find matching `}`.
+      local before="${run# }"; before="${before% }"
+      local combined_prefix
+      if [ -z "$prefix" ]; then
+        combined_prefix="$before"
+      else
+        combined_prefix="${prefix}${before}"
+      fi
+      depth=1
+      local j=$((i + 1))
+      while [ "$j" -lt "$n" ] && [ "$depth" -gt 0 ]; do
+        local c2="${content:$j:1}"
+        if [ "$c2" = "{" ]; then
+          depth=$((depth + 1))
+        elif [ "$c2" = "}" ]; then
+          depth=$((depth - 1))
+        fi
+        [ "$depth" -gt 0 ] && j=$((j + 1))
+      done
+      local inner_len=$((j - i - 1))
+      local inner="${content:$((i + 1)):$inner_len}"
+      _explode_use_recur "$combined_prefix" "$inner"
+      run=""
+      i=$((j + 1))
+      continue
+    fi
+    if [ "$ch" = "," ]; then
+      _emit_use_leaf "$prefix" "$run"
+      run=""
+    else
+      run="${run}${ch}"
+    fi
+    i=$((i + 1))
+  done
+  if [ -n "${run// /}" ]; then
+    _emit_use_leaf "$prefix" "$run"
+  fi
+}
+
+_emit_use_leaf() {
+  local prefix="$1" item="$2"
+  item="${item# }"; item="${item% }"
+  [ -z "$item" ] && return
+  local src alias
+  if [[ "$item" =~ ^(.+)[[:space:]]+as[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)$ ]]; then
+    src="${BASH_REMATCH[1]}"
+    alias="${BASH_REMATCH[2]}"
+    src="${src% }"
+  else
+    src="$item"
+    alias="${item##*::}"
+  fi
+  local full_src
+  if [ -n "$prefix" ]; then
+    full_src="${prefix}${src}"
+  else
+    full_src="$src"
+  fi
+  echo "${full_src}|${alias}"
+}
+
+while IFS= read -r file; do
+  file_block="$(file_to_block_name "$file")"
+  while IFS= read -r stmt; do
+    [ -z "$stmt" ] && continue
+    is_pub=0
+    [[ "$stmt" == pub* ]] && is_pub=1
+    # Strip `pub(...)? use ` prefix and trailing `;`.
+    body="${stmt#*use }"
+    body="${body%;*}"
+    while IFS= read -r entry; do
+      [ -z "$entry" ] && continue
+      src_path="${entry%%|*}"
+      alias="${entry#*|}"
+      # Only consider SCREAMING_SNAKE_CASE aliases — those are our table consts.
+      [[ "$alias" =~ ^[A-Z][A-Z0-9_]*$ ]] || continue
+      # Source path must end in the actual const name.
+      src_const="${src_path##*::}"
+      [[ "$src_const" =~ ^[A-Z][A-Z0-9_]*$ ]] || continue
+      module_part="${src_path%::*}"
+      [ "$module_part" = "$src_path" ] && module_part=""
+
+      # Resolve the source path to a target file.
+      target_file=""
+      if [ -n "$module_part" ]; then
+        target_file="$(resolve_module_path "$file" "$module_part")"
+      fi
+
+      # 1) Populate FILE_USE_ALIAS / FILE_USE_BLOCK so resolve_token can
+      #    chase qualified imports like `use crate::blocks::auth::{TOKENS_TABLE, USERS_TABLE}`.
+      if [ -z "${FILE_USE_ALIAS[${file}::${alias}]:-}" ] && [ -n "$src_const" ]; then
+        FILE_USE_ALIAS["${file}::${alias}"]="$src_const"
+        if [ -n "$target_file" ]; then
+          src_block="$(file_to_block_name "$target_file")"
+          FILE_USE_BLOCK["${file}::${alias}"]="$src_block"
+        fi
+      fi
+
+      # 2) If we can resolve src_path to a specific file's const right now,
+      #    cache the value directly. This bypasses the ambiguous bare-name
+      #    BLOCK_CONST fallback for cases like `pub use repo::users::TABLE as USERS_TABLE`
+      #    where 10+ files declare `pub const TABLE` and the bare key collides.
+      if [ -n "$target_file" ]; then
+        value="$(lookup_const_in_file "$target_file" "$src_const")"
+        if [ -n "$value" ]; then
+          FILE_USE_VALUE["${file}::${alias}"]="$value"
+        fi
+      fi
+
+      # 3) For `pub use ...` re-exports, populate MODULE_REEXPORT so callers
+      #    referencing `${file_block}::${alias}` can resolve.
+      if [ "$is_pub" -eq 1 ] && [ -n "$target_file" ]; then
+        value="$(lookup_const_in_file "$target_file" "$src_const")"
+        if [ -n "$value" ]; then
+          MODULE_REEXPORT["${file_block}::${alias}"]="$value"
+        fi
+      fi
+    done < <(explode_use_body "$body")
+  done < <(read_use_statements "$file")
+done < <(find "$BLOCKS_DIR" -name '*.rs' 2>/dev/null)
+
+# Second pass through `pub use` statements: chain re-exports. If A's mod.rs
+# re-exports a name from B's mod.rs (which is itself a re-export from B's
+# repo file), the first pass populated B's entry but not A's because B's
+# entry hadn't been computed yet when A was processed. Loop until stable.
+for _ in 1 2 3; do
+  changed=0
+  while IFS= read -r file; do
+    file_block="$(file_to_block_name "$file")"
+    while IFS= read -r stmt; do
+      [ -z "$stmt" ] && continue
+      [[ "$stmt" == pub* ]] || continue
+      body="${stmt#*use }"
+      body="${body%;*}"
+      while IFS= read -r entry; do
+        [ -z "$entry" ] && continue
+        src_path="${entry%%|*}"
+        alias="${entry#*|}"
+        [[ "$alias" =~ ^[A-Z][A-Z0-9_]*$ ]] || continue
+        [ -n "${MODULE_REEXPORT[${file_block}::${alias}]:-}" ] && continue
+        src_const="${src_path##*::}"
+        [[ "$src_const" =~ ^[A-Z][A-Z0-9_]*$ ]] || continue
+        module_part="${src_path%::*}"
+        [ "$module_part" = "$src_path" ] && module_part=""
+        [ -z "$module_part" ] && continue
+        target_file="$(resolve_module_path "$file" "$module_part")"
+        [ -z "$target_file" ] && continue
+        value="$(lookup_const_in_file "$target_file" "$src_const")"
+        if [ -n "$value" ]; then
+          MODULE_REEXPORT["${file_block}::${alias}"]="$value"
+          changed=1
+        fi
+      done < <(explode_use_body "$body")
+    done < <(read_use_statements "$file")
+  done < <(find "$BLOCKS_DIR" -name '*.rs' 2>/dev/null)
+  [ "$changed" -eq 0 ] && break
+done
+
 # ---------- Phase 2: collect grants per-owning-block ----------
 # Pattern:  ResourceGrant::{read,read_write}(GRANTEE, RESOURCE)[.typed(TYPE)]
 # Grants live in a block's `BlockInfo::grants(vec![...])` — we attribute the
@@ -237,12 +499,17 @@ resolve_token() {
   local bare="${tok##*::}"
   # 0a. `crate::blocks::BLOCK::NAME` — full path. Disambiguates colliding
   #     bare names across blocks (e.g. `VARIABLES_COLLECTION` exists in
-  #     both admin and products).
+  #     both admin and products). NAME may be a direct const in BLOCK or a
+  #     `pub use ... as NAME` re-export from BLOCK's mod.rs.
   if [[ "$tok" =~ blocks::([a-z_]+)::([A-Z_]+)$ ]]; then
     local qblock="${BASH_REMATCH[1]}"
     local qname="${BASH_REMATCH[2]}"
     if [ -n "${BLOCK_CONST[${qblock}::${qname}]:-}" ]; then
       echo "${BLOCK_CONST[${qblock}::${qname}]}"
+      return
+    fi
+    if [ -n "${MODULE_REEXPORT[${qblock}::${qname}]:-}" ]; then
+      echo "${MODULE_REEXPORT[${qblock}::${qname}]}"
       return
     fi
   fi
@@ -257,10 +524,22 @@ resolve_token() {
       echo "${BLOCK_CONST[${sblock}::${sname}]}"
       return
     fi
+    if [ -n "${MODULE_REEXPORT[${sblock}::${sname}]:-}" ]; then
+      echo "${MODULE_REEXPORT[${sblock}::${sname}]}"
+      return
+    fi
   fi
   # 1. Per-file definition.
   if [ -n "${FILE_CONST_VALUE[${file}::${bare}]:-}" ]; then
     echo "${FILE_CONST_VALUE[${file}::${bare}]}"
+    return
+  fi
+  # 1.5. Per-file `use` alias with a pre-resolved value. Phase 1.6 caches
+  #      this when it can walk the use path to a specific target file. Wins
+  #      over the bare-name BLOCK_CONST lookup below, which is ambiguous for
+  #      `TABLE` (10+ auth/repo/*.rs all declare `pub const TABLE`).
+  if [ -n "${FILE_USE_VALUE[${file}::${bare}]:-}" ]; then
+    echo "${FILE_USE_VALUE[${file}::${bare}]}"
     return
   fi
   # 2. Per-file `use ... as` alias — if the alias was indexed with a
@@ -272,6 +551,10 @@ resolve_token() {
       local src_block="${FILE_USE_BLOCK[${file}::${bare}]}"
       if [ -n "${BLOCK_CONST[${src_block}::${src}]:-}" ]; then
         echo "${BLOCK_CONST[${src_block}::${src}]}"
+        return
+      fi
+      if [ -n "${MODULE_REEXPORT[${src_block}::${src}]:-}" ]; then
+        echo "${MODULE_REEXPORT[${src_block}::${src}]}"
         return
       fi
     fi
@@ -293,7 +576,17 @@ resolve_token() {
       return
     fi
   fi
-  # 4. Global fallback — only safe if the bare name is unambiguous across
+  # 4. Re-export brought into scope by `use super::{NAME}` (or by a brace
+  #    import from this file's own block's mod.rs). For non-mod files in
+  #    block X, `super::` resolves to X's mod.rs — so consult MODULE_REEXPORT
+  #    keyed on this file's block.
+  local file_block
+  file_block="$(file_to_block_name "$file")"
+  if [ -n "${MODULE_REEXPORT[${file_block}::${bare}]:-}" ]; then
+    echo "${MODULE_REEXPORT[${file_block}::${bare}]}"
+    return
+  fi
+  # 5. Global fallback — only safe if the bare name is unambiguous across
   #    the codebase. Used for grant declarations (top-level scope) where
   #    file-aware lookup isn't a fit.
   if [ -n "${CONST_VALUE[$bare]:-}" ]; then
