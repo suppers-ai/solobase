@@ -833,23 +833,59 @@ async fn handle_subscription(ctx: &dyn Context, msg: &Message) -> OutputStream {
         return err_unauthorized("Not authenticated");
     }
 
-    let rows = db::query_raw(
-        ctx,
-        &format!(
-            "SELECT id, plan, status, stripe_subscription_id, grace_period_end, \
-                COALESCE(addon_projects, 0) as addon_projects, \
-                COALESCE(addon_requests, 0) as addon_requests, \
-                COALESCE(addon_r2_bytes, 0) as addon_r2_bytes, \
-                COALESCE(addon_d1_bytes, 0) as addon_d1_bytes, \
-                created_at, updated_at \
-         FROM {SUBSCRIPTIONS_TABLE} WHERE user_id = ?1"
-        ),
-        &[serde_json::Value::String(user_id)],
-    )
-    .await;
+    use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
+
+    let (sql, vals) = query::build_select_columns(
+        SUBSCRIPTIONS_TABLE,
+        &[
+            "id",
+            "plan",
+            "status",
+            "stripe_subscription_id",
+            "grace_period_end",
+            "addon_projects",
+            "addon_requests",
+            "addon_r2_bytes",
+            "addon_d1_bytes",
+            "created_at",
+            "updated_at",
+        ],
+        &ListOptions {
+            filters: vec![Filter {
+                field: "user_id".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::json!(user_id),
+            }],
+            limit: 1,
+            ..Default::default()
+        },
+        None,
+        Backend::Sqlite,
+    );
+    let rows = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await;
 
     let sub = match rows {
-        Ok(records) if !records.is_empty() => Some(records[0].data.clone()),
+        Ok(records) if !records.is_empty() => {
+            // Coalesce nulls on the addon_* columns to 0 — the previous
+            // hand-written query used `COALESCE(col, 0)`; the typed builder
+            // doesn't express that, so apply the same fallback here.
+            let mut data = records[0].data.clone();
+            for key in [
+                "addon_projects",
+                "addon_requests",
+                "addon_r2_bytes",
+                "addon_d1_bytes",
+            ] {
+                if let Some(v) = data.get(key) {
+                    if v.is_null() {
+                        data.insert(key.to_string(), serde_json::json!(0));
+                    }
+                } else {
+                    data.insert(key.to_string(), serde_json::json!(0));
+                }
+            }
+            Some(data)
+        }
         _ => None,
     };
 
