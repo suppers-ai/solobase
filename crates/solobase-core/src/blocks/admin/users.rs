@@ -101,6 +101,12 @@ async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
 }
 
 async fn get_user(ctx: &dyn Context, id: &str) -> OutputStream {
+    // admin → auth::users is granted by `auth_grants()` (wildcard read on
+    // `suppers_ai__auth__*`). Resolver can't follow
+    // `auth::USERS_TABLE as COLLECTION` through the new `repo::users::TABLE`
+    // re-export so it mis-targets via the ambiguous global `TABLE` map.
+    // Resolver fix is tracked separately.
+    // audit-allow: admin → auth::users covered by auth_grants wildcard; resolver mis-targets re-export
     match db::get(ctx, COLLECTION, id).await {
         Ok(mut record) => {
             record.data.remove("password_hash");

@@ -82,6 +82,12 @@ pub(crate) mod helpers {
         // bootstrapped admin.
         use crate::blocks::helpers::RecordExt;
         let mut roles: Vec<String> = Vec::new();
+        // Intra-block access (auth → auth::users); no grant needed. Resolver
+        // can't follow `repo::users::TABLE as USERS_TABLE` re-exports so it
+        // mis-targets via the ambiguous global `TABLE` map — see
+        // auth/service.rs::auth_grants comment. Resolver fix is tracked
+        // separately.
+        // audit-allow: intra-block auth → auth::users; resolver mis-targets re-export
         if let Ok(rec) = db::get(ctx, USERS_TABLE, user_id).await {
             let inline = rec.str_field("role");
             if !inline.is_empty() {
