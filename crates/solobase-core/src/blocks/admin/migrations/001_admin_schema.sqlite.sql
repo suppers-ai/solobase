@@ -117,9 +117,6 @@ CREATE TABLE IF NOT EXISTS suppers_ai__admin__block_settings (
     updated_at    TEXT NOT NULL
 );
 
--- Idempotent column adds for tables that pre-date this migration.
-ALTER TABLE suppers_ai__admin__block_settings ADD COLUMN IF NOT EXISTS current_hash TEXT NOT NULL DEFAULT '';
-ALTER TABLE suppers_ai__admin__block_settings ADD COLUMN IF NOT EXISTS blessed_hash TEXT NOT NULL DEFAULT '';
 CREATE UNIQUE INDEX IF NOT EXISTS suppers_ai__admin__block_settings_block_name_uniq
     ON suppers_ai__admin__block_settings (block_name);
 
