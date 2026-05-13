@@ -125,6 +125,10 @@ async fn write_state(
         skip_count: true,
     };
 
+    // State persistence is best-effort: the migration itself already applied
+    // (IF NOT EXISTS guards make re-runs idempotent). If block_settings isn't
+    // available yet (e.g., admin block's Init hasn't fired in a fresh
+    // browser-WASM boot), warn + return Ok — next request will retry.
     match db::list(ctx, BLOCK_SETTINGS_TABLE, &opts).await {
         Ok(result) if !result.records.is_empty() => {
             let id = result.records[0].id.clone();
@@ -137,9 +141,9 @@ async fn write_state(
                 "blessed_hash".to_string(),
                 serde_json::json!(state.blessed_hash),
             );
-            db::update(ctx, BLOCK_SETTINGS_TABLE, &id, patch)
-                .await
-                .map_err(|e| format!("write_state update: {e}"))?;
+            if let Err(e) = db::update(ctx, BLOCK_SETTINGS_TABLE, &id, patch).await {
+                tracing::warn!(block = %block_name, err = %e, "migration state update skipped");
+            }
         }
         Ok(_) => {
             let mut data = std::collections::HashMap::new();
@@ -153,11 +157,13 @@ async fn write_state(
                 "blessed_hash".to_string(),
                 serde_json::json!(state.blessed_hash),
             );
-            db::create(ctx, BLOCK_SETTINGS_TABLE, data)
-                .await
-                .map_err(|e| format!("write_state create: {e}"))?;
+            if let Err(e) = db::create(ctx, BLOCK_SETTINGS_TABLE, data).await {
+                tracing::warn!(block = %block_name, err = %e, "migration state create skipped");
+            }
         }
-        Err(e) => return Err(format!("write_state lookup: {e}")),
+        Err(e) => {
+            tracing::warn!(block = %block_name, err = %e, "migration state lookup skipped");
+        }
     }
     Ok(())
 }
