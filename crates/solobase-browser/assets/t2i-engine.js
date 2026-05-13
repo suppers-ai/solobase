@@ -28,7 +28,9 @@
 let _transformers = null;
 async function loadTransformers() {
     if (_transformers) return _transformers;
-    _transformers = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');
+    // Janus-Pro requires MultiModalityCausalLM, which was added in 3.7.x.
+    // Pin to 3.7.1 (the version HF's official janus-pro-webgpu example uses).
+    _transformers = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.1');
     return _transformers;
 }
 
