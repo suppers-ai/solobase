@@ -740,7 +740,32 @@ async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     // Split into chunks. Empty / whitespace-only text produces no chunks;
     // return early rather than inventing an empty entry.
-    let mut chunks = ingestion::chunk(&body.text, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO);
+    //
+    // The chunker counts whitespace-words as a proxy for tokens. To size
+    // chunks against the embedder's real BPE limit (bge-m3 produces ~1.3-1.5
+    // BPE tokens per whitespace word on English prose, more on CJK and heavy
+    // punctuation), ask the embedding block to count tokens on the whole
+    // document up front and ratio-adjust DEFAULT_CHUNK_TOKENS by
+    // bpe / whitespace. One wire call per ingest, not one per chunk
+    // boundary. Falls back to DEFAULT_CHUNK_TOKENS if the embedder's
+    // count_tokens returns 0 or the call errors — chunks may run slightly
+    // over BPE-budget, which is the same approximation in use before this
+    // change.
+    let embedding_block = embedding_block_for_model(&model_id);
+    let whitespace_tokens = body.text.split_whitespace().count() as u64;
+    let effective_chunk_tokens = if whitespace_tokens == 0 {
+        DEFAULT_CHUNK_TOKENS
+    } else {
+        match vclient::count_tokens(ctx, embedding_block, body.text.clone()).await {
+            Ok(bpe) if bpe > 0 => {
+                let ratio = (bpe as f32) / (whitespace_tokens as f32);
+                ((DEFAULT_CHUNK_TOKENS as f32) / ratio.max(1.0)).round() as usize
+            }
+            _ => DEFAULT_CHUNK_TOKENS,
+        }
+    };
+
+    let mut chunks = ingestion::chunk(&body.text, effective_chunk_tokens, DEFAULT_OVERLAP_RATIO);
     if body.contextual {
         match ingestion::add_context(ctx, &body.text, chunks).await {
             Ok(c) => chunks = c,
@@ -754,7 +779,7 @@ async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Embed via the right block for this model. On native today that's
     // always `suppers-ai/fastembed`; see `embedding_block_for_model`.
     let (_model_name, _dims, vectors) =
-        match vclient::embed(ctx, embedding_block_for_model(&model_id), chunks.clone()).await {
+        match vclient::embed(ctx, embedding_block, chunks.clone()).await {
             Ok(tuple) => tuple,
             Err(e) => return err_internal(&format!("embed failed: {e}")),
         };
