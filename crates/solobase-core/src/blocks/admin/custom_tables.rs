@@ -71,6 +71,10 @@ async fn handle_list_tables(ctx: &dyn Context) -> OutputStream {
 }
 
 async fn handle_create_table(ctx: &dyn Context, input: InputStream) -> OutputStream {
+    use wafer_core::interfaces::database::service::{
+        col_blob, col_datetime, col_float, col_int, col_text, default_now, pk, Column, Table,
+    };
+
     #[derive(serde::Deserialize)]
     struct Req {
         name: String,
@@ -93,32 +97,39 @@ async fn handle_create_table(ctx: &dyn Context, input: InputStream) -> OutputStr
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
-    // Sanitize name
+    // Sanitize name: keep only [A-Za-z0-9_] from the user-supplied suffix.
     let table_name = format!(
         "custom_{}",
         body.name
             .replace(|c: char| !c.is_alphanumeric() && c != '_', "")
     );
 
-    let mut col_defs = vec!["id TEXT PRIMARY KEY".to_string()];
-    for col in &body.columns {
-        let safe_name = col
-            .name
-            .replace(|c: char| !c.is_alphanumeric() && c != '_', "");
-        let safe_type = match col.col_type.to_uppercase().as_str() {
-            "TEXT" | "INTEGER" | "REAL" | "BLOB" => col.col_type.to_uppercase(),
-            _ => "TEXT".to_string(),
-        };
-        col_defs.push(format!("\"{}\" {}", safe_name, safe_type));
+    // Map a user-supplied SQL-flavoured type string to the builder column
+    // helper. Unknown types fall back to TEXT. User columns are nullable
+    // by default (matches the previous hand-written DDL).
+    fn user_column(name: &str, col_type: &str) -> Column {
+        let safe_name = name.replace(|c: char| !c.is_alphanumeric() && c != '_', "");
+        match col_type.to_uppercase().as_str() {
+            "INTEGER" => col_int(&safe_name).null(),
+            "REAL" => col_float(&safe_name).null(),
+            "BLOB" => col_blob(&safe_name).null(),
+            _ => col_text(&safe_name).null(),
+        }
     }
-    col_defs.push("created_at TEXT DEFAULT CURRENT_TIMESTAMP".to_string());
-    col_defs.push("updated_at TEXT DEFAULT CURRENT_TIMESTAMP".to_string());
 
-    let sql = format!(
-        "CREATE TABLE IF NOT EXISTS \"{}\" ({})",
-        table_name,
-        col_defs.join(", ")
-    );
+    let mut table = Table::new(&table_name);
+    table.columns.push(pk("id"));
+    for col in &body.columns {
+        table.columns.push(user_column(&col.name, &col.col_type));
+    }
+    table
+        .columns
+        .push(col_datetime("created_at").def(default_now()));
+    table
+        .columns
+        .push(col_datetime("updated_at").def(default_now()));
+
+    let sql = ddl::build_create_table(&table, Backend::Sqlite);
 
     match db::exec_raw(ctx, &sql, &[]).await {
         Ok(_) => ok_json(&serde_json::json!({"table": table_name, "created": true})),
