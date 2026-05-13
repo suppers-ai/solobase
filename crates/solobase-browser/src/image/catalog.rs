@@ -29,21 +29,28 @@ pub fn default_catalog() -> ModelCatalog {
     ModelCatalog::default()
 }
 
-fn sd_turbo_caps() -> ModelCapabilities {
+fn janus_pro_caps() -> ModelCapabilities {
     // `ModelCapabilities` is `#[non_exhaustive]`; construct via Default + field assignment.
+    // Janus-Pro is autoregressive (not diffusion). Output is 384×384; `steps`
+    // / `guidance_scale` / `negative_prompt` are ignored by the engine. The
+    // capability flags here describe what the UI should expose; we set
+    // `supports_negative_prompt = false` and leave `max_steps = None` because
+    // those knobs don't apply to the autoregressive token loop.
     let mut c = ModelCapabilities::default();
-    c.max_width = Some(512);
-    c.max_height = Some(512);
-    c.supports_negative_prompt = true;
-    c.max_steps = Some(4);
+    c.max_width = Some(384);
+    c.max_height = Some(384);
+    c.supports_negative_prompt = false;
+    c.max_steps = None;
     c
 }
 
 fn default_models() -> Vec<ModelInfo> {
-    vec![
-        ModelInfo::new(BACKEND_ID, "Xenova/sd-turbo", "SD-Turbo (≈500 MB)")
-            .with_capabilities(sd_turbo_caps()),
-    ]
+    vec![ModelInfo::new(
+        BACKEND_ID,
+        "onnx-community/Janus-Pro-1B-ONNX",
+        "Janus-Pro 1B (≈700 MB – 1.5 GB)",
+    )
+    .with_capabilities(janus_pro_caps())]
 }
 
 #[cfg(test)]
@@ -51,12 +58,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_catalog_has_sd_turbo() {
+    fn default_catalog_has_janus_pro() {
         let cat = default_catalog();
         assert_eq!(cat.models().len(), 1);
-        assert_eq!(cat.models()[0].model_id, "Xenova/sd-turbo");
+        assert_eq!(cat.models()[0].model_id, "onnx-community/Janus-Pro-1B-ONNX");
         assert_eq!(cat.models()[0].backend_id, BACKEND_ID);
-        assert_eq!(cat.models()[0].capabilities.max_width, Some(512));
-        assert!(cat.models()[0].capabilities.supports_negative_prompt);
+        assert_eq!(cat.models()[0].capabilities.max_width, Some(384));
+        // Janus is autoregressive: no negative prompt, no step count.
+        assert!(!cat.models()[0].capabilities.supports_negative_prompt);
+        assert_eq!(cat.models()[0].capabilities.max_steps, None);
     }
 }
