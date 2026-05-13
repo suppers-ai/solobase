@@ -1,4 +1,5 @@
 mod cloud;
+mod migrations;
 pub(crate) mod models;
 mod pages_admin;
 pub(crate) mod pages_user;
@@ -244,9 +245,17 @@ impl Block for FilesBlock {
 
     async fn lifecycle(
         &self,
-        _ctx: &dyn Context,
-        _event: LifecycleEvent,
+        ctx: &dyn Context,
+        event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
+        if matches!(event.event_type, LifecycleType::Init) {
+            migrations::apply(ctx).await.map_err(|e| {
+                WaferError::new(
+                    wafer_run::ErrorCode::Internal,
+                    format!("files migrations: {e}"),
+                )
+            })?;
+        }
         Ok(())
     }
 }
