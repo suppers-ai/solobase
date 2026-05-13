@@ -3,10 +3,15 @@ use std::{collections::HashMap, time::Duration};
 use wafer_core::clients::{crypto, database as db, storage as store};
 use wafer_run::{context::Context, types::*, OutputStream};
 
-use super::{ACCESS_LOGS_COLLECTION, SHARES_COLLECTION};
 use crate::blocks::helpers::{
     err_bad_request, err_forbidden, err_internal, err_not_found, ResponseBuilder,
 };
+
+/// Public share-link table — one row per generated token.
+pub(crate) const SHARES_TABLE: &str = "suppers_ai__files__cloud_shares";
+
+/// Access log table — one row per recorded share access (audit trail).
+pub(crate) const ACCESS_LOGS_TABLE: &str = "suppers_ai__files__cloud_access_logs";
 
 pub async fn generate_share_token(
     ctx: &dyn Context,
@@ -42,7 +47,7 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &Message) -> OutputStr
     // Look up share by token
     let share = match db::get_by_field(
         ctx,
-        SHARES_COLLECTION,
+        SHARES_TABLE,
         "token",
         serde_json::Value::String(token.to_string()),
     )
@@ -92,7 +97,7 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &Message) -> OutputStr
         "access_count".to_string(),
         serde_json::json!(access_count + 1),
     );
-    if let Err(e) = db::update(ctx, SHARES_COLLECTION, &share.id, upd).await {
+    if let Err(e) = db::update(ctx, SHARES_TABLE, &share.id, upd).await {
         tracing::warn!("Failed to increment share access count: {e}");
     }
 
@@ -114,7 +119,7 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &Message) -> OutputStr
         "user_agent".to_string(),
         serde_json::Value::String(msg.header("User-Agent").to_string()),
     );
-    if let Err(e) = db::create(ctx, ACCESS_LOGS_COLLECTION, log_data).await {
+    if let Err(e) = db::create(ctx, ACCESS_LOGS_TABLE, log_data).await {
         tracing::warn!("Failed to log share access: {e}");
     }
 

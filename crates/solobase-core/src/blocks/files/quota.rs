@@ -4,14 +4,18 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, OutputStream};
 
-use super::{models::QuotaConfig, OBJECTS_COLLECTION, QUOTAS_COLLECTION};
+use super::{models::QuotaConfig, OBJECTS_TABLE};
 use crate::blocks::helpers::{err_bad_request, RecordExt};
+
+/// Per-user quota override table. Stores explicit byte/file caps that
+/// override the block defaults for individual users.
+pub(crate) const TABLE: &str = "suppers_ai__files__cloud_quotas";
 
 pub async fn get_user_quota(ctx: &dyn Context, user_id: &str) -> QuotaConfig {
     // Check for user-specific override
     match db::get_by_field(
         ctx,
-        QUOTAS_COLLECTION,
+        TABLE,
         "user_id",
         serde_json::Value::String(user_id.to_string()),
     )
@@ -46,10 +50,10 @@ pub async fn get_user_usage(ctx: &dyn Context, user_id: &str) -> serde_json::Val
         value: serde_json::Value::String(user_id.to_string()),
     }];
 
-    let total_bytes = db::sum(ctx, OBJECTS_COLLECTION, "size", &filters)
+    let total_bytes = db::sum(ctx, OBJECTS_TABLE, "size", &filters)
         .await
         .unwrap_or(0.0) as i64;
-    let file_count = db::count(ctx, OBJECTS_COLLECTION, &filters)
+    let file_count = db::count(ctx, OBJECTS_TABLE, &filters)
         .await
         .unwrap_or(0);
 
