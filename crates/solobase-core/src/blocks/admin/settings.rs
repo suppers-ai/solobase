@@ -25,6 +25,17 @@ pub const VARIABLES_TABLE: &str = "suppers_ai__admin__variables";
 
 const MASKED_VALUE: &str = "********";
 
+/// SEC-060: unified sensitive-key check used by both `handle_list_full` and
+/// `handle_list`. A value is sensitive if the row's `sensitive` flag is 1
+/// OR the key name follows the `_SECRET` / `_KEY` suffix convention. Both
+/// listing endpoints must agree on this — the previous code masked on the
+/// suffix in `list_full` but only on the flag in `list`, so an admin who
+/// forgot to flip the `sensitive` flag on a `*_SECRET` key would have it
+/// leak through the lightweight listing.
+fn is_sensitive_key(key: &str, sensitive_flag: i64) -> bool {
+    sensitive_flag == 1 || key.ends_with("_SECRET") || key.ends_with("_KEY")
+}
+
 pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
@@ -117,9 +128,7 @@ async fn handle_list_full(ctx: &dyn Context) -> OutputStream {
                 .iter()
                 .map(|record| {
                     let key = record.str_field("key").to_string();
-                    let is_sensitive = record.i64_field("sensitive") == 1
-                        || key.ends_with("_SECRET")
-                        || key.ends_with("_KEY");
+                    let is_sensitive = is_sensitive_key(&key, record.i64_field("sensitive"));
                     let is_system = key.starts_with("SOLOBASE_SHARED__");
                     // Mask sensitive values even in the "full" listing
                     let value = if is_sensitive {
@@ -152,7 +161,7 @@ async fn handle_list(ctx: &dyn Context) -> OutputStream {
             let mut settings = HashMap::new();
             for record in &records {
                 let key = record.str_field("key");
-                let is_sensitive = record.i64_field("sensitive") == 1;
+                let is_sensitive = is_sensitive_key(key, record.i64_field("sensitive"));
                 let value = if is_sensitive {
                     serde_json::Value::String(MASKED_VALUE.to_string())
                 } else {

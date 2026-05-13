@@ -32,7 +32,12 @@ pub async fn generate_share_token(
         serde_json::Value::String("share".to_string()),
     );
 
-    crypto::sign(ctx, &claims, Duration::from_secs(365 * 24 * 3600))
+    // SEC-055: share JWT lifetime — 30 days. The previous 1-year default
+    // gave any leaked share URL effectively unbounded validity. Users who
+    // need longer-lived shares can re-share; the typical use case (send
+    // a link, recipient downloads within hours/days) fits well under 30d.
+    const SHARE_TOKEN_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
+    crypto::sign(ctx, &claims, SHARE_TOKEN_TTL)
         .await
         .map_err(|e| err_internal(&format!("Token generation failed: {e}")))
 }
