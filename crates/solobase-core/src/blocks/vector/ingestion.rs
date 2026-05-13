@@ -16,12 +16,17 @@
 //! simplification of Anthropic's per-chunk contextual retrieval recipe
 //! and trades some precision for one wire call instead of N.
 
-use wafer_block::wire::llm::{
-    ChatContent, ChatMessage, ChatRequest, ChatRole, ChunkDelta,
-};
+// `blocks::llm` is feature-gated (`reqwest/stream` it pulls in for the SSE
+// provider conflicts with `worker`'s `wasm-streams` on wasm32). When the
+// feature is off we degrade silently — same fallback path as "no LLM
+// configured at runtime".
+#[cfg(feature = "llm")]
+use wafer_block::wire::llm::{ChatContent, ChatMessage, ChatRequest, ChatRole, ChunkDelta};
+#[cfg(feature = "llm")]
 use wafer_core::clients::llm;
 use wafer_run::{context::Context, types::WaferError};
 
+#[cfg(feature = "llm")]
 use crate::blocks::llm as llm_block;
 
 /// Approximate max tokens per chunk. We use whitespace-split as a proxy
@@ -87,6 +92,19 @@ pub fn chunk(text: &str, chunk_tokens: usize, overlap_ratio: f32) -> Vec<String>
 ///
 /// The ingest must not fail because the contextual step couldn't run; the
 /// raw chunks are still useful for retrieval.
+#[cfg(not(feature = "llm"))]
+pub async fn add_context(
+    ctx: &dyn Context,
+    document: &str,
+    chunks: Vec<String>,
+) -> Result<Vec<String>, WaferError> {
+    // wasm32 / no-LLM build: degrade silently — same fallback path as the
+    // `llm` feature build takes when no provider is configured.
+    let _ = (ctx, document);
+    Ok(chunks)
+}
+
+#[cfg(feature = "llm")]
 pub async fn add_context(
     ctx: &dyn Context,
     document: &str,
@@ -147,6 +165,7 @@ pub async fn add_context(
         .collect())
 }
 
+#[cfg(feature = "llm")]
 const CONTEXTUAL_SYSTEM_PROMPT: &str = "\
 You are summarizing a document so retrieval excerpts from it are easier to \
 understand out of context. Return one or two short sentences describing what \
