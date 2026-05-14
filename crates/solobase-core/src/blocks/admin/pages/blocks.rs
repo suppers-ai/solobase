@@ -48,8 +48,21 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         })
         .collect();
 
-    // Build full block list: registered blocks + unloaded blocks from block_settings
-    // Blocks in block_settings but not in the runtime get placeholder BlockInfo
+    // Build full block list: registered blocks + unloaded blocks from block_settings.
+    // Blocks in block_settings but not in the runtime get placeholder BlockInfo.
+    //
+    // Two non-determinism sources here, both rooted in `HashMap` iteration
+    // order being randomized per-process via SipHash:
+    //   1. `ctx.registered_blocks()` is built upstream from a `HashMap`
+    //      (`wafer-run::Runtime.blocks.values()`) — so the seed list itself
+    //      varies per process.
+    //   2. `block_enabled` (locally) is a `HashMap` too.
+    //
+    // Sort `all_blocks` alphabetically by name after composition. That
+    // gives the admin/blocks page a stable visual baseline and a more
+    // user-friendly display order than HashMap iteration. The deeper fix
+    // — sorting `blocks_snapshot` inside wafer-run — is a separate
+    // upstream follow-up.
     let mut all_blocks = registered_blocks.clone();
     for (name, enabled) in &block_enabled {
         if !all_blocks.iter().any(|b| &b.name == name) {
@@ -67,6 +80,7 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             );
         }
     }
+    all_blocks.sort_by(|a, b| a.name.cmp(&b.name));
 
     let page_action = html! {
         div style="display:flex;gap:8px" {

@@ -5920,6 +5920,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tracing",
+ "url",
  "wafer-block-macro",
  "wafer-flow",
  "wasm-bindgen-futures",
@@ -5942,6 +5943,7 @@ name = "wafer-block-cors"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "serde_json",
  "tracing",
  "wafer-block",
  "wafer-run",
@@ -5995,6 +5997,7 @@ name = "wafer-block-inspector"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "parking_lot",
  "serde_json",
  "tracing",
  "wafer-block",
