@@ -271,6 +271,21 @@ async fn handle_update_quota(ctx: &dyn Context, msg: &Message, input: InputStrea
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
+    // SEC-059: whitelist accepted quota fields — never forward arbitrary
+    // caller-controlled keys to `db::upsert`. Reject anything outside the
+    // known quota schema.
+    const ALLOWED_QUOTA_FIELDS: &[&str] = &[
+        "max_storage_bytes",
+        "max_file_size_bytes",
+        "max_files_per_bucket",
+        "reset_period_days",
+    ];
+    for key in body.keys() {
+        if !ALLOWED_QUOTA_FIELDS.contains(&key.as_str()) {
+            return err_bad_request(&format!("Unknown quota field: {key}"));
+        }
+    }
+
     let mut data = body;
     data.insert(
         "user_id".to_string(),
