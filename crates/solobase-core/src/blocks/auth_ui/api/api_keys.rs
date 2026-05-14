@@ -112,6 +112,20 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
             if !msg.get_meta("http.header.hx-request").is_empty() {
                 let key_for_display = key_string.clone();
                 let name = record.str_field("name").to_string();
+                // Inline JS handler for the copy button. The key text lives
+                // in #new-api-key — read `innerText` (not the JS string) so
+                // we never have to escape the key into a JS literal, and so
+                // the button works even if the swap re-renders without the
+                // original closure scope.
+                let copy_js = "\
+                    var el=document.getElementById('new-api-key');\
+                    var t=el?el.innerText:'';\
+                    if(t&&navigator.clipboard){\
+                        navigator.clipboard.writeText(t).then(function(){\
+                            var b=event.currentTarget;b.textContent='Copied';\
+                            setTimeout(function(){b.textContent='Copy'},1500);\
+                        });\
+                    }";
                 let markup = maud::html! {
                     div .card style="margin-bottom: var(--spacing-md)" {
                         div .card__head { h3 .card__title { "Key created — save it now" } }
@@ -119,17 +133,20 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
                             p style="margin:0 0 var(--spacing-sm); font-size: 13px; color: var(--text-secondary)" {
                                 "This is the only time the full key will be shown. Copy it now."
                             }
-                            code style="display: block; padding: var(--spacing-sm); background: var(--bg-secondary); border-radius: var(--radius-md); font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all" {
-                                (key_for_display)
+                            div style="display:flex; gap: var(--spacing-sm); align-items: stretch" {
+                                code #new-api-key style="flex:1 1 auto; padding: var(--spacing-sm); background: var(--bg-secondary); border-radius: var(--radius-md); font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all; user-select: all" {
+                                    (key_for_display)
+                                }
+                                button type="button" .btn .btn-secondary .btn-sm
+                                    style="flex: 0 0 auto"
+                                    onclick=(copy_js)
+                                { "Copy" }
                             }
                             p style="margin: var(--spacing-sm) 0 0; font-size: var(--text-xs); color: var(--text-muted)" {
                                 "Name: " (name)
                             }
                         }
                     }
-                    // Reload the api-keys tab below the new-key card by
-                    // pointing the form's swap target. We reuse the
-                    // existing JS toggle by triggering an HX event.
                 };
                 let trigger = r#"{"showToast":{"message":"API key created","type":"success"},"closeModal":{"id":"create-api-key"}}"#;
                 crate::blocks::helpers::ResponseBuilder::new()
