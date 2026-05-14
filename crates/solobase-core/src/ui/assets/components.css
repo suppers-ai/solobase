@@ -636,13 +636,14 @@
 .db-table-list__name { font-weight: 500; word-break: break-all; }
 .db-table-list__empty { padding: 8px; }
 
-/* Grouped tables (left pane) — one card per `org__block` prefix */
+/* Grouped tables (left pane) — one card per `org__block` prefix.
+   No inner max-height: groups expand to fit all their rows and the page
+   itself scrolls. The earlier 60vh + overflow-y clipped rows mid-line at
+   the scroll edges, which read like the list was broken. */
 .db-table-groups {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: 60vh;
-  overflow-y: auto;
 }
 .db-table-group {
   border: 1px solid var(--border, #e2e8f0);
