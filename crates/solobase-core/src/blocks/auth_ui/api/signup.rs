@@ -128,7 +128,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Hash password
     let password_hash = match crypto::hash(ctx, &body.password).await {
         Ok(h) => h,
-        Err(e) => return err_internal(&format!("Failed to hash password: {e}")),
+        Err(e) => return err_internal("Failed to hash password", e),
     };
 
     // Check if email verification is required
@@ -140,7 +140,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     let verification_token = if require_verification {
         match crypto::random_bytes(ctx, 32).await {
             Ok(bytes) => hex_encode(&bytes),
-            Err(e) => return err_internal(&format!("Failed to generate verification token: {e}")),
+            Err(e) => return err_internal("Failed to generate verification token", e),
         }
     } else {
         String::new()
@@ -173,11 +173,11 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     .await
     {
         Ok(u) => u,
-        Err(e) => return err_internal(&format!("Failed to create user: {e}")),
+        Err(e) => return err_internal("Failed to create user", e),
     };
 
     if let Err(e) = local_credentials::insert(ctx, &user.id, &password_hash, false).await {
-        return err_internal(&format!("Failed to store credentials: {e}"));
+        return err_internal("Failed to store credentials", e);
     }
 
     // Set email_verified and verification_token on the legacy USERS_TABLE row

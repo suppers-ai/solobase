@@ -399,7 +399,7 @@ async fn handle_catalog(ctx: &dyn Context, msg: &Message) -> OutputStream {
     .await
     {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -419,7 +419,7 @@ async fn handle_get_product_public(ctx: &dyn Context, msg: &Message) -> OutputSt
             ok_json(&record)
         }
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Product not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -477,7 +477,7 @@ async fn handle_user_list_products(ctx: &dyn Context, msg: &Message) -> OutputSt
     .await
     {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -497,7 +497,7 @@ async fn handle_user_get_product(ctx: &dyn Context, msg: &Message) -> OutputStre
             ok_json(&record)
         }
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Product not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -552,7 +552,7 @@ async fn handle_user_create_product(
 
     match db::create(ctx, PRODUCTS_TABLE, data).await {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -579,7 +579,7 @@ async fn handle_user_update_product(
             }
         }
         Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Product not found"),
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     }
 
     let raw = input.collect_to_bytes().await;
@@ -595,7 +595,7 @@ async fn handle_user_update_product(
 
     match db::update(ctx, PRODUCTS_TABLE, &id, body).await {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -618,12 +618,12 @@ async fn handle_user_delete_product(ctx: &dyn Context, msg: &Message) -> OutputS
             }
         }
         Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Product not found"),
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     }
 
     match db::delete(ctx, PRODUCTS_TABLE, &id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -650,7 +650,7 @@ async fn handle_user_list_groups(ctx: &dyn Context, msg: &Message) -> OutputStre
     };
     match db::list(ctx, GROUPS_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -670,7 +670,7 @@ async fn handle_user_get_group(ctx: &dyn Context, msg: &Message) -> OutputStream
             ok_json(&record)
         }
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Group not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -700,7 +700,7 @@ async fn handle_user_create_group(
 
     match db::create(ctx, GROUPS_TABLE, body).await {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -727,7 +727,7 @@ async fn handle_user_update_group(
             }
         }
         Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Group not found"),
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     }
 
     let raw = input.collect_to_bytes().await;
@@ -739,7 +739,7 @@ async fn handle_user_update_group(
 
     match db::update(ctx, GROUPS_TABLE, &id, body).await {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -762,12 +762,12 @@ async fn handle_user_delete_group(ctx: &dyn Context, msg: &Message) -> OutputStr
             }
         }
         Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Group not found"),
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     }
 
     match db::delete(ctx, GROUPS_TABLE, &id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -813,7 +813,7 @@ async fn handle_user_group_products(ctx: &dyn Context, msg: &Message) -> OutputS
     .await
     {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -821,7 +821,7 @@ async fn handle_user_group_products(ctx: &dyn Context, msg: &Message) -> OutputS
 async fn handle_user_list_group_templates(ctx: &dyn Context, _msg: &Message) -> OutputStream {
     match db::list_all(ctx, GROUP_TEMPLATES_TABLE, vec![]).await {
         Ok(records) => ok_json(&records),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 

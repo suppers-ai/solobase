@@ -52,7 +52,9 @@ use super::{
     ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO},
     service::{self, TABLE_PREFIX},
 };
-use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json};
+use crate::blocks::helpers::{
+    err_bad_request, err_internal, err_internal_no_cause, err_not_found, ok_json,
+};
 
 /// Per-index metadata registry table.
 ///
@@ -196,7 +198,7 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
     };
 
     if let Err(e) = vclient::create_index(ctx, cfg.clone()).await {
-        return err_internal(&format!("create_index failed: {e}"));
+        return err_internal("create_index failed", e);
     }
 
     // Record the index in the registry so queries against it can look up
@@ -206,7 +208,7 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
     // can retry create (idempotent at the registry level via OR REPLACE
     // and harmless at vclient level because the index already exists).
     if let Err(e) = ensure_registry(ctx).await {
-        return err_internal(&format!("registry init failed: {e}"));
+        return err_internal("registry init failed", e);
     }
     let (sql, vals) = upsert::build_upsert(
         REGISTRY_TABLE,
@@ -224,7 +226,7 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
         Backend::Sqlite,
     );
     if let Err(e) = db::exec_raw(ctx, &sql, &sea_values_to_json(vals)).await {
-        return err_internal(&format!("registry write failed: {e}"));
+        return err_internal("registry write failed", e);
     }
 
     // htmx callers (the admin modal) want HTML back so the swap renders
@@ -233,7 +235,7 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
     if !msg.get_meta("http.header.hx-request").is_empty() {
         let body_html = match super::pages_ui::render_index_list_fragment(ctx).await {
             Ok(m) => m,
-            Err(e) => return err_internal(&format!("Failed to refresh: {e}")),
+            Err(e) => return err_internal("Failed to refresh", e),
         };
         let trigger = r#"{"showToast":{"message":"Index created","type":"success"},"closeModal":{"id":"create-vector-index"}}"#;
         return crate::blocks::helpers::ResponseBuilder::new()
@@ -254,7 +256,12 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
 
 /// Idempotently create the registry table.
 async fn ensure_registry(ctx: &dyn Context) -> Result<(), WaferError> {
-    let sql = ddl::build_create_table(&registry_schema(), Backend::Sqlite);
+    let sql = ddl::build_create_table(&registry_schema(), Backend::Sqlite).map_err(|e| {
+        WaferError::new(
+            wafer_block::ErrorCode::INTERNAL,
+            format!("Failed to build registry CREATE TABLE: {e}"),
+        )
+    })?;
     db::exec_raw(ctx, &sql, &[]).await.map(|_| ())
 }
 
@@ -265,7 +272,7 @@ async fn ensure_registry(ctx: &dyn Context) -> Result<(), WaferError> {
 async fn list_indexes(ctx: &dyn Context) -> OutputStream {
     match discover_indexes(ctx).await {
         Ok(indexes) => ok_json(&serde_json::json!({ "indexes": indexes })),
-        Err(e) => err_internal(&format!("list indexes failed: {e}")),
+        Err(e) => err_internal("list indexes failed", e),
     }
 }
 
@@ -333,7 +340,7 @@ async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
         Err(e) if e.code == ErrorCode::NotFound => {
             err_not_found(&format!("index not found: {name}"))
         }
-        Err(e) => err_internal(&format!("delete_index failed: {e}")),
+        Err(e) => err_internal("delete_index failed", e),
     }
 }
 
@@ -385,7 +392,7 @@ async fn upsert(ctx: &dyn Context, input: InputStream) -> OutputStream {
             err_not_found(&format!("index not found: {}", body.index))
         }
         Err(e) if e.code == ErrorCode::InvalidArgument => err_bad_request(&e.message),
-        Err(e) => err_internal(&format!("upsert failed: {e}")),
+        Err(e) => err_internal("upsert failed", e),
     }
 }
 
@@ -411,7 +418,7 @@ async fn delete_single(ctx: &dyn Context, msg: &Message) -> OutputStream {
         Err(e) if e.code == ErrorCode::NotFound => {
             err_not_found(&format!("index not found: {index}"))
         }
-        Err(e) => err_internal(&format!("delete failed: {e}")),
+        Err(e) => err_internal("delete failed", e),
     }
 }
 
@@ -440,7 +447,7 @@ fn extract_index_and_id(msg: &Message) -> (&str, &str) {
 async fn stats(ctx: &dyn Context) -> OutputStream {
     let indexes = match discover_indexes(ctx).await {
         Ok(v) => v,
-        Err(e) => return err_internal(&format!("stats failed: {e}")),
+        Err(e) => return err_internal("stats failed", e),
     };
 
     let mut out: Vec<serde_json::Value> = Vec::with_capacity(indexes.len());
@@ -503,7 +510,7 @@ async fn query(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // registry table existed.
     let (model_id, keyword_search) = match load_index_metadata(ctx, &prefixed).await {
         Ok(m) => m,
-        Err(e) => return err_internal(&format!("load index metadata failed: {e}")),
+        Err(e) => return err_internal("load index metadata failed", e),
     };
 
     // Default mode reflects the index's declared capabilities. An index
@@ -525,9 +532,9 @@ async fn query(ctx: &dyn Context, input: InputStream) -> OutputStream {
             match vclient::embed(ctx, block, vec![text.to_string()]).await {
                 Ok((_, _, mut vectors)) => match vectors.pop() {
                     Some(v) => v,
-                    None => return err_internal("embedding block returned no vectors"),
+                    None => return err_internal_no_cause("embedding block returned no vectors"),
                 },
-                Err(e) => return err_internal(&format!("embed failed: {e}")),
+                Err(e) => return err_internal("embed failed", e),
             }
         }
         _ => return err_bad_request("either 'text' or 'vector' is required"),
@@ -561,7 +568,7 @@ async fn query(ctx: &dyn Context, input: InputStream) -> OutputStream {
             err_not_found(&format!("index not found: {}", body.index))
         }
         Err(e) if e.code == ErrorCode::InvalidArgument => err_bad_request(&e.message),
-        Err(e) => err_internal(&format!("query failed: {e}")),
+        Err(e) => err_internal("query failed", e),
     }
 }
 
@@ -706,7 +713,7 @@ async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // query route does.
     let (model_id, _keyword_search) = match load_index_metadata(ctx, &prefixed).await {
         Ok(m) => m,
-        Err(e) => return err_internal(&format!("load index metadata failed: {e}")),
+        Err(e) => return err_internal("load index metadata failed", e),
     };
 
     // Re-ingestion safety: wipe any chunks we previously wrote for this
@@ -733,7 +740,7 @@ async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
             .collect();
         if !prior_ids.is_empty() {
             if let Err(e) = vclient::delete(ctx, &prefixed, prior_ids).await {
-                return err_internal(&format!("failed to clear prior chunks: {e}"));
+                return err_internal("failed to clear prior chunks", e);
             }
         }
     }
@@ -769,7 +776,7 @@ async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
     if body.contextual {
         match ingestion::add_context(ctx, &body.text, chunks).await {
             Ok(c) => chunks = c,
-            Err(e) => return err_internal(&format!("add_context failed: {e}")),
+            Err(e) => return err_internal("add_context failed", e),
         }
     }
     if chunks.is_empty() {
@@ -781,17 +788,16 @@ async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
     let (_model_name, _dims, vectors) =
         match vclient::embed(ctx, embedding_block, chunks.clone()).await {
             Ok(tuple) => tuple,
-            Err(e) => return err_internal(&format!("embed failed: {e}")),
+            Err(e) => return err_internal("embed failed", e),
         };
 
     if vectors.len() != chunks.len() {
         // Sanity check — embedding block violated its contract. Surface
         // the mismatch instead of silently upserting a truncated set.
-        return err_internal(&format!(
-            "embedding returned {} vectors for {} chunks",
-            vectors.len(),
-            chunks.len()
-        ));
+        return err_internal(
+            "embedding/chunk count mismatch",
+            format!("vectors={} chunks={}", vectors.len(), chunks.len()),
+        );
     }
 
     // Build VectorEntry list. Ids are `{document_id}:{i}` so re-ingestion
@@ -821,7 +827,7 @@ async fn ingest(ctx: &dyn Context, input: InputStream) -> OutputStream {
             err_not_found(&format!("index not found: {}", body.index))
         }
         Err(e) if e.code == ErrorCode::InvalidArgument => err_bad_request(&e.message),
-        Err(e) => err_internal(&format!("upsert failed: {e}")),
+        Err(e) => err_internal("upsert failed", e),
     }
 }
 
@@ -867,6 +873,6 @@ async fn embed(ctx: &dyn Context, input: InputStream) -> OutputStream {
             vectors,
         }),
         Err(e) if e.code == ErrorCode::InvalidArgument => err_bad_request(&e.message),
-        Err(e) => err_internal(&format!("embed failed: {e}")),
+        Err(e) => err_internal("embed failed", e),
     }
 }

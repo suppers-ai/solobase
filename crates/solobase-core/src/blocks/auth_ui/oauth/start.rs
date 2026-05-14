@@ -67,7 +67,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // Generate PKCE code verifier and challenge.
     let code_verifier = match generate_pkce_verifier() {
         Ok(v) => v,
-        Err(e) => return err_internal(&format!("Failed to generate PKCE verifier: {e}")),
+        Err(e) => return err_internal("Failed to generate PKCE verifier", e),
     };
     let code_challenge = pkce_challenge(&code_verifier);
 
@@ -77,7 +77,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // and send only the opaque id to the provider.
     let state_id = match generate_state_id() {
         Ok(s) => s,
-        Err(e) => return err_internal(&format!("Failed to generate state id: {e}")),
+        Err(e) => return err_internal("Failed to generate state", e),
     };
     let expires_at = (chrono::Utc::now() + chrono::Duration::seconds(PKCE_STATE_TTL_SECS))
         .format("%Y-%m-%dT%H:%M:%SZ")
@@ -94,7 +94,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     )
     .await
     {
-        return err_internal(&format!("Failed to persist OAuth state: {e}"));
+        return err_internal("Failed to persist OAuth state", e);
     }
 
     let auth_url = match provider {

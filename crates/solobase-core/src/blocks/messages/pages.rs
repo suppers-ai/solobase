@@ -199,7 +199,7 @@ pub async fn context_detail_page(ctx: &dyn Context, msg: &Message) -> OutputStre
     let context = match service::get_context(ctx, context_id).await {
         Ok(r) => r,
         Err(e) if e.code == ErrorCode::NotFound => return ui::not_found_response(msg),
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
 
     let entries_params = ListEntriesParams {

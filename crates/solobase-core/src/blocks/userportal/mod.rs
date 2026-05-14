@@ -307,7 +307,7 @@ async fn handle_update_profile(
     stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, crate::blocks::auth::USERS_TABLE, &user_id, data).await {
-        return err_internal(&format!("Failed to update profile: {}", e.message));
+        return err_internal("Failed to update profile", e.message);
     }
 
     // Plain form POST → 303 See Other so the browser follows up with a GET
@@ -488,7 +488,7 @@ async fn handle_create_button(ctx: &dyn Context, input: InputStream) -> OutputSt
     super::helpers::stamp_created(&mut data);
 
     if let Err(e) = db::create(ctx, TABLE, data).await {
-        return err_internal(&format!("Failed to create button: {}", e.message));
+        return err_internal("Failed to create button", e.message);
     }
 
     // Re-render buttons table
@@ -606,7 +606,7 @@ async fn handle_update_button(ctx: &dyn Context, input: InputStream, id: &str) -
     stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, TABLE, id, data).await {
-        return err_internal(&format!("Failed to update button: {}", e.message));
+        return err_internal("Failed to update button", e.message);
     }
 
     // Re-render buttons table
@@ -616,7 +616,7 @@ async fn handle_update_button(ctx: &dyn Context, input: InputStream, id: &str) -
 
 async fn handle_delete_button(ctx: &dyn Context, id: &str) -> OutputStream {
     if let Err(e) = db::delete(ctx, TABLE, id).await {
-        return err_internal(&format!("Failed to delete button: {}", e.message));
+        return err_internal("Failed to delete button", e.message);
     }
 
     let buttons = load_buttons(ctx).await;

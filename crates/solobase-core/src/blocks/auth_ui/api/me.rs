@@ -64,6 +64,6 @@ pub async fn handle_update(ctx: &dyn Context, msg: &Message, input: InputStream)
                 "roles": roles
             }))
         }
-        Err(e) => err_internal(&format!("Update failed: {e}")),
+        Err(e) => err_internal("Update failed", e),
     }
 }

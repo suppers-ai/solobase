@@ -4,7 +4,9 @@ use wafer_core::clients::database as db;
 use wafer_run::{context::Context, InputStream, OutputStream};
 
 use super::PRODUCTS_TABLE;
-use crate::blocks::helpers::{err_bad_request, err_internal, err_not_found, ok_json, RecordExt};
+use crate::blocks::helpers::{
+    err_bad_request, err_internal_no_cause, err_not_found, ok_json, RecordExt,
+};
 
 /// Pricing template table — reusable pricing rule definitions (formulas,
 /// tiers, etc.) referenced by products at calc time.
@@ -58,12 +60,12 @@ pub async fn handle_calculate(ctx: &dyn Context, input: InputStream) -> OutputSt
 
     let template = match db::get(ctx, TABLE, template_id).await {
         Ok(t) => t,
-        Err(_) => return err_internal("Pricing template not found"),
+        Err(_) => return err_internal_no_cause("Pricing template not found"),
     };
 
     let formula = template.str_field("price_formula");
     if formula.is_empty() {
-        return err_internal("Empty pricing formula");
+        return err_internal_no_cause("Empty pricing formula");
     }
 
     // Evaluate formula

@@ -75,12 +75,12 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Hash new password
     let new_hash = match crypto::hash(ctx, &body.new_password).await {
         Ok(h) => h,
-        Err(e) => return err_internal(&format!("Hash failed: {e}")),
+        Err(e) => return err_internal("Hash failed", e),
     };
 
     // Update credential row (typed path, no password_hash on users table).
     if let Err(e) = local_credentials::update_password(ctx, &user.id, &new_hash).await {
-        return err_internal(&format!("Failed to update password: {e}"));
+        return err_internal("Failed to update password", e);
     }
 
     // Clear reset token on the users row.
@@ -91,7 +91,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     crate::blocks::helpers::stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, data).await {
-        return err_internal(&format!("Failed to clear reset token: {e}"));
+        return err_internal("Failed to clear reset token", e);
     }
 
     // Revoke all refresh tokens — invalidate any stolen sessions

@@ -395,7 +395,7 @@ pub async fn handle_user_disable(ctx: &dyn Context, msg: &Message, user_id: &str
     data.insert("disabled".to_string(), serde_json::json!(true));
     helpers::stamp_updated(&mut data);
     if let Err(e) = db::update(ctx, USERS, user_id, data).await {
-        return err_internal(&format!("Failed: {}", e.message));
+        return err_internal("Failed", e.message);
     }
     super::super::logs::audit_log(
         ctx,
@@ -417,7 +417,7 @@ pub async fn handle_user_enable(ctx: &dyn Context, msg: &Message, user_id: &str)
     data.insert("disabled".to_string(), serde_json::json!(false));
     helpers::stamp_updated(&mut data);
     if let Err(e) = db::update(ctx, USERS, user_id, data).await {
-        return err_internal(&format!("Failed: {}", e.message));
+        return err_internal("Failed", e.message);
     }
     super::super::logs::audit_log(
         ctx,
@@ -439,7 +439,7 @@ pub async fn handle_user_delete(ctx: &dyn Context, msg: &Message, user_id: &str)
     }
     let ip = msg.remote_addr().to_string();
     if let Err(e) = db::soft_delete(ctx, USERS, user_id).await {
-        return err_internal(&format!("Failed: {}", e.message));
+        return err_internal("Failed", e.message);
     }
     super::super::logs::audit_log(
         ctx,
@@ -500,7 +500,7 @@ pub async fn handle_user_invite(
 
     let password_hash = match crypto::hash(ctx, password).await {
         Ok(h) => h,
-        Err(e) => return err_internal(&format!("Failed to hash password: {e}")),
+        Err(e) => return err_internal("Failed to hash password", e),
     };
 
     let mut data = helpers::json_map(serde_json::json!({
@@ -522,7 +522,7 @@ pub async fn handle_user_invite(
 
     let new_user = match db::create(ctx, USERS, data).await {
         Ok(u) => u,
-        Err(e) => return err_internal(&format!("Failed: {}", e.message)),
+        Err(e) => return err_internal("Failed", e.message),
     };
 
     super::super::logs::audit_log(
@@ -575,7 +575,7 @@ pub async fn handle_create_role(
     helpers::stamp_created(&mut data);
 
     if let Err(e) = db::create(ctx, ROLES_TABLE, data).await {
-        return err_internal(&format!("Failed: {}", e.message));
+        return err_internal("Failed", e.message);
     }
     super::super::logs::audit_log(ctx, &admin_id, "role.create", &format!("roles/{name}"), &ip)
         .await;
@@ -602,7 +602,7 @@ pub async fn handle_delete_role(ctx: &dyn Context, msg: &Message, role_id: &str)
     }
 
     if let Err(e) = db::delete(ctx, ROLES_TABLE, role_id).await {
-        return err_internal(&format!("Failed: {}", e.message));
+        return err_internal("Failed", e.message);
     }
     super::super::logs::audit_log(
         ctx,

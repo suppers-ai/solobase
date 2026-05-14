@@ -15,7 +15,10 @@ use crate::blocks::{
         USERS_TABLE,
     },
     auth_ui::redirect::is_safe_local_redirect,
-    helpers::{err_bad_request, err_forbidden, err_internal, json_map, ResponseBuilder},
+    helpers::{
+        err_bad_request, err_forbidden, err_internal, err_internal_no_cause, json_map,
+        ResponseBuilder,
+    },
 };
 
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -38,7 +41,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let pkce_row = match oauth_pkce::take(ctx, state).await {
         Ok(Some(row)) => row,
         Ok(None) => return err_bad_request("Invalid or expired OAuth state"),
-        Err(e) => return err_internal(&format!("OAuth state lookup failed: {e}")),
+        Err(e) => return err_internal("OAuth state lookup failed", e),
     };
     let provider = pkce_row.provider.clone();
     let code_verifier = pkce_row.code_verifier.clone();
@@ -66,7 +69,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     .await;
 
     if client_id.is_empty() || client_secret.is_empty() {
-        return err_internal("OAuth provider not fully configured");
+        return err_internal_no_cause("OAuth provider not fully configured");
     }
 
     // Exchange code for token (URL-encode all values, include PKCE verifier)
@@ -101,12 +104,12 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         match network::do_request(ctx, "POST", &token_url, &headers, Some(&token_body_bytes)).await
         {
             Ok(r) => r,
-            Err(e) => return err_internal(&format!("Token exchange failed: {e}")),
+            Err(e) => return err_internal("Token exchange failed", e),
         };
 
     let token_data: serde_json::Value = match serde_json::from_slice(&token_resp.body) {
         Ok(d) => d,
-        Err(_) => return err_internal("Failed to parse token response"),
+        Err(_) => return err_internal_no_cause("Failed to parse token response"),
     };
 
     let access_token_oauth = token_data
@@ -114,7 +117,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if access_token_oauth.is_empty() {
-        return err_internal("No access token in OAuth response");
+        return err_internal_no_cause("No access token in OAuth response");
     }
 
     // Get user info
@@ -131,7 +134,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
             "https://graph.microsoft.com/v1.0/me".to_string(),
             format!("Bearer {}", access_token_oauth),
         ),
-        _ => return err_internal("Unsupported provider"),
+        _ => return err_internal_no_cause("Unsupported provider"),
     };
 
     let mut info_headers = HashMap::new();
@@ -147,7 +150,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let info_resp = match network::do_request(ctx, "GET", &userinfo_url, &info_headers, None).await
     {
         Ok(r) => r,
-        Err(e) => return err_internal(&format!("User info request failed: {e}")),
+        Err(e) => return err_internal("User info request failed", e),
     };
 
     let user_info: serde_json::Value = match serde_json::from_slice(&info_resp.body) {
@@ -157,10 +160,13 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 .chars()
                 .take(200)
                 .collect();
-            return err_internal(&format!(
-                "Failed to parse user info (status {}, parse: {}, body preview: {})",
-                info_resp.status_code, e, preview
-            ));
+            return err_internal(
+                "Failed to parse OAuth user info",
+                format!(
+                    "status={} parse={} body_preview={}",
+                    info_resp.status_code, e, preview
+                ),
+            );
         }
     };
 
@@ -230,7 +236,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 
     if email.is_empty() {
-        return err_internal("No email returned by OAuth provider");
+        return err_internal_no_cause("No email returned by OAuth provider");
     }
 
     // Extract the stable provider-side user identifier.
@@ -246,7 +252,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }
     };
     if provider_ref.is_empty() {
-        return err_internal("OAuth provider did not return a stable user id");
+        return err_internal_no_cause("OAuth provider did not return a stable user id");
     }
 
     // Stable per-provider handle (GitHub `login`, others fall back to email local-part).
@@ -260,7 +266,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let existing_link =
         match provider_links::find_by_provider_ref(ctx, &provider, &provider_ref).await {
             Ok(l) => l,
-            Err(e) => return err_internal(&format!("provider_links lookup failed: {e}")),
+            Err(e) => return err_internal("provider_links lookup failed", e),
         };
 
     // --- Step 2 / 3: resolve user_id ---
@@ -336,10 +342,10 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
                         }
                         u.id
                     }
-                    Err(e) => return err_internal(&format!("Failed to create user: {e}")),
+                    Err(e) => return err_internal("Failed to create user", e),
                 }
             }
-            Err(e) => return err_internal(&format!("User lookup failed: {e}")),
+            Err(e) => return err_internal("User lookup failed", e),
         }
     };
 
@@ -400,7 +406,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
             frontend_url = %frontend_url,
             "SOLOBASE_SHARED__FRONTEND_URL failed validation; refusing OAuth redirect"
         );
-        return err_internal("Frontend URL is not configured correctly");
+        return err_internal_no_cause("Frontend URL is not configured correctly");
     }
     let post_login_raw =
         config::get_default(ctx, "SOLOBASE_SHARED__POST_LOGIN_REDIRECT", "/b/admin/").await;

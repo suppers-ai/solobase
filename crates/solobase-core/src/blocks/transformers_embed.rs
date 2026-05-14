@@ -53,7 +53,7 @@ impl Block for TransformersEmbedBlock {
             ServiceOp::EMBEDDING_EMBED => {
                 handle_embedding_message(self.service.as_ref(), &msg, &body).await
             }
-            other => err_internal(&format!("unsupported op: {other}")),
+            other => err_internal("unsupported op", other),
         }
     }
 

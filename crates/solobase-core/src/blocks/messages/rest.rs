@@ -59,7 +59,7 @@ pub async fn list_contexts(ctx: &dyn Context, msg: &Message) -> OutputStream {
     };
     match service::list_contexts(ctx, &params).await {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&e),
+        Err(e) => err_internal("list_contexts failed", e),
     }
 }
 
@@ -94,7 +94,7 @@ pub async fn create_context(ctx: &dyn Context, input: InputStream) -> OutputStre
     .await
     {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&e),
+        Err(e) => err_internal("create_context failed", e),
     }
 }
 
@@ -106,7 +106,7 @@ pub async fn get_context(ctx: &dyn Context, msg: &Message) -> OutputStream {
     match service::get_context(ctx, id).await {
         Ok(record) => ok_json(&record),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Context not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -124,7 +124,7 @@ pub async fn update_context(ctx: &dyn Context, msg: &Message, input: InputStream
     match service::update_context(ctx, id, body).await {
         Ok(record) => ok_json(&record),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Context not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -135,7 +135,7 @@ pub async fn delete_context(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
     match service::delete_context(ctx, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
-        Err(e) => err_internal(&e),
+        Err(e) => err_internal("delete_context failed", e),
     }
 }
 
@@ -157,7 +157,7 @@ pub async fn list_entries(ctx: &dyn Context, msg: &Message) -> OutputStream {
     };
     match service::list_entries(ctx, context_id, &params).await {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&e),
+        Err(e) => err_internal("list_entries failed", e),
     }
 }
 
@@ -200,7 +200,7 @@ pub async fn add_entry(ctx: &dyn Context, msg: &Message, input: InputStream) -> 
     .await
     {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&e),
+        Err(e) => err_internal("add_entry failed", e),
     }
 }
 
@@ -212,7 +212,7 @@ pub async fn get_entry(ctx: &dyn Context, msg: &Message) -> OutputStream {
     match service::get_entry(ctx, id).await {
         Ok(record) => ok_json(&record),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Entry not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -224,6 +224,6 @@ pub async fn delete_entry(ctx: &dyn Context, msg: &Message) -> OutputStream {
     match service::delete_entry(ctx, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Entry not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
