@@ -399,7 +399,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         Ok(t) => t,
         Err(r) => return r,
     };
-    store_refresh_token(ctx, &user_id, &refresh_token, &family).await;
+    store_refresh_token(ctx, &user_id, &refresh_token, &family, 0).await;
 
     // Redirect to frontend — token is set via HttpOnly cookie only (not URL)
     let frontend_url = config::get_default(

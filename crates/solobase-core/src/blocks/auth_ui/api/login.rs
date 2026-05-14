@@ -85,7 +85,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         };
 
     // Store refresh token
-    store_refresh_token(ctx, &user.id, &refresh_token, &family).await;
+    store_refresh_token(ctx, &user.id, &refresh_token, &family, 0).await;
 
     // Persist a session row so the userportal `/b/userportal/sessions`
     // page can show this login. Failure must not block login — the
