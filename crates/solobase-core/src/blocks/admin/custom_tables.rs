@@ -59,7 +59,7 @@ async fn handle_list_tables(ctx: &dyn Context) -> OutputStream {
     let (sql, args) = introspect::build_list_tables_like("custom_", Backend::Sqlite);
     let tables = match db::query_raw(ctx, &sql, &args).await {
         Ok(t) => t,
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
 
     let names: Vec<&str> = tables
@@ -97,18 +97,17 @@ async fn handle_create_table(ctx: &dyn Context, input: InputStream) -> OutputStr
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
-    // Sanitize name: keep only [A-Za-z0-9_] from the user-supplied suffix.
-    let table_name = format!(
-        "custom_{}",
-        body.name
-            .replace(|c: char| !c.is_alphanumeric() && c != '_', "")
-    );
+    // SEC-053: use the shared `sanitize_ident` helper so create + drop paths
+    // (and any future identifier-sanitization site) agree on what's allowed.
+    // Inline `replace(|c| !c.is_alphanumeric() && c != '_', "")` was an
+    // out-of-band rule that drifted from the drop path.
+    let table_name = format!("custom_{}", sanitize_ident(&body.name));
 
     // Map a user-supplied SQL-flavoured type string to the builder column
     // helper. Unknown types fall back to TEXT. User columns are nullable
     // by default (matches the previous hand-written DDL).
     fn user_column(name: &str, col_type: &str) -> Column {
-        let safe_name = name.replace(|c: char| !c.is_alphanumeric() && c != '_', "");
+        let safe_name = sanitize_ident(name);
         match col_type.to_uppercase().as_str() {
             "INTEGER" => col_int(&safe_name).null(),
             "REAL" => col_float(&safe_name).null(),
@@ -129,11 +128,14 @@ async fn handle_create_table(ctx: &dyn Context, input: InputStream) -> OutputStr
         .columns
         .push(col_datetime("updated_at").def(default_now()));
 
-    let sql = ddl::build_create_table(&table, Backend::Sqlite);
+    let sql = match ddl::build_create_table(&table, Backend::Sqlite) {
+        Ok(s) => s,
+        Err(e) => return err_internal("Failed to build CREATE TABLE SQL", e),
+    };
 
     match db::exec_raw(ctx, &sql, &[]).await {
         Ok(_) => ok_json(&serde_json::json!({"table": table_name, "created": true})),
-        Err(e) => err_internal(&format!("Failed to create table: {e}")),
+        Err(e) => err_internal("Failed to create table", e),
     }
 }
 
@@ -154,7 +156,7 @@ async fn handle_drop_table(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let drop_sql = ddl::build_drop_table(&safe_name, Backend::Sqlite);
     match db::exec_raw(ctx, &drop_sql, &[]).await {
         Ok(_) => ok_json(&serde_json::json!({"deleted": true})),
-        Err(e) => err_internal(&format!("Failed to drop table: {e}")),
+        Err(e) => err_internal("Failed to drop table", e),
     }
 }
 
@@ -184,7 +186,7 @@ async fn handle_list_records(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match db::list(ctx, &full_name, &opts).await {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -213,7 +215,7 @@ async fn handle_create_record(
 
     match db::create(ctx, &full_name, body).await {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -248,7 +250,7 @@ async fn handle_update_record(
             if msg_str.contains("not found") || msg_str.contains("Not found") {
                 err_not_found("Record not found")
             } else {
-                err_internal(&format!("Database error: {e}"))
+                err_internal("Database error", e)
             }
         }
     }
@@ -275,7 +277,7 @@ async fn handle_delete_record(ctx: &dyn Context, msg: &Message) -> OutputStream 
             if msg_str.contains("not found") || msg_str.contains("Not found") {
                 err_not_found("Record not found")
             } else {
-                err_internal(&format!("Database error: {e}"))
+                err_internal("Database error", e)
             }
         }
     }

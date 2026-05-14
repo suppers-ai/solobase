@@ -462,7 +462,7 @@ pub async fn handle_create_variable(
     helpers::stamp_created(&mut data);
 
     if let Err(e) = db::create(ctx, VARIABLES, data).await {
-        return err_internal(&format!("Failed: {}", e.message));
+        return err_internal("Failed", e.message);
     }
     super::super::logs::audit_log(
         ctx,
@@ -599,7 +599,7 @@ pub async fn handle_update_variable(
     helpers::stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, VARIABLES, &record.id, data).await {
-        return err_internal(&format!("Failed: {}", e.message));
+        return err_internal("Failed", e.message);
     }
     super::super::logs::audit_log(
         ctx,

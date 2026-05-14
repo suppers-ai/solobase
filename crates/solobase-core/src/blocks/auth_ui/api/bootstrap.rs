@@ -21,7 +21,10 @@ use crate::blocks::{
         repo::{bootstrap_tokens, sessions, users},
         service::hash_token,
     },
-    helpers::{err_bad_request, err_internal, err_unauthorized, parse_form_body, ResponseBuilder},
+    helpers::{
+        err_bad_request, err_internal, err_internal_no_cause, err_unauthorized, parse_form_body,
+        ResponseBuilder,
+    },
 };
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
@@ -49,7 +52,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     match bootstrap_tokens::is_valid(ctx, &token_hash).await {
         Ok(true) => {}
         Ok(false) => return err_unauthorized("invalid or expired bootstrap token"),
-        Err(e) => return err_internal(&format!("bootstrap_tokens lookup: {e}")),
+        Err(e) => return err_internal("bootstrap_tokens lookup", e),
     }
 
     // 2. Create the admin user via the same code path bootstrap-on-init uses.
@@ -57,7 +60,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     //    `deleted_at`) and the local_credentials row consistent with the
     //    env-var path.
     if let Err(e) = bootstrap::bootstrap_with_email_password(ctx, &email, &password).await {
-        return err_internal(&format!("create admin: {e}"));
+        return err_internal("create admin", e);
     }
 
     // 3. Consume the token row. Best-effort: the admin user already exists,
@@ -73,9 +76,11 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     let user = match users::find_by_email(ctx, &email).await {
         Ok(Some(u)) => u,
         Ok(None) => {
-            return err_internal("bootstrap created admin but find_by_email returned no row")
+            return err_internal_no_cause(
+                "bootstrap created admin but find_by_email returned no row",
+            )
         }
-        Err(e) => return err_internal(&format!("users::find_by_email after bootstrap: {e}")),
+        Err(e) => return err_internal("users::find_by_email after bootstrap", e),
     };
 
     // 5. Mint a session — same pattern as auth_ui::api::login::handle.

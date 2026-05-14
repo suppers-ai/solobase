@@ -172,7 +172,18 @@ pub fn derive_block_jwt_key(master_secret: &str, block_id: &str) -> String {
 ///
 /// Silently does nothing if the token is invalid (the request continues
 /// as unauthenticated).
-pub fn extract_auth_meta(auth_header: &str, jwt_secret: &str, msg: &mut wafer_run::types::Message) {
+///
+/// [SEC-038] `expected_iss` is the deployment's canonical issuer
+/// (`SOLOBASE_SHARED__FRONTEND_URL`). Tokens whose `iss` claim doesn't
+/// match are rejected as if they were unsigned — prevents a leaked
+/// signing secret in dev/staging from authenticating against production
+/// (and vice versa).
+pub fn extract_auth_meta(
+    auth_header: &str,
+    jwt_secret: &str,
+    expected_iss: &str,
+    msg: &mut wafer_run::types::Message,
+) {
     use wafer_run::meta::*;
 
     let token = match auth_header.strip_prefix("Bearer ") {
@@ -196,6 +207,17 @@ pub fn extract_auth_meta(auth_header: &str, jwt_secret: &str, msg: &mut wafer_ru
     let token_type = claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
     if token_type == "refresh" {
         return; // Refresh tokens must not be used as Bearer tokens
+    }
+
+    // [SEC-038] Require iss claim to match the deployment's expected issuer.
+    // An empty expected_iss disables the check (defensive — should never be
+    // empty in production, but a misconfigured deployment shouldn't 401
+    // every request silently).
+    if !expected_iss.is_empty() {
+        let iss = claims.get("iss").and_then(|v| v.as_str()).unwrap_or("");
+        if iss != expected_iss {
+            return;
+        }
     }
 
     if let Some(sub) = claims.get("sub").and_then(|v| v.as_str()) {

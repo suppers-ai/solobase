@@ -94,7 +94,7 @@ impl LegalPagesBlock {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!(error = %e, "legalpages: db list failed");
-                return err_internal(&format!("Database error: {e}"));
+                return err_internal("Database error", e);
             }
         };
 
@@ -183,7 +183,7 @@ impl LegalPagesBlock {
         };
         match db::list(ctx, COLLECTION, &opts).await {
             Ok(result) => ok_json(&result),
-            Err(e) => err_internal(&format!("Database error: {e}")),
+            Err(e) => err_internal("Database error", e),
         }
     }
 
@@ -195,7 +195,7 @@ impl LegalPagesBlock {
         match db::get(ctx, COLLECTION, id).await {
             Ok(record) => ok_json(&record),
             Err(e) if e.code == ErrorCode::NotFound => err_not_found("Document not found"),
-            Err(e) => err_internal(&format!("Database error: {e}")),
+            Err(e) => err_internal("Database error", e),
         }
     }
 
@@ -229,7 +229,7 @@ impl LegalPagesBlock {
 
         match db::create(ctx, COLLECTION, data).await {
             Ok(record) => ok_json(&record),
-            Err(e) => err_internal(&format!("Database error: {e}")),
+            Err(e) => err_internal("Database error", e),
         }
     }
 
@@ -256,7 +256,7 @@ impl LegalPagesBlock {
         match db::update(ctx, COLLECTION, id, data).await {
             Ok(record) => ok_json(&record),
             Err(e) if e.code == ErrorCode::NotFound => err_not_found("Document not found"),
-            Err(e) => err_internal(&format!("Database error: {e}")),
+            Err(e) => err_internal("Database error", e),
         }
     }
 
@@ -270,7 +270,7 @@ impl LegalPagesBlock {
         let doc = match db::get(ctx, COLLECTION, id).await {
             Ok(r) => r,
             Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Document not found"),
-            Err(e) => return err_internal(&format!("Database error: {e}")),
+            Err(e) => return err_internal("Database error", e),
         };
 
         let doc_type = doc
@@ -317,7 +317,7 @@ impl LegalPagesBlock {
 
         match db::update(ctx, COLLECTION, id, data).await {
             Ok(record) => ok_json(&record),
-            Err(e) => err_internal(&format!("Database error: {e}")),
+            Err(e) => err_internal("Database error", e),
         }
     }
 
@@ -329,7 +329,7 @@ impl LegalPagesBlock {
         match db::delete(ctx, COLLECTION, id).await {
             Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
             Err(e) if e.code == ErrorCode::NotFound => err_not_found("Document not found"),
-            Err(e) => err_internal(&format!("Database error: {e}")),
+            Err(e) => err_internal("Database error", e),
         }
     }
 

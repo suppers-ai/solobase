@@ -51,7 +51,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
             crate::blocks::helpers::stamp_created(&mut data);
             match db::create(ctx, USERS_TABLE, data).await {
                 Ok(u) => u,
-                Err(e) => return err_internal(&format!("Create failed: {e}")),
+                Err(e) => return err_internal("Create failed", e),
             }
         }
     };

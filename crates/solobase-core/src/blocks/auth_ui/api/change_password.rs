@@ -57,7 +57,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
                 "No password set for this account",
             )
         }
-        Err(e) => return err_internal(&format!("Credential lookup failed: {e}")),
+        Err(e) => return err_internal("Credential lookup failed", e),
     };
 
     if crypto::compare_hash(ctx, &body.current_password, &cred.password_hash)
@@ -72,7 +72,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
 
     let new_hash = match crypto::hash(ctx, &body.new_password).await {
         Ok(h) => h,
-        Err(e) => return err_internal(&format!("Hash failed: {e}")),
+        Err(e) => return err_internal("Hash failed", e),
     };
 
     match local_credentials::update_password(ctx, user_id, &new_hash).await {
@@ -83,6 +83,6 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
             tokens::revoke_all_for_user(ctx, user_id).await.ok();
             ok_json(&serde_json::json!({"message": "Password changed successfully"}))
         }
-        Err(e) => err_internal(&format!("Update failed: {e}")),
+        Err(e) => err_internal("Update failed", e),
     }
 }

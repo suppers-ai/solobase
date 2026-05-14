@@ -43,7 +43,7 @@ pub async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match db::list(ctx, TABLE, &opts).await {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -85,7 +85,7 @@ pub async fn handle_create(ctx: &dyn Context, input: InputStream) -> OutputStrea
 
     match db::create(ctx, TABLE, data).await {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -112,7 +112,7 @@ pub async fn handle_update(ctx: &dyn Context, msg: &Message, input: InputStream)
     match db::update(ctx, TABLE, &id, body).await {
         Ok(record) => ok_json(&record),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Variable not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -127,6 +127,6 @@ pub async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
     match db::delete(ctx, TABLE, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Variable not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }

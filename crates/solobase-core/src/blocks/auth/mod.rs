@@ -182,6 +182,12 @@ pub(crate) mod helpers {
             Err(e) => return Err(wafer_run::OutputStream::error(e)),
         };
 
+        // [SEC-038] Stamp `iss` on every token we mint so the read side can
+        // reject tokens minted by a different deployment (e.g. a sibling
+        // env's leaked secret) instead of trusting any signature with the
+        // same HMAC key.
+        let issuer = expected_issuer(ctx).await;
+
         let mut access_claims = HashMap::new();
         access_claims.insert(
             "user_id".to_string(),
@@ -204,6 +210,7 @@ pub(crate) mod helpers {
             "auth_method".to_string(),
             serde_json::Value::String(auth_method.to_string()),
         );
+        access_claims.insert("iss".to_string(), serde_json::Value::String(issuer.clone()));
 
         let access_token = crypto::sign(ctx, &access_claims, Duration::from_secs(86400))
             .await
@@ -230,6 +237,7 @@ pub(crate) mod helpers {
             "auth_method".to_string(),
             serde_json::Value::String(auth_method.to_string()),
         );
+        refresh_claims.insert("iss".to_string(), serde_json::Value::String(issuer.clone()));
 
         let refresh_token = crypto::sign(
             ctx,
@@ -240,6 +248,21 @@ pub(crate) mod helpers {
         .map_err(wafer_run::OutputStream::error)?;
 
         Ok((access_token, refresh_token, family))
+    }
+
+    /// [SEC-038] Resolve the canonical JWT `iss` value for this deployment.
+    ///
+    /// `SOLOBASE_SHARED__FRONTEND_URL` doubles as the issuer: it's the only
+    /// per-deployment URL admins reliably set, and treating it as the issuer
+    /// means a token minted in dev (`http://localhost:5173`) won't validate
+    /// against a production secret if one leaks between environments.
+    pub(crate) async fn expected_issuer(ctx: &dyn wafer_run::context::Context) -> String {
+        config_client::get_default(
+            ctx,
+            "SOLOBASE_SHARED__FRONTEND_URL",
+            "http://localhost:5173",
+        )
+        .await
     }
 
     /// Persist a freshly minted refresh token.

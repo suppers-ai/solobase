@@ -27,7 +27,7 @@ async fn handle_info(ctx: &dyn Context) -> OutputStream {
     let sql = introspect::build_list_tables(Backend::Sqlite);
     let tables = match db::query_raw(ctx, &sql, &[]).await {
         Ok(t) => t,
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
 
     let table_names: Vec<&str> = tables
@@ -46,7 +46,7 @@ async fn handle_tables(ctx: &dyn Context) -> OutputStream {
     let sql = introspect::build_list_tables(Backend::Sqlite);
     let tables = match db::query_raw(ctx, &sql, &[]).await {
         Ok(t) => t,
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
 
     let mut table_info = Vec::new();
@@ -90,7 +90,7 @@ async fn handle_columns(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (info_sql, info_args) = introspect::build_table_info(table_name, Backend::Sqlite);
     let columns = match db::query_raw(ctx, &info_sql, &info_args).await {
         Ok(c) => c,
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
 
     let col_info: Vec<serde_json::Value> = columns
@@ -172,6 +172,10 @@ pub(in crate::blocks::admin) fn validate_readonly_query(
         "COMMIT",
         "ROLLBACK",
         "RETURNING",
+        // SEC-052: reject WITH RECURSIVE — unbounded recursive CTEs are a
+        // cheap DoS vector against the admin SQL explorer. A plain
+        // (non-recursive) WITH is still allowed via the first-word check.
+        "RECURSIVE",
     ];
     for keyword in FORBIDDEN_KEYWORDS {
         let upper = query_upper.as_str();
@@ -284,6 +288,17 @@ mod tests {
         assert!(validate_readonly_query("UPDATE users SET x = 1").is_err());
         assert!(validate_readonly_query("DELETE FROM users").is_err());
         assert!(validate_readonly_query("SELECT 1; DROP TABLE users").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_recursive_cte() {
+        // SEC-052: unbounded recursive CTEs are a DoS vector.
+        assert!(validate_readonly_query(
+            "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x) SELECT * FROM x"
+        )
+        .is_err());
+        // Plain (non-recursive) WITH still works.
+        assert!(validate_readonly_query("WITH x AS (SELECT 1) SELECT * FROM x").is_ok());
     }
 
     #[test]

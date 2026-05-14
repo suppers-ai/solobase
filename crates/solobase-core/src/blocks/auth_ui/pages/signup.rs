@@ -5,7 +5,7 @@ use wafer_run::{context::Context, types::Message, OutputStream};
 
 use super::{pw_field, pw_toggle_js, site_config};
 use crate::{
-    blocks::auth::brand_panel,
+    blocks::{auth::brand_panel, auth_ui::redirect::is_safe_local_redirect},
     ui::{self, templates::auth_split},
 };
 
@@ -18,7 +18,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         == "true";
     let raw_redirect = msg.get_meta("req.query.redirect").to_string();
     // Validate redirect — only allow relative paths (prevent open redirect)
-    let redirect = if raw_redirect.starts_with('/') && !raw_redirect.starts_with("//") {
+    let redirect = if is_safe_local_redirect(&raw_redirect) {
         raw_redirect
     } else {
         String::new()

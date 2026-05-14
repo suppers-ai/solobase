@@ -49,7 +49,7 @@ pub async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
             }
             ok_json(&result)
         }
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -80,7 +80,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
     // Generate random key
     let random_bytes = match crypto::random_bytes(ctx, 24).await {
         Ok(b) => b,
-        Err(e) => return err_internal(&format!("Failed to generate key: {e}")),
+        Err(e) => return err_internal("Failed to generate key", e),
     };
     let key_string = format!("sb_{}", hex_encode(&random_bytes));
 
@@ -148,7 +148,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
                 }))
             }
         }
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -175,7 +175,7 @@ pub async fn handle_revoke(ctx: &dyn Context, msg: &Message) -> OutputStream {
     );
     match db::update(ctx, API_KEYS_TABLE, id, data).await {
         Ok(_) => ok_json(&serde_json::json!({"message": "API key revoked"})),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -199,6 +199,6 @@ pub async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match db::delete(ctx, API_KEYS_TABLE, id).await {
         Ok(_) => ok_json(&serde_json::json!({"deleted": true})),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }

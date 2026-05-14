@@ -16,7 +16,10 @@ use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::{build_auth_cookie, ensure_admin_role, generate_tokens, store_refresh_token},
+        helpers::{
+            build_auth_cookie, ensure_admin_role, expected_issuer, generate_tokens,
+            store_refresh_token,
+        },
         repo::{sessions, tokens},
         service::hash_token,
         USERS_TABLE,
@@ -62,7 +65,18 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         return error_response(ErrorCode::InvalidToken, "Not a refresh token");
     }
 
-    // Look up the row by SHA-256 hash (SEC-032).
+    // [SEC-038] Require the iss claim to match this deployment. A refresh
+    // token minted against a different SOLOBASE_SHARED__FRONTEND_URL value
+    // (e.g. a leaked staging secret) must not refresh into a production
+    // access token.
+    let expected_iss = expected_issuer(ctx).await;
+    let iss = claims.get("iss").and_then(|v| v.as_str()).unwrap_or("");
+    if iss != expected_iss {
+        return error_response(ErrorCode::InvalidToken, "Invalid or expired refresh token");
+    }
+
+    // SEC-032: look up the row by SHA-256 hash of the JWT — the raw token
+    // is never stored, only its hash.
     let row = match tokens::find_by_token(ctx, &body.refresh_token).await {
         Ok(Some(r)) => r,
         Ok(None) => {

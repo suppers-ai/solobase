@@ -9,14 +9,14 @@ use wafer_sql_utils::{value::sea_values_to_json, Backend};
 
 use super::{LINE_ITEMS_TABLE, PRODUCTS_TABLE, PURCHASES_TABLE, SUBSCRIPTIONS_TABLE};
 use crate::blocks::helpers::{
-    err_bad_request, err_forbidden, err_internal, err_not_found, err_unauthorized, hex_encode,
-    ok_json,
+    err_bad_request, err_forbidden, err_internal, err_internal_no_cause, err_not_found,
+    err_unauthorized, hex_encode, ok_json,
 };
 
 pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
     let stripe_key = match config::get(ctx, "SUPPERS_AI__PRODUCTS__STRIPE_SECRET_KEY").await {
         Ok(k) => k,
-        Err(_) => return err_internal("Stripe is not configured"),
+        Err(_) => return err_internal_no_cause("Stripe is not configured"),
     };
 
     #[derive(serde::Deserialize)]
@@ -194,7 +194,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
     .await
     {
         Ok(r) => r,
-        Err(e) => return err_internal(&format!("Stripe API error: {e}")),
+        Err(e) => return err_internal("Stripe API error", e),
     };
 
     if resp.status_code >= 400 {
@@ -224,16 +224,26 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
         );
         let revert_args = sea_values_to_json(revert_vals);
         let _ = db::exec_raw(ctx, &revert_sql, &revert_args).await;
+        // SEC-054: log full Stripe response server-side for diagnostics,
+        // but never forward Stripe's response body to the client — it can
+        // leak account configuration, API keys in error messages, internal
+        // resource IDs, etc.
         let err_body = String::from_utf8_lossy(&resp.body);
-        return err_internal(&format!(
-            "Stripe error ({}): {}",
-            resp.status_code, err_body
-        ));
+        tracing::error!(
+            status = resp.status_code,
+            body = %err_body,
+            purchase_id = %body.purchase_id,
+            "Stripe checkout session creation failed"
+        );
+        return err_internal(
+            "Stripe API error",
+            format!("status={} body={}", resp.status_code, err_body),
+        );
     }
 
     let session: serde_json::Value = match serde_json::from_slice(&resp.body) {
         Ok(d) => d,
-        Err(_) => return err_internal("Failed to parse Stripe response"),
+        Err(_) => return err_internal_no_cause("Failed to parse Stripe response"),
     };
 
     let session_id = session.get("id").and_then(|v| v.as_str()).unwrap_or("");
@@ -268,7 +278,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
     let webhook_secret =
         config::get_default(ctx, "SUPPERS_AI__PRODUCTS__STRIPE_WEBHOOK_SECRET", "").await;
     if webhook_secret.is_empty() {
-        return err_internal(
+        return err_internal_no_cause(
             "STRIPE_WEBHOOK_SECRET not configured — webhook processing disabled for security",
         );
     }
@@ -570,7 +580,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                     );
                     if let Err(e) = db::update(ctx, PURCHASES_TABLE, &purchase.id, data).await {
                         tracing::error!("Failed to mark purchase as refunded: {e}");
-                        return err_internal(&format!("Failed to update purchase: {e}"));
+                        return err_internal("Failed to update purchase", e);
                     }
                 }
             }
