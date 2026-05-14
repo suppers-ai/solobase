@@ -46,7 +46,7 @@ pub async fn storage_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             div .card .mt-4 style="background:#f0f9ff;border-color:#bae6fd" {
                 p style="padding:12px;margin:0;font-size:13px" {
                     (icons::info()) " Storage permissions have moved to the "
-                    a href="/b/admin/permissions?tab=storage" { "Permissions" }
+                    a href="/b/admin/permissions?subtab=storage" { "Permissions" }
                     " page."
                 }
             }
