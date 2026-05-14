@@ -180,10 +180,14 @@ pub fn extract_auth_meta(auth_header: &str, jwt_secret: &str, msg: &mut wafer_ru
         None => return,
     };
 
-    // The auth block signs JWTs with a per-block derived key (HKDF from the
-    // master secret + block ID). Try the derived key first, fall back to
-    // the master secret for tokens signed without block derivation.
-    let derived_secret = derive_block_jwt_key(jwt_secret, crate::blocks::auth::AUTH_BLOCK_ID);
+    // Session tokens (access + refresh) are minted by the `suppers-ai/auth-ui`
+    // block — login, signup, bootstrap, refresh, and the oauth callback all
+    // run there. The crypto handler keys per-block JWT signatures by caller
+    // block id (HKDF from master_secret + "wafer-jwt|<block_id>"), so the
+    // verify side has to derive from the same id. Try the auth-ui derived
+    // key first, then fall back to the master secret for tokens signed
+    // without block derivation (e.g. unit-test fixtures).
+    let derived_secret = derive_block_jwt_key(jwt_secret, crate::blocks::auth_ui::AUTH_UI_BLOCK_ID);
     let claims = match jwt_verify(token, &derived_secret) {
         Ok(c) => c,
         Err(_) => match jwt_verify(token, jwt_secret) {
@@ -365,5 +369,90 @@ mod tests {
         assert!(!constant_time_eq(b"hello", b"world"));
         assert!(!constant_time_eq(b"hello", b"hell"));
         assert!(constant_time_eq(b"", b""));
+    }
+
+    /// Sign a JWT the same way the runtime crypto handler does for a given
+    /// caller block id (HKDF-derive master_secret + "wafer-jwt|<block_id>"),
+    /// then bearer-wrap it. Used by the extract_auth_meta tests below.
+    fn sign_as_block(
+        master_secret: &str,
+        block_id: &str,
+        claims: HashMap<String, serde_json::Value>,
+    ) -> String {
+        let derived = derive_block_jwt_key(master_secret, block_id);
+        let token = jwt_sign(&claims, Duration::from_secs(3600), &derived);
+        format!("Bearer {token}")
+    }
+
+    fn access_claims(
+        user_id: &str,
+        email: &str,
+        roles: &[&str],
+    ) -> HashMap<String, serde_json::Value> {
+        let mut claims = HashMap::new();
+        claims.insert("sub".to_string(), serde_json::json!(user_id));
+        claims.insert("user_id".to_string(), serde_json::json!(user_id));
+        claims.insert("email".to_string(), serde_json::json!(email));
+        claims.insert("type".to_string(), serde_json::json!("access"));
+        claims.insert("roles".to_string(), serde_json::json!(roles));
+        claims
+    }
+
+    #[test]
+    fn extract_auth_meta_accepts_auth_ui_signed_token() {
+        // Login/signup/refresh/oauth all run in the auth-ui block, so tokens
+        // they mint are signed with the auth-ui-derived key. Verify side has
+        // to derive from the same block id or every request silently fails
+        // auth and admin pages return 403.
+        let master = "master-secret";
+        let header = sign_as_block(
+            master,
+            crate::blocks::auth_ui::AUTH_UI_BLOCK_ID,
+            access_claims("u1", "admin@example.com", &["admin"]),
+        );
+        let mut msg = wafer_run::types::Message::new("http.request");
+        extract_auth_meta(&header, master, &mut msg);
+        assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ID), "u1");
+        assert_eq!(
+            msg.get_meta(wafer_run::meta::META_AUTH_USER_EMAIL),
+            "admin@example.com"
+        );
+        assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ROLES), "admin");
+    }
+
+    #[test]
+    fn extract_auth_meta_falls_back_to_master_secret() {
+        // Block-unaware tokens (e.g. test fixtures, legacy direct sign)
+        // should still verify against the raw master secret.
+        let master = "master-secret";
+        let token = jwt_sign(
+            &access_claims("u2", "x@y.z", &["user"]),
+            Duration::from_secs(3600),
+            master,
+        );
+        let mut msg = wafer_run::types::Message::new("http.request");
+        extract_auth_meta(&format!("Bearer {token}"), master, &mut msg);
+        assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ID), "u2");
+        assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ROLES), "user");
+    }
+
+    #[test]
+    fn extract_auth_meta_rejects_refresh_token() {
+        let master = "master-secret";
+        let mut claims = access_claims("u3", "x@y.z", &["admin"]);
+        claims.insert("type".to_string(), serde_json::json!("refresh"));
+        let header = sign_as_block(master, crate::blocks::auth_ui::AUTH_UI_BLOCK_ID, claims);
+        let mut msg = wafer_run::types::Message::new("http.request");
+        extract_auth_meta(&header, master, &mut msg);
+        // Refresh tokens must not authenticate requests.
+        assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ID), "");
+        assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ROLES), "");
+    }
+
+    #[test]
+    fn extract_auth_meta_silent_on_garbage_token() {
+        let mut msg = wafer_run::types::Message::new("http.request");
+        extract_auth_meta("Bearer not.a.jwt", "master-secret", &mut msg);
+        assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ID), "");
     }
 }
