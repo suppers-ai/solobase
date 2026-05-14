@@ -53,7 +53,7 @@ async fn handle_list_shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match db::list(ctx, SHARES_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -159,7 +159,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
             "token": token,
             "direct_url": format!("/b/storage/direct/{}", token)
         })),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -185,7 +185,7 @@ async fn handle_delete_share(ctx: &dyn Context, msg: &Message) -> OutputStream {
     match db::delete(ctx, SHARES_TABLE, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Share not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -211,7 +211,7 @@ async fn handle_admin_list_shares(ctx: &dyn Context, msg: &Message) -> OutputStr
     };
     match db::list(ctx, SHARES_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -241,7 +241,7 @@ async fn handle_access_logs(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match db::list(ctx, ACCESS_LOGS_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -252,7 +252,7 @@ async fn handle_admin_quotas(ctx: &dyn Context, _msg: &Message) -> OutputStream 
     };
     match db::list(ctx, QUOTAS_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -291,6 +291,6 @@ async fn handle_update_quota(ctx: &dyn Context, msg: &Message, input: InputStrea
     .await
     {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }

@@ -27,7 +27,7 @@ async fn handle_info(ctx: &dyn Context) -> OutputStream {
     let sql = introspect::build_list_tables(Backend::Sqlite);
     let tables = match db::query_raw(ctx, &sql, &[]).await {
         Ok(t) => t,
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
 
     let table_names: Vec<&str> = tables
@@ -46,7 +46,7 @@ async fn handle_tables(ctx: &dyn Context) -> OutputStream {
     let sql = introspect::build_list_tables(Backend::Sqlite);
     let tables = match db::query_raw(ctx, &sql, &[]).await {
         Ok(t) => t,
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
 
     let mut table_info = Vec::new();
@@ -90,7 +90,7 @@ async fn handle_columns(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let (info_sql, info_args) = introspect::build_table_info(table_name, Backend::Sqlite);
     let columns = match db::query_raw(ctx, &info_sql, &info_args).await {
         Ok(c) => c,
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
 
     let col_info: Vec<serde_json::Value> = columns

@@ -90,7 +90,7 @@ pub(super) async fn providers_page(
                 .into_iter()
                 .filter_map(|rec| row_to_config(&rec).ok().map(|cfg| (rec.id, cfg)))
                 .collect(),
-            Err(e) => return err_internal(&format!("Database error: {e}")),
+            Err(e) => return err_internal("Database error", e),
         };
 
     let content = html! {
@@ -365,12 +365,12 @@ pub(super) async fn models_page(
     let buffered = match out.collect_buffered().await {
         Ok(b) => b,
         Err(e) => {
-            return err_internal(&format!("list_models failed: {e:?}"));
+            return err_internal("list_models failed", format!("{e:?}"));
         }
     };
     let envelope: serde_json::Value = match serde_json::from_slice(&buffered.body) {
         Ok(v) => v,
-        Err(e) => return err_internal(&format!("decode models envelope: {e}")),
+        Err(e) => return err_internal("decode models envelope", e),
     };
     let empty_vec: Vec<serde_json::Value> = Vec::new();
     let models: &[serde_json::Value] = envelope

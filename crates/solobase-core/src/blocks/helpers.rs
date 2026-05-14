@@ -199,11 +199,7 @@ pub fn ok_json<T: Serialize>(value: &T) -> OutputStream {
                 value: "application/json".to_string(),
             }],
         ),
-        Err(e) => OutputStream::error(WaferError {
-            code: ErrorCode::Internal,
-            message: format!("serialize failed: {}", e),
-            meta: vec![],
-        }),
+        Err(e) => err_internal("response serialization failed", e),
     }
 }
 
@@ -258,12 +254,63 @@ pub fn err_conflict(message: &str) -> OutputStream {
 }
 
 /// Return a 500 Internal Server Error `OutputStream`.
-pub fn err_internal(message: &str) -> OutputStream {
+///
+/// **Do not pass raw error text to the client.** This helper generates a short
+/// correlation ID, logs the full error detail server-side via
+/// [`tracing::error!`], and returns only `"Internal server error (ref: <id>)"`
+/// to the caller. The `context` argument is a short, fixed label (no
+/// interpolated error text) used for log grouping — e.g. `"Database error"`,
+/// `"Storage error"`, `"Failed to update profile"`. The `error` argument is
+/// the underlying error/cause; it is logged but NEVER echoed to the client.
+///
+/// ```ignore
+/// .map_err(|e| err_internal("Database error", e))
+/// ```
+pub fn err_internal<E: std::fmt::Display>(context: &str, error: E) -> OutputStream {
+    let id = correlation_id();
+    tracing::error!(
+        correlation_id = %id,
+        error = %error,
+        context = %context,
+        "internal error",
+    );
     OutputStream::error(WaferError {
         code: ErrorCode::Internal,
-        message: message.to_string(),
+        message: format!("Internal server error (ref: {})", id),
         meta: vec![],
     })
+}
+
+/// 500 Internal Server Error for the rare case where there is no underlying
+/// cause to log (e.g. an internal invariant violation with a static label).
+/// Still logs the context with a correlation ID and returns the sanitized
+/// `"Internal server error (ref: <id>)"` message. Most callers should prefer
+/// [`err_internal`] which captures the underlying error.
+pub fn err_internal_no_cause(context: &str) -> OutputStream {
+    let id = correlation_id();
+    tracing::error!(
+        correlation_id = %id,
+        context = %context,
+        "internal error (no cause)",
+    );
+    OutputStream::error(WaferError {
+        code: ErrorCode::Internal,
+        message: format!("Internal server error (ref: {})", id),
+        meta: vec![],
+    })
+}
+
+/// 8-byte hex correlation ID — short enough to be quotable in support tickets,
+/// random enough to grep logs without collisions.
+fn correlation_id() -> String {
+    let mut buf = [0u8; 8];
+    if getrandom::getrandom(&mut buf).is_err() {
+        // Fall back to timestamp-derived ID; correlation IDs are diagnostic
+        // aids, not security primitives, so a deterministic fallback is fine.
+        let nanos = now_millis();
+        buf.copy_from_slice(&nanos.to_be_bytes());
+    }
+    hex_encode(&buf)
 }
 
 // ---------------------------------------------------------------------------
@@ -323,7 +370,7 @@ impl ResponseBuilder {
                 });
                 OutputStream::respond_with_meta(body, self.meta)
             }
-            Err(e) => err_internal(&format!("serialize failed: {}", e)),
+            Err(e) => err_internal("response serialization failed", e),
         }
     }
 
@@ -499,6 +546,103 @@ mod tests {
         assert_eq!(
             hash,
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    /// Helper: drain an OutputStream and extract the client-facing error
+    /// message. Panics if the stream did not terminate with an error.
+    fn error_message(stream: OutputStream) -> String {
+        use wafer_run::TerminalNotResponse;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("rt");
+        match rt.block_on(stream.collect_buffered()) {
+            Ok(_) => panic!("expected error terminal, got Complete"),
+            Err(TerminalNotResponse::Error(e)) => e.message,
+            Err(other) => panic!("expected error terminal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn err_internal_sanitizes_underlying_error() {
+        // A vivid error message with content that MUST NOT reach the client:
+        // SQL fragments, table names, secrets — anything an attacker could
+        // use to fingerprint the backend.
+        let raw = "DB error: no such table: secret_users_table (sqlite code 1)";
+        let stream = err_internal("Database error", raw);
+        let msg = error_message(stream);
+
+        // Client message is the sanitized form.
+        assert!(
+            msg.starts_with("Internal server error (ref: "),
+            "expected sanitized prefix, got {msg:?}"
+        );
+        assert!(msg.ends_with(')'), "expected closing paren, got {msg:?}");
+
+        // Raw error text does NOT leak.
+        assert!(
+            !msg.contains("DB error"),
+            "raw error label leaked into client message: {msg:?}"
+        );
+        assert!(
+            !msg.contains("secret_users_table"),
+            "table name leaked into client message: {msg:?}"
+        );
+        assert!(
+            !msg.contains("sqlite"),
+            "backend name leaked into client message: {msg:?}"
+        );
+        assert!(
+            !msg.contains("Database error"),
+            "context label leaked into client message: {msg:?}"
+        );
+    }
+
+    #[test]
+    fn err_internal_message_contains_ref_id() {
+        let stream = err_internal("Database error", "boom");
+        let msg = error_message(stream);
+
+        // Pull out the ref id and check it's a hex string of the expected
+        // length (8 bytes -> 16 hex chars).
+        let id = msg
+            .strip_prefix("Internal server error (ref: ")
+            .and_then(|s| s.strip_suffix(')'))
+            .expect("message shape");
+        assert_eq!(
+            id.len(),
+            16,
+            "expected 16-char hex correlation id, got {id:?}"
+        );
+        assert!(
+            id.chars().all(|c| c.is_ascii_hexdigit()),
+            "ref id is not hex: {id:?}"
+        );
+    }
+
+    #[test]
+    fn err_internal_ids_are_unique_across_calls() {
+        let a = error_message(err_internal("ctx", "e1"));
+        let b = error_message(err_internal("ctx", "e2"));
+        assert_ne!(
+            a, b,
+            "correlation IDs should differ between independent calls"
+        );
+    }
+
+    #[test]
+    fn err_internal_no_cause_also_sanitizes() {
+        let stream = err_internal_no_cause("Thread setting vanished between read and update");
+        let msg = error_message(stream);
+        assert!(
+            msg.starts_with("Internal server error (ref: "),
+            "expected sanitized prefix, got {msg:?}"
+        );
+        // Even the context label is not echoed.
+        assert!(
+            !msg.contains("Thread setting"),
+            "context label leaked into client message: {msg:?}"
         );
     }
 }

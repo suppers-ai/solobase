@@ -141,7 +141,7 @@ async fn handle_list_full(ctx: &dyn Context) -> OutputStream {
                 .collect();
             ok_json(&vars)
         }
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -168,7 +168,7 @@ async fn handle_list(ctx: &dyn Context) -> OutputStream {
             }
             ok_json(&settings)
         }
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -201,7 +201,7 @@ async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
             ok_json(&record)
         }
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Setting not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -255,7 +255,7 @@ async fn handle_set(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     .await
     {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -296,7 +296,7 @@ async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream) -> 
     }));
     match db::create(ctx, VARIABLES_TABLE, data).await {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -321,7 +321,7 @@ async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
     {
         Ok(record) => match db::delete(ctx, VARIABLES_TABLE, &record.id).await {
             Ok(_) => ok_json(&serde_json::json!({"deleted": key})),
-            Err(e) => err_internal(&format!("Database error: {e}")),
+            Err(e) => err_internal("Database error", e),
         },
         Err(_) => err_not_found("Setting not found"),
     }

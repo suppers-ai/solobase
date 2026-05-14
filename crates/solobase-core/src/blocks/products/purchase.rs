@@ -182,7 +182,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
 
     let purchase = match db::create(ctx, PURCHASES_TABLE, purchase_data).await {
         Ok(p) => p,
-        Err(e) => return err_internal(&format!("Failed to create purchase: {e}")),
+        Err(e) => return err_internal("Failed to create purchase", e),
     };
 
     // Create line items — roll back purchase on failure
@@ -211,7 +211,7 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
         if let Err(e) = db::create(ctx, LINE_ITEMS_TABLE, item_data).await {
             // Clean up the purchase since line items are incomplete
             let _ = db::delete(ctx, PURCHASES_TABLE, &purchase.id).await;
-            return err_internal(&format!("Failed to create line item: {e}"));
+            return err_internal("Failed to create line item", e);
         }
     }
 
@@ -248,7 +248,7 @@ pub async fn handle_list_user(ctx: &dyn Context, msg: &Message) -> OutputStream 
     .await
     {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -289,7 +289,7 @@ pub async fn handle_list_admin(ctx: &dyn Context, msg: &Message) -> OutputStream
     .await
     {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -303,7 +303,7 @@ pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let purchase = match db::get(ctx, PURCHASES_TABLE, id).await {
         Ok(p) => p,
         Err(e) if e.code == ErrorCode::NotFound => return err_not_found("Purchase not found"),
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
 
     // Verify access: user can only view their own, admin can view all
@@ -352,7 +352,7 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream)
         if e.code == ErrorCode::NotFound {
             return err_not_found("Purchase not found");
         }
-        return err_internal(&format!("Database error: {e}"));
+        return err_internal("Database error", e);
     }
 
     // Atomic status transition: completed → refunded (prevents double-refund race)
@@ -395,6 +395,6 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream)
     // Fetch the updated record for the response
     match db::get(ctx, PURCHASES_TABLE, &id).await {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }

@@ -276,7 +276,7 @@ pub fn server_error_response(msg: &wafer_run::types::Message) -> wafer_run::Outp
             ("Go home", "/"),
         )
     } else {
-        crate::blocks::helpers::err_internal("internal server error")
+        crate::blocks::helpers::err_internal_no_cause("internal server error")
     }
 }
 

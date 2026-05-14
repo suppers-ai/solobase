@@ -37,7 +37,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Generate reset token (expires in 1 hour)
     let reset_token = match crypto::random_bytes(ctx, 32).await {
         Ok(bytes) => hex_encode(&bytes),
-        Err(e) => return err_internal(&format!("Token generation failed: {e}")),
+        Err(e) => return err_internal("Token generation failed", e),
     };
 
     let expires = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
@@ -48,7 +48,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     crate::blocks::helpers::stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, data).await {
-        return err_internal(&format!("Failed to store reset token: {e}"));
+        return err_internal("Failed to store reset token", e);
     }
 
     // Send reset email

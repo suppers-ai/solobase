@@ -54,7 +54,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // Generate PKCE code verifier and challenge
     let code_verifier = match generate_pkce_verifier() {
         Ok(v) => v,
-        Err(e) => return err_internal(&format!("Failed to generate PKCE verifier: {e}")),
+        Err(e) => return err_internal("Failed to generate PKCE verifier", e),
     };
     let code_challenge = pkce_challenge(&code_verifier);
 
@@ -74,7 +74,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     );
     let state = match crypto::sign(ctx, &state_claims, Duration::from_secs(600)).await {
         Ok(s) => s,
-        Err(e) => return err_internal(&format!("Failed to generate state: {e}")),
+        Err(e) => return err_internal("Failed to generate state", e),
     };
 
     let auth_url = match provider {
