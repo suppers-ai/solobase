@@ -1,4 +1,4 @@
-use maud::{html, Markup, PreEscaped};
+use maud::{html, Markup};
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
@@ -14,7 +14,7 @@ use crate::{
     },
     ui::{
         self,
-        components::{self, button, pagination, BtnVariant, CtrlSize},
+        components::{self, pagination},
         icons,
         shell::Topbar,
         templates::{list_page, PageHeader},
@@ -71,29 +71,6 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 (api_keys_tab(ctx).await)
             }
         }
-        // Invite-user modal — always present so the topbar action works
-        // regardless of which tab is active. Posts back to
-        // /b/admin/users (create) and swaps the users table.
-        (components::modal("invite-user", "Invite user", html! {
-            form hx-post="/b/admin/users" hx-target="#users-tab-content" {
-                div .form-group {
-                    label .form-label .required for="invite-email" { "Email" }
-                    input .form-input type="email" #invite-email name="email" placeholder="user@example.com" required;
-                }
-                div .form-group {
-                    label .form-label .required for="invite-password" { "Initial password" }
-                    input .form-input type="text" #invite-password name="password" placeholder="At least 8 chars" minlength="8" required;
-                }
-                div .form-group {
-                    label .form-label for="invite-name" { "Name" }
-                    input .form-input type="text" #invite-name name="name" placeholder="Optional";
-                }
-                div .form-actions {
-                    button .btn .btn-secondary type="button" onclick="closeModal('invite-user')" { "Cancel" }
-                    button .btn .btn-primary type="submit" { "Invite" }
-                }
-            }
-        }))
     };
 
     let body = list_page(
@@ -114,12 +91,7 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         user.as_ref(),
         Topbar {
             crumbs: crumb("Users"),
-            primary_action: Some(button(
-                BtnVariant::Primary,
-                CtrlSize::Sm,
-                "+ Invite user",
-                PreEscaped(r##"onclick="openModal('invite-user')""##.to_string()),
-            )),
+            primary_action: None,
             subtitle: Some("Manage accounts, roles, and API keys"),
             show_palette: true,
         },
@@ -450,101 +422,6 @@ pub async fn handle_user_delete(ctx: &dyn Context, msg: &Message, user_id: &str)
     )
     .await;
     ui::html_response_with_toast(html! {}, "User deleted", "success")
-}
-
-/// POST /b/admin/users (invite-user modal form)
-pub async fn handle_user_invite(
-    ctx: &dyn Context,
-    msg: &Message,
-    input: InputStream,
-) -> OutputStream {
-    use wafer_core::clients::crypto;
-    let admin_id = msg.user_id().to_string();
-    let ip = msg.remote_addr().to_string();
-    let bytes = input.collect_to_bytes().await;
-    let body = parse_form_body(&bytes);
-
-    let email = body
-        .get("email")
-        .map(String::as_str)
-        .unwrap_or("")
-        .trim()
-        .to_lowercase();
-    let password = body.get("password").map(String::as_str).unwrap_or("");
-    let name = body
-        .get("name")
-        .map(String::as_str)
-        .unwrap_or("")
-        .to_string();
-    if email.is_empty() {
-        return err_bad_request("Email is required");
-    }
-    if password.len() < 8 {
-        return err_bad_request("Password must be at least 8 characters");
-    }
-
-    // Reject duplicate email — emails are unique in practice though the
-    // table doesn't carry a UNIQUE constraint.
-    match db::get_by_field(
-        ctx,
-        USERS,
-        "email",
-        serde_json::Value::String(email.clone()),
-    )
-    .await
-    {
-        Ok(_) => return err_bad_request("A user with that email already exists"),
-        Err(e) if e.code == ErrorCode::NotFound => {}
-        Err(_) => {}
-    }
-
-    let password_hash = match crypto::hash(ctx, password).await {
-        Ok(h) => h,
-        Err(e) => return err_internal(&format!("Failed to hash password: {e}")),
-    };
-
-    let mut data = helpers::json_map(serde_json::json!({
-        "email": email,
-        "password_hash": password_hash,
-        "name": name,
-        "disabled": false,
-        "email_verified": false,
-        "avatar_url": "",
-        "oauth_provider": "",
-        "verification_token": "",
-        "reset_token": "",
-        "reset_token_expires": null,
-        "last_verification_sent": null,
-        "last_login_at": null,
-        "deleted_at": null,
-    }));
-    helpers::stamp_created(&mut data);
-
-    let new_user = match db::create(ctx, USERS, data).await {
-        Ok(u) => u,
-        Err(e) => return err_internal(&format!("Failed: {}", e.message)),
-    };
-
-    super::super::logs::audit_log(
-        ctx,
-        &admin_id,
-        "user.invite",
-        &format!("users/{}", new_user.id),
-        &ip,
-    )
-    .await;
-
-    // Return the refreshed users-tab content (table + pagination) so it
-    // slots into #users-tab-content via innerHTML swap. Trigger toast +
-    // close-modal client-side.
-    let content = users_tab(ctx, msg, &admin_id).await;
-    let trigger = r#"{"showToast":{"message":"User invited","type":"success"},"closeModal":{"id":"invite-user"}}"#;
-    ResponseBuilder::new()
-        .set_header("HX-Trigger", trigger)
-        .body(
-            content.into_string().into_bytes(),
-            "text/html; charset=utf-8",
-        )
 }
 
 /// POST /b/admin/iam/roles (create role from modal form)

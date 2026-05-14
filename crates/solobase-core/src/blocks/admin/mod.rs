@@ -304,9 +304,6 @@ impl Block for AdminBlock {
                     return pages::handle_user_delete(ctx, &msg, &user_id).await;
                 }
             }
-            if action == "create" && sub == "/users" {
-                return pages::handle_user_invite(ctx, &msg, input).await;
-            }
             if action == "create" && sub == "/iam/roles" {
                 return pages::handle_create_role(ctx, &msg, input).await;
             }
