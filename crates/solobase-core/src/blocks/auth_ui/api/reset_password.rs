@@ -4,7 +4,10 @@ use wafer_core::clients::{crypto, database as db};
 use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
-    auth::{repo::local_credentials, TOKENS_TABLE, USERS_TABLE},
+    auth::{
+        repo::{local_credentials, tokens},
+        USERS_TABLE,
+    },
     errors::{error_response, ErrorCode},
     helpers::{err_bad_request, err_internal, json_map, ok_json, RecordExt},
 };
@@ -94,15 +97,10 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         return err_internal("Failed to clear reset token", e);
     }
 
-    // Revoke all refresh tokens — invalidate any stolen sessions
-    db::delete_by_field(
-        ctx,
-        TOKENS_TABLE,
-        "user_id",
-        serde_json::Value::String(user.id.clone()),
-    )
-    .await
-    .ok();
+    // Revoke all refresh tokens — invalidate any stolen sessions.
+    // SEC-032/039: mark rows revoked (don't delete) so the reuse-detection
+    // tombstones survive across the password reset.
+    tokens::revoke_all_for_user(ctx, &user.id).await.ok();
 
     ok_json(&serde_json::json!({"message": "Password reset successfully"}))
 }

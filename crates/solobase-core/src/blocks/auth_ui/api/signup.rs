@@ -216,7 +216,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
             Err(r) => return r,
         };
 
-    store_refresh_token(ctx, &user.id, &refresh_token, &family).await;
+    store_refresh_token(ctx, &user.id, &refresh_token, &family, 0).await;
 
     if let Err(e) = sessions::create_for_user(ctx, &user.id, hash_token(&access_token), 1).await {
         tracing::warn!(

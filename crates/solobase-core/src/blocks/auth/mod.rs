@@ -38,6 +38,11 @@ use wafer_core::clients::{
 
 use super::helpers::{hex_encode, json_map};
 
+/// Refresh-token lifetime (7 days). Mirrored in [`helpers::generate_tokens`]
+/// when signing the JWT and in [`helpers::store_refresh_token`] when writing
+/// the row's `expires_at`. Centralised here so the two stay in lockstep.
+pub(crate) const REFRESH_TOKEN_TTL_SECS: u64 = 604_800;
+
 pub const AUTH_BLOCK_ID: &str = "suppers-ai/auth";
 
 /// Config key for the JWT signing secret used by the auth block.
@@ -56,9 +61,7 @@ pub const JWT_SECRET_KEY: &str = "SUPPERS_AI__AUTH__JWT_SECRET";
 // the dead-code allow on the import binding.
 #[allow(unused_imports)]
 pub(crate) use repo::rate_limits::TABLE as RATE_LIMITS_TABLE;
-pub(crate) use repo::{
-    api_keys::TABLE as API_KEYS_TABLE, tokens::TABLE as TOKENS_TABLE, users::TABLE as USERS_TABLE,
-};
+pub(crate) use repo::{api_keys::TABLE as API_KEYS_TABLE, users::TABLE as USERS_TABLE};
 
 /// Pre-computed Argon2id hash used for timing equalization when user is not found.
 pub(crate) const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -236,9 +239,13 @@ pub(crate) mod helpers {
         );
         refresh_claims.insert("iss".to_string(), serde_json::Value::String(issuer.clone()));
 
-        let refresh_token = crypto::sign(ctx, &refresh_claims, Duration::from_secs(604800))
-            .await
-            .map_err(wafer_run::OutputStream::error)?;
+        let refresh_token = crypto::sign(
+            ctx,
+            &refresh_claims,
+            Duration::from_secs(super::REFRESH_TOKEN_TTL_SECS),
+        )
+        .await
+        .map_err(wafer_run::OutputStream::error)?;
 
         Ok((access_token, refresh_token, family))
     }
@@ -258,19 +265,26 @@ pub(crate) mod helpers {
         .await
     }
 
+    /// Persist a freshly minted refresh token.
+    ///
+    /// Stores only the SHA-256 hash of the raw JWT (SEC-032); the JWT itself
+    /// never lands in the database. New families start at `generation = 0`;
+    /// rotation from `auth_ui::api::refresh::handle` calls this with the same
+    /// `family` and `generation = prev + 1` (SEC-039).
     pub(crate) async fn store_refresh_token(
         ctx: &dyn wafer_run::context::Context,
         user_id: &str,
         token: &str,
         family: &str,
+        generation: i64,
     ) {
-        let data = json_map(serde_json::json!({
-            "user_id": user_id,
-            "token": token,
-            "family": family,
-            "created_at": crate::blocks::helpers::now_rfc3339()
-        }));
-        if let Err(e) = db::create(ctx, TOKENS_TABLE, data).await {
+        let expires_at = (chrono::Utc::now()
+            + chrono::Duration::seconds(super::REFRESH_TOKEN_TTL_SECS as i64))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
+        if let Err(e) =
+            super::repo::tokens::insert(ctx, user_id, token, family, generation, &expires_at).await
+        {
             tracing::warn!("Failed to store refresh token: {e}");
         }
     }
