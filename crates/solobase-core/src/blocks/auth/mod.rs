@@ -73,6 +73,26 @@ use crate::blocks::admin::USER_ROLES_TABLE;
 pub(crate) mod helpers {
     use super::*;
 
+    /// Canonical lowercase 64-char hex digest of `s`. Used everywhere we
+    /// store "hash of a secret token" in a TEXT column:
+    /// `users.reset_token`, `users.verification_token`, `pats.token_hash`,
+    /// `bootstrap_tokens.token_hash`, `refresh_tokens.token_hash`.
+    ///
+    /// Distinct from [`super::service::hash_token`] which returns `Vec<u8>`
+    /// for the legacy sessions write path (sessions repo hex-encodes inside
+    /// `insert`). New token-table writes/lookups should go through
+    /// `sha256_hex`.
+    pub(crate) fn sha256_hex(s: &str) -> String {
+        use sha2::{Digest, Sha256};
+        use std::fmt::Write;
+        let digest = Sha256::digest(s.as_bytes());
+        let mut out = String::with_capacity(64);
+        for b in digest {
+            let _ = write!(out, "{b:02x}");
+        }
+        out
+    }
+
     pub(crate) async fn get_user_roles(
         ctx: &dyn wafer_run::context::Context,
         user_id: &str,
@@ -344,6 +364,34 @@ pub(crate) mod helpers {
                 _ => format!("%{:02X}", b),
             })
             .collect()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn sha256_hex_known_value() {
+            assert_eq!(
+                sha256_hex("hello"),
+                "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+            );
+        }
+
+        #[test]
+        fn sha256_hex_empty_string() {
+            assert_eq!(
+                sha256_hex(""),
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            );
+        }
+
+        #[test]
+        fn sha256_hex_is_64_lowercase_hex() {
+            let h = sha256_hex("any input");
+            assert_eq!(h.len(), 64);
+            assert!(h.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        }
     }
 }
 

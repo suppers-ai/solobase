@@ -14,7 +14,6 @@
 //! If the `users` table is non-empty, [`run`] is a no-op regardless of env —
 //! bootstrap is a first-run mechanism only, never a "re-seed" trigger.
 
-use sha2::{Digest, Sha256};
 use wafer_core::clients::crypto;
 use wafer_run::{
     context::Context,
@@ -24,13 +23,8 @@ use wafer_run::{
 use super::{
     config::AuthConfig,
     repo::{bootstrap_tokens, local_credentials, users},
+    service::hash_token,
 };
-
-/// SHA-256 of `s`. Shared with bootstrap-token verification in
-/// `require_role`: the raw token is never stored.
-pub fn sha256(s: &str) -> Vec<u8> {
-    Sha256::digest(s.as_bytes()).to_vec()
-}
 
 /// Run the bootstrap step. Idempotent: returns `Ok(())` without side-effects
 /// when the `users` table is already populated.
@@ -130,7 +124,7 @@ pub(crate) async fn bootstrap_with_email_password(
 async fn bootstrap_with_token(ctx: &dyn Context, token: &str) -> Result<(), WaferError> {
     let expires = chrono::Utc::now() + chrono::Duration::hours(24);
     let expires_iso = expires.format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    bootstrap_tokens::insert(ctx, sha256(token), &expires_iso)
+    bootstrap_tokens::insert(ctx, hash_token(token), &expires_iso)
         .await
         .map_err(internal)?;
     Ok(())
