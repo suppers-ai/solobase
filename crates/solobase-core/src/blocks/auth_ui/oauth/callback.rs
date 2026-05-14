@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use wafer_core::clients::{config, crypto, database as db, network};
+use wafer_core::clients::{config, database as db, network};
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::blocks::{
@@ -11,7 +11,7 @@ use crate::blocks::{
         helpers::{
             build_auth_cookie, ensure_admin_role, generate_tokens, store_refresh_token, urlencode,
         },
-        repo::{provider_links, users},
+        repo::{oauth_pkce, provider_links, users},
         USERS_TABLE,
     },
     auth_ui::redirect::is_safe_local_redirect,
@@ -31,31 +31,20 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         return err_bad_request("Missing code or state parameter");
     }
 
-    // Verify CSRF state token and extract provider name
-    let state_claims = match crypto::verify(ctx, state).await {
-        Ok(c) => c,
-        Err(_) => return err_bad_request("Invalid or expired OAuth state"),
+    // SEC-040: look up the server-side PKCE state by the opaque `state_id`
+    // the provider echoed back. `take` is single-use (DELETE … RETURNING),
+    // so a replayed callback or a stolen state_id can only redeem once,
+    // and a state past `expires_at` is treated as missing.
+    let pkce_row = match oauth_pkce::take(ctx, state).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return err_bad_request("Invalid or expired OAuth state"),
+        Err(e) => return err_internal(&format!("OAuth state lookup failed: {e}")),
     };
-    let state_type = state_claims
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if state_type != "oauth_state" {
-        return err_bad_request("Invalid OAuth state token");
-    }
-    let provider = state_claims
-        .get("provider")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    if provider.is_empty() {
-        return err_bad_request("Missing provider in OAuth state");
-    }
-    let code_verifier = state_claims
-        .get("code_verifier")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let provider = pkce_row.provider.clone();
+    let code_verifier = pkce_row.code_verifier.clone();
+    // Use the redirect_uri stored at start-time so the provider's exact-
+    // match check passes even if the live config changed mid-flow.
+    let redirect_uri = pkce_row.redirect_uri.clone();
 
     let client_id = config::get_default(
         ctx,
@@ -73,12 +62,6 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
             provider.to_uppercase()
         ),
         "",
-    )
-    .await;
-    let redirect_uri = config::get_default(
-        ctx,
-        "SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI",
-        "http://localhost:8090/b/auth/oauth/callback",
     )
     .await;
 
