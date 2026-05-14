@@ -124,6 +124,14 @@ pub async fn run() -> anyhow::Result<()> {
 // SQLite variable seeding and loading
 // ---------------------------------------------------------------------------
 
+/// Canonical variables table name, sourced from the admin block so the
+/// boot loader and the `/b/admin/settings/variables` UI always read and
+/// write the same place. Earlier versions used a bare `variables` table
+/// here, which drifted from the admin block's prefixed `CollectionSchema`
+/// and silently divided the config into two stores. The constant lives
+/// in `solobase-core::blocks::admin` so there's no second source of truth.
+const VARIABLES_TABLE: &str = solobase_core::blocks::admin::VARIABLES_TABLE;
+
 /// Ensure the variables table exists, seed from env vars, and return all variables.
 fn seed_and_load_variables(
     db_path: &str,
@@ -145,9 +153,17 @@ fn seed_and_load_variables(
         std::process::exit(1);
     });
 
-    // Create variables table if it doesn't exist
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS variables (
+    // Create variables table if it doesn't exist.
+    //
+    // Boot runs before WAFER, so the admin block's lifecycle hasn't created
+    // the table yet — we have to pre-create it via raw SQL. Schema mirrors
+    // the admin block's `CollectionSchema`: the user-visible columns are
+    // declared there, and `ensure_table` adds the `id`/`created_at`/
+    // `updated_at` columns the WAFER DB client expects. Pre-creating here
+    // with the union of both is harmless (the columns line up; later
+    // `ensure_table` calls see they exist and skip).
+    let create_sql = format!(
+        "CREATE TABLE IF NOT EXISTS \"{VARIABLES_TABLE}\" (
             id TEXT PRIMARY KEY,
             key TEXT NOT NULL UNIQUE,
             name TEXT DEFAULT '',
@@ -159,19 +175,24 @@ fn seed_and_load_variables(
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_variables_key ON variables (key);",
-    )
-    .unwrap_or_else(|e| {
-        tracing::error!("failed to create variables table: {e}");
+        CREATE UNIQUE INDEX IF NOT EXISTS \"idx_{VARIABLES_TABLE}_key\" \
+         ON \"{VARIABLES_TABLE}\" (key);"
+    );
+    conn.execute_batch(&create_sql).unwrap_or_else(|e| {
+        tracing::error!("failed to create {VARIABLES_TABLE} table: {e}");
         std::process::exit(1);
     });
 
     // Seed from env vars (INSERT OR IGNORE — existing DB values take priority)
     {
-        let mut stmt = conn.prepare(
-            "INSERT OR IGNORE INTO variables (id, key, value, sensitive, created_at, updated_at)
+        let insert_sql = format!(
+            "INSERT OR IGNORE INTO \"{VARIABLES_TABLE}\" \
+             (id, key, value, sensitive, created_at, updated_at) \
              VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))"
-        ).expect("failed to prepare seed statement");
+        );
+        let mut stmt = conn
+            .prepare(&insert_sql)
+            .expect("failed to prepare seed statement");
 
         for (key, value) in env_vars {
             let id = format!("var_{}", uuid::Uuid::new_v4());
@@ -191,8 +212,9 @@ fn seed_and_load_variables(
 
     // Load all variables
     let mut vars = HashMap::new();
+    let select_sql = format!("SELECT key, value FROM \"{VARIABLES_TABLE}\"");
     let mut stmt = conn
-        .prepare("SELECT key, value FROM variables")
+        .prepare(&select_sql)
         .expect("failed to prepare SELECT variables");
     let rows = stmt
         .query_map([], |row| {
@@ -217,10 +239,14 @@ fn seed_auto_generated(conn: &rusqlite::Connection) {
     let block_infos = solobase_core::blocks::all_block_infos();
     let all_vars = solobase_core::config_vars::collect_all_config_vars(&block_infos);
 
-    let mut stmt = conn.prepare(
-        "INSERT OR IGNORE INTO variables (id, key, name, description, value, warning, sensitive, created_at, updated_at)
+    let insert_sql = format!(
+        "INSERT OR IGNORE INTO \"{VARIABLES_TABLE}\" \
+         (id, key, name, description, value, warning, sensitive, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'), datetime('now'))"
-    ).expect("failed to prepare auto-generate statement");
+    );
+    let mut stmt = conn
+        .prepare(&insert_sql)
+        .expect("failed to prepare auto-generate statement");
 
     for var in &all_vars {
         if !var.auto_generate {
