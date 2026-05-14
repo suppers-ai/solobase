@@ -6,7 +6,10 @@ use crate::{
     blocks::{
         auth::{
             helpers::build_auth_cookie,
-            repo::{jwt_blocklist::{self, NewBlocklistEntry}, tokens},
+            repo::{
+                jwt_blocklist::{self, NewBlocklistEntry},
+                tokens,
+            },
         },
         helpers::ResponseBuilder,
     },
