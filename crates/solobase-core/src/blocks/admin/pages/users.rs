@@ -1,4 +1,4 @@
-use maud::{html, Markup};
+use maud::{html, Markup, PreEscaped};
 use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
@@ -14,7 +14,7 @@ use crate::{
     },
     ui::{
         self,
-        components::{self, pagination},
+        components::{self, button, pagination, BtnVariant, CtrlSize},
         icons,
         shell::Topbar,
         templates::{list_page, PageHeader},
@@ -71,6 +71,29 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 (api_keys_tab(ctx).await)
             }
         }
+        // Invite-user modal — always present so the topbar action works
+        // regardless of which tab is active. Posts back to
+        // /b/admin/users (create) and swaps the users table.
+        (components::modal("invite-user", "Invite user", html! {
+            form hx-post="/b/admin/users" hx-target="#users-tab-content" {
+                div .form-group {
+                    label .form-label .required for="invite-email" { "Email" }
+                    input .form-input type="email" #invite-email name="email" placeholder="user@example.com" required;
+                }
+                div .form-group {
+                    label .form-label .required for="invite-password" { "Initial password" }
+                    input .form-input type="text" #invite-password name="password" placeholder="At least 8 chars" minlength="8" required;
+                }
+                div .form-group {
+                    label .form-label for="invite-name" { "Name" }
+                    input .form-input type="text" #invite-name name="name" placeholder="Optional";
+                }
+                div .form-actions {
+                    button .btn .btn-secondary type="button" onclick="closeModal('invite-user')" { "Cancel" }
+                    button .btn .btn-primary type="submit" { "Invite" }
+                }
+            }
+        }))
     };
 
     let body = list_page(
@@ -91,7 +114,12 @@ pub async fn users_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         user.as_ref(),
         Topbar {
             crumbs: crumb("Users"),
-            primary_action: None,
+            primary_action: Some(button(
+                BtnVariant::Primary,
+                CtrlSize::Sm,
+                "+ Invite user",
+                PreEscaped(r##"onclick="openModal('invite-user')""##.to_string()),
+            )),
             subtitle: Some("Manage accounts, roles, and API keys"),
             show_palette: true,
         },

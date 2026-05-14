@@ -42,7 +42,6 @@ pub fn admin() -> Vec<NavGroup> {
             items: vec![
                 item("Blocks", "/b/admin/blocks", "package"),
                 item("Logs", "/b/admin/logs", "file-text"),
-                item("Permissions", "/b/admin/permissions", "shield"),
                 item("Settings", "/b/admin/settings/email", "settings"),
             ],
         },
@@ -206,27 +205,6 @@ mod tests {
         assert!(labels.contains(&"Dashboard"));
         assert!(labels.contains(&"Users"));
         assert!(labels.contains(&"Settings"));
-        assert!(labels.contains(&"Permissions"));
-    }
-
-    #[test]
-    fn admin_system_group_has_permissions_as_top_level_item() {
-        // WRAP grants are the access-control layer for every cross-block read/
-        // write. Surfacing them as a top-level sidebar entry (rather than a
-        // sub-tab of Settings) makes the security surface discoverable; this
-        // test pins the placement so a future Settings reorg can't quietly
-        // re-bury them.
-        let groups = admin();
-        let system = groups
-            .iter()
-            .find(|g| g.label.as_deref() == Some("System"))
-            .expect("System group exists");
-        let perm = system
-            .items
-            .iter()
-            .find(|i| i.label == "Permissions")
-            .expect("Permissions entry exists");
-        assert_eq!(perm.href, "/b/admin/permissions");
     }
 
     #[test]

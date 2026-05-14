@@ -4,16 +4,11 @@
 //!   /b/admin/settings/email        → email::settings_body
 //!   /b/admin/settings/network      → network::settings_body
 //!   /b/admin/settings/variables    → variables::settings_body
-//!
-//! `/b/admin/settings/permissions` is no longer routed here — it 308s to the
-//! standalone `/b/admin/permissions` page (see admin/mod.rs). The Permissions
-//! UI used to be a Settings sub-tab; it moved to a top-level sidebar entry
-//! because WRAP grants are the platform's access-control surface and were
-//! too buried inside a settings tab strip.
+//!   /b/admin/settings/permissions  → permissions::settings_body
 
 use wafer_run::{context::Context, types::*, OutputStream};
 
-use super::{admin_page, crumb, email, network, variables};
+use super::{admin_page, crumb, email, network, permissions, variables};
 use crate::ui::{
     shell::Topbar,
     templates::{form_page, FormSection, PageHeader},
@@ -21,14 +16,15 @@ use crate::ui::{
 };
 
 /// Render the settings page for the given tab. `tab` is one of
-/// "email" / "network" / "variables"; unknown values fall back to "email".
+/// "email" / "network" / "variables" / "permissions"; unknown values
+/// fall back to "email".
 pub async fn settings_page(ctx: &dyn Context, msg: &Message, tab: &str) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
     let path = msg.path().to_string();
 
     let active = match tab {
-        "email" | "network" | "variables" => tab,
+        "email" | "network" | "variables" | "permissions" => tab,
         _ => "email",
     };
 
@@ -48,12 +44,18 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message, tab: &str) -> Outpu
             "/b/admin/settings/variables".to_string(),
             active == "variables",
         ),
+        (
+            "Permissions".to_string(),
+            "/b/admin/settings/permissions".to_string(),
+            active == "permissions",
+        ),
     ];
 
     let body_markup = match active {
         "email" => email::settings_body(ctx, msg).await,
         "network" => network::settings_body(ctx, msg).await,
         "variables" => variables::settings_body(ctx, msg).await,
+        "permissions" => permissions::settings_body(ctx, msg).await,
         _ => unreachable!(),
     };
 
@@ -95,6 +97,7 @@ fn tab_title(active: &str) -> &'static str {
         "email" => "Email",
         "network" => "Network",
         "variables" => "Variables",
+        "permissions" => "Permissions",
         _ => "Settings",
     }
 }
@@ -104,6 +107,9 @@ fn tab_description(active: &str) -> Option<&'static str> {
         "email" => Some("Configure email delivery via Mailgun."),
         "network" => Some("Manage network access rules for blocks."),
         "variables" => Some("Configure environment variables and shared config."),
+        "permissions" => {
+            Some("Control which blocks can access other blocks' data, files, and services.")
+        }
         _ => None,
     }
 }
@@ -117,15 +123,7 @@ mod tests {
         assert_eq!(tab_title("email"), "Email");
         assert_eq!(tab_title("network"), "Network");
         assert_eq!(tab_title("variables"), "Variables");
-    }
-
-    #[test]
-    fn tab_title_permissions_falls_back_to_settings() {
-        // Permissions is no longer a Settings sub-tab — it moved to the
-        // top-level `/b/admin/permissions` page. If someone accidentally
-        // routes `"permissions"` back through `settings_page`, the title
-        // must not pretend the tab still exists.
-        assert_eq!(tab_title("permissions"), "Settings");
+        assert_eq!(tab_title("permissions"), "Permissions");
     }
 
     #[test]

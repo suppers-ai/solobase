@@ -38,7 +38,7 @@ pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
             div .card .mt-4 style="background:#f0f9ff;border-color:#bae6fd" {
                 p style="padding:12px;margin:0;font-size:13px" {
                     (icons::info()) " Network permissions have moved to the "
-                    a href="/b/admin/permissions?subtab=network" { "Permissions" }
+                    a href="/b/admin/settings/permissions?subtab=network" { "Permissions" }
                     " page."
                 }
             }

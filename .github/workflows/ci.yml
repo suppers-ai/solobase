@@ -244,21 +244,6 @@ jobs:
           TEST_PORT: 8093
         run: npx playwright test --config=tests/playwright.visual-baseline.config.ts tests/e2e/visual-baseline.spec.ts
 
-      # The native solobase server's stdout/stderr is the only place that
-      # logs the bootstrap path (which admin email/password got installed,
-      # which migrations ran). If the playwright globalSetup hits a 401 the
-      # report itself is empty, so without this dump there's no way to tell
-      # whether the auth bootstrap actually fired.
-      - name: Dump solobase server log on failure
-        if: failure()
-        run: |
-          echo "=== /tmp/solobase-baseline.log ==="
-          if [ -f /tmp/solobase-baseline.log ]; then
-            cat /tmp/solobase-baseline.log
-          else
-            echo "(file not found)"
-          fi
-
       - name: Stop servers
         if: always()
         run: |

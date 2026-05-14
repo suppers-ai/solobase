@@ -262,19 +262,7 @@ impl Block for AdminBlock {
             // 404s instead of silently rendering email — easier to catch
             // typos and broken internal links during the Phase 3-5 ports.
             match tab {
-                // Permissions was a Settings sub-tab in earlier Phase 3 work;
-                // it now lives at /b/admin/permissions as a top-level page.
-                // Preserve ?subtab= for deep-links to All/Database/Storage/
-                // Network sub-tabs inside the new page.
-                "permissions" => {
-                    let subtab = msg.query("subtab");
-                    return if subtab.is_empty() {
-                        redirect_308("/b/admin/permissions")
-                    } else {
-                        redirect_308(&format!("/b/admin/permissions?subtab={subtab}"))
-                    };
-                }
-                "email" | "network" | "variables" => {
+                "email" | "network" | "variables" | "permissions" => {
                     return pages::settings_page(ctx, &msg, tab).await;
                 }
                 _ => return err_not_found("not found"),
@@ -428,14 +416,13 @@ impl Block for AdminBlock {
                 "/network" => redirect_308("/b/admin/settings/network"),
                 "/variables" => redirect_308("/b/admin/settings/variables"),
                 "/permissions" => {
-                    // Legacy `?tab=` query string used in early Phase 3 ports
-                    // (still referenced from storage.rs:49) maps onto the new
-                    // `?subtab=` parameter used by the standalone page.
+                    // Preserve ?tab= query string as ?subtab= in the new location.
                     let old_tab = msg.query("tab");
-                    if !old_tab.is_empty() {
-                        return redirect_308(&format!("/b/admin/permissions?subtab={}", old_tab));
+                    if old_tab.is_empty() {
+                        redirect_308("/b/admin/settings/permissions")
+                    } else {
+                        redirect_308(&format!("/b/admin/settings/permissions?subtab={}", old_tab))
                     }
-                    pages::permissions_page(ctx, &msg).await
                 }
                 "/grants" => pages::grants_page(ctx, &msg).await,
                 _ => err_not_found("not found"),

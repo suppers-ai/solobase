@@ -2,25 +2,21 @@ use maud::{html, Markup};
 use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, OutputStream};
 
-use super::{admin_page, crumb, network::network_rules_tab, storage::storage_rules_tab};
+use super::{network::network_rules_tab, storage::storage_rules_tab};
 use crate::{
     blocks::admin::{
         NETWORK_RULES_TABLE as NETWORK_RULES, STORAGE_RULES_TABLE as STORAGE_RULES,
         WRAP_GRANTS_TABLE as WRAP_GRANTS,
     },
-    ui::{
-        components, icons,
-        shell::Topbar,
-        templates::{list_page, PageHeader},
-        SiteConfig, UserInfo,
-    },
+    ui::{components, icons},
 };
 
-/// Render the permissions body markup — sub-tabs (All / Database / Storage /
-/// Network) plus the active sub-tab's content. Public so the rendered HTML
-/// can be unit-tested against a mock context; the production entry point is
-/// [`permissions_page`].
-pub async fn permissions_body(ctx: &dyn Context, msg: &Message) -> Markup {
+/// Render JUST the permissions settings body. The parent `settings_page`
+/// handler wraps this in `form_page` + the shell.
+///
+/// Internal sub-tabs use `?subtab=database|storage|network|all` to avoid
+/// colliding with the parent path-segment tab system (`/settings/{tab}`).
+pub async fn settings_body(ctx: &dyn Context, msg: &Message) -> Markup {
     let subtab = msg.query("subtab");
     let active_subtab = match subtab {
         "database" => "database",
@@ -32,26 +28,26 @@ pub async fn permissions_body(ctx: &dyn Context, msg: &Message) -> Markup {
     html! {
         div .tabs {
             a .tab .(if active_subtab == "all" { "active" } else { "" })
-                href="/b/admin/permissions"
-                hx-get="/b/admin/permissions"
+                href="/b/admin/settings/permissions"
+                hx-get="/b/admin/settings/permissions"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::shield()) " All" }
             a .tab .(if active_subtab == "database" { "active" } else { "" })
-                href="/b/admin/permissions?subtab=database"
-                hx-get="/b/admin/permissions?subtab=database"
+                href="/b/admin/settings/permissions?subtab=database"
+                hx-get="/b/admin/settings/permissions?subtab=database"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::database()) " Database & Config" }
             a .tab .(if active_subtab == "storage" { "active" } else { "" })
-                href="/b/admin/permissions?subtab=storage"
-                hx-get="/b/admin/permissions?subtab=storage"
+                href="/b/admin/settings/permissions?subtab=storage"
+                hx-get="/b/admin/settings/permissions?subtab=storage"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::hard_drive()) " Storage" }
             a .tab .(if active_subtab == "network" { "active" } else { "" })
-                href="/b/admin/permissions?subtab=network"
-                hx-get="/b/admin/permissions?subtab=network"
+                href="/b/admin/settings/permissions?subtab=network"
+                hx-get="/b/admin/settings/permissions?subtab=network"
                 hx-target="#content"
                 hx-push-url="true"
             { (icons::globe()) " Network" }
@@ -71,43 +67,12 @@ pub async fn permissions_body(ctx: &dyn Context, msg: &Message) -> Markup {
     }
 }
 
-/// Standalone Permissions page at `/b/admin/permissions`. Promoted out of the
-/// Settings tab strip so the WRAP access surface is a top-level sidebar entry
-/// rather than buried under `/b/admin/settings/permissions`. Reachable via
-/// the new sidebar entry, mutation handlers (`handle_create_wrap_grant`,
-/// etc.), and the legacy `/b/admin/grants` route.
+/// Full settings page for permissions — used by WRAP grant mutation handlers
+/// (and by the legacy `/b/admin/grants` route) that need to re-render the
+/// complete page after a create/delete. Delegates to the canonical
+/// `settings_page` so both call paths share one composition.
 pub async fn permissions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
-    let config = SiteConfig::load(ctx).await;
-    let user = UserInfo::from_message(msg);
-    let path = msg.path().to_string();
-
-    let body = list_page(
-        PageHeader {
-            title: "",
-            subtitle: None,
-            primary_action: None,
-        },
-        None,
-        permissions_body(ctx, msg).await,
-        None,
-    );
-
-    admin_page(
-        "Permissions",
-        &config,
-        &path,
-        user.as_ref(),
-        Topbar {
-            crumbs: crumb("Permissions"),
-            primary_action: None,
-            subtitle: Some(
-                "Control which blocks can access other blocks' data, files, and services.",
-            ),
-            show_palette: true,
-        },
-        body,
-        msg,
-    )
+    super::settings::settings_page(ctx, msg, "permissions").await
 }
 
 pub async fn grants_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
