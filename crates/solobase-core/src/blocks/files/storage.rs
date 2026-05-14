@@ -107,9 +107,18 @@ async fn is_bucket_access_denied(ctx: &dyn Context, msg: &Message, bucket: &str)
 }
 
 /// Validate a storage key for path traversal attacks.
-/// Rejects keys containing `..`, absolute paths, or null bytes.
+/// Rejects keys containing `..`, absolute paths, null bytes, or backslashes.
+///
+/// SEC-064: backslash is rejected because backends running on Windows-style
+/// paths (or any backend that ever normalises `\` to `/`) would otherwise
+/// allow `..\..\etc\passwd`-style traversal that the `..` check alone would
+/// not catch when the segment separator is `\` instead of `/`.
 fn is_valid_storage_key(key: &str) -> bool {
-    !key.is_empty() && !key.contains("..") && !key.starts_with('/') && !key.contains('\0')
+    !key.is_empty()
+        && !key.contains("..")
+        && !key.starts_with('/')
+        && !key.contains('\0')
+        && !key.contains('\\')
 }
 
 /// Validate a bucket name. Must be non-empty, no path traversal, no slashes.
