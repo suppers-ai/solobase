@@ -83,7 +83,7 @@ pub struct InfraConfig {
 impl InfraConfig {
     pub fn from_env() -> Self {
         Self {
-            listen: env_or("SOLOBASE_LISTEN", "0.0.0.0:8090"),
+            listen: env_or("SOLOBASE_LISTEN", "127.0.0.1:8090"),
             db_type: env_or("SOLOBASE_DB_TYPE", "sqlite"),
             db_path: env_or("SOLOBASE_DB_PATH", "data/solobase.db"),
             db_url: std::env::var("SOLOBASE_DB_URL").ok(),
