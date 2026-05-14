@@ -417,7 +417,8 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     };
     let redirect_url = format!("{}{}", frontend_url.trim_end_matches('/'), post_login);
 
-    let cookie = build_auth_cookie(&jwt_token, 86400, ctx).await;
+    let access_lifetime = crate::blocks::auth::helpers::access_token_lifetime_secs(ctx).await;
+    let cookie = build_auth_cookie(&jwt_token, access_lifetime, ctx).await;
 
     ResponseBuilder::new()
         .status(302)

@@ -46,6 +46,12 @@ pub const SIGNUP_ENABLED_KEY: &str = "SOLOBASE_SHARED__AUTH__SIGNUP_ENABLED";
 /// enforced at signup. Existing accounts are not re-validated.
 pub const PASSWORD_MIN_LENGTH_KEY: &str = "SOLOBASE_SHARED__AUTH__PASSWORD_MIN_LENGTH";
 
+/// `SUPPERS_AI__AUTH__ACCESS_TOKEN_LIFETIME_SECS` — how many seconds a freshly
+/// issued JWT access token stays valid (SEC-042). 30 min default keeps the
+/// post-logout exposure window short while remaining forgiving enough that
+/// regular use never hits the natural-expiry path on every request.
+pub const ACCESS_TOKEN_LIFETIME_SECS_KEY: &str = "SUPPERS_AI__AUTH__ACCESS_TOKEN_LIFETIME_SECS";
+
 /// Default session lifetime when the config var is unset.
 pub const SESSION_LIFETIME_DAYS_DEFAULT: u32 = 30;
 
@@ -55,6 +61,11 @@ pub const SIGNUP_ENABLED_DEFAULT: bool = false;
 
 /// Default value for [`PASSWORD_MIN_LENGTH_KEY`].
 pub const PASSWORD_MIN_LENGTH_DEFAULT: u32 = 8;
+
+/// Default access-token lifetime in seconds (30 min). Reduced from the
+/// previous hardcoded 24h to limit the SEC-042 exposure window when a JWT
+/// is stolen or a user logs out before the natural expiry.
+pub const ACCESS_TOKEN_LIFETIME_SECS_DEFAULT: u64 = 1800;
 
 /// Config vars contributed by the Plan A2 auth block additions.
 ///
@@ -104,6 +115,12 @@ pub fn auth_config_vars() -> Vec<ConfigVar> {
             &PASSWORD_MIN_LENGTH_DEFAULT.to_string(),
         )
         .name("Password Minimum Length"),
+        ConfigVar::new(
+            ACCESS_TOKEN_LIFETIME_SECS_KEY,
+            "Lifetime of an issued JWT access token in seconds. Shorter values reduce the SEC-042 exposure window when a JWT leaks; longer values reduce refresh churn. Logout invalidates the in-flight JWT regardless via the blocklist.",
+            &ACCESS_TOKEN_LIFETIME_SECS_DEFAULT.to_string(),
+        )
+        .name("Access Token Lifetime (seconds)"),
     ]
 }
 

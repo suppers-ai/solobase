@@ -182,7 +182,8 @@ async function handleLogin(ev){
     // auth cookie client-side from the response body.
     if(d.access_token){
       var secure=location.protocol==='https:'?'; Secure':'';
-      document.cookie='auth_token='+d.access_token+'; Path=/; SameSite=Lax; Max-Age=86400'+secure;
+      var maxAge=d.expires_in||1800;
+      document.cookie='auth_token='+d.access_token+'; Path=/; SameSite=Lax; Max-Age='+maxAge+secure;
     }
     var redir=$('redirect').value||$('post_login').value||'/';
     window.location.href=redir;

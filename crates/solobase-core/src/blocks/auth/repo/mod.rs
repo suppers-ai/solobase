@@ -8,6 +8,7 @@
 pub mod api_keys;
 pub mod bootstrap_tokens;
 pub mod cli_codes;
+pub mod jwt_blocklist;
 pub mod local_credentials;
 pub mod oauth_pkce;
 pub mod orgs;

@@ -81,9 +81,11 @@ pub async fn handle_request(
         if header.starts_with("Bearer ") {
             // [SEC-038] Read the deployment's expected issuer once per request
             // so JWTs minted under a different deployment's FRONTEND_URL get
-            // rejected even if their HMAC secret matches.
+            // rejected even if their HMAC secret matches. [SEC-042] also
+            // consults the JWT blocklist via the ctx-aware extractor.
             let expected_iss = crate::blocks::auth::helpers::expected_issuer(ctx).await;
-            crate::crypto::extract_auth_meta(header, jwt_secret, &expected_iss, &mut msg);
+            crate::crypto::extract_auth_meta(ctx, header, jwt_secret, &expected_iss, &mut msg)
+                .await;
         } else if header.starts_with("ApiKey ") {
             let api_key = &header["ApiKey ".len()..];
             crate::blocks::auth::authenticate_api_key(ctx, api_key, &mut msg).await;

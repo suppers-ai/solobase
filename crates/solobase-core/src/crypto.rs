@@ -165,20 +165,32 @@ pub fn derive_block_jwt_key(master_secret: &str, block_id: &str) -> String {
 // Auth meta extraction
 // ---------------------------------------------------------------------------
 
+/// Meta key holding the access JWT's `jti` (SEC-042) when present. Read by
+/// the logout handler to blocklist the in-flight token.
+pub const META_AUTH_JTI: &str = "auth.jti";
+
+/// Meta key holding the access JWT's `exp` (UNIX seconds, as a string) when
+/// present. Read by the logout handler to set the blocklist row's
+/// `expires_at` (only needs to live as long as the original JWT).
+pub const META_AUTH_EXP: &str = "auth.exp";
+
 /// Extract JWT claims from an `Authorization: Bearer <token>` header and
 /// set auth meta fields on the message.
 ///
-/// Sets: `auth.user_id`, `auth.user_email`, `auth.user_roles`
+/// Sets: `auth.user_id`, `auth.user_email`, `auth.user_roles`, and (when
+/// present in the JWT) `auth.jti` + `auth.exp`.
 ///
-/// Silently does nothing if the token is invalid (the request continues
-/// as unauthenticated).
+/// Silently does nothing if the token is invalid, fails the issuer
+/// check (SEC-038), is blocklisted (SEC-042), or is a non-`access`
+/// type — the request continues as unauthenticated.
 ///
 /// [SEC-038] `expected_iss` is the deployment's canonical issuer
 /// (`SOLOBASE_SHARED__FRONTEND_URL`). Tokens whose `iss` claim doesn't
 /// match are rejected as if they were unsigned — prevents a leaked
 /// signing secret in dev/staging from authenticating against production
 /// (and vice versa).
-pub fn extract_auth_meta(
+pub async fn extract_auth_meta(
+    ctx: &dyn wafer_run::context::Context,
     auth_header: &str,
     jwt_secret: &str,
     expected_iss: &str,
@@ -220,6 +232,19 @@ pub fn extract_auth_meta(
         }
     }
 
+    // SEC-042: reject blocklisted JWTs after structural validation. A
+    // blocklisted token was logged out before its natural exp; treat it
+    // exactly as if it had expired (request continues as unauthenticated,
+    // never as a different user).
+    let jti = claims
+        .get("jti")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if !jti.is_empty() && crate::blocks::auth::repo::jwt_blocklist::contains(ctx, &jti).await {
+        return;
+    }
+
     if let Some(sub) = claims.get("sub").and_then(|v| v.as_str()) {
         msg.set_meta(META_AUTH_USER_ID, sub);
     }
@@ -240,6 +265,14 @@ pub fn extract_auth_meta(
         String::new()
     };
     msg.set_meta(META_AUTH_USER_ROLES, &roles);
+
+    // Stash jti + exp so logout can read them without re-verifying the JWT.
+    if !jti.is_empty() {
+        msg.set_meta(META_AUTH_JTI, &jti);
+    }
+    if let Some(exp) = claims.get("exp").and_then(|v| v.as_i64()) {
+        msg.set_meta(META_AUTH_EXP, &exp.to_string());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -387,5 +420,89 @@ mod tests {
         assert!(!constant_time_eq(b"hello", b"world"));
         assert!(!constant_time_eq(b"hello", b"hell"));
         assert!(constant_time_eq(b"", b""));
+    }
+
+    // SEC-042 extract_auth_meta blocklist tests. Tokens are signed with
+    // the master secret directly (no per-block HKDF) so the fallback path
+    // in extract_auth_meta verifies them — the function tries the derived
+    // key first, then falls back to the master secret.
+
+    fn sign_access_jwt(secret: &str, sub: &str, jti: Option<&str>, ttl_secs: u64) -> String {
+        let mut claims = HashMap::new();
+        claims.insert("sub".to_string(), serde_json::json!(sub));
+        claims.insert("type".to_string(), serde_json::json!("access"));
+        if let Some(j) = jti {
+            claims.insert("jti".to_string(), serde_json::json!(j));
+        }
+        jwt_sign(&claims, Duration::from_secs(ttl_secs), secret)
+    }
+
+    #[tokio::test]
+    async fn extract_auth_meta_sets_user_id_for_valid_access_token() {
+        use wafer_run::types::Message;
+        let ctx = crate::test_support::TestContext::with_auth().await;
+        let secret = "test-secret";
+        let token = sign_access_jwt(secret, "user-a", Some("jti-1"), 3600);
+        let mut msg = Message::new("http.request");
+        extract_auth_meta(&ctx, &format!("Bearer {token}"), secret, &mut msg).await;
+        assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ID), "user-a");
+        assert_eq!(msg.get_meta(META_AUTH_JTI), "jti-1");
+        assert!(!msg.get_meta(META_AUTH_EXP).is_empty());
+    }
+
+    #[tokio::test]
+    async fn extract_auth_meta_rejects_blocklisted_jti() {
+        use wafer_run::types::Message;
+        let ctx = crate::test_support::TestContext::with_auth().await;
+        let secret = "test-secret";
+        let token = sign_access_jwt(secret, "user-a", Some("jti-blocked"), 3600);
+
+        // Pre-populate the blocklist with the jti.
+        crate::blocks::auth::repo::jwt_blocklist::insert(
+            &ctx,
+            crate::blocks::auth::repo::jwt_blocklist::NewBlocklistEntry {
+                jti: "jti-blocked",
+                user_id: "user-a",
+                expires_at: "2099-01-01T00:00:00Z",
+            },
+        )
+        .await
+        .expect("insert blocklist row");
+
+        let mut msg = Message::new("http.request");
+        extract_auth_meta(&ctx, &format!("Bearer {token}"), secret, &mut msg).await;
+        // Blocklisted: no auth meta should be set — request continues as
+        // anonymous, same as if the JWT had expired or been tampered with.
+        assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ID), "");
+        assert_eq!(msg.get_meta(META_AUTH_JTI), "");
+    }
+
+    #[tokio::test]
+    async fn extract_auth_meta_only_blocks_target_jti_for_user() {
+        // Same user, two jti's — only the blocklisted one is rejected.
+        use wafer_run::types::Message;
+        let ctx = crate::test_support::TestContext::with_auth().await;
+        let secret = "test-secret";
+        crate::blocks::auth::repo::jwt_blocklist::insert(
+            &ctx,
+            crate::blocks::auth::repo::jwt_blocklist::NewBlocklistEntry {
+                jti: "session-1",
+                user_id: "user-a",
+                expires_at: "2099-01-01T00:00:00Z",
+            },
+        )
+        .await
+        .unwrap();
+
+        let blocked = sign_access_jwt(secret, "user-a", Some("session-1"), 3600);
+        let live = sign_access_jwt(secret, "user-a", Some("session-2"), 3600);
+
+        let mut m1 = Message::new("http.request");
+        extract_auth_meta(&ctx, &format!("Bearer {blocked}"), secret, &mut m1).await;
+        assert_eq!(m1.get_meta(wafer_run::meta::META_AUTH_USER_ID), "");
+
+        let mut m2 = Message::new("http.request");
+        extract_auth_meta(&ctx, &format!("Bearer {live}"), secret, &mut m2).await;
+        assert_eq!(m2.get_meta(wafer_run::meta::META_AUTH_USER_ID), "user-a");
     }
 }
