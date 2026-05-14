@@ -48,32 +48,39 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         })
         .collect();
 
-    // Build full block list: registered blocks + unloaded blocks from block_settings
+    // Build full block list: registered blocks + unloaded blocks from block_settings.
     // Blocks in block_settings but not in the runtime get placeholder BlockInfo.
-    // Iterate `block_enabled` in sorted order so the appended placeholder rows
-    // come out deterministically — HashMap iteration order is randomized per
-    // process via SipHash, which would otherwise produce a different visual
-    // baseline on every CI run.
+    //
+    // Two non-determinism sources here, both rooted in `HashMap` iteration
+    // order being randomized per-process via SipHash:
+    //   1. `ctx.registered_blocks()` is built upstream from a `HashMap`
+    //      (`wafer-run::Runtime.blocks.values()`) — so the seed list itself
+    //      varies per process.
+    //   2. `block_enabled` (locally) is a `HashMap` too.
+    //
+    // Sort `all_blocks` alphabetically by name after composition. That
+    // gives the admin/blocks page a stable visual baseline and a more
+    // user-friendly display order than HashMap iteration. The deeper fix
+    // — sorting `blocks_snapshot` inside wafer-run — is a separate
+    // upstream follow-up.
     let mut all_blocks = registered_blocks.clone();
-    let mut unloaded: Vec<(&String, &bool)> = block_enabled
-        .iter()
-        .filter(|(name, _)| !all_blocks.iter().any(|b| &b.name == *name))
-        .collect();
-    unloaded.sort_by(|a, b| a.0.cmp(b.0));
-    for (name, enabled) in unloaded {
-        let summary = if *enabled {
-            "(enabled \u{2014} restart to load)"
-        } else {
-            "(disabled \u{2014} restart to load)"
-        };
-        all_blocks.push(
-            wafer_run::BlockInfo::new(name, "0.0.1", "http.handler", summary)
-                .instance_mode(wafer_run::types::InstanceMode::Singleton)
-                .category(wafer_run::BlockCategory::Feature)
-                .can_disable(true)
-                .default_enabled(false),
-        );
+    for (name, enabled) in &block_enabled {
+        if !all_blocks.iter().any(|b| &b.name == name) {
+            let summary = if *enabled {
+                "(enabled \u{2014} restart to load)"
+            } else {
+                "(disabled \u{2014} restart to load)"
+            };
+            all_blocks.push(
+                wafer_run::BlockInfo::new(name, "0.0.1", "http.handler", summary)
+                    .instance_mode(wafer_run::types::InstanceMode::Singleton)
+                    .category(wafer_run::BlockCategory::Feature)
+                    .can_disable(true)
+                    .default_enabled(false),
+            );
+        }
     }
+    all_blocks.sort_by(|a, b| a.name.cmp(&b.name));
 
     let page_action = html! {
         div style="display:flex;gap:8px" {
