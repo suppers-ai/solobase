@@ -160,6 +160,18 @@ pub(crate) mod helpers {
         roles
     }
 
+    /// Resolve the configured access-token lifetime (SEC-042). Reads
+    /// `SUPPERS_AI__AUTH__ACCESS_TOKEN_LIFETIME_SECS`; falls back to the
+    /// declared default (30 min) if unset or unparseable.
+    pub(crate) async fn access_token_lifetime_secs(ctx: &dyn wafer_run::context::Context) -> u64 {
+        use super::config::{ACCESS_TOKEN_LIFETIME_SECS_DEFAULT, ACCESS_TOKEN_LIFETIME_SECS_KEY};
+        let raw = config_client::get_default(ctx, ACCESS_TOKEN_LIFETIME_SECS_KEY, "").await;
+        raw.parse::<u64>()
+            .ok()
+            .filter(|n| *n > 0)
+            .unwrap_or(ACCESS_TOKEN_LIFETIME_SECS_DEFAULT)
+    }
+
     /// Returns (access_token, refresh_token, family).
     ///
     /// `auth_method` records *how* the user authenticated for this token —
@@ -167,6 +179,10 @@ pub(crate) mod helpers {
     /// for OAuth (e.g. `"oauth.github"`). The claim rides on both access and
     /// refresh tokens so it survives refresh, letting downstream gates (like
     /// the wafer registry's publish endpoint) require a stronger method.
+    ///
+    /// Access tokens carry a random `jti` so logout can blocklist the
+    /// in-flight JWT (SEC-042) without affecting other live sessions for
+    /// the same user.
     pub(crate) async fn generate_tokens(
         ctx: &dyn wafer_run::context::Context,
         user_id: &str,
@@ -178,6 +194,14 @@ pub(crate) mod helpers {
             Ok(bytes) => hex_encode(&bytes),
             Err(e) => return Err(wafer_run::OutputStream::error(e)),
         };
+        // SEC-042: per-token random id so logout can revoke a single JWT
+        // without touching other live sessions for the same user.
+        let jti = match crypto::random_bytes(ctx, 16).await {
+            Ok(bytes) => hex_encode(&bytes),
+            Err(e) => return Err(wafer_run::OutputStream::error(e)),
+        };
+
+        let access_lifetime_secs = access_token_lifetime_secs(ctx).await;
 
         let mut access_claims = HashMap::new();
         access_claims.insert(
@@ -201,10 +225,15 @@ pub(crate) mod helpers {
             "auth_method".to_string(),
             serde_json::Value::String(auth_method.to_string()),
         );
+        access_claims.insert("jti".to_string(), serde_json::Value::String(jti));
 
-        let access_token = crypto::sign(ctx, &access_claims, Duration::from_secs(86400))
-            .await
-            .map_err(wafer_run::OutputStream::error)?;
+        let access_token = crypto::sign(
+            ctx,
+            &access_claims,
+            Duration::from_secs(access_lifetime_secs),
+        )
+        .await
+        .map_err(wafer_run::OutputStream::error)?;
 
         let mut refresh_claims = HashMap::new();
         refresh_claims.insert(

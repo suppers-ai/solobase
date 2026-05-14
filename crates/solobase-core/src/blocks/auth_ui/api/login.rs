@@ -104,7 +104,8 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         tracing::warn!("Failed to update last login time: {e}");
     }
 
-    let cookie = build_auth_cookie(&access_token, 86400, ctx).await;
+    let access_lifetime = crate::blocks::auth::helpers::access_token_lifetime_secs(ctx).await;
+    let cookie = build_auth_cookie(&access_token, access_lifetime, ctx).await;
 
     ResponseBuilder::new()
         .set_cookie(&cookie)
@@ -112,7 +113,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
             "access_token": access_token,
             "refresh_token": refresh_token,
             "token_type": "Bearer",
-            "expires_in": 86400,
+            "expires_in": access_lifetime,
             "user": {
                 "id": user.id,
                 "email": email_lower,

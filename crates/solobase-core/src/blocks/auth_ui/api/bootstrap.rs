@@ -96,7 +96,8 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // 6. Set the auth cookie + redirect to the dashboard. The form is a
     //    plain HTML POST (no JS), so a 302 with Set-Cookie is the right
     //    completion signal.
-    let cookie = build_auth_cookie(&access_token, 86400, ctx).await;
+    let access_lifetime = crate::blocks::auth::helpers::access_token_lifetime_secs(ctx).await;
+    let cookie = build_auth_cookie(&access_token, access_lifetime, ctx).await;
     ResponseBuilder::new()
         .status(302)
         .set_cookie(&cookie)

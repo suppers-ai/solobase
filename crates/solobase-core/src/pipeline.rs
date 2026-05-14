@@ -66,7 +66,7 @@ pub async fn handle_request(
     // 2. Validate JWT or API key and set auth meta
     if let Some(header) = auth_header {
         if header.starts_with("Bearer ") {
-            crate::crypto::extract_auth_meta(header, jwt_secret, &mut msg);
+            crate::crypto::extract_auth_meta(ctx, header, jwt_secret, &mut msg).await;
         } else if header.starts_with("ApiKey ") {
             let api_key = &header["ApiKey ".len()..];
             crate::blocks::auth::authenticate_api_key(ctx, api_key, &mut msg).await;
