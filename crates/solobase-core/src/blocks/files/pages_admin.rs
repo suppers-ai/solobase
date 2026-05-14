@@ -143,16 +143,21 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let stats = load_admin_stats(ctx).await;
 
-    let stats_markup = render_admin_overview_stats(&stats);
-    let filters = html! { (admin_tabs("Overview")) (stats_markup) };
+    // Tabs go in the `filters` slot (their padding gutter matches
+    // /b/admin/users); stats live in the body. Keeping them in separate
+    // slots prevents `.page-filters` (display:flex) from putting tabs
+    // and the stats-grid side-by-side at wide viewports.
     let body = list_page(
         PageHeader {
             title: "",
             subtitle: None,
             primary_action: None,
         },
-        Some(filters),
-        render_admin_overview_quotas_hint(stats.quotas_count),
+        Some(admin_tabs("Overview")),
+        html! {
+            (render_admin_overview_stats(&stats))
+            (render_admin_overview_quotas_hint(stats.quotas_count))
+        },
         None,
     );
 
