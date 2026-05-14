@@ -126,6 +126,15 @@ impl Block for AdminBlock {
                 // Remove this grant via the admin UI to restrict network access.
                 wafer_run::ResourceGrant::read("*", "*")
                     .typed(wafer_run::types::ResourceType::Network),
+                // Default: allow all blocks to perform any crypto operation
+                // (hash/compare_hash/sign/verify/random_bytes). The runtime
+                // already isolates JWT signing keys per caller via HKDF
+                // (SEC-016), so this wildcard does not let a block forge
+                // another block's tokens. Tighten via the admin UI (e.g.
+                // restrict sign/verify to specific blocks) if a deployment
+                // wants per-op control.
+                wafer_run::ResourceGrant::read_write("*", "*")
+                    .typed(wafer_run::types::ResourceType::Crypto),
             ])
             .category(wafer_run::BlockCategory::Feature)
             .description("Administration panel for managing users, roles, variables, blocks, and logs. Provides SSR dashboard with stats, user management with role assignment, IAM (roles and API keys), environment variables editor, block management with feature toggles, and system/audit log viewer.")
