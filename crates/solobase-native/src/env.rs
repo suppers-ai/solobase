@@ -44,9 +44,7 @@ pub(crate) fn filter_app_env_vars<I>(iter: I) -> HashMap<String, String>
 where
     I: IntoIterator<Item = (String, String)>,
 {
-    iter.into_iter()
-        .filter(|(k, _)| k.contains("__"))
-        .collect()
+    iter.into_iter().filter(|(k, _)| k.contains("__")).collect()
 }
 
 #[cfg(test)]
@@ -57,12 +55,21 @@ mod tests {
     fn filter_keeps_shared_and_block_scoped_drops_infra_and_plain() {
         let input = vec![
             // Shared app config — keep.
-            ("SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL".to_string(), "admin@example.com".to_string()),
+            (
+                "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL".to_string(),
+                "admin@example.com".to_string(),
+            ),
             // Block-scoped — keep.
-            ("SUPPERS_AI__AUTH__JWT_SECRET".to_string(), "abc".to_string()),
+            (
+                "SUPPERS_AI__AUTH__JWT_SECRET".to_string(),
+                "abc".to_string(),
+            ),
             // Infra — drop.
             ("SOLOBASE_LISTEN".to_string(), "0.0.0.0:8090".to_string()),
-            ("SOLOBASE_DB_PATH".to_string(), "data/solobase.db".to_string()),
+            (
+                "SOLOBASE_DB_PATH".to_string(),
+                "data/solobase.db".to_string(),
+            ),
             // Plain env vars without `__` — drop.
             ("PATH".to_string(), "/usr/bin".to_string()),
             ("HOME".to_string(), "/home/joris".to_string()),

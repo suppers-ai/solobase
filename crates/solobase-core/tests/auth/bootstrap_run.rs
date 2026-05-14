@@ -2,10 +2,11 @@
 //! already-seeded paths.
 
 use solobase_core::blocks::auth::{
-    bootstrap::{self, sha256},
+    bootstrap,
     config::AuthConfig,
     migrations,
     repo::{bootstrap_tokens, local_credentials, users},
+    service::hash_token,
 };
 
 use crate::common::MigrationTestCtx;
@@ -66,7 +67,7 @@ async fn token_path_inserts_bootstrap_token_row() {
 
     // The bootstrap_tokens row uses sha256(raw) as PK; is_valid checks
     // existence + unexpired.
-    let valid = bootstrap_tokens::is_valid(&ctx, &sha256("secret-token"))
+    let valid = bootstrap_tokens::is_valid(&ctx, &hash_token("secret-token"))
         .await
         .expect("is_valid");
     assert!(valid, "bootstrap token row must be installed and unexpired");

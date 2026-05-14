@@ -87,8 +87,9 @@ pub(crate) mod helpers {
         reason = "wired up by Wave 1b token-storage migration (forgot_password / reset_password / verify / signup / pats)"
     )]
     pub(crate) fn sha256_hex(s: &str) -> String {
-        use sha2::{Digest, Sha256};
         use std::fmt::Write;
+
+        use sha2::{Digest, Sha256};
         let digest = Sha256::digest(s.as_bytes());
         let mut out = String::with_capacity(64);
         for b in digest {
@@ -394,7 +395,9 @@ pub(crate) mod helpers {
         fn sha256_hex_is_64_lowercase_hex() {
             let h = sha256_hex("any input");
             assert_eq!(h.len(), 64);
-            assert!(h.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+            assert!(h
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
         }
     }
 }
