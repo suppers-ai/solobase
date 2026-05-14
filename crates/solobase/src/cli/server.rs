@@ -44,6 +44,33 @@ pub async fn run() -> anyhow::Result<()> {
     let mut vars = seed_and_load_variables(&infra.db_path, &env_vars);
     tracing::info!(vars = vars.len(), "variables loaded from database");
 
+    // 5a. Surface the `SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_*` env vars
+    //     into `vars` for the bootstrap gate. `collect_app_env_vars` strips
+    //     every `SOLOBASE_`-prefixed env var (it can't distinguish infra
+    //     keys from `SOLOBASE_SHARED__*` app-config keys), so without this
+    //     splice the gate below decides "no env vars set" on a fresh boot
+    //     and the auto-bootstrap path injects a random password — which
+    //     then becomes an `EnvConfigService` override that masks the real
+    //     env var when the auth block reads it. The auth block itself
+    //     reads these via `EnvConfigService::get`'s `std::env::var`
+    //     fallback, so merging them in here matches the downstream view.
+    {
+        use solobase_core::blocks::auth::config::{
+            BOOTSTRAP_ADMIN_EMAIL_KEY, BOOTSTRAP_ADMIN_PASSWORD_KEY, BOOTSTRAP_ADMIN_TOKEN_KEY,
+        };
+        for key in [
+            BOOTSTRAP_ADMIN_EMAIL_KEY,
+            BOOTSTRAP_ADMIN_PASSWORD_KEY,
+            BOOTSTRAP_ADMIN_TOKEN_KEY,
+        ] {
+            if let Ok(val) = std::env::var(key) {
+                if !val.is_empty() {
+                    vars.entry(key.to_string()).or_insert(val);
+                }
+            }
+        }
+    }
+
     // 6. First-run admin policy. Runs before the auth block boots so the
     //    decision is visible in startup logs and a missing-config error
     //    stops the server cleanly. See [`auto_bootstrap_if_needed`].
