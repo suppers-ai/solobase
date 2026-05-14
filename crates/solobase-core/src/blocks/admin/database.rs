@@ -145,6 +145,17 @@ pub(in crate::blocks::admin) fn validate_readonly_query(
 ) -> Result<(), QueryValidationError> {
     let trimmed = query.trim();
 
+    // Strip one trailing `;` (and any whitespace after it) before the
+    // multi-statement check. Editors frequently auto-append a terminator,
+    // and the no-semicolon rule exists to block *piggy-backed* writes
+    // like `SELECT 1; DROP TABLE x` — a lone terminator carries none of
+    // that risk and produces a footgun otherwise. After stripping, a
+    // remaining `;` means there's more than one statement and we reject.
+    let trimmed = trimmed
+        .strip_suffix(';')
+        .map(|s| s.trim_end())
+        .unwrap_or(trimmed);
+
     // Reject multi-statement queries (prevent piggy-backed writes).
     if trimmed.contains(';') {
         return Err(QueryValidationError::Forbidden(
@@ -312,6 +323,28 @@ mod tests {
         assert!(validate_readonly_query("PRAGMA table_info(users)").is_ok());
         assert!(validate_readonly_query("PRAGMA index_list(users)").is_ok());
         assert!(validate_readonly_query("PRAGMA database_list").is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_single_trailing_semicolon() {
+        // Editors frequently auto-append `;`. A lone trailing terminator
+        // is harmless; the no-semicolon rule exists to block piggy-backed
+        // writes, not statement terminators.
+        assert!(validate_readonly_query("SELECT * FROM users;").is_ok());
+        assert!(validate_readonly_query("SELECT * FROM users ;").is_ok());
+        assert!(validate_readonly_query("SELECT * FROM users;\n").is_ok());
+        assert!(validate_readonly_query("  SELECT 1 ;  ").is_ok());
+    }
+
+    #[test]
+    fn validate_still_rejects_multistatement_with_trailing_semicolon() {
+        // Two real statements, the second terminated — must still be
+        // rejected. Stripping one trailing `;` leaves the inner `;`
+        // visible to the multi-statement check.
+        let e = validate_readonly_query("SELECT 1; DROP TABLE users;").unwrap_err();
+        assert!(matches!(e, QueryValidationError::Forbidden(_)));
+        let e = validate_readonly_query("SELECT 1; SELECT 2;").unwrap_err();
+        assert!(matches!(e, QueryValidationError::Forbidden(_)));
     }
 
     #[test]
