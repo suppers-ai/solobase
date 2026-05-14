@@ -21,7 +21,7 @@ use crate::{
         helpers::{now_millis, parse_form_body, url_path_encode as pct_encode},
     },
     ui::{
-        html_response,
+        html_response, icons,
         shell::Topbar,
         templates::{list_page, PageHeader},
         SiteConfig, UserInfo,
@@ -95,9 +95,11 @@ fn backend_badge(table_count: usize) -> Markup {
 
 fn left_pane(tables: &[TableSummary], selected: Option<&str>, tab: Tab) -> Markup {
     // Group tables by their `org__block` prefix (first two `__`-separated
-    // segments). Tables without `__` (e.g. legacy `variables`) go at the top
-    // level. The auto-expand of the active group is handled inline via the
-    // `open` attribute on the `<details>`.
+    // segments). Tables without `__` (e.g. legacy `variables`) go in their
+    // own "Other" section. Each group renders as a small card with an
+    // org/block heading, a count badge, and an always-visible table list —
+    // no more collapsible `<details>` carets. The filter input below hides
+    // matching rows without needing to expand/collapse anything.
     use std::collections::BTreeMap;
     let mut groups: BTreeMap<String, Vec<&TableSummary>> = BTreeMap::new();
     let mut ungrouped: Vec<&TableSummary> = Vec::new();
@@ -117,61 +119,96 @@ fn left_pane(tables: &[TableSummary], selected: Option<&str>, tab: Tab) -> Marku
                 input #db-filter type="text"
                     placeholder="Filter tables…"
                     autocomplete="off"
-                    oninput="(function(e){var q=e.target.value.toLowerCase();document.querySelectorAll('[data-db-table]').forEach(function(li){var n=li.getAttribute('data-db-table');li.style.display=n.indexOf(q)>=0?'':'none';});document.querySelectorAll('.db-table-list__group').forEach(function(g){if(q){g.setAttribute('open','');}});})(event)";
+                    oninput="(function(e){var q=e.target.value.toLowerCase();var visible=0;document.querySelectorAll('[data-db-table]').forEach(function(li){var n=li.getAttribute('data-db-table');var show=n.indexOf(q)>=0;li.style.display=show?'':'none';if(show)visible++;});document.querySelectorAll('[data-db-group]').forEach(function(g){var anyVisible=g.querySelector('[data-db-table]:not([style*=\"none\"])');g.style.display=anyVisible?'':'none';});var empty=document.getElementById('db-filter-empty');if(empty)empty.style.display=visible===0?'':'none';})(event)";
             }
-            ul .db-table-list {
+            div .db-table-groups {
                 @if tables.is_empty() {
-                    li .db-table-list__empty .text-muted .text-sm { "No tables yet" }
+                    div .db-table-list__empty .text-muted .text-sm { "No tables yet" }
                 }
-                @for (group_name, group_tables) in &groups {
-                    @let group_has_selected = group_tables.iter().any(|t| selected == Some(t.name.as_str()));
-                    li {
-                        details .db-table-list__group open[group_has_selected] {
-                            summary .db-table-list__group-summary {
-                                span .db-table-list__group-name { (group_name) }
-                                span .db-table-list__group-count .text-muted .text-xs { (group_tables.len()) }
+                @for (group_key, group_tables) in &groups {
+                    @let (org, block) = group_label(group_key);
+                    section .db-table-group data-db-group=(group_key) {
+                        header .db-table-group__head {
+                            span .db-table-group__icon { (icons::package()) }
+                            div .db-table-group__title-wrap {
+                                span .db-table-group__title { (block) }
+                                span .db-table-group__org .text-muted { (org) }
                             }
-                            ul .db-table-list .db-table-list--nested {
-                                @for t in group_tables {
-                                    @let active = selected == Some(t.name.as_str());
-                                    @let encoded_name = pct_encode(&t.name);
-                                    @let leaf = t.name.rsplit("__").next().unwrap_or(&t.name);
-                                    li data-db-table=(t.name.to_lowercase()) {
-                                        a .db-table-list__item .(if active { "is-active" } else { "" })
-                                            aria-current=[active.then_some("page")]
-                                            href={"/b/admin/database?table=" (encoded_name) "&tab=" (tab.as_query())}
-                                            hx-get={"/b/admin/database?table=" (encoded_name) "&tab=" (tab.as_query())}
-                                            hx-target="#content"
-                                            hx-push-url="true"
-                                        {
-                                            span .db-table-list__name { (leaf) }
-                                            span .db-table-list__count .text-muted .text-xs { (t.row_count) }
-                                        }
+                            span .db-table-group__count { (group_tables.len()) }
+                        }
+                        ul .db-table-group__list {
+                            @for t in group_tables {
+                                @let active = selected == Some(t.name.as_str());
+                                @let encoded_name = pct_encode(&t.name);
+                                @let leaf = t.name.rsplit("__").next().unwrap_or(&t.name);
+                                li data-db-table=(t.name.to_lowercase()) {
+                                    a .db-table-list__item .(if active { "is-active" } else { "" })
+                                        aria-current=[active.then_some("page")]
+                                        href={"/b/admin/database?table=" (encoded_name) "&tab=" (tab.as_query())}
+                                        hx-get={"/b/admin/database?table=" (encoded_name) "&tab=" (tab.as_query())}
+                                        hx-target="#content"
+                                        hx-push-url="true"
+                                    {
+                                        span .db-table-list__name { (leaf) }
+                                        span .db-table-list__count .text-muted .text-xs { (t.row_count) }
                                     }
                                 }
                             }
                         }
                     }
                 }
-                @for t in &ungrouped {
-                    @let active = selected == Some(t.name.as_str());
-                    @let encoded_name = pct_encode(&t.name);
-                    li data-db-table=(t.name.to_lowercase()) {
-                        a .db-table-list__item .(if active { "is-active" } else { "" })
-                            aria-current=[active.then_some("page")]
-                            href={"/b/admin/database?table=" (encoded_name) "&tab=" (tab.as_query())}
-                            hx-get={"/b/admin/database?table=" (encoded_name) "&tab=" (tab.as_query())}
-                            hx-target="#content"
-                            hx-push-url="true"
-                        {
-                            span .db-table-list__name { (t.name) }
-                            span .db-table-list__count .text-muted .text-xs { (t.row_count) }
+                @if !ungrouped.is_empty() {
+                    section .db-table-group data-db-group="_other" {
+                        header .db-table-group__head {
+                            span .db-table-group__icon { (icons::database()) }
+                            div .db-table-group__title-wrap {
+                                span .db-table-group__title { "Other" }
+                                span .db-table-group__org .text-muted { "no block prefix" }
+                            }
+                            span .db-table-group__count { (ungrouped.len()) }
+                        }
+                        ul .db-table-group__list {
+                            @for t in &ungrouped {
+                                @let active = selected == Some(t.name.as_str());
+                                @let encoded_name = pct_encode(&t.name);
+                                li data-db-table=(t.name.to_lowercase()) {
+                                    a .db-table-list__item .(if active { "is-active" } else { "" })
+                                        aria-current=[active.then_some("page")]
+                                        href={"/b/admin/database?table=" (encoded_name) "&tab=" (tab.as_query())}
+                                        hx-get={"/b/admin/database?table=" (encoded_name) "&tab=" (tab.as_query())}
+                                        hx-target="#content"
+                                        hx-push-url="true"
+                                    {
+                                        span .db-table-list__name { (t.name) }
+                                        span .db-table-list__count .text-muted .text-xs { (t.row_count) }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+                div #db-filter-empty .db-table-list__empty .text-muted .text-sm
+                    style="display:none" { "No tables match." }
             }
         }
     }
+}
+
+/// Split an `org__block` group key into a display-friendly `(org, block)`
+/// pair. `suppers_ai__admin` → `("suppers-ai", "admin")`. Leaves the value
+/// alone if it doesn't have a `__` (shouldn't happen given the caller's
+/// split, but keeps this helper defensive for tests).
+fn group_label(group_key: &str) -> (String, String) {
+    let (org_raw, block) = match group_key.split_once("__") {
+        Some((a, b)) => (a.to_string(), b.to_string()),
+        None => (String::new(), group_key.to_string()),
+    };
+    // DB-safe identifiers use `_` where the block name's `org/block` form
+    // uses `-` (so `suppers-ai/admin` lands as `suppers_ai__admin`).
+    // Reverse that for the org-label display only — block names are valid
+    // ident segments and don't need translation here.
+    let org_display = org_raw.replace('_', "-");
+    (org_display, block)
 }
 
 fn right_pane_tabs(selected: Option<&str>, tab: Tab) -> Markup {
@@ -436,4 +473,30 @@ pub async fn handle_database_query(
         Err(e) => render_sql_error(&format!("Query error: {}", e)),
     };
     html_response(fragment)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn group_label_translates_underscores_to_dashes_in_org() {
+        // `org__block` keys come from splitting table names like
+        // `suppers_ai__admin__users` on `__`. The org segment uses `_` as
+        // its separator; the display form uses `-`, matching how blocks
+        // are referenced everywhere else (e.g. "suppers-ai/admin").
+        let (org, block) = group_label("suppers_ai__admin");
+        assert_eq!(org, "suppers-ai");
+        assert_eq!(block, "admin");
+    }
+
+    #[test]
+    fn group_label_handles_single_segment_keys() {
+        // Defensive: caller currently never passes a single-segment key,
+        // but if it ever does we put the whole thing into `block` rather
+        // than panicking.
+        let (org, block) = group_label("variables");
+        assert_eq!(org, "");
+        assert_eq!(block, "variables");
+    }
 }
