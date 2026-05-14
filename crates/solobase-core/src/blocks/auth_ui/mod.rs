@@ -27,6 +27,7 @@
 pub mod api;
 pub mod oauth;
 pub mod pages;
+pub mod redirect;
 
 use wafer_run::{
     block::{Block, BlockInfo},

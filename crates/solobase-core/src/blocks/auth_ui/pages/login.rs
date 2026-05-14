@@ -8,7 +8,7 @@ use super::{
     oauth_provider_label, pw_field, pw_toggle_js, site_config,
 };
 use crate::{
-    blocks::auth::brand_panel,
+    blocks::{auth::brand_panel, auth_ui::redirect::is_safe_local_redirect},
     ui::{self, templates::auth_split},
 };
 
@@ -21,7 +21,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         == "true";
     let raw_redirect = msg.get_meta("req.query.redirect").to_string();
     // Validate redirect — only allow relative paths (prevent open redirect)
-    let redirect = if raw_redirect.starts_with('/') && !raw_redirect.starts_with("//") {
+    let redirect = if is_safe_local_redirect(&raw_redirect) {
         raw_redirect
     } else {
         String::new()
@@ -30,7 +30,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         .config_get("SOLOBASE_SHARED__POST_LOGIN_REDIRECT")
         .unwrap_or("/b/admin/")
         .to_string();
-    let post_login = if post_login_raw.starts_with('/') && !post_login_raw.starts_with("//") {
+    let post_login = if is_safe_local_redirect(&post_login_raw) {
         post_login_raw
     } else {
         "/b/admin/".to_string()
