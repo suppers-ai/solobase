@@ -18,9 +18,15 @@ pub fn load_dotenv() {
     let _ = dotenvy::dotenv();
 }
 
-/// Collect env vars that are NOT prefixed `SOLOBASE_`. These are the
-/// app-level config vars the consumer may want to seed into a config
-/// service or a `variables` table.
+/// Collect env vars that look like app config — i.e. any key containing
+/// `__`. The workspace convention (per CLAUDE.md) is:
+///
+/// - `SOLOBASE_SHARED__*` — shared app config (any block reads it)
+/// - `{ORG}__{BLOCK}__*` — block-scoped (only the owner block + admin)
+/// - `SOLOBASE_*` (no `__`) — infrastructure, never seeded into the DB
+///
+/// The presence of `__` is the discriminator: every app/block config key
+/// contains it, infra keys never do.
 ///
 /// Consumers who want additional filtering (e.g., only env vars that
 /// match declared config var keys) should apply their own filter on top
@@ -29,7 +35,7 @@ pub fn collect_app_env_vars() -> HashMap<String, String> {
     filter_app_env_vars(std::env::vars())
 }
 
-/// Pure filter: drops any pair whose key starts with `SOLOBASE_`.
+/// Pure filter: keeps any pair whose key contains `__`.
 ///
 /// Split out so tests can exercise the filter without mutating the
 /// process environment (which is `unsafe` in Rust 2024 and races with
@@ -38,9 +44,7 @@ pub(crate) fn filter_app_env_vars<I>(iter: I) -> HashMap<String, String>
 where
     I: IntoIterator<Item = (String, String)>,
 {
-    iter.into_iter()
-        .filter(|(k, _)| !k.starts_with("SOLOBASE_"))
-        .collect()
+    iter.into_iter().filter(|(k, _)| k.contains("__")).collect()
 }
 
 #[cfg(test)]
@@ -48,18 +52,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn filter_app_env_vars_excludes_solobase_prefix() {
+    fn filter_keeps_shared_and_block_scoped_drops_infra_and_plain() {
         let input = vec![
-            ("SOLOBASE_INFRA_X".to_string(), "1".to_string()),
-            ("APP_Y".to_string(), "2".to_string()),
-            ("SOLOBASE_SHARED__FOO".to_string(), "3".to_string()),
+            // Shared app config — keep.
+            (
+                "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL".to_string(),
+                "admin@example.com".to_string(),
+            ),
+            // Block-scoped — keep.
+            (
+                "SUPPERS_AI__AUTH__JWT_SECRET".to_string(),
+                "abc".to_string(),
+            ),
+            // Infra — drop.
+            ("SOLOBASE_LISTEN".to_string(), "0.0.0.0:8090".to_string()),
+            (
+                "SOLOBASE_DB_PATH".to_string(),
+                "data/solobase.db".to_string(),
+            ),
+            // Plain env vars without `__` — drop.
             ("PATH".to_string(), "/usr/bin".to_string()),
+            ("HOME".to_string(), "/home/joris".to_string()),
         ];
         let out = filter_app_env_vars(input);
-        assert!(!out.contains_key("SOLOBASE_INFRA_X"));
-        assert!(!out.contains_key("SOLOBASE_SHARED__FOO"));
-        assert_eq!(out.get("APP_Y").map(String::as_str), Some("2"));
-        assert_eq!(out.get("PATH").map(String::as_str), Some("/usr/bin"));
+        assert!(out.contains_key("SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL"));
+        assert!(out.contains_key("SUPPERS_AI__AUTH__JWT_SECRET"));
+        assert!(!out.contains_key("SOLOBASE_LISTEN"));
+        assert!(!out.contains_key("SOLOBASE_DB_PATH"));
+        assert!(!out.contains_key("PATH"));
+        assert!(!out.contains_key("HOME"));
     }
 
     #[test]
