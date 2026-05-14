@@ -5,7 +5,10 @@ use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::{build_auth_cookie, ensure_admin_role, generate_tokens, store_refresh_token},
+        helpers::{
+            build_auth_cookie, ensure_admin_role, expected_issuer, generate_tokens,
+            store_refresh_token,
+        },
         repo::sessions,
         service::hash_token,
         TOKENS_TABLE, USERS_TABLE,
@@ -47,6 +50,16 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     let token_type = claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
     if token_type != "refresh" {
         return error_response(ErrorCode::InvalidToken, "Not a refresh token");
+    }
+
+    // [SEC-038] Require the iss claim to match this deployment. A refresh
+    // token minted against a different SOLOBASE_SHARED__FRONTEND_URL value
+    // (e.g. a leaked staging secret) must not refresh into a production
+    // access token.
+    let expected_iss = expected_issuer(ctx).await;
+    let iss = claims.get("iss").and_then(|v| v.as_str()).unwrap_or("");
+    if iss != expected_iss {
+        return error_response(ErrorCode::InvalidToken, "Invalid or expired refresh token");
     }
 
     // Validate refresh token exists in DB (prevents use of revoked tokens)

@@ -86,17 +86,43 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         }
     }
 
-    // Check if user exists
-    if db::get_by_field(
+    // Reject top-25 common passwords. [SEC-041] A length minimum alone lets
+    // `password1`, `12345678`, `qwerty12`, etc. through — a credential-stuffing
+    // attacker hits these first. The list is intentionally tiny (NordPass
+    // 2023 top 25) so the check stays cheap and doesn't drift into HIBP
+    // territory in this PR.
+    if is_common_password(&body.password) {
+        return error_response(
+            ErrorCode::InvalidInput,
+            "Password is too common. Please choose a less predictable password.",
+        );
+    }
+
+    // [SEC-035] If the email is already registered, do NOT confirm that to
+    // the caller — return the same generic "check your email" response a
+    // fresh signup would produce. The signup endpoint is otherwise a free
+    // email-enumeration oracle for password-reset / phishing campaigns.
+    //
+    // Follow-up: send a "someone tried to sign up with your email" notice
+    // to the existing account. Not included in this PR — needs the email
+    // block's templating to grow a new template, which is out of scope.
+    let email_already_taken = db::get_by_field(
         ctx,
         USERS_TABLE,
         "email",
         serde_json::Value::String(email_lower.clone()),
     )
     .await
-    .is_ok()
-    {
-        return error_response(ErrorCode::EmailAlreadyExists, "Email already registered");
+    .is_ok();
+    if email_already_taken {
+        return ResponseBuilder::new().status(201).json(&serde_json::json!({
+            "email_verified": false,
+            "message": "Account created. Please verify your email before signing in.",
+            "user": {
+                "id": "",
+                "email": email_lower,
+            }
+        }));
     }
 
     // Hash password
@@ -217,6 +243,48 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
                 "name": user.display_name
             }
         }))
+}
+
+/// [SEC-041] Top-25 most common passwords from the NordPass 2023 list.
+/// Comparison is case-insensitive — `Password1` and `password1` are both
+/// rejected. Embedded rather than pulled from a crate to keep dependencies
+/// minimal; the list rarely drifts year-over-year and a refresh is cheap.
+const COMMON_PASSWORDS: &[&str] = &[
+    "123456",
+    "admin",
+    "12345678",
+    "123456789",
+    "1234",
+    "12345",
+    "password",
+    "123",
+    "aa123456",
+    "1234567890",
+    "user",
+    "unknown",
+    "1234567",
+    "tmp",
+    "test",
+    "111111",
+    "qwerty123",
+    "abc123",
+    "1q2w3e4r5t",
+    "qwertyuiop",
+    "654321",
+    "iloveyou",
+    "dragon",
+    "monkey",
+    "qwerty",
+    // Common Solobase-flavored additions that always show up in password lists
+    // for new self-hosted apps. Cheap to include here.
+    "password1",
+    "admin123",
+    "solobase",
+];
+
+fn is_common_password(pw: &str) -> bool {
+    let lower = pw.to_ascii_lowercase();
+    COMMON_PASSWORDS.iter().any(|p| *p == lower)
 }
 
 /// Send verification email via the suppers-ai/email block.

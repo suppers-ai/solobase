@@ -97,18 +97,17 @@ async fn handle_create_table(ctx: &dyn Context, input: InputStream) -> OutputStr
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
 
-    // Sanitize name: keep only [A-Za-z0-9_] from the user-supplied suffix.
-    let table_name = format!(
-        "custom_{}",
-        body.name
-            .replace(|c: char| !c.is_alphanumeric() && c != '_', "")
-    );
+    // SEC-053: use the shared `sanitize_ident` helper so create + drop paths
+    // (and any future identifier-sanitization site) agree on what's allowed.
+    // Inline `replace(|c| !c.is_alphanumeric() && c != '_', "")` was an
+    // out-of-band rule that drifted from the drop path.
+    let table_name = format!("custom_{}", sanitize_ident(&body.name));
 
     // Map a user-supplied SQL-flavoured type string to the builder column
     // helper. Unknown types fall back to TEXT. User columns are nullable
     // by default (matches the previous hand-written DDL).
     fn user_column(name: &str, col_type: &str) -> Column {
-        let safe_name = name.replace(|c: char| !c.is_alphanumeric() && c != '_', "");
+        let safe_name = sanitize_ident(name);
         match col_type.to_uppercase().as_str() {
             "INTEGER" => col_int(&safe_name).null(),
             "REAL" => col_float(&safe_name).null(),
@@ -129,7 +128,10 @@ async fn handle_create_table(ctx: &dyn Context, input: InputStream) -> OutputStr
         .columns
         .push(col_datetime("updated_at").def(default_now()));
 
-    let sql = ddl::build_create_table(&table, Backend::Sqlite);
+    let sql = match ddl::build_create_table(&table, Backend::Sqlite) {
+        Ok(s) => s,
+        Err(e) => return err_internal("Failed to build CREATE TABLE SQL", e),
+    };
 
     match db::exec_raw(ctx, &sql, &[]).await {
         Ok(_) => ok_json(&serde_json::json!({"table": table_name, "created": true})),

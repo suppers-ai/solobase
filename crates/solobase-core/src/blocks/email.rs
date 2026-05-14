@@ -7,7 +7,7 @@
 //! Uses the `wafer-run/network` block to make HTTP requests to Mailgun,
 //! and `wafer-run/config` for MAILGUN_API_KEY, MAILGUN_DOMAIN, MAILGUN_FROM.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use wafer_core::clients::{config, network as net};
@@ -18,13 +18,22 @@ use wafer_run::{
     InputStream, OutputStream,
 };
 
+use super::rate_limit::{RateLimit, UserRateLimiter};
 use crate::blocks::helpers::{err_bad_request, err_not_found, ok_json};
 
-pub struct EmailBlock;
+/// Default per-caller rate limit: 100 emails per hour.
+const DEFAULT_RATE_LIMIT_MAX: u32 = 100;
+const DEFAULT_RATE_LIMIT_WINDOW_SECS: u64 = 3600;
+
+pub struct EmailBlock {
+    limiter: UserRateLimiter,
+}
 
 impl EmailBlock {
     pub fn new() -> Self {
-        Self
+        Self {
+            limiter: UserRateLimiter::new(),
+        }
     }
 }
 
@@ -57,22 +66,54 @@ impl Block for EmailBlock {
                 ConfigVar::new("SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO", "Reply-to address", "")
                     .name("Reply-To Address")
                     .optional(),
+                ConfigVar::new(
+                    "SUPPERS_AI__EMAIL__RATE_LIMIT_MAX",
+                    "Maximum emails per caller per window (0 disables rate limiting)",
+                    &DEFAULT_RATE_LIMIT_MAX.to_string(),
+                )
+                .name("Rate Limit (max emails)")
+                .optional(),
+                ConfigVar::new(
+                    "SUPPERS_AI__EMAIL__RATE_LIMIT_WINDOW_SECS",
+                    "Rate limit window in seconds",
+                    &DEFAULT_RATE_LIMIT_WINDOW_SECS.to_string(),
+                )
+                .name("Rate Limit Window (seconds)")
+                .optional(),
+                ConfigVar::new(
+                    "SUPPERS_AI__EMAIL__ALLOWED_RECIPIENT_PATTERNS",
+                    "Comma-separated allow-list of recipient glob patterns (e.g. \
+                     `*@example.com,admin@*`). Empty = allow all (with startup warning).",
+                    "",
+                )
+                .name("Allowed Recipient Patterns")
+                .optional(),
             ])
     }
 
     async fn handle(&self, ctx: &dyn Context, msg: Message, input: InputStream) -> OutputStream {
         match msg.kind.as_str() {
-            "email.send" => handle_send(ctx, input).await,
-            "email.send_template" => handle_send_template(ctx, input).await,
+            "email.send" => handle_send(&self.limiter, ctx, input).await,
+            "email.send_template" => handle_send_template(&self.limiter, ctx, input).await,
             _ => err_not_found(&format!("unknown email op: {}", msg.kind)),
         }
     }
 
     async fn lifecycle(
         &self,
-        _ctx: &dyn Context,
-        _event: LifecycleEvent,
+        ctx: &dyn Context,
+        event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
+        if event.event_type == LifecycleType::Init {
+            let patterns =
+                config::get_default(ctx, "SUPPERS_AI__EMAIL__ALLOWED_RECIPIENT_PATTERNS", "").await;
+            if patterns.trim().is_empty() {
+                tracing::warn!(
+                    "SUPPERS_AI__EMAIL__ALLOWED_RECIPIENT_PATTERNS is unset — email block \
+                     will accept any recipient address. Set this to limit who can be emailed."
+                );
+            }
+        }
         Ok(())
     }
 }
@@ -95,12 +136,26 @@ struct SendResp {
     sent: bool,
 }
 
-async fn handle_send(ctx: &dyn Context, input: InputStream) -> OutputStream {
+async fn handle_send(
+    limiter: &UserRateLimiter,
+    ctx: &dyn Context,
+    input: InputStream,
+) -> OutputStream {
     let raw = input.collect_to_bytes().await;
     let req: SendReq = match serde_json::from_slice(&raw) {
         Ok(r) => r,
         Err(e) => return err_bad_request(&format!("invalid email.send: {e}")),
     };
+
+    if let Err(e) = validate_recipient(&req.to) {
+        return err_bad_request(&e);
+    }
+    if let Err(e) = check_recipient_allowed(ctx, &req.to).await {
+        return err_bad_request(&e);
+    }
+    if let Err(e) = check_caller_rate_limit(limiter, ctx).await {
+        return e;
+    }
 
     let sent = send_email(ctx, &req.to, &req.subject, &req.html, req.text.as_deref()).await;
     ok_json(&SendResp { sent })
@@ -122,12 +177,26 @@ struct TemplateReq {
     days_remaining: Option<u32>,
 }
 
-async fn handle_send_template(ctx: &dyn Context, input: InputStream) -> OutputStream {
+async fn handle_send_template(
+    limiter: &UserRateLimiter,
+    ctx: &dyn Context,
+    input: InputStream,
+) -> OutputStream {
     let raw = input.collect_to_bytes().await;
     let req: TemplateReq = match serde_json::from_slice(&raw) {
         Ok(r) => r,
         Err(e) => return err_bad_request(&format!("invalid email.send_template: {e}")),
     };
+
+    if let Err(e) = validate_recipient(&req.to) {
+        return err_bad_request(&e);
+    }
+    if let Err(e) = check_recipient_allowed(ctx, &req.to).await {
+        return err_bad_request(&e);
+    }
+    if let Err(e) = check_caller_rate_limit(limiter, ctx).await {
+        return e;
+    }
 
     let base_url = config::get_default(
         ctx,
@@ -297,6 +366,136 @@ async fn send_email(
 }
 
 // ---------------------------------------------------------------------------
+// Validation & rate limiting (SEC-051)
+// ---------------------------------------------------------------------------
+
+/// Reject blatantly malformed recipient addresses:
+/// - empty
+/// - missing `@`
+/// - multiple `@`
+/// - contains CR/LF (SMTP header injection)
+/// - missing local-part or domain-part
+fn validate_recipient(addr: &str) -> Result<(), String> {
+    let trimmed = addr.trim();
+    if trimmed.is_empty() {
+        return Err("recipient address is empty".into());
+    }
+    if trimmed.contains('\r') || trimmed.contains('\n') {
+        return Err("recipient address contains CR/LF (header injection)".into());
+    }
+    let at_count = trimmed.matches('@').count();
+    if at_count == 0 {
+        return Err("recipient address missing '@'".into());
+    }
+    if at_count > 1 {
+        return Err("recipient address contains multiple '@'".into());
+    }
+    let (local, domain) = trimmed.split_once('@').unwrap();
+    if local.is_empty() || domain.is_empty() {
+        return Err("recipient address has empty local-part or domain".into());
+    }
+    Ok(())
+}
+
+/// Match `value` against a simple glob pattern. Supports `*` (zero-or-more
+/// of any chars). Match is case-insensitive — email addresses are not
+/// case-sensitive in practice.
+fn glob_match(pattern: &str, value: &str) -> bool {
+    let pattern = pattern.trim().to_lowercase();
+    let value = value.trim().to_lowercase();
+    glob_match_inner(pattern.as_bytes(), value.as_bytes())
+}
+
+fn glob_match_inner(pat: &[u8], val: &[u8]) -> bool {
+    // Simple recursive matcher — patterns are short so depth is bounded.
+    if pat.is_empty() {
+        return val.is_empty();
+    }
+    if pat[0] == b'*' {
+        // Match zero or more chars.
+        if glob_match_inner(&pat[1..], val) {
+            return true;
+        }
+        if val.is_empty() {
+            return false;
+        }
+        return glob_match_inner(pat, &val[1..]);
+    }
+    if val.is_empty() {
+        return false;
+    }
+    if pat[0] != val[0] {
+        return false;
+    }
+    glob_match_inner(&pat[1..], &val[1..])
+}
+
+/// Check the recipient against `SUPPERS_AI__EMAIL__ALLOWED_RECIPIENT_PATTERNS`.
+/// Empty/unset = allow (startup warning already emitted in lifecycle).
+async fn check_recipient_allowed(ctx: &dyn Context, to: &str) -> Result<(), String> {
+    let patterns =
+        config::get_default(ctx, "SUPPERS_AI__EMAIL__ALLOWED_RECIPIENT_PATTERNS", "").await;
+    let patterns = patterns.trim();
+    if patterns.is_empty() {
+        return Ok(());
+    }
+    for pattern in patterns.split(',') {
+        let pattern = pattern.trim();
+        if pattern.is_empty() {
+            continue;
+        }
+        if glob_match(pattern, to) {
+            return Ok(());
+        }
+    }
+    Err(format!(
+        "recipient '{to}' does not match any allowed pattern"
+    ))
+}
+
+/// Per-caller email rate limit. Caller identified by `ctx.caller_id()` —
+/// falls back to `"unknown"` when missing (e.g. direct HTTP entry point).
+async fn check_caller_rate_limit(
+    limiter: &UserRateLimiter,
+    ctx: &dyn Context,
+) -> Result<(), OutputStream> {
+    let max = config::get_default(
+        ctx,
+        "SUPPERS_AI__EMAIL__RATE_LIMIT_MAX",
+        &DEFAULT_RATE_LIMIT_MAX.to_string(),
+    )
+    .await
+    .trim()
+    .parse::<u32>()
+    .unwrap_or(DEFAULT_RATE_LIMIT_MAX);
+    if max == 0 {
+        // Rate limiting disabled.
+        return Ok(());
+    }
+
+    let window_secs = config::get_default(
+        ctx,
+        "SUPPERS_AI__EMAIL__RATE_LIMIT_WINDOW_SECS",
+        &DEFAULT_RATE_LIMIT_WINDOW_SECS.to_string(),
+    )
+    .await
+    .trim()
+    .parse::<u64>()
+    .unwrap_or(DEFAULT_RATE_LIMIT_WINDOW_SECS);
+
+    let caller = ctx.caller_id().unwrap_or("unknown");
+    let key = UserRateLimiter::key(caller, "email_send");
+    let limit = RateLimit {
+        max_requests: max,
+        window: Duration::from_secs(window_secs),
+    };
+    match limiter.check(ctx, &key, limit).await {
+        Ok(_) => Ok(()),
+        Err(retry_after) => Err(super::rate_limit::rate_limited_response(retry_after)),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -388,3 +587,237 @@ impl<'a> std::io::Write for Base64Encoder<'a> {
 
 #[cfg(not(target_arch = "wasm32"))]
 ::wafer_run::register_static_block!("suppers-ai/email", EmailBlock);
+
+// ---------------------------------------------------------------------------
+// Tests — SEC-051 rate limit + recipient allow-list + validation.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
+
+    use wafer_block::{codec, wire::config as cfg_wire};
+    use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
+
+    use super::*;
+
+    /// Minimal Context routing `wafer-run/config` `config.get` to an in-memory
+    /// map. Mirrors `MockContext::handle_config_call` in products' tests but
+    /// trimmed to the surface the email block needs.
+    struct ConfigCtx {
+        cfg: Mutex<HashMap<String, String>>,
+    }
+
+    impl ConfigCtx {
+        fn new() -> Self {
+            Self {
+                cfg: Mutex::new(HashMap::new()),
+            }
+        }
+        fn set(&self, k: &str, v: &str) {
+            self.cfg
+                .lock()
+                .unwrap()
+                .insert(k.to_string(), v.to_string());
+        }
+    }
+
+    impl Clone for ConfigCtx {
+        fn clone(&self) -> Self {
+            let cfg = self.cfg.lock().unwrap().clone();
+            Self {
+                cfg: Mutex::new(cfg),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Context for ConfigCtx {
+        async fn call_block(
+            &self,
+            block_name: &str,
+            msg: Message,
+            input: InputStream,
+        ) -> OutputStream {
+            if block_name == "wafer-run/config" && msg.kind == "config.get" {
+                let data = input.collect_to_bytes().await;
+                let req: cfg_wire::GetRequest = match codec::decode(&data) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        return OutputStream::error(wafer_run::WaferError::new(
+                            "internal", e.message,
+                        ));
+                    }
+                };
+                let value = self
+                    .cfg
+                    .lock()
+                    .unwrap()
+                    .get(&req.key)
+                    .cloned()
+                    .unwrap_or_default();
+                return match codec::encode(&cfg_wire::GetResponse { value }) {
+                    Ok(bytes) => OutputStream::respond(bytes),
+                    Err(e) => {
+                        OutputStream::error(wafer_run::WaferError::new("internal", e.message))
+                    }
+                };
+            }
+            OutputStream::error(wafer_run::WaferError::new(
+                "not_found",
+                format!("unhandled call: {block_name}/{}", msg.kind),
+            ))
+        }
+        fn is_cancelled(&self) -> bool {
+            false
+        }
+        fn config_get(&self, _key: &str) -> Option<&str> {
+            None
+        }
+        fn clone_arc(&self) -> Arc<dyn Context> {
+            Arc::new(self.clone())
+        }
+    }
+
+    // ---- validate_recipient -------------------------------------------------
+
+    #[test]
+    fn validate_recipient_accepts_normal_address() {
+        assert!(validate_recipient("alice@example.com").is_ok());
+        assert!(validate_recipient("a.b+tag@sub.example.co.uk").is_ok());
+    }
+
+    #[test]
+    fn validate_recipient_rejects_empty() {
+        assert!(validate_recipient("").is_err());
+        assert!(validate_recipient("   ").is_err());
+    }
+
+    #[test]
+    fn validate_recipient_rejects_missing_at() {
+        assert!(validate_recipient("not-an-email").is_err());
+    }
+
+    #[test]
+    fn validate_recipient_rejects_multiple_at() {
+        assert!(validate_recipient("a@b@c.com").is_err());
+    }
+
+    #[test]
+    fn validate_recipient_rejects_crlf_header_injection() {
+        assert!(validate_recipient("alice@example.com\r\nBcc: evil@x.com").is_err());
+        assert!(validate_recipient("alice@example.com\nBcc: evil@x.com").is_err());
+        assert!(validate_recipient("alice@example.com\rBcc: evil@x.com").is_err());
+    }
+
+    #[test]
+    fn validate_recipient_rejects_empty_parts() {
+        assert!(validate_recipient("@example.com").is_err());
+        assert!(validate_recipient("alice@").is_err());
+    }
+
+    // ---- glob_match ---------------------------------------------------------
+
+    #[test]
+    fn glob_match_exact_address() {
+        assert!(glob_match("alice@example.com", "alice@example.com"));
+        assert!(!glob_match("alice@example.com", "bob@example.com"));
+    }
+
+    #[test]
+    fn glob_match_domain_wildcard() {
+        assert!(glob_match("*@example.com", "alice@example.com"));
+        assert!(glob_match("*@example.com", "bob@example.com"));
+        assert!(!glob_match("*@example.com", "alice@other.com"));
+    }
+
+    #[test]
+    fn glob_match_local_wildcard() {
+        assert!(glob_match("admin@*", "admin@example.com"));
+        assert!(glob_match("admin@*", "admin@other.io"));
+        assert!(!glob_match("admin@*", "user@example.com"));
+    }
+
+    #[test]
+    fn glob_match_case_insensitive() {
+        assert!(glob_match("Alice@Example.COM", "alice@example.com"));
+    }
+
+    // ---- check_recipient_allowed -------------------------------------------
+
+    #[tokio::test]
+    async fn allow_list_empty_allows_all() {
+        let ctx = ConfigCtx::new();
+        // No pattern set → allow.
+        assert!(check_recipient_allowed(&ctx, "anyone@anywhere.io")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn allow_list_blocks_unmatched_recipient() {
+        let ctx = ConfigCtx::new();
+        ctx.set(
+            "SUPPERS_AI__EMAIL__ALLOWED_RECIPIENT_PATTERNS",
+            "*@example.com, admin@*",
+        );
+        assert!(check_recipient_allowed(&ctx, "intruder@other.io")
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn allow_list_permits_matched_recipient() {
+        let ctx = ConfigCtx::new();
+        ctx.set(
+            "SUPPERS_AI__EMAIL__ALLOWED_RECIPIENT_PATTERNS",
+            "*@example.com, admin@*",
+        );
+        assert!(check_recipient_allowed(&ctx, "alice@example.com")
+            .await
+            .is_ok());
+        assert!(check_recipient_allowed(&ctx, "admin@anywhere.io")
+            .await
+            .is_ok());
+    }
+
+    // ---- check_caller_rate_limit -------------------------------------------
+
+    #[tokio::test]
+    async fn rate_limit_allows_under_threshold() {
+        let ctx = ConfigCtx::new();
+        ctx.set("SUPPERS_AI__EMAIL__RATE_LIMIT_MAX", "3");
+        ctx.set("SUPPERS_AI__EMAIL__RATE_LIMIT_WINDOW_SECS", "60");
+        let limiter = UserRateLimiter::new();
+        // First 3 are allowed.
+        for _ in 0..3 {
+            assert!(check_caller_rate_limit(&limiter, &ctx).await.is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn rate_limit_blocks_over_threshold() {
+        let ctx = ConfigCtx::new();
+        ctx.set("SUPPERS_AI__EMAIL__RATE_LIMIT_MAX", "2");
+        ctx.set("SUPPERS_AI__EMAIL__RATE_LIMIT_WINDOW_SECS", "60");
+        let limiter = UserRateLimiter::new();
+        assert!(check_caller_rate_limit(&limiter, &ctx).await.is_ok());
+        assert!(check_caller_rate_limit(&limiter, &ctx).await.is_ok());
+        // 3rd send exceeds the configured cap and is rate-limited.
+        assert!(check_caller_rate_limit(&limiter, &ctx).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn rate_limit_disabled_when_max_is_zero() {
+        let ctx = ConfigCtx::new();
+        ctx.set("SUPPERS_AI__EMAIL__RATE_LIMIT_MAX", "0");
+        let limiter = UserRateLimiter::new();
+        // Should never block.
+        for _ in 0..50 {
+            assert!(check_caller_rate_limit(&limiter, &ctx).await.is_ok());
+        }
+    }
+}

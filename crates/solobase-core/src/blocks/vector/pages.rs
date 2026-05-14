@@ -256,7 +256,12 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
 
 /// Idempotently create the registry table.
 async fn ensure_registry(ctx: &dyn Context) -> Result<(), WaferError> {
-    let sql = ddl::build_create_table(&registry_schema(), Backend::Sqlite);
+    let sql = ddl::build_create_table(&registry_schema(), Backend::Sqlite).map_err(|e| {
+        WaferError::new(
+            wafer_block::ErrorCode::INTERNAL,
+            format!("Failed to build registry CREATE TABLE: {e}"),
+        )
+    })?;
     db::exec_raw(ctx, &sql, &[]).await.map(|_| ())
 }
 

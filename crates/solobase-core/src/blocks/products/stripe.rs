@@ -224,7 +224,17 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
         );
         let revert_args = sea_values_to_json(revert_vals);
         let _ = db::exec_raw(ctx, &revert_sql, &revert_args).await;
+        // SEC-054: log full Stripe response server-side for diagnostics,
+        // but never forward Stripe's response body to the client — it can
+        // leak account configuration, API keys in error messages, internal
+        // resource IDs, etc.
         let err_body = String::from_utf8_lossy(&resp.body);
+        tracing::error!(
+            status = resp.status_code,
+            body = %err_body,
+            purchase_id = %body.purchase_id,
+            "Stripe checkout session creation failed"
+        );
         return err_internal(
             "Stripe API error",
             format!("status={} body={}", resp.status_code, err_body),

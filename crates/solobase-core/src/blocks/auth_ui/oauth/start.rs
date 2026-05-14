@@ -1,15 +1,21 @@
 //! GET /b/auth/oauth/login — relocated from auth/oauth.rs::handle_oauth_login in Task 5.
 
-use std::{collections::HashMap, time::Duration};
-
 use sha2::{Digest, Sha256};
-use wafer_core::clients::{config, crypto};
+use wafer_core::clients::config;
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::blocks::{
-    auth::helpers::urlencode,
+    auth::{
+        helpers::urlencode,
+        repo::oauth_pkce::{self, NewPkceState},
+    },
     helpers::{err_bad_request, err_forbidden, err_internal, ok_json},
 };
+
+/// PKCE state TTL: 10 minutes. OAuth round-trips complete in seconds; this
+/// is forgiving enough for a slow user on a captive-portal Wi-Fi without
+/// keeping abandoned-flow rows around indefinitely.
+const PKCE_STATE_TTL_SECS: i64 = 600;
 
 /// Generate a PKCE code verifier (43-128 chars, URL-safe).
 fn generate_pkce_verifier() -> Result<String, String> {
@@ -21,6 +27,13 @@ fn generate_pkce_verifier() -> Result<String, String> {
 fn pkce_challenge(verifier: &str) -> String {
     let hash = Sha256::digest(verifier.as_bytes());
     crate::crypto::base64_url_encode(&hash)
+}
+
+/// Random opaque OAuth `state` parameter sent to the provider. 32 random
+/// bytes hex-encoded (64 chars) — fits any provider's state-length limit.
+fn generate_state_id() -> Result<String, String> {
+    let bytes = crate::crypto::random_bytes(32)?;
+    Ok(crate::blocks::helpers::hex_encode(&bytes))
 }
 
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -51,44 +64,51 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     )
     .await;
 
-    // Generate PKCE code verifier and challenge
+    // Generate PKCE code verifier and challenge.
     let code_verifier = match generate_pkce_verifier() {
         Ok(v) => v,
         Err(e) => return err_internal("Failed to generate PKCE verifier", e),
     };
     let code_challenge = pkce_challenge(&code_verifier);
 
-    // Generate CSRF state token (signed JWT containing the provider name + PKCE verifier)
-    let mut state_claims = HashMap::new();
-    state_claims.insert(
-        "provider".to_string(),
-        serde_json::Value::String(provider.to_string()),
-    );
-    state_claims.insert(
-        "type".to_string(),
-        serde_json::Value::String("oauth_state".to_string()),
-    );
-    state_claims.insert(
-        "code_verifier".to_string(),
-        serde_json::Value::String(code_verifier),
-    );
-    let state = match crypto::sign(ctx, &state_claims, Duration::from_secs(600)).await {
+    // SEC-040: the PKCE `code_verifier` is the client-side secret half of
+    // PKCE. Previously it rode in a client-visible JWT (defeats the point of
+    // PKCE entirely). Persist it server-side keyed by a random `state_id`
+    // and send only the opaque id to the provider.
+    let state_id = match generate_state_id() {
         Ok(s) => s,
         Err(e) => return err_internal("Failed to generate state", e),
     };
+    let expires_at = (chrono::Utc::now() + chrono::Duration::seconds(PKCE_STATE_TTL_SECS))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
+    if let Err(e) = oauth_pkce::insert(
+        ctx,
+        NewPkceState {
+            state_id: &state_id,
+            provider,
+            code_verifier: &code_verifier,
+            redirect_uri: &redirect_uri,
+            expires_at: &expires_at,
+        },
+    )
+    .await
+    {
+        return err_internal("Failed to persist OAuth state", e);
+    }
 
     let auth_url = match provider {
         "google" => format!(
             "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}&code_challenge={}&code_challenge_method=S256",
-            client_id, redirect_uri, urlencode(&state), urlencode(&code_challenge)
+            client_id, redirect_uri, urlencode(&state_id), urlencode(&code_challenge)
         ),
         "github" => format!(
             "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope=user:email&state={}",
-            client_id, redirect_uri, urlencode(&state)
+            client_id, redirect_uri, urlencode(&state_id)
         ),
         "microsoft" => format!(
             "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}&code_challenge={}&code_challenge_method=S256",
-            client_id, redirect_uri, urlencode(&state), urlencode(&code_challenge)
+            client_id, redirect_uri, urlencode(&state_id), urlencode(&code_challenge)
         ),
         _ => return err_bad_request(&format!("Unsupported provider: {}", provider)),
     };

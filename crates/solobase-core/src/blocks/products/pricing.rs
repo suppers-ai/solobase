@@ -46,6 +46,9 @@ pub async fn handle_calculate(ctx: &dyn Context, input: InputStream) -> OutputSt
             .get("base_price")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
+        if let Err(e) = validate_price(base_price) {
+            return err_bad_request(&e);
+        }
         let total = base_price * body.quantity as f64;
         return ok_json(&serde_json::json!({
             "unit_price": base_price,
@@ -70,6 +73,9 @@ pub async fn handle_calculate(ctx: &dyn Context, input: InputStream) -> OutputSt
         Ok(p) => p,
         Err(e) => return err_bad_request(&format!("Formula evaluation error: {e}")),
     };
+    if let Err(e) = validate_price(unit_price) {
+        return err_bad_request(&e);
+    }
 
     // Check conditions
     let conditions = template.data.get("conditions");
@@ -90,6 +96,9 @@ pub async fn handle_calculate(ctx: &dyn Context, input: InputStream) -> OutputSt
     } else {
         unit_price
     };
+    if let Err(e) = validate_price(final_price) {
+        return err_bad_request(&e);
+    }
 
     let total = final_price * body.quantity as f64;
 
@@ -101,6 +110,31 @@ pub async fn handle_calculate(ctx: &dyn Context, input: InputStream) -> OutputSt
         "formula": formula,
         "variables_used": body.variables
     }))
+}
+
+/// Minimum acceptable price for a product (in display currency units).
+/// Anything below this is treated as an attempt at price manipulation or a
+/// formula bug, not a legitimate sale.
+pub const MIN_PRICE: f64 = 0.01;
+
+/// Validate an evaluated unit/final price.
+///
+/// Rejects NaN, non-finite values, and any price <= 0.0. Enforces a minimum
+/// of `MIN_PRICE` (1 cent). Returns a human-readable error suitable for
+/// `err_bad_request`.
+pub fn validate_price(price: f64) -> Result<(), String> {
+    if !price.is_finite() {
+        return Err("Invalid price: not a finite number".to_string());
+    }
+    if price <= 0.0 {
+        return Err("Invalid price: must be greater than zero".to_string());
+    }
+    if price < MIN_PRICE {
+        return Err(format!(
+            "Invalid price: must be at least {MIN_PRICE} (got {price})"
+        ));
+    }
+    Ok(())
 }
 
 /// Evaluate a simple pricing formula.

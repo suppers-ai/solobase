@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use wafer_core::clients::{config, crypto, database as db, network};
+use wafer_core::clients::{config, database as db, network};
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::blocks::{
@@ -11,9 +11,10 @@ use crate::blocks::{
         helpers::{
             build_auth_cookie, ensure_admin_role, generate_tokens, store_refresh_token, urlencode,
         },
-        repo::{provider_links, users},
+        repo::{oauth_pkce, provider_links, users},
         USERS_TABLE,
     },
+    auth_ui::redirect::is_safe_local_redirect,
     helpers::{
         err_bad_request, err_forbidden, err_internal, err_internal_no_cause, json_map,
         ResponseBuilder,
@@ -33,31 +34,20 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         return err_bad_request("Missing code or state parameter");
     }
 
-    // Verify CSRF state token and extract provider name
-    let state_claims = match crypto::verify(ctx, state).await {
-        Ok(c) => c,
-        Err(_) => return err_bad_request("Invalid or expired OAuth state"),
+    // SEC-040: look up the server-side PKCE state by the opaque `state_id`
+    // the provider echoed back. `take` is single-use (DELETE … RETURNING),
+    // so a replayed callback or a stolen state_id can only redeem once,
+    // and a state past `expires_at` is treated as missing.
+    let pkce_row = match oauth_pkce::take(ctx, state).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return err_bad_request("Invalid or expired OAuth state"),
+        Err(e) => return err_internal("OAuth state lookup failed", e),
     };
-    let state_type = state_claims
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if state_type != "oauth_state" {
-        return err_bad_request("Invalid OAuth state token");
-    }
-    let provider = state_claims
-        .get("provider")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    if provider.is_empty() {
-        return err_bad_request("Missing provider in OAuth state");
-    }
-    let code_verifier = state_claims
-        .get("code_verifier")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let provider = pkce_row.provider.clone();
+    let code_verifier = pkce_row.code_verifier.clone();
+    // Use the redirect_uri stored at start-time so the provider's exact-
+    // match check passes even if the live config changed mid-flow.
+    let redirect_uri = pkce_row.redirect_uri.clone();
 
     let client_id = config::get_default(
         ctx,
@@ -75,12 +65,6 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
             provider.to_uppercase()
         ),
         "",
-    )
-    .await;
-    let redirect_uri = config::get_default(
-        ctx,
-        "SUPPERS_AI__AUTH_UI__OAUTH_REDIRECT_URI",
-        "http://localhost:8090/b/auth/oauth/callback",
     )
     .await;
 
@@ -414,14 +398,24 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         "http://localhost:5173",
     )
     .await;
+    // [SEC-036] Validate FRONTEND_URL before plugging it into a Location
+    // header — a misconfigured (or attacker-controlled) value here would
+    // turn every OAuth callback into an open redirect.
+    if !is_safe_frontend_url(&frontend_url) {
+        tracing::error!(
+            frontend_url = %frontend_url,
+            "SOLOBASE_SHARED__FRONTEND_URL failed validation; refusing OAuth redirect"
+        );
+        return err_internal_no_cause("Frontend URL is not configured correctly");
+    }
     let post_login_raw =
         config::get_default(ctx, "SOLOBASE_SHARED__POST_LOGIN_REDIRECT", "/b/admin/").await;
-    let post_login = if post_login_raw.starts_with('/') && !post_login_raw.starts_with("//") {
+    let post_login = if is_safe_local_redirect(&post_login_raw) {
         post_login_raw
     } else {
         "/b/admin/".to_string()
     };
-    let redirect_url = format!("{}{}", frontend_url, post_login);
+    let redirect_url = format!("{}{}", frontend_url.trim_end_matches('/'), post_login);
 
     let cookie = build_auth_cookie(&jwt_token, 86400, ctx).await;
 
@@ -430,4 +424,110 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         .set_cookie(&cookie)
         .set_header("Location", &redirect_url)
         .json(&serde_json::json!({"redirect": redirect_url}))
+}
+
+/// [SEC-036] Validates `SOLOBASE_SHARED__FRONTEND_URL` before it is used as
+/// the origin half of an OAuth callback redirect.
+///
+/// The OAuth flow ends by issuing a `302 Location: {frontend_url}{post_login}`.
+/// If `frontend_url` is attacker-controlled (admin UI mistake, env-var
+/// injection, copy-paste of a phishing URL) this becomes an open redirect that
+/// piggybacks on the trusted authentication step.
+///
+/// Accept only:
+/// - `https://<host>` (any non-empty host), OR
+/// - `http://localhost[:port]` / `http://127.0.0.1[:port]` for local dev.
+///
+/// Reject anything with a path beyond `/`, any query, any fragment, anything
+/// containing CRLF/tab/other control characters, or any non-http(s) scheme.
+fn is_safe_frontend_url(s: &str) -> bool {
+    // Reject control characters outright — they enable header-injection even
+    // if the rest of the URL parses cleanly.
+    if s.chars().any(|c| c.is_control()) {
+        return false;
+    }
+    let parsed = match url::Url::parse(s) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+    let host = match parsed.host_str() {
+        Some(h) if !h.is_empty() => h,
+        _ => return false,
+    };
+    match parsed.scheme() {
+        "https" => {}
+        "http" => {
+            if !(host == "localhost" || host == "127.0.0.1" || host == "[::1]") {
+                return false;
+            }
+        }
+        _ => return false,
+    }
+    // Forbid an embedded path — the redirect formats as
+    // `{frontend_url}{post_login}` where post_login already starts with `/`.
+    // Allowing a path on frontend_url would invite double-slashes and
+    // injection of an unexpected prefix.
+    if !(parsed.path().is_empty() || parsed.path() == "/") {
+        return false;
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return false;
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_safe_frontend_url;
+
+    #[test]
+    fn accepts_https_origins() {
+        assert!(is_safe_frontend_url("https://app.example.com"));
+        assert!(is_safe_frontend_url("https://app.example.com/"));
+        assert!(is_safe_frontend_url("https://app.example.com:8443"));
+    }
+
+    #[test]
+    fn accepts_http_localhost_for_dev() {
+        assert!(is_safe_frontend_url("http://localhost:5173"));
+        assert!(is_safe_frontend_url("http://localhost"));
+        assert!(is_safe_frontend_url("http://127.0.0.1:3000"));
+        assert!(is_safe_frontend_url("http://[::1]:5173"));
+    }
+
+    #[test]
+    fn rejects_http_non_localhost() {
+        assert!(!is_safe_frontend_url("http://evil.com"));
+        assert!(!is_safe_frontend_url("http://example.com"));
+    }
+
+    #[test]
+    fn rejects_non_http_schemes() {
+        assert!(!is_safe_frontend_url("javascript:alert(1)"));
+        assert!(!is_safe_frontend_url("data:text/html,<script>x</script>"));
+        assert!(!is_safe_frontend_url("file:///etc/passwd"));
+        assert!(!is_safe_frontend_url("ftp://example.com"));
+    }
+
+    #[test]
+    fn rejects_paths_and_queries_and_fragments() {
+        assert!(!is_safe_frontend_url("https://example.com/path"));
+        assert!(!is_safe_frontend_url("https://example.com/?q=1"));
+        assert!(!is_safe_frontend_url("https://example.com/#frag"));
+    }
+
+    #[test]
+    fn rejects_empty_host() {
+        assert!(!is_safe_frontend_url(""));
+        assert!(!is_safe_frontend_url("https://"));
+        assert!(!is_safe_frontend_url("not a url"));
+    }
+
+    #[test]
+    fn rejects_control_characters() {
+        assert!(!is_safe_frontend_url(
+            "https://example.com\r\nLocation: https://evil.com"
+        ));
+        assert!(!is_safe_frontend_url("https://example.com\n"));
+    }
 }
