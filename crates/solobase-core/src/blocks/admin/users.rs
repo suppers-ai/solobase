@@ -82,7 +82,7 @@ async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
             }
             ok_json(&result)
         }
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -125,7 +125,7 @@ async fn get_user(ctx: &dyn Context, id: &str) -> OutputStream {
             ok_json(&resp)
         }
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("User not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -171,7 +171,7 @@ async fn handle_update(ctx: &dyn Context, msg: &Message, input: InputStream) -> 
             ok_json(&record)
         }
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("User not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -196,6 +196,6 @@ async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
     match db::soft_delete(ctx, COLLECTION, id).await {
         Ok(_) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("User not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }

@@ -98,7 +98,7 @@ impl Block for FastembedBlock {
         let body = input.collect_to_bytes().await;
         let svc = match self.get_service() {
             Ok(s) => s,
-            Err(e) => return err_internal(&e),
+            Err(e) => return err_internal("fastembed service unavailable", e),
         };
         handle_embedding_message(svc, &msg, &body).await
     }

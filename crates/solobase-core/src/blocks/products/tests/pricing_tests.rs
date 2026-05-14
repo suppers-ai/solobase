@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::mock_context::*;
-use crate::blocks::products::pricing::evaluate_formula;
+use crate::blocks::products::pricing::{evaluate_formula, validate_price, MIN_PRICE};
 
 // ============================================================
 // Basic arithmetic
@@ -447,4 +447,55 @@ async fn calculate_price_with_conditions() {
     let out2 = pricing::handle_calculate(&ctx, input2).await;
     let body2 = output_to_json(out2).await;
     assert!((body2["unit_price"].as_f64().unwrap() - 8.0).abs() < 0.01);
+}
+
+// ============================================================
+// SEC-063: validate_price guard (regression test)
+// ============================================================
+
+#[test]
+fn validate_price_rejects_negative() {
+    let err = validate_price(-1.0).unwrap_err();
+    assert!(err.contains("greater than zero"), "got: {err}");
+}
+
+#[test]
+fn validate_price_rejects_zero() {
+    let err = validate_price(0.0).unwrap_err();
+    assert!(err.contains("greater than zero"), "got: {err}");
+}
+
+#[test]
+fn validate_price_rejects_negative_zero() {
+    let err = validate_price(-0.0).unwrap_err();
+    assert!(err.contains("greater than zero"), "got: {err}");
+}
+
+#[test]
+fn validate_price_rejects_below_minimum() {
+    let err = validate_price(0.005).unwrap_err();
+    assert!(err.contains("at least"), "got: {err}");
+}
+
+#[test]
+fn validate_price_accepts_minimum() {
+    assert!(validate_price(MIN_PRICE).is_ok());
+}
+
+#[test]
+fn validate_price_accepts_normal() {
+    assert!(validate_price(9.99).is_ok());
+    assert!(validate_price(1_000_000.0).is_ok());
+}
+
+#[test]
+fn validate_price_rejects_nan() {
+    let err = validate_price(f64::NAN).unwrap_err();
+    assert!(err.contains("finite"), "got: {err}");
+}
+
+#[test]
+fn validate_price_rejects_infinity() {
+    let err = validate_price(f64::INFINITY).unwrap_err();
+    assert!(err.contains("finite"), "got: {err}");
 }

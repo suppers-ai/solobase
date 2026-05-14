@@ -180,12 +180,20 @@ pub const META_AUTH_EXP: &str = "auth.exp";
 /// Sets: `auth.user_id`, `auth.user_email`, `auth.user_roles`, and (when
 /// present in the JWT) `auth.jti` + `auth.exp`.
 ///
-/// Silently does nothing if the token is invalid, blocklisted (SEC-042),
-/// or a non-`access` type — the request continues as unauthenticated.
+/// Silently does nothing if the token is invalid, fails the issuer
+/// check (SEC-038), is blocklisted (SEC-042), or is a non-`access`
+/// type — the request continues as unauthenticated.
+///
+/// [SEC-038] `expected_iss` is the deployment's canonical issuer
+/// (`SOLOBASE_SHARED__FRONTEND_URL`). Tokens whose `iss` claim doesn't
+/// match are rejected as if they were unsigned — prevents a leaked
+/// signing secret in dev/staging from authenticating against production
+/// (and vice versa).
 pub async fn extract_auth_meta(
     ctx: &dyn wafer_run::context::Context,
     auth_header: &str,
     jwt_secret: &str,
+    expected_iss: &str,
     msg: &mut wafer_run::types::Message,
 ) {
     use wafer_run::meta::*;
@@ -211,6 +219,17 @@ pub async fn extract_auth_meta(
     let token_type = claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
     if token_type == "refresh" {
         return; // Refresh tokens must not be used as Bearer tokens
+    }
+
+    // [SEC-038] Require iss claim to match the deployment's expected issuer.
+    // An empty expected_iss disables the check (defensive — should never be
+    // empty in production, but a misconfigured deployment shouldn't 401
+    // every request silently).
+    if !expected_iss.is_empty() {
+        let iss = claims.get("iss").and_then(|v| v.as_str()).unwrap_or("");
+        if iss != expected_iss {
+            return;
+        }
     }
 
     // SEC-042: reject blocklisted JWTs after structural validation. A

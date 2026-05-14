@@ -79,7 +79,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     crate::blocks::helpers::stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, data).await {
-        return err_internal(&format!("Failed to verify email: {e}"));
+        return err_internal("Failed to verify email", e);
     }
 
     html_respond(
@@ -138,7 +138,7 @@ pub async fn handle_resend(ctx: &dyn Context, input: InputStream) -> OutputStrea
     // Generate new token
     let new_token = match crypto::random_bytes(ctx, 32).await {
         Ok(bytes) => hex_encode(&bytes),
-        Err(e) => return err_internal(&format!("Token generation failed: {e}")),
+        Err(e) => return err_internal("Token generation failed", e),
     };
 
     let now = crate::blocks::helpers::now_rfc3339();
@@ -149,7 +149,7 @@ pub async fn handle_resend(ctx: &dyn Context, input: InputStream) -> OutputStrea
     crate::blocks::helpers::stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, data).await {
-        return err_internal(&format!("Failed to update token: {e}"));
+        return err_internal("Failed to update token", e);
     }
 
     send_verification_email(ctx, &email_lower, &new_token).await;

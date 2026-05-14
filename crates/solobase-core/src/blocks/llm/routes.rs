@@ -170,7 +170,7 @@ async fn dispatch_chat(
     //    backend_id (first enabled provider). Non-legacy values pass through.
     let backend_id = match resolve_backend_id(ctx, &provider_block).await {
         Ok(id) => id,
-        Err(e) => return Err(err_internal(e)),
+        Err(e) => return Err(err_internal("resolve_backend_id failed", e)),
     };
 
     // 5. Build the service request and dispatch via the typed client.
@@ -185,7 +185,7 @@ async fn dispatch_chat(
     };
     let stream = match llm_client::chat_stream(ctx, &chat_req).await {
         Ok(s) => s,
-        Err(e) => return Err(err_internal(&format!("llm chat dispatch: {}", e.message))),
+        Err(e) => return Err(err_internal("llm chat dispatch", e.message)),
     };
     Ok((thread_id, stream))
 }
@@ -210,7 +210,7 @@ pub(super) async fn handle_chat(
     while let Some(item) = stream.next().await {
         let chunk = match item {
             Ok(c) => c,
-            Err(e) => return err_internal(&format!("llm service error: {}", e.message)),
+            Err(e) => return err_internal("llm service error", e.message),
         };
         match chunk.delta {
             ChunkDelta::Text(s) => content.push_str(&s),
@@ -417,7 +417,7 @@ pub(super) async fn list_providers(
     }
     let records = match db::list_all(ctx, PROVIDERS_TABLE, vec![]).await {
         Ok(r) => r,
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
     let providers: Vec<serde_json::Value> = records
         .iter()
@@ -488,11 +488,11 @@ pub(super) async fn create_provider(
 
     let record = match db::create(ctx, PROVIDERS_TABLE, data).await {
         Ok(r) => r,
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
 
     if let Err(e) = reload_provider_service(block, ctx).await {
-        return err_internal(&e);
+        return err_internal("reload_provider_service failed", e);
     }
 
     ok_json(&provider_to_json(&record.id, &cfg))
@@ -525,11 +525,11 @@ pub(super) async fn update_provider(
         Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
             return err_not_found("Provider not found")
         }
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
     let mut cfg = match row_to_config(&existing) {
         Ok(c) => c,
-        Err(e) => return err_internal(&format!("Stored provider row invalid: {e}")),
+        Err(e) => return err_internal("Stored provider row invalid", e),
     };
 
     if let Some(n) = body.name.filter(|s| !s.is_empty()) {
@@ -566,11 +566,11 @@ pub(super) async fn update_provider(
         Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
             return err_not_found("Provider not found")
         }
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
 
     if let Err(e) = reload_provider_service(block, ctx).await {
-        return err_internal(&e);
+        return err_internal("reload_provider_service failed", e);
     }
 
     ok_json(&provider_to_json(&record.id, &cfg))
@@ -594,11 +594,11 @@ pub(super) async fn delete_provider(
         Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
             return err_not_found("Provider not found")
         }
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     }
 
     if let Err(e) = reload_provider_service(block, ctx).await {
-        return err_internal(&e);
+        return err_internal("reload_provider_service failed", e);
     }
 
     ok_json(&serde_json::json!({ "deleted": true }))
@@ -645,7 +645,7 @@ pub(super) async fn list_models(
 ) -> OutputStream {
     match llm_client::list_models(ctx).await {
         Ok(models) => ok_json(&serde_json::json!({ "models": models })),
-        Err(e) => err_internal(&format!("llm list_models failed: {}", e.message)),
+        Err(e) => err_internal("llm list_models failed", e.message),
     }
 }
 
@@ -666,7 +666,7 @@ pub(super) async fn model_status(
     };
     match llm_client::status(ctx, &req).await {
         Ok(status) => ok_json(&serde_json::json!({ "status": status })),
-        Err(e) => err_internal(&format!("llm status failed: {}", e.message)),
+        Err(e) => err_internal("llm status failed", e.message),
     }
 }
 
@@ -690,7 +690,7 @@ pub(super) async fn load_model(
     };
     let stream = match llm_client::load_model_stream(ctx, &req).await {
         Ok(s) => s,
-        Err(e) => return err_internal(&format!("llm load_model failed: {}", e.message)),
+        Err(e) => return err_internal("llm load_model failed", e.message),
     };
     let _ = msg;
 
@@ -748,7 +748,7 @@ pub(super) async fn unload_model(
     let _ = msg;
     match llm_client::unload_model(ctx, &req).await {
         Ok(()) => ok_json(&serde_json::json!({ "unloaded": true })),
-        Err(e) => err_internal(&format!("llm unload_model failed: {}", e.message)),
+        Err(e) => err_internal("llm unload_model failed", e.message),
     }
 }
 
@@ -775,11 +775,11 @@ pub(super) async fn discover_models(
         Err(e) if e.code == wafer_run::types::ErrorCode::NotFound => {
             return err_not_found("Provider not found")
         }
-        Err(e) => return err_internal(&format!("Database error: {e}")),
+        Err(e) => return err_internal("Database error", e),
     };
     let mut cfg = match row_to_config(&existing) {
         Ok(c) => c,
-        Err(e) => return err_internal(&format!("Stored provider row invalid: {e}")),
+        Err(e) => return err_internal("Stored provider row invalid", e),
     };
 
     // Make sure the in-memory service knows about this provider — discover
@@ -787,12 +787,12 @@ pub(super) async fn discover_models(
     // started or the row is disabled (and so was excluded from the last
     // configure call).
     if let Err(e) = reload_provider_service(block, ctx).await {
-        return err_internal(&e);
+        return err_internal("reload_provider_service failed", e);
     }
 
     let models = match block.provider_svc.discover_models(&cfg.name).await {
         Ok(m) => m,
-        Err(e) => return err_internal(&format!("discover_models failed: {e:?}")),
+        Err(e) => return err_internal("discover_models failed", format!("{e:?}")),
     };
     let model_ids: Vec<String> = models.iter().map(|m| m.model_id.clone()).collect();
     cfg.models = model_ids.clone();
@@ -800,11 +800,11 @@ pub(super) async fn discover_models(
     let mut data = config_to_row(&cfg);
     helpers::stamp_updated(&mut data);
     if let Err(e) = db::update(ctx, PROVIDERS_TABLE, &id, data).await {
-        return err_internal(&format!("Database error: {e}"));
+        return err_internal("Database error", e);
     }
 
     if let Err(e) = reload_provider_service(block, ctx).await {
-        return err_internal(&e);
+        return err_internal("reload_provider_service failed", e);
     }
 
     ok_json(&serde_json::json!({ "models": model_ids }))

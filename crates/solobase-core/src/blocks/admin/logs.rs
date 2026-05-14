@@ -71,7 +71,7 @@ async fn handle_list(ctx: &dyn Context, msg: &Message) -> OutputStream {
     .await
     {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -112,7 +112,7 @@ async fn handle_system_logs(ctx: &dyn Context, msg: &Message) -> OutputStream {
     .await
     {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 

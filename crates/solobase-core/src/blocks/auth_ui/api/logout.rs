@@ -1,14 +1,12 @@
 //! POST /b/auth/api/logout — relocated from auth/login.rs in Task 5.
 
-use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::{
     blocks::{
         auth::{
             helpers::build_auth_cookie,
-            repo::jwt_blocklist::{self, NewBlocklistEntry},
-            TOKENS_TABLE,
+            repo::{jwt_blocklist::{self, NewBlocklistEntry}, tokens},
         },
         helpers::ResponseBuilder,
     },
@@ -18,16 +16,11 @@ use crate::{
 pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_id = msg.user_id();
     if !user_id.is_empty() {
-        // Refresh tokens are wiped wholesale for the user — anything stored
-        // pre-PR-J as raw tokens (or post-PR-J as hashes) is dropped here.
-        db::delete_by_field(
-            ctx,
-            TOKENS_TABLE,
-            "user_id",
-            serde_json::Value::String(user_id.to_string()),
-        )
-        .await
-        .ok();
+        // SEC-032/039: revoke (don't delete) the user's refresh-token rows
+        // so the tombstones remain available for reuse detection. The
+        // browser drops its cookie below either way; this just invalidates
+        // any in-flight refresh attempts on other clients.
+        tokens::revoke_all_for_user(ctx, user_id).await.ok();
 
         // SEC-042: the currently-presented access JWT stays structurally
         // valid until its natural exp. Blocklist its `jti` so subsequent

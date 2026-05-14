@@ -47,7 +47,7 @@ pub async fn crud_list(
     .await
     {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -69,7 +69,7 @@ pub async fn crud_get(
         Err(e) if e.code == ErrorCode::NotFound => {
             err_not_found(&format!("{not_found_label} not found"))
         }
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -96,7 +96,7 @@ pub async fn crud_create(
 
     match db::create(ctx, collection, data).await {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -127,7 +127,7 @@ pub async fn crud_update(
         Err(e) if e.code == ErrorCode::NotFound => {
             err_not_found(&format!("{not_found_label} not found"))
         }
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -149,6 +149,6 @@ pub async fn crud_delete(
         Err(e) if e.code == ErrorCode::NotFound => {
             err_not_found(&format!("{not_found_label} not found"))
         }
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }

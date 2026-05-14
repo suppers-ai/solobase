@@ -107,9 +107,18 @@ async fn is_bucket_access_denied(ctx: &dyn Context, msg: &Message, bucket: &str)
 }
 
 /// Validate a storage key for path traversal attacks.
-/// Rejects keys containing `..`, absolute paths, or null bytes.
+/// Rejects keys containing `..`, absolute paths, null bytes, or backslashes.
+///
+/// SEC-064: backslash is rejected because backends running on Windows-style
+/// paths (or any backend that ever normalises `\` to `/`) would otherwise
+/// allow `..\..\etc\passwd`-style traversal that the `..` check alone would
+/// not catch when the segment separator is `\` instead of `/`.
 fn is_valid_storage_key(key: &str) -> bool {
-    !key.is_empty() && !key.contains("..") && !key.starts_with('/') && !key.contains('\0')
+    !key.is_empty()
+        && !key.contains("..")
+        && !key.starts_with('/')
+        && !key.contains('\0')
+        && !key.contains('\\')
 }
 
 /// Validate a bucket name. Must be non-empty, no path traversal, no slashes.
@@ -124,7 +133,7 @@ async fn handle_list_buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
     if is_admin {
         match store::list_folders(ctx).await {
             Ok(folders) => ok_json(&serde_json::json!({"buckets": folders})),
-            Err(e) => err_internal(&format!("Storage error: {e}")),
+            Err(e) => err_internal("Storage error", e),
         }
     } else {
         let filters = vec![Filter {
@@ -140,7 +149,7 @@ async fn handle_list_buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
                     .collect();
                 ok_json(&serde_json::json!({"buckets": names}))
             }
-            Err(e) => err_internal(&format!("Database error: {e}")),
+            Err(e) => err_internal("Database error", e),
         }
     }
 }
@@ -191,7 +200,7 @@ async fn handle_create_bucket(
             }
             ok_json(&serde_json::json!({"name": body.name, "created": true}))
         }
-        Err(e) => err_internal(&format!("Failed to create bucket: {e}")),
+        Err(e) => err_internal("Failed to create bucket", e),
     }
 }
 
@@ -229,7 +238,7 @@ async fn handle_delete_bucket(ctx: &dyn Context, msg: &Message) -> OutputStream 
             .ok();
             ok_json(&serde_json::json!({"deleted": true}))
         }
-        Err(e) => err_internal(&format!("Failed to delete bucket: {e}")),
+        Err(e) => err_internal("Failed to delete bucket", e),
     }
 }
 
@@ -257,7 +266,7 @@ async fn handle_list_objects(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match store::list(ctx, bucket, &opts).await {
         Ok(list) => ok_json(&list),
-        Err(e) => err_internal(&format!("Storage error: {e}")),
+        Err(e) => err_internal("Storage error", e),
     }
 }
 
@@ -300,7 +309,7 @@ async fn handle_get_object(ctx: &dyn Context, msg: &Message) -> OutputStream {
     match store::get(ctx, bucket, key).await {
         Ok((data, info)) => ResponseBuilder::new().body(data, &info.content_type),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Object not found"),
-        Err(e) => err_internal(&format!("Storage error: {e}")),
+        Err(e) => err_internal("Storage error", e),
     }
 }
 
@@ -370,7 +379,7 @@ async fn handle_upload_object(
 
     let pending_record = match db::create(ctx, OBJECTS_TABLE, pending_data).await {
         Ok(record) => record,
-        Err(e) => return err_internal(&format!("Failed to reserve upload slot: {e}")),
+        Err(e) => return err_internal("Failed to reserve upload slot", e),
     };
 
     match store::put(ctx, bucket, &key, &body_bytes, &content_type).await {
@@ -391,7 +400,7 @@ async fn handle_upload_object(
             if let Err(del_err) = db::delete(ctx, OBJECTS_TABLE, &pending_record.id).await {
                 tracing::warn!("Failed to clean up pending record: {del_err}");
             }
-            err_internal(&format!("Upload failed: {e}"))
+            err_internal("Upload failed", e)
         }
     }
 }
@@ -434,7 +443,7 @@ async fn handle_delete_object(ctx: &dyn Context, msg: &Message) -> OutputStream 
             ok_json(&serde_json::json!({"deleted": true}))
         }
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Object not found"),
-        Err(e) => err_internal(&format!("Delete failed: {e}")),
+        Err(e) => err_internal("Delete failed", e),
     }
 }
 
@@ -476,7 +485,7 @@ async fn handle_search(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match db::list(ctx, OBJECTS_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Search failed: {e}")),
+        Err(e) => err_internal("Search failed", e),
     }
 }
 
@@ -499,7 +508,7 @@ async fn handle_recent(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     match db::list(ctx, super::VIEWS_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 

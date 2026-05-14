@@ -60,9 +60,13 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         _ => return error_response(ErrorCode::InvalidCredentials, "Invalid email or password"),
     };
 
-    // Check if user is disabled
+    // [SEC-034] Disabled accounts return the SAME generic invalid-credentials
+    // response as a wrong-password attempt. Surfacing "account is disabled"
+    // confirms to an attacker that the email exists, gives them a target for
+    // a re-enable social-engineering attack, and signals when an admin has
+    // taken action on a compromised account.
     if user.bool_field("disabled") {
-        return error_response(ErrorCode::AccountDisabled, "Account is disabled");
+        return error_response(ErrorCode::InvalidCredentials, "Invalid email or password");
     }
 
     // Check email verification if required
@@ -85,7 +89,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         };
 
     // Store refresh token
-    store_refresh_token(ctx, &user.id, &refresh_token, &family).await;
+    store_refresh_token(ctx, &user.id, &refresh_token, &family, 0).await;
 
     // Persist a session row so the userportal `/b/userportal/sessions`
     // page can show this login. Failure must not block login — the

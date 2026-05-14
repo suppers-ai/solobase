@@ -307,7 +307,7 @@ async fn handle_update_profile(
     stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, crate::blocks::auth::USERS_TABLE, &user_id, data).await {
-        return err_internal(&format!("Failed to update profile: {}", e.message));
+        return err_internal("Failed to update profile", e.message);
     }
 
     // Plain form POST → 303 See Other so the browser follows up with a GET
@@ -488,7 +488,7 @@ async fn handle_create_button(ctx: &dyn Context, input: InputStream) -> OutputSt
     super::helpers::stamp_created(&mut data);
 
     if let Err(e) = db::create(ctx, TABLE, data).await {
-        return err_internal(&format!("Failed to create button: {}", e.message));
+        return err_internal("Failed to create button", e.message);
     }
 
     // Re-render buttons table
@@ -496,7 +496,32 @@ async fn handle_create_button(ctx: &dyn Context, input: InputStream) -> OutputSt
     ui::html_response(render_buttons_table(&buttons))
 }
 
+/// Validate that `id` is safe to interpolate into inline HTML/JS strings
+/// (DOM IDs, `getElementById` arguments, etc.). Rejects anything outside
+/// `[A-Za-z0-9_-]` and any string longer than 64 chars or empty.
+///
+/// Used by SEC-058: the userportal edit-button form inlines the record ID
+/// into a `script` block via `PreEscaped`, so it must not contain quotes,
+/// angle brackets, backslashes, or any other JS-syntax-significant chars.
+fn is_safe_dom_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
 async fn handle_edit_button_form(ctx: &dyn Context, id: &str) -> OutputStream {
+    // SEC-058: the modal auto-show script below uses `PreEscaped(format!(...))`
+    // to inject the record ID into inline JS. A record returned from
+    // `db::get` should always have a well-formed ID (UUIDv7), but defensively
+    // reject any caller-supplied path segment that isn't strict
+    // `[a-zA-Z0-9_-]{1,64}` so the JS string interpolation can never be
+    // poisoned even if a future code path looks the record up by a
+    // non-validated identifier.
+    if !is_safe_dom_id(id) {
+        return err_not_found("Button not found");
+    }
     let record = match db::get(ctx, TABLE, id).await {
         Ok(r) => r,
         Err(_) => return err_not_found("Button not found"),
@@ -581,7 +606,7 @@ async fn handle_update_button(ctx: &dyn Context, input: InputStream, id: &str) -
     stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, TABLE, id, data).await {
-        return err_internal(&format!("Failed to update button: {}", e.message));
+        return err_internal("Failed to update button", e.message);
     }
 
     // Re-render buttons table
@@ -591,7 +616,7 @@ async fn handle_update_button(ctx: &dyn Context, input: InputStream, id: &str) -
 
 async fn handle_delete_button(ctx: &dyn Context, id: &str) -> OutputStream {
     if let Err(e) = db::delete(ctx, TABLE, id).await {
-        return err_internal(&format!("Failed to delete button: {}", e.message));
+        return err_internal("Failed to delete button", e.message);
     }
 
     let buttons = load_buttons(ctx).await;

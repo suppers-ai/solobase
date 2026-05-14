@@ -61,7 +61,7 @@ async fn handle_list_roles(ctx: &dyn Context) -> OutputStream {
     };
     match db::list(ctx, ROLES_TABLE, &opts).await {
         Ok(result) => ok_json(&result),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -86,7 +86,7 @@ async fn handle_create_role(ctx: &dyn Context, input: InputStream) -> OutputStre
     helpers::stamp_created(&mut data);
     match db::create(ctx, ROLES_TABLE, data).await {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -118,7 +118,7 @@ async fn handle_update_role(ctx: &dyn Context, msg: &Message, input: InputStream
             helpers::stamp_updated(&mut data);
             return match db::update(ctx, ROLES_TABLE, id, data).await {
                 Ok(record) => ok_json(&record),
-                Err(e) => err_internal(&format!("Database error: {e}")),
+                Err(e) => err_internal("Database error", e),
             };
         }
     }
@@ -133,7 +133,7 @@ async fn handle_update_role(ctx: &dyn Context, msg: &Message, input: InputStream
     match db::update(ctx, ROLES_TABLE, id, data).await {
         Ok(record) => ok_json(&record),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Role not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -154,7 +154,7 @@ async fn handle_delete_role(ctx: &dyn Context, msg: &Message) -> OutputStream {
     match db::delete(ctx, ROLES_TABLE, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Role not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -169,7 +169,7 @@ async fn handle_list_permissions(ctx: &dyn Context) -> OutputStream {
                 page_size: total_count,
             })
         }
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -193,7 +193,7 @@ async fn handle_create_permission(ctx: &dyn Context, input: InputStream) -> Outp
     helpers::stamp_created(&mut data);
     match db::create(ctx, PERMISSIONS_TABLE, data).await {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -206,7 +206,7 @@ async fn handle_delete_permission(ctx: &dyn Context, msg: &Message) -> OutputStr
     match db::delete(ctx, PERMISSIONS_TABLE, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("Permission not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -230,7 +230,7 @@ async fn handle_list_user_roles(ctx: &dyn Context, msg: &Message) -> OutputStrea
                 page_size: total_count,
             })
         }
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -278,7 +278,7 @@ async fn handle_assign_role(ctx: &dyn Context, msg: &Message, input: InputStream
     }));
     match db::create(ctx, USER_ROLES_TABLE, data).await {
         Ok(record) => ok_json(&record),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -302,14 +302,14 @@ async fn handle_remove_role(ctx: &dyn Context, msg: &Message) -> OutputStream {
             return err_not_found("User-role assignment not found");
         }
         Err(e) => {
-            return err_internal(&format!("Database error: {e}"));
+            return err_internal("Database error", e);
         }
     }
 
     match db::delete(ctx, USER_ROLES_TABLE, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("User-role assignment not found"),
-        Err(e) => err_internal(&format!("Database error: {e}")),
+        Err(e) => err_internal("Database error", e),
     }
 }
 

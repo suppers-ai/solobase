@@ -38,6 +38,11 @@ use wafer_core::clients::{
 
 use super::helpers::{hex_encode, json_map};
 
+/// Refresh-token lifetime (7 days). Mirrored in [`helpers::generate_tokens`]
+/// when signing the JWT and in [`helpers::store_refresh_token`] when writing
+/// the row's `expires_at`. Centralised here so the two stay in lockstep.
+pub(crate) const REFRESH_TOKEN_TTL_SECS: u64 = 604_800;
+
 pub const AUTH_BLOCK_ID: &str = "suppers-ai/auth";
 
 /// Config key for the JWT signing secret used by the auth block.
@@ -56,9 +61,7 @@ pub const JWT_SECRET_KEY: &str = "SUPPERS_AI__AUTH__JWT_SECRET";
 // the dead-code allow on the import binding.
 #[allow(unused_imports)]
 pub(crate) use repo::rate_limits::TABLE as RATE_LIMITS_TABLE;
-pub(crate) use repo::{
-    api_keys::TABLE as API_KEYS_TABLE, tokens::TABLE as TOKENS_TABLE, users::TABLE as USERS_TABLE,
-};
+pub(crate) use repo::{api_keys::TABLE as API_KEYS_TABLE, users::TABLE as USERS_TABLE};
 
 /// Pre-computed Argon2id hash used for timing equalization when user is not found.
 pub(crate) const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -203,6 +206,12 @@ pub(crate) mod helpers {
 
         let access_lifetime_secs = access_token_lifetime_secs(ctx).await;
 
+        // [SEC-038] Stamp `iss` on every token we mint so the read side can
+        // reject tokens minted by a different deployment (e.g. a sibling
+        // env's leaked secret) instead of trusting any signature with the
+        // same HMAC key.
+        let issuer = expected_issuer(ctx).await;
+
         let mut access_claims = HashMap::new();
         access_claims.insert(
             "user_id".to_string(),
@@ -226,6 +235,7 @@ pub(crate) mod helpers {
             serde_json::Value::String(auth_method.to_string()),
         );
         access_claims.insert("jti".to_string(), serde_json::Value::String(jti));
+        access_claims.insert("iss".to_string(), serde_json::Value::String(issuer.clone()));
 
         let access_token = crypto::sign(
             ctx,
@@ -256,27 +266,54 @@ pub(crate) mod helpers {
             "auth_method".to_string(),
             serde_json::Value::String(auth_method.to_string()),
         );
+        refresh_claims.insert("iss".to_string(), serde_json::Value::String(issuer.clone()));
 
-        let refresh_token = crypto::sign(ctx, &refresh_claims, Duration::from_secs(604800))
-            .await
-            .map_err(wafer_run::OutputStream::error)?;
+        let refresh_token = crypto::sign(
+            ctx,
+            &refresh_claims,
+            Duration::from_secs(super::REFRESH_TOKEN_TTL_SECS),
+        )
+        .await
+        .map_err(wafer_run::OutputStream::error)?;
 
         Ok((access_token, refresh_token, family))
     }
 
+    /// [SEC-038] Resolve the canonical JWT `iss` value for this deployment.
+    ///
+    /// `SOLOBASE_SHARED__FRONTEND_URL` doubles as the issuer: it's the only
+    /// per-deployment URL admins reliably set, and treating it as the issuer
+    /// means a token minted in dev (`http://localhost:5173`) won't validate
+    /// against a production secret if one leaks between environments.
+    pub(crate) async fn expected_issuer(ctx: &dyn wafer_run::context::Context) -> String {
+        config_client::get_default(
+            ctx,
+            "SOLOBASE_SHARED__FRONTEND_URL",
+            "http://localhost:5173",
+        )
+        .await
+    }
+
+    /// Persist a freshly minted refresh token.
+    ///
+    /// Stores only the SHA-256 hash of the raw JWT (SEC-032); the JWT itself
+    /// never lands in the database. New families start at `generation = 0`;
+    /// rotation from `auth_ui::api::refresh::handle` calls this with the same
+    /// `family` and `generation = prev + 1` (SEC-039).
     pub(crate) async fn store_refresh_token(
         ctx: &dyn wafer_run::context::Context,
         user_id: &str,
         token: &str,
         family: &str,
+        generation: i64,
     ) {
-        let data = json_map(serde_json::json!({
-            "user_id": user_id,
-            "token": token,
-            "family": family,
-            "created_at": crate::blocks::helpers::now_rfc3339()
-        }));
-        if let Err(e) = db::create(ctx, TOKENS_TABLE, data).await {
+        let expires_at = (chrono::Utc::now()
+            + chrono::Duration::seconds(super::REFRESH_TOKEN_TTL_SECS as i64))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
+        if let Err(e) =
+            super::repo::tokens::insert(ctx, user_id, token, family, generation, &expires_at).await
+        {
             tracing::warn!("Failed to store refresh token: {e}");
         }
     }

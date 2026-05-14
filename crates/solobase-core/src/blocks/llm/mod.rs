@@ -17,7 +17,7 @@ use wafer_run::{
 
 use self::{providers::ProviderLlmService, schema::providers_schema};
 use crate::blocks::helpers::{
-    self, err_bad_request, err_internal, err_not_found, json_map, ok_json,
+    self, err_bad_request, err_internal, err_internal_no_cause, err_not_found, json_map, ok_json,
 };
 
 /// LLM feature block. Owns the provider admin UI + chat thread persistence.
@@ -278,9 +278,11 @@ impl LlmBlock {
                 {
                     Ok(r) => r,
                     Err(e) if e.code == ErrorCode::NotFound => {
-                        return err_internal("Thread setting vanished between read and update")
+                        return err_internal_no_cause(
+                            "Thread setting vanished between read and update",
+                        )
                     }
-                    Err(e) => return err_internal(&format!("Database error: {e}")),
+                    Err(e) => return err_internal("Database error", e),
                 };
                 if let Some(pb) = body.provider_block {
                     data.insert("provider_block".to_string(), serde_json::json!(pb));
@@ -291,7 +293,7 @@ impl LlmBlock {
                 helpers::stamp_updated(&mut data);
                 match db::update(ctx, SETTINGS_TABLE, &record.id, data).await {
                     Ok(r) => return ok_json(&r),
-                    Err(e) => return err_internal(&format!("Database error: {e}")),
+                    Err(e) => return err_internal("Database error", e),
                 }
             } else {
                 // Create new per-thread setting
@@ -303,7 +305,7 @@ impl LlmBlock {
                 helpers::stamp_created(&mut data);
                 match db::create(ctx, SETTINGS_TABLE, data).await {
                     Ok(r) => return ok_json(&r),
-                    Err(e) => return err_internal(&format!("Database error: {e}")),
+                    Err(e) => return err_internal("Database error", e),
                 }
             }
         }

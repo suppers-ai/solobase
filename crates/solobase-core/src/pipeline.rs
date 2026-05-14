@@ -5,7 +5,7 @@
 
 use futures::StreamExt;
 use wafer_block::stream::StreamEvent;
-use wafer_core::clients::database as db;
+use wafer_core::clients::{config as config_client, database as db};
 use wafer_run::{
     block::BlockInfo, context::Context, meta::*, streams::output::TerminalNotResponse, types::*,
     InputStream, OutputStream,
@@ -51,10 +51,23 @@ pub async fn handle_request(
             wafer_core::discovery::generate_agent_card(block_infos, project_name, "", &server_url)
         };
 
-        return ResponseBuilder::new()
-            .set_header("Cache-Control", "public, max-age=3600")
-            .set_header("Access-Control-Allow-Origin", "*")
-            .json(&body);
+        // [SEC-073] Only emit `Access-Control-Allow-Origin: *` in dev. These
+        // endpoints are intentionally public-discovery (no auth, anyone can
+        // GET them), but advertising `*` to every cross-origin caller in
+        // production lets unauthenticated browser code at any site map the
+        // whole solobase API surface — useful reconnaissance for a targeted
+        // attack. In prod we just omit the header; non-browser clients
+        // (curl, the agent runtime, server-side fetchers) don't care about
+        // CORS so they still see the body.
+        let environment =
+            config_client::get_default(ctx, "SOLOBASE_SHARED__ENVIRONMENT", "development").await;
+        let is_dev = environment.eq_ignore_ascii_case("development");
+
+        let mut resp = ResponseBuilder::new().set_header("Cache-Control", "public, max-age=3600");
+        if is_dev {
+            resp = resp.set_header("Access-Control-Allow-Origin", "*");
+        }
+        return resp.json(&body);
     }
 
     // 1. Strip /api prefix from resource path
@@ -66,7 +79,13 @@ pub async fn handle_request(
     // 2. Validate JWT or API key and set auth meta
     if let Some(header) = auth_header {
         if header.starts_with("Bearer ") {
-            crate::crypto::extract_auth_meta(ctx, header, jwt_secret, &mut msg).await;
+            // [SEC-038] Read the deployment's expected issuer once per request
+            // so JWTs minted under a different deployment's FRONTEND_URL get
+            // rejected even if their HMAC secret matches. [SEC-042] also
+            // consults the JWT blocklist via the ctx-aware extractor.
+            let expected_iss = crate::blocks::auth::helpers::expected_issuer(ctx).await;
+            crate::crypto::extract_auth_meta(ctx, header, jwt_secret, &expected_iss, &mut msg)
+                .await;
         } else if header.starts_with("ApiKey ") {
             let api_key = &header["ApiKey ".len()..];
             crate::blocks::auth::authenticate_api_key(ctx, api_key, &mut msg).await;

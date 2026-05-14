@@ -4,7 +4,8 @@ use wafer_core::clients::{crypto, database as db, storage as store};
 use wafer_run::{context::Context, types::*, OutputStream};
 
 use crate::blocks::helpers::{
-    err_bad_request, err_forbidden, err_internal, err_not_found, ResponseBuilder,
+    err_bad_request, err_forbidden, err_internal, err_internal_no_cause, err_not_found,
+    ResponseBuilder,
 };
 
 /// Public share-link table — one row per generated token.
@@ -32,9 +33,14 @@ pub async fn generate_share_token(
         serde_json::Value::String("share".to_string()),
     );
 
-    crypto::sign(ctx, &claims, Duration::from_secs(365 * 24 * 3600))
+    // SEC-055: share JWT lifetime — 30 days. The previous 1-year default
+    // gave any leaked share URL effectively unbounded validity. Users who
+    // need longer-lived shares can re-share; the typical use case (send
+    // a link, recipient downloads within hours/days) fits well under 30d.
+    const SHARE_TOKEN_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
+    crypto::sign(ctx, &claims, SHARE_TOKEN_TTL)
         .await
-        .map_err(|e| err_internal(&format!("Token generation failed: {e}")))
+        .map_err(|e| err_internal("Token generation failed", e))
 }
 
 pub async fn handle_direct_access(ctx: &dyn Context, msg: &Message) -> OutputStream {
@@ -88,7 +94,7 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &Message) -> OutputStr
     let key = share.data.get("key").and_then(|v| v.as_str()).unwrap_or("");
 
     if bucket.is_empty() || key.is_empty() {
-        return err_internal("Invalid share data");
+        return err_internal_no_cause("Invalid share data");
     }
 
     // Increment access count
@@ -136,6 +142,6 @@ pub async fn handle_direct_access(ctx: &dyn Context, msg: &Message) -> OutputStr
             .set_header("Cache-Control", "private, max-age=3600")
             .body(data, &info.content_type),
         Err(e) if e.code == ErrorCode::NotFound => err_not_found("File not found"),
-        Err(e) => err_internal(&format!("Storage error: {e}")),
+        Err(e) => err_internal("Storage error", e),
     }
 }
