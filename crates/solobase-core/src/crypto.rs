@@ -444,7 +444,7 @@ mod tests {
         let secret = "test-secret";
         let token = sign_access_jwt(secret, "user-a", Some("jti-1"), 3600);
         let mut msg = Message::new("http.request");
-        extract_auth_meta(&ctx, &format!("Bearer {token}"), secret, &mut msg).await;
+        extract_auth_meta(&ctx, &format!("Bearer {token}"), secret, "", &mut msg).await;
         assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ID), "user-a");
         assert_eq!(msg.get_meta(META_AUTH_JTI), "jti-1");
         assert!(!msg.get_meta(META_AUTH_EXP).is_empty());
@@ -470,7 +470,7 @@ mod tests {
         .expect("insert blocklist row");
 
         let mut msg = Message::new("http.request");
-        extract_auth_meta(&ctx, &format!("Bearer {token}"), secret, &mut msg).await;
+        extract_auth_meta(&ctx, &format!("Bearer {token}"), secret, "", &mut msg).await;
         // Blocklisted: no auth meta should be set — request continues as
         // anonymous, same as if the JWT had expired or been tampered with.
         assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ID), "");
@@ -498,11 +498,11 @@ mod tests {
         let live = sign_access_jwt(secret, "user-a", Some("session-2"), 3600);
 
         let mut m1 = Message::new("http.request");
-        extract_auth_meta(&ctx, &format!("Bearer {blocked}"), secret, &mut m1).await;
+        extract_auth_meta(&ctx, &format!("Bearer {blocked}"), secret, "", &mut m1).await;
         assert_eq!(m1.get_meta(wafer_run::meta::META_AUTH_USER_ID), "");
 
         let mut m2 = Message::new("http.request");
-        extract_auth_meta(&ctx, &format!("Bearer {live}"), secret, &mut m2).await;
+        extract_auth_meta(&ctx, &format!("Bearer {live}"), secret, "", &mut m2).await;
         assert_eq!(m2.get_meta(wafer_run::meta::META_AUTH_USER_ID), "user-a");
     }
 }

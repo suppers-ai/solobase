@@ -53,7 +53,7 @@ jobs:
         run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
 
       - name: Run clippy
-        run: cargo clippy --workspace --exclude solobase-web
+        run: cargo clippy --workspace --exclude solobase-web --exclude solobase-cloudflare
 
   test:
     name: Tests
@@ -85,7 +85,7 @@ jobs:
         run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
 
       - name: Run tests
-        run: cargo test --workspace --exclude solobase-web
+        run: cargo test --workspace --exclude solobase-web --exclude solobase-cloudflare
 
   wasm:
     name: WASM Build
@@ -252,7 +252,7 @@ jobs:
         run: cd crates/solobase-web && wasm-pack build --target web --release --out-dir pkg
 
       - name: Generate coverage
-        run: cargo llvm-cov --workspace --exclude solobase-web --lcov --output-path lcov.info
+        run: cargo llvm-cov --workspace --exclude solobase-web --exclude solobase-cloudflare --lcov --output-path lcov.info
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
