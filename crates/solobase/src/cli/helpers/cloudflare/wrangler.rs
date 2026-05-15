@@ -113,6 +113,16 @@ fn base_toml(cfg: &CloudflareConfig) -> toml::Value {
         Value::Array(vec![Value::Table(r2_entry)]),
     );
 
+    // Workers Logs (a.k.a. Workers Observability). Off by default at the
+    // platform; we turn it on so dashboard logs + the `wrangler tail`
+    // request envelope are populated. `head_sampling_rate = 1.0` captures
+    // every invocation — fine at wafer-site's traffic, dial down via
+    // `wrangler_overrides_path` if a deployment grows.
+    let mut obs = toml::map::Map::new();
+    obs.insert("enabled".into(), Value::Boolean(true));
+    obs.insert("head_sampling_rate".into(), Value::Float(1.0));
+    root.insert("observability".into(), Value::Table(obs));
+
     Value::Table(root)
 }
 
