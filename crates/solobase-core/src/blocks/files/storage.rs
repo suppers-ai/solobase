@@ -126,6 +126,48 @@ fn is_valid_bucket_name(name: &str) -> bool {
     !name.is_empty() && !name.contains("..") && !name.contains('/') && !name.contains('\0')
 }
 
+/// Collect an `InputStream` into `Vec<u8>` with a hard size cap. Errors out
+/// as soon as the running total exceeds `cap_bytes`, so a multi-GB body
+/// can't OOM the process before we check quota. Returns `Err(())` when
+/// the cap is exceeded.
+async fn collect_with_cap(
+    mut input: wafer_run::InputStream,
+    cap_bytes: i64,
+) -> Result<Vec<u8>, ()> {
+    use futures::StreamExt;
+    let cap = if cap_bytes <= 0 {
+        usize::MAX
+    } else {
+        cap_bytes as usize
+    };
+    let mut out = Vec::new();
+    while let Some(chunk) = input.next().await {
+        if out.len().saturating_add(chunk.len()) > cap {
+            return Err(());
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
+}
+
+/// Escape SQL LIKE wildcards (`%`, `_`) and the escape char itself (`\`) in
+/// user-supplied search terms so a user searching for `100% off` doesn't
+/// also match arbitrary characters. The literal escape character `\` is
+/// already understood by SQLite / Postgres' default LIKE.
+fn escape_like(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for c in input.chars() {
+        match c {
+            '\\' | '%' | '_' => {
+                out.push('\\');
+                out.push(c);
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 async fn handle_list_buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
     // Only show buckets owned by the current user (or all for admin)
     let user_id = msg.user_id();
@@ -344,9 +386,31 @@ async fn handle_upload_object(
         }
     };
 
-    let body_bytes = input.collect_to_bytes().await;
+    // Best-effort sweep before quota check: orphan `pending` rows (from
+    // previous uploads where the storage put failed AND the compensating
+    // delete also failed) would otherwise inflate this user's quota usage
+    // and lock them out. 1h cutoff.
+    super::quota::sweep_stale_pending(ctx, msg.user_id(), 3600).await;
 
-    // Check quota
+    // Stream the upload body chunk-by-chunk so an attacker who streams a
+    // multi-GB body can't OOM us before quota check fires. Two bounds:
+    //   - per-file `max_file_size_bytes` (cheap to check on the running
+    //     total; abort as soon as the chunked total exceeds it)
+    //   - total `max_storage_bytes` (depends on current usage; checked once
+    //     after we know the body's full size)
+    // The chunked check uses the user's *file-size* cap as a hard ceiling
+    // since that's the smaller of the two.
+    let quota = super::quota::get_user_quota(ctx, msg.user_id()).await;
+    let body_bytes = match collect_with_cap(input, quota.max_file_size_bytes).await {
+        Ok(buf) => buf,
+        Err(_) => {
+            return err_bad_request(&format!(
+                "File exceeds maximum size of {} bytes",
+                quota.max_file_size_bytes
+            ));
+        }
+    };
+
     if let Err(r) = super::quota::check_quota(ctx, msg.user_id(), body_bytes.len() as i64).await {
         return r;
     }
@@ -459,7 +523,7 @@ async fn handle_search(ctx: &dyn Context, msg: &Message) -> OutputStream {
             Filter {
                 field: "key".to_string(),
                 operator: FilterOp::Like,
-                value: serde_json::Value::String(format!("%{}%", query)),
+                value: serde_json::Value::String(format!("%{}%", escape_like(&query))),
             },
             // Only show the current user's files
             Filter {
