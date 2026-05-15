@@ -105,7 +105,15 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
                         .get("price_formula")
                         .and_then(|v| v.as_str())
                         .unwrap_or("0");
-                    super::pricing::evaluate_formula(formula, &item.variables).unwrap_or(0.0)
+                    // Surface formula errors instead of falling back to 0.0 — a
+                    // broken template would otherwise sneak past `validate_price`
+                    // below and create a purchase with the wrong total.
+                    match super::pricing::evaluate_formula(formula, &item.variables) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            return err_bad_request(&format!("Pricing failed: {e}"));
+                        }
+                    }
                 } else {
                     product
                         .data
@@ -150,7 +158,18 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
         ));
     }
 
-    let total_cents = (total_amount * 100.0).round() as i64;
+    // `as i64` saturates on overflow / NaN — both would silently produce a
+    // bogus i64. Validate first so a pathological formula result (NaN, ±inf,
+    // > i64::MAX cents ≈ $9.2e16) can't sneak through.
+    let total_cents_f = total_amount * 100.0;
+    if !total_cents_f.is_finite() {
+        return err_bad_request("Purchase total is not a finite number");
+    }
+    let rounded = total_cents_f.round();
+    if rounded < 1.0 || rounded > i64::MAX as f64 {
+        return err_bad_request("Purchase total is out of range");
+    }
+    let total_cents = rounded as i64;
     if total_cents <= 0 {
         return err_bad_request("Purchase total must be greater than zero");
     }
@@ -210,8 +229,36 @@ pub async fn handle_create(ctx: &dyn Context, msg: &Message, input: InputStream)
             serde_json::Value::String(now.clone()),
         );
         if let Err(e) = db::create(ctx, LINE_ITEMS_TABLE, item_data).await {
-            // Clean up the purchase since line items are incomplete
-            let _ = db::delete(ctx, PURCHASES_TABLE, &purchase.id).await;
+            // Roll back: try to delete the purchase first; if delete fails
+            // (transient DB error, foreign-key constraints from already-
+            // inserted siblings, etc.), fall through to marking it `failed`
+            // so it can never proceed to checkout. A dangling `pending`
+            // purchase with partial line items is the worst case.
+            if let Err(del_err) = db::delete(ctx, PURCHASES_TABLE, &purchase.id).await {
+                tracing::warn!(
+                    error = %del_err,
+                    purchase_id = %purchase.id,
+                    "rollback delete failed; marking purchase as failed"
+                );
+                let mut fail_data = HashMap::new();
+                fail_data.insert(
+                    "status".to_string(),
+                    serde_json::Value::String("failed".to_string()),
+                );
+                fail_data.insert(
+                    "updated_at".to_string(),
+                    serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+                );
+                if let Err(mark_err) =
+                    db::update(ctx, PURCHASES_TABLE, &purchase.id, fail_data).await
+                {
+                    tracing::error!(
+                        error = %mark_err,
+                        purchase_id = %purchase.id,
+                        "could not mark partial purchase as failed; manual cleanup required"
+                    );
+                }
+            }
             return err_internal("Failed to create line item", e);
         }
     }
@@ -296,8 +343,14 @@ pub async fn handle_list_admin(ctx: &dyn Context, msg: &Message) -> OutputStream
 
 pub async fn handle_get(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
-    let id = path.rsplit('/').next().unwrap_or("");
-    if id.is_empty() || id == "purchases" {
+    // Strip the known prefixes so a stray slash, query string, or extra
+    // segment can't slip through the rsplit fallback.
+    let id = path
+        .strip_prefix("/admin/b/products/purchases/")
+        .or_else(|| path.strip_prefix("/b/products/purchases/"))
+        .unwrap_or("")
+        .trim_matches('/');
+    if id.is_empty() {
         return err_bad_request("Missing purchase ID");
     }
 

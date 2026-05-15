@@ -98,3 +98,37 @@ pub async fn check_quota(
 
     Ok(())
 }
+
+/// Sweep `pending`-status object rows older than `older_than_seconds` for
+/// the given user. Pending rows are inserted before the actual storage
+/// upload to close the quota TOCTOU window; if the upload errors AND the
+/// compensating delete also errors, the row sticks around and inflates the
+/// user's quota usage forever. Calling this best-effort on each new upload
+/// keeps the table self-healing without a separate cron.
+///
+/// 1 hour is a comfortable cutoff: the largest realistic upload finishes
+/// inside that window, and anything still pending afterward is almost
+/// certainly an orphan.
+pub async fn sweep_stale_pending(ctx: &dyn Context, user_id: &str, older_than_seconds: i64) {
+    let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(older_than_seconds)).to_rfc3339();
+    let filters = vec![
+        Filter {
+            field: "uploaded_by".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String(user_id.to_string()),
+        },
+        Filter {
+            field: "status".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::Value::String("pending".into()),
+        },
+        Filter {
+            field: "uploaded_at".into(),
+            operator: FilterOp::LessThan,
+            value: serde_json::Value::String(cutoff),
+        },
+    ];
+    if let Err(e) = db::delete_by_filters(ctx, OBJECTS_TABLE, filters).await {
+        tracing::warn!(error = %e, user_id = %user_id, "failed to sweep stale pending uploads");
+    }
+}

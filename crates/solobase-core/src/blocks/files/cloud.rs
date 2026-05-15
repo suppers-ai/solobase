@@ -6,7 +6,7 @@ use wafer_core::clients::{
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
-use super::{ACCESS_LOGS_TABLE, BUCKETS_TABLE, QUOTAS_TABLE, SHARES_TABLE};
+use super::{ACCESS_LOGS_TABLE, QUOTAS_TABLE, SHARES_TABLE};
 use crate::blocks::helpers::{
     self, err_bad_request, err_forbidden, err_internal, err_not_found, ok_json,
 };
@@ -82,29 +82,11 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
         return err_bad_request("Invalid object key");
     }
 
-    // Verify the user owns this bucket
-    let is_admin = helpers::is_admin(&msg);
-    if !is_admin {
-        let user_id = msg.user_id();
-        let filters = vec![
-            wafer_core::clients::database::Filter {
-                field: "name".to_string(),
-                operator: wafer_core::clients::database::FilterOp::Equal,
-                value: serde_json::Value::String(body.bucket.clone()),
-            },
-            wafer_core::clients::database::Filter {
-                field: "created_by".to_string(),
-                operator: wafer_core::clients::database::FilterOp::Equal,
-                value: serde_json::Value::String(user_id.to_string()),
-            },
-        ];
-        let owns_bucket = match db::list_all(ctx, BUCKETS_TABLE, filters).await {
-            Ok(records) => !records.is_empty(),
-            _ => false,
-        };
-        if !owns_bucket {
-            return err_forbidden("Access denied to this bucket");
-        }
+    // Verify the user owns this bucket (or is admin) — shared helper from
+    // storage.rs so the two modules stay in lockstep on what "access
+    // denied" means.
+    if super::storage::is_bucket_access_denied(ctx, &msg, &body.bucket).await {
+        return err_forbidden("Access denied to this bucket");
     }
 
     // Verify the file actually exists before creating a share
