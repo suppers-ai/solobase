@@ -57,22 +57,29 @@ pub fn encode_request_body(
         }
 
         if !msg.tool_calls.is_empty() {
+            // Propagate JSON encoding failures: silently rewriting tool-call
+            // arguments to `{}` corrupts the model's view of the call and
+            // breaks tool execution at the next turn.
             let tc_arr: Vec<serde_json::Value> = msg
                 .tool_calls
                 .iter()
                 .map(|tc| {
-                    let args_str =
-                        serde_json::to_string(&tc.arguments).unwrap_or_else(|_| "{}".into());
-                    serde_json::json!({
+                    let args_str = serde_json::to_string(&tc.arguments).map_err(|e| {
+                        LlmError::BackendError(format!(
+                            "encode tool-call '{}' arguments: {e}",
+                            tc.name
+                        ))
+                    })?;
+                    Ok::<_, LlmError>(serde_json::json!({
                         "id": tc.id,
                         "type": "function",
                         "function": {
                             "name": tc.name,
                             "arguments": args_str
                         }
-                    })
+                    }))
                 })
-                .collect();
+                .collect::<Result<_, _>>()?;
             m.insert("tool_calls".into(), serde_json::Value::Array(tc_arr));
         }
 
