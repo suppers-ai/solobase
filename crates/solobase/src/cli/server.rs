@@ -244,34 +244,48 @@ fn seed_auto_generated(conn: &rusqlite::Connection) -> anyhow::Result<()> {
         )
         .context("prepare auto-generate statement")?;
 
+    let mut seed =
+        |key: &str, name: &str, description: &str, warning: &str| -> anyhow::Result<()> {
+            let mut bytes = [0u8; 32];
+            getrandom::getrandom(&mut bytes).context("generate random secret")?;
+            let secret: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+            let id = format!("var_{}", uuid::Uuid::new_v4());
+            let affected = stmt
+                .execute(rusqlite::params![
+                    id,
+                    key,
+                    name,
+                    description,
+                    secret,
+                    warning,
+                    1_i32
+                ])
+                .unwrap_or(0);
+            if affected > 0 {
+                tracing::warn!(key = %key, "auto-generated secret (not found in variables table)");
+            }
+            Ok(())
+        };
+
     for var in &all_vars {
         if !var.auto_generate {
             continue;
         }
-
-        let mut bytes = [0u8; 32];
-        getrandom::getrandom(&mut bytes).context("generate random secret")?;
-        let secret: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-
-        let id = format!("var_{}", uuid::Uuid::new_v4());
-        let sensitive: i32 = i32::from(var.is_sensitive());
-
-        let affected = stmt
-            .execute(rusqlite::params![
-                id,
-                var.key,
-                var.name,
-                var.description,
-                secret,
-                var.warning,
-                sensitive
-            ])
-            .unwrap_or(0);
-
-        if affected > 0 {
-            tracing::warn!(key = %var.key, "auto-generated secret (not found in variables table)");
-        }
+        seed(&var.key, &var.name, &var.description, &var.warning)?;
     }
+
+    // JWT_SECRET is not declared as an `auto_generate: true` ConfigVar by
+    // the auth block (the block's mod.rs:124-130 comment notes this as a
+    // wafer-run config-keys gap). Seed it here so the strict empty-check
+    // in `run()` doesn't trip on a fresh DB. Hardcoded because the const
+    // is `pub` in solobase-core::blocks::auth, but the auto-gen pipeline
+    // is owned by the CLI crate and shouldn't grow a cross-crate scan.
+    seed(
+        solobase_core::blocks::auth::JWT_SECRET_KEY,
+        "JWT signing secret",
+        "256-bit secret used to sign access + refresh JWTs.",
+        "Rotating this secret invalidates every issued session.",
+    )?;
 
     Ok(())
 }
