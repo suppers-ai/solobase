@@ -34,16 +34,42 @@ fn now_iso() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
+/// Decode the stored `token_hash` value back into raw bytes.
+///
+/// Storage format is a lowercase 64-char hex string (matches what
+/// `sessions`/`tokens` already do — see review L215). Legacy rows
+/// serialised as JSON byte arrays still decode through the array arm,
+/// so a partially-migrated DB keeps working until the operator wipes /
+/// re-seeds the PAT table.
 fn decode_bytes(v: &Value) -> Option<Vec<u8>> {
+    fn decode_hex(s: &str) -> Option<Vec<u8>> {
+        if s.len() % 2 != 0 {
+            return None;
+        }
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
+            .collect()
+    }
+
     match v {
         Value::Array(arr) => Some(
             arr.iter()
                 .filter_map(|x| x.as_u64().map(|n| n as u8))
                 .collect(),
         ),
-        Value::String(s) => Some(s.as_bytes().to_vec()),
+        Value::String(s) => decode_hex(s),
         _ => None,
     }
+}
+
+fn hex_encode_bytes(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
 }
 
 /// Decode scopes from whatever shape the backend returned.
@@ -92,7 +118,10 @@ pub async fn insert(ctx: &dyn Context, new: NewPat) -> Result<(), RepoError> {
     let scopes_json = serde_json::to_string(&new.scopes)
         .map_err(|e| RepoError::Db(format!("scopes ser: {e}")))?;
     let mut data: HashMap<String, Value> = HashMap::new();
-    data.insert("token_hash".into(), json!(new.token_hash));
+    data.insert(
+        "token_hash".into(),
+        json!(hex_encode_bytes(&new.token_hash)),
+    );
     data.insert("user_id".into(), json!(new.user_id));
     data.insert("name".into(), json!(new.name));
     data.insert("scopes".into(), json!(scopes_json));
@@ -140,7 +169,7 @@ pub async fn find_by_token_hash(
         vec![db::Filter {
             field: "token_hash".into(),
             operator: db::FilterOp::Equal,
-            value: json!(hash),
+            value: json!(hex_encode_bytes(hash)),
         }],
     )
     .await
@@ -170,7 +199,7 @@ pub async fn delete_by_id(
             db::Filter {
                 field: "token_hash".into(),
                 operator: db::FilterOp::Equal,
-                value: json!(token_hash),
+                value: json!(hex_encode_bytes(token_hash)),
             },
             db::Filter {
                 field: "user_id".into(),
@@ -196,7 +225,7 @@ pub async fn touch_last_used(ctx: &dyn Context, hash: &[u8]) -> Result<(), RepoE
         vec![db::Filter {
             field: "token_hash".into(),
             operator: db::FilterOp::Equal,
-            value: json!(hash),
+            value: json!(hex_encode_bytes(hash)),
         }],
         data,
     )

@@ -82,10 +82,6 @@ pub(crate) mod helpers {
     /// for the legacy sessions write path (sessions repo hex-encodes inside
     /// `insert`). New token-table writes/lookups should go through
     /// `sha256_hex`.
-    #[expect(
-        dead_code,
-        reason = "wired up by Wave 1b token-storage migration (forgot_password / reset_password / verify / signup / pats)"
-    )]
     pub(crate) fn sha256_hex(s: &str) -> String {
         use std::fmt::Write;
 

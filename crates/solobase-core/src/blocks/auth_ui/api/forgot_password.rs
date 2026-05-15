@@ -4,7 +4,7 @@ use wafer_core::clients::{crypto, database as db};
 use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
 use crate::blocks::{
-    auth::USERS_TABLE,
+    auth::{helpers::sha256_hex, USERS_TABLE},
     helpers::{err_bad_request, err_internal, hex_encode, json_map, ok_json},
 };
 
@@ -34,15 +34,19 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         Err(_) => return ok_json(&serde_json::json!({"message": safe_msg})),
     };
 
-    // Generate reset token (expires in 1 hour)
+    // Generate reset token (expires in 1 hour). The raw token goes in the
+    // email link; only its SHA-256 hex digest is persisted, so a leak of
+    // the row (admin SQL explorer, backup, log dump, any block with read
+    // grant on the users table) does not become a password-reset oracle.
     let reset_token = match crypto::random_bytes(ctx, 32).await {
         Ok(bytes) => hex_encode(&bytes),
         Err(e) => return err_internal("Token generation failed", e),
     };
+    let reset_token_hash = sha256_hex(&reset_token);
 
     let expires = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
     let mut data = json_map(serde_json::json!({
-        "reset_token": reset_token,
+        "reset_token": reset_token_hash,
         "reset_token_expires": expires
     }));
     crate::blocks::helpers::stamp_updated(&mut data);
@@ -51,7 +55,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         return err_internal("Failed to store reset token", e);
     }
 
-    // Send reset email
+    // Send the raw token in the email; the hash lives only in the DB.
     send_reset_email(ctx, &email_lower, &reset_token).await;
 
     ok_json(&serde_json::json!({"message": safe_msg}))

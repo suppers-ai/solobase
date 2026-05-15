@@ -5,7 +5,7 @@ use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::{build_auth_cookie, generate_tokens, store_refresh_token},
+        helpers::{build_auth_cookie, generate_tokens, sha256_hex, store_refresh_token},
         repo::{local_credentials, sessions, users},
         service::hash_token,
         USERS_TABLE,
@@ -182,10 +182,17 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     // Set email_verified and verification_token on the legacy USERS_TABLE row
     // (Plan A2 users table stores email_verified too — keep them in sync).
+    // Persist only `sha256_hex(raw)`; the raw token goes out only in the
+    // verification email below.
     {
+        let stored_verification = if verification_token.is_empty() {
+            String::new()
+        } else {
+            sha256_hex(&verification_token)
+        };
         let mut upd = json_map(serde_json::json!({
             "email_verified": !require_verification,
-            "verification_token": verification_token.clone(),
+            "verification_token": stored_verification,
         }));
         crate::blocks::helpers::stamp_updated(&mut upd);
         if let Err(e) = db::update(ctx, USERS_TABLE, &user.id, upd).await {
