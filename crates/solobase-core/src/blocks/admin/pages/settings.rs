@@ -52,11 +52,12 @@ pub async fn settings_page(ctx: &dyn Context, msg: &Message, tab: &str) -> Outpu
     ];
 
     let body_markup = match active {
-        "email" => email::settings_body(ctx, msg).await,
         "network" => network::settings_body(ctx, msg).await,
         "variables" => variables::settings_body(ctx, msg).await,
         "permissions" => permissions::settings_body(ctx, msg).await,
-        _ => unreachable!(),
+        // "email" and any unknown active (defensive — `active` is already
+        // normalized above) render the email body.
+        _ => email::settings_body(ctx, msg).await,
     };
 
     let form_body = form_page(

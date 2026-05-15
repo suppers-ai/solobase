@@ -2,40 +2,38 @@ use wafer_run::{context::Context, types::*, OutputStream};
 
 use crate::blocks::helpers::{err_not_found, ok_json};
 
-pub fn handle(_ctx: &dyn Context, msg: &Message) -> OutputStream {
+pub fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let action = msg.action();
     let path = msg.path();
 
     match (action, path) {
-        ("retrieve", "/admin/wafer/blocks") => handle_blocks(),
+        ("retrieve", "/admin/wafer/blocks") => handle_blocks(ctx),
         ("retrieve", "/admin/wafer/flows") => handle_flows(),
         ("retrieve", "/admin/wafer/info") => handle_info(),
         _ => err_not_found("not found"),
     }
 }
 
-fn handle_blocks() -> OutputStream {
-    // Return list of registered blocks
-    // In a real implementation, this would query the Wafer runtime
-    // For now, return the known block list
-    let blocks = serde_json::json!([
-        {"name": "auth-feature", "version": "1.0.0", "interface": "http-handler@v1", "type": "native"},
-        {"name": "admin-feature", "version": "1.0.0", "interface": "http-handler@v1", "type": "native"},
-        {"name": "system-feature", "version": "1.0.0", "interface": "http-handler@v1", "type": "native"},
-        {"name": "files-feature", "version": "1.0.0", "interface": "http-handler@v1", "type": "native"},
-        {"name": "legalpages-feature", "version": "1.0.0", "interface": "http-handler@v1", "type": "native"},
-        {"name": "products-feature", "version": "1.0.0", "interface": "http-handler@v1", "type": "native"},
-        {"name": "userportal-feature", "version": "1.0.0", "interface": "http-handler@v1", "type": "native"},
-        {"name": "profile-feature", "version": "1.0.0", "interface": "http-handler@v1", "type": "native"},
-        {"name": "monitoring-feature", "version": "1.0.0", "interface": "http-handler@v1", "type": "native"},
-        {"name": "web-feature", "version": "1.0.0", "interface": "http-handler@v1", "type": "native"},
-        {"name": "wafer-run/auth-validator", "version": "0.1.0", "interface": "middleware@v1", "type": "native"},
-        {"name": "wafer-run/web", "version": "0.1.0", "interface": "handler@v1", "type": "native"},
-        {"name": "wafer-run/cors", "version": "0.1.0", "interface": "middleware@v1", "type": "native"},
-        {"name": "wafer-run/security-headers", "version": "0.1.0", "interface": "middleware@v1", "type": "native"},
-        {"name": "wafer-run/ip-rate-limit", "version": "0.1.0", "interface": "middleware@v1", "type": "native"},
-        {"name": "wafer-run/iam-guard", "version": "0.1.0", "interface": "middleware@v1", "type": "native"}
-    ]);
+fn handle_blocks(ctx: &dyn Context) -> OutputStream {
+    // Surface the live registered-blocks list from the runtime. Was a
+    // hand-maintained static list that drifted from reality every time a
+    // block was added or renamed.
+    let blocks: Vec<serde_json::Value> = ctx
+        .registered_blocks()
+        .into_iter()
+        .map(|b| {
+            let runtime_label = match b.runtime {
+                wafer_run::BlockRuntime::Wasm => "wasm",
+                _ => "native",
+            };
+            serde_json::json!({
+                "name": b.name,
+                "version": b.version,
+                "interface": b.interface,
+                "type": runtime_label,
+            })
+        })
+        .collect();
     ok_json(&blocks)
 }
 

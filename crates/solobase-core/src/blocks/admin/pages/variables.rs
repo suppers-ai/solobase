@@ -194,6 +194,21 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
         known_keys.insert(sv.key.clone());
     }
 
+    // Precompute grants keyed by exact resource pattern. The per-block render
+    // below used to walk `blocks × grants × config_keys` looking for matches —
+    // a cubic loop for every page render. We build a single map up front so
+    // the inner template just does an O(1) lookup per config key.
+    let mut grants_by_resource: std::collections::HashMap<String, Vec<(&str, bool)>> =
+        std::collections::HashMap::new();
+    for grant_block in &blocks {
+        for grant in &grant_block.grants {
+            grants_by_resource
+                .entry(grant.resource.clone())
+                .or_default()
+                .push((grant.grantee.as_str(), grant.write));
+        }
+    }
+
     html! {
         // Shared variables section
         @if !shared_vars.is_empty() {
@@ -221,8 +236,8 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
                         tbody {
                             @for var in &shared_vars {
                                 @let (db_value, sensitive) = var_map.get(&var.key)
-                                    .cloned()
-                                    .unwrap_or_else(|| (String::new(), var.is_sensitive()));
+                                    .map(|(v, s)| (v.as_str(), *s))
+                                    .unwrap_or(("", var.is_sensitive()));
                                 @let has_value = !db_value.is_empty();
                                 tr {
                                     td .font-medium style="font-size:13px" {
@@ -279,18 +294,21 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
                         span .badge .badge-info .mr-2 { (block.name) }
                         " Configuration"
                     }
-                    // Show WRAP access info for this block's config
+                    // Show WRAP access info for this block's config. The
+                    // grants are looked up by exact resource pattern via the
+                    // `grants_by_resource` map built above — used to be a
+                    // cubic `blocks × grants × config_keys` loop per render.
                     p .text-muted style="font-size:12px" {
                         "Owner: " code { (block.name) }
                         " \u{2014} Admin can read/write all. "
-                        @for grant_block in &blocks {
-                            @for grant in &grant_block.grants {
-                                @for ck in &block.config_keys {
-                                    @if grant.resource == ck.key || grant.resource == format!("{}*", ck.key) {
-                                        @if grant.grantee != block.name {
+                        @for ck in &block.config_keys {
+                            @for resource in [ck.key.clone(), format!("{}*", ck.key)] {
+                                @if let Some(matches) = grants_by_resource.get(&resource) {
+                                    @for (grantee, write) in matches {
+                                        @if *grantee != block.name {
                                             span .badge .badge-secondary .mr-1 style="font-size:11px" {
-                                                (grant.grantee) ": "
-                                                @if grant.write { "read+write" } @else { "read" }
+                                                (grantee) ": "
+                                                @if *write { "read+write" } @else { "read" }
                                             }
                                         }
                                     }
@@ -313,8 +331,8 @@ async fn config_by_block_tab(ctx: &dyn Context) -> Markup {
                         tbody {
                             @for var in &block.config_keys {
                                 @let (db_value, sensitive) = var_map.get(&var.key)
-                                    .cloned()
-                                    .unwrap_or_else(|| (String::new(), var.is_sensitive()));
+                                    .map(|(v, s)| (v.as_str(), *s))
+                                    .unwrap_or(("", var.is_sensitive()));
                                 @let has_value = !db_value.is_empty();
                                 tr {
                                     td .font-medium style="font-size:13px" {

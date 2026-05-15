@@ -46,58 +46,58 @@ impl Block for SystemBlock {
     async fn handle(&self, _ctx: &dyn Context, msg: Message, _input: InputStream) -> OutputStream {
         let path = msg.path();
 
-        match path {
-            "/health" => {
-                let resp = serde_json::json!({"status": "ok"});
-                ok_json(&resp)
-            }
-            // Embedded static assets (CSS, JS) with content-hash URLs for cache busting
-            _ if path.starts_with("/b/static/app-") && path.ends_with(".css") => {
-                ResponseBuilder::new()
-                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
-                    .body(
-                        ui::assets::css().as_bytes().to_vec(),
-                        "text/css; charset=utf-8",
-                    )
-            }
-            _ if path.starts_with("/b/static/htmx-") && path.ends_with(".min.js") => {
-                ResponseBuilder::new()
-                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
-                    .body(
-                        ui::assets::htmx_js().as_bytes().to_vec(),
-                        "application/javascript; charset=utf-8",
-                    )
-            }
-            _ if path.starts_with("/b/static/llm-chat-") && path.ends_with(".js") => {
-                ResponseBuilder::new()
-                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
-                    .body(
-                        ui::assets::llm_chat_js().as_bytes().to_vec(),
-                        "application/javascript; charset=utf-8",
-                    )
-            }
-            _ if path.starts_with("/b/static/files-browser-") && path.ends_with(".js") => {
-                ResponseBuilder::new()
-                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
-                    .body(
-                        ui::assets::files_browser_js().as_bytes().to_vec(),
-                        "application/javascript; charset=utf-8",
-                    )
-            }
-            // Order matters: latin-ext must come before latin so the longer
-            // prefix matches first.
-            _ if path.starts_with("/b/static/itim-latin-ext-") && path.ends_with(".woff2") => {
-                ResponseBuilder::new()
-                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
-                    .body(ui::assets::itim_latin_ext_woff2().to_vec(), "font/woff2")
-            }
-            _ if path.starts_with("/b/static/itim-latin-") && path.ends_with(".woff2") => {
-                ResponseBuilder::new()
-                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
-                    .body(ui::assets::itim_latin_woff2().to_vec(), "font/woff2")
-            }
-            _ => err_not_found("not found"),
+        if path == "/health" {
+            return ok_json(&serde_json::json!({"status": "ok"}));
         }
+
+        // Embedded static assets (CSS, JS, fonts) with content-hash URLs for
+        // cache busting. The dispatch table replaces a stack of
+        // `_ if path.starts_with(...) && path.ends_with(...)` arms — order
+        // matters in that form (`latin-ext` must precede `latin`), and a
+        // table makes the order explicit and lookup uniform.
+        // Each entry: (prefix, suffix, content_type, bytes-fn).
+        type Bytes = std::borrow::Cow<'static, [u8]>;
+        let table: &[(&str, &str, &str, fn() -> Bytes)] = &[
+            ("/b/static/app-", ".css", "text/css; charset=utf-8", || {
+                Bytes::Owned(ui::assets::css().as_bytes().to_vec())
+            }),
+            (
+                "/b/static/htmx-",
+                ".min.js",
+                "application/javascript; charset=utf-8",
+                || Bytes::Owned(ui::assets::htmx_js().as_bytes().to_vec()),
+            ),
+            (
+                "/b/static/llm-chat-",
+                ".js",
+                "application/javascript; charset=utf-8",
+                || Bytes::Owned(ui::assets::llm_chat_js().as_bytes().to_vec()),
+            ),
+            (
+                "/b/static/files-browser-",
+                ".js",
+                "application/javascript; charset=utf-8",
+                || Bytes::Owned(ui::assets::files_browser_js().as_bytes().to_vec()),
+            ),
+            // `latin-ext` must come before `latin` so the longer prefix
+            // wins. The table is scanned in order.
+            ("/b/static/itim-latin-ext-", ".woff2", "font/woff2", || {
+                Bytes::Owned(ui::assets::itim_latin_ext_woff2().to_vec())
+            }),
+            ("/b/static/itim-latin-", ".woff2", "font/woff2", || {
+                Bytes::Owned(ui::assets::itim_latin_woff2().to_vec())
+            }),
+        ];
+
+        for (prefix, suffix, content_type, bytes_fn) in table {
+            if path.starts_with(prefix) && path.ends_with(suffix) {
+                return ResponseBuilder::new()
+                    .set_header("Cache-Control", "public, max-age=31536000, immutable")
+                    .body(bytes_fn().into_owned(), content_type);
+            }
+        }
+
+        err_not_found("not found")
     }
 
     async fn lifecycle(

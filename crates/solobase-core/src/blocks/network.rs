@@ -48,18 +48,14 @@ impl Block for SolobaseNetworkBlock {
             .handle(ctx, msg, InputStream::from_bytes(body))
             .await;
 
-        // Drain the inner stream into a buffer of events so we can forward
-        // them verbatim, preserving all frame boundaries.
-        let mut events: Vec<StreamEvent> = Vec::new();
-        let mut inner = inner_out;
-        while let Some(evt) = inner.next().await {
-            events.push(evt);
-        }
-
-        // Re-emit the captured events to the caller, preserving frame
-        // boundaries so the typed network client can decode header + body.
+        // Forward events to the caller as they arrive. Previously we drained
+        // the inner stream into a `Vec<StreamEvent>` before re-emitting,
+        // which buffered the entire HTTP response body in memory. Forwarding
+        // event-by-event keeps frame boundaries intact (each `StreamEvent`
+        // maps 1:1 to a `sink.*` call) while staying genuinely streaming.
         OutputStream::from_producer(move |sink, _cancel| async move {
-            for evt in events {
+            let mut inner = inner_out;
+            while let Some(evt) = inner.next().await {
                 match evt {
                     StreamEvent::Chunk(bytes) => {
                         if sink.send_chunk(bytes).await.is_err() {

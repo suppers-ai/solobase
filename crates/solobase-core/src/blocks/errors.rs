@@ -42,6 +42,9 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
+    /// Stable machine-readable identifier (e.g. `"invalid_credentials"`).
+    /// Surfaced in JSON error responses as the `code` field; callers should
+    /// switch on this rather than parsing the human-readable message.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::InvalidCredentials => "invalid_credentials",
@@ -71,6 +74,9 @@ impl ErrorCode {
         }
     }
 
+    /// HTTP status code suggested for this error code. Used by JSON-API
+    /// handlers (and the response middleware) to fill the `:status` line
+    /// when only the `ErrorCode` is known.
     pub fn status_code(&self) -> u16 {
         match self {
             Self::InvalidCredentials

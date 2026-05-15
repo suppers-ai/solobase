@@ -172,8 +172,8 @@ impl UserRateLimiter {
     /// within the current window, or reset if the window has expired.
     #[cfg(target_arch = "wasm32")]
     pub async fn check(&self, ctx: &dyn Context, key: &str, limit: RateLimit) -> Result<u32, u64> {
-        use wafer_core::interfaces::database::service::{Filter, FilterOp, ListOptions};
-        use wafer_sql_utils::{query, upsert, value::sea_values_to_json, Backend};
+        use wafer_core::interfaces::database::service::{Filter, FilterOp};
+        use wafer_sql_utils::{upsert, value::sea_values_to_json, Backend};
 
         // std::time::SystemTime::now() panics on wasm32-unknown-unknown
         // (no system clock). Use js_sys::Date::now() which returns ms since epoch.
@@ -196,30 +196,26 @@ impl UserRateLimiter {
         );
         let _ = db::exec_raw(ctx, &sql, &sea_values_to_json(vals)).await;
 
-        // Read back the current count for this window.
-        let (sql, vals) = query::build_select_columns(
+        // Read back the current count for this window via the typed client
+        // (replaces a hand-rolled `db::query_raw` of `build_select_columns`).
+        let rows = db::list_all(
+            ctx,
             RATE_LIMITS,
-            &["count"],
-            &ListOptions {
-                filters: vec![
-                    Filter {
-                        field: "key".into(),
-                        operator: FilterOp::Equal,
-                        value: serde_json::json!(key),
-                    },
-                    Filter {
-                        field: "window_start".into(),
-                        operator: FilterOp::GreaterEqual,
-                        value: serde_json::json!(window_cutoff),
-                    },
-                ],
-                ..Default::default()
-            },
-            None,
-            Backend::Sqlite,
-        );
-        let args = sea_values_to_json(vals);
-        let rows = db::query_raw(ctx, &sql, &args).await.unwrap_or_default();
+            vec![
+                Filter {
+                    field: "key".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(key),
+                },
+                Filter {
+                    field: "window_start".into(),
+                    operator: FilterOp::GreaterEqual,
+                    value: serde_json::json!(window_cutoff),
+                },
+            ],
+        )
+        .await
+        .unwrap_or_default();
 
         let count = rows
             .first()

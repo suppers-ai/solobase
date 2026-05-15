@@ -210,24 +210,30 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
 
 /// Render the users table body. Async because it enriches each user with roles.
 async fn users_table(records: &[db::Record], ctx: &dyn Context, current_user_id: &str) -> Markup {
-    // Pre-fetch roles for all users
+    // Bulk-fetch all roles for the visible users in a single query (was N+1:
+    // one `list_all` per row). The `InOp` filter takes a JSON array of
+    // user_ids; we bucket the rows by user_id back into a map.
+    let user_ids: Vec<serde_json::Value> = records
+        .iter()
+        .map(|r| serde_json::Value::String(r.id.clone()))
+        .collect();
     let mut user_roles: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
-    for record in records {
+    if !user_ids.is_empty() {
         let role_filters = vec![Filter {
             field: "user_id".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(record.id.clone()),
+            operator: FilterOp::In,
+            value: serde_json::Value::Array(user_ids),
         }];
-        let roles: Vec<String> = match db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
-            Ok(records) => records
-                .iter()
-                .map(|rec| rec.str_field("role").to_string())
-                .filter(|s| !s.is_empty())
-                .collect(),
-            Err(_) => Vec::new(),
-        };
-        user_roles.insert(record.id.clone(), roles);
+        if let Ok(rows) = db::list_all(ctx, USER_ROLES_TABLE, role_filters).await {
+            for rec in rows {
+                let uid = rec.str_field("user_id").to_string();
+                let role = rec.str_field("role").to_string();
+                if !uid.is_empty() && !role.is_empty() {
+                    user_roles.entry(uid).or_default().push(role);
+                }
+            }
+        }
     }
 
     html! {
@@ -249,61 +255,74 @@ async fn users_table(records: &[db::Record], ctx: &dyn Context, current_user_id:
                         }
                     }
                     @for record in records {
-                        @let email = record.str_field("email");
-                        @let disabled = record.bool_field("disabled");
-                        @let created = record.str_field("created_at");
-                        @let roles = user_roles.get(&record.id).cloned().unwrap_or_default();
-                        tr #{"user-row-" (record.id)} {
-                            td { (email) }
-                            td {
-                                @for role in &roles {
-                                    span .badge .badge-primary style="margin-right: 0.25rem;" { (role) }
-                                }
-                                @if roles.is_empty() {
-                                    span .text-muted { "\u{2014}" }
-                                }
-                            }
-                            td {
-                                @if disabled {
-                                    (components::status_badge("disabled"))
-                                } @else {
-                                    (components::status_badge("active"))
-                                }
-                            }
-                            td .text-muted .text-sm { (created.get(..10).unwrap_or(created)) }
-                            td {
-                                @let is_self = record.id == current_user_id;
-                                @if is_self {
-                                    span .text-muted .text-sm { "(you)" }
-                                } @else {
-                                    @if disabled {
-                                        button .btn .btn-sm .btn-success
-                                            hx-post={"/b/admin/users/" (record.id) "/enable"}
-                                            hx-target={"#user-row-" (record.id)}
-                                            hx-swap="outerHTML"
-                                            title="Enable user"
-                                        { "Enable" }
-                                    } @else {
-                                        button .btn .btn-sm .btn-secondary
-                                            hx-post={"/b/admin/users/" (record.id) "/disable"}
-                                            hx-target={"#user-row-" (record.id)}
-                                            hx-swap="outerHTML"
-                                            hx-confirm={"Disable " (email) "?"}
-                                            title="Disable user"
-                                        { "Disable" }
-                                    }
-                                    " "
-                                    button .btn .btn-sm .btn-danger
-                                        hx-delete={"/b/admin/users/" (record.id)}
-                                        hx-target={"#user-row-" (record.id)}
-                                        hx-swap="outerHTML"
-                                        hx-confirm={"Delete " (email) "? This cannot be undone."}
-                                        title="Delete user"
-                                    { (icons::trash()) }
-                                }
-                            }
-                        }
+                        @let roles: &[String] = user_roles.get(&record.id).map(Vec::as_slice).unwrap_or(&[]);
+                        (single_user_row(record, roles, current_user_id))
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Render one row of the users table. Shared between the multi-row table
+/// renderer and `user_row_fragment` (htmx outerHTML swap target for the
+/// enable/disable mutations).
+///
+/// `current_uid` is `""` when the caller is rendering a single-row update
+/// fragment (no "(you)" affordance) — the mutation endpoints reject
+/// self-disable before reaching this path.
+fn single_user_row(record: &db::Record, roles: &[String], current_uid: &str) -> Markup {
+    let email = record.str_field("email");
+    let disabled = record.bool_field("disabled");
+    let created = record.str_field("created_at");
+    let is_self = !current_uid.is_empty() && record.id == current_uid;
+    html! {
+        tr #{"user-row-" (record.id)} {
+            td { (email) }
+            td {
+                @for role in roles {
+                    span .badge .badge-primary style="margin-right: 0.25rem;" { (role) }
+                }
+                @if roles.is_empty() {
+                    span .text-muted { "\u{2014}" }
+                }
+            }
+            td {
+                @if disabled {
+                    (components::status_badge("disabled"))
+                } @else {
+                    (components::status_badge("active"))
+                }
+            }
+            td .text-muted .text-sm { (created.get(..10).unwrap_or(created)) }
+            td {
+                @if is_self {
+                    span .text-muted .text-sm { "(you)" }
+                } @else {
+                    @if disabled {
+                        button .btn .btn-sm .btn-success
+                            hx-post={"/b/admin/users/" (record.id) "/enable"}
+                            hx-target={"#user-row-" (record.id)}
+                            hx-swap="outerHTML"
+                            title="Enable user"
+                        { "Enable" }
+                    } @else {
+                        button .btn .btn-sm .btn-secondary
+                            hx-post={"/b/admin/users/" (record.id) "/disable"}
+                            hx-target={"#user-row-" (record.id)}
+                            hx-swap="outerHTML"
+                            hx-confirm={"Disable " (email) "?"}
+                            title="Disable user"
+                        { "Disable" }
+                    }
+                    " "
+                    button .btn .btn-sm .btn-danger
+                        hx-delete={"/b/admin/users/" (record.id)}
+                        hx-target={"#user-row-" (record.id)}
+                        hx-swap="outerHTML"
+                        hx-confirm={"Delete " (email) "? This cannot be undone."}
+                        title="Delete user"
+                    { (icons::trash()) }
                 }
             }
         }
@@ -331,57 +350,7 @@ async fn user_row_fragment(ctx: &dyn Context, user_id: &str) -> Markup {
         Err(_) => Vec::new(),
     };
 
-    let email = record.str_field("email");
-    let disabled = record.bool_field("disabled");
-    let created = record.str_field("created_at");
-
-    html! {
-        tr #{"user-row-" (record.id)} {
-            td { (email) }
-            td {
-                @for role in &roles {
-                    span .badge .badge-primary style="margin-right: 0.25rem;" { (role) }
-                }
-                @if roles.is_empty() {
-                    span .text-muted { "\u{2014}" }
-                }
-            }
-            td {
-                @if disabled {
-                    (components::status_badge("disabled"))
-                } @else {
-                    (components::status_badge("active"))
-                }
-            }
-            td .text-muted .text-sm { (created.get(..10).unwrap_or(created)) }
-            td {
-                @if disabled {
-                    button .btn .btn-sm .btn-success
-                        hx-post={"/b/admin/users/" (record.id) "/enable"}
-                        hx-target={"#user-row-" (record.id)}
-                        hx-swap="outerHTML"
-                        title="Enable user"
-                    { "Enable" }
-                } @else {
-                    button .btn .btn-sm .btn-secondary
-                        hx-post={"/b/admin/users/" (record.id) "/disable"}
-                        hx-target={"#user-row-" (record.id)}
-                        hx-swap="outerHTML"
-                        hx-confirm={"Disable " (email) "?"}
-                        title="Disable user"
-                    { "Disable" }
-                }
-                " "
-                button .btn .btn-sm .btn-danger
-                    hx-delete={"/b/admin/users/" (record.id)}
-                    hx-target={"#user-row-" (record.id)}
-                    hx-swap="outerHTML"
-                    hx-confirm={"Delete " (email) "? This cannot be undone."}
-                    title="Delete user"
-                { (icons::trash()) }
-            }
-        }
-    }
+    single_user_row(&record, &roles, "")
 }
 
 /// POST /b/admin/users/{id}/disable
