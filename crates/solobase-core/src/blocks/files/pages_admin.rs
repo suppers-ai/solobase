@@ -20,7 +20,11 @@ use crate::{
 /// Tabs navigation across the storage-admin sub-pages
 /// (Overview / Buckets / Shares / Quotas). `active` matches the
 /// crumb label so the active tab can be highlighted.
-fn admin_tabs(active: &str) -> Markup {
+///
+/// Designed to slot into `list_page`'s `filters` arg (the same slot the
+/// Users tabs use), so the tab strip lives inside `.page--list` and picks
+/// up the page padding consistently.
+pub(crate) fn admin_tabs(active: &str) -> Markup {
     let items: &[(&str, &str)] = &[
         ("Overview", "/b/storage/admin/"),
         ("Buckets", "/b/storage/admin/buckets"),
@@ -81,20 +85,12 @@ fn files_page_with_action<'a>(
         subtitle,
         show_palette: true,
     };
-    let body_with_tabs = html! {
-        (admin_tabs(crumb_label))
-        (content)
-    };
-    crate::ui::shelled_response(
-        msg,
-        title,
-        config,
-        &groups,
-        user,
-        path,
-        topbar,
-        body_with_tabs,
-    )
+    // Tabs are now embedded into `list_page` by each caller (in the
+    // `filters` slot, matching how the Users page wires its tab strip).
+    // That keeps the storage admin pages' padding consistent with
+    // `/b/admin/users`; previously the tabs sat outside `.page--list`
+    // and lost the page gutter.
+    crate::ui::shelled_response(msg, title, config, &groups, user, path, topbar, content)
 }
 
 // ---------------------------------------------------------------------------
@@ -147,14 +143,21 @@ pub async fn overview(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let stats = load_admin_stats(ctx).await;
 
+    // Tabs go in the `filters` slot (their padding gutter matches
+    // /b/admin/users); stats live in the body. Keeping them in separate
+    // slots prevents `.page-filters` (display:flex) from putting tabs
+    // and the stats-grid side-by-side at wide viewports.
     let body = list_page(
         PageHeader {
             title: "",
             subtitle: None,
             primary_action: None,
         },
-        Some(render_admin_overview_stats(&stats)),
-        render_admin_overview_quotas_hint(stats.quotas_count),
+        Some(admin_tabs("Overview")),
+        html! {
+            (render_admin_overview_stats(&stats))
+            (render_admin_overview_quotas_hint(stats.quotas_count))
+        },
         None,
     );
 
@@ -312,7 +315,7 @@ pub async fn buckets(ctx: &dyn Context, msg: &Message) -> OutputStream {
             subtitle: None,
             primary_action: None,
         },
-        None,
+        Some(admin_tabs("Buckets")),
         html! {
             (render_admin_buckets_table(&rows))
             (super::pages_user::render_new_bucket_modal())
@@ -458,7 +461,7 @@ pub async fn shares(ctx: &dyn Context, msg: &Message) -> OutputStream {
             subtitle: None,
             primary_action: None,
         },
-        None,
+        Some(admin_tabs("Shares")),
         render_admin_shares_table(&rows),
         None,
     );
@@ -558,7 +561,7 @@ pub async fn quotas(ctx: &dyn Context, msg: &Message) -> OutputStream {
             subtitle: None,
             primary_action: None,
         },
-        None,
+        Some(admin_tabs("Quotas")),
         render_admin_quotas_table(&rows),
         None,
     );
