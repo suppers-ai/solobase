@@ -1,7 +1,7 @@
 //! Embed × Cloudflare flow: cross-compile a consumer crate to wasm32,
 //! generate wrangler.toml + stage assets, optionally deploy via wrangler.
 
-use std::{path::Path, process::Command};
+use std::path::Path;
 
 use anyhow::{bail, Result};
 
@@ -48,7 +48,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
         migrations_dir.display()
     );
 
-    cf_build::run(repo_root, release)?;
+    cf_build::run(repo_root, release).await?;
 
     let report = assets::stage(repo_root, &out_dir)?;
     println!(
@@ -79,8 +79,12 @@ pub async fn serve(
     let cfg = env::load(repo_root)?;
 
     // D1 local migrations: best-effort. Skip cleanly if no migrations dir.
+    // Use `tokio::process::Command` because both `wrangler d1 migrations
+    // apply --local` and especially `wrangler dev` (below) are long-running
+    // subprocesses — running them under `std::process::Command` from an
+    // async fn would block the tokio worker for the lifetime of the child.
     if repo_root.join("migrations").is_dir() {
-        let mut m = Command::new("wrangler");
+        let mut m = tokio::process::Command::new("wrangler");
         m.args([
             "d1",
             "migrations",
@@ -90,13 +94,13 @@ pub async fn serve(
             "--config",
         ])
         .arg(&wrangler_toml);
-        let status = m.status()?;
+        let status = m.status().await?;
         if !status.success() {
             bail!("wrangler d1 migrations apply --local failed");
         }
     }
 
-    let mut dev = Command::new("wrangler");
+    let mut dev = tokio::process::Command::new("wrangler");
     dev.args(["dev", "--config"]).arg(&wrangler_toml);
     if let Some(p) = port {
         dev.args(["--port", &p.to_string()]);
@@ -106,7 +110,7 @@ pub async fn serve(
     if run_migrations {
         dev.args(["--var", "SOLOBASE_RUN_MIGRATIONS:1"]);
     }
-    let status = dev.status()?;
+    let status = dev.status().await?;
     if !status.success() {
         bail!("wrangler dev failed (exit {:?})", status.code());
     }
