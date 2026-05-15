@@ -16,7 +16,7 @@ fn formula_integer() {
 #[test]
 fn formula_decimal() {
     let vars = HashMap::new();
-    assert!((evaluate_formula("3.14", &vars).unwrap() - 3.140).abs() < 1e-10);
+    assert!((evaluate_formula("1.25", &vars).unwrap() - 1.250).abs() < 1e-10);
 }
 
 #[test]
