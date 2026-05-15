@@ -7,14 +7,16 @@
 fn sqlite_factory_returns_service() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("smoke.db");
-    let _svc = solobase_native::make_sqlite_database_service(path.to_str().unwrap());
+    let _svc = solobase_native::make_sqlite_database_service(path.to_str().unwrap())
+        .expect("sqlite factory should succeed in temp dir");
     // If we got here, the factory worked.
 }
 
 #[test]
 fn local_storage_factory_returns_service() {
     let tmp = tempfile::tempdir().unwrap();
-    let _svc = solobase_native::make_local_storage_service(tmp.path().to_str().unwrap());
+    let _svc = solobase_native::make_local_storage_service(tmp.path().to_str().unwrap())
+        .expect("local storage factory should succeed in temp dir");
 }
 
 #[test]

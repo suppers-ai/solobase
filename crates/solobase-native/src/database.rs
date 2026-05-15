@@ -6,27 +6,33 @@
 
 use std::sync::Arc;
 
+use anyhow::{Context, Result};
 use wafer_core::interfaces::database::service::DatabaseService;
 
 /// Open a SQLite database at `path` and wrap it in `Arc<dyn DatabaseService>`.
 ///
-/// Panics if the file cannot be opened or created — same failure mode as
-/// today's inline call. Consumers who want fallible construction can call
-/// `wafer_block_sqlite::service::SQLiteDatabaseService::open(path)` directly.
-pub fn make_sqlite_database_service(path: &str) -> Arc<dyn DatabaseService> {
+/// # Errors
+///
+/// Returns an error if the underlying file cannot be opened/created or if
+/// the SQLite handle fails to initialise.
+pub fn make_sqlite_database_service(path: &str) -> Result<Arc<dyn DatabaseService>> {
     let svc = wafer_block_sqlite::service::SQLiteDatabaseService::open(path)
-        .unwrap_or_else(|e| panic!("failed to open SQLite database at {path}: {e}"));
-    Arc::new(svc)
+        .with_context(|| format!("open SQLite database at {path}"))?;
+    Ok(Arc::new(svc))
 }
 
 /// Open a PostgreSQL connection via `url` and wrap it in
 /// `Arc<dyn DatabaseService>`. Feature-gated.
 ///
 /// Async because `PostgresDatabaseService::connect` is async.
+///
+/// # Errors
+///
+/// Returns an error if the connection cannot be established.
 #[cfg(feature = "postgres")]
-pub async fn make_postgres_database_service(url: &str) -> Arc<dyn DatabaseService> {
+pub async fn make_postgres_database_service(url: &str) -> Result<Arc<dyn DatabaseService>> {
     let svc = wafer_block_postgres::service::PostgresDatabaseService::connect(url)
         .await
-        .unwrap_or_else(|e| panic!("failed to connect to Postgres at {url}: {e}"));
-    Arc::new(svc)
+        .with_context(|| format!("connect to Postgres at {url}"))?;
+    Ok(Arc::new(svc))
 }

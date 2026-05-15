@@ -6,6 +6,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::{anyhow, Context};
 use solobase_core::builder::{self, SolobaseBuilder};
 use solobase_native::{
     collect_app_env_vars, init_tracing, load_dotenv, register_http_listener,
@@ -31,7 +32,7 @@ pub async fn run(run_migrations: bool) -> anyhow::Result<()> {
 
     // 2. Initialize tracing / logging
     let log_format = std::env::var("SOLOBASE_LOG_FORMAT").unwrap_or_else(|_| "text".into());
-    init_tracing(&log_format);
+    init_tracing(&log_format).context("initialize tracing subscriber")?;
     tracing::info!("solobase starting (Rust/WAFER runtime)");
 
     // 3. Read infrastructure config from SOLOBASE_* env vars
@@ -48,14 +49,28 @@ pub async fn run(run_migrations: bool) -> anyhow::Result<()> {
     let env_vars = filter_to_declared_keys(collect_app_env_vars());
 
     // 5. Open SQLite directly, seed variables, read config
-    let vars = seed_and_load_variables(&infra.db_path, &env_vars);
+    let vars = seed_and_load_variables(&infra.db_path, &env_vars)?;
     tracing::info!(vars = vars.len(), "variables loaded from database");
 
-    // 6. Extract JWT secret and feature config from variables
+    // 6. Extract JWT secret and feature config from variables. An empty
+    // JWT secret would silently fail-open every token verification; bail
+    // explicitly so the operator sees the misconfiguration at boot.
     let jwt_secret = vars
         .get(solobase_core::blocks::auth::JWT_SECRET_KEY)
         .cloned()
-        .unwrap_or_default();
+        .ok_or_else(|| {
+            anyhow!(
+                "missing required variable `{}` — auto-generation should seed this; \
+                 the variables table is unreadable or corrupted",
+                solobase_core::blocks::auth::JWT_SECRET_KEY
+            )
+        })?;
+    if jwt_secret.is_empty() {
+        return Err(anyhow!(
+            "variable `{}` is set but empty — refusing to boot with an empty JWT secret",
+            solobase_core::blocks::auth::JWT_SECRET_KEY
+        ));
+    }
     let features = load_block_settings(&infra.db_path);
 
     // 7. Build WAFER runtime via SolobaseBuilder
@@ -77,10 +92,10 @@ pub async fn run(run_migrations: bool) -> anyhow::Result<()> {
     let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(solobase_native::make_sqlite_database_service(
             &infra.db_path,
-        ))
+        )?)
         .storage(solobase_native::make_local_storage_service(
             &infra.storage_root,
-        ))
+        )?)
         .config(Arc::new(config_service))
         .crypto(solobase_native::make_jwt_crypto_service(jwt_secret))
         .network(solobase_native::make_fetch_network_service())
@@ -91,7 +106,7 @@ pub async fn run(run_migrations: bool) -> anyhow::Result<()> {
         // Ignored when the feature is off.
         .sqlite_db_path(&infra.db_path)
         .build()
-        .expect("failed to build solobase runtime");
+        .context("build solobase runtime")?;
 
     // 8. Native-only: register http-listener.
     //    solobase dispatches all HTTP traffic through the `site-main` flow
@@ -112,14 +127,16 @@ pub async fn run(run_migrations: bool) -> anyhow::Result<()> {
     }
 
     // 11. Start runtime
-    let wafer = wafer.start().await.expect("failed to start WAFER runtime");
+    let wafer = wafer.start().await.context("start WAFER runtime")?;
 
     // 12. Inject WRAP grants into storage block
     builder::post_start(&wafer, &storage_block);
     tracing::info!("WAFER runtime started — all blocks resolved");
 
     // 13. Wait for shutdown signal, then graceful shutdown
-    serve_until_shutdown(&wafer).await;
+    serve_until_shutdown(&wafer)
+        .await
+        .context("await shutdown signal")?;
     tracing::info!("solobase shutdown complete");
 
     Ok(())
@@ -133,22 +150,15 @@ pub async fn run(run_migrations: bool) -> anyhow::Result<()> {
 fn seed_and_load_variables(
     db_path: &str,
     env_vars: &[(String, String)],
-) -> HashMap<String, String> {
+) -> anyhow::Result<HashMap<String, String>> {
     // Ensure parent directory exists
     if let Some(parent) = std::path::Path::new(db_path).parent() {
-        std::fs::create_dir_all(parent).unwrap_or_else(|e| {
-            tracing::error!(
-                "failed to create database directory {}: {e}",
-                parent.display()
-            );
-            std::process::exit(1);
-        });
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create database directory {}", parent.display()))?;
     }
 
-    let conn = rusqlite::Connection::open(db_path).unwrap_or_else(|e| {
-        tracing::error!("failed to open SQLite at {db_path}: {e}");
-        std::process::exit(1);
-    });
+    let conn =
+        rusqlite::Connection::open(db_path).with_context(|| format!("open SQLite at {db_path}"))?;
 
     // Create variables table if it doesn't exist
     conn.execute_batch(
@@ -166,25 +176,21 @@ fn seed_and_load_variables(
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_variables_key ON variables (key);",
     )
-    .unwrap_or_else(|e| {
-        tracing::error!("failed to create variables table: {e}");
-        std::process::exit(1);
-    });
+    .context("create variables table")?;
 
     // Seed from env vars (INSERT OR IGNORE — existing DB values take priority)
     {
-        let mut stmt = conn.prepare(
-            "INSERT OR IGNORE INTO variables (id, key, value, sensitive, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))"
-        ).expect("failed to prepare seed statement");
+        let mut stmt = conn
+            .prepare(
+                "INSERT OR IGNORE INTO variables \
+                 (id, key, value, sensitive, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
+            )
+            .context("prepare seed-variables statement")?;
 
         for (key, value) in env_vars {
             let id = format!("var_{}", uuid::Uuid::new_v4());
-            let sensitive = if key.ends_with("_SECRET") || key.ends_with("_KEY") {
-                1
-            } else {
-                0
-            };
+            let sensitive = i32::from(key.ends_with("_SECRET") || key.ends_with("_KEY"));
             if let Err(e) = stmt.execute(rusqlite::params![id, key, value, sensitive]) {
                 tracing::warn!(key = %key, error = %e, "failed to seed variable");
             }
@@ -192,40 +198,48 @@ fn seed_and_load_variables(
     }
 
     // Auto-generate secrets for config vars marked with auto_generate
-    seed_auto_generated(&conn);
+    seed_auto_generated(&conn)?;
 
     // Load all variables
     let mut vars = HashMap::new();
     let mut stmt = conn
         .prepare("SELECT key, value FROM variables")
-        .expect("failed to prepare SELECT variables");
+        .context("prepare SELECT variables statement")?;
     let rows = stmt
         .query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })
-        .expect("failed to query variables");
+        .context("query variables")?;
 
-    for (key, value) in rows.flatten() {
-        if !key.is_empty() {
-            vars.insert(key, value);
+    for row in rows {
+        let (key, value) = row.context("read variables row")?;
+        if key.is_empty() {
+            // Empty key means a corrupt row — surface as warning rather than
+            // silently dropping (DB corruption is a real failure case).
+            tracing::warn!("variables table contains a row with an empty key");
+            continue;
         }
+        vars.insert(key, value);
     }
 
-    vars
+    Ok(vars)
 }
 
 /// Auto-generate values for config vars marked with `auto_generate: true`.
 ///
 /// Reads all block config var declarations, finds those needing auto-generation,
 /// and generates random values for any that don't already exist in the variables table.
-fn seed_auto_generated(conn: &rusqlite::Connection) {
+fn seed_auto_generated(conn: &rusqlite::Connection) -> anyhow::Result<()> {
     let block_infos = solobase_core::blocks::all_block_infos();
     let all_vars = solobase_core::config_vars::collect_all_config_vars(&block_infos);
 
-    let mut stmt = conn.prepare(
-        "INSERT OR IGNORE INTO variables (id, key, name, description, value, warning, sensitive, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'), datetime('now'))"
-    ).expect("failed to prepare auto-generate statement");
+    let mut stmt = conn
+        .prepare(
+            "INSERT OR IGNORE INTO variables \
+             (id, key, name, description, value, warning, sensitive, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'), datetime('now'))",
+        )
+        .context("prepare auto-generate statement")?;
 
     for var in &all_vars {
         if !var.auto_generate {
@@ -233,11 +247,11 @@ fn seed_auto_generated(conn: &rusqlite::Connection) {
         }
 
         let mut bytes = [0u8; 32];
-        getrandom::getrandom(&mut bytes).expect("failed to generate random secret");
+        getrandom::getrandom(&mut bytes).context("generate random secret")?;
         let secret: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
 
         let id = format!("var_{}", uuid::Uuid::new_v4());
-        let sensitive: i32 = if var.is_sensitive() { 1 } else { 0 };
+        let sensitive: i32 = i32::from(var.is_sensitive());
 
         let affected = stmt
             .execute(rusqlite::params![
@@ -255,4 +269,6 @@ fn seed_auto_generated(conn: &rusqlite::Connection) {
             tracing::warn!(key = %var.key, "auto-generated secret (not found in variables table)");
         }
     }
+
+    Ok(())
 }
