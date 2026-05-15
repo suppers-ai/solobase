@@ -14,6 +14,18 @@ use crate::blocks::helpers::{self, json_map};
 pub const CONTEXTS_TABLE: &str = "suppers_ai__messages__contexts";
 pub const ENTRIES_TABLE: &str = "suppers_ai__messages__entries";
 
+/// Build an `Equal` filter for `field` when `value` is present. Mirrors the
+/// per-field `if let Some(...) { filters.push(...) }` pattern used across
+/// `list_contexts` / `list_entries`.
+fn maybe_eq(field: &str, value: Option<&str>) -> Option<Filter> {
+    let v = value?;
+    Some(Filter {
+        field: field.to_string(),
+        operator: FilterOp::Equal,
+        value: serde_json::Value::String(v.to_string()),
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Context operations
 // ---------------------------------------------------------------------------
@@ -66,36 +78,15 @@ pub async fn list_contexts(
     ctx: &dyn Context,
     params: &ListContextsParams,
 ) -> Result<db::RecordList, String> {
-    let mut filters = Vec::new();
-
-    if let Some(ref t) = params.context_type {
-        filters.push(Filter {
-            field: "type".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(t.clone()),
-        });
-    }
-    if let Some(ref s) = params.status {
-        filters.push(Filter {
-            field: "status".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(s.clone()),
-        });
-    }
-    if let Some(ref sid) = params.sender_id {
-        filters.push(Filter {
-            field: "sender_id".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(sid.clone()),
-        });
-    }
-    if let Some(ref pid) = params.parent_id {
-        filters.push(Filter {
-            field: "parent_id".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(pid.clone()),
-        });
-    }
+    let filters = [
+        ("type", params.context_type.as_deref()),
+        ("status", params.status.as_deref()),
+        ("sender_id", params.sender_id.as_deref()),
+        ("parent_id", params.parent_id.as_deref()),
+    ]
+    .into_iter()
+    .filter_map(|(field, value)| maybe_eq(field, value))
+    .collect();
 
     let opts = ListOptions {
         filters,
