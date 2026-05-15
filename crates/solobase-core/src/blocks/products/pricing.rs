@@ -161,53 +161,62 @@ enum Token {
 
 fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     let mut tokens = Vec::new();
-    let chars: Vec<char> = input.chars().collect();
-    let mut i = 0;
+    let mut chars = input.chars().peekable();
 
-    while i < chars.len() {
-        match chars[i] {
-            ' ' | '\t' | '\n' => i += 1,
+    while let Some(&c) = chars.peek() {
+        match c {
+            ' ' | '\t' | '\n' => {
+                chars.next();
+            }
             '+' => {
+                chars.next();
                 tokens.push(Token::Plus);
-                i += 1;
             }
             '-' => {
+                chars.next();
                 tokens.push(Token::Minus);
-                i += 1;
             }
             '*' => {
+                chars.next();
                 tokens.push(Token::Star);
-                i += 1;
             }
             '/' => {
+                chars.next();
                 tokens.push(Token::Slash);
-                i += 1;
             }
             '(' => {
+                chars.next();
                 tokens.push(Token::LParen);
-                i += 1;
             }
             ')' => {
+                chars.next();
                 tokens.push(Token::RParen);
-                i += 1;
             }
             c if c.is_ascii_digit() || c == '.' => {
-                let start = i;
-                while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
-                    i += 1;
+                let mut num_str = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c.is_ascii_digit() || c == '.' {
+                        num_str.push(c);
+                        chars.next();
+                    } else {
+                        break;
+                    }
                 }
-                let num_str: String = chars[start..i].iter().collect();
                 let num = num_str
                     .parse::<f64>()
                     .map_err(|e| format!("Invalid number: {e}"))?;
                 tokens.push(Token::Number(num));
             }
             c if c.is_ascii_alphabetic() || c == '_' => {
-                let start = i;
-                while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
-                    i += 1;
+                let mut ident = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c.is_ascii_alphanumeric() || c == '_' {
+                        ident.push(c);
+                        chars.next();
+                    } else {
+                        break;
+                    }
                 }
-                let ident: String = chars[start..i].iter().collect();
                 tokens.push(Token::Ident(ident));
             }
             c => return Err(format!("Unexpected character: {c}")),

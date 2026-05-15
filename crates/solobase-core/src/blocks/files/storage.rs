@@ -81,7 +81,11 @@ fn extract_object_key(path: &str) -> &str {
 
 /// Check if the current user owns the given bucket (or is admin).
 /// Returns true if access is denied.
-async fn is_bucket_access_denied(ctx: &dyn Context, msg: &Message, bucket: &str) -> bool {
+pub(super) async fn is_bucket_access_denied(
+    ctx: &dyn Context,
+    msg: &Message,
+    bucket: &str,
+) -> bool {
     let is_admin = helpers::is_admin(msg);
     if is_admin {
         return false;

@@ -231,8 +231,10 @@ impl Block for ProductsBlock {
             return stripe::handle_webhook(ctx, &msg, input).await;
         }
 
-        // Per-user rate limiting for authenticated endpoints
-        // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
+        // Per-user rate limiting for authenticated endpoints. Allowed(headers)
+        // is discarded: attaching X-RateLimit-* to a streaming OutputStream
+        // would need platform-side middleware to inject headers after the
+        // handler returns. Limits are still enforced, just not surfaced.
         if let RateLimitOutcome::Limited(out) =
             check_user_rate_limit(&self.limiter, ctx, &msg).await
         {
