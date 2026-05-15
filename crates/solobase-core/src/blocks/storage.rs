@@ -43,11 +43,11 @@ pub struct SolobaseStorageBlock {
     /// Updated after runtime startup via `update_wrap_grants()`.
     wrap_grants: std::sync::RwLock<Vec<ResourceGrant>>,
     /// The admin block ID (has full storage access).
-    wrap_admin_block: Arc<String>,
+    wrap_admin_block: Arc<str>,
 }
 
 impl SolobaseStorageBlock {
-    pub fn new(service: Arc<dyn StorageService>, admin_block: Arc<String>) -> Self {
+    pub fn new(service: Arc<dyn StorageService>, admin_block: Arc<str>) -> Self {
         Self {
             inner: wafer_core::service_blocks::storage::StorageBlock::new(service),
             wrap_grants: std::sync::RwLock::new(Vec::new()),
@@ -399,7 +399,7 @@ async fn log_storage_access(
 /// collected grants for cross-block access checks.
 pub fn create(
     service: Arc<dyn StorageService>,
-    admin_block: Arc<String>,
+    admin_block: Arc<str>,
 ) -> Arc<SolobaseStorageBlock> {
     Arc::new(SolobaseStorageBlock::new(service, admin_block))
 }

@@ -27,6 +27,13 @@ use crate::{
 /// 2. Validate JWT and set auth meta
 /// 3. Route to the appropriate solobase block
 /// 4. Log the request to `request_logs` (async, best-effort)
+///
+/// # Errors
+///
+/// Never returns an error directly — errors are encoded inside the
+/// returned `OutputStream` as `StreamEvent::Error`. Request-log
+/// persistence failures are intentionally swallowed (best-effort) so a
+/// failing audit-log table never breaks the response.
 pub async fn handle_request(
     ctx: &dyn Context,
     mut msg: Message,
@@ -162,8 +169,12 @@ pub async fn handle_request(
         ),
     };
 
-    // 4. Log the request (best-effort, don't block the response)
-    let duration_ms = (crate::blocks::helpers::now_millis() - start_ms) as i64;
+    // 4. Log the request (best-effort, don't block the response).
+    // `now_millis()` reads wall clock — saturating_sub guards against clock
+    // skew on suspend/resume from regressing the subtraction, and try_into
+    // clamps the unlikely case of an absurdly large delta to `i64::MAX`.
+    let duration_ms = i64::try_from(crate::blocks::helpers::now_millis().saturating_sub(start_ms))
+        .unwrap_or(i64::MAX);
 
     // Skip logging static asset requests to reduce noise
     if !path.starts_with("/static/") && path != "/health" {

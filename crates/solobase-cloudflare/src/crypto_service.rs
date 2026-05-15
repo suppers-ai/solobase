@@ -35,11 +35,8 @@ impl CryptoService for SolobaseCryptoService {
         claims: HashMap<String, serde_json::Value>,
         expiry: Duration,
     ) -> Result<String, CryptoError> {
-        Ok(solobase_core::crypto::jwt_sign(
-            &claims,
-            expiry,
-            &self.jwt_secret,
-        ))
+        solobase_core::crypto::jwt_sign(claims, expiry, &self.jwt_secret)
+            .map_err(CryptoError::Other)
     }
 
     fn verify(&self, token: &str) -> Result<HashMap<String, serde_json::Value>, CryptoError> {

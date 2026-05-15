@@ -281,15 +281,24 @@ pub fn server_error_response(msg: &wafer_run::types::Message) -> wafer_run::Outp
 }
 
 /// Respond with HTML + an HX-Trigger header for toast notifications.
+///
+/// The trigger payload lands in an HTTP response header and is parsed by
+/// htmx as JSON. Building it with `format!` would let a toast message
+/// containing `"` or `\` produce malformed JSON (and a possible header-
+/// injection vector via embedded `\r\n`). Route through `serde_json` so
+/// the message text is properly escaped.
 pub fn html_response_with_toast(
     markup: maud::Markup,
     toast_message: &str,
     toast_type: &str,
 ) -> wafer_run::OutputStream {
-    let trigger = format!(
-        r#"{{"showToast":{{"message":"{}","type":"{}"}}}}"#,
-        toast_message, toast_type
-    );
+    let trigger = serde_json::json!({
+        "showToast": {
+            "message": toast_message,
+            "type": toast_type,
+        }
+    })
+    .to_string();
     crate::blocks::helpers::ResponseBuilder::new()
         .set_header("HX-Trigger", &trigger)
         .body(

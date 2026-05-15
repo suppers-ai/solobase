@@ -20,6 +20,9 @@ use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
 use crate::features::{BlockSettings, MigrationState, BLOCK_SETTINGS_CONFIG_KEY};
+// NOTE: `BlockSettings::state_for` parses only the requested block's entry
+// out of the JSON map, avoiding the full-map materialization that
+// `from_config_json` would do on every `apply_if_blessed` call.
 
 /// Env-var name set by `solobase --run-migrations` (native) or
 /// `deploy-cloudflare.sh deploy --run-migrations` (CF).
@@ -70,7 +73,7 @@ pub async fn apply_if_blessed(
     }
 
     for stmt in split_statements(sql) {
-        if !has_executable_content(&stmt) {
+        if !has_executable_content(stmt) {
             continue;
         }
         let trimmed = stmt.trim();
@@ -97,8 +100,7 @@ pub async fn apply_if_blessed(
 /// so it lives in `ctx.config_get`, not behind the config block service.
 fn read_state(ctx: &dyn Context, block_name: &str) -> MigrationState {
     let json = ctx.config_get(BLOCK_SETTINGS_CONFIG_KEY).unwrap_or("{}");
-    let settings = BlockSettings::from_config_json(json);
-    settings.state(block_name).migration
+    BlockSettings::state_for(json, block_name).migration
 }
 
 /// Upsert the block's row in `suppers_ai__admin__block_settings` with the
@@ -125,10 +127,13 @@ async fn write_state(
         skip_count: true,
     };
 
-    // State persistence is best-effort: the migration itself already applied
-    // (IF NOT EXISTS guards make re-runs idempotent). If block_settings isn't
-    // available yet (e.g., admin block's Init hasn't fired in a fresh
-    // browser-WASM boot), warn + return Ok — next request will retry.
+    // State persistence is best-effort. The migration itself already
+    // applied (IF NOT EXISTS guards make re-runs idempotent), and in
+    // browser-WASM cold boot the `block_settings` table or its surrounding
+    // infra may not yet be reachable through WRAP (admin block's Init
+    // hasn't fired). Any error here would have blocked the entire block-
+    // init chain — see the SW self-destruct regression that surfaced when
+    // we previously propagated. Log and continue; the next request retries.
     match db::list(ctx, BLOCK_SETTINGS_TABLE, &opts).await {
         Ok(result) if !result.records.is_empty() => {
             let id = result.records[0].id.clone();
@@ -174,32 +179,37 @@ fn sha256_hex(sql: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-/// Split `sql` on `;` outside `--` line comments.
-fn split_statements(sql: &str) -> Vec<String> {
+/// Split `sql` on `;` outside `--` line comments. Returns byte-range slices
+/// into the original `sql` — no per-statement allocation.
+fn split_statements(sql: &str) -> Vec<&str> {
+    let bytes = sql.as_bytes();
     let mut out = Vec::new();
-    let mut current = String::new();
+    let mut start = 0usize;
     let mut in_line_comment = false;
-    for ch in sql.chars() {
+    let mut prev_was_dash = false;
+    for (i, &b) in bytes.iter().enumerate() {
         if in_line_comment {
-            current.push(ch);
-            if ch == '\n' {
+            if b == b'\n' {
                 in_line_comment = false;
             }
+            prev_was_dash = false;
             continue;
         }
-        if ch == '-' && current.ends_with('-') {
+        if b == b'-' && prev_was_dash {
             in_line_comment = true;
-            current.push(ch);
+            prev_was_dash = false;
             continue;
         }
-        if ch == ';' {
-            out.push(std::mem::take(&mut current));
+        if b == b';' {
+            out.push(&sql[start..i]);
+            start = i + 1;
+            prev_was_dash = false;
             continue;
         }
-        current.push(ch);
+        prev_was_dash = b == b'-';
     }
-    if !current.is_empty() {
-        out.push(current);
+    if start < bytes.len() {
+        out.push(&sql[start..]);
     }
     out
 }

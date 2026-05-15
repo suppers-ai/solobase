@@ -54,18 +54,24 @@ pub fn itim_latin_ext_woff2_url() -> &'static str {
 /// `<link rel="stylesheet">` covers everything. The two font URL placeholders
 /// in tokens.css are substituted with the content-hashed worker-bundled
 /// URLs at bundle generation time.
-pub fn css_bundle() -> String {
-    let tokens = TOKENS_CSS
-        .replace("__ITIM_LATIN_URL__", itim_latin_woff2_url())
-        .replace("__ITIM_LATIN_EXT_URL__", itim_latin_ext_woff2_url());
-    format!(
-        "{}\n{}\n{}\n{}\n{}\n",
-        tokens, BASE_CSS, COMPONENTS_CSS, LAYOUT_CSS, CHARTS_CSS
-    )
+///
+/// Cached in a `OnceLock`: every CSS-bundle consumer (`css()`, `css_url()`,
+/// and the static-asset handler) used to rebuild this on each call.
+pub fn css_bundle() -> &'static str {
+    static BUNDLE: OnceLock<String> = OnceLock::new();
+    BUNDLE.get_or_init(|| {
+        let tokens = TOKENS_CSS
+            .replace("__ITIM_LATIN_URL__", itim_latin_woff2_url())
+            .replace("__ITIM_LATIN_EXT_URL__", itim_latin_ext_woff2_url());
+        format!(
+            "{}\n{}\n{}\n{}\n{}\n",
+            tokens, BASE_CSS, COMPONENTS_CSS, LAYOUT_CSS, CHARTS_CSS
+        )
+    })
 }
 
 /// The main CSS stylesheet (all design system styles combined).
-pub fn css() -> String {
+pub fn css() -> &'static str {
     css_bundle()
 }
 

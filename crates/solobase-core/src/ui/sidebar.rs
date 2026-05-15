@@ -68,7 +68,10 @@ pub fn sidebar_grouped(
                             }
                             ul .sidebar__nav {
                                 @for item in &g.items {
-                                    @let active = current_path == item.href || current_path.starts_with(&format!("{}/", item.href));
+                                    @let active = current_path == item.href
+                                        || current_path
+                                            .strip_prefix(item.href.as_str())
+                                            .is_some_and(|rest| rest.starts_with('/'));
                                     li {
                                         a href=(item.href)
                                           class={ "sidebar__nav-item" @if active { " is-active" } }

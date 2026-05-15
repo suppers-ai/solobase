@@ -64,31 +64,33 @@ fn base64_url_decode(input: &str) -> Result<Vec<u8>, String> {
 }
 
 /// Sign a JWT with HMAC-SHA256.
+///
+/// Takes `claims` by value to avoid cloning the caller's HashMap just to add
+/// `iat` / `exp`. Callers typically build a fresh map per token anyway.
 pub fn jwt_sign(
-    claims: &HashMap<String, serde_json::Value>,
+    mut claims: HashMap<String, serde_json::Value>,
     expiry: Duration,
     secret: &str,
-) -> String {
+) -> Result<String, String> {
     let now = chrono::Utc::now();
-    let exp = now + chrono::Duration::seconds(expiry.as_secs() as i64);
+    let expiry_secs = i64::try_from(expiry.as_secs())
+        .map_err(|_| "jwt expiry overflows i64 seconds".to_string())?;
+    let exp = now + chrono::Duration::seconds(expiry_secs);
 
-    let mut payload = claims.clone();
-    payload.insert("iat".to_string(), serde_json::json!(now.timestamp()));
-    payload.insert("exp".to_string(), serde_json::json!(exp.timestamp()));
+    claims.insert("iat".to_string(), serde_json::json!(now.timestamp()));
+    claims.insert("exp".to_string(), serde_json::json!(exp.timestamp()));
 
     let header = r#"{"alg":"HS256","typ":"JWT"}"#;
     let header_b64 = base64_url_encode(header.as_bytes());
-    let payload_json = serde_json::to_string(&payload).unwrap_or_default();
+    let payload_json =
+        serde_json::to_string(&claims).map_err(|e| format!("jwt payload serialize: {e}"))?;
     let payload_b64 = base64_url_encode(payload_json.as_bytes());
 
     let signing_input = format!("{}.{}", header_b64, payload_b64);
-    let sig = match hmac_sha256(signing_input.as_bytes(), secret.as_bytes()) {
-        Ok(s) => s,
-        Err(_) => return String::new(), // Signing failure — return empty (unusable) token
-    };
+    let sig = hmac_sha256(signing_input.as_bytes(), secret.as_bytes())?;
     let sig_b64 = base64_url_encode(&sig);
 
-    format!("{}.{}.{}", header_b64, payload_b64, sig_b64)
+    Ok(format!("{}.{}.{}", header_b64, payload_b64, sig_b64))
 }
 
 /// Verify a JWT signature and check expiry. Returns the claims on success.
@@ -150,15 +152,16 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 /// Derive a per-block JWT signing key from the master secret using HKDF-SHA256.
 /// This matches the derivation in `wafer-block-crypto::Argon2JwtCryptoService`.
-pub fn derive_block_jwt_key(master_secret: &str, block_id: &str) -> String {
+pub fn derive_block_jwt_key(master_secret: &str, block_id: &str) -> Result<String, String> {
     use hkdf::Hkdf;
     use sha2::Sha256;
 
     let hk = Hkdf::<Sha256>::new(None, master_secret.as_bytes());
     let info = format!("wafer-jwt|{block_id}");
     let mut okm = [0u8; 32];
-    hk.expand(info.as_bytes(), &mut okm).expect("HKDF expand");
-    okm.iter().map(|b| format!("{b:02x}")).collect()
+    hk.expand(info.as_bytes(), &mut okm)
+        .map_err(|e| format!("HKDF expand: {e}"))?;
+    Ok(okm.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -205,8 +208,14 @@ pub async fn extract_auth_meta(
 
     // The auth block signs JWTs with a per-block derived key (HKDF from the
     // master secret + block ID). Try the derived key first, fall back to
-    // the master secret for tokens signed without block derivation.
-    let derived_secret = derive_block_jwt_key(jwt_secret, crate::blocks::auth::AUTH_BLOCK_ID);
+    // the master secret for tokens signed without block derivation. An HKDF
+    // error here means the master secret is malformed; treat that the same
+    // as a verification failure — the request continues unauthenticated.
+    let derived_secret = match derive_block_jwt_key(jwt_secret, crate::blocks::auth::AUTH_BLOCK_ID)
+    {
+        Ok(s) => s,
+        Err(_) => return,
+    };
     let claims = match jwt_verify(token, &derived_secret) {
         Ok(c) => c,
         Err(_) => match jwt_verify(token, jwt_secret) {
@@ -236,12 +245,8 @@ pub async fn extract_auth_meta(
     // blocklisted token was logged out before its natural exp; treat it
     // exactly as if it had expired (request continues as unauthenticated,
     // never as a different user).
-    let jti = claims
-        .get("jti")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    if !jti.is_empty() && crate::blocks::auth::repo::jwt_blocklist::contains(ctx, &jti).await {
+    let jti = claims.get("jti").and_then(|v| v.as_str()).unwrap_or("");
+    if !jti.is_empty() && crate::blocks::auth::repo::jwt_blocklist::contains(ctx, jti).await {
         return;
     }
 
@@ -252,23 +257,25 @@ pub async fn extract_auth_meta(
         msg.set_meta(META_AUTH_USER_EMAIL, email);
     }
 
-    // Roles: check for "roles" array or legacy "role" string
-    let roles = if let Some(roles_arr) = claims.get("roles").and_then(|v| v.as_array()) {
-        roles_arr
+    // Roles: prefer the structured `roles` array, fall back to the legacy
+    // `role` scalar. Avoids allocating a `String` when the array is absent
+    // or the legacy field is the only one present.
+    if let Some(roles_arr) = claims.get("roles").and_then(|v| v.as_array()) {
+        let joined = roles_arr
             .iter()
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>()
-            .join(",")
+            .join(",");
+        msg.set_meta(META_AUTH_USER_ROLES, &joined);
     } else if let Some(role) = claims.get("role").and_then(|v| v.as_str()) {
-        role.to_string()
+        msg.set_meta(META_AUTH_USER_ROLES, role);
     } else {
-        String::new()
-    };
-    msg.set_meta(META_AUTH_USER_ROLES, &roles);
+        msg.set_meta(META_AUTH_USER_ROLES, "");
+    }
 
     // Stash jti + exp so logout can read them without re-verifying the JWT.
     if !jti.is_empty() {
-        msg.set_meta(META_AUTH_JTI, &jti);
+        msg.set_meta(META_AUTH_JTI, jti);
     }
     if let Some(exp) = claims.get("exp").and_then(|v| v.as_i64()) {
         msg.set_meta(META_AUTH_EXP, &exp.to_string());
@@ -304,7 +311,7 @@ mod tests {
         claims.insert("sub".to_string(), serde_json::json!("user-123"));
         claims.insert("email".to_string(), serde_json::json!("test@example.com"));
 
-        let token = jwt_sign(&claims, Duration::from_secs(3600), secret);
+        let token = jwt_sign(claims, Duration::from_secs(3600), secret).unwrap();
         let parts: Vec<&str> = token.split('.').collect();
         assert_eq!(parts.len(), 3);
 
@@ -319,7 +326,7 @@ mod tests {
     fn jwt_verify_rejects_wrong_secret() {
         let mut claims = HashMap::new();
         claims.insert("sub".to_string(), serde_json::json!("user-123"));
-        let token = jwt_sign(&claims, Duration::from_secs(3600), "secret-a");
+        let token = jwt_sign(claims, Duration::from_secs(3600), "secret-a").unwrap();
 
         let err = jwt_verify(&token, "secret-b").unwrap_err();
         assert_eq!(err, "invalid JWT signature");
@@ -360,7 +367,7 @@ mod tests {
     fn jwt_verify_rejects_tampered_payload() {
         let mut claims = HashMap::new();
         claims.insert("sub".to_string(), serde_json::json!("user-123"));
-        let token = jwt_sign(&claims, Duration::from_secs(3600), "secret");
+        let token = jwt_sign(claims, Duration::from_secs(3600), "secret").unwrap();
 
         let parts: Vec<&str> = token.split('.').collect();
         // Replace payload with different content
@@ -434,7 +441,7 @@ mod tests {
         if let Some(j) = jti {
             claims.insert("jti".to_string(), serde_json::json!(j));
         }
-        jwt_sign(&claims, Duration::from_secs(ttl_secs), secret)
+        jwt_sign(claims, Duration::from_secs(ttl_secs), secret).expect("test jwt_sign")
     }
 
     #[tokio::test]

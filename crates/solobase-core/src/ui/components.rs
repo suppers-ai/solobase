@@ -343,11 +343,20 @@ fn field_attrs(p: &FieldProps) -> String {
 }
 
 fn html_escape(input: &str) -> String {
-    input
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+    // Single-pass escape — four sequential `replace` calls would reallocate
+    // the buffer per substitution, and pre-sizing with a small overhead
+    // avoids the per-push grow loop for the common no-escape case.
+    let mut out = String::with_capacity(input.len() + 8);
+    for ch in input.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn field_wrap(p: &FieldProps, control: maud::Markup) -> maud::Markup {
@@ -484,10 +493,14 @@ pub fn empty_state(
 
 pub fn pagination(page: u32, per_page: u32, total: u32, base_href: &str) -> maud::Markup {
     use maud::{html, PreEscaped};
+    // Guard against zero `per_page` — divides by zero panics in debug and
+    // produces wrong output in release. Callers can legitimately read 0
+    // from query params before validation.
+    let per_page = per_page.max(1);
     let total_pages = if total == 0 {
         1
     } else {
-        (total + per_page - 1) / per_page
+        total.div_ceil(per_page)
     };
     let prev_disabled = page <= 1;
     let next_disabled = page >= total_pages;

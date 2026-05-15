@@ -77,12 +77,6 @@ impl BlockSettings {
         Self { blocks }
     }
 
-    /// Check if a block is enabled by its short name (e.g., "products").
-    pub fn is_enabled(&self, short_name: &str) -> bool {
-        let full = format!("suppers-ai/{short_name}");
-        self.blocks.get(&full).map(|s| s.enabled).unwrap_or(true)
-    }
-
     /// Look up the full `BlockState` for a block by full name.
     /// Returns a default (enabled + empty migration state) when the block has
     /// no row in `block_settings` yet.
@@ -98,8 +92,17 @@ impl BlockSettings {
 
     /// Serialize all block state to JSON for transport through the wafer
     /// config snapshot under [`BLOCK_SETTINGS_CONFIG_KEY`]. Empty map → `"{}"`.
+    ///
+    /// # Panics
+    ///
+    /// `HashMap<String, BlockState>` has no custom `Serialize` impl that can
+    /// fail (the field types are `String` / `bool`), so an error here
+    /// indicates either OOM during string growth or a future schema change
+    /// that broke this invariant — both should be loud rather than silently
+    /// emitting `"{}"` and losing migration-gate state on transport.
     pub fn to_config_json(&self) -> String {
-        serde_json::to_string(&self.blocks).unwrap_or_else(|_| "{}".to_string())
+        serde_json::to_string(&self.blocks)
+            .expect("BlockState serialization is infallible for current schema")
     }
 
     /// Parse a `BlockSettings` from the JSON shape produced by
@@ -108,6 +111,33 @@ impl BlockSettings {
     pub fn from_config_json(json: &str) -> Self {
         let blocks: HashMap<String, BlockState> = serde_json::from_str(json).unwrap_or_default();
         Self::from_blocks(blocks)
+    }
+
+    /// Look up a single block's [`BlockState`] from the JSON produced by
+    /// [`Self::to_config_json`] without materializing every entry.
+    ///
+    /// Used by `migration_helper::apply_if_blessed` — called once per block
+    /// per startup, on a payload that grows linearly with installed blocks.
+    /// Walks the JSON's top-level object until the key matches, then
+    /// deserializes only that entry. Returns the default when the key is
+    /// absent or the JSON is malformed (same "default enabled" semantics
+    /// as `from_config_json`).
+    pub fn state_for(json: &str, block_name: &str) -> BlockState {
+        let missing = || BlockState {
+            enabled: true,
+            migration: MigrationState::default(),
+        };
+        let value: serde_json::Value = match serde_json::from_str(json) {
+            Ok(v) => v,
+            Err(_) => return missing(),
+        };
+        let Some(obj) = value.as_object() else {
+            return missing();
+        };
+        let Some(entry) = obj.get(block_name) else {
+            return missing();
+        };
+        serde_json::from_value(entry.clone()).unwrap_or_else(|_| missing())
     }
 }
 

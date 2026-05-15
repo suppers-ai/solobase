@@ -136,8 +136,8 @@ impl SolobaseBuilder {
         self
     }
 
-    pub fn extra_block(mut self, name: &str, block: Arc<dyn Block>) -> Self {
-        self.extra_blocks.push((name.to_string(), block));
+    pub fn extra_block(mut self, name: impl Into<String>, block: Arc<dyn Block>) -> Self {
+        self.extra_blocks.push((name.into(), block));
         self
     }
 
@@ -199,8 +199,8 @@ impl SolobaseBuilder {
         self
     }
 
-    pub fn block_config(mut self, name: &str, config: serde_json::Value) -> Self {
-        self.block_configs.push((name.to_string(), config));
+    pub fn block_config(mut self, name: impl Into<String>, config: serde_json::Value) -> Self {
+        self.block_configs.push((name.into(), config));
         self
     }
 
@@ -263,7 +263,9 @@ impl SolobaseBuilder {
         wafer_core::service_blocks::database::register_with(&mut wafer, database)?;
         wafer.add_alias("db", "wafer-run/database");
 
-        let admin_block_id = Arc::new("suppers-ai/admin".to_string());
+        // `Arc::from(&'static str)` allocates the inline buffer once; no
+        // `String::to_string` round-trip needed for a literal identifier.
+        let admin_block_id: Arc<str> = Arc::from("suppers-ai/admin");
         let storage_block = crate::blocks::storage::create(storage, admin_block_id);
         wafer.register_block("wafer-run/storage", storage_block.clone())?;
         wafer.add_alias("storage", "wafer-run/storage");
