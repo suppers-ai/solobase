@@ -42,6 +42,7 @@ sha2 = "0.10"
 hmac = "0.12"
 base64ct = { version = "1", features = ["alloc"] }
 bytemuck = { version = "1", default-features = false }
+subtle = { version = "2", default-features = false }
 
 # Used by the bundler module (tools/bundle):
 anyhow = "1"

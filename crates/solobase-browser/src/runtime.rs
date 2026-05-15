@@ -16,6 +16,19 @@ thread_local! {
     pub(crate) static RUNTIME: RefCell<Option<wafer_run::Wafer>> = const { RefCell::new(None) };
 }
 
+/// Returned by `store_wafer` when the runtime was already initialized.
+/// Caller decides whether to ignore (idempotent boot) or surface the error.
+#[derive(Debug)]
+pub struct StoreError;
+
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("store_wafer: runtime already initialized")
+    }
+}
+
+impl std::error::Error for StoreError {}
+
 /// True if `store_wafer` has been called in this SW context.
 pub fn is_initialized() -> bool {
     RUNTIME.with(|r| r.borrow().is_some())
@@ -24,15 +37,19 @@ pub fn is_initialized() -> bool {
 /// Store a fully-started `Wafer` in the SW's thread_local. Subsequent
 /// `dispatch_request` calls route through this Wafer.
 ///
-/// Panics in debug if called twice. In release, silently overwrites the
-/// previous value — consumers should guard with `is_initialized()` at the
-/// top of their `initialize()` to make the double-call case explicit.
-pub fn store_wafer(wafer: wafer_run::Wafer) {
+/// Returns `Err(StoreError)` if the runtime is already initialized.
+/// `dispatch_request` relies on the stored `Wafer` never being replaced
+/// after this call — silently overwriting would let a stale `&Wafer`
+/// borrow held across an `.await` dangle.
+pub fn store_wafer(wafer: wafer_run::Wafer) -> Result<(), StoreError> {
     RUNTIME.with(|r| {
         let mut borrow = r.borrow_mut();
-        debug_assert!(borrow.is_none(), "store_wafer called twice");
+        if borrow.is_some() {
+            return Err(StoreError);
+        }
         *borrow = Some(wafer);
-    });
+        Ok(())
+    })
 }
 
 /// Convert a browser `Request` into a WAFER `Message`, dispatch through
@@ -40,10 +57,13 @@ pub fn store_wafer(wafer: wafer_run::Wafer) {
 /// Returns a 503-shaped `Response` if called before `store_wafer`.
 /// Internal errors return a 500-shaped `Response`.
 pub async fn dispatch_request(request: web_sys::Request) -> Result<web_sys::Response, JsValue> {
-    // SAFETY: wasm32 is single-threaded, and the RefCell value is never
-    // replaced after `store_wafer()` stores it. Using a raw pointer avoids
-    // holding a RefCell borrow across `.await`, which would break when
-    // concurrent fetch events interleave at await points.
+    // SAFETY: wasm32 is single-threaded, and `store_wafer` enforces
+    // single-shot initialization via `Result<(), StoreError>` — once a
+    // `Wafer` is stored it is never replaced for the life of the
+    // service-worker process. That invariant lets us hand out a raw
+    // `*const Wafer` across `.await` without holding the `RefCell`
+    // borrow (which would conflict with concurrent fetch events that
+    // interleave at await points).
     let wafer_ptr = RUNTIME.with(|r| {
         let borrow = r.borrow();
         match borrow.as_ref() {
@@ -63,6 +83,9 @@ pub async fn dispatch_request(request: web_sys::Request) -> Result<web_sys::Resp
     };
 
     let (msg, input) = convert::request_to_message(&request).await?;
+    // SAFETY: see the comment on the RUNTIME.with block above —
+    // `store_wafer` is single-shot, so `wafer_ptr` is valid for the rest
+    // of the service-worker process's lifetime.
     let wafer = unsafe { &*wafer_ptr };
     let output = wafer.run("site-main", msg, input).await;
     convert::output_to_response(output).await

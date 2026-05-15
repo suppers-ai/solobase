@@ -7,6 +7,10 @@ use crate::bridge;
 
 pub struct BrowserNetworkService;
 
+// SAFETY: `BrowserNetworkService` is a unit struct with no shared state.
+// wasm32-unknown-unknown has no threads, so the `Send`/`Sync` bounds
+// required by `Arc<dyn NetworkService>` are satisfied trivially — no
+// cross-thread aliasing or data races are possible.
 unsafe impl Send for BrowserNetworkService {}
 unsafe impl Sync for BrowserNetworkService {}
 
@@ -32,9 +36,19 @@ impl NetworkService for BrowserNetworkService {
         let js_val = bridge::http_fetch(&req.method, &req.url, &headers_json, body_bytes).await;
 
         // The bridge returns a JS object; stringify it so we can deserialize.
-        let json_str = js_sys::JSON::stringify(&js_val)
-            .map(|s| s.as_string().unwrap_or_default())
-            .unwrap_or_default();
+        // Both `JSON::stringify` rejecting and the result not being a
+        // JS string are explicit bridge-contract violations, not benign
+        // empty bodies — surface them as `RequestError` instead of
+        // silently producing an empty string.
+        let json_js = js_sys::JSON::stringify(&js_val).map_err(|e| {
+            NetworkError::RequestError(format!(
+                "JSON.stringify on fetch response failed: {}",
+                e.as_string().unwrap_or_else(|| format!("{e:?}"))
+            ))
+        })?;
+        let json_str = json_js.as_string().ok_or_else(|| {
+            NetworkError::RequestError("JSON.stringify did not return a string".to_string())
+        })?;
 
         let fetch_resp: FetchResponse = serde_json::from_str(&json_str).map_err(|e| {
             NetworkError::RequestError(format!("failed to parse fetch response: {e}"))

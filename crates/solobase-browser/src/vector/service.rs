@@ -51,7 +51,10 @@ pub struct BrowserVectorService {
     indexes: Mutex<HashMap<String, IndexState>>,
 }
 
-// Safety: wasm32-unknown-unknown is single-threaded — no data races possible.
+// SAFETY: wasm32-unknown-unknown has no threads, so the `Mutex` here is
+// never contended and the `Send`/`Sync` bounds required by
+// `Arc<dyn VectorService>` are satisfied trivially — no cross-thread
+// aliasing or data races are possible.
 unsafe impl Send for BrowserVectorService {}
 unsafe impl Sync for BrowserVectorService {}
 
@@ -69,7 +72,11 @@ impl BrowserVectorService {
     }
 
     fn lookup(&self, name: &str) -> Option<IndexState> {
-        self.indexes.lock().ok()?.get(name).cloned()
+        self.indexes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(name)
+            .cloned()
     }
 }
 
@@ -81,14 +88,17 @@ impl VectorService for BrowserVectorService {
             bridge::db_exec_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
         }
         bridge::dbFlush().await;
-        self.indexes.lock().unwrap().insert(
-            config.name.clone(),
-            IndexState {
-                dimensions: config.dimensions,
-                metric: config.metric,
-                keyword_search: config.keyword_search,
-            },
-        );
+        self.indexes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(
+                config.name.clone(),
+                IndexState {
+                    dimensions: config.dimensions,
+                    metric: config.metric,
+                    keyword_search: config.keyword_search,
+                },
+            );
         Ok(())
     }
 
@@ -101,7 +111,10 @@ impl VectorService for BrowserVectorService {
             bridge::db_exec_raw(&s, "[]").map_err(|e| VectorError::Internal(js_err(e)))?;
         }
         bridge::dbFlush().await;
-        self.indexes.lock().unwrap().remove(name);
+        self.indexes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(name);
         Ok(())
     }
 
@@ -185,15 +198,19 @@ impl VectorService for BrowserVectorService {
         match mode {
             SearchMode::Vector => {
                 let candidates = load_all_vectors(index, state.dimensions, &f)?;
-                let pairs: Vec<(String, Vec<f32>)> = candidates
-                    .iter()
-                    .map(|(id, v, _m)| (id.clone(), v.clone()))
-                    .collect();
-                let scored = score::top_k(&vector, &pairs, fetch_n, state.metric);
+                let scored = score::top_k_borrowed(
+                    &vector,
+                    candidates
+                        .iter()
+                        .map(|(id, v, _m)| (id.as_str(), v.as_slice())),
+                    fetch_n,
+                    state.metric,
+                );
                 Ok(attach_metadata(&candidates, scored))
             }
             SearchMode::Keyword => {
-                let kq = keyword_query.unwrap();
+                let kq =
+                    keyword_query.ok_or(VectorError::KeywordQueryRequired(SearchMode::Keyword))?;
                 let ids = fts_search(index, &kq, fetch_n)?;
                 let metadata = load_metadata_for_ids(index, &ids)?;
                 Ok(ids
@@ -213,13 +230,17 @@ impl VectorService for BrowserVectorService {
                     .collect())
             }
             SearchMode::Hybrid => {
-                let kq = keyword_query.unwrap();
+                let kq =
+                    keyword_query.ok_or(VectorError::KeywordQueryRequired(SearchMode::Hybrid))?;
                 let candidates = load_all_vectors(index, state.dimensions, &f)?;
-                let pairs: Vec<(String, Vec<f32>)> = candidates
-                    .iter()
-                    .map(|(id, v, _m)| (id.clone(), v.clone()))
-                    .collect();
-                let vec_top = score::top_k(&vector, &pairs, fetch_n, state.metric);
+                let vec_top = score::top_k_borrowed(
+                    &vector,
+                    candidates
+                        .iter()
+                        .map(|(id, v, _m)| (id.as_str(), v.as_slice())),
+                    fetch_n,
+                    state.metric,
+                );
                 let kw_top = fts_search(index, &kq, fetch_n)?;
 
                 // Inline RRF fusion. We need per-id scores in the response,

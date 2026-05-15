@@ -33,12 +33,12 @@ pub async fn initialize() -> Result<(), JsValue> {
 
     solobase_browser::db_init().await;
 
-    let vars = config::seed_and_load_variables();
+    let vars = config::seed_and_load_variables()?;
     web_sys::console::log_1(
         &format!("solobase: {} variables loaded from database", vars.len()).into(),
     );
 
-    let features = config::load_block_settings();
+    let features = config::load_block_settings()?;
 
     let jwt_secret = vars
         .get(solobase_core::blocks::auth::JWT_SECRET_KEY)
@@ -105,7 +105,7 @@ pub async fn initialize() -> Result<(), JsValue> {
 
     web_sys::console::log_1(&"solobase: WAFER runtime started".into());
 
-    solobase_browser::store_wafer(wafer);
+    solobase_browser::store_wafer(wafer).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     Ok(())
 }
