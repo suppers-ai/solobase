@@ -38,37 +38,42 @@ pub fn providers_schema() -> CollectionSchema {
 /// and must not be persisted. The secret lives in
 /// `suppers_ai__admin__variables` and is referenced by `cfg.key_var`.
 pub fn config_to_row(cfg: &ProviderConfig) -> HashMap<String, serde_json::Value> {
+    // Borrowed entry point — callers that already own the config and don't
+    // need it afterward should prefer `config_into_row` to avoid the
+    // per-model `clone`.
+    config_into_row(cfg.clone())
+}
+
+/// Owning variant of [`config_to_row`]. Moves each field out of `cfg`
+/// instead of cloning, which matters most for the `models` `Vec<String>`.
+pub fn config_into_row(cfg: ProviderConfig) -> HashMap<String, serde_json::Value> {
+    let ProviderConfig {
+        name,
+        protocol,
+        endpoint,
+        api_key: _,
+        key_var,
+        models,
+        enabled,
+    } = cfg;
+
     let mut row = HashMap::new();
-    row.insert(
-        "name".to_string(),
-        serde_json::Value::String(cfg.name.clone()),
-    );
+    row.insert("name".to_string(), serde_json::Value::String(name));
     row.insert(
         "protocol".to_string(),
-        serde_json::Value::String(cfg.protocol.as_str().to_string()),
+        serde_json::Value::String(protocol.as_str().to_string()),
     );
-    row.insert(
-        "endpoint".to_string(),
-        serde_json::Value::String(cfg.endpoint.clone()),
-    );
-    if let Some(var) = &cfg.key_var {
-        row.insert(
-            "key_var".to_string(),
-            serde_json::Value::String(var.clone()),
-        );
+    row.insert("endpoint".to_string(), serde_json::Value::String(endpoint));
+    if let Some(var) = key_var {
+        row.insert("key_var".to_string(), serde_json::Value::String(var));
     }
     row.insert(
         "models".to_string(),
-        serde_json::Value::Array(
-            cfg.models
-                .iter()
-                .map(|m| serde_json::Value::String(m.clone()))
-                .collect(),
-        ),
+        serde_json::Value::Array(models.into_iter().map(serde_json::Value::String).collect()),
     );
     row.insert(
         "enabled".to_string(),
-        serde_json::Value::Number(serde_json::Number::from(if cfg.enabled { 1 } else { 0 })),
+        serde_json::Value::Number(serde_json::Number::from(if enabled { 1 } else { 0 })),
     );
     row
 }
