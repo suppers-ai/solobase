@@ -19,7 +19,7 @@ use wafer_run::{
 };
 
 use super::rate_limit::{RateLimit, UserRateLimiter};
-use crate::blocks::helpers::{err_bad_request, err_not_found, ok_json};
+use crate::blocks::helpers::{err_bad_request, err_not_found, form_url_encode, ok_json};
 
 /// Default per-caller rate limit: 100 emails per hour.
 const DEFAULT_RATE_LIMIT_MAX: u32 = 100;
@@ -211,7 +211,11 @@ async fn handle_send_template(
     let (subject, html, text) = match req.template.as_str() {
         "verification" => {
             let token = req.token.as_deref().unwrap_or("");
-            let url = format!("{}/b/auth/api/verify?token={}", base_url, url_encode(token));
+            let url = format!(
+                "{}/b/auth/api/verify?token={}",
+                base_url,
+                form_url_encode(token)
+            );
             (
                 format!("Verify your {app_name} email"),
                 format!(
@@ -230,7 +234,7 @@ async fn handle_send_template(
             let url = format!(
                 "{}/b/auth/reset-password?token={}",
                 base_url,
-                url_encode(token)
+                form_url_encode(token)
             );
             (
                 format!("Reset your {app_name} password"),
@@ -328,22 +332,23 @@ async fn send_email(
 
     // Build form-encoded body
     let mut parts = vec![
-        format!("from={}", url_encode(&from)),
-        format!("to={}", url_encode(to)),
-        format!("subject={}", url_encode(subject)),
-        format!("html={}", url_encode(html)),
+        format!("from={}", form_url_encode(&from)),
+        format!("to={}", form_url_encode(to)),
+        format!("subject={}", form_url_encode(subject)),
+        format!("html={}", form_url_encode(html)),
     ];
     let reply_to = config::get_default(ctx, "SUPPERS_AI__EMAIL__MAILGUN_REPLY_TO", "").await;
     if !reply_to.is_empty() {
-        parts.push(format!("h:Reply-To={}", url_encode(&reply_to)));
+        parts.push(format!("h:Reply-To={}", form_url_encode(&reply_to)));
     }
     if let Some(text) = text {
-        parts.push(format!("text={}", url_encode(text)));
+        parts.push(format!("text={}", form_url_encode(text)));
     }
     let body = parts.join("&");
 
-    // Base64 encode "api:{api_key}"
-    let credentials = base64_encode(&format!("api:{}", api_key));
+    // Base64-encode "api:{api_key}" for HTTP Basic auth.
+    use base64ct::Encoding;
+    let credentials = base64ct::Base64::encode_string(format!("api:{}", api_key).as_bytes());
 
     // Call network block via the typed client. The buffered helper consumes
     // the two-frame response (header + body) and returns a typed
@@ -390,7 +395,11 @@ fn validate_recipient(addr: &str) -> Result<(), String> {
     if at_count > 1 {
         return Err("recipient address contains multiple '@'".into());
     }
-    let (local, domain) = trimmed.split_once('@').unwrap();
+    // `at_count == 1` already, but use a let-else for explicitness instead of
+    // `.unwrap()`. If this somehow returned None we'd surface a clear error.
+    let Some((local, domain)) = trimmed.split_once('@') else {
+        return Err("recipient address missing '@'".into());
+    };
     if local.is_empty() || domain.is_empty() {
         return Err("recipient address has empty local-part or domain".into());
     }
@@ -492,96 +501,6 @@ async fn check_caller_rate_limit(
     match limiter.check(ctx, &key, limit).await {
         Ok(_) => Ok(()),
         Err(retry_after) => Err(super::rate_limit::rate_limited_response(retry_after)),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn url_encode(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
-            ' ' => "+".to_string(),
-            _ => format!("%{:02X}", c as u32),
-        })
-        .collect()
-}
-
-fn base64_encode(s: &str) -> String {
-    use std::io::Write;
-    let mut buf = Vec::new();
-    {
-        let mut encoder = Base64Encoder::new(&mut buf);
-        encoder.write_all(s.as_bytes()).ok();
-        encoder.finish();
-    }
-    String::from_utf8(buf).unwrap_or_default()
-}
-
-/// Minimal base64 encoder (no external dependency needed).
-struct Base64Encoder<'a> {
-    out: &'a mut Vec<u8>,
-    buf: [u8; 3],
-    len: usize,
-}
-
-const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-impl<'a> Base64Encoder<'a> {
-    fn new(out: &'a mut Vec<u8>) -> Self {
-        Self {
-            out,
-            buf: [0; 3],
-            len: 0,
-        }
-    }
-
-    fn flush_block(&mut self) {
-        let b = &self.buf;
-        self.out.push(B64[(b[0] >> 2) as usize]);
-        self.out
-            .push(B64[((b[0] & 0x03) << 4 | b[1] >> 4) as usize]);
-        if self.len > 1 {
-            self.out
-                .push(B64[((b[1] & 0x0f) << 2 | b[2] >> 6) as usize]);
-        } else {
-            self.out.push(b'=');
-        }
-        if self.len > 2 {
-            self.out.push(B64[(b[2] & 0x3f) as usize]);
-        } else {
-            self.out.push(b'=');
-        }
-    }
-
-    fn finish(&mut self) {
-        if self.len > 0 {
-            for i in self.len..3 {
-                self.buf[i] = 0;
-            }
-            self.flush_block();
-        }
-    }
-}
-
-impl<'a> std::io::Write for Base64Encoder<'a> {
-    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        for &byte in data {
-            self.buf[self.len] = byte;
-            self.len += 1;
-            if self.len == 3 {
-                self.flush_block();
-                self.len = 0;
-                self.buf = [0; 3];
-            }
-        }
-        Ok(data.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
     }
 }
 
