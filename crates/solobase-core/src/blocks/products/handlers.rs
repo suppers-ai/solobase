@@ -961,8 +961,10 @@ async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
     }];
 
     // Fan out the 5 independent counts/sums concurrently rather than
-    // serializing 5 round-trips on the request path.
-    let (total_products, active_products, total_purchases, total_revenue, total_groups) = tokio::join!(
+    // serializing 5 round-trips on the request path. `futures::join!`
+    // (not `tokio::join!`) because tokio is an optional dep in
+    // solobase-core's Cargo.toml — futures 0.3 is unconditional.
+    let (total_products, active_products, total_purchases, total_revenue, total_groups) = futures::join!(
         db::count(ctx, PRODUCTS_TABLE, &[]),
         db::count(ctx, PRODUCTS_TABLE, &active_filter),
         db::count(ctx, PURCHASES_TABLE, &[]),
