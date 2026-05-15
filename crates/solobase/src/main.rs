@@ -29,8 +29,12 @@ async fn main() -> ExitCode {
 
 async fn run() -> anyhow::Result<()> {
     // Bare `solobase` (no args) defaults to `serve --target native`.
+    // Parse the synthetic argv `["solobase", "serve"]` rather than
+    // hand-constructing a default `Cli`, so clap's verb-level defaults
+    // (port, release, run-migrations) and any future flag additions stay
+    // in one place — `Cli::default()` would silently bypass them.
     let cli = if std::env::args_os().count() == 1 {
-        Cli::default()
+        Cli::try_parse_from(["solobase", "serve"])?
     } else {
         Cli::parse()
     };
@@ -38,11 +42,11 @@ async fn run() -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let ctx = ModeContext::scan(&cwd)?;
 
-    // The native server-boot helper (`cli::server::run`) reads `.env` from
-    // the current working directory, so anchor cwd to ctx.cwd before
-    // dispatch. Flow functions take `repo_root` explicitly to avoid
-    // depending on cwd internally.
-    std::env::set_current_dir(&ctx.cwd)?;
+    // Flow functions take `repo_root` (= `ctx.cwd`) explicitly, and
+    // `cli::server::run` plumbs it into `load_dotenv` directly. We no
+    // longer mutate the process cwd here — process-global state shouldn't
+    // change as a side effect of dispatch (and `set_current_dir` is racy
+    // with anything else holding a cwd-relative path).
 
     match cli.command {
         Command::Build { target, release } => {

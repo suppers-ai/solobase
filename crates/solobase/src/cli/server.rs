@@ -4,7 +4,7 @@
 //! shortcut path in `main.rs`). It owns the SQLite seeding, WAFER builder,
 //! HTTP listener registration, and the `serve_until_shutdown` loop.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::{anyhow, Context};
 use solobase_core::builder::{self, SolobaseBuilder};
@@ -26,9 +26,12 @@ use crate::cli::server_config::{filter_to_declared_keys, load_block_settings, lo
 /// instead of the prior `std::env::set_var` smuggle. Rust 2024 makes
 /// process-env mutation `unsafe`, and the smuggle leaked into any child
 /// process the boot path might spawn — neither was the right channel.
-pub async fn run(run_migrations: bool) -> anyhow::Result<()> {
-    // 1. Load .env file (before reading any env vars)
-    load_dotenv();
+pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
+    // 1. Load .env file (before reading any env vars). Anchored to
+    // `repo_root` so the boot path doesn't depend on the process cwd —
+    // mutating cwd globally would leak into anything else this binary
+    // (or a future caller) spawns.
+    load_dotenv(repo_root);
 
     // 2. Initialize tracing / logging
     let log_format = std::env::var("SOLOBASE_LOG_FORMAT").unwrap_or_else(|_| "text".into());

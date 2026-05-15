@@ -69,15 +69,9 @@ pub enum Target {
     Cloudflare,
 }
 
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            command: Command::Serve {
-                target: Some(Target::Native),
-                release: false,
-                port: None,
-                run_migrations: false,
-            },
-        }
-    }
-}
+// No `Default for Cli` impl on purpose: hand-constructing a default
+// `Cli` bypasses clap's verb-level flag handling, so any new flag added
+// to a verb silently defaults to whatever value happens to be in the
+// hand-rolled default. The bare-`solobase` fallback in `main` instead
+// reparses the synthetic argv `["solobase", "serve"]`, which keeps clap
+// as the single source of truth.
