@@ -11,7 +11,7 @@ use crate::blocks::{
         DUMMY_HASH, USERS_TABLE,
     },
     errors::{error_response, ErrorCode},
-    helpers::{err_bad_request, json_map, RecordExt, ResponseBuilder},
+    helpers::{err_bad_request, err_internal, json_map, ResponseBuilder},
 };
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
@@ -28,8 +28,14 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     let email_lower = body.email.trim().to_lowercase();
 
-    // Find user by email via typed repo.
-    let user_row = users::find_by_email(ctx, &email_lower).await.ok().flatten();
+    // Find user by email via typed repo. `users::find_by_email` already
+    // collapses NOT_FOUND to `Ok(None)`; any `Err` here is a real failure
+    // (WRAP denial, DB outage) that must not collapse to "invalid
+    // credentials" — that would mask outages and silently log users out.
+    let user_row = match users::find_by_email(ctx, &email_lower).await {
+        Ok(opt) => opt,
+        Err(e) => return err_internal("User lookup failed", e),
+    };
 
     // Always run Argon2 verification to prevent timing-based user enumeration.
     // If user not found or no local credentials, compare against a dummy hash
@@ -49,14 +55,10 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         .await
         .is_ok();
 
-    // Fetch the full DB record for the remaining fields (disabled, email_verified, etc.)
+    // Use the typed UserRow we already have. `disabled` and `email_verified`
+    // ride on the row, so no second `db::get` is needed.
     let user = match user_row {
-        Some(u) if password_ok => match db::get(ctx, USERS_TABLE, &u.id).await {
-            Ok(rec) => rec,
-            Err(_) => {
-                return error_response(ErrorCode::InvalidCredentials, "Invalid email or password")
-            }
-        },
+        Some(u) if password_ok => u,
         _ => return error_response(ErrorCode::InvalidCredentials, "Invalid email or password"),
     };
 
@@ -65,16 +67,14 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // confirms to an attacker that the email exists, gives them a target for
     // a re-enable social-engineering attack, and signals when an admin has
     // taken action on a compromised account.
-    if user.bool_field("disabled") {
+    if user.disabled {
         return error_response(ErrorCode::InvalidCredentials, "Invalid email or password");
     }
 
     // Check email verification if required
     let require_verification =
         config::get_default(ctx, "SUPPERS_AI__AUTH__REQUIRE_VERIFICATION", "false").await;
-    if (require_verification == "true" || require_verification == "1")
-        && !user.bool_field("email_verified")
-    {
+    if (require_verification == "true" || require_verification == "1") && !user.email_verified {
         return error_response(ErrorCode::EmailNotVerified, "Please verify your email before logging in. Check your inbox for the verification link.");
     }
 
@@ -122,7 +122,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
                 "id": user.id,
                 "email": email_lower,
                 "roles": roles,
-                "name": user.str_field("name")
+                "name": user.display_name
             }
         }))
 }

@@ -11,7 +11,7 @@
 //!    same family ID with `generation + 1`. Return the new access + refresh
 //!    pair.
 
-use wafer_core::clients::{config, crypto, database as db};
+use wafer_core::clients::{config, crypto};
 use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
@@ -20,12 +20,11 @@ use crate::blocks::{
             build_auth_cookie, ensure_admin_role, expected_issuer, generate_tokens,
             store_refresh_token,
         },
-        repo::{sessions, tokens},
+        repo::{sessions, tokens, users},
         service::hash_token,
-        USERS_TABLE,
     },
     errors::{error_response, ErrorCode},
-    helpers::{err_bad_request, RecordExt, ResponseBuilder},
+    helpers::{err_bad_request, ResponseBuilder},
 };
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
@@ -49,16 +48,15 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         }
     };
 
-    let user_id = claims
+    let Some(user_id) = claims
         .get("user_id")
         .or_else(|| claims.get("sub"))
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    if user_id.is_empty() {
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+    else {
         return error_response(ErrorCode::InvalidToken, "Invalid refresh token");
-    }
+    };
 
     let token_type = claims.get("type").and_then(|v| v.as_str()).unwrap_or("");
     if token_type != "refresh" {
@@ -107,25 +105,26 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         return error_response(ErrorCode::InvalidToken, "Refresh token has been revoked");
     }
 
-    // Get user and verify account is still active
-    let user = match db::get(ctx, USERS_TABLE, &user_id).await {
-        Ok(u) => u,
+    // Get user and verify account is still active. Use the typed repo so
+    // `disabled` / `email_verified` come off the row instead of a second
+    // raw `db::get`.
+    let user = match users::find_by_id(ctx, &user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => return error_response(ErrorCode::NotAuthenticated, "User not found"),
         Err(_) => return error_response(ErrorCode::NotAuthenticated, "User not found"),
     };
 
-    if user.bool_field("disabled") {
+    if user.disabled {
         return error_response(ErrorCode::AccountDisabled, "Account is disabled");
     }
 
     let require_verification =
         config::get_default(ctx, "SUPPERS_AI__AUTH__REQUIRE_VERIFICATION", "false").await;
-    if (require_verification == "true" || require_verification == "1")
-        && !user.bool_field("email_verified")
-    {
+    if (require_verification == "true" || require_verification == "1") && !user.email_verified {
         return error_response(ErrorCode::EmailNotVerified, "Email not verified");
     }
 
-    let email = user.str_field("email").to_string();
+    let email = user.email.clone();
     let roles = ensure_admin_role(ctx, &user_id, &email).await;
 
     // Preserve the original auth method across refresh — a token issued
@@ -208,6 +207,11 @@ async fn resign_refresh_with_family(
 
     use crate::blocks::auth::REFRESH_TOKEN_TTL_SECS;
 
+    // [SEC-038] Stamp `iss` so the next refresh's `iss` check (lines 72-76)
+    // still succeeds. Without it, the rotated refresh JWT has no issuer and
+    // every subsequent refresh attempt fails forever.
+    let issuer = expected_issuer(ctx).await;
+
     let mut refresh_claims = HashMap::new();
     refresh_claims.insert(
         "user_id".to_string(),
@@ -229,6 +233,7 @@ async fn resign_refresh_with_family(
         "auth_method".to_string(),
         serde_json::Value::String(auth_method.to_string()),
     );
+    refresh_claims.insert("iss".to_string(), serde_json::Value::String(issuer));
 
     crypto::sign(
         ctx,
