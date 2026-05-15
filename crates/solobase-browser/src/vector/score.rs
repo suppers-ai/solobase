@@ -85,19 +85,43 @@ pub fn top_k(
     k: usize,
     metric: DistanceMetric,
 ) -> Vec<(String, f32)> {
+    top_k_borrowed(
+        query,
+        candidates.iter().map(|(id, v)| (id.as_str(), v.as_slice())),
+        k,
+        metric,
+    )
+}
+
+/// Borrowed-input variant of [`top_k`]. Hot-path callers can stream
+/// `(&str, &[f32])` pairs without cloning ids/vectors first; ids are only
+/// allocated for the (at most `k`) survivors of the truncate step.
+pub fn top_k_borrowed<'a, I>(
+    query: &[f32],
+    candidates: I,
+    k: usize,
+    metric: DistanceMetric,
+) -> Vec<(String, f32)>
+where
+    I: IntoIterator<Item = (&'a str, &'a [f32])>,
+{
     if k == 0 {
         return Vec::new();
     }
-    let mut scored: Vec<(String, f32)> = candidates
-        .iter()
+    // Score first (cheap String slice for ids), then truncate, then own.
+    let mut scored: Vec<(&str, f32)> = candidates
+        .into_iter()
         .map(|(id, v)| {
             let raw = pair_score(query, v, metric);
-            (id.clone(), rank_score(raw, metric))
+            (id, rank_score(raw, metric))
         })
         .collect();
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     scored.truncate(k);
     scored
+        .into_iter()
+        .map(|(id, s)| (id.to_string(), s))
+        .collect()
 }
 
 #[cfg(test)]
