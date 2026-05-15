@@ -32,10 +32,13 @@ impl<T> TtlCache<T> {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = T>,
     {
-        if let Some((value, loaded_at)) = &*self.state.lock().expect("TtlCache poisoned") {
-            if self.ttl == Duration::MAX
-                || loaded_at.as_ref().map_or(false, |t| t.elapsed() < self.ttl)
-            {
+        // Mutex poisoning here means some _other_ fetcher panicked while
+        // holding the lock; the cached value itself is unchanged and still
+        // safe to reuse. Recover via `into_inner()` instead of panicking —
+        // a single fetcher panic shouldn't permanently brick the isolate's
+        // cache.
+        if let Some((value, loaded_at)) = &*self.state.lock().unwrap_or_else(|e| e.into_inner()) {
+            if self.ttl == Duration::MAX || loaded_at.is_some_and(|t| t.elapsed() < self.ttl) {
                 return Arc::clone(value);
             }
         }
@@ -46,14 +49,14 @@ impl<T> TtlCache<T> {
         } else {
             Some(Instant::now())
         };
-        let mut guard = self.state.lock().expect("TtlCache poisoned");
+        let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
         *guard = Some((Arc::clone(&arc), loaded_at));
         arc
     }
 
     /// Force the next call to refetch. Used by admin-write paths.
     pub fn invalidate(&self) {
-        *self.state.lock().expect("TtlCache poisoned") = None;
+        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 }
 

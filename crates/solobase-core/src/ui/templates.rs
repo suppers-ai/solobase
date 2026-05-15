@@ -6,7 +6,7 @@
 
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 
-use super::{assets, components, SiteConfig};
+use super::{assets, SiteConfig};
 
 /// Header line for list / detail / form pages.
 pub struct PageHeader<'a> {
@@ -408,10 +408,6 @@ pub fn public_page(opts: PublicPage<'_>, body: Markup) -> Markup {
         }
     }
 }
-
-// Suppress unused warning until later phases consume `components`.
-#[allow(dead_code)]
-fn _components_keep_alive(_: components::BtnVariant) {}
 
 #[cfg(test)]
 mod tests {
