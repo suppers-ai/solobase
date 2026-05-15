@@ -76,12 +76,20 @@ pub(super) async fn messages_create(
     role: &str,
     content: &str,
 ) -> Option<serde_json::Value> {
-    let body = serde_json::to_vec(&serde_json::json!({
+    // Serializing a plain `{kind, role, content}` map can only fail on a JSON
+    // serializer bug. Surface it via tracing rather than sending an empty
+    // body to the messages block, which would 400 with a confusing error.
+    let body = match serde_json::to_vec(&serde_json::json!({
         "kind": "message",
         "role": role,
         "content": content,
-    }))
-    .unwrap_or_default();
+    })) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!("messages_create: failed to encode entry body: {e}");
+            return None;
+        }
+    };
 
     let resource = format!("/b/messages/api/contexts/{context_id}/entries");
     let mut msg = Message::new(format!("create:{resource}"));
@@ -217,20 +225,6 @@ impl LlmBlock {
         {
             Ok(record) => Some(record.data),
             Err(_) => None,
-        }
-    }
-
-    /// Get the first enabled provider ID from the provider-llm block DB.
-    ///
-    /// Retained for use by other admin/aggregation handlers (Phase B tasks
-    /// 15–16). The current chat handlers resolve backend IDs directly
-    /// against `suppers_ai__llm__providers` via `routes::resolve_backend_id`.
-    #[allow(dead_code)]
-    pub(super) async fn get_default_provider_id(&self, ctx: &dyn Context) -> String {
-        const LEGACY_PROVIDERS_TABLE: &str = "suppers_ai__provider_llm__providers";
-        match db::get_by_field(ctx, LEGACY_PROVIDERS_TABLE, "enabled", serde_json::json!(1)).await {
-            Ok(rec) => rec.id,
-            Err(_) => String::new(),
         }
     }
 
