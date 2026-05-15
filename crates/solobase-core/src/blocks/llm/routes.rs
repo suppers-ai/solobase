@@ -101,30 +101,22 @@ fn history_to_messages(history: &[serde_json::Value]) -> Vec<ChatMessage> {
 }
 
 /// Resolve a legacy `suppers-ai/provider-llm` default into a concrete
-/// backend_id by looking up the first enabled row in
-/// `suppers_ai__llm__providers`. Returns `Err` if no enabled provider is
-/// configured.
-async fn resolve_backend_id(
-    ctx: &dyn Context,
-    provider_block: &str,
-) -> Result<String, &'static str> {
+/// backend_id by reading the in-memory `ProviderLlmService` cache (loaded
+/// at `Init` and refreshed on every provider CRUD write). Returns `Err` if
+/// no enabled provider is configured.
+fn resolve_backend_id(block: &LlmBlock, provider_block: &str) -> Result<String, &'static str> {
     if provider_block != LEGACY_PROVIDER_BLOCK {
         // `provider_block` is the backend_id directly (non-legacy path).
         return Ok(provider_block.to_string());
     }
 
-    let records = db::list_all(ctx, PROVIDERS_TABLE, vec![])
-        .await
-        .map_err(|_| "provider lookup failed")?;
-
-    for record in records {
-        if let Ok(cfg) = row_to_config(&record) {
-            if cfg.enabled {
-                return Ok(cfg.name);
-            }
-        }
-    }
-    Err("no enabled provider configured")
+    block
+        .provider_svc
+        .providers_snapshot()
+        .into_iter()
+        .find(|cfg| cfg.enabled)
+        .map(|cfg| cfg.name)
+        .ok_or("no enabled provider configured")
 }
 
 /// Build the `Message` used to dispatch `llm.chat` to `wafer-run/llm`,
@@ -140,35 +132,33 @@ async fn dispatch_chat(
     ctx: &dyn Context,
     msg: &Message,
     input: InputStream,
-) -> Result<(String, NativeTypedFrameStream<ChatChunk>), OutputStream> {
+) -> Result<DispatchOutcome, OutputStream> {
     let raw = input.collect_to_bytes().await;
-    let body: ChatRequestBody = match serde_json::from_slice(&raw) {
+    let ChatRequestBody {
+        thread_id,
+        message,
+        provider,
+        model,
+    } = match serde_json::from_slice(&raw) {
         Ok(b) => b,
         Err(e) => return Err(err_bad_request(&format!("Invalid body: {e}"))),
     };
 
-    let thread_id = body.thread_id.clone();
-
     // 1. Persist the user message before calling the model.
-    let _ = messages_create(ctx, msg, &thread_id, "user", &body.message).await;
+    let _ = messages_create(ctx, msg, &thread_id, "user", &message).await;
 
     // 2. Load prior history (which now includes the just-written user msg).
     let history = messages_list(ctx, msg, &thread_id).await;
     let messages = history_to_messages(&history);
 
     // 3. Resolve the provider block / model via the block's existing logic.
-    let (provider_block, model) = block
-        .resolve_provider(
-            ctx,
-            &thread_id,
-            body.provider.as_deref(),
-            body.model.as_deref(),
-        )
+    let (provider_block, resolved_model) = block
+        .resolve_provider(ctx, &thread_id, provider.as_deref(), model.as_deref())
         .await;
 
     // 4. Map the legacy `suppers-ai/provider-llm` default into a concrete
     //    backend_id (first enabled provider). Non-legacy values pass through.
-    let backend_id = match resolve_backend_id(ctx, &provider_block).await {
+    let backend_id = match resolve_backend_id(block, &provider_block) {
         Ok(id) => id,
         Err(e) => return Err(err_internal("resolve_backend_id failed", e)),
     };
@@ -177,7 +167,7 @@ async fn dispatch_chat(
     let _ = msg; // auth-meta propagation removed — see PR description.
     let chat_req = ChatRequest {
         backend_id,
-        model,
+        model: resolved_model.clone(),
         messages,
         params: ChatParams::default(),
         tools: Vec::new(),
@@ -187,8 +177,29 @@ async fn dispatch_chat(
         Ok(s) => s,
         Err(e) => return Err(err_internal("llm chat dispatch", e.message)),
     };
-    Ok((thread_id, stream))
+    Ok(DispatchOutcome {
+        thread_id,
+        model: resolved_model,
+        stream,
+    })
 }
+
+/// Result of the shared chat prelude — owns the typed stream plus the
+/// metadata the buffered + streaming handlers need to echo back.
+struct DispatchOutcome {
+    thread_id: String,
+    /// Resolved model string — what we asked the service to run. Returned to
+    /// the client so the UI can label the assistant message with the actual
+    /// model used (the service does not echo it back in the chunk stream).
+    model: String,
+    stream: NativeTypedFrameStream<ChatChunk>,
+}
+
+/// Cap (in bytes) on the assistant reply we'll buffer in the JSON chat path.
+/// A misbehaving model that streams indefinitely can otherwise hold an entire
+/// response in memory before responding. SSE callers (`/chat/stream`) are
+/// unaffected — they forward each chunk as it arrives.
+const MAX_BUFFERED_RESPONSE_BYTES: usize = 1024 * 1024;
 
 /// Buffered chat handler: collects the full `ChatChunk` stream, concatenates
 /// all text deltas, persists the assistant message, and returns a JSON body.
@@ -198,7 +209,11 @@ pub(super) async fn handle_chat(
     msg: &Message,
     input: InputStream,
 ) -> OutputStream {
-    let (thread_id, mut stream) = match dispatch_chat(block, ctx, msg, input).await {
+    let DispatchOutcome {
+        thread_id,
+        model: model_used,
+        mut stream,
+    } = match dispatch_chat(block, ctx, msg, input).await {
         Ok(x) => x,
         Err(err) => return err,
     };
@@ -206,14 +221,22 @@ pub(super) async fn handle_chat(
     // Drain the typed `ChatChunk` stream, concatenating `ChunkDelta::Text`
     // bytes into the assistant reply. Propagate any error terminal as a 500.
     let mut content = String::new();
-    let mut model_used = String::new();
+    let mut truncated = false;
     while let Some(item) = stream.next().await {
         let chunk = match item {
             Ok(c) => c,
             Err(e) => return err_internal("llm service error", e.message),
         };
         match chunk.delta {
-            ChunkDelta::Text(s) => content.push_str(&s),
+            ChunkDelta::Text(s) => {
+                if content.len() + s.len() > MAX_BUFFERED_RESPONSE_BYTES {
+                    // Stop appending but keep draining so the stream can
+                    // close cleanly and any usage frame still flows through.
+                    truncated = true;
+                    continue;
+                }
+                content.push_str(&s);
+            }
             // Tool-call and empty deltas are ignored in the buffered path.
             ChunkDelta::ToolCallStart { .. }
             | ChunkDelta::ToolCallArguments { .. }
@@ -221,10 +244,11 @@ pub(super) async fn handle_chat(
             | ChunkDelta::Empty => {}
         }
     }
-    if model_used.is_empty() {
-        // The service does not echo the model back in the chunk stream — use
-        // the request-side model as the authoritative value.
-        model_used = String::new();
+    if truncated {
+        tracing::warn!(
+            cap = MAX_BUFFERED_RESPONSE_BYTES,
+            "llm buffered response exceeded cap — truncated"
+        );
     }
 
     // Persist the assistant reply.
@@ -243,6 +267,7 @@ pub(super) async fn handle_chat(
         "content": content,
         "message_id": message_id,
         "model": model_used,
+        "truncated": truncated,
     }))
 }
 
@@ -258,7 +283,11 @@ pub(super) async fn handle_chat_stream(
     // Run the shared prelude. On success we own the typed `ChatChunk`
     // stream; we re-emit each chunk as JSON SSE with a body-level
     // content-type.
-    let (thread_id, stream) = match dispatch_chat(block, ctx, msg, input).await {
+    let DispatchOutcome {
+        thread_id,
+        model: _,
+        stream,
+    } = match dispatch_chat(block, ctx, msg, input).await {
         Ok(x) => x,
         Err(err) => return err,
     };
@@ -794,8 +823,7 @@ pub(super) async fn discover_models(
         Ok(m) => m,
         Err(e) => return err_internal("discover_models failed", format!("{e:?}")),
     };
-    let model_ids: Vec<String> = models.iter().map(|m| m.model_id.clone()).collect();
-    cfg.models = model_ids.clone();
+    cfg.models = models.into_iter().map(|m| m.model_id).collect();
 
     let mut data = config_to_row(&cfg);
     helpers::stamp_updated(&mut data);
@@ -807,7 +835,7 @@ pub(super) async fn discover_models(
         return err_internal("reload_provider_service failed", e);
     }
 
-    ok_json(&serde_json::json!({ "models": model_ids }))
+    ok_json(&serde_json::json!({ "models": cfg.models }))
 }
 
 // ---------------------------------------------------------------------------
