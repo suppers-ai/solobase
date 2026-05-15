@@ -32,6 +32,10 @@ pub struct BrowserCryptoService {
     jwt_secret: String,
 }
 
+// SAFETY: `BrowserCryptoService` only holds owned data (`String`).
+// wasm32-unknown-unknown has no threads, so the `Send`/`Sync` bounds
+// required by `Arc<dyn CryptoService>` are satisfied trivially — no
+// cross-thread aliasing or data races are possible.
 unsafe impl Send for BrowserCryptoService {}
 unsafe impl Sync for BrowserCryptoService {}
 
@@ -78,8 +82,9 @@ impl CryptoService for BrowserCryptoService {
 
     fn compare_hash(&self, password: &str, hash_str: &str) -> Result<(), CryptoError> {
         use base64ct::{Base64, Encoding};
-        use hmac::{Hmac, Mac};
+        use hmac::Hmac;
         use sha2::Sha256;
+        use subtle::ConstantTimeEq;
 
         // Parse the PHC string
         let parts: Vec<&str> = hash_str.split('$').collect();
@@ -100,18 +105,15 @@ impl CryptoService for BrowserCryptoService {
         let expected = Base64::decode_vec(parts[4])
             .map_err(|e| CryptoError::VerifyError(format!("invalid hash: {e}")))?;
 
-        // Derive and compare
+        // Derive
         let mut computed = vec![0u8; expected.len()];
         pbkdf2::pbkdf2::<Hmac<Sha256>>(password.as_bytes(), &salt, iterations, &mut computed)
             .map_err(|e| CryptoError::VerifyError(e.to_string()))?;
 
-        // Constant-time comparison via HMAC finalize + `CtOutput` equality.
-        let a = Hmac::<Sha256>::new_from_slice(&computed)
-            .map_err(|e| CryptoError::VerifyError(e.to_string()))?;
-        let b = Hmac::<Sha256>::new_from_slice(&expected)
-            .map_err(|e| CryptoError::VerifyError(e.to_string()))?;
-
-        if a.finalize() == b.finalize() {
+        // Constant-time comparison via the dedicated `subtle` crate.
+        // (Previous implementation went through HMAC finalize + `CtOutput`
+        // equality, which is also constant-time but obscured the intent.)
+        if computed.ct_eq(&expected).into() {
             Ok(())
         } else {
             Err(CryptoError::PasswordMismatch)
