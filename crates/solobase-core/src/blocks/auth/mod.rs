@@ -147,11 +147,17 @@ pub(crate) mod helpers {
         user_id: &str,
         email: &str,
     ) -> Vec<String> {
-        let mut roles = get_user_roles(ctx, user_id).await;
-
+        // Read the bootstrap-admin email *before* the role lookup. The
+        // common case in production is "unset" — early-return then,
+        // skipping the role table read and the second `db::create` path
+        // entirely. Authenticated routes mint tokens often enough that the
+        // saved DB reads accumulate.
         let admin_email =
             config_client::get_default(ctx, "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL", "")
                 .await;
+
+        let mut roles = get_user_roles(ctx, user_id).await;
+
         if admin_email.is_empty()
             || !email.eq_ignore_ascii_case(&admin_email)
             || roles.iter().any(|r| r == "admin")
@@ -356,15 +362,11 @@ pub(crate) mod helpers {
     }
 
     pub(crate) fn urlencode(s: &str) -> String {
-        s.as_bytes()
-            .iter()
-            .map(|&b| match b {
-                b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                    String::from(b as char)
-                }
-                _ => format!("%{:02X}", b),
-            })
-            .collect()
+        // `byte_serialize` percent-encodes everything that isn't the
+        // application/x-www-form-urlencoded "safe set" (unreserved chars).
+        // Equivalent to the previous hand-rolled implementation but
+        // shares an audited path with the rest of the workspace.
+        url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
     }
 
     #[cfg(test)]

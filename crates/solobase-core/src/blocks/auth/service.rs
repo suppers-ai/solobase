@@ -126,8 +126,18 @@ fn session_cookie_from(msg: &Message) -> Option<String> {
     }
 }
 
-fn now_iso() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+/// Returns `true` iff `expires_at` parses as an RFC3339 timestamp earlier
+/// than now. Parsing the timestamp avoids the mixed-format trap of string
+/// comparison (`+00:00` vs `Z`) — the auth tables intermix both because
+/// some repo helpers write `…Z` and others use `to_rfc3339()`.
+///
+/// Unparseable inputs are treated as "expired" — a malformed expiry on a
+/// session row is safer to reject than silently grant.
+fn is_expired(expires_at: &str) -> bool {
+    match chrono::DateTime::parse_from_rfc3339(expires_at) {
+        Ok(exp) => chrono::Utc::now() >= exp.with_timezone(&chrono::Utc),
+        Err(_) => true,
+    }
 }
 
 /// Internal credential classification used by all three require_* methods.
@@ -231,7 +241,7 @@ impl AuthService for AuthServiceImpl {
                     .await
                     .map_err(|e| AuthError::Internal(e.to_string()))?
                     .ok_or(AuthError::Unauthorized)?;
-                if row.expires_at.as_str() < now_iso().as_str() {
+                if is_expired(&row.expires_at) {
                     return Err(AuthError::Unauthorized);
                 }
                 sessions::touch_last_used(ctx, &h)
@@ -245,7 +255,7 @@ impl AuthService for AuthServiceImpl {
                     .map_err(|e| AuthError::Internal(e.to_string()))?
                     .ok_or(AuthError::Unauthorized)?;
                 if let Some(exp) = row.expires_at.as_deref() {
-                    if exp < now_iso().as_str() {
+                    if is_expired(exp) {
                         return Err(AuthError::Unauthorized);
                     }
                 }
@@ -272,7 +282,7 @@ impl AuthService for AuthServiceImpl {
             .map_err(|e| AuthError::Internal(e.to_string()))?
             .ok_or(AuthError::Unauthorized)?;
         if let Some(exp) = row.expires_at.as_deref() {
-            if exp < now_iso().as_str() {
+            if is_expired(exp) {
                 return Err(AuthError::Unauthorized);
             }
         }

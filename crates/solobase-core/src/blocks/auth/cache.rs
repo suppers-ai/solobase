@@ -21,7 +21,10 @@ use std::{
 
 use wafer_core::interfaces::auth::service::UserId;
 
-type Key = (String, String, String); // (user_id, provider, verified_ref)
+// Three small Arc<str> instead of three Strings. The cache is in a hot path
+// (`verify_org_admin` is called per-request); avoiding three allocations per
+// `get`/`insert` matters at the publish-endpoint throughput we care about.
+type Key = (Arc<str>, Arc<str>, Arc<str>); // (user_id, provider, verified_ref)
 
 /// 5-minute TTL in production. Exposed as a constant so the wiring site
 /// (block construction) and tests agree on the default.
@@ -51,8 +54,12 @@ impl OrgAdminCache {
     /// Expired entries are evicted on read so the map doesn't grow
     /// unboundedly through stale reads.
     pub fn get(&self, user: &UserId, provider: &str, verified_ref: &str) -> Option<bool> {
-        let key = (user.0.clone(), provider.into(), verified_ref.into());
-        let mut guard = self.inner.lock().expect("OrgAdminCache mutex poisoned");
+        let key: Key = (
+            Arc::<str>::from(user.0.as_str()),
+            Arc::<str>::from(provider),
+            Arc::<str>::from(verified_ref),
+        );
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         match guard.get(&key) {
             Some(&(value, inserted_at)) if inserted_at.elapsed() < self.ttl => Some(value),
             Some(_) => {
@@ -67,8 +74,12 @@ impl OrgAdminCache {
     /// non-admin who probes the publish endpoint doesn't hammer the
     /// upstream provider's API every request.
     pub fn insert(&self, user: &UserId, provider: &str, verified_ref: &str, value: bool) {
-        let key = (user.0.clone(), provider.into(), verified_ref.into());
-        let mut guard = self.inner.lock().expect("OrgAdminCache mutex poisoned");
+        let key: Key = (
+            Arc::<str>::from(user.0.as_str()),
+            Arc::<str>::from(provider),
+            Arc::<str>::from(verified_ref),
+        );
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         guard.insert(key, (value, Instant::now()));
     }
 
@@ -76,8 +87,8 @@ impl OrgAdminCache {
     /// from the logout handler so a user who had admin privileges revoked
     /// upstream doesn't retain them for up to `ttl` after signing out.
     pub fn invalidate_user(&self, user: &UserId) {
-        let mut guard = self.inner.lock().expect("OrgAdminCache mutex poisoned");
-        guard.retain(|(uid, _, _), _| uid != &user.0);
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        guard.retain(|(uid, _, _), _| uid.as_ref() != user.0.as_str());
     }
 
     /// Test-only: number of live entries. Expired entries aren't pruned
