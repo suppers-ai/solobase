@@ -16,7 +16,10 @@ use wafer_sql_utils::{introspect, Backend};
 
 use super::{admin_page, crumb};
 use crate::{
-    blocks::{admin::database::validate_readonly_query, helpers::parse_form_body},
+    blocks::{
+        admin::database::validate_readonly_query,
+        helpers::{now_millis, parse_form_body, url_path_encode as pct_encode},
+    },
     ui::{
         html_response,
         shell::Topbar,
@@ -24,20 +27,6 @@ use crate::{
         SiteConfig, UserInfo,
     },
 };
-
-/// Percent-encode a string for use as a URL query value. Conservative:
-/// encodes anything outside `[A-Za-z0-9_.-]`. Avoids pulling in a crate
-/// for two call sites.
-fn pct_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'.' | b'-' => out.push(b as char),
-            _ => out.push_str(&format!("%{:02X}", b)),
-        }
-    }
-    out
-}
 
 /// Tab the right pane is showing.
 #[derive(Clone, Copy, PartialEq)]
@@ -328,16 +317,14 @@ fn render_sql_results(rows: &[db::Record], duration_ms: u128) -> Markup {
         };
     }
 
-    // Stable column ordering: union of keys, in first-row order then any new keys appended.
+    // Stable column ordering: union of keys, in first-row order then any new
+    // keys appended. A HashSet keeps membership lookup O(1) so the overall
+    // pass is O(rows × cols) instead of O(rows × cols²).
     let mut columns: Vec<String> = Vec::new();
-    if let Some(first) = rows.first() {
-        for k in first.data.keys() {
-            columns.push(k.clone());
-        }
-    }
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for r in rows {
         for k in r.data.keys() {
-            if !columns.iter().any(|c| c == k) {
+            if seen.insert(k.clone()) {
                 columns.push(k.clone());
             }
         }
@@ -438,9 +425,11 @@ pub async fn handle_database_query(
         return html_response(render_sql_error(err.message()));
     }
 
-    let started = std::time::Instant::now();
+    // `std::time::Instant::now()` panics on wasm32-unknown-unknown (no system
+    // clock). `now_millis()` uses chrono which is wasm-safe.
+    let started_ms = now_millis();
     let result = db::query_raw(ctx, &query, &[]).await;
-    let elapsed = started.elapsed().as_millis();
+    let elapsed = (now_millis() - started_ms) as u128;
 
     let fragment = match result {
         Ok(rows) => render_sql_results(&rows, elapsed),

@@ -86,7 +86,10 @@ pub fn hex_encode(bytes: &[u8]) -> String {
     use std::fmt::Write;
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
-        write!(s, "{:02x}", b).unwrap();
+        // SAFETY: writing to a String via fmt::Write never fails (the only
+        // error variant in fmt::Error is for formatter errors that String
+        // doesn't surface).
+        let _ = write!(s, "{:02x}", b);
     }
     s
 }
@@ -125,6 +128,27 @@ pub fn url_path_encode(s: &str) -> String {
             _ => format!("%{:02X}", b),
         })
         .collect()
+}
+
+/// Percent-encode a string for use as an `application/x-www-form-urlencoded`
+/// value. Same alphabet as [`url_path_encode`] but spaces become `+` (per the
+/// form-encoding convention) rather than `%20`. Use this for HTTP form bodies
+/// and `multipart/form-data` field values.
+pub fn form_url_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            b' ' => out.push('+'),
+            _ => {
+                use std::fmt::Write;
+                let _ = write!(out, "%{:02X}", b);
+            }
+        }
+    }
+    out
 }
 
 /// Decode a percent-encoded (URL-encoded) string.
@@ -408,6 +432,18 @@ mod tests {
         assert_eq!(url_path_encode("a+b=c&d"), "a%2Bb%3Dc%26d");
         assert_eq!(url_path_encode("a/b"), "a%2Fb");
         assert_eq!(url_path_encode("café"), "caf%C3%A9");
+    }
+
+    #[test]
+    fn form_url_encode_uses_plus_for_space() {
+        assert_eq!(form_url_encode("hello world"), "hello+world");
+        assert_eq!(form_url_encode("a+b=c&d"), "a%2Bb%3Dc%26d");
+        assert_eq!(form_url_encode("a/b"), "a%2Fb");
+        assert_eq!(form_url_encode("café"), "caf%C3%A9");
+        // Round-trip via parse_form_body decodes '+' back to ' '.
+        let encoded = form_url_encode("hello world");
+        let parsed = parse_form_body(format!("k={encoded}").as_bytes());
+        assert_eq!(parsed.get("k"), Some(&"hello world".to_string()));
     }
 
     #[test]

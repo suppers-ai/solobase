@@ -27,14 +27,17 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         _ => "features",
     };
 
-    let registered_blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
+    // `registered_blocks` is already deterministically ordered by the runtime.
+    let mut all_blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
 
-    // Load block enabled/disabled state from block_settings table
+    // Load block enabled/disabled state from block_settings table. Collect
+    // into a `BTreeMap` so the downstream iteration order is stable across
+    // process restarts (a `HashMap` would randomize per-process).
     let block_settings_rows = db::list_all(ctx, BLOCK_SETTINGS, vec![])
         .await
         .unwrap_or_default();
 
-    let block_enabled: std::collections::HashMap<String, bool> = block_settings_rows
+    let block_enabled: std::collections::BTreeMap<String, bool> = block_settings_rows
         .iter()
         .map(|r| {
             let name = r
@@ -48,11 +51,13 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         })
         .collect();
 
-    // Build full block list: registered blocks + unloaded blocks from block_settings
-    // Blocks in block_settings but not in the runtime get placeholder BlockInfo
-    let mut all_blocks = registered_blocks.clone();
+    // Append unloaded blocks (in block_settings but not in the runtime) as
+    // placeholder BlockInfo. Iteration order is deterministic because the
+    // source map is a BTreeMap.
+    let registered_names: std::collections::HashSet<String> =
+        all_blocks.iter().map(|b| b.name.clone()).collect();
     for (name, enabled) in &block_enabled {
-        if !all_blocks.iter().any(|b| &b.name == name) {
+        if !registered_names.contains(name) {
             let summary = if *enabled {
                 "(enabled \u{2014} restart to load)"
             } else {
@@ -67,6 +72,10 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
             );
         }
     }
+    // Sort the combined list deterministically by block name. The runtime
+    // already returns registered blocks sorted, but appending unloaded
+    // entries breaks that invariant.
+    all_blocks.sort_by(|a, b| a.name.cmp(&b.name));
 
     let page_action = html! {
         div style="display:flex;gap:8px" {
@@ -322,8 +331,8 @@ pub async fn handle_block_detail(
 
     let encoded = block_name.replace('/', "--");
 
-    // Disabled block not in runtime -- show minimal modal with toggle
-    if block_opt.is_none() {
+    // Disabled block not in runtime -- show minimal modal with toggle.
+    let Some(block) = block_opt else {
         let markup = html! {
             div .modal-header {
                 h3 .modal-title { (block_name) }
@@ -359,9 +368,7 @@ pub async fn handle_block_detail(
             script { (maud::PreEscaped("document.getElementById('block-detail-modal-overlay').removeAttribute('hidden');")) }
         };
         return ui::html_response(markup);
-    }
-
-    let block = block_opt.unwrap();
+    };
 
     let markup = html! {
         div .modal-header {
