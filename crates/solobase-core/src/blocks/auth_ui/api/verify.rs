@@ -7,7 +7,7 @@ use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
 use crate::{
     blocks::{
-        auth::{brand_panel, USERS_TABLE},
+        auth::{brand_panel, helpers::sha256_hex, USERS_TABLE},
         helpers::{err_bad_request, err_internal, hex_encode, json_map, ok_json, RecordExt},
     },
     ui,
@@ -42,12 +42,14 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
         return err_bad_request("Missing verification token");
     }
 
-    // Find user by verification token
+    // Find user by verification token. The DB column stores
+    // `sha256_hex(raw)`; hash the supplied token the same way before
+    // comparing.
     let user = match db::get_by_field(
         ctx,
         USERS_TABLE,
         "verification_token",
-        serde_json::Value::String(token.clone()),
+        serde_json::Value::String(sha256_hex(&token)),
     )
     .await
     {
@@ -135,15 +137,18 @@ pub async fn handle_resend(ctx: &dyn Context, input: InputStream) -> OutputStrea
         }
     }
 
-    // Generate new token
+    // Generate new token. The raw token goes in the email link; only its
+    // SHA-256 hex digest is persisted so a row-read leak doesn't grant
+    // verification.
     let new_token = match crypto::random_bytes(ctx, 32).await {
         Ok(bytes) => hex_encode(&bytes),
         Err(e) => return err_internal("Token generation failed", e),
     };
+    let new_token_hash = sha256_hex(&new_token);
 
     let now = crate::blocks::helpers::now_rfc3339();
     let mut data = json_map(serde_json::json!({
-        "verification_token": new_token,
+        "verification_token": new_token_hash,
         "last_verification_sent": now
     }));
     crate::blocks::helpers::stamp_updated(&mut data);

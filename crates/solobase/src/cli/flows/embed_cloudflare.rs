@@ -66,7 +66,12 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn serve(repo_root: &Path, release: bool, port: Option<u16>) -> Result<()> {
+pub async fn serve(
+    repo_root: &Path,
+    release: bool,
+    port: Option<u16>,
+    run_migrations: bool,
+) -> Result<()> {
     build(repo_root, release).await?;
 
     let out_dir = repo_root.join("target/solobase-cloudflare");
@@ -96,6 +101,11 @@ pub async fn serve(repo_root: &Path, release: bool, port: Option<u16>) -> Result
     if let Some(p) = port {
         dev.args(["--port", &p.to_string()]);
     }
+    // Pass the flag to the Worker via wrangler's `--var` so the deployed
+    // bundle's `apply_if_blessed` sees it through `ctx.config_get`.
+    if run_migrations {
+        dev.args(["--var", "SOLOBASE_RUN_MIGRATIONS:1"]);
+    }
     let status = dev.status()?;
     if !status.success() {
         bail!("wrangler dev failed (exit {:?})", status.code());
@@ -103,7 +113,7 @@ pub async fn serve(repo_root: &Path, release: bool, port: Option<u16>) -> Result
     Ok(())
 }
 
-pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {
+pub async fn deploy(repo_root: &Path, release: bool, run_migrations: bool) -> Result<()> {
     let cfg = env::load(repo_root)?;
     let _ = env::require_api_token()?; // account_id already validated by load()
 
@@ -121,7 +131,18 @@ pub async fn deploy(repo_root: &Path, release: bool) -> Result<()> {
         println!("-> D1 migrations applied to {}", cfg.d1.database_name);
     }
 
-    cf_deploy::wrangler_deploy(&wrangler_toml)?;
+    // Block-SQL migrations (the in-Worker hash-gated `apply_if_blessed`
+    // sweep) gate on `SOLOBASE_RUN_MIGRATIONS=1` in the Worker env. The
+    // D1-side schema migrations above run during `wrangler d1 migrations
+    // apply` and are independent of this flag.
+    cf_deploy::wrangler_deploy_with_vars(
+        &wrangler_toml,
+        if run_migrations {
+            &[("SOLOBASE_RUN_MIGRATIONS", "1")]
+        } else {
+            &[]
+        },
+    )?;
 
     let assets_root = out_dir.join("assets");
     let n = cf_deploy::r2_upload_dir(&cfg.r2.bucket_name, &assets_root)?;

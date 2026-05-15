@@ -37,7 +37,7 @@ pub enum Command {
         #[arg(long)]
         port: Option<u16>,
 
-        /// Apply pending block migrations on startup. Sets SOLOBASE_RUN_MIGRATIONS=1.
+        /// Apply pending block migrations on startup.
         /// Blocks whose SQL hash has changed will be applied and their blessed_hash updated.
         /// Safe to run on every deploy but slower; omit once schema is stable.
         #[arg(long)]
@@ -52,9 +52,11 @@ pub enum Command {
         #[arg(long)]
         release: bool,
 
-        /// Apply pending block migrations on deploy. Sets SOLOBASE_RUN_MIGRATIONS=1.
+        /// Apply pending block migrations on deploy.
         /// Required after adding or modifying migration SQL in any block.
         /// The first deploy after upgrading solobase must pass this flag.
+        /// For --target cloudflare, threads `SOLOBASE_RUN_MIGRATIONS=1` to
+        /// the deployed Worker via `wrangler deploy --var`.
         #[arg(long)]
         run_migrations: bool,
     },

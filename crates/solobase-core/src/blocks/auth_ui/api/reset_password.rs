@@ -5,6 +5,7 @@ use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::{
+        helpers::sha256_hex,
         repo::{local_credentials, tokens},
         USERS_TABLE,
     },
@@ -37,12 +38,13 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         );
     }
 
-    // Find user by reset token
+    // Find user by reset token. The DB column stores `sha256_hex(raw)`;
+    // hash the supplied token the same way before comparing.
     let user = match db::get_by_field(
         ctx,
         USERS_TABLE,
         "reset_token",
-        serde_json::Value::String(body.token.clone()),
+        serde_json::Value::String(sha256_hex(&body.token)),
     )
     .await
     {

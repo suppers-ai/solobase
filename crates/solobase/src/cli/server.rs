@@ -18,7 +18,14 @@ use crate::cli::server_config::{filter_to_declared_keys, load_block_settings, lo
 /// Boot the native server end-to-end. The body mirrors the previous
 /// `main()` exactly; the signature is `pub async fn run()` so the new
 /// dispatcher can `await` it as the sealed × native flow.
-pub async fn run() -> anyhow::Result<()> {
+///
+/// `run_migrations` mirrors `solobase serve --run-migrations`. When `true`
+/// the boot path stamps `SOLOBASE_RUN_MIGRATIONS=1` into the config
+/// snapshot directly (so [`migration_helper::apply_if_blessed`] sees it),
+/// instead of the prior `std::env::set_var` smuggle. Rust 2024 makes
+/// process-env mutation `unsafe`, and the smuggle leaked into any child
+/// process the boot path might spawn — neither was the right channel.
+pub async fn run(run_migrations: bool) -> anyhow::Result<()> {
     // 1. Load .env file (before reading any env vars)
     load_dotenv();
 
@@ -63,6 +70,9 @@ pub async fn run() -> anyhow::Result<()> {
         solobase_core::features::BLOCK_SETTINGS_CONFIG_KEY,
         &features.to_config_json(),
     );
+    if run_migrations {
+        config_service.set(solobase_core::migration_helper::RUN_MIGRATIONS_KEY, "1");
+    }
 
     let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(solobase_native::make_sqlite_database_service(
