@@ -16,6 +16,13 @@ use crate::{
     },
 };
 
+/// Encode a block name (`org/block`) for use as a URL path segment. The
+/// public admin URLs use `--` as the separator so the path stays parseable
+/// after a `/`-stripped route match.
+fn encode_block_name(name: &str) -> String {
+    name.replace('/', "--")
+}
+
 pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
@@ -159,7 +166,7 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 div .block-cards {
                     @for block in &filtered {
                         @let is_enabled = block_enabled.get(&block.name).copied().unwrap_or(true);
-                        @let encoded_name = block.name.replace('/', "--");
+                        @let encoded_name = encode_block_name(&block.name);
                         div class={ "block-card" @if !is_enabled { " block-card--disabled" } }
                             hx-get={"/b/admin/blocks/" (encoded_name) "/detail"}
                             hx-target="#block-detail-modal"
@@ -329,7 +336,7 @@ pub async fn handle_block_detail(
         .map(|v| v != 0)
         .unwrap_or(true);
 
-    let encoded = block_name.replace('/', "--");
+    let encoded = encode_block_name(block_name);
 
     // Disabled block not in runtime -- show minimal modal with toggle.
     let Some(block) = block_opt else {
@@ -397,7 +404,7 @@ pub async fn handle_block_detail(
                     div .flex .items-center .gap-2 {
                         span .text-sm .text-muted { "Enabled" }
                         label .toggle {
-                            @let encoded = block.name.replace('/', "--");
+                            @let encoded = encode_block_name(&block.name);
                             input type="checkbox"
                                 checked[is_enabled]
                                 hx-post={"/b/admin/blocks/" (encoded) "/toggle"}
@@ -612,7 +619,7 @@ pub fn custom_blocks_list(blocks: &[(&str, &str, &str)]) -> maud::Markup {
                         }
                         tbody {
                             @for (name, version, uploaded_at) in blocks {
-                                @let encoded = name.replace('/', "--");
+                                @let encoded = encode_block_name(name);
                                 tr {
                                     td .text-sm { code style="font-size:12px" { (name) } }
                                     td .text-sm .text-muted { "v" (version) }
