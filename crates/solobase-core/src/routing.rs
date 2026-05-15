@@ -230,8 +230,7 @@ pub const ROUTES: &[Route] = &[
 
 /// Check if a block's feature is enabled.
 fn is_block_enabled(block_id: BlockId, features: &dyn FeatureConfig) -> bool {
-    let full_name = format!("suppers-ai/{}", block_id_short_name(block_id));
-    features.is_block_enabled(&full_name)
+    features.is_block_enabled(block_id_full_name(block_id))
 }
 
 /// Generate the routing table as JSON config (same format as wafer-run/router).
@@ -240,28 +239,35 @@ pub fn routes_config() -> serde_json::Value {
     let routes: Vec<serde_json::Value> = ROUTES
         .iter()
         .map(|r| {
-            let block_name = format!("suppers-ai/{}", block_id_short_name(r.block_id));
             let path = format!("{}**", r.prefix);
-            serde_json::json!({ "path": path, "block": block_name })
+            serde_json::json!({ "path": path, "block": block_id_full_name(r.block_id) })
         })
         .collect();
     serde_json::json!({ "routes": routes })
 }
 
-fn block_id_short_name(id: BlockId) -> &'static str {
+/// Full block name in the `{org}/{block}` form used by the feature-flag map
+/// and `routes_config()`'s inspector view.
+///
+/// Returns `&'static str` so per-request routing checks don't allocate a
+/// `String`. Every built-in solobase block lives under `suppers-ai/` —
+/// including `inspector`, which is feature-gated alongside the other
+/// solobase routes even though dispatch hands off to the `wafer-run/inspector`
+/// runtime block.
+fn block_id_full_name(id: BlockId) -> &'static str {
     match id {
-        BlockId::System => "system",
-        BlockId::Inspector => "inspector",
-        BlockId::AuthUi => "auth-ui",
-        BlockId::Admin => "admin",
-        BlockId::Files => "files",
-        BlockId::LegalPages => "legalpages",
-        BlockId::Products => "products",
-        BlockId::UserPortal => "userportal",
-        BlockId::Messages => "messages",
-        BlockId::Llm => "llm",
-        BlockId::Vector => "vector",
-        BlockId::Fastembed => "fastembed",
+        BlockId::System => "suppers-ai/system",
+        BlockId::Inspector => "suppers-ai/inspector",
+        BlockId::AuthUi => "suppers-ai/auth-ui",
+        BlockId::Admin => "suppers-ai/admin",
+        BlockId::Files => "suppers-ai/files",
+        BlockId::LegalPages => "suppers-ai/legalpages",
+        BlockId::Products => "suppers-ai/products",
+        BlockId::UserPortal => "suppers-ai/userportal",
+        BlockId::Messages => "suppers-ai/messages",
+        BlockId::Llm => "suppers-ai/llm",
+        BlockId::Vector => "suppers-ai/vector",
+        BlockId::Fastembed => "suppers-ai/fastembed",
     }
 }
 
@@ -304,8 +310,9 @@ pub async fn route_to_block(
         if route.block_id == BlockId::Inspector {
             return ctx.call_block("wafer-run/inspector", msg, input).await;
         }
-        let block_name = format!("suppers-ai/{}", block_id_short_name(route.block_id));
-        return ctx.call_block(&block_name, msg, input).await;
+        return ctx
+            .call_block(block_id_full_name(route.block_id), msg, input)
+            .await;
     }
 
     // Fall back to project-registered extra routes. Built-ins above win on
