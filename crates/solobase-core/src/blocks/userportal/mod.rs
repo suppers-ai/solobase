@@ -307,7 +307,9 @@ async fn handle_update_profile(
     stamp_updated(&mut data);
 
     if let Err(e) = db::update(ctx, crate::blocks::auth::USERS_TABLE, &user_id, data).await {
-        return err_internal("Failed to update profile", e.message);
+        // Pass the full WaferError (code + meta + message) so the
+        // helper logs structured info instead of just the rendered string.
+        return err_internal("Failed to update profile", e);
     }
 
     // Plain form POST → 303 See Other so the browser follows up with a GET
