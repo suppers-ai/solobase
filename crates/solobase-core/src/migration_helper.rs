@@ -127,60 +127,50 @@ async fn write_state(
         skip_count: true,
     };
 
-    // State persistence is best-effort _only_ for the fresh-install case
-    // where `block_settings` itself hasn't been created yet (admin block's
-    // Init hasn't fired — common in browser-WASM cold boot). Real DB errors
-    // on a present table propagate so callers don't silently re-apply the
-    // migration on every request.
-    let list_result = match db::list(ctx, BLOCK_SETTINGS_TABLE, &opts).await {
-        Ok(r) => r,
-        Err(e) if is_table_missing(&e.to_string()) => {
-            tracing::warn!(block = %block_name, err = %e, "migration state lookup skipped (table not yet created)");
-            return Ok(());
+    // State persistence is best-effort. The migration itself already
+    // applied (IF NOT EXISTS guards make re-runs idempotent), and in
+    // browser-WASM cold boot the `block_settings` table or its surrounding
+    // infra may not yet be reachable through WRAP (admin block's Init
+    // hasn't fired). Any error here would have blocked the entire block-
+    // init chain — see the SW self-destruct regression that surfaced when
+    // we previously propagated. Log and continue; the next request retries.
+    match db::list(ctx, BLOCK_SETTINGS_TABLE, &opts).await {
+        Ok(result) if !result.records.is_empty() => {
+            let id = result.records[0].id.clone();
+            let mut patch = std::collections::HashMap::new();
+            patch.insert(
+                "current_hash".to_string(),
+                serde_json::json!(state.current_hash),
+            );
+            patch.insert(
+                "blessed_hash".to_string(),
+                serde_json::json!(state.blessed_hash),
+            );
+            if let Err(e) = db::update(ctx, BLOCK_SETTINGS_TABLE, &id, patch).await {
+                tracing::warn!(block = %block_name, err = %e, "migration state update skipped");
+            }
         }
-        Err(e) => return Err(format!("migration state lookup failed: {e}")),
-    };
-
-    if !list_result.records.is_empty() {
-        let id = list_result.records[0].id.clone();
-        let mut patch = std::collections::HashMap::new();
-        patch.insert(
-            "current_hash".to_string(),
-            serde_json::json!(state.current_hash),
-        );
-        patch.insert(
-            "blessed_hash".to_string(),
-            serde_json::json!(state.blessed_hash),
-        );
-        db::update(ctx, BLOCK_SETTINGS_TABLE, &id, patch)
-            .await
-            .map_err(|e| format!("migration state update failed: {e}"))?;
-    } else {
-        let mut data = std::collections::HashMap::new();
-        data.insert("block_name".to_string(), serde_json::json!(block_name));
-        data.insert("enabled".to_string(), serde_json::json!(true));
-        data.insert(
-            "current_hash".to_string(),
-            serde_json::json!(state.current_hash),
-        );
-        data.insert(
-            "blessed_hash".to_string(),
-            serde_json::json!(state.blessed_hash),
-        );
-        db::create(ctx, BLOCK_SETTINGS_TABLE, data)
-            .await
-            .map_err(|e| format!("migration state create failed: {e}"))?;
+        Ok(_) => {
+            let mut data = std::collections::HashMap::new();
+            data.insert("block_name".to_string(), serde_json::json!(block_name));
+            data.insert("enabled".to_string(), serde_json::json!(true));
+            data.insert(
+                "current_hash".to_string(),
+                serde_json::json!(state.current_hash),
+            );
+            data.insert(
+                "blessed_hash".to_string(),
+                serde_json::json!(state.blessed_hash),
+            );
+            if let Err(e) = db::create(ctx, BLOCK_SETTINGS_TABLE, data).await {
+                tracing::warn!(block = %block_name, err = %e, "migration state create skipped");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(block = %block_name, err = %e, "migration state lookup skipped");
+        }
     }
     Ok(())
-}
-
-/// Heuristic — does `e` look like "the `block_settings` table doesn't exist
-/// yet"? Both SQLite (`no such table`) and Postgres (`does not exist`) emit
-/// recognizable phrases. Used to keep the fresh-install path best-effort
-/// while still propagating real DB errors.
-fn is_table_missing(e: &str) -> bool {
-    let lower = e.to_ascii_lowercase();
-    lower.contains("no such table") || lower.contains("does not exist")
 }
 
 fn sha256_hex(sql: &str) -> String {
