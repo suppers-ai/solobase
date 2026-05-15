@@ -6,11 +6,18 @@ use std::path::Path;
 use anyhow::{bail, Result};
 
 use crate::cli::helpers::cloudflare::{
-    assets, build as cf_build, deploy as cf_deploy, env, wrangler,
+    assets, build as cf_build, deploy as cf_deploy, env, profile_check, wrangler,
 };
 
 pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     let cfg = env::load(repo_root)?;
+
+    // Inspect [profile.release] before we kick off the long cargo build.
+    // Warns only — doesn't block — but surfaces the most common cause of
+    // the Workers 400ms startup-CPU 1102 cliff.
+    if release {
+        profile_check::check_release_profile(repo_root)?;
+    }
 
     let out_dir = repo_root.join("target/solobase-cloudflare");
     if out_dir.exists() {
@@ -49,6 +56,13 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     );
 
     cf_build::run(repo_root, release).await?;
+
+    // Post-build: measure the produced WASM. Warns if it's likely to
+    // exceed the Workers startup-CPU cap on cold-start.
+    if release {
+        let wasm_path = repo_root.join("build/index_bg.wasm");
+        profile_check::check_wasm_size(&wasm_path)?;
+    }
 
     let report = assets::stage(repo_root, &out_dir)?;
     println!(
