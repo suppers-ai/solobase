@@ -261,6 +261,12 @@ pub struct AnthropicSseDecoder {
     tool_blocks: Vec<Option<String>>,
 }
 
+/// Hard cap on the number of distinct `content_block` indices we'll track
+/// for a single stream. Real-world responses use a handful of blocks; this
+/// just keeps a malicious or buggy server from growing `tool_blocks`
+/// without bound.
+const MAX_CONTENT_BLOCK_INDEX: u32 = 1024;
+
 impl AnthropicSseDecoder {
     pub fn new() -> Self {
         Self {
@@ -317,12 +323,14 @@ impl AnthropicSseDecoder {
             "content_block_start" => {
                 match serde_json::from_str::<AnthropicBlockStart>(&data_payload) {
                     Ok(s) => {
-                        self.ensure_block_slot(s.index);
+                        if !self.ensure_block_slot(s.index) {
+                            return (Vec::new(), false);
+                        }
                         match s.content_block {
                             AnthropicBlockStartContent::Text { .. } => (Vec::new(), false),
                             AnthropicBlockStartContent::ToolUse { id, name, .. } => {
                                 self.tool_blocks[s.index as usize] = Some(id.clone());
-                                (vec![tool_call_start_chunk(&id, &name)], false)
+                                (vec![ChatChunk::tool_call_start(id, name)], false)
                             }
                         }
                     }
@@ -335,7 +343,9 @@ impl AnthropicSseDecoder {
             "content_block_delta" => {
                 match serde_json::from_str::<AnthropicBlockDelta>(&data_payload) {
                     Ok(d) => {
-                        self.ensure_block_slot(d.index);
+                        if !self.ensure_block_slot(d.index) {
+                            return (Vec::new(), false);
+                        }
                         match d.delta {
                             AnthropicBlockDeltaKind::TextDelta { text } => {
                                 if text.is_empty() {
@@ -346,7 +356,10 @@ impl AnthropicSseDecoder {
                             }
                             AnthropicBlockDeltaKind::InputJsonDelta { partial_json } => {
                                 if let Some(Some(id)) = self.tool_blocks.get(d.index as usize) {
-                                    (vec![tool_call_arguments_chunk(id, &partial_json)], false)
+                                    (
+                                        vec![ChatChunk::tool_call_arguments(id, partial_json)],
+                                        false,
+                                    )
                                 } else {
                                     (Vec::new(), false)
                                 }
@@ -363,7 +376,7 @@ impl AnthropicSseDecoder {
                 match serde_json::from_str::<AnthropicBlockStop>(&data_payload) {
                     Ok(s) => {
                         if let Some(Some(id)) = self.tool_blocks.get(s.index as usize).cloned() {
-                            (vec![tool_call_complete_chunk(&id)], false)
+                            (vec![ChatChunk::tool_call_complete(id)], false)
                         } else {
                             (Vec::new(), false)
                         }
@@ -378,10 +391,15 @@ impl AnthropicSseDecoder {
                         chunks.push(ChatChunk::finish(map_stop_reason(&reason), None));
                     }
                     if let Some(u) = md.usage {
-                        let mut usage = TokenUsage::default();
-                        usage.input_tokens = u.input_tokens.unwrap_or(0);
-                        usage.output_tokens = u.output_tokens.unwrap_or(0);
-                        chunks.push(usage_chunk(usage));
+                        // Only emit usage when at least one field is set —
+                        // mid-stream message_delta frames carry just stop_reason.
+                        if u.input_tokens.is_some() || u.output_tokens.is_some() {
+                            let usage = TokenUsage::new(
+                                u.input_tokens.unwrap_or(0),
+                                u.output_tokens.unwrap_or(0),
+                            );
+                            chunks.push(ChatChunk::usage(usage));
+                        }
                     }
                     (chunks, false)
                 }
@@ -392,10 +410,23 @@ impl AnthropicSseDecoder {
         }
     }
 
-    fn ensure_block_slot(&mut self, index: u32) {
+    /// Returns `true` if the slot is reachable, `false` if the index exceeds
+    /// our cap (malicious / buggy server emitting unbounded indices). Capping
+    /// here keeps `tool_blocks` from growing without bound across a long
+    /// stream — see [`MAX_CONTENT_BLOCK_INDEX`].
+    fn ensure_block_slot(&mut self, index: u32) -> bool {
+        if index > MAX_CONTENT_BLOCK_INDEX {
+            tracing::warn!(
+                index,
+                cap = MAX_CONTENT_BLOCK_INDEX,
+                "anthropic sse: content_block index exceeds cap — dropping",
+            );
+            return false;
+        }
         while self.tool_blocks.len() <= index as usize {
             self.tool_blocks.push(None);
         }
+        true
     }
 }
 
@@ -486,43 +517,9 @@ fn map_stop_reason(s: &str) -> FinishReason {
     }
 }
 
-// Shared JSON-roundtrip builders for #[non_exhaustive] ChatChunk variants.
-// Mirrors the helpers in openai.rs — will go away once wafer-core exposes
-// explicit constructors.
-
-fn tool_call_start_chunk(id: &str, name: &str) -> ChatChunk {
-    let v = serde_json::json!({
-        "delta": { "ToolCallStart": { "id": id, "name": name } }
-    });
-    serde_json::from_value(v).expect("ChatChunk wire shape should round-trip")
-}
-
-fn tool_call_arguments_chunk(id: &str, arguments_delta: &str) -> ChatChunk {
-    let v = serde_json::json!({
-        "delta": {
-            "ToolCallArguments": {
-                "id": id,
-                "arguments_delta": arguments_delta,
-            }
-        }
-    });
-    serde_json::from_value(v).expect("ChatChunk wire shape should round-trip")
-}
-
-fn tool_call_complete_chunk(id: &str) -> ChatChunk {
-    let v = serde_json::json!({
-        "delta": { "ToolCallComplete": { "id": id } }
-    });
-    serde_json::from_value(v).expect("ChatChunk wire shape should round-trip")
-}
-
-fn usage_chunk(usage: TokenUsage) -> ChatChunk {
-    let v = serde_json::json!({
-        "delta": "Empty",
-        "usage": usage,
-    });
-    serde_json::from_value(v).expect("ChatChunk wire shape should round-trip")
-}
+// ChatChunk / TokenUsage are built via wafer-core's typed constructors (see
+// `ChatChunk::tool_call_*` and `TokenUsage::new`) — no wire-shape
+// round-tripping in this crate.
 
 #[cfg(test)]
 mod tests {
