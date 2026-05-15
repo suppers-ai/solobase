@@ -36,14 +36,20 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         if !jti.is_empty() {
             // Convert exp (UNIX seconds) to ISO-8601 so we can prune by
             // string comparison consistent with other auth tables. Fall
-            // back to "now + 1 day" if exp is missing/unparseable — the
-            // blocklist row's only job is to outlive the JWT itself, so
-            // a generous fallback is fine.
+            // back to "now + access_token_lifetime" if exp is missing or
+            // unparseable. A fixed 1-day fallback would evict the row
+            // while the JWT was still valid when the configured access
+            // lifetime is extended past 24h, silently re-enabling a
+            // logged-out token.
+            let access_lifetime =
+                crate::blocks::auth::helpers::access_token_lifetime_secs(ctx).await;
             let expires_at = exp_str
                 .parse::<i64>()
                 .ok()
                 .and_then(|secs| chrono::DateTime::from_timestamp(secs, 0))
-                .unwrap_or_else(|| chrono::Utc::now() + chrono::Duration::days(1));
+                .unwrap_or_else(|| {
+                    chrono::Utc::now() + chrono::Duration::seconds(access_lifetime as i64)
+                });
             let expires_at_iso = expires_at.format("%Y-%m-%dT%H:%M:%SZ").to_string();
             let _ = jwt_blocklist::insert(
                 ctx,

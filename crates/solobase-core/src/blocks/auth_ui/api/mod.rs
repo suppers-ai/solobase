@@ -1,8 +1,5 @@
-//! JSON API handlers for the auth-ui block.
-//!
-//! Each leaf module hosts one handler relocated from the legacy
-//! `auth/` block in Task 5 of Plan A2 PR 5. Until then, every
-//! function panics with `unimplemented!()`.
+//! JSON API handlers for the auth-ui block. One handler per leaf module;
+//! routed from `auth_ui::AuthUiBlock::handle`.
 
 pub mod api_keys;
 pub mod bootstrap;

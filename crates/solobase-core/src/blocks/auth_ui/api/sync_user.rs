@@ -1,5 +1,6 @@
 //! POST /b/auth/api/oauth/sync-user — relocated from auth/login.rs in Task 5.
 
+use wafer_block::ErrorCode as DbErrorCode;
 use wafer_core::clients::{config, database as db};
 use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
@@ -32,6 +33,10 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     };
 
     let email_lower = body.email.trim().to_lowercase();
+    // Only NOT_FOUND falls through to "insert a new row". Any other
+    // backend error (WRAP denial, connection blip) must surface as 500
+    // — collapsing it to "user not found" would race a duplicate insert
+    // past the unique-email constraint and corrupt the table.
     let user = match db::get_by_field(
         ctx,
         USERS_TABLE,
@@ -41,7 +46,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
     .await
     {
         Ok(u) => u,
-        Err(_) => {
+        Err(e) if e.code == DbErrorCode::NOT_FOUND => {
             let mut data = json_map(serde_json::json!({
                 "email": email_lower,
                 "name": body.name.unwrap_or_default(),
@@ -54,6 +59,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
                 Err(e) => return err_internal("Create failed", e),
             }
         }
+        Err(e) => return err_internal("User lookup failed", e),
     };
 
     ok_json(&serde_json::json!({"id": user.id, "email": user.data.get("email")}))

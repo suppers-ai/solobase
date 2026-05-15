@@ -12,17 +12,11 @@
 //!   auth tables via `repo::*` under WRAP grant. Calls the framework auth
 //!   block via the `auth@v1` typed client for identity primitives.
 //!
-//! This file is the **scaffold** committed in Task 4. It declares the full
-//! `BlockInfo` (endpoints, ui_routes, requires, OAuth-creds config_keys),
-//! ports the rate-limit middleware preamble verbatim from `auth/mod.rs`,
-//! and dispatches every route to a leaf module under `api/`, `pages/`, or
-//! `oauth/` whose handler currently panics with `unimplemented!()`. The
-//! handler bodies are relocated from `auth/` in Task 5.
-//!
-//! Static-block registration is intentionally left commented out at the
-//! bottom of this file — it gets enabled in Task 7, once the framework
-//! `AuthBlock` takes over `/b/auth/*`. Until then, the live `auth` block
-//! still owns those paths and registering this stub would shadow it.
+//! Declares the full `BlockInfo` (endpoints, ui_routes, requires,
+//! OAuth-creds config_keys), runs the per-user/IP rate-limit middleware,
+//! and dispatches every `/b/auth/*` route to a leaf module under `api/`,
+//! `pages/`, or `oauth/`. The framework `suppers-ai/auth` block (in
+//! `auth/`) owns the auth *service*; this block owns the HTTP surface.
 
 pub mod api;
 pub mod oauth;
@@ -209,6 +203,12 @@ impl Block for AuthUiBlock {
 
         // Apply per-user/IP rate limiting based on endpoint category.
         // Ported verbatim from auth/mod.rs:434-524.
+        //
+        // `RateLimitOutcome::Allowed(headers)` is currently discarded at every
+        // arm below — injecting X-RateLimit-* response headers needs a
+        // streaming-middleware shape we don't have yet. Tracked as a single
+        // follow-up rather than five identical TODOs scattered through the
+        // match.
         match (action.as_str(), path.as_str()) {
             // Unauthenticated sensitive endpoints: rate limit by IP
             ("create", "/auth/api/login") | ("create", "/auth/api/signup") => {
@@ -218,9 +218,6 @@ impl Block for AuthUiBlock {
                 } else {
                     ip
                 };
-                // TODO: RateLimitOutcome::Allowed(headers) is currently discarded.
-                // Injecting X-RateLimit-* headers requires a streaming middleware
-                // pattern that doesn't exist yet.
                 if let RateLimitOutcome::Limited(r) =
                     check_rate_limit(&self.limiter, ctx, &identity, "auth", RateLimit::AUTH).await
                 {
@@ -234,7 +231,6 @@ impl Block for AuthUiBlock {
                 } else {
                     ip
                 };
-                // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
                 if let RateLimitOutcome::Limited(r) =
                     check_rate_limit(&self.limiter, ctx, &identity, "refresh", RateLimit::REFRESH)
                         .await
@@ -253,7 +249,6 @@ impl Block for AuthUiBlock {
                 } else {
                     ip
                 };
-                // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
                 if let RateLimitOutcome::Limited(r) =
                     check_rate_limit(&self.limiter, ctx, &identity, "auth", RateLimit::AUTH).await
                 {
@@ -267,7 +262,6 @@ impl Block for AuthUiBlock {
             | ("delete", _) => {
                 let user_id = msg.user_id().to_string();
                 if !user_id.is_empty() {
-                    // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
                     if let RateLimitOutcome::Limited(r) = check_rate_limit(
                         &self.limiter,
                         ctx,
@@ -285,7 +279,6 @@ impl Block for AuthUiBlock {
             ("retrieve", "/auth/api/me") | ("retrieve", "/auth/api/api-keys") => {
                 let user_id = msg.user_id().to_string();
                 if !user_id.is_empty() {
-                    // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
                     if let RateLimitOutcome::Limited(r) = check_rate_limit(
                         &self.limiter,
                         ctx,

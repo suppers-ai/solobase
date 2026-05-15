@@ -97,20 +97,24 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
         return err_internal("Failed to persist OAuth state", e);
     }
 
+    // urlencode every interpolation site uniformly. `client_id` / `redirect_uri`
+    // come from operator config and could contain `&` / `=` / `?` characters
+    // that would otherwise corrupt the query string.
+    let client_id_enc = urlencode(&client_id);
+    let redirect_uri_enc = urlencode(&redirect_uri);
+    let state_enc = urlencode(&state_id);
+    let challenge_enc = urlencode(&code_challenge);
     let auth_url = match provider {
         "google" => format!(
-            "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}&code_challenge={}&code_challenge_method=S256",
-            client_id, redirect_uri, urlencode(&state_id), urlencode(&code_challenge)
+            "https://accounts.google.com/o/oauth2/v2/auth?client_id={client_id_enc}&redirect_uri={redirect_uri_enc}&response_type=code&scope=openid%20email%20profile&state={state_enc}&code_challenge={challenge_enc}&code_challenge_method=S256"
         ),
         "github" => format!(
-            "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope=user:email&state={}",
-            client_id, redirect_uri, urlencode(&state_id)
+            "https://github.com/login/oauth/authorize?client_id={client_id_enc}&redirect_uri={redirect_uri_enc}&scope=user:email&state={state_enc}"
         ),
         "microsoft" => format!(
-            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}&code_challenge={}&code_challenge_method=S256",
-            client_id, redirect_uri, urlencode(&state_id), urlencode(&code_challenge)
+            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id={client_id_enc}&redirect_uri={redirect_uri_enc}&response_type=code&scope=openid%20email%20profile&state={state_enc}&code_challenge={challenge_enc}&code_challenge_method=S256"
         ),
-        _ => return err_bad_request(&format!("Unsupported provider: {}", provider)),
+        _ => return err_bad_request(&format!("Unsupported provider: {provider}")),
     };
 
     ok_json(&serde_json::json!({

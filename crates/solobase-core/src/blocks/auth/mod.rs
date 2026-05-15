@@ -70,6 +70,16 @@ use crate::blocks::admin::USER_ROLES_TABLE;
 
 // --- Shared helpers used by auth_ui::api::* and auth_ui::oauth::* ---
 
+/// Token / cookie / role / role-mint helpers shared by the auth_ui HTTP
+/// handlers.
+///
+/// **`auth_method` values** stamped onto access + refresh JWTs (see
+/// [`generate_tokens`]) — handlers that care about authentication strength
+/// match on these strings:
+/// - `"password"` — email + password login or signup.
+/// - `"oauth.<provider>"` — OAuth callback. `<provider>` is one of
+///   `google`, `github`, `microsoft`.
+/// - `"bootstrap"` — bootstrap-token redemption (see [`bootstrap`]).
 pub(crate) mod helpers {
     use super::*;
 
@@ -147,11 +157,17 @@ pub(crate) mod helpers {
         user_id: &str,
         email: &str,
     ) -> Vec<String> {
-        let mut roles = get_user_roles(ctx, user_id).await;
-
+        // Read the bootstrap-admin email *before* the role lookup. The
+        // common case in production is "unset" — early-return then,
+        // skipping the role table read and the second `db::create` path
+        // entirely. Authenticated routes mint tokens often enough that the
+        // saved DB reads accumulate.
         let admin_email =
             config_client::get_default(ctx, "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL", "")
                 .await;
+
+        let mut roles = get_user_roles(ctx, user_id).await;
+
         if admin_email.is_empty()
             || !email.eq_ignore_ascii_case(&admin_email)
             || roles.iter().any(|r| r == "admin")
@@ -356,15 +372,11 @@ pub(crate) mod helpers {
     }
 
     pub(crate) fn urlencode(s: &str) -> String {
-        s.as_bytes()
-            .iter()
-            .map(|&b| match b {
-                b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                    String::from(b as char)
-                }
-                _ => format!("%{:02X}", b),
-            })
-            .collect()
+        // `byte_serialize` percent-encodes everything that isn't the
+        // application/x-www-form-urlencoded "safe set" (unreserved chars).
+        // Equivalent to the previous hand-rolled implementation but
+        // shares an audited path with the rest of the workspace.
+        url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
     }
 
     #[cfg(test)]
@@ -415,7 +427,12 @@ pub async fn authenticate_api_key(
 
     let key_hash = sha256_hex(api_key.as_bytes());
 
-    // Look up by key_hash
+    use wafer_block::ErrorCode as DbErrorCode;
+
+    // Look up by key_hash. A real DB error (WRAP denial, connection blip)
+    // would otherwise silently demote the request to anonymous — that's
+    // still the right fallback for availability, but it must be
+    // observable.
     let key_record = match db::get_by_field(
         ctx,
         API_KEYS_TABLE,
@@ -425,7 +442,11 @@ pub async fn authenticate_api_key(
     .await
     {
         Ok(r) => r,
-        Err(_) => return,
+        Err(e) if e.code == DbErrorCode::NOT_FOUND => return,
+        Err(e) => {
+            tracing::warn!("authenticate_api_key: lookup failed: {e}");
+            return;
+        }
     };
 
     // Check if revoked
@@ -451,7 +472,11 @@ pub async fn authenticate_api_key(
 
     let user = match db::get(ctx, USERS_TABLE, user_id).await {
         Ok(u) => u,
-        Err(_) => return,
+        Err(e) if e.code == DbErrorCode::NOT_FOUND => return,
+        Err(e) => {
+            tracing::warn!(user_id = %user_id, "authenticate_api_key: user lookup failed: {e}");
+            return;
+        }
     };
 
     // Fetch roles from user_roles collection (roles are not stored on the user record)
