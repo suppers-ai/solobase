@@ -70,6 +70,16 @@ use crate::blocks::admin::USER_ROLES_TABLE;
 
 // --- Shared helpers used by auth_ui::api::* and auth_ui::oauth::* ---
 
+/// Token / cookie / role / role-mint helpers shared by the auth_ui HTTP
+/// handlers.
+///
+/// **`auth_method` values** stamped onto access + refresh JWTs (see
+/// [`generate_tokens`]) — handlers that care about authentication strength
+/// match on these strings:
+/// - `"password"` — email + password login or signup.
+/// - `"oauth.<provider>"` — OAuth callback. `<provider>` is one of
+///   `google`, `github`, `microsoft`.
+/// - `"bootstrap"` — bootstrap-token redemption (see [`bootstrap`]).
 pub(crate) mod helpers {
     use super::*;
 
@@ -417,7 +427,12 @@ pub async fn authenticate_api_key(
 
     let key_hash = sha256_hex(api_key.as_bytes());
 
-    // Look up by key_hash
+    use wafer_block::ErrorCode as DbErrorCode;
+
+    // Look up by key_hash. A real DB error (WRAP denial, connection blip)
+    // would otherwise silently demote the request to anonymous — that's
+    // still the right fallback for availability, but it must be
+    // observable.
     let key_record = match db::get_by_field(
         ctx,
         API_KEYS_TABLE,
@@ -427,7 +442,11 @@ pub async fn authenticate_api_key(
     .await
     {
         Ok(r) => r,
-        Err(_) => return,
+        Err(e) if e.code == DbErrorCode::NOT_FOUND => return,
+        Err(e) => {
+            tracing::warn!("authenticate_api_key: lookup failed: {e}");
+            return;
+        }
     };
 
     // Check if revoked
@@ -453,7 +472,11 @@ pub async fn authenticate_api_key(
 
     let user = match db::get(ctx, USERS_TABLE, user_id).await {
         Ok(u) => u,
-        Err(_) => return,
+        Err(e) if e.code == DbErrorCode::NOT_FOUND => return,
+        Err(e) => {
+            tracing::warn!(user_id = %user_id, "authenticate_api_key: user lookup failed: {e}");
+            return;
+        }
     };
 
     // Fetch roles from user_roles collection (roles are not stored on the user record)
