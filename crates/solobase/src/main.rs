@@ -55,22 +55,16 @@ async fn run() -> anyhow::Result<()> {
             port,
             run_migrations,
         } => {
-            if run_migrations {
-                std::env::set_var("SOLOBASE_RUN_MIGRATIONS", "1");
-            }
             let target = default_target(&ctx, target)?;
-            dispatch_serve(&ctx, target, release, port).await
+            dispatch_serve(&ctx, target, release, port, run_migrations).await
         }
         Command::Deploy {
             target,
             release,
             run_migrations,
         } => {
-            if run_migrations {
-                std::env::set_var("SOLOBASE_RUN_MIGRATIONS", "1");
-            }
             let target = default_target(&ctx, target)?;
-            dispatch_deploy(&ctx, target, release).await
+            dispatch_deploy(&ctx, target, release, run_migrations).await
         }
     }
 }
@@ -94,26 +88,42 @@ async fn dispatch_serve(
     target: Target,
     release: bool,
     port: Option<u16>,
+    run_migrations: bool,
 ) -> anyhow::Result<()> {
     let repo_root = &ctx.cwd;
     match (detect_mode(ctx), target) {
-        (Mode::Sealed, Target::Native) => sealed_native::serve(repo_root, release, port).await,
-        (Mode::Sealed, Target::Web) => sealed_web::serve(repo_root, release, port).await,
+        (Mode::Sealed, Target::Native) => {
+            sealed_native::serve(repo_root, release, port, run_migrations).await
+        }
+        (Mode::Sealed, Target::Web) => {
+            sealed_web::serve(repo_root, release, port, run_migrations).await
+        }
         (Mode::Sealed, Target::Cloudflare) => anyhow::bail!(
             "--target cloudflare requires a Cargo package; sealed mode not yet implemented"
         ),
-        (Mode::Embed, Target::Native) => embed_native::serve(repo_root, release, port).await,
-        (Mode::Embed, Target::Web) => embed_web::serve(repo_root, release, port).await,
+        (Mode::Embed, Target::Native) => {
+            embed_native::serve(repo_root, release, port, run_migrations).await
+        }
+        (Mode::Embed, Target::Web) => {
+            embed_web::serve(repo_root, release, port, run_migrations).await
+        }
         (Mode::Embed, Target::Cloudflare) => {
-            embed_cloudflare::serve(repo_root, release, port).await
+            embed_cloudflare::serve(repo_root, release, port, run_migrations).await
         }
     }
 }
 
-async fn dispatch_deploy(ctx: &ModeContext, target: Target, release: bool) -> anyhow::Result<()> {
+async fn dispatch_deploy(
+    ctx: &ModeContext,
+    target: Target,
+    release: bool,
+    run_migrations: bool,
+) -> anyhow::Result<()> {
     let repo_root = &ctx.cwd;
     match (detect_mode(ctx), target) {
-        (Mode::Embed, Target::Cloudflare) => embed_cloudflare::deploy(repo_root, release).await,
+        (Mode::Embed, Target::Cloudflare) => {
+            embed_cloudflare::deploy(repo_root, release, run_migrations).await
+        }
         (Mode::Sealed, Target::Cloudflare) => anyhow::bail!(
             "--target cloudflare requires a Cargo package; sealed mode not yet implemented"
         ),

@@ -9,11 +9,20 @@ use anyhow::{bail, Context, Result};
 use super::assets::mime_for_path;
 
 pub fn wrangler_deploy(wrangler_toml: &Path) -> Result<()> {
-    let status = Command::new("wrangler")
-        .args(["deploy", "--config"])
-        .arg(wrangler_toml)
-        .status()
-        .context("run wrangler deploy")?;
+    wrangler_deploy_with_vars(wrangler_toml, &[])
+}
+
+/// `wrangler deploy` plus zero or more `--var KEY:VALUE` flags injected
+/// into the Worker's runtime env. Used by the Solobase CLI to plumb
+/// `solobase deploy --run-migrations` through to the Worker's
+/// `apply_if_blessed` hash-gated migration sweep.
+pub fn wrangler_deploy_with_vars(wrangler_toml: &Path, vars: &[(&str, &str)]) -> Result<()> {
+    let mut cmd = Command::new("wrangler");
+    cmd.args(["deploy", "--config"]).arg(wrangler_toml);
+    for (k, v) in vars {
+        cmd.args(["--var", &format!("{k}:{v}")]);
+    }
+    let status = cmd.status().context("run wrangler deploy")?;
     if !status.success() {
         bail!("wrangler deploy failed (exit {:?})", status.code());
     }

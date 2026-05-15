@@ -40,7 +40,12 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn serve(repo_root: &Path, release: bool, _port: Option<u16>) -> Result<()> {
+pub async fn serve(
+    repo_root: &Path,
+    release: bool,
+    _port: Option<u16>,
+    run_migrations: bool,
+) -> Result<()> {
     build(repo_root, release).await?;
 
     // Locate target/<profile>/<bin-name>. Read Cargo.toml to find the bin.
@@ -68,7 +73,16 @@ pub async fn serve(repo_root: &Path, release: bool, _port: Option<u16>) -> Resul
     if !bin.is_file() {
         return Err(anyhow!("expected binary at {bin:?} after cargo build"));
     }
-    let mut child = Command::new(&bin).current_dir(repo_root).spawn()?;
+    // Embed flow exec's the user's bin as a subprocess. Pass the
+    // run-migrations flag via the child's env (scoped to that child),
+    // rather than mutating the CLI's own process env via `set_var` (unsafe
+    // in Rust 2024, and would leak into any other child the CLI spawns).
+    let mut cmd = Command::new(&bin);
+    cmd.current_dir(repo_root);
+    if run_migrations {
+        cmd.env(solobase_core::migration_helper::RUN_MIGRATIONS_KEY, "1");
+    }
+    let mut child = cmd.spawn()?;
     let status = child.wait()?;
     std::process::exit(status.code().unwrap_or(1));
 }

@@ -34,7 +34,12 @@ pub async fn build(repo_root: &Path, _release: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn serve(repo_root: &Path, release: bool, _port: Option<u16>) -> Result<()> {
+pub async fn serve(
+    repo_root: &Path,
+    release: bool,
+    _port: Option<u16>,
+    run_migrations: bool,
+) -> Result<()> {
     build(repo_root, release).await?;
-    crate::cli::server::run().await
+    crate::cli::server::run(run_migrations).await
 }
