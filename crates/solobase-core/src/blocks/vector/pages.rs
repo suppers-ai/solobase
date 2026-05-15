@@ -174,8 +174,10 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
         return err_bad_request(&e.message);
     }
 
-    let model_id = body.model.as_deref().unwrap_or(DEFAULT_MODEL).to_string();
-    let model = match get_model(&model_id) {
+    // Borrow the caller's `model` when present; only fall back to the static
+    // `DEFAULT_MODEL` literal when absent. Avoids a String allocation per call.
+    let model_id: &str = body.model.as_deref().unwrap_or(DEFAULT_MODEL);
+    let model = match get_model(model_id) {
         Some(m) => m,
         None => return err_bad_request(&format!("unknown embedding model: {model_id}")),
     };
@@ -491,7 +493,7 @@ const DEFAULT_TOP_K: usize = 10;
 
 async fn query(ctx: &dyn Context, input: InputStream) -> OutputStream {
     let raw = input.collect_to_bytes().await;
-    let body: QueryBody = match serde_json::from_slice(&raw) {
+    let mut body: QueryBody = match serde_json::from_slice(&raw) {
         Ok(b) => b,
         Err(e) => return err_bad_request(&format!("Invalid body: {e}")),
     };
@@ -524,8 +526,9 @@ async fn query(ctx: &dyn Context, input: InputStream) -> OutputStream {
 
     // Resolve the query vector. If the caller provided a vector directly
     // we use it; otherwise we embed `text` through the model the index
-    // was created with. Exactly one of the two must be present.
-    let vector = match (body.vector.clone(), body.text.as_deref()) {
+    // was created with. Exactly one of the two must be present. We `take`
+    // both Options so the large `Vec<f32>` / `String` move rather than clone.
+    let vector = match (body.vector.take(), body.text.as_deref()) {
         (Some(v), _) if !v.is_empty() => v,
         (_, Some(text)) if !text.is_empty() => {
             let block = embedding_block_for_model(&model_id);
@@ -543,7 +546,7 @@ async fn query(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // For modes that use keyword search, default the keyword query to the
     // raw text when the caller didn't supply an explicit one. This lets
     // hybrid-mode callers pass just `text` and get both halves for free.
-    let keyword_query = match (mode, body.keyword_query.clone(), body.text.clone()) {
+    let keyword_query = match (mode, body.keyword_query.take(), body.text.take()) {
         (SearchMode::Vector, kq, _) => kq,
         (_, Some(kq), _) => Some(kq),
         (_, None, Some(text)) => Some(text),

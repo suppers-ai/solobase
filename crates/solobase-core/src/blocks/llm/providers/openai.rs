@@ -324,40 +324,10 @@ pub struct OpenAiSseDecoder {
     started: Vec<String>,
 }
 
-/// `ChatChunk` / `ChunkDelta` are `#[non_exhaustive]` in wafer-core, so we
-/// can't build them via struct literals from outside the crate. Until
-/// wafer-core grows explicit constructors for the tool-call variants, we
-/// build them through serde — the wire shape is stable and already covered
-/// by tests in the wafer-core crate.
-fn build_chunk(delta_json: serde_json::Value) -> ChatChunk {
-    let v = serde_json::json!({ "delta": delta_json });
-    serde_json::from_value(v).expect("ChatChunk wire shape should round-trip")
-}
-
-fn tool_call_start_chunk(id: &str, name: &str) -> ChatChunk {
-    build_chunk(serde_json::json!({ "ToolCallStart": { "id": id, "name": name } }))
-}
-
-fn tool_call_arguments_chunk(id: &str, arguments_delta: &str) -> ChatChunk {
-    build_chunk(serde_json::json!({
-        "ToolCallArguments": {
-            "id": id,
-            "arguments_delta": arguments_delta,
-        }
-    }))
-}
-
-fn tool_call_complete_chunk(id: &str) -> ChatChunk {
-    build_chunk(serde_json::json!({ "ToolCallComplete": { "id": id } }))
-}
-
-fn usage_chunk(usage: TokenUsage) -> ChatChunk {
-    let v = serde_json::json!({
-        "delta": "Empty",
-        "usage": usage,
-    });
-    serde_json::from_value(v).expect("ChatChunk wire shape should round-trip")
-}
+// Tool-call / usage chunks are built via wafer-core's explicit constructors,
+// so the wire shape stays in the producer crate. Earlier versions of this
+// file round-tripped through `serde_json::from_value(...).expect(...)`; that
+// turned every SSE frame into a panic if wafer-core ever renamed a variant.
 
 impl OpenAiSseDecoder {
     pub fn new() -> Self {
@@ -391,7 +361,7 @@ impl OpenAiSseDecoder {
                     FrameOutcome::Done => {
                         done = true;
                         for id in std::mem::take(&mut self.started) {
-                            out.push(tool_call_complete_chunk(&id));
+                            out.push(ChatChunk::tool_call_complete(id));
                         }
                         break;
                     }
@@ -436,25 +406,29 @@ impl OpenAiSseDecoder {
 
         // OpenAI's usage frame has no choices but populates `usage`.
         if let Some(u) = frame.usage {
-            let mut usage = TokenUsage::default();
-            usage.input_tokens = u.prompt_tokens;
-            usage.output_tokens = u.completion_tokens;
-            usage.cached_tokens = u
+            let mut usage = TokenUsage::new(u.prompt_tokens, u.completion_tokens);
+            if let Some(cached) = u
                 .prompt_tokens_details
                 .as_ref()
-                .and_then(|d| d.cached_tokens);
-            usage.reasoning_tokens = u
+                .and_then(|d| d.cached_tokens)
+            {
+                usage = usage.with_cached(cached);
+            }
+            if let Some(reasoning) = u
                 .completion_tokens_details
                 .as_ref()
-                .and_then(|d| d.reasoning_tokens);
-            out.push(usage_chunk(usage));
+                .and_then(|d| d.reasoning_tokens)
+            {
+                usage = usage.with_reasoning(reasoning);
+            }
+            out.push(ChatChunk::usage(usage));
         }
 
         for choice in frame.choices.into_iter() {
             if let Some(content) = choice.delta.content {
-                if !content.is_empty() {
-                    out.push(ChatChunk::text(content));
-                }
+                // OpenAI never emits empty content deltas in practice; if it
+                // ever does, `ChatChunk::text` still encodes correctly.
+                out.push(ChatChunk::text(content));
             }
             for tc in choice.delta.tool_calls.into_iter() {
                 // First sighting with id + name ⇒ ToolCallStart.
@@ -464,7 +438,7 @@ impl OpenAiSseDecoder {
                 ) {
                     if !self.started.contains(&id) {
                         self.started.push(id.clone());
-                        out.push(tool_call_start_chunk(&id, &name));
+                        out.push(ChatChunk::tool_call_start(id, name));
                         continue;
                     }
                 }
@@ -473,13 +447,9 @@ impl OpenAiSseDecoder {
                 if let Some(f) = tc.function {
                     if let Some(args) = f.arguments {
                         // `started` is a parallel array keyed on insertion order.
-                        let id = self
-                            .started
-                            .get(tc.index as usize)
-                            .cloned()
-                            .or_else(|| tc.id.clone());
+                        let id = self.started.get(tc.index as usize).cloned().or(tc.id);
                         if let Some(id) = id {
-                            out.push(tool_call_arguments_chunk(&id, &args));
+                            out.push(ChatChunk::tool_call_arguments(id, args));
                         }
                     }
                 }
