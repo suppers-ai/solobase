@@ -39,8 +39,12 @@ native-embedding = [
 ]
 
 [dependencies]
-# WAFER types + WASM interpreter (wasmi required for lockfile Path B loader)
-wafer-run = { workspace = true, features = ["wasmi"] }
+# WAFER types. The wasmi interpreter is no longer pulled in unconditionally:
+# the WasmiBlock use sites in builder.rs (discovery + Path B loader) are
+# already gated under solobase-core's `wasm` feature, which itself activates
+# `wafer-run/wasm`. Consumers that don't need runtime WASM-block loading
+# (e.g. wafer-site) drop wasmi entirely.
+wafer-run = { workspace = true }
 # wafer-core for clients and interface traits
 wafer-core = { workspace = true }
 # wafer-block — wire types + codec used directly by feature blocks that
