@@ -31,6 +31,23 @@ use wafer_core::interfaces::llm::service::{
 
 use self::config::{ProviderConfig, ProviderProtocol};
 
+/// Unwrap a `RwLock` read/write guard, recovering from poisoning rather than
+/// panicking. A poisoned lock means a prior writer panicked while holding it;
+/// the data may be partially-updated but is still readable and safe to mutate
+/// after re-locking — so we log and continue rather than bringing the chat /
+/// model listing / status endpoints down for every subsequent request.
+macro_rules! recover_lock {
+    ($result:expr, $what:expr) => {
+        match $result {
+            Ok(g) => g,
+            Err(p) => {
+                tracing::error!("{} lock poisoned — recovering", $what);
+                p.into_inner()
+            }
+        }
+    };
+}
+
 pub struct ProviderLlmService {
     inner: Arc<RwLock<Inner>>,
     http: reqwest::Client,
@@ -46,16 +63,36 @@ struct Inner {
 }
 
 impl ProviderLlmService {
-    pub fn new() -> Self {
-        Self {
+    /// Construct a service with a default `reqwest` client. Returns
+    /// `LlmError::BackendError` if the underlying TLS stack fails to
+    /// initialize — rare in practice but propagating it lets the host fall
+    /// back to a degraded mode rather than aborting the whole process.
+    pub fn try_new() -> Result<Self, LlmError> {
+        let http = reqwest::Client::builder()
+            .build()
+            .map_err(|e| LlmError::BackendError(format!("reqwest client build: {e}")))?;
+        Ok(Self {
             inner: Arc::new(RwLock::new(Inner {
                 providers: HashMap::new(),
                 cached_models: HashMap::new(),
             })),
-            http: reqwest::Client::builder()
-                .build()
-                .expect("reqwest client with default TLS should always build"),
-        }
+            http,
+        })
+    }
+
+    /// Infallible legacy constructor — kept so existing `info()` probes and
+    /// throwaway-instance call sites still compile. On the rare TLS-init
+    /// failure we degrade to a client with no extra options (which itself
+    /// cannot fail to build); the next chat call surfaces the underlying
+    /// reqwest error as `LlmError::Network`.
+    pub fn new() -> Self {
+        Self::try_new().unwrap_or_else(|_| Self {
+            inner: Arc::new(RwLock::new(Inner {
+                providers: HashMap::new(),
+                cached_models: HashMap::new(),
+            })),
+            http: reqwest::Client::new(),
+        })
     }
 
     /// Replace the provider set. Called on feature block startup and again
@@ -65,7 +102,7 @@ impl ProviderLlmService {
     /// list. Callers that want to refresh via `/v1/models` discovery should
     /// subsequently call `discover_models(name)` per provider.
     pub fn configure(&self, providers: Vec<ProviderConfig>) {
-        let mut inner = self.inner.write().expect("provider svc lock poisoned");
+        let mut inner = recover_lock!(self.inner.write(), "provider svc write");
         inner.providers.clear();
         inner.cached_models.clear();
         for p in providers {
@@ -74,9 +111,18 @@ impl ProviderLlmService {
                 .iter()
                 .map(|id| ModelInfo::new(&p.name, id, id))
                 .collect();
-            inner.cached_models.insert(p.name.clone(), seeded);
-            inner.providers.insert(p.name.clone(), p);
+            let name = p.name.clone();
+            inner.cached_models.insert(name.clone(), seeded);
+            inner.providers.insert(name, p);
         }
+    }
+
+    /// Read-only snapshot of the configured providers. Used by route handlers
+    /// that previously hit the DB on every request — the in-memory cache is
+    /// the source of truth for the running process.
+    pub fn providers_snapshot(&self) -> Vec<ProviderConfig> {
+        let inner = recover_lock!(self.inner.read(), "provider svc read");
+        inner.providers.values().cloned().collect()
     }
 
     /// Query the provider's `/v1/models` endpoint and cache the result.
@@ -86,7 +132,7 @@ impl ProviderLlmService {
     /// Anthropic returns `NotSupported`.
     pub async fn discover_models(&self, provider_name: &str) -> Result<Vec<ModelInfo>, LlmError> {
         let (endpoint, protocol, api_key, models_explicit) = {
-            let inner = self.inner.read().expect("provider svc lock poisoned");
+            let inner = recover_lock!(self.inner.read(), "provider svc read");
             let p = inner.providers.get(provider_name).ok_or_else(|| {
                 LlmError::InvalidRequest(format!("unknown provider: {provider_name}"))
             })?;
@@ -101,7 +147,7 @@ impl ProviderLlmService {
         if models_explicit {
             // Admin set an explicit model list — honour that rather than
             // querying. `list_models()` will still surface them.
-            let inner = self.inner.read().expect("provider svc lock poisoned");
+            let inner = recover_lock!(self.inner.read(), "provider svc read");
             return Ok(inner
                 .cached_models
                 .get(provider_name)
@@ -140,7 +186,7 @@ impl ProviderLlmService {
             .map_err(|e| LlmError::BackendError(e.to_string()))?;
 
         // Cache for aggregated list_models.
-        let mut inner = self.inner.write().expect("provider svc lock poisoned");
+        let mut inner = recover_lock!(self.inner.write(), "provider svc write");
         inner
             .cached_models
             .insert(provider_name.to_string(), models.clone());
@@ -148,7 +194,7 @@ impl ProviderLlmService {
     }
 
     fn provider_snapshot(&self, backend_id: &str) -> Option<ProviderSnapshot> {
-        let inner = self.inner.read().expect("provider svc lock poisoned");
+        let inner = recover_lock!(self.inner.read(), "provider svc read");
         let p = inner.providers.get(backend_id)?;
         Some(ProviderSnapshot {
             config: p.clone(),
@@ -316,7 +362,7 @@ impl LlmService for ProviderLlmService {
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        let inner = self.inner.read().expect("provider svc lock poisoned");
+        let inner = recover_lock!(self.inner.read(), "provider svc read");
         let mut all = Vec::new();
         for (name, cfg) in &inner.providers {
             if !cfg.enabled {
@@ -330,17 +376,13 @@ impl LlmService for ProviderLlmService {
     }
 
     async fn status(&self, backend_id: &str, _model_id: &str) -> Result<ModelStatus, LlmError> {
-        let inner = self.inner.read().expect("provider svc lock poisoned");
+        let inner = recover_lock!(self.inner.read(), "provider svc read");
         let cfg = inner
             .providers
             .get(backend_id)
             .ok_or_else(|| LlmError::InvalidRequest(format!("unknown backend: {backend_id}")))?;
         if !cfg.enabled {
-            let v = serde_json::json!({
-                "state": { "Error": { "message": "provider disabled" } },
-                "progress": null,
-            });
-            return Ok(serde_json::from_value(v).expect("ModelStatus wire shape"));
+            return Ok(ModelStatus::error("provider disabled"));
         }
         // For remote HTTP providers, "reachable" is the best signal we have
         // without per-request round-tripping. Return Ready; a real
@@ -350,7 +392,7 @@ impl LlmService for ProviderLlmService {
     }
 
     fn claims_backend(&self, backend_id: &str) -> bool {
-        let inner = self.inner.read().expect("provider svc lock poisoned");
+        let inner = recover_lock!(self.inner.read(), "provider svc read");
         inner.providers.contains_key(backend_id)
     }
 }
