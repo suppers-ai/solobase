@@ -29,8 +29,8 @@ fn crypto_factory_returns_service() {
     // ≥ 32 bytes — meets the HMAC-SHA256 minimum the underlying
     // Argon2JwtCryptoService enforces on construction.
     let secret = "smoke-test-secret-padded-to-min-32-bytes-aaaa".to_string();
-    let _svc = solobase_native::make_jwt_crypto_service(secret)
-        .expect("smoke secret is long enough");
+    let _svc =
+        solobase_native::make_jwt_crypto_service(secret).expect("smoke secret is long enough");
 }
 
 #[test]
