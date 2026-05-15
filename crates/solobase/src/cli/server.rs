@@ -100,7 +100,7 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
             &infra.storage_root,
         )?)
         .config(Arc::new(config_service))
-        .crypto(solobase_native::make_jwt_crypto_service(jwt_secret))
+        .crypto(solobase_native::make_jwt_crypto_service(jwt_secret)?)
         .network(solobase_native::make_fetch_network_service())
         .logger(solobase_native::make_tracing_logger())
         .block_settings(features)
