@@ -3,6 +3,10 @@ use web_sys::console;
 
 pub struct ConsoleLogger;
 
+// SAFETY: `ConsoleLogger` is a unit struct with no shared state.
+// wasm32-unknown-unknown has no threads, so the `Send`/`Sync` bounds
+// required by `Arc<dyn LoggerService>` are satisfied trivially — no
+// cross-thread aliasing or data races are possible.
 unsafe impl Send for ConsoleLogger {}
 unsafe impl Sync for ConsoleLogger {}
 

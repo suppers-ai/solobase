@@ -5,17 +5,27 @@
 //! the `otel` feature and auto-activates when
 //! `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 
+#[cfg(feature = "otel")]
+use anyhow::Context;
+use anyhow::Result;
 use tracing_subscriber::{fmt, EnvFilter};
 
-pub fn init_tracing(log_format: &str) {
+/// Install a `tracing` subscriber for the running process.
+///
+/// # Errors
+///
+/// Returns an error if the optional OTLP exporter (enabled via the `otel`
+/// feature + `OTEL_EXPORTER_OTLP_ENDPOINT`) fails to construct. Plain
+/// text/JSON subscriber initialisation is infallible.
+pub fn init_tracing(log_format: &str) -> Result<()> {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,wafer=debug,solobase=debug"));
 
     #[cfg(feature = "otel")]
     {
         if std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok() {
-            init_tracing_with_otel(log_format, filter);
-            return;
+            init_tracing_with_otel(log_format, filter)?;
+            return Ok(());
         }
     }
 
@@ -33,17 +43,18 @@ pub fn init_tracing(log_format: &str) {
             .with_thread_ids(false)
             .init();
     }
+    Ok(())
 }
 
 #[cfg(feature = "otel")]
-fn init_tracing_with_otel(log_format: &str, filter: EnvFilter) {
+fn init_tracing_with_otel(log_format: &str, filter: EnvFilter) -> Result<()> {
     use opentelemetry::trace::TracerProvider;
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
         .build()
-        .expect("failed to create OTLP span exporter");
+        .context("create OTLP span exporter")?;
 
     let service_name = std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "solobase".into());
     let provider = opentelemetry_sdk::trace::TracerProvider::builder()
@@ -69,4 +80,5 @@ fn init_tracing_with_otel(log_format: &str, filter: EnvFilter) {
         .init();
 
     tracing::info!("OpenTelemetry tracing enabled");
+    Ok(())
 }

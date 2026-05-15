@@ -37,8 +37,11 @@ fn parses_serve_with_port() {
 
 #[test]
 fn bare_solobase_uses_serve_native_default() {
-    // The actual fallback lives in main(); here we assert the Default impl.
-    let cli = Cli::default();
+    // Bare `solobase` invokes the same code path as the synthetic argv
+    // `["solobase", "serve"]` (see `main::run`). Asserting the parsed
+    // shape — instead of a `Cli::default()` impl — keeps clap as the
+    // single source of truth for verb-level defaults.
+    let cli = Cli::parse_from(["solobase", "serve"]);
     if let Command::Serve {
         target,
         release,
@@ -46,7 +49,7 @@ fn bare_solobase_uses_serve_native_default() {
         run_migrations,
     } = cli.command
     {
-        assert_eq!(target, Some(Target::Native));
+        assert_eq!(target, None);
         assert!(!release);
         assert_eq!(port, None);
         assert!(!run_migrations);

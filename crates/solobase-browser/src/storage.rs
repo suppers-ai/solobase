@@ -9,7 +9,10 @@ use crate::bridge;
 
 pub struct BrowserStorageService;
 
-// Safety: wasm32-unknown-unknown is single-threaded.
+// SAFETY: `BrowserStorageService` is a unit struct with no shared state.
+// wasm32-unknown-unknown has no threads, so the `Send`/`Sync` bounds
+// required by `Arc<dyn StorageService>` are satisfied trivially — no
+// cross-thread aliasing or data races are possible.
 unsafe impl Send for BrowserStorageService {}
 unsafe impl Sync for BrowserStorageService {}
 

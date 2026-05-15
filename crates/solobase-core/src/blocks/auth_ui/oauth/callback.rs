@@ -156,15 +156,20 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user_info: serde_json::Value = match serde_json::from_slice(&info_resp.body) {
         Ok(d) => d,
         Err(e) => {
-            let preview: String = String::from_utf8_lossy(&info_resp.body)
-                .chars()
-                .take(200)
-                .collect();
+            // Log the SHA-256 hash of the body instead of the body itself —
+            // a parse failure is rare and the raw body typically contains
+            // the upstream email / provider IDs that we don't want to drop
+            // into the error log surface.
+            let body_hash =
+                crate::blocks::auth::helpers::sha256_hex(&String::from_utf8_lossy(&info_resp.body));
             return err_internal(
                 "Failed to parse OAuth user info",
                 format!(
-                    "status={} parse={} body_preview={}",
-                    info_resp.status_code, e, preview
+                    "status={} parse={} body_len={} body_sha256={}",
+                    info_resp.status_code,
+                    e,
+                    info_resp.body.len(),
+                    body_hash
                 ),
             );
         }

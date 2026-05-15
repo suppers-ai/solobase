@@ -5,7 +5,9 @@ use wafer_core::interfaces::network::service::{NetworkError, NetworkService, Req
 /// NetworkService using CF Worker's fetch API.
 pub struct WorkerFetchService;
 
-// Safety: wasm32-unknown-unknown is single-threaded.
+// SAFETY: `WorkerFetchService` is unit-shaped and contains no shared state.
+// wasm32-unknown-unknown has no threads, so `Send`/`Sync` are satisfied
+// trivially — no cross-thread aliasing or data races are possible.
 unsafe impl Send for WorkerFetchService {}
 unsafe impl Sync for WorkerFetchService {}
 
@@ -20,7 +22,11 @@ impl NetworkService for WorkerFetchService {
             "PATCH" => worker::Method::Patch,
             "DELETE" => worker::Method::Delete,
             "HEAD" => worker::Method::Head,
-            _ => worker::Method::Get,
+            other => {
+                return Err(NetworkError::RequestError(format!(
+                    "unsupported HTTP method: {other}"
+                )));
+            }
         };
 
         let mut init = worker::RequestInit::new();
@@ -33,10 +39,15 @@ impl NetworkService for WorkerFetchService {
         let mut worker_req = worker::Request::new_with_init(&req.url, &init)
             .map_err(|e| NetworkError::RequestError(format!("fetch init error: {e}")))?;
 
-        if let Ok(headers) = worker_req.headers_mut() {
-            for (k, v) in &req.headers {
-                let _ = headers.set(k, v);
-            }
+        // Propagate header failures instead of silently dropping the entire
+        // header block — callers rely on Authorization, Content-Type etc.
+        let headers = worker_req
+            .headers_mut()
+            .map_err(|e| NetworkError::RequestError(format!("headers_mut: {e}")))?;
+        for (k, v) in &req.headers {
+            headers
+                .set(k, v)
+                .map_err(|e| NetworkError::RequestError(format!("set header {k}: {e}")))?;
         }
 
         let mut resp = worker::Fetch::Request(worker_req)
@@ -45,7 +56,10 @@ impl NetworkService for WorkerFetchService {
             .map_err(|e| NetworkError::RequestError(format!("fetch error: {e}")))?;
 
         let status_code = resp.status_code();
-        let resp_body = resp.bytes().await.unwrap_or_default();
+        let resp_body = resp
+            .bytes()
+            .await
+            .map_err(|e| NetworkError::RequestError(format!("read body: {e}")))?;
         let mut resp_headers: HashMap<String, Vec<String>> = HashMap::new();
         for (k, v) in resp.headers() {
             resp_headers.entry(k).or_default().push(v);

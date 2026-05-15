@@ -14,6 +14,17 @@ use crate::blocks::{
     helpers::{err_bad_request, err_internal, hex_encode, json_map, ResponseBuilder},
 };
 
+/// Returns `Ok(true)` when a user with `email_lower` already exists, `Ok(false)`
+/// when not. Any DB failure other than NOT_FOUND propagates — see [SEC-035]
+/// note below; collapsing a WRAP denial or connection blip to "email is free"
+/// would let a duplicate insert race in past the unique-email constraint.
+async fn user_exists(ctx: &dyn Context, email_lower: &str) -> Result<bool, String> {
+    match users::find_by_email(ctx, email_lower).await {
+        Ok(opt) => Ok(opt.is_some()),
+        Err(e) => Err(format!("{e}")),
+    }
+}
+
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Enforce ALLOW_SIGNUP on the API (not just the page)
     let allow_signup = config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_SIGNUP", "true").await;
@@ -106,14 +117,14 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     // Follow-up: send a "someone tried to sign up with your email" notice
     // to the existing account. Not included in this PR — needs the email
     // block's templating to grow a new template, which is out of scope.
-    let email_already_taken = db::get_by_field(
-        ctx,
-        USERS_TABLE,
-        "email",
-        serde_json::Value::String(email_lower.clone()),
-    )
-    .await
-    .is_ok();
+    //
+    // Use the typed `users::find_by_email` path (NOT_FOUND → Ok(None));
+    // any other Err is a real backend failure (WRAP denial, DB outage)
+    // that we must surface, not collapse to "email is free".
+    let email_already_taken = match user_exists(ctx, &email_lower).await {
+        Ok(t) => t,
+        Err(e) => return err_internal("User lookup failed", e),
+    };
     if email_already_taken {
         return ResponseBuilder::new().status(201).json(&serde_json::json!({
             "email_verified": false,
@@ -291,8 +302,7 @@ const COMMON_PASSWORDS: &[&str] = &[
 ];
 
 fn is_common_password(pw: &str) -> bool {
-    let lower = pw.to_ascii_lowercase();
-    COMMON_PASSWORDS.iter().any(|p| *p == lower)
+    COMMON_PASSWORDS.iter().any(|p| p.eq_ignore_ascii_case(pw))
 }
 
 /// Send verification email via the suppers-ai/email block.

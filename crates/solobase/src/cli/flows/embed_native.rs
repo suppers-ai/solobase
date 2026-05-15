@@ -1,8 +1,8 @@
 //! Embed × native: cargo build the user's bin crate, then exec it.
 
-use std::{path::Path, process::Command};
+use std::path::Path;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 
 use crate::cli::{
     cmd, config,
@@ -22,7 +22,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     }
 
     // 3. cargo build the user's bin crate.
-    let mut cargo = Command::new("cargo");
+    let mut cargo = std::process::Command::new("cargo");
     cargo.arg("build");
     if release {
         cargo.arg("--release");
@@ -77,12 +77,26 @@ pub async fn serve(
     // run-migrations flag via the child's env (scoped to that child),
     // rather than mutating the CLI's own process env via `set_var` (unsafe
     // in Rust 2024, and would leak into any other child the CLI spawns).
-    let mut cmd = Command::new(&bin);
+    //
+    // Use `tokio::process::Command` because the child is long-running
+    // (it's the actual solobase server) and blocking on `wait` from a
+    // sync `std::process::Command` would freeze the tokio worker thread
+    // this async fn is parked on.
+    let mut cmd = tokio::process::Command::new(&bin);
     cmd.current_dir(repo_root);
     if run_migrations {
         cmd.env(solobase_core::migration_helper::RUN_MIGRATIONS_KEY, "1");
     }
     let mut child = cmd.spawn()?;
-    let status = child.wait()?;
-    std::process::exit(status.code().unwrap_or(1));
+    let status = child.wait().await?;
+    if !status.success() {
+        // Propagate the child's exit code via `Result` rather than calling
+        // `std::process::exit` directly, which would bypass tokio runtime
+        // drop and skip any in-flight async cleanup.
+        bail!(
+            "embedded solobase binary exited with status {:?}",
+            status.code()
+        );
+    }
+    Ok(())
 }

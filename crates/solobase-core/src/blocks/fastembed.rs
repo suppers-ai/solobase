@@ -58,18 +58,18 @@ impl FastembedBlock {
 
     fn get_service(&self) -> Result<&FastembedService, String> {
         // OnceLock::get_or_init can't surface errors, so we do a
-        // get-then-try-set dance. The race case — two callers both trying
-        // to init — is resolved by `set`: whichever arrives second returns
-        // Err and we fall back to `get().unwrap()` to grab the winner.
+        // get-then-try-set dance. Whichever caller wins the `set` race owns
+        // the value; the loser sees `Err` but the value is now present and
+        // the next `get()` will return it.
         if let Some(svc) = self.service.get() {
             return Ok(svc.as_ref());
         }
         let built =
             FastembedService::default_model().map_err(|e| format!("fastembed init failed: {e}"))?;
-        let arc = Arc::new(built);
-        match self.service.set(arc) {
-            Ok(()) => Ok(self.service.get().expect("just set").as_ref()),
-            Err(_) => Ok(self.service.get().expect("other thread set it").as_ref()),
+        let _ = self.service.set(Arc::new(built));
+        match self.service.get() {
+            Some(svc) => Ok(svc.as_ref()),
+            None => Err("fastembed service unavailable after init".to_string()),
         }
     }
 }

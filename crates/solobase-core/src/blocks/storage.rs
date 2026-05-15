@@ -58,7 +58,10 @@ impl SolobaseStorageBlock {
     /// Update the WRAP grants used for cross-block access checks.
     /// Called after runtime startup once grants are collected.
     pub fn update_wrap_grants(&self, grants: &[ResourceGrant]) {
-        let mut g = self.wrap_grants.write().unwrap();
+        // Recover from poison: the data inside is still valid — the only
+        // reason this lock would be poisoned is a panic in a previous
+        // writer, and we're replacing the whole `Vec` anyway.
+        let mut g = self.wrap_grants.write().unwrap_or_else(|e| e.into_inner());
         *g = grants.to_vec();
     }
 }
@@ -252,7 +255,11 @@ impl Block for SolobaseStorageBlock {
         // Cross-block access requires a WRAP grant with resource_type = Storage
         if resolved.cross_block {
             let is_write = access == "write";
-            let grants = self.wrap_grants.read().unwrap().clone();
+            let grants = self
+                .wrap_grants
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
             if let Err(e) = wafer_run::wrap::check_access(
                 Some(&caller),
                 &resolved.path,
@@ -273,38 +280,27 @@ impl Block for SolobaseStorageBlock {
             }
         }
 
-        // Execute the actual storage operation. Frame boundaries must be
-        // preserved for two-frame ops (`storage.get` returns header + body),
-        // so we drain events into a buffer and replay them rather than
-        // calling `collect_buffered` (which would concatenate header + body
-        // into a single chunk and break downstream `buffered_header_and_body`
-        // decoding).
+        // Execute the actual storage operation. Forward events to the caller
+        // as they arrive — previously we drained the whole stream into a
+        // `Vec<StreamEvent>` first, which defeated streaming and buffered
+        // the entire body in memory. Frame boundaries are preserved because
+        // we forward each event individually rather than `collect_buffered`
+        // (which would concatenate header + body into a single chunk and
+        // break downstream `buffered_header_and_body` decoding).
         let start = now_millis();
         let inner_out = self
             .inner
             .handle(ctx, msg.clone(), InputStream::from_bytes(rewritten_body))
             .await;
-        let mut events: Vec<StreamEvent> = Vec::new();
-        let mut inner = inner_out;
-        while let Some(evt) = inner.next().await {
-            events.push(evt);
-        }
-        let duration_ms = (now_millis() - start) as i64;
-
-        let mut error_status: Option<String> = None;
-        for evt in &events {
-            if let StreamEvent::Error(e) = evt {
-                error_status = Some(format!("ERROR: {}", e.message));
-                break;
-            }
-        }
-        let status = error_status.unwrap_or_else(|| format!("OK ({duration_ms}ms)"));
-
-        // Log the access (best-effort)
-        let _ = log_storage_access(ctx, &caller, &msg.kind, &resolved.path, &status).await;
+        let caller_log = caller.clone();
+        let path_log = resolved.path.clone();
+        let kind_log = msg.kind.clone();
+        let ctx_arc = ctx.clone_arc();
 
         OutputStream::from_producer(move |sink, _cancel| async move {
-            for evt in events {
+            let mut inner = inner_out;
+            let mut error_status: Option<String> = None;
+            while let Some(evt) = inner.next().await {
                 match evt {
                     StreamEvent::Chunk(bytes) => {
                         if sink.send_chunk(bytes).await.is_err() {
@@ -315,10 +311,31 @@ impl Block for SolobaseStorageBlock {
                         let _ = sink.send_meta(entry).await;
                     }
                     StreamEvent::Complete { meta } => {
+                        let duration_ms = (now_millis() - start) as i64;
+                        let status = error_status
+                            .clone()
+                            .unwrap_or_else(|| format!("OK ({duration_ms}ms)"));
+                        let _ = log_storage_access(
+                            ctx_arc.as_ref(),
+                            &caller_log,
+                            &kind_log,
+                            &path_log,
+                            &status,
+                        )
+                        .await;
                         let _ = sink.complete(meta).await;
                         return;
                     }
                     StreamEvent::Error(e) => {
+                        error_status = Some(format!("ERROR: {}", e.message));
+                        let _ = log_storage_access(
+                            ctx_arc.as_ref(),
+                            &caller_log,
+                            &kind_log,
+                            &path_log,
+                            error_status.as_deref().unwrap_or("ERROR"),
+                        )
+                        .await;
                         let _ = sink.error(*e).await;
                         return;
                     }
@@ -332,6 +349,16 @@ impl Block for SolobaseStorageBlock {
                     }
                 }
             }
+            // Stream ended without a terminal event — best-effort log.
+            let duration_ms = (now_millis() - start) as i64;
+            let _ = log_storage_access(
+                ctx_arc.as_ref(),
+                &caller_log,
+                &kind_log,
+                &path_log,
+                &format!("OK ({duration_ms}ms)"),
+            )
+            .await;
         })
     }
 

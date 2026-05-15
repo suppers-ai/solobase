@@ -153,9 +153,10 @@ impl Block for FilesBlock {
             msg.set_meta("req.resource", &normalized);
         }
 
-        // Direct share access (public, no auth, no user rate limit)
+        // Direct share access (public, no auth required) — still rate-limited
+        // per remote IP inside the handler to stop token enumeration / DOS.
         if normalized.starts_with("/storage/direct/") {
-            return share::handle_direct_access(ctx, &msg).await;
+            return share::handle_direct_access(ctx, &msg, &self.limiter).await;
         }
 
         // Require authentication for all non-public endpoints
@@ -174,7 +175,11 @@ impl Block for FilesBlock {
             } else {
                 (RateLimit::API_WRITE, "api_write")
             };
-            // TODO: Allowed(headers) discarded — needs streaming middleware to inject.
+            // Allowed(headers) is discarded here: attaching X-RateLimit-* to
+            // a streaming response would need platform-side middleware to
+            // inject the headers after the handler returns its OutputStream.
+            // Tracked as a non-blocker — limits still enforced, just not
+            // surfaced.
             if let RateLimitOutcome::Limited(r) =
                 check_rate_limit(&self.limiter, ctx, &user_id, category, default).await
             {

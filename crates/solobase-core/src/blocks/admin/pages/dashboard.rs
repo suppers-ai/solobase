@@ -7,7 +7,9 @@ use wafer_sql_utils::{aggregate, query, value::sea_values_to_json, Backend};
 
 use super::{admin_page, crumb};
 use crate::{
-    blocks::{admin::REQUEST_LOGS_TABLE as REQUEST_LOGS, auth::USERS_TABLE as USERS},
+    blocks::{
+        admin::REQUEST_LOGS_TABLE as REQUEST_LOGS, auth::USERS_TABLE as USERS, helpers::RecordExt,
+    },
     ui::{
         shell::Topbar,
         templates::{dashboard_page, PageHeader, StatTile},
@@ -110,23 +112,22 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let user = UserInfo::from_message(msg);
 
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-
-    // Total users
-    let user_count = db::count(
-        ctx,
-        USERS,
-        &[Filter {
-            field: "deleted_at".into(),
-            operator: FilterOp::IsNull,
-            value: serde_json::Value::Null,
-        }],
-    )
-    .await
-    .unwrap_or(0);
-
-    // New users today
     let today_start = format!("{today}T00:00:00");
-    let (sql, vals) = aggregate::build_count(
+
+    // Build the six independent queries used for the header tiles + recent
+    // panels. None of them depend on each other's results, so we issue them
+    // concurrently with `futures::join!` instead of awaiting one at a time.
+    // This used to be 6 sequential round-trips on every dashboard load — a
+    // measurable D1 amplification source on Cloudflare Workers.
+
+    let user_count_filters = [Filter {
+        field: "deleted_at".into(),
+        operator: FilterOp::IsNull,
+        value: serde_json::Value::Null,
+    }];
+    let user_count_fut = db::count(ctx, USERS, &user_count_filters);
+
+    let (sql_nu, vals_nu) = aggregate::build_count(
         USERS,
         &[
             Filter {
@@ -142,17 +143,10 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         ],
         Backend::Sqlite,
     );
-    let new_users_today = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
-        .await
-        .ok()
-        .and_then(|r| {
-            r.first()
-                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-        })
-        .unwrap_or(0);
+    let args_nu = sea_values_to_json(vals_nu);
+    let new_users_fut = db::query_raw(ctx, &sql_nu, &args_nu);
 
-    // Requests today
-    let (sql, vals) = aggregate::build_count(
+    let (sql_rq, vals_rq) = aggregate::build_count(
         REQUEST_LOGS,
         &[Filter {
             field: "created_at".into(),
@@ -161,17 +155,10 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }],
         Backend::Sqlite,
     );
-    let requests_today = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
-        .await
-        .ok()
-        .and_then(|r| {
-            r.first()
-                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-        })
-        .unwrap_or(0);
+    let args_rq = sea_values_to_json(vals_rq);
+    let requests_fut = db::query_raw(ctx, &sql_rq, &args_rq);
 
-    // Errors today
-    let (sql, vals) = aggregate::build_count(
+    let (sql_er, vals_er) = aggregate::build_count(
         REQUEST_LOGS,
         &[
             Filter {
@@ -187,17 +174,10 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         ],
         Backend::Sqlite,
     );
-    let errors_today = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
-        .await
-        .ok()
-        .and_then(|r| {
-            r.first()
-                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
-        })
-        .unwrap_or(0);
+    let args_er = sea_values_to_json(vals_er);
+    let errors_fut = db::query_raw(ctx, &sql_er, &args_er);
 
-    // Avg response time today
-    let (sql, vals) = aggregate::build_avg(
+    let (sql_av, vals_av) = aggregate::build_avg(
         REQUEST_LOGS,
         "duration_ms",
         &[Filter {
@@ -207,17 +187,10 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }],
         Backend::Sqlite,
     );
-    let avg_ms = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
-        .await
-        .ok()
-        .and_then(|r| {
-            r.first()
-                .and_then(|r| r.data.get("avg_val").and_then(|v| v.as_f64()))
-        })
-        .unwrap_or(0.0);
+    let args_av = sea_values_to_json(vals_av);
+    let avg_ms_fut = db::query_raw(ctx, &sql_av, &args_av);
 
-    // Recent users (last 5 logins)
-    let (sql, vals) = query::build_select_columns(
+    let (sql_ru, vals_ru) = query::build_select_columns(
         USERS,
         &["id", "email", "created_at"],
         &ListOptions {
@@ -236,15 +209,13 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         None,
         Backend::Sqlite,
     );
-    let recent_users = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
-        .await
-        .unwrap_or_default();
+    let args_ru = sea_values_to_json(vals_ru);
+    let recent_users_fut = db::query_raw(ctx, &sql_ru, &args_ru);
 
-    // Recent errors (last 5)
     let or_cond = sea_query::Cond::any()
         .add(sea_query::Expr::col(wafer_sql_utils::ident::DynCol("status".into())).eq("ERROR"))
         .add(sea_query::Expr::col(wafer_sql_utils::ident::DynCol("status_code".into())).gte(400));
-    let (sql, vals) = query::build_select_columns(
+    let (sql_re, vals_re) = query::build_select_columns(
         REQUEST_LOGS,
         &["status_code", "method", "path", "duration_ms", "created_at"],
         &ListOptions {
@@ -258,9 +229,58 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         Some(or_cond),
         Backend::Sqlite,
     );
-    let recent_errors = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
-        .await
-        .unwrap_or_default();
+    let args_re = sea_values_to_json(vals_re);
+    let recent_errors_fut = db::query_raw(ctx, &sql_re, &args_re);
+
+    let (
+        user_count_r,
+        new_users_r,
+        requests_r,
+        errors_r,
+        avg_ms_r,
+        recent_users_r,
+        recent_errors_r,
+    ) = futures::join!(
+        user_count_fut,
+        new_users_fut,
+        requests_fut,
+        errors_fut,
+        avg_ms_fut,
+        recent_users_fut,
+        recent_errors_fut,
+    );
+
+    let user_count = user_count_r.unwrap_or(0);
+    let new_users_today = new_users_r
+        .ok()
+        .and_then(|r| {
+            r.first()
+                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+        })
+        .unwrap_or(0);
+    let requests_today = requests_r
+        .ok()
+        .and_then(|r| {
+            r.first()
+                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+        })
+        .unwrap_or(0);
+    let errors_today = errors_r
+        .ok()
+        .and_then(|r| {
+            r.first()
+                .and_then(|r| r.data.get("cnt").and_then(|v| v.as_i64()))
+        })
+        .unwrap_or(0);
+    let avg_ms = avg_ms_r
+        .ok()
+        .and_then(|r| {
+            r.first()
+                .and_then(|r| r.data.get("avg_val").and_then(|v| v.as_f64()))
+        })
+        .unwrap_or(0.0);
+    let recent_users = recent_users_r.unwrap_or_default();
+    let recent_errors = recent_errors_r.unwrap_or_default();
 
     let user_count_str = user_count.to_string();
     let new_users_str = new_users_today.to_string();
@@ -310,8 +330,8 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
                         table .table {
                             tbody {
                                 @for record in &recent_users {
-                                    @let email = record.data.get("email").and_then(|v| v.as_str()).unwrap_or("");
-                                    @let created = record.data.get("created_at").and_then(|v| v.as_str()).unwrap_or("");
+                                    @let email = record.str_field("email");
+                                    @let created = record.str_field("created_at");
                                     tr {
                                         td .text-sm { (email) }
                                         td .text-muted .text-sm .text-right { (created.get(..10).unwrap_or(created)) }
@@ -347,10 +367,10 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
                             }
                             tbody {
                                 @for record in &recent_errors {
-                                    @let code = record.data.get("status_code").and_then(|v| v.as_i64()).unwrap_or(0);
-                                    @let method = record.data.get("method").and_then(|v| v.as_str()).unwrap_or("");
-                                    @let path = record.data.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                                    @let created = record.data.get("created_at").and_then(|v| v.as_str()).unwrap_or("");
+                                    @let code = record.i64_field("status_code");
+                                    @let method = record.str_field("method");
+                                    @let path = record.str_field("path");
+                                    @let created = record.str_field("created_at");
                                     tr {
                                         td {
                                             span .badge .(if code >= 500 { "badge-danger" } else { "badge-warning" }) { (code) }

@@ -118,7 +118,10 @@ async fn get_user(ctx: &dyn Context, id: &str) -> OutputStream {
                     .collect(),
                 Err(_) => Vec::new(),
             };
-            let mut resp = serde_json::to_value(&record).unwrap_or_default();
+            let mut resp = match serde_json::to_value(&record) {
+                Ok(v) => v,
+                Err(e) => return err_internal("Failed to serialize user record", e),
+            };
             if let Some(obj) = resp.as_object_mut() {
                 obj.insert("roles".to_string(), serde_json::json!(roles));
             }
@@ -179,7 +182,14 @@ async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let path = msg.path();
     let id = msg.var("id");
     let id = if id.is_empty() {
-        path.strip_prefix("/admin/users/").unwrap_or("")
+        // `strip_prefix` returns everything after `/admin/users/`, including
+        // any trailing path segments. Take only the first `/`-bounded segment
+        // so e.g. `/admin/users/u123/foo` resolves to `u123`, not `u123/foo`.
+        let rest = path.strip_prefix("/admin/users/").unwrap_or("");
+        match rest.find('/') {
+            Some(idx) => &rest[..idx],
+            None => rest,
+        }
     } else {
         id
     };

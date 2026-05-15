@@ -11,17 +11,29 @@ use crate::bridge;
 /// called to persist the in-memory sql.js database to OPFS.
 pub struct BrowserDatabaseService;
 
-// Safety: wasm32-unknown-unknown is single-threaded — no data races possible.
+// SAFETY: `BrowserDatabaseService` is a unit struct with no shared state.
+// wasm32-unknown-unknown has no threads, so the `Send`/`Sync` bounds
+// required by `Arc<dyn DatabaseService>` are satisfied trivially — no
+// cross-thread aliasing or data races are possible.
 unsafe impl Send for BrowserDatabaseService {}
 unsafe impl Sync for BrowserDatabaseService {}
 
 // ─── SQL helpers ─────────────────────────────────────────────────────────────
 
 /// Allow only alphanumeric + underscore characters to prevent SQL injection.
-fn sanitize_ident(name: &str) -> String {
-    name.chars()
-        .filter(|c| c.is_alphanumeric() || *c == '_')
-        .collect()
+///
+/// Returns `Cow::Borrowed` when `name` already conforms (the hot-path case
+/// for migration-defined columns), avoiding the per-call `String` allocation.
+fn sanitize_ident(name: &str) -> std::borrow::Cow<'_, str> {
+    if name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        std::borrow::Cow::Borrowed(name)
+    } else {
+        std::borrow::Cow::Owned(
+            name.chars()
+                .filter(|c| c.is_alphanumeric() || *c == '_')
+                .collect(),
+        )
+    }
 }
 
 /// Quote an identifier using SQLite double-quote style.
@@ -30,9 +42,11 @@ fn quote_ident(name: &str) -> String {
 }
 
 /// Serialize a slice of `serde_json::Value` params into a JSON array string
-/// for passing to the bridge functions.
-fn params_to_json(params: &[serde_json::Value]) -> String {
-    serde_json::to_string(params).unwrap_or_else(|_| "[]".to_string())
+/// for passing to the bridge functions. Errors propagate so a serialization
+/// failure can't silently change WHERE/SET semantics.
+fn params_to_json(params: &[serde_json::Value]) -> Result<String, DatabaseError> {
+    serde_json::to_string(params)
+        .map_err(|e| DatabaseError::Internal(format!("encode params: {e}")))
 }
 
 /// Map a JSON value to a scalar suitable for embedding in a params array.
@@ -70,9 +84,8 @@ fn build_where(filters: &[Filter]) -> (String, Vec<serde_json::Value>) {
                         // IN () is never true — use a literal false expression
                         parts.push("1=0".to_string());
                     } else {
-                        let placeholders: Vec<&str> =
-                            std::iter::repeat("?").take(arr.len()).collect();
-                        parts.push(format!("{} IN ({})", col, placeholders.join(", ")));
+                        let placeholders = vec!["?"; arr.len()].join(", ");
+                        parts.push(format!("{} IN ({})", col, placeholders));
                         for item in arr {
                             params.push(coerce_param(item));
                         }
@@ -259,18 +272,18 @@ fn build_create_table_sql(table: &Table) -> String {
 /// Build a CREATE INDEX IF NOT EXISTS statement.
 fn build_create_index_sql(table_name: &str, idx: &Index) -> String {
     let unique = if idx.unique { "UNIQUE " } else { "" };
-    let name = if idx.name.is_empty() {
+    let name: String = if idx.name.is_empty() {
         format!(
             "idx_{}_{}",
             sanitize_ident(table_name),
             idx.columns
                 .iter()
-                .map(|c| sanitize_ident(c))
+                .map(|c| sanitize_ident(c).into_owned())
                 .collect::<Vec<_>>()
                 .join("_")
         )
     } else {
-        sanitize_ident(&idx.name)
+        sanitize_ident(&idx.name).into_owned()
     };
     let cols: Vec<String> = idx.columns.iter().map(|c| quote_ident(c)).collect();
     format!(
@@ -283,30 +296,42 @@ fn build_create_index_sql(table_name: &str, idx: &Index) -> String {
 }
 
 /// Retrieve existing column names for a table via PRAGMA table_info.
-fn existing_columns(table: &str) -> Vec<String> {
+///
+/// Failures propagate: previously, a bridge or parse error here would
+/// silently return an empty `Vec` and cause callers to issue
+/// `ALTER TABLE ADD COLUMN` for every column on the next write — masking
+/// real failures behind cryptic "duplicate column name" errors.
+fn existing_columns(table: &str) -> Result<Vec<String>, DatabaseError> {
     let sql = format!("PRAGMA table_info({})", quote_ident(table));
-    let result = bridge::db_query_raw(&sql, "[]").unwrap_or_default();
-    let rows: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap_or_default();
-    rows.into_iter()
+    let result = bridge::db_query_raw(&sql, "[]")
+        .map_err(|e| DatabaseError::Internal(format!("PRAGMA table_info({table}): {e:?}")))?;
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&result)
+        .map_err(|e| DatabaseError::Internal(format!("parse table_info: {e}")))?;
+    Ok(rows
+        .into_iter()
         .filter_map(|r| {
             r.get("name")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_lowercase())
         })
-        .collect()
+        .collect())
 }
 
-/// Check whether a table exists in the sqlite_master catalog.
-fn table_exists_sync(name: &str) -> bool {
+/// Check whether a table exists in the sqlite_master catalog. Errors
+/// propagate so callers don't mistake a bridge failure for "table absent".
+fn table_exists_sync(name: &str) -> Result<bool, DatabaseError> {
     let sql = "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?";
-    let params = params_to_json(&[serde_json::Value::String(name.to_string())]);
-    let result = bridge::db_query_raw(sql, &params).unwrap_or_default();
-    let rows: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap_or_default();
-    rows.first()
+    let params = params_to_json(&[serde_json::Value::String(name.to_string())])?;
+    let result = bridge::db_query_raw(sql, &params)
+        .map_err(|e| DatabaseError::Internal(format!("table_exists({name}): {e:?}")))?;
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&result)
+        .map_err(|e| DatabaseError::Internal(format!("parse table_exists: {e}")))?;
+    Ok(rows
+        .first()
         .and_then(|r| r.get("cnt"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0)
-        > 0
+        > 0)
 }
 
 // ─── DatabaseService impl ─────────────────────────────────────────────────────
@@ -318,12 +343,12 @@ impl DatabaseService for BrowserDatabaseService {
 
     async fn get(&self, collection: &str, id: &str) -> Result<Record, DatabaseError> {
         let table = sanitize_ident(collection);
-        if !table_exists_sync(&table) {
+        if !table_exists_sync(&table)? {
             return Err(DatabaseError::NotFound);
         }
 
         let sql = format!("SELECT * FROM {} WHERE id = ?", quote_ident(&table));
-        let params = params_to_json(&[serde_json::Value::String(id.to_string())]);
+        let params = params_to_json(&[serde_json::Value::String(id.to_string())])?;
         let json = bridge::db_query_raw(&sql, &params)
             .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
@@ -339,7 +364,7 @@ impl DatabaseService for BrowserDatabaseService {
         opts: &ListOptions,
     ) -> Result<RecordList, DatabaseError> {
         let table = sanitize_ident(collection);
-        if !table_exists_sync(&table) {
+        if !table_exists_sync(&table)? {
             return Ok(RecordList {
                 records: Vec::new(),
                 total_count: 0,
@@ -350,7 +375,7 @@ impl DatabaseService for BrowserDatabaseService {
 
         let (where_clause, filter_params) = build_where(&opts.filters);
 
-        let params_json = params_to_json(&filter_params);
+        let params_json = params_to_json(&filter_params)?;
 
         // Count total — skipped when caller passed skip_count: true.
         let total_count: Option<i64> = if opts.skip_count {
@@ -363,8 +388,8 @@ impl DatabaseService for BrowserDatabaseService {
             );
             let count_json = bridge::db_query_raw(&count_sql, &params_json)
                 .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
-            let count_rows: Vec<serde_json::Value> =
-                serde_json::from_str(&count_json).unwrap_or_default();
+            let count_rows: Vec<serde_json::Value> = serde_json::from_str(&count_json)
+                .map_err(|e| DatabaseError::Internal(format!("parse count rows: {e}")))?;
             Some(
                 count_rows
                     .first()
@@ -445,12 +470,17 @@ impl DatabaseService for BrowserDatabaseService {
             data.insert("updated_at".to_string(), serde_json::Value::String(now));
         }
 
-        // Auto-create the table if it does not exist
-        if !table_exists_sync(&table) {
+        // Auto-create the table if it does not exist. Iterate sorted keys so
+        // the generated DDL/INSERT is stable across runs (HashMap order is
+        // randomized per insert, which would otherwise produce N permutations
+        // of the same statement).
+        let mut sorted_keys: Vec<&String> = data.keys().collect();
+        sorted_keys.sort();
+        if !table_exists_sync(&table)? {
             let mut col_defs = Vec::new();
             col_defs.push(format!("{} TEXT PRIMARY KEY", quote_ident("id")));
-            for key in data.keys() {
-                if key != "id" {
+            for key in &sorted_keys {
+                if *key != "id" {
                     col_defs.push(format!("{} TEXT", quote_ident(&sanitize_ident(key))));
                 }
             }
@@ -463,8 +493,8 @@ impl DatabaseService for BrowserDatabaseService {
                 .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
         } else {
             // Ensure any new columns exist
-            let existing = existing_columns(&table);
-            for key in data.keys() {
+            let existing = existing_columns(&table)?;
+            for key in &sorted_keys {
                 let safe_key = sanitize_ident(key);
                 if !existing.contains(&safe_key.to_lowercase()) {
                     let alter = format!(
@@ -478,21 +508,23 @@ impl DatabaseService for BrowserDatabaseService {
             }
         }
 
-        // Build INSERT
-        let keys: Vec<&String> = data.keys().collect();
-        let col_names: Vec<String> = keys
-            .iter()
-            .map(|k| quote_ident(&sanitize_ident(k)))
-            .collect();
-        let placeholders: Vec<&str> = std::iter::repeat("?").take(keys.len()).collect();
+        // Build INSERT. Single-pass over sorted keys avoids the previous
+        // three-vec allocation pattern.
+        let mut col_names: Vec<String> = Vec::with_capacity(sorted_keys.len());
+        let mut placeholders: Vec<&str> = Vec::with_capacity(sorted_keys.len());
+        let mut params: Vec<serde_json::Value> = Vec::with_capacity(sorted_keys.len());
+        for key in &sorted_keys {
+            col_names.push(quote_ident(&sanitize_ident(key)));
+            placeholders.push("?");
+            params.push(coerce_param(&data[*key]));
+        }
         let sql = format!(
             "INSERT INTO {} ({}) VALUES ({})",
             quote_ident(&table),
             col_names.join(", "),
             placeholders.join(", ")
         );
-        let params: Vec<serde_json::Value> = keys.iter().map(|k| coerce_param(&data[*k])).collect();
-        let params_json = params_to_json(&params);
+        let params_json = params_to_json(&params)?;
 
         bridge::db_exec_raw(&sql, &params_json)
             .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
@@ -527,7 +559,7 @@ impl DatabaseService for BrowserDatabaseService {
         }
 
         // Ensure columns exist for the incoming data fields
-        let existing = existing_columns(&table);
+        let existing = existing_columns(&table)?;
         for key in data.keys() {
             let safe_key = sanitize_ident(key);
             if !existing.contains(&safe_key.to_lowercase()) {
@@ -541,7 +573,10 @@ impl DatabaseService for BrowserDatabaseService {
             }
         }
 
-        let set_pairs: Vec<(String, serde_json::Value)> = data.into_iter().collect();
+        // Sorted-key iteration — HashMap order is randomized per call which
+        // would otherwise produce N permutations of the same UPDATE.
+        let mut set_pairs: Vec<(String, serde_json::Value)> = data.into_iter().collect();
+        set_pairs.sort_by(|a, b| a.0.cmp(&b.0));
         let set_clauses: Vec<String> = set_pairs
             .iter()
             .map(|(k, _)| format!("{} = ?", quote_ident(&sanitize_ident(k))))
@@ -555,7 +590,7 @@ impl DatabaseService for BrowserDatabaseService {
         let mut params: Vec<serde_json::Value> =
             set_pairs.iter().map(|(_, v)| coerce_param(v)).collect();
         params.push(serde_json::Value::String(id.to_string()));
-        let params_json = params_to_json(&params);
+        let params_json = params_to_json(&params)?;
 
         let result = bridge::db_exec_raw(&sql, &params_json)
             .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
@@ -573,12 +608,12 @@ impl DatabaseService for BrowserDatabaseService {
 
     async fn delete(&self, collection: &str, id: &str) -> Result<(), DatabaseError> {
         let table = sanitize_ident(collection);
-        if !table_exists_sync(&table) {
+        if !table_exists_sync(&table)? {
             return Err(DatabaseError::NotFound);
         }
 
         let sql = format!("DELETE FROM {} WHERE id = ?", quote_ident(&table));
-        let params = params_to_json(&[serde_json::Value::String(id.to_string())]);
+        let params = params_to_json(&[serde_json::Value::String(id.to_string())])?;
         let result = bridge::db_exec_raw(&sql, &params)
             .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
@@ -595,7 +630,7 @@ impl DatabaseService for BrowserDatabaseService {
 
     async fn count(&self, collection: &str, filters: &[Filter]) -> Result<i64, DatabaseError> {
         let table = sanitize_ident(collection);
-        if !table_exists_sync(&table) {
+        if !table_exists_sync(&table)? {
             return Ok(0);
         }
 
@@ -605,10 +640,11 @@ impl DatabaseService for BrowserDatabaseService {
             quote_ident(&table),
             where_clause
         );
-        let params_json = params_to_json(&filter_params);
+        let params_json = params_to_json(&filter_params)?;
         let json = bridge::db_query_raw(&sql, &params_json)
             .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
-        let rows: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap_or_default();
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&json)
+            .map_err(|e| DatabaseError::Internal(format!("parse count rows: {e}")))?;
         Ok(rows
             .first()
             .and_then(|r| r.get("cnt"))
@@ -625,7 +661,7 @@ impl DatabaseService for BrowserDatabaseService {
         filters: &[Filter],
     ) -> Result<f64, DatabaseError> {
         let table = sanitize_ident(collection);
-        if !table_exists_sync(&table) {
+        if !table_exists_sync(&table)? {
             return Ok(0.0);
         }
 
@@ -637,10 +673,11 @@ impl DatabaseService for BrowserDatabaseService {
             quote_ident(&table),
             where_clause
         );
-        let params_json = params_to_json(&filter_params);
+        let params_json = params_to_json(&filter_params)?;
         let json = bridge::db_query_raw(&sql, &params_json)
             .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
-        let rows: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap_or_default();
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&json)
+            .map_err(|e| DatabaseError::Internal(format!("parse sum rows: {e}")))?;
         Ok(rows
             .first()
             .and_then(|r| r.get("total"))
@@ -656,7 +693,7 @@ impl DatabaseService for BrowserDatabaseService {
         args: &[serde_json::Value],
     ) -> Result<Vec<Record>, DatabaseError> {
         let coerced: Vec<serde_json::Value> = args.iter().map(coerce_param).collect();
-        let params_json = params_to_json(&coerced);
+        let params_json = params_to_json(&coerced)?;
         let json = bridge::db_query_raw(query, &params_json)
             .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
         parse_rows(&json)
@@ -670,7 +707,7 @@ impl DatabaseService for BrowserDatabaseService {
         args: &[serde_json::Value],
     ) -> Result<i64, DatabaseError> {
         let coerced: Vec<serde_json::Value> = args.iter().map(coerce_param).collect();
-        let params_json = params_to_json(&coerced);
+        let params_json = params_to_json(&coerced)?;
         let result = bridge::db_exec_raw(query, &params_json)
             .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
@@ -687,13 +724,13 @@ impl DatabaseService for BrowserDatabaseService {
         filters: &[Filter],
     ) -> Result<(), DatabaseError> {
         let table = sanitize_ident(collection);
-        if !table_exists_sync(&table) {
+        if !table_exists_sync(&table)? {
             return Ok(());
         }
 
         let (where_clause, filter_params) = build_where(filters);
         let sql = format!("DELETE FROM {} {}", quote_ident(&table), where_clause);
-        let params_json = params_to_json(&filter_params);
+        let params_json = params_to_json(&filter_params)?;
         bridge::db_exec_raw(&sql, &params_json)
             .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
@@ -711,7 +748,7 @@ impl DatabaseService for BrowserDatabaseService {
         mut data: HashMap<String, serde_json::Value>,
     ) -> Result<(), DatabaseError> {
         let table = sanitize_ident(collection);
-        if !table_exists_sync(&table) {
+        if !table_exists_sync(&table)? {
             return Ok(());
         }
 
@@ -723,7 +760,9 @@ impl DatabaseService for BrowserDatabaseService {
         }
 
         let (where_clause, filter_params) = build_where(filters);
-        let set_pairs: Vec<(String, serde_json::Value)> = data.into_iter().collect();
+        // Sorted-key iteration — stable SET clause across HashMap permutations.
+        let mut set_pairs: Vec<(String, serde_json::Value)> = data.into_iter().collect();
+        set_pairs.sort_by(|a, b| a.0.cmp(&b.0));
         let set_clauses: Vec<String> = set_pairs
             .iter()
             .map(|(k, _)| format!("{} = ?", quote_ident(&sanitize_ident(k))))
@@ -738,7 +777,7 @@ impl DatabaseService for BrowserDatabaseService {
         let mut params: Vec<serde_json::Value> =
             set_pairs.iter().map(|(_, v)| coerce_param(v)).collect();
         params.extend(filter_params);
-        let params_json = params_to_json(&params);
+        let params_json = params_to_json(&params)?;
 
         bridge::db_exec_raw(&sql, &params_json)
             .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
@@ -757,7 +796,7 @@ impl DatabaseService for BrowserDatabaseService {
             .map_err(|e| DatabaseError::Internal(format!("sql exec: {:?}", e)))?;
 
         // Add any missing columns
-        let existing = existing_columns(&table.name);
+        let existing = existing_columns(&table.name)?;
         for col in &table.columns {
             if !existing.contains(&col.name.to_lowercase()) {
                 let alter = format!(
@@ -802,7 +841,7 @@ impl DatabaseService for BrowserDatabaseService {
     // ── schema_table_exists ───────────────────────────────────────────────────
 
     async fn schema_table_exists(&self, name: &str) -> Result<bool, DatabaseError> {
-        Ok(table_exists_sync(name))
+        table_exists_sync(name)
     }
 
     // ── schema_drop_table ─────────────────────────────────────────────────────

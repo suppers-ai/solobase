@@ -387,26 +387,53 @@ pub(crate) async fn grants_custom_tab(ctx: &dyn Context, _msg: &Message) -> Mark
 // Permissions page tab functions
 // ---------------------------------------------------------------------------
 
+/// Map a wire-level resource_type string ("db", "config", …) to its
+/// display label ("DB", "Config", …). Used by every render of the
+/// permissions tabs — was inlined as a 6-arm `match` ladder at four sites.
+fn human_resource_type(rt: &str) -> &'static str {
+    match rt {
+        "db" => "DB",
+        "config" => "Config",
+        "storage" => "Storage",
+        "crypto" => "Crypto",
+        "network" => "Network",
+        // Unknown values pass through as best-effort — `match.expr` had a
+        // wildcard arm returning the input. Returning a known &'static str
+        // here trades flexibility for type-clarity; unknown values render
+        // as "Other".
+        _ => "Other",
+    }
+}
+
+/// One row in the unified permissions table (see `permissions_all_tab`).
+struct PermRow {
+    /// Resource-type badge: "DB" / "Config" / "Storage" / "Network" / "Crypto" / etc.
+    type_label: String,
+    /// Human-readable sentence ("`<grantee>` can read `<owner>`'s `<resource>`").
+    sentence: String,
+    /// Origin: "code" (declared in BlockInfo.grants) or "custom" (DB-backed
+    /// grants / storage rules / network rules).
+    origin: &'static str,
+    /// Sort key — typically the owner block name (for code rows) or the
+    /// grantee (for custom rows). Used for secondary sort within a group.
+    sort_key: String,
+    /// Group order — 0 = custom rules (shown first), 1 = code-declared
+    /// grants. Custom rules surface first because they're admin-editable.
+    order: u8,
+}
+
 /// "All" tab: combines data from DB grants, storage rules, and network rules
 /// into one unified table with human-readable descriptions.
 async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
     let blocks = ctx.registered_blocks();
 
     // 1. Code grants (from block declarations)
-    let mut all_rows: Vec<(String, String, String, String, u8)> = Vec::new(); // (type_badge, sentence, origin, sort_key, order: 0=custom, 1=code)
+    let mut all_rows: Vec<PermRow> = Vec::new();
 
     for block in &blocks {
         for grant in &block.grants {
             let type_label = match &grant.resource_type {
-                Some(rt) => match rt.to_string().as_str() {
-                    "db" => "DB",
-                    "config" => "Config",
-                    "storage" => "Storage",
-                    "crypto" => "Crypto",
-                    "network" => "Network",
-                    other => other,
-                }
-                .to_string(),
+                Some(rt) => human_resource_type(rt.to_string().as_str()).to_string(),
                 None => "DB/Config".to_string(),
             };
             let grantee = if grant.grantee == "*" {
@@ -420,7 +447,13 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
                 "can read"
             };
             let sentence = format!("{} {} {}' {}", grantee, verb, block.name, grant.resource);
-            all_rows.push((type_label, sentence, "code".into(), block.name.clone(), 1));
+            all_rows.push(PermRow {
+                type_label,
+                sentence,
+                origin: "code",
+                sort_key: block.name.clone(),
+                order: 1,
+            });
         }
     }
 
@@ -449,13 +482,10 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
             .get("resource_type")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let type_label = match rt {
-            "db" => "DB",
-            "config" => "Config",
-            "storage" => "Storage",
-            "crypto" => "Crypto",
-            "" => "DB/Config",
-            other => other,
+        let type_label = if rt.is_empty() {
+            "DB/Config"
+        } else {
+            human_resource_type(rt)
         };
         let grantee_display = if grantee == "*" {
             "All blocks"
@@ -468,13 +498,13 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
             "can read"
         };
         let sentence = format!("{} {} {}", grantee_display, verb, resource);
-        all_rows.push((
-            type_label.to_string(),
+        all_rows.push(PermRow {
+            type_label: type_label.to_string(),
             sentence,
-            "custom".into(),
-            grantee.to_string(),
-            0,
-        ));
+            origin: "custom",
+            sort_key: grantee.to_string(),
+            order: 0,
+        });
     }
 
     // 3. Storage rules
@@ -513,13 +543,13 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
             }
         };
         let sentence = format!("{} {} storage path {}", source_display, verb, target);
-        all_rows.push((
-            "Storage".into(),
+        all_rows.push(PermRow {
+            type_label: "Storage".into(),
             sentence,
-            "custom".into(),
-            source.to_string(),
-            0,
-        ));
+            origin: "custom",
+            sort_key: source.to_string(),
+            order: 0,
+        });
     }
 
     // 4. Network rules
@@ -558,17 +588,21 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
             "is allowed to reach"
         };
         let sentence = format!("{} {} {}", source_display, verb, pattern);
-        all_rows.push((
-            "Network".into(),
+        all_rows.push(PermRow {
+            type_label: "Network".into(),
             sentence,
-            "custom".into(),
-            source_display.clone(),
-            0,
-        ));
+            origin: "custom",
+            sort_key: source_display.clone(),
+            order: 0,
+        });
     }
 
     // Sort: custom (0) before code (1), then by sort_key
-    all_rows.sort_by(|a, b| a.4.cmp(&b.4).then_with(|| a.3.cmp(&b.3)));
+    all_rows.sort_by(|a, b| {
+        a.order
+            .cmp(&b.order)
+            .then_with(|| a.sort_key.cmp(&b.sort_key))
+    });
 
     html! {
         div .card .mt-4 {
@@ -587,10 +621,10 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
                             }
                         }
                         tbody {
-                            @for (type_label, sentence, origin, _sort, _order) in &all_rows {
+                            @for row in &all_rows {
                                 tr {
                                     td {
-                                        @let badge_class = match type_label.as_str() {
+                                        @let badge_class = match row.type_label.as_str() {
                                             "DB" | "DB/Config" => "badge-info",
                                             "Config" => "badge-info",
                                             "Storage" => "badge-warning",
@@ -598,11 +632,11 @@ async fn permissions_all_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
                                             "Crypto" => "badge-secondary",
                                             _ => "badge-secondary",
                                         };
-                                        span .badge .(badge_class) style="font-size:11px" { (type_label) }
+                                        span .badge .(badge_class) style="font-size:11px" { (row.type_label) }
                                     }
-                                    td style="font-size:13px" { (sentence) }
+                                    td style="font-size:13px" { (row.sentence) }
                                     td {
-                                        @if origin == "code" {
+                                        @if row.origin == "code" {
                                             span .badge .badge-secondary style="font-size:10px" { "code" }
                                         } @else {
                                             span .badge .badge-primary style="font-size:10px" { "custom" }
@@ -634,238 +668,4 @@ async fn permissions_storage_tab(ctx: &dyn Context, msg: &Message) -> Markup {
 /// "Network" tab: delegates to the existing network_rules_tab.
 async fn permissions_network_tab(ctx: &dyn Context, msg: &Message) -> Markup {
     network_rules_tab(ctx, msg).await
-}
-
-#[allow(dead_code)]
-/// Form for adding a database/config grant.
-fn permissions_db_form(ctx: &dyn Context) -> Markup {
-    let blocks = ctx.registered_blocks();
-    let block_names: Vec<&str> = blocks.iter().map(|b| b.name.as_str()).collect();
-
-    html! {
-        // Re-use the JS from grants_custom_tab for dynamic owner-based form updates
-        script {
-            (maud::PreEscaped("var grantBlocks = "))
-            (maud::PreEscaped({
-                let block_data: Vec<serde_json::Value> = blocks.iter()
-                    .filter(|b| b.name.contains('/'))
-                    .map(|b| {
-                        let prefix = format!("{}__", b.name.replace('/', "__").replace('-', "_"));
-                        let config_prefix = prefix.to_uppercase();
-                        serde_json::json!({
-                            "name": b.name,
-                            "prefix": prefix,
-                            "config_prefix": config_prefix,
-                            "collections": b.collections.iter().map(|c| &c.name).collect::<Vec<_>>(),
-                            "config_keys": b.config_keys.iter().map(|k| &k.key).collect::<Vec<_>>(),
-                        })
-                    })
-                    .collect();
-                serde_json::to_string(&block_data).unwrap_or_default()
-            }))
-            (maud::PreEscaped(r#";
-            function updatePermGrantForm() {
-                var owner = document.getElementById('perm_grant_owner').value;
-                var type = document.getElementById('perm_resource_type').value;
-                var scopeEl = document.getElementById('perm_grant_scope');
-                var specificEl = document.getElementById('perm_specific_group');
-                var resourceEl = document.getElementById('perm_resource');
-                var specificSelect = document.getElementById('perm_specific_resource');
-                if (!owner || !scopeEl) return;
-                var block = grantBlocks.find(function(b) { return b.name === owner; });
-                if (!block) return;
-                if (scopeEl.value === 'all') {
-                    specificEl.style.display = 'none';
-                    if (type === 'config') {
-                        resourceEl.value = block.config_prefix + '*';
-                    } else if (type === 'storage') {
-                        resourceEl.value = block.name + '/*';
-                    } else if (type === 'crypto') {
-                        resourceEl.value = block.name;
-                    } else {
-                        resourceEl.value = block.prefix + '*';
-                    }
-                } else {
-                    specificEl.style.display = '';
-                    specificSelect.innerHTML = '';
-                    var items = [];
-                    if (type === 'db' || type === '') {
-                        block.collections.forEach(function(c) { items.push(c); });
-                    }
-                    if (type === 'config' || type === '') {
-                        block.config_keys.forEach(function(k) { items.push(k); });
-                    }
-                    if (items.length === 0) {
-                        var opt = document.createElement('option');
-                        opt.value = block.prefix + '*';
-                        opt.text = 'All resources (' + block.prefix + '*)';
-                        specificSelect.appendChild(opt);
-                    }
-                    items.forEach(function(item) {
-                        var opt = document.createElement('option');
-                        opt.value = item;
-                        opt.text = item;
-                        specificSelect.appendChild(opt);
-                    });
-                    resourceEl.value = specificSelect.value;
-                    specificSelect.onchange = function() { resourceEl.value = this.value; };
-                }
-            }
-            "#))
-        }
-        form hx-post="/b/admin/grants/rules" hx-target="#content" {
-            div .form-group {
-                label .form-label for="grantee" { "Which block needs access?" }
-                select .form-input #perm_grantee name="grantee" required {
-                    option value="" disabled selected { "Select a block..." }
-                    option value="*" { "All blocks" }
-                    @for name in &block_names {
-                        option value=(name) { (name) }
-                    }
-                }
-            }
-            div .form-group {
-                label .form-label for="perm_grant_owner" { "Access to which block's data?" }
-                select .form-input #perm_grant_owner
-                    onchange="updatePermGrantForm()"
-                {
-                    option value="" disabled selected { "Select the data owner..." }
-                    @for b in blocks.iter().filter(|b| b.name.contains('/')) {
-                        option value=(b.name) { (b.name) }
-                    }
-                }
-            }
-            div .form-group {
-                label .form-label for="perm_resource_type" { "What kind of data?" }
-                select .form-input #perm_resource_type name="resource_type"
-                    onchange="updatePermGrantForm()"
-                {
-                    option value="" { "All (database + config + storage)" }
-                    option value="db" { "Database tables" }
-                    option value="config" { "Config keys" }
-                    option value="storage" { "Storage files" }
-                    option value="crypto" { "Crypto signing keys" }
-                }
-            }
-            div .form-group {
-                label .form-label for="perm_grant_scope" { "How much access?" }
-                select .form-input #perm_grant_scope
-                    onchange="updatePermGrantForm()"
-                {
-                    option value="all" { "All resources of this type" }
-                    option value="specific" { "A specific resource" }
-                }
-            }
-            div .form-group #perm_specific_group style="display:none" {
-                label .form-label for="perm_specific_resource" { "Pick a resource" }
-                select .form-input #perm_specific_resource {}
-            }
-            input type="hidden" #perm_resource name="resource";
-            div .form-group {
-                label .form-label .flex .items-center .gap-2 {
-                    input type="checkbox" #perm_write name="write" value="on";
-                    " Allow write access"
-                }
-            }
-            div .form-group {
-                label .form-label for="perm_description" { "Why is this needed? (optional)" }
-                input .form-input type="text" #perm_description name="description"
-                    placeholder="e.g. Analytics block needs to read user profiles";
-            }
-            div .form-actions {
-                button .btn .btn-secondary type="button" onclick="resetPermModal(); closeModal('add-permission-modal')" { "Cancel" }
-                button .btn .btn-primary type="submit" { "Add Grant" }
-            }
-        }
-    }
-}
-
-#[allow(dead_code)]
-/// Form for adding a storage rule.
-fn permissions_storage_form(ctx: &dyn Context) -> Markup {
-    let registered = ctx.registered_blocks();
-    let storage_blocks: Vec<&str> = registered
-        .iter()
-        .filter(|b| b.category != wafer_run::BlockCategory::Service && !b.name.is_empty())
-        .map(|b| b.name.as_str())
-        .collect();
-
-    html! {
-        form hx-post="/b/admin/storage/rules" hx-target="#content" {
-            div .form-group {
-                label .form-label for="rule_type" { "Rule Type" }
-                select .form-input name="rule_type" {
-                    option value="allow" { "Allow \u{2014} grant cross-block access" }
-                    option value="block" { "Block \u{2014} deny access to matching paths" }
-                }
-            }
-            div .form-group {
-                label .form-label for="source_block" { "Source Block" }
-                select .form-input name="source_block" {
-                    option value="*" { "* (any block)" }
-                    @for name in &storage_blocks {
-                        option value=(name) { (name) }
-                    }
-                }
-            }
-            div .form-group {
-                label .form-label for="target_path" { "Target Path" }
-                input .form-input type="text" name="target_path"
-                    placeholder="e.g. wafer-run/web/*" required;
-                p .text-muted style="font-size:12px;margin-top:4px" {
-                    "Storage path pattern. e.g. " code { "wafer-run/web/*" }
-                }
-            }
-            div .form-group {
-                label .form-label for="access" { "Access Type" }
-                select .form-input name="access" {
-                    option value="readwrite" { "Read & Write" }
-                    option value="read" { "Read only" }
-                    option value="write" { "Write only" }
-                }
-            }
-            div .form-group {
-                label .form-label for="priority" { "Priority" }
-                input .form-input type="number" name="priority" value="0";
-                p .text-muted style="font-size:12px;margin-top:4px" { "Higher priority rules are evaluated first" }
-            }
-            div .form-actions {
-                button .btn .btn-secondary type="button" onclick="resetPermModal(); closeModal('add-permission-modal')" { "Cancel" }
-                button .btn .btn-primary type="submit" { "Add Rule" }
-            }
-        }
-    }
-}
-
-#[allow(dead_code)]
-/// Form for adding a network rule.
-fn permissions_network_form() -> Markup {
-    html! {
-        form hx-post="/b/admin/network/rules" hx-target="#content" {
-            div .form-group {
-                label .form-label for="rule_type" { "Rule Type" }
-                select .form-input name="rule_type" {
-                    option value="block" { "Block \u{2014} deny matching URLs" }
-                    option value="allow" { "Allow \u{2014} only permit matching URLs" }
-                }
-            }
-            div .form-group {
-                label .form-label for="pattern" { "URL Pattern" }
-                input .form-input type="text" name="pattern"
-                    placeholder="e.g. https://api.example.com/*" required;
-                p .text-muted style="font-size:12px;margin-top:4px" {
-                    "Use * as wildcard. Examples: " code { "*.internal.corp*" } ", " code { "https://api.stripe.com/*" }
-                }
-            }
-            div .form-group {
-                label .form-label for="priority" { "Priority" }
-                input .form-input type="number" name="priority" value="0";
-                p .text-muted style="font-size:12px;margin-top:4px" { "Higher priority rules are evaluated first" }
-            }
-            div .form-actions {
-                button .btn .btn-secondary type="button" onclick="resetPermModal(); closeModal('add-permission-modal')" { "Cancel" }
-                button .btn .btn-primary type="submit" { "Add Rule" }
-            }
-        }
-    }
 }

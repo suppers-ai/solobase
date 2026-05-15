@@ -41,5 +41,5 @@ pub async fn serve(
     run_migrations: bool,
 ) -> Result<()> {
     build(repo_root, release).await?;
-    crate::cli::server::run(run_migrations).await
+    crate::cli::server::run(repo_root, run_migrations).await
 }

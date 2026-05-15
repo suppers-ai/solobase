@@ -13,6 +13,10 @@ pub struct BrowserEmbeddingService {
     dimensions: u32,
 }
 
+// SAFETY: `BrowserEmbeddingService` only holds owned `String` + `u32`.
+// wasm32-unknown-unknown has no threads, so the `Send`/`Sync` bounds
+// required by `Arc<dyn EmbeddingService>` are satisfied trivially — no
+// cross-thread aliasing or data races are possible.
 unsafe impl Send for BrowserEmbeddingService {}
 unsafe impl Sync for BrowserEmbeddingService {}
 
@@ -35,11 +39,10 @@ impl BrowserEmbeddingService {
     }
 }
 
-impl Default for BrowserEmbeddingService {
-    fn default() -> Self {
-        Self::new().expect("default model is always valid")
-    }
-}
+// `Default` is intentionally not implemented: constructing the service can
+// fail (the model id might be missing from the registry), and a panicking
+// `Default::default()` would hide that failure. Use `Self::new()` or
+// `Self::with_model(...)` and propagate the `Result`.
 
 #[async_trait::async_trait(?Send)]
 impl EmbeddingService for BrowserEmbeddingService {

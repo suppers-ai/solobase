@@ -112,14 +112,18 @@ use crate::ui::{
 /// Load the calling user's buckets, decorated with live object counts.
 ///
 /// `created_by` filtering keeps users from seeing each other's buckets.
-/// Two N+1-shaped concerns: (1) `ListOptions::default()` has `limit: 0`
-/// which means no LIMIT clause — a full scan of the buckets collection
-/// for this user. (2) Object counts loop one `db::count` per bucket.
-/// Both are acceptable for v1 — per-user bucket count is normally small.
-/// If this gets hot, fold into a single aggregate query via
-/// `wafer-sql-utils::aggregate` (do **not** use raw SQL — CLAUDE.md).
+/// Object counts come from a single GROUP BY query on the objects table
+/// (one row per bucket) so we avoid the previous N+1 `db::count` per
+/// bucket.
 pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<BucketRow> {
+    use std::collections::HashMap;
+
     use wafer_core::clients::database::{Filter, FilterOp, SortField};
+    use wafer_sql_utils::{
+        aggregate::{build_grouped_query, AggFunc, AggregateColumn, GroupedQueryConfig},
+        value::sea_values_to_json,
+        Backend,
+    };
 
     use super::{BUCKETS_TABLE, OBJECTS_TABLE};
 
@@ -145,6 +149,51 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
         }
     };
 
+    // Build a list of bucket names this user owns; restrict the GROUP BY
+    // to those buckets so the count matches the previous per-bucket
+    // db::count semantics exactly (which counted all objects in the
+    // bucket regardless of `uploaded_by`).
+    let bucket_names: Vec<serde_json::Value> = recs
+        .iter()
+        .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()))
+        .map(|s| serde_json::Value::String(s.to_string()))
+        .collect();
+    let counts_cfg = GroupedQueryConfig {
+        table: OBJECTS_TABLE.into(),
+        select_columns: vec!["bucket".into()],
+        aggregates: vec![AggregateColumn {
+            func: AggFunc::Count,
+            field: None,
+            alias: "cnt".into(),
+            cast_as: None,
+            inner_expr: None,
+        }],
+        filters: vec![Filter {
+            field: "bucket".into(),
+            operator: FilterOp::In,
+            value: serde_json::Value::Array(bucket_names),
+        }],
+        group_by: vec!["bucket".into()],
+        order_by: vec![],
+        limit: None,
+    };
+    let (sql, vals) = build_grouped_query(counts_cfg, Backend::Sqlite);
+    let counts_by_bucket: HashMap<String, i64> =
+        match db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await {
+            Ok(rows) => rows
+                .into_iter()
+                .filter_map(|r| {
+                    let bucket = r.data.get("bucket").and_then(|v| v.as_str())?.to_string();
+                    let cnt = r.data.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+                    Some((bucket, cnt))
+                })
+                .collect(),
+            Err(e) => {
+                tracing::warn!(error = %e, "files bucket object counts failed");
+                HashMap::new()
+            }
+        };
+
     let mut rows: Vec<BucketRow> = Vec::with_capacity(recs.len());
     for r in recs {
         let name = r
@@ -164,19 +213,7 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string();
-
-        let obj_filters = vec![Filter {
-            field: "bucket".into(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String(name.clone()),
-        }];
-        let object_count = match db::count(ctx, OBJECTS_TABLE, &obj_filters).await {
-            Ok(n) => n,
-            Err(e) => {
-                tracing::warn!(error = %e, bucket = %name, "files bucket object count failed");
-                0
-            }
-        };
+        let object_count = counts_by_bucket.get(&name).copied().unwrap_or(0);
 
         rows.push(BucketRow {
             name,

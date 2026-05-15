@@ -13,7 +13,7 @@ use wafer_core::clients::{
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::{
-    blocks::helpers::{self, json_map, ok_json, RecordExt},
+    blocks::helpers::{self, err_bad_request, err_internal, json_map, ok_json, RecordExt},
     ui::{
         components, icons, nav_groups,
         shell::{Crumb, Topbar},
@@ -593,7 +593,10 @@ pub async fn handle_save(ctx: &dyn Context, msg: &Message, input: InputStream) -
     let raw = input.collect_to_bytes().await;
     let body: SaveRequest = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return ok_json(&serde_json::json!({"error": format!("Invalid request: {e}")})),
+        // Previously returned 200 OK with an `error` key — htmx clients
+        // would still treat that as success. Use the proper 4xx so the
+        // caller can branch on status alone.
+        Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
     };
 
     let now = helpers::now_rfc3339();
@@ -631,7 +634,7 @@ pub async fn handle_save(ctx: &dyn Context, msg: &Message, input: InputStream) -
                 "status": "draft",
                 "message": "Draft saved"
             })),
-            Err(e) => ok_json(&serde_json::json!({"error": format!("Failed to save: {e}")})),
+            Err(e) => err_internal("Failed to save legal-page draft", e),
         }
     } else {
         let data = json_map(serde_json::json!({
@@ -645,7 +648,7 @@ pub async fn handle_save(ctx: &dyn Context, msg: &Message, input: InputStream) -
                 "status": "draft",
                 "message": "Draft saved"
             })),
-            Err(e) => ok_json(&serde_json::json!({"error": format!("Failed to save: {e}")})),
+            Err(e) => err_internal("Failed to save legal-page draft", e),
         }
     }
 }
@@ -660,11 +663,6 @@ pub async fn handle_publish(ctx: &dyn Context, msg: &Message, input: InputStream
     };
 
     let now = helpers::now_rfc3339();
-    let doc_id_for_archive = if body.doc_id.is_empty() {
-        ""
-    } else {
-        &body.doc_id
-    };
 
     // Use user-provided version if > 0, otherwise auto-increment
     let next_version = if body.version > 0 {
@@ -697,11 +695,10 @@ pub async fn handle_publish(ctx: &dyn Context, msg: &Message, input: InputStream
             + 1
     };
 
-    // Archive existing published documents of this type (except the one we're about to publish)
-    archive_published(ctx, &body.doc_type, doc_id_for_archive).await;
-
-    if !body.doc_id.is_empty() {
-        // Update existing document and publish
+    // Publish the new/updated doc first, then archive previous published
+    // docs of this type. Archiving up-front would leave the doc-type with
+    // no published version if the publish step then failed.
+    let published_id = if !body.doc_id.is_empty() {
         let data = json_map(serde_json::json!({
             "title": body.title,
             "content": body.content,
@@ -711,16 +708,12 @@ pub async fn handle_publish(ctx: &dyn Context, msg: &Message, input: InputStream
             "updated_at": now
         }));
         match db::update(ctx, COLLECTION, &body.doc_id, data).await {
-            Ok(_) => ok_json(&serde_json::json!({
-                "doc_id": body.doc_id,
-                "status": "published",
-                "version": next_version,
-                "message": format!("Published as v{}", next_version)
-            })),
-            Err(e) => ok_json(&serde_json::json!({"error": format!("Failed to publish: {e}")})),
+            Ok(_) => body.doc_id.clone(),
+            Err(e) => {
+                return err_bad_request(&format!("Failed to publish: {e}"));
+            }
         }
     } else {
-        // Create new published document
         let data = json_map(serde_json::json!({
             "doc_type": body.doc_type,
             "title": body.title,
@@ -733,15 +726,24 @@ pub async fn handle_publish(ctx: &dyn Context, msg: &Message, input: InputStream
             "created_by": msg.user_id()
         }));
         match db::create(ctx, COLLECTION, data).await {
-            Ok(record) => ok_json(&serde_json::json!({
-                "doc_id": record.id,
-                "status": "published",
-                "version": next_version,
-                "message": format!("Published as v{}", next_version)
-            })),
-            Err(e) => ok_json(&serde_json::json!({"error": format!("Failed to publish: {e}")})),
+            Ok(record) => record.id,
+            Err(e) => {
+                return err_bad_request(&format!("Failed to publish: {e}"));
+            }
         }
-    }
+    };
+
+    // New doc is live; safe to archive earlier published siblings now.
+    // `published_id` (and not just `doc_id_for_archive`) ensures we don't
+    // archive the doc we just created.
+    archive_published(ctx, &body.doc_type, &published_id).await;
+
+    ok_json(&serde_json::json!({
+        "doc_id": published_id,
+        "status": "published",
+        "version": next_version,
+        "message": format!("Published as v{}", next_version)
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -890,12 +892,14 @@ pub async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> Outp
     let raw = input.collect_to_bytes().await;
     let body: std::collections::HashMap<String, String> = match serde_json::from_slice(&raw) {
         Ok(b) => b,
-        Err(e) => return ok_json(&serde_json::json!({"error": format!("Invalid request: {e}")})),
+        Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
     };
 
     for &(key, _, _, _) in SETTINGS_KEYS {
         if let Some(value) = body.get(key) {
-            let _ = config::set(ctx, key, value).await;
+            if let Err(e) = config::set(ctx, key, value).await {
+                tracing::warn!(error = %e, key = key, "legalpages: failed to set config value");
+            }
         }
     }
 

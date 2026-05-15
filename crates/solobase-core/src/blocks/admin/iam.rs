@@ -264,10 +264,13 @@ async fn handle_assign_role(ctx: &dyn Context, msg: &Message, input: InputStream
         ],
     )
     .await;
-    if let Ok(records) = existing {
-        if !records.is_empty() {
-            return err_conflict("Role already assigned to user");
+    match existing {
+        Ok(records) => {
+            if !records.is_empty() {
+                return err_conflict("Role already assigned to user");
+            }
         }
+        Err(e) => return err_internal("Database error", e),
     }
 
     let data = json_map(serde_json::json!({

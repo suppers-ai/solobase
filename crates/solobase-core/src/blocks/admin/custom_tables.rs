@@ -55,6 +55,17 @@ fn extract_record_id(path: &str) -> &str {
     }
 }
 
+/// Prefix a user-supplied table name with `custom_` if it isn't already.
+/// Used by every record-CRUD path so the `starts_with` branch lives in one
+/// place.
+fn full_table_name(name: &str) -> String {
+    if name.starts_with("custom_") {
+        name.to_string()
+    } else {
+        format!("custom_{}", name)
+    }
+}
+
 async fn handle_list_tables(ctx: &dyn Context) -> OutputStream {
     let (sql, args) = introspect::build_list_tables_like("custom_", Backend::Sqlite);
     let tables = match db::query_raw(ctx, &sql, &args).await {
@@ -146,11 +157,7 @@ async fn handle_drop_table(ctx: &dyn Context, msg: &Message) -> OutputStream {
         return err_bad_request("Missing table name");
     }
 
-    let full_name = if table_name.starts_with("custom_") {
-        table_name.to_string()
-    } else {
-        format!("custom_{}", table_name)
-    };
+    let full_name = full_table_name(table_name);
     let safe_name = sanitize_ident(&full_name);
 
     let drop_sql = ddl::build_drop_table(&safe_name, Backend::Sqlite);
@@ -167,11 +174,7 @@ async fn handle_list_records(ctx: &dyn Context, msg: &Message) -> OutputStream {
         return err_bad_request("Missing table name");
     }
 
-    let full_name = if table_name.starts_with("custom_") {
-        table_name.to_string()
-    } else {
-        format!("custom_{}", table_name)
-    };
+    let full_name = full_table_name(table_name);
 
     let (_, page_size, offset) = msg.pagination_params(20);
     let opts = ListOptions {
@@ -201,11 +204,7 @@ async fn handle_create_record(
         return err_bad_request("Missing table name");
     }
 
-    let full_name = if table_name.starts_with("custom_") {
-        table_name.to_string()
-    } else {
-        format!("custom_{}", table_name)
-    };
+    let full_name = full_table_name(table_name);
 
     let raw = input.collect_to_bytes().await;
     let body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
@@ -231,11 +230,7 @@ async fn handle_update_record(
         return err_bad_request("Missing table name or record ID");
     }
 
-    let full_name = if table_name.starts_with("custom_") {
-        table_name.to_string()
-    } else {
-        format!("custom_{}", table_name)
-    };
+    let full_name = full_table_name(table_name);
 
     let raw = input.collect_to_bytes().await;
     let body: HashMap<String, serde_json::Value> = match serde_json::from_slice(&raw) {
@@ -245,14 +240,8 @@ async fn handle_update_record(
 
     match db::update(ctx, &full_name, record_id, body).await {
         Ok(record) => ok_json(&record),
-        Err(e) => {
-            let msg_str = format!("{e}");
-            if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found("Record not found")
-            } else {
-                err_internal("Database error", e)
-            }
-        }
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Record not found"),
+        Err(e) => err_internal("Database error", e),
     }
 }
 
@@ -264,21 +253,11 @@ async fn handle_delete_record(ctx: &dyn Context, msg: &Message) -> OutputStream 
         return err_bad_request("Missing table name or record ID");
     }
 
-    let full_name = if table_name.starts_with("custom_") {
-        table_name.to_string()
-    } else {
-        format!("custom_{}", table_name)
-    };
+    let full_name = full_table_name(table_name);
 
     match db::delete(ctx, &full_name, record_id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
-        Err(e) => {
-            let msg_str = format!("{e}");
-            if msg_str.contains("not found") || msg_str.contains("Not found") {
-                err_not_found("Record not found")
-            } else {
-                err_internal("Database error", e)
-            }
-        }
+        Err(e) if e.code == ErrorCode::NotFound => err_not_found("Record not found"),
+        Err(e) => err_internal("Database error", e),
     }
 }

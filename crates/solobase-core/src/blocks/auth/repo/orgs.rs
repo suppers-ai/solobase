@@ -141,7 +141,7 @@ pub async fn upsert_claimed(
             db::Filter {
                 field: "is_reserved".into(),
                 operator: db::FilterOp::Equal,
-                value: json!(0),
+                value: json!(false),
             },
         ],
     )
@@ -165,7 +165,7 @@ pub async fn upsert_claimed(
     data.insert("owner_user_id".into(), json!(claim.owner_user_id));
     data.insert("verified_via".into(), json!(claim.verified_via));
     data.insert("verified_ref".into(), json!(claim.verified_ref));
-    data.insert("is_reserved".into(), json!(0));
+    data.insert("is_reserved".into(), json!(false));
     data.insert("created_at".into(), json!(now));
     db::create(ctx, TABLE, data)
         .await

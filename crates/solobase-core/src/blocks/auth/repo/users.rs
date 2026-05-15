@@ -18,6 +18,8 @@ pub struct UserRow {
     pub display_name: String,
     pub avatar_url: Option<String>,
     pub role: String,
+    pub disabled: bool,
+    pub email_verified: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -38,12 +40,22 @@ fn now_iso() -> String {
 
 fn row_from_map(m: &HashMap<String, Value>) -> Result<UserRow, RepoError> {
     let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
+    // Defensive bool decode — handles JSON bool, integer (TEXT-int via sqlite),
+    // and string ('true'/'1') so the row reads cleanly across all backends.
+    let b = |k: &str| match m.get(k) {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
+        Some(Value::String(s)) => s == "1" || s.eq_ignore_ascii_case("true"),
+        _ => false,
+    };
     Ok(UserRow {
         id: s("id").ok_or_else(|| RepoError::Db("missing id".into()))?,
         email: s("email").ok_or_else(|| RepoError::Db("missing email".into()))?,
         display_name: s("display_name").unwrap_or_default(),
         avatar_url: s("avatar_url"),
         role: s("role").unwrap_or_else(|| "user".into()),
+        disabled: b("disabled"),
+        email_verified: b("email_verified"),
         created_at: s("created_at").unwrap_or_default(),
         updated_at: s("updated_at").unwrap_or_default(),
     })
@@ -98,24 +110,21 @@ pub async fn find_by_id(ctx: &dyn Context, id: &str) -> Result<Option<UserRow>, 
     }
 }
 
-/// Read the `email_verified` flag for a user. Returns `false` when the user
-/// row is missing or the field is absent (defensive default — the live
-/// `ensure_table` schema is TEXT-everything and may legitimately omit the
-/// column for rows seeded before this migration).
+/// Read the `email_verified` flag for a user. Returns `Ok(false)` when the
+/// user row is missing (the doc-claim path) and propagates other DB errors.
 ///
 /// Accepts both SQLite TEXT-int (`'0'`/`'1'`), Postgres BOOLEAN, JSON `bool`,
 /// and string `'true'`/`'false'` via `RecordExt::bool_field`.
 pub async fn is_email_verified(ctx: &dyn Context, user_id: &str) -> Result<bool, RepoError> {
+    use wafer_block::ErrorCode;
+
     use crate::blocks::helpers::RecordExt;
 
-    let user = match db::get(ctx, TABLE, user_id).await {
-        Ok(r) => r,
-        Err(e) => {
-            // Surface as Db error so the caller can `?` and tracing::warn.
-            return Err(RepoError::Db(format!("get user {user_id}: {e}")));
-        }
-    };
-    Ok(user.bool_field("email_verified"))
+    match db::get(ctx, TABLE, user_id).await {
+        Ok(r) => Ok(r.bool_field("email_verified")),
+        Err(e) if e.code == ErrorCode::NOT_FOUND => Ok(false),
+        Err(e) => Err(RepoError::Db(format!("get user {user_id}: {e}"))),
+    }
 }
 
 /// Set the `email_verified` flag for a user. Stamps `updated_at` so admin
@@ -193,13 +202,11 @@ mod email_verified_tests {
     }
 
     #[tokio::test]
-    async fn missing_user_surfaces_db_error() {
+    async fn missing_user_returns_false() {
         let ctx = TestContext::with_auth().await;
-        let err = is_email_verified(&ctx, "nonexistent").await.unwrap_err();
-        match err {
-            RepoError::Db(_) => {}
-            other => panic!("expected Db error, got {other:?}"),
-        }
+        // Doc-claim: missing user → Ok(false). Real DB errors still propagate
+        // (verified separately by the per-backend integration tests).
+        assert!(!is_email_verified(&ctx, "nonexistent").await.unwrap());
     }
 }
 
