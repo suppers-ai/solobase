@@ -1,3 +1,11 @@
+//! Admin- and user-facing HTTP handlers for the suppers-ai/products block.
+//!
+//! Dispatches under `/admin/b/products/...` (admin CRUD on products, groups,
+//! types, pricing templates, purchases, stats) and `/b/products/...` (catalog,
+//! user-owned products/groups when `SOLOBASE_SHARED__ALLOW_USER_PRODUCTS` is
+//! enabled, calculate-price, purchases, checkout, subscription status).
+//! Stripe webhook + checkout-session flows live in the sibling `stripe` module.
+
 use std::collections::HashMap;
 
 use wafer_core::clients::{
@@ -35,6 +43,34 @@ pub(crate) const SUBSCRIPTIONS_TABLE: &str = "suppers_ai__products__subscription
 
 async fn user_products_enabled(ctx: &dyn Context) -> bool {
     config::get_default(ctx, "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS", "false").await == "true"
+}
+
+/// Look up the id of the `name = "default"` template seeded by the Init
+/// lifecycle. Used so client-omitted `*_template_id` fields default to a
+/// real (UUIDv7) row instead of the literal integer `1` (which never
+/// matches the seeded record and breaks any FK constraint).
+async fn default_template_id(ctx: &dyn Context, table: &str) -> Option<String> {
+    db::get_by_field(ctx, table, "name", serde_json::json!("default"))
+        .await
+        .ok()
+        .map(|r| r.id)
+}
+
+/// Escape SQL LIKE wildcards (`%`, `_`) and the escape char (`\`) in user
+/// input so a user searching for `100% off` doesn't also match arbitrary
+/// characters.
+fn escape_like(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for c in input.chars() {
+        match c {
+            '\\' | '%' | '_' => {
+                out.push('\\');
+                out.push(c);
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 pub async fn handle_admin(ctx: &dyn Context, msg: &Message, input: InputStream) -> OutputStream {
@@ -227,7 +263,7 @@ async fn handle_list_products(ctx: &dyn Context, msg: &Message) -> OutputStream 
         filters.push(Filter {
             field: "name".to_string(),
             operator: FilterOp::Like,
-            value: serde_json::Value::String(format!("%{}%", search)),
+            value: serde_json::Value::String(format!("%{}%", escape_like(&search))),
         });
     }
 
@@ -458,7 +494,7 @@ async fn handle_user_list_products(ctx: &dyn Context, msg: &Message) -> OutputSt
         filters.push(Filter {
             field: "name".to_string(),
             operator: FilterOp::Like,
-            value: serde_json::Value::String(format!("%{}%", search)),
+            value: serde_json::Value::String(format!("%{}%", escape_like(&search))),
         });
     }
 
@@ -546,9 +582,22 @@ async fn handle_user_create_product(
     );
     data.insert("updated_at".to_string(), serde_json::Value::String(now));
     data.insert("created_by".to_string(), serde_json::Value::String(user_id));
-    // Default product_template_id to the seeded template (id=1) if not provided
-    data.entry("product_template_id".to_string())
-        .or_insert(serde_json::json!(1));
+    // Default product_template_id to the seeded "default" template's real
+    // (UUIDv7) id if the caller didn't specify one. The previous fallback
+    // to the literal integer `1` would never match a seeded record (ids
+    // are UUIDs, not integers).
+    if !data.contains_key("product_template_id")
+        || data
+            .get("product_template_id")
+            .is_some_and(|v| v.is_null() || v.as_str().is_some_and(|s| s.is_empty()))
+    {
+        if let Some(default_id) = default_template_id(ctx, PRODUCT_TEMPLATES_TABLE).await {
+            data.insert(
+                "product_template_id".to_string(),
+                serde_json::Value::String(default_id),
+            );
+        }
+    }
 
     match db::create(ctx, PRODUCTS_TABLE, data).await {
         Ok(record) => ok_json(&record),
@@ -694,9 +743,20 @@ async fn handle_user_create_group(
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
     body.insert("user_id".to_string(), serde_json::Value::String(user_id));
-    // Default group_template_id to the seeded template (id=1) if not provided
-    body.entry("group_template_id".to_string())
-        .or_insert(serde_json::json!(1));
+    // Default group_template_id to the seeded "default" template's real
+    // (UUIDv7) id — same reasoning as for product_template_id above.
+    if !body.contains_key("group_template_id")
+        || body
+            .get("group_template_id")
+            .is_some_and(|v| v.is_null() || v.as_str().is_some_and(|s| s.is_empty()))
+    {
+        if let Some(default_id) = default_template_id(ctx, GROUP_TEMPLATES_TABLE).await {
+            body.insert(
+                "group_template_id".to_string(),
+                serde_json::Value::String(default_id),
+            );
+        }
+    }
 
     match db::create(ctx, GROUPS_TABLE, body).await {
         Ok(record) => ok_json(&record),
@@ -833,59 +893,53 @@ async fn handle_subscription(ctx: &dyn Context, msg: &Message) -> OutputStream {
         return err_unauthorized("Not authenticated");
     }
 
-    use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
+    use wafer_sql_utils::{
+        aggregate::{build_grouped_query, AggFunc, AggregateColumn, GroupedQueryConfig},
+        value::sea_values_to_json,
+        Backend,
+    };
 
-    let (sql, vals) = query::build_select_columns(
-        SUBSCRIPTIONS_TABLE,
-        &[
-            "id",
-            "plan",
-            "status",
-            "stripe_subscription_id",
-            "grace_period_end",
-            "addon_projects",
-            "addon_requests",
-            "addon_r2_bytes",
-            "addon_d1_bytes",
-            "created_at",
-            "updated_at",
+    // Build COALESCE(addon_*, 0) into the SQL via the aggregate builder so we
+    // don't have to post-process null cells in Rust. group_by is empty —
+    // the row is implicitly grouped by the user_id filter + LIMIT 1.
+    let coalesced = |alias: &str, field: &str| AggregateColumn {
+        func: AggFunc::Coalesce(serde_json::json!(0)),
+        field: Some(field.into()),
+        alias: alias.into(),
+        cast_as: None,
+        inner_expr: None,
+    };
+    let cfg = GroupedQueryConfig {
+        table: SUBSCRIPTIONS_TABLE.into(),
+        select_columns: vec![
+            "id".into(),
+            "plan".into(),
+            "status".into(),
+            "stripe_subscription_id".into(),
+            "grace_period_end".into(),
+            "created_at".into(),
+            "updated_at".into(),
         ],
-        &ListOptions {
-            filters: vec![Filter {
-                field: "user_id".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(user_id),
-            }],
-            limit: 1,
-            ..Default::default()
-        },
-        None,
-        Backend::Sqlite,
-    );
+        aggregates: vec![
+            coalesced("addon_projects", "addon_projects"),
+            coalesced("addon_requests", "addon_requests"),
+            coalesced("addon_r2_bytes", "addon_r2_bytes"),
+            coalesced("addon_d1_bytes", "addon_d1_bytes"),
+        ],
+        filters: vec![Filter {
+            field: "user_id".into(),
+            operator: FilterOp::Equal,
+            value: serde_json::json!(user_id),
+        }],
+        group_by: vec![],
+        order_by: vec![],
+        limit: Some(1),
+    };
+    let (sql, vals) = build_grouped_query(cfg, Backend::Sqlite);
     let rows = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await;
 
     let sub = match rows {
-        Ok(records) if !records.is_empty() => {
-            // Coalesce nulls on the addon_* columns to 0 — the previous
-            // hand-written query used `COALESCE(col, 0)`; the typed builder
-            // doesn't express that, so apply the same fallback here.
-            let mut data = records[0].data.clone();
-            for key in [
-                "addon_projects",
-                "addon_requests",
-                "addon_r2_bytes",
-                "addon_d1_bytes",
-            ] {
-                if let Some(v) = data.get(key) {
-                    if v.is_null() {
-                        data.insert(key.to_string(), serde_json::json!(0));
-                    }
-                } else {
-                    data.insert(key.to_string(), serde_json::json!(0));
-                }
-            }
-            Some(data)
-        }
+        Ok(records) if !records.is_empty() => Some(records[0].data.clone()),
         _ => None,
     };
 
@@ -895,38 +949,32 @@ async fn handle_subscription(ctx: &dyn Context, msg: &Message) -> OutputStream {
 // --- Stats ---
 
 async fn handle_stats(ctx: &dyn Context, _msg: &Message) -> OutputStream {
-    let total_products = db::count(ctx, PRODUCTS_TABLE, &[]).await.unwrap_or(0);
-    let active_products = db::count(
-        ctx,
-        PRODUCTS_TABLE,
-        &[Filter {
-            field: "status".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String("active".to_string()),
-        }],
-    )
-    .await
-    .unwrap_or(0);
-    let total_purchases = db::count(ctx, PURCHASES_TABLE, &[]).await.unwrap_or(0);
-    let total_revenue = db::sum(
-        ctx,
-        PURCHASES_TABLE,
-        "total_cents",
-        &[Filter {
-            field: "status".to_string(),
-            operator: FilterOp::Equal,
-            value: serde_json::Value::String("completed".to_string()),
-        }],
-    )
-    .await
-    .unwrap_or(0.0);
-    let total_groups = db::count(ctx, GROUPS_TABLE, &[]).await.unwrap_or(0);
+    let active_filter = [Filter {
+        field: "status".to_string(),
+        operator: FilterOp::Equal,
+        value: serde_json::Value::String("active".to_string()),
+    }];
+    let completed_filter = [Filter {
+        field: "status".to_string(),
+        operator: FilterOp::Equal,
+        value: serde_json::Value::String("completed".to_string()),
+    }];
+
+    // Fan out the 5 independent counts/sums concurrently rather than
+    // serializing 5 round-trips on the request path.
+    let (total_products, active_products, total_purchases, total_revenue, total_groups) = tokio::join!(
+        db::count(ctx, PRODUCTS_TABLE, &[]),
+        db::count(ctx, PRODUCTS_TABLE, &active_filter),
+        db::count(ctx, PURCHASES_TABLE, &[]),
+        db::sum(ctx, PURCHASES_TABLE, "total_cents", &completed_filter),
+        db::count(ctx, GROUPS_TABLE, &[]),
+    );
 
     ok_json(&serde_json::json!({
-        "total_products": total_products,
-        "active_products": active_products,
-        "total_purchases": total_purchases,
-        "total_revenue": total_revenue,
-        "total_groups": total_groups
+        "total_products": total_products.unwrap_or(0),
+        "active_products": active_products.unwrap_or(0),
+        "total_purchases": total_purchases.unwrap_or(0),
+        "total_revenue": total_revenue.unwrap_or(0.0),
+        "total_groups": total_groups.unwrap_or(0)
     }))
 }
