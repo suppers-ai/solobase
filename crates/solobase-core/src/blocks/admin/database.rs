@@ -123,7 +123,6 @@ pub(in crate::blocks::admin) enum QueryValidationError {
 }
 
 impl QueryValidationError {
-    #[allow(dead_code)]
     pub(in crate::blocks::admin) fn message(&self) -> &str {
         match self {
             Self::Forbidden(m) | Self::BadRequest(m) => m,
