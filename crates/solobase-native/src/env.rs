@@ -1,11 +1,18 @@
 //! Environment-variable bootstrap helpers for native WAFER apps.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
-/// Load `.env`. Honors `SOLOBASE_ENV_FILE` for an explicit path; otherwise
-/// auto-detects `.env` in the current working directory. Failures on the
-/// explicit-path form are logged to stderr but do not abort.
-pub fn load_dotenv() {
+/// Load `.env` from `dir`. Honors `SOLOBASE_ENV_FILE` for an explicit
+/// path (absolute or relative to the current process cwd); otherwise
+/// looks for `<dir>/.env`. Failures on the explicit-path form are logged
+/// to stderr but do not abort. The default form silently skips when no
+/// `.env` file is present, matching `dotenvy::dotenv` semantics.
+///
+/// Taking the dir explicitly (instead of relying on `dotenvy::dotenv`'s
+/// implicit cwd walk) lets the CLI pin the env-file lookup to the
+/// detected repo root without mutating global process state via
+/// `std::env::set_current_dir`.
+pub fn load_dotenv(dir: &Path) {
     if let Ok(path) = std::env::var("SOLOBASE_ENV_FILE") {
         match dotenvy::from_filename(&path) {
             Ok(_) => {}
@@ -15,7 +22,10 @@ pub fn load_dotenv() {
         }
         return;
     }
-    let _ = dotenvy::dotenv();
+    let candidate = dir.join(".env");
+    if candidate.is_file() {
+        let _ = dotenvy::from_path(&candidate);
+    }
 }
 
 /// Collect env vars that look like app config — i.e. any key containing

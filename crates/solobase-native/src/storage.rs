@@ -2,13 +2,18 @@
 
 use std::sync::Arc;
 
+use anyhow::{Context, Result};
 use wafer_core::interfaces::storage::service::StorageService;
 
 /// Initialise a local-filesystem storage service rooted at `root`.
-pub fn make_local_storage_service(root: &str) -> Arc<dyn StorageService> {
+///
+/// # Errors
+///
+/// Returns an error if the storage root cannot be created or accessed.
+pub fn make_local_storage_service(root: &str) -> Result<Arc<dyn StorageService>> {
     let svc = wafer_block_local_storage::service::LocalStorageService::new(root)
-        .unwrap_or_else(|e| panic!("failed to init local storage at {root}: {e}"));
-    Arc::new(svc)
+        .with_context(|| format!("init local storage at {root}"))?;
+    Ok(Arc::new(svc))
 }
 
 /// Configuration for an S3-compatible storage backend.
@@ -26,8 +31,13 @@ pub struct S3Config {
 ///
 /// Uses `S3StorageService::with_endpoint` when `config.endpoint` is set,
 /// otherwise falls back to default AWS config (env vars / IAM role).
+///
+/// # Errors
+///
+/// Returns an error if the S3 client cannot be constructed (e.g. invalid
+/// endpoint, missing credentials).
 #[cfg(feature = "s3")]
-pub async fn make_s3_storage_service(config: S3Config) -> Arc<dyn StorageService> {
+pub async fn make_s3_storage_service(config: S3Config) -> Result<Arc<dyn StorageService>> {
     use wafer_block_s3::service::S3StorageService;
 
     let svc = match config.endpoint {
@@ -37,7 +47,7 @@ pub async fn make_s3_storage_service(config: S3Config) -> Arc<dyn StorageService
         }
         None => S3StorageService::new(&config.bucket, &config.prefix).await,
     }
-    .unwrap_or_else(|e| panic!("failed to init S3 storage: {e}"));
+    .context("init S3 storage")?;
 
-    Arc::new(svc)
+    Ok(Arc::new(svc))
 }

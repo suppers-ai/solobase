@@ -12,10 +12,12 @@ pub use solobase_core::features::BlockSettings;
 pub fn filter_to_declared_keys(env_vars: HashMap<String, String>) -> Vec<(String, String)> {
     let block_infos = solobase_core::blocks::all_block_infos();
     let all_vars = solobase_core::config_vars::collect_all_config_vars(&block_infos);
-    let known: std::collections::HashSet<String> = all_vars.iter().map(|v| v.key.clone()).collect();
+    // Borrow the declared keys directly — the HashSet only lives for the
+    // duration of the filter, so there's no need to allocate owned Strings.
+    let known: std::collections::HashSet<&str> = all_vars.iter().map(|v| v.key.as_str()).collect();
     env_vars
         .into_iter()
-        .filter(|(k, _)| known.contains(k))
+        .filter(|(k, _)| known.contains(k.as_str()))
         .collect()
 }
 
@@ -28,8 +30,12 @@ pub fn filter_to_declared_keys(env_vars: HashMap<String, String>) -> Vec<(String
 /// Reads the `suppers_ai__admin__block_settings` table (if it exists) and returns a
 /// `BlockSettings` with the enabled/disabled state of each block.
 /// Also seeds from `SOLOBASE_BLOCK_ENABLED` / `SOLOBASE_BLOCK_DISABLED` env vars.
-/// Block default: (full_name, default_enabled).
-/// Used to seed the suppers_ai__admin__block_settings table on first run.
+/// Default enablement for a known solobase block.
+///
+/// Tuple shape: `(full_name, default_enabled)`. Used by [`BLOCK_DEFAULTS`]
+/// to seed the `suppers_ai__admin__block_settings` table on first run so
+/// the admin UI shows the canonical solobase block roster even before any
+/// `SOLOBASE_BLOCK_ENABLED` / `SOLOBASE_BLOCK_DISABLED` env override.
 pub type BlockDefault = (&'static str, bool);
 
 /// Known solobase blocks with their default enabled state.
@@ -60,13 +66,19 @@ pub fn load_block_settings(db_path: &str) -> BlockSettings {
         );",
     );
 
-    // Seed defaults for known blocks (INSERT OR IGNORE — existing DB values take priority)
-    {
-        let mut stmt = conn
-            .prepare("INSERT OR IGNORE INTO suppers_ai__admin__block_settings (block_name, enabled) VALUES (?1, ?2)")
-            .unwrap();
-        for &(name, default) in BLOCK_DEFAULTS {
-            let _ = stmt.execute(rusqlite::params![name, default as i32]);
+    // Seed defaults for known blocks (INSERT OR IGNORE — existing DB values take priority).
+    // Match the tolerant style of the rest of this function: if the prepare
+    // fails (e.g. table schema mismatch from an older deploy), log and skip
+    // seeding rather than panicking — `read all settings` below still works
+    // off whatever rows already exist.
+    match conn.prepare("INSERT OR IGNORE INTO suppers_ai__admin__block_settings (block_name, enabled) VALUES (?1, ?2)") {
+        Ok(mut stmt) => {
+            for &(name, default) in BLOCK_DEFAULTS {
+                let _ = stmt.execute(rusqlite::params![name, i32::from(default)]);
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "skipped seeding block_settings defaults");
         }
     }
 

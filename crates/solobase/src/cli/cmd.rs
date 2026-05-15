@@ -15,22 +15,26 @@ pub fn format_child_error(
     exit_code: Option<i32>,
     stderr: &str,
 ) -> String {
+    use std::fmt::Write;
+
     let program = cmd.get_program().to_string_lossy();
-    let args: Vec<String> = cmd
-        .get_args()
-        .map(|a| a.to_string_lossy().to_string())
-        .collect();
-    let cmd_line = if args.is_empty() {
-        program.to_string()
-    } else {
-        format!("{} {}", program, args.join(" "))
-    };
     let code = exit_code
         .map(|c| c.to_string())
         .unwrap_or_else(|| "<signal>".to_string());
-    format!(
-        "error: {step} failed\n  command: {cmd_line}\n  exit code: {code}\n  --- stderr ---\n{stderr}",
-    )
+
+    // Write the command line directly into the output buffer rather than
+    // first collecting args into a `Vec<String>` and joining — the args
+    // are only ever read once, so there's no reason to allocate twice.
+    let mut out = String::with_capacity(128 + stderr.len());
+    let _ = write!(&mut out, "error: {step} failed\n  command: {program}");
+    for arg in cmd.get_args() {
+        let _ = write!(&mut out, " {}", arg.to_string_lossy());
+    }
+    let _ = write!(
+        &mut out,
+        "\n  exit code: {code}\n  --- stderr ---\n{stderr}",
+    );
+    out
 }
 
 /// Run `cmd` inheriting stdio, and map non-zero exits to an `anyhow::Error`.

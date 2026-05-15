@@ -46,7 +46,12 @@ struct SolobaseTomlPartial {
 }
 
 /// Parse `<repo_root>/solobase.toml` and return the unresolved `[cloudflare]`
-/// section. Errors with a clear message if the file or section is missing.
+/// section.
+///
+/// # Errors
+///
+/// Returns an error if `solobase.toml` cannot be read, cannot be parsed,
+/// or does not declare a `[cloudflare]` table.
 pub fn parse(repo_root: &Path) -> Result<RawCloudflareConfig> {
     let path = repo_root.join("solobase.toml");
     let raw = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
@@ -134,6 +139,12 @@ fn pick(
 }
 
 /// Production entry point — parse + resolve via `std::env::var`.
+///
+/// # Errors
+///
+/// Returns an error from [`parse`] (missing/unparseable `solobase.toml`)
+/// or [`RawCloudflareConfig::resolve`] (missing required field after env
+/// overlay).
 pub fn load(repo_root: &Path) -> Result<CloudflareConfig> {
     let raw = parse(repo_root)?;
     raw.resolve(|name| std::env::var(name).ok())
@@ -141,6 +152,10 @@ pub fn load(repo_root: &Path) -> Result<CloudflareConfig> {
 
 /// Validate that `CLOUDFLARE_API_TOKEN` is set. Required for `deploy`,
 /// not for `build`/`serve`.
+///
+/// # Errors
+///
+/// Returns an error if the `CLOUDFLARE_API_TOKEN` env var is not set.
 pub fn require_api_token() -> Result<String> {
     std::env::var("CLOUDFLARE_API_TOKEN").map_err(|_| {
         anyhow!(

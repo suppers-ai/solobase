@@ -9,6 +9,7 @@
 
 use std::sync::Arc;
 
+use anyhow::{Context, Result};
 // Force linker inclusion of wafer-block-http-listener so its
 // register_static_block! entry lands in STATIC_BLOCK_REGISTRATIONS.
 use wafer_block_http_listener as _;
@@ -34,31 +35,41 @@ pub fn register_http_listener(wafer: &mut Wafer, listen_addr: &str, flow_id: &st
 
 /// Await a graceful-shutdown signal (ctrl-c or SIGTERM on Unix), then call
 /// `wafer.shutdown().await`. Returns after the shutdown completes.
-pub async fn serve_until_shutdown(wafer: &Arc<Wafer>) {
-    shutdown_signal().await;
+///
+/// # Errors
+///
+/// Returns an error if a signal handler fails to install — that surfaces
+/// as a recoverable boot failure rather than a panic, so the caller can
+/// shut down cleanly instead of leaving an unkillable process behind.
+pub async fn serve_until_shutdown(wafer: &Arc<Wafer>) -> Result<()> {
+    shutdown_signal().await?;
     wafer.shutdown().await;
+    Ok(())
 }
 
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-
+async fn shutdown_signal() -> Result<()> {
     #[cfg(unix)]
-    let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
-    };
+    {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .context("install SIGTERM handler")?;
+        tokio::select! {
+            res = tokio::signal::ctrl_c() => {
+                res.context("install Ctrl+C handler")?;
+                tracing::info!("received Ctrl+C — shutting down");
+            }
+            _ = sigterm.recv() => {
+                tracing::info!("received SIGTERM — shutting down");
+            }
+        }
+    }
 
     #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => tracing::info!("received Ctrl+C — shutting down"),
-        _ = terminate => tracing::info!("received SIGTERM — shutting down"),
+    {
+        tokio::signal::ctrl_c()
+            .await
+            .context("install Ctrl+C handler")?;
+        tracing::info!("received Ctrl+C — shutting down");
     }
+
+    Ok(())
 }
