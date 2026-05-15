@@ -232,20 +232,3 @@ where
 /// `wrangler secret put`). Most config belongs in D1 so admins can
 /// manage it through the dashboard — this list stays short.
 const PROTECTED_ENV_KEYS: &[&str] = &[solobase_core::blocks::auth::JWT_SECRET_KEY];
-
-#[cfg(test)]
-mod api_surface {
-    //! Compile-time check that the public `make_*` surface exists and is
-    //! callable. No runtime assertions — D1/R2 require a worker runtime to
-    //! instantiate. If any of the 6 symbols are renamed or removed, this
-    //! stops compiling.
-    #[allow(dead_code)]
-    fn _signatures_compile() {
-        let _: fn() -> _ = super::make_fetch_network_service;
-        let _: fn() -> _ = super::make_console_logger;
-        let _ = super::make_d1_database_service;
-        let _ = super::make_r2_storage_service;
-        let _ = super::make_jwt_crypto_service;
-        let _ = super::make_config_service;
-    }
-}

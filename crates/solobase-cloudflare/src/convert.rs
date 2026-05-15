@@ -29,10 +29,11 @@ pub async fn worker_request_to_message(req: &Request) -> Result<(Message, InputS
         }
     }
 
-    // Read body (with size limit)
+    // Read body (with size limit). A read error here would otherwise be
+    // swallowed and turned into an empty body, silently corrupting POST/PUT.
     const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10 MB
     let mut req_clone = req.clone()?;
-    let body = req_clone.bytes().await.unwrap_or_default();
+    let body = req_clone.bytes().await?;
     if body.len() > MAX_BODY_SIZE {
         return Err("request body too large".into());
     }

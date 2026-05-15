@@ -14,7 +14,10 @@ pub struct R2StorageService {
     bucket: Bucket,
 }
 
-// Safety: wasm32-unknown-unknown is single-threaded.
+// SAFETY: `R2StorageService` only holds a `worker::Bucket` handle, which is
+// scoped to a single Worker isolate. wasm32-unknown-unknown has no threads,
+// so the `Send`/`Sync` bounds required by `Arc<dyn StorageService>` are
+// satisfied trivially — no cross-thread aliasing is possible.
 unsafe impl Send for R2StorageService {}
 unsafe impl Sync for R2StorageService {}
 
@@ -30,6 +33,14 @@ impl R2StorageService {
     fn folder_prefix(&self, folder: &str) -> String {
         format!("{}/", folder)
     }
+}
+
+/// Convert an R2 `Date` (JS milliseconds since epoch) into a chrono UTC time.
+/// Falls back to `Utc::now()` only if R2 returns a value outside chrono's
+/// representable range, which in practice cannot happen for real objects.
+fn r2_date_to_chrono(d: worker::Date) -> chrono::DateTime<chrono::Utc> {
+    let millis = d.as_millis() as i64;
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(millis).unwrap_or_else(chrono::Utc::now)
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -80,7 +91,7 @@ impl StorageService for R2StorageService {
                 .http_metadata()
                 .content_type
                 .unwrap_or_else(|| "application/octet-stream".to_string()),
-            last_modified: chrono::Utc::now(), // R2 doesn't expose last_modified easily via chrono
+            last_modified: r2_date_to_chrono(obj.uploaded()),
         };
 
         Ok((bytes, info))
@@ -134,7 +145,7 @@ impl StorageService for R2StorageService {
                     key,
                     size: obj.size() as i64,
                     content_type: "application/octet-stream".to_string(),
-                    last_modified: chrono::Utc::now(),
+                    last_modified: r2_date_to_chrono(obj.uploaded()),
                 }
             })
             .collect();

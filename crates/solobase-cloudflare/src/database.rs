@@ -40,26 +40,26 @@ impl D1DatabaseService {
     }
 
     /// For each key in `data` that isn't already a column on `table`,
-    /// run `ALTER TABLE ... ADD COLUMN ... TEXT`. Best-effort: errors
-    /// (e.g. "duplicate column name" from a concurrent insert that
-    /// already added the column) are silently dropped — the caller's
-    /// subsequent INSERT will surface any real schema problem.
+    /// run `ALTER TABLE ... ADD COLUMN ... TEXT`. The only error we tolerate
+    /// is "duplicate column name" — that's the benign race where a
+    /// concurrent isolate ALTER'd the same column between our PRAGMA and our
+    /// ALTER. Every other error propagates so a real schema problem
+    /// surfaces immediately rather than as a cryptic INSERT failure.
     ///
     /// `table` and the data keys are assumed to have already been
     /// run through `sanitize_ident`.
-    async fn add_missing_columns(&self, table: &str, data: &HashMap<String, serde_json::Value>) {
-        let existing = match self.list_table_columns(table).await {
-            Ok(cols) => cols,
-            // If we can't even read the schema, skip and let INSERT fail
-            // with a real message rather than masking a deeper problem.
-            Err(_) => return,
-        };
+    async fn add_missing_columns(
+        &self,
+        table: &str,
+        data: &HashMap<String, serde_json::Value>,
+    ) -> Result<(), DatabaseError> {
+        let existing = self.list_table_columns(table).await?;
         for key in data.keys() {
             let safe_key = sanitize_ident(key);
             if existing.contains(&safe_key.to_lowercase()) {
                 continue;
             }
-            let _ = self
+            let result = self
                 .db
                 .prepare(&format!(
                     "ALTER TABLE {} ADD COLUMN {} TEXT",
@@ -67,7 +67,14 @@ impl D1DatabaseService {
                 ))
                 .run()
                 .await;
+            if let Err(e) = result {
+                let msg = e.to_string();
+                if !is_duplicate_column(&msg) {
+                    return Err(db_err(format!("ALTER TABLE {table} ADD {safe_key}: {msg}")));
+                }
+            }
         }
+        Ok(())
     }
 
     /// Names of columns currently on `table`, lowercased for
@@ -108,7 +115,7 @@ impl D1DatabaseService {
 
         // Fast path: cached set covers all needed columns.
         {
-            let cache = schema_cache().lock().expect("schema cache poisoned");
+            let cache = schema_cache().lock().unwrap_or_else(|p| p.into_inner());
             if let Some(known) = cache.get(table) {
                 if needed.iter().all(|k| known.contains(k)) {
                     return Ok(());
@@ -123,14 +130,14 @@ impl D1DatabaseService {
             .run()
             .await
             .map_err(|e| db_err(format!("ensure_table {}: {e}", table)))?;
-        self.add_missing_columns(table, data).await;
+        self.add_missing_columns(table, data).await?;
 
         // Re-read the column set and update the cache so subsequent
         // inserts see the now-superset and take the fast path.
         if let Ok(cols) = self.list_table_columns(table).await {
             schema_cache()
                 .lock()
-                .expect("schema cache poisoned")
+                .unwrap_or_else(|p| p.into_inner())
                 .insert(table.to_string(), cols);
         }
         Ok(())
@@ -159,7 +166,10 @@ fn schema_cache() -> &'static std::sync::Mutex<HashMap<String, HashSet<String>>>
     SCHEMA_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
-// Safety: wasm32-unknown-unknown is single-threaded.
+// SAFETY: `D1DatabaseService` holds a `D1Database` handle scoped to a single
+// Worker isolate. wasm32-unknown-unknown has no threads, so the
+// `Send`/`Sync` bounds required by `Arc<dyn DatabaseService>` are satisfied
+// trivially — no cross-thread aliasing or data races can occur.
 unsafe impl Send for D1DatabaseService {}
 unsafe impl Sync for D1DatabaseService {}
 
@@ -661,6 +671,14 @@ pub(crate) fn ensure_table_sql<'a>(
 /// Pure function so it can be unit-tested.
 pub(crate) fn is_no_such_table(msg: &str) -> bool {
     msg.contains("no such table")
+}
+
+/// Whether a D1 error message indicates an `ALTER TABLE ADD COLUMN` raced
+/// against a concurrent isolate that already added the same column. This is
+/// the only ALTER error we tolerate — every other failure means the schema
+/// change actually failed and must propagate.
+pub(crate) fn is_duplicate_column(msg: &str) -> bool {
+    msg.contains("duplicate column name")
 }
 
 /// Convert a D1 result row (as JSON) into a Record.
