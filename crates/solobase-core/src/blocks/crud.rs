@@ -110,7 +110,7 @@ pub async fn crud_update(
     not_found_label: &str,
 ) -> OutputStream {
     let path = msg.path();
-    let id = path.strip_prefix(path_prefix).unwrap_or("").to_string();
+    let id = path.strip_prefix(path_prefix).unwrap_or("");
     if id.is_empty() {
         return err_bad_request(&format!("Missing {} ID", not_found_label.to_lowercase()));
     }
@@ -122,7 +122,7 @@ pub async fn crud_update(
     };
     stamp_updated(&mut body);
 
-    match db::update(ctx, collection, &id, body).await {
+    match db::update(ctx, collection, id, body).await {
         Ok(record) => ok_json(&record),
         Err(e) if e.code == ErrorCode::NotFound => {
             err_not_found(&format!("{not_found_label} not found"))
@@ -140,11 +140,11 @@ pub async fn crud_delete(
     not_found_label: &str,
 ) -> OutputStream {
     let path = msg.path();
-    let id = path.strip_prefix(path_prefix).unwrap_or("").to_string();
+    let id = path.strip_prefix(path_prefix).unwrap_or("");
     if id.is_empty() {
         return err_bad_request(&format!("Missing {} ID", not_found_label.to_lowercase()));
     }
-    match db::delete(ctx, collection, &id).await {
+    match db::delete(ctx, collection, id).await {
         Ok(()) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) if e.code == ErrorCode::NotFound => {
             err_not_found(&format!("{not_found_label} not found"))
