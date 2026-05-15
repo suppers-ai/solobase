@@ -26,7 +26,22 @@ fn network_factory_returns_service() {
 
 #[test]
 fn crypto_factory_returns_service() {
-    let _svc = solobase_native::make_jwt_crypto_service("smoke-test-secret".to_string());
+    // ≥ 32 bytes — meets the HMAC-SHA256 minimum the underlying
+    // Argon2JwtCryptoService enforces on construction.
+    let secret = "smoke-test-secret-padded-to-min-32-bytes-aaaa".to_string();
+    let _svc =
+        solobase_native::make_jwt_crypto_service(secret).expect("smoke secret is long enough");
+}
+
+#[test]
+fn crypto_factory_rejects_short_secret() {
+    match solobase_native::make_jwt_crypto_service("too-short".to_string()) {
+        Ok(_) => panic!("short secret must be rejected"),
+        Err(e) => {
+            let msg = format!("{e}");
+            assert!(msg.contains("at least 32 bytes"), "got: {msg}");
+        }
+    }
 }
 
 #[test]

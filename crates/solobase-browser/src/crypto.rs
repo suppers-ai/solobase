@@ -125,13 +125,16 @@ impl CryptoService for BrowserCryptoService {
         claims: HashMap<String, serde_json::Value>,
         expiry: Duration,
     ) -> Result<String, CryptoError> {
-        // Delegate to the same HS256 implementation used by the native crypto service
-        wafer_block_crypto::service::Argon2JwtCryptoService::new(self.jwt_secret.clone())
+        // Delegate to the same HS256 implementation used by the native crypto
+        // service. `new` now enforces the 32-byte minimum JWT secret length;
+        // a too-short secret here is a deployment misconfig and the error
+        // bubbles up to the caller.
+        wafer_block_crypto::service::Argon2JwtCryptoService::new(self.jwt_secret.clone())?
             .sign(claims, expiry)
     }
 
     fn verify(&self, token: &str) -> Result<HashMap<String, serde_json::Value>, CryptoError> {
-        wafer_block_crypto::service::Argon2JwtCryptoService::new(self.jwt_secret.clone())
+        wafer_block_crypto::service::Argon2JwtCryptoService::new(self.jwt_secret.clone())?
             .verify(token)
     }
 
