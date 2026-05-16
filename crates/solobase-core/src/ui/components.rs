@@ -260,6 +260,7 @@ pub fn toast_container() -> Markup {
 
 /// Visual variant for buttons.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub enum BtnVariant {
     Primary,
     Secondary,
@@ -269,6 +270,7 @@ pub enum BtnVariant {
 
 /// Size for buttons (and other form controls when adopted).
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub enum CtrlSize {
     Sm,
     Md,
@@ -550,6 +552,7 @@ pub fn card(
 
 /// Badge — small status pill.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub enum BadgeVariant {
     Neutral,
     Admin,

@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 /// Groq, Together, OpenRouter, Mistral API, Anyscale, and so on.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ProviderProtocol {
     OpenAi,
     Anthropic,
@@ -45,6 +46,7 @@ impl ProviderProtocol {
 /// A single configured provider. Stored in the DB, loaded on lifecycle(Init),
 /// and pushed to `ProviderLlmService::configure(...)`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct ProviderConfig {
     /// Display name + backend_id key. Must be unique. Used as the
     /// `ChatRequest::backend_id` when routing requests to this provider.
