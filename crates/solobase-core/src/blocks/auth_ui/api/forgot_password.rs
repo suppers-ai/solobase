@@ -4,8 +4,8 @@ use wafer_core::clients::{crypto, database as db};
 use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
 use crate::blocks::{
-    auth::{helpers::sha256_hex, USERS_TABLE},
-    helpers::{err_bad_request, err_internal, hex_encode, json_map, ok_json},
+    auth::USERS_TABLE,
+    helpers::{err_bad_request, err_internal, hex_encode, json_map, ok_json, sha256_hex},
 };
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
@@ -42,7 +42,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         Ok(bytes) => hex_encode(&bytes),
         Err(e) => return err_internal("Token generation failed", e),
     };
-    let reset_token_hash = sha256_hex(&reset_token);
+    let reset_token_hash = sha256_hex(reset_token.as_bytes());
 
     let expires = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
     let mut data = json_map(serde_json::json!({

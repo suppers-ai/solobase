@@ -160,8 +160,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message) -> OutputStream {
             // a parse failure is rare and the raw body typically contains
             // the upstream email / provider IDs that we don't want to drop
             // into the error log surface.
-            let body_hash =
-                crate::blocks::auth::helpers::sha256_hex(&String::from_utf8_lossy(&info_resp.body));
+            let body_hash = crate::blocks::helpers::sha256_hex(&info_resp.body);
             return err_internal(
                 "Failed to parse OAuth user info",
                 format!(

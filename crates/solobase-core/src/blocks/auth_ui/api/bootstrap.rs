@@ -11,7 +11,6 @@
 //! Request body is `application/x-www-form-urlencoded` (the GET page
 //! submits a plain HTML form — no JS).
 
-use sha2::{Digest, Sha256};
 use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
@@ -46,7 +45,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         return err_bad_request("password must be at least 8 characters");
     }
 
-    let token_hash = Sha256::digest(token.as_bytes()).to_vec();
+    let token_hash = hash_token(&token);
 
     // 1. Verify the token row exists and hasn't expired.
     match bootstrap_tokens::is_valid(ctx, &token_hash).await {
@@ -142,7 +141,7 @@ mod tests {
 
         // Seed a bootstrap token row (sha256 of "test-token-xyz").
         let raw = "test-token-xyz";
-        let hash = Sha256::digest(raw.as_bytes()).to_vec();
+        let hash = hash_token(raw);
         let expires = (chrono::Utc::now() + chrono::Duration::hours(24))
             .format("%Y-%m-%dT%H:%M:%SZ")
             .to_string();
@@ -184,7 +183,7 @@ mod tests {
         let ctx = ctx_with_crypto().await;
         // Even with a valid token row, the handler must reject password <8 chars.
         let raw = "another-token";
-        let hash = Sha256::digest(raw.as_bytes()).to_vec();
+        let hash = hash_token(raw);
         let expires = (chrono::Utc::now() + chrono::Duration::hours(24))
             .format("%Y-%m-%dT%H:%M:%SZ")
             .to_string();

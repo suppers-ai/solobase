@@ -7,8 +7,10 @@ use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
 use crate::{
     blocks::{
-        auth::{brand_panel, helpers::sha256_hex, USERS_TABLE},
-        helpers::{err_bad_request, err_internal, hex_encode, json_map, ok_json, RecordExt},
+        auth::{brand_panel, USERS_TABLE},
+        helpers::{
+            err_bad_request, err_internal, hex_encode, json_map, ok_json, sha256_hex, RecordExt,
+        },
     },
     ui,
     ui::templates::auth_split,
@@ -49,7 +51,7 @@ pub async fn handle(ctx: &dyn Context, msg: &Message, input: InputStream) -> Out
         ctx,
         USERS_TABLE,
         "verification_token",
-        serde_json::Value::String(sha256_hex(&token)),
+        serde_json::Value::String(sha256_hex(token.as_bytes())),
     )
     .await
     {
@@ -144,7 +146,7 @@ pub async fn handle_resend(ctx: &dyn Context, input: InputStream) -> OutputStrea
         Ok(bytes) => hex_encode(&bytes),
         Err(e) => return err_internal("Token generation failed", e),
     };
-    let new_token_hash = sha256_hex(&new_token);
+    let new_token_hash = sha256_hex(new_token.as_bytes());
 
     let now = crate::blocks::helpers::now_rfc3339();
     let mut data = json_map(serde_json::json!({

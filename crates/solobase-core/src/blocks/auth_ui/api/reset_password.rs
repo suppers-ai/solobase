@@ -5,12 +5,11 @@ use wafer_run::{context::Context, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::sha256_hex,
         repo::{local_credentials, tokens},
         USERS_TABLE,
     },
     errors::{error_response, ErrorCode},
-    helpers::{err_bad_request, err_internal, json_map, ok_json, RecordExt},
+    helpers::{err_bad_request, err_internal, json_map, ok_json, sha256_hex, RecordExt},
 };
 
 pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
@@ -44,7 +43,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         ctx,
         USERS_TABLE,
         "reset_token",
-        serde_json::Value::String(sha256_hex(&body.token)),
+        serde_json::Value::String(sha256_hex(body.token.as_bytes())),
     )
     .await
     {
