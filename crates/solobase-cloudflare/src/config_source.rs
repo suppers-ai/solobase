@@ -5,35 +5,23 @@
 //! column (added by migration 002) for an indexed per-block lookup — no
 //! full-table scan, no `LIKE prefix%` scan.
 //!
-//! ## Status (2026-05-16): wasm32 blocker on `ConfigSource` trait bounds
-//!
-//! The wafer-run `ConfigSource` trait is declared
-//! `pub trait ConfigSource: Send + Sync + 'static` (with the default
-//! `#[async_trait]` macro, which forces the returned future to be
-//! `Send`). On `wasm32-unknown-unknown` the `DatabaseService` trait
-//! drops `Send + Sync` (worker handles are `!Send`), so any
-//! `impl ConfigSource for D1ConfigSource` body that calls
-//! `self.db.list(…).await` cannot satisfy the outer `Send` bound on
-//! the future.
-//!
-//! Fix lives in `wafer-run`: relax the trait to
-//! `MaybeSend + MaybeSync` with the `#[cfg_attr(target_arch = "wasm32",
-//! async_trait(?Send))]` pattern that `DatabaseService` already uses.
-//! Tracked separately; this struct + helper land first so the consumer
-//! side is ready to wire the impl as soon as the upstream trait is
-//! relaxed. See Task 2.6 (builder wiring) and the lazy-init handoff.
+//! Optionally layers an in-memory overlay (e.g. `worker::Env` secrets such
+//! as `SUPPERS_AI__AUTH__JWT_SECRET`) on top of the D1 rows. Overlay values
+//! win over D1 — overlay represents CF env bindings that must override
+//! whatever an admin happens to have stored in the variables table.
 //!
 //! Spec: docs/superpowers/specs/2026-05-15-lazy-block-init-design.md §2, §6
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use solobase_core::blocks::admin::VARIABLES_TABLE;
 use wafer_block::ConfigVar;
 use wafer_core::interfaces::database::service::{
     DatabaseService, Filter, FilterOp, ListOptions,
 };
-use wafer_run::{ConfigError, EnvBlockConfig};
+use wafer_run::{ConfigError, ConfigSource, EnvBlockConfig};
 
 /// Reads block-declared config keys from a D1-backed
 /// [`DatabaseService`], falling back to each [`ConfigVar`]'s `default`
@@ -45,16 +33,29 @@ use wafer_run::{ConfigError, EnvBlockConfig};
 /// callers may retry on the next request because the runtime does
 /// not cache transient errors in the block slot.
 ///
-/// See the module-level docs for the wasm32 trait-impl blocker.
-#[allow(dead_code)] // wiring lands in Task 2.6; helpers used via tests today
 pub struct D1ConfigSource {
     db: Arc<dyn DatabaseService>,
+    /// Static overlay applied on top of D1 rows in `load_for_block`.
+    /// Keys present here override D1 — used for `worker::Env` secrets
+    /// (e.g. `SUPPERS_AI__AUTH__JWT_SECRET`) that must not live in D1.
+    /// Empty when constructed via [`Self::new`].
+    overlay: HashMap<String, String>,
 }
 
-#[allow(dead_code)] // wiring lands in Task 2.6; helpers used via tests today
 impl D1ConfigSource {
     pub fn new(db: Arc<dyn DatabaseService>) -> Self {
-        Self { db }
+        Self {
+            db,
+            overlay: HashMap::new(),
+        }
+    }
+
+    /// Construct with a static overlay of values that win over D1 rows.
+    /// Intended for `worker::Env` secrets such as
+    /// `SUPPERS_AI__AUTH__JWT_SECRET` that admins manage via
+    /// `wrangler secret put` rather than the admin dashboard.
+    pub fn with_overlay(db: Arc<dyn DatabaseService>, overlay: HashMap<String, String>) -> Self {
+        Self { db, overlay }
     }
 
     /// Map a kebab-case block name like `"suppers-ai/auth"` to the
@@ -111,20 +112,22 @@ impl D1ConfigSource {
     }
 
     /// Core resolution logic — applied per [`ConfigVar`] against rows
-    /// already fetched from D1. Factored out so the trait impl (added
-    /// in a follow-up once the wafer-run trait bounds are relaxed) is
-    /// trivial: fetch + resolve.
+    /// already fetched from D1, with an optional overlay layered on top.
+    /// Overlay entries win over D1 rows; both must contain non-empty
+    /// values to be considered (an empty string falls through to the
+    /// `ConfigVar::default` fallback).
     pub(crate) fn resolve(
         block: &str,
         rows: &HashMap<String, String>,
+        overlay: &HashMap<String, String>,
         declared_keys: &[ConfigVar],
     ) -> Result<EnvBlockConfig, ConfigError> {
         let mut out = HashMap::with_capacity(declared_keys.len());
         for var in declared_keys {
-            // Prefer D1's non-empty value; fall back to ConfigVar::default
-            // when the row is missing or its value is empty.
+            // Overlay wins (CF env secrets), then D1, then default.
+            let from_overlay = overlay.get(&var.key).filter(|s| !s.is_empty()).cloned();
             let from_db = rows.get(&var.key).filter(|s| !s.is_empty()).cloned();
-            let resolved = from_db.or_else(|| {
+            let resolved = from_overlay.or(from_db).or_else(|| {
                 if var.default.is_empty() {
                     None
                 } else {
@@ -152,31 +155,25 @@ impl D1ConfigSource {
     }
 }
 
-// NOTE: `impl ConfigSource for D1ConfigSource` is deferred until
-// wafer-run's `ConfigSource` trait drops its unconditional `Send + Sync`
-// super-bound (see module docs). Once the trait switches to
-// `MaybeSend + MaybeSync` + `#[cfg_attr(target_arch = "wasm32",
-// async_trait(?Send))]`, the impl is a four-liner:
-//
-// ```rust,ignore
-// #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-// #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-// impl ConfigSource for D1ConfigSource {
-//     async fn load_for_block(
-//         &self,
-//         block: &str,
-//         declared_keys: &[ConfigVar],
-//     ) -> Result<EnvBlockConfig, ConfigError> {
-//         let screaming = Self::screaming_block(block);
-//         let rows = self.fetch_block_variables(&screaming).await
-//             .map_err(|e| ConfigError::Transient {
-//                 block: block.to_string(),
-//                 source: e,
-//             })?;
-//         Self::resolve(block, &rows, declared_keys)
-//     }
-// }
-// ```
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl ConfigSource for D1ConfigSource {
+    async fn load_for_block(
+        &self,
+        block: &str,
+        declared_keys: &[ConfigVar],
+    ) -> Result<EnvBlockConfig, ConfigError> {
+        let screaming = Self::screaming_block(block);
+        let rows = self
+            .fetch_block_variables(&screaming)
+            .await
+            .map_err(|e| ConfigError::Transient {
+                block: block.to_string(),
+                source: e,
+            })?;
+        Self::resolve(block, &rows, &self.overlay, declared_keys)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -206,16 +203,18 @@ mod tests {
     fn resolve_returns_db_value_when_present() {
         let mut rows = HashMap::new();
         rows.insert("KEY".to_string(), "from-db".to_string());
+        let overlay = HashMap::new();
         let declared = vec![ConfigVar::new("KEY", "doc", "default")];
-        let cfg = D1ConfigSource::resolve("test/block", &rows, &declared).unwrap();
+        let cfg = D1ConfigSource::resolve("test/block", &rows, &overlay, &declared).unwrap();
         assert_eq!(cfg.get("KEY"), Some("from-db"));
     }
 
     #[test]
     fn resolve_falls_back_to_default_when_db_missing() {
         let rows = HashMap::new();
+        let overlay = HashMap::new();
         let declared = vec![ConfigVar::new("KEY", "doc", "fallback")];
-        let cfg = D1ConfigSource::resolve("test/block", &rows, &declared).unwrap();
+        let cfg = D1ConfigSource::resolve("test/block", &rows, &overlay, &declared).unwrap();
         assert_eq!(cfg.get("KEY"), Some("fallback"));
     }
 
@@ -223,27 +222,48 @@ mod tests {
     fn resolve_falls_back_to_default_when_db_value_empty() {
         let mut rows = HashMap::new();
         rows.insert("KEY".to_string(), "".to_string());
+        let overlay = HashMap::new();
         let declared = vec![ConfigVar::new("KEY", "doc", "fallback")];
-        let cfg = D1ConfigSource::resolve("test/block", &rows, &declared).unwrap();
+        let cfg = D1ConfigSource::resolve("test/block", &rows, &overlay, &declared).unwrap();
         assert_eq!(cfg.get("KEY"), Some("fallback"));
     }
 
     #[test]
     fn resolve_required_missing_returns_error() {
         let rows = HashMap::new();
+        let overlay = HashMap::new();
         let declared = vec![ConfigVar::new("KEY", "doc", "")];
-        let result = D1ConfigSource::resolve("test/block", &rows, &declared);
-        assert!(matches!(
-            result,
-            Err(ConfigError::MissingRequired { .. })
-        ));
+        let result = D1ConfigSource::resolve("test/block", &rows, &overlay, &declared);
+        assert!(matches!(result, Err(ConfigError::MissingRequired { .. })));
     }
 
     #[test]
     fn resolve_optional_missing_is_skipped() {
         let rows = HashMap::new();
+        let overlay = HashMap::new();
         let declared = vec![ConfigVar::new("KEY", "doc", "").optional()];
-        let cfg = D1ConfigSource::resolve("test/block", &rows, &declared).unwrap();
+        let cfg = D1ConfigSource::resolve("test/block", &rows, &overlay, &declared).unwrap();
         assert_eq!(cfg.get("KEY"), None);
+    }
+
+    #[test]
+    fn resolve_overlay_wins_over_db() {
+        let mut rows = HashMap::new();
+        rows.insert("KEY".to_string(), "from-db".to_string());
+        let mut overlay = HashMap::new();
+        overlay.insert("KEY".to_string(), "from-overlay".to_string());
+        let declared = vec![ConfigVar::new("KEY", "doc", "default")];
+        let cfg = D1ConfigSource::resolve("test/block", &rows, &overlay, &declared).unwrap();
+        assert_eq!(cfg.get("KEY"), Some("from-overlay"));
+    }
+
+    #[test]
+    fn resolve_overlay_supplies_required_value_when_db_empty() {
+        let rows = HashMap::new();
+        let mut overlay = HashMap::new();
+        overlay.insert("KEY".to_string(), "secret".to_string());
+        let declared = vec![ConfigVar::new("KEY", "doc", "")];
+        let cfg = D1ConfigSource::resolve("test/block", &rows, &overlay, &declared).unwrap();
+        assert_eq!(cfg.get("KEY"), Some("secret"));
     }
 }
