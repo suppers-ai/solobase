@@ -10,6 +10,7 @@
 
 mod config_cache;
 pub mod config_service;
+pub mod config_source;
 pub mod convert;
 pub mod crypto_service;
 pub mod database;
@@ -182,7 +183,7 @@ where
     let crypto = make_jwt_crypto_service(jwt_secret);
     let network = make_fetch_network_service();
     let logger = make_console_logger();
-    let cfg_svc = make_config_service(env_vars);
+    let cfg_svc = make_config_service(env_vars.clone());
 
     // 4. Build SolobaseBuilder, attach services + block settings. Clone the
     //    bucket Arc — `.storage()` consumes one and the post-build hook
@@ -191,7 +192,7 @@ where
     let block_settings = snapshot.1.clone();
     // TODO Task 2.6 finalize: switch to D1ConfigSource once Tasks 2.3 + 2.5 land.
     let cfg_source: Arc<dyn wafer_run::ConfigSource> =
-        Arc::new(wafer_run::StaticConfigSource::new(env_vars.clone()));
+        Arc::new(wafer_run::StaticConfigSource::new(env_vars));
     let builder = SolobaseBuilder::new()
         .database(db)
         .storage(bucket.clone())
