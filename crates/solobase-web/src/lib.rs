@@ -75,6 +75,12 @@ pub async fn initialize() -> Result<(), JsValue> {
             }
         };
 
+    // TODO Task 2.6 finalize: pick a browser-appropriate ConfigSource once
+    // Tasks 2.3 + 2.5 land. For now feed the browser-DB variables snapshot
+    // through StaticConfigSource so blocks can resolve declared keys.
+    let cfg_source: Arc<dyn wafer_run::ConfigSource> =
+        Arc::new(wafer_run::StaticConfigSource::new(vars.clone()));
+
     let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(solobase_browser::make_database_service())
         .storage(solobase_browser::make_storage_service())
@@ -91,13 +97,14 @@ pub async fn initialize() -> Result<(), JsValue> {
             "wafer-run/security-headers",
             serde_json::json!({ "csp": SOLOBASE_CSP }),
         )
+        .config_source(cfg_source)
         .build()
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     wafer.set_asset_loader(solobase_browser::make_sw_asset_loader());
 
     wafer
-        .start_without_bind()
+        .seal()
         .await
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 

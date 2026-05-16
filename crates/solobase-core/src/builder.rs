@@ -72,6 +72,13 @@ pub struct SolobaseBuilder {
     extra_vector_service: Option<Arc<dyn wafer_core::interfaces::vector::service::VectorService>>,
     extra_embedding_service:
         Option<Arc<dyn wafer_core::interfaces::vector::service::EmbeddingService>>,
+    /// Per-block env-config source consulted on first init. Defaults to an
+    /// empty [`wafer_run::StaticConfigSource`] if unset — sufficient for
+    /// blocks that declare no required config or that read their config from
+    /// `RuntimeContext::block_configs` (composite/uses). Native consumers
+    /// should pass `EnvConfigSource`; cloudflare consumers pass
+    /// `D1ConfigSource`.
+    config_source: Option<Arc<dyn wafer_run::ConfigSource>>,
 }
 
 impl Default for SolobaseBuilder {
@@ -98,6 +105,7 @@ impl SolobaseBuilder {
             sqlite_db_path: None,
             extra_vector_service: None,
             extra_embedding_service: None,
+            config_source: None,
         }
     }
 
@@ -199,6 +207,18 @@ impl SolobaseBuilder {
         self
     }
 
+    /// Supply the runtime's [`wafer_run::ConfigSource`] for lazy per-block
+    /// env-config loading. If not provided, defaults to an empty
+    /// [`wafer_run::StaticConfigSource`] — sufficient for blocks that declare
+    /// no required config or that read their config from
+    /// `RuntimeContext::block_configs` (composite/uses). Native consumers
+    /// should pass `EnvConfigSource`; cloudflare consumers pass
+    /// `D1ConfigSource`.
+    pub fn config_source(mut self, source: Arc<dyn wafer_run::ConfigSource>) -> Self {
+        self.config_source = Some(source);
+        self
+    }
+
     pub fn block_config(mut self, name: impl Into<String>, config: serde_json::Value) -> Self {
         self.block_configs.push((name.into(), config));
         self
@@ -256,7 +276,11 @@ impl SolobaseBuilder {
             .unwrap_or_default();
 
         // 3. Create runtime
-        let mut wafer = Wafer::new()?;
+        let config_source = self
+            .config_source
+            .clone()
+            .unwrap_or_else(|| Arc::new(wafer_run::StaticConfigSource::default()));
+        let mut wafer = Wafer::new(config_source)?;
         wafer.set_admin_block("suppers-ai/admin");
 
         // 4. Register service blocks
@@ -536,7 +560,7 @@ impl SolobaseBuilder {
     }
 }
 
-/// Call after `wafer.start()` or `wafer.start_without_bind()` to inject
+/// Call after `wafer.start()` or `wafer.seal()` to inject
 /// collected WRAP grants into the storage block for cross-block access control.
 pub fn post_start(wafer: &Wafer, storage_block: &SolobaseStorageBlock) {
     storage_block.update_wrap_grants(wafer.wrap_grants());

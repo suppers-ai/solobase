@@ -189,6 +189,9 @@ where
     //    receives the other so it can register blocks that need direct R2
     //    access (e.g. a static-asset content block).
     let block_settings = snapshot.1.clone();
+    // TODO Task 2.6 finalize: switch to D1ConfigSource once Tasks 2.3 + 2.5 land.
+    let cfg_source: Arc<dyn wafer_run::ConfigSource> =
+        Arc::new(wafer_run::StaticConfigSource::new(env_vars.clone()));
     let builder = SolobaseBuilder::new()
         .database(db)
         .storage(bucket.clone())
@@ -196,7 +199,8 @@ where
         .crypto(crypto)
         .network(network)
         .logger(logger)
-        .block_settings(block_settings);
+        .block_settings(block_settings)
+        .config_source(cfg_source);
 
     // 5. Consumer registers its blocks.
     let builder = register_blocks(builder)?;
@@ -209,11 +213,12 @@ where
     //     blocks that need direct un-namespaced bucket access.
     register_post_build(&mut wafer, bucket).map_err(|e| format!("register_post_build: {e}"))?;
 
-    // 6c. Start the runtime.
+    // 6c. Seal the runtime (composite/uses/capability/snapshot, no bind, no
+    //     Start dispatch — same semantics as the former start_without_bind).
     wafer
-        .start_without_bind()
+        .seal()
         .await
-        .map_err(|e| format!("wafer.start: {e}"))?;
+        .map_err(|e| format!("wafer.seal: {e}"))?;
     solobase_core::builder::post_start(&wafer, &storage_block);
 
     // 7. Convert request → message; preserve auth header in meta.

@@ -11,12 +11,15 @@
 // are included in the test binary.  Without this import the linker would
 // strip the crate's code entirely (no other symbols referenced) and
 // STATIC_BLOCK_REGISTRATIONS would be empty.
+use std::sync::Arc;
+
 use solobase_core as _;
-use wafer_run::Wafer;
+use wafer_run::{StaticConfigSource, Wafer};
 
 #[test]
 fn all_zero_arg_blocks_auto_register() {
-    let w = Wafer::new().expect("Wafer::new should succeed with no lockfile present");
+    let w = Wafer::new(Arc::new(StaticConfigSource::default()))
+        .expect("Wafer::new should succeed with no lockfile present");
 
     // Zero-arg blocks. `vector` is unconditionally registered (its
     // `pub mod vector;` in blocks/mod.rs has no cfg gate). `fastembed` is
@@ -62,6 +65,7 @@ fn all_zero_arg_blocks_auto_register() {
 #[cfg(feature = "native-embedding")]
 #[test]
 fn fastembed_block_auto_registers_when_feature_enabled() {
-    let w = Wafer::new().expect("Wafer::new with native-embedding feature");
+    let w = Wafer::new(Arc::new(StaticConfigSource::default()))
+        .expect("Wafer::new with native-embedding feature");
     assert!(w.has_block("suppers-ai/fastembed"));
 }
