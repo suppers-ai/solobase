@@ -2,7 +2,7 @@ mod custom_tables;
 mod database;
 mod iam;
 mod logs;
-mod migrations;
+pub mod migrations;
 mod pages;
 mod settings;
 mod users;
