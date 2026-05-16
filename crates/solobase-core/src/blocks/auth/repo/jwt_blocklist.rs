@@ -55,22 +55,23 @@ pub async fn insert(ctx: &dyn Context, new: NewBlocklistEntry<'_>) -> Result<(),
     }
 }
 
-/// True iff `jti` is in the blocklist. Used by JWT validation in
+/// True iff `jti` is in the blocklist, used by JWT validation in
 /// `pipeline::handle_request`.
 ///
 /// `Ok` → blocklisted, `NOT_FOUND` → not blocklisted. Any other backend
-/// error (WRAP denial, connection blip) returns `false` *and* warns so an
-/// outage that silently re-enables revoked JWTs is visible in logs. We
-/// still fail-open on real errors — failing closed (rejecting every JWT
-/// on DB hiccup) would lock every user out on a transient outage.
+/// error (WRAP denial, connection blip) fails *closed* — returns `true`
+/// so the request continues as unauthenticated rather than silently
+/// re-enabling revoked JWTs until natural expiry. A `false` on transient
+/// errors is the bigger footgun: a logged-out user keeps full access for
+/// the remainder of the access-token lifetime.
 pub async fn contains(ctx: &dyn Context, jti: &str) -> bool {
     use wafer_block::ErrorCode;
     match db::get_by_field(ctx, TABLE, "jti", json!(jti)).await {
         Ok(_) => true,
         Err(e) if e.code == ErrorCode::NOT_FOUND => false,
         Err(e) => {
-            tracing::warn!(jti = %jti, "jwt_blocklist contains: db error — failing open: {e}");
-            false
+            tracing::warn!(jti = %jti, "jwt_blocklist contains: db error — failing closed: {e}");
+            true
         }
     }
 }
