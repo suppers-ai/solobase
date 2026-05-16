@@ -33,12 +33,7 @@ impl MigrationTestCtx {
 
 #[async_trait::async_trait]
 impl Context for MigrationTestCtx {
-    async fn call_block(
-        &self,
-        block_name: &str,
-        msg: Message,
-        input: InputStream,
-    ) -> OutputStream {
+    async fn call_block(&self, block_name: &str, msg: Message, input: InputStream) -> OutputStream {
         match block_name {
             "wafer-run/database" => self.db_block.handle(self, msg, input).await,
             _ => OutputStream::error(WaferError::new(

@@ -7,10 +7,8 @@
 use std::collections::HashMap;
 
 use serde_json::json;
-use solobase_core::blocks::admin::migrations;
-use solobase_core::blocks::admin::VARIABLES_TABLE;
-use wafer_core::clients::database as db;
-use wafer_core::interfaces::database::service::ListOptions;
+use solobase_core::blocks::admin::{migrations, VARIABLES_TABLE};
+use wafer_core::{clients::database as db, interfaces::database::service::ListOptions};
 
 use crate::common::MigrationTestCtx;
 
@@ -59,16 +57,17 @@ async fn migration_002_adds_block_column_and_index() {
     migrations::apply(&ctx).await.expect("apply migrations");
 
     // PRAGMA table_info verifies the column was added.
-    let cols = db::query_raw(
-        &ctx,
-        "PRAGMA table_info(suppers_ai__admin__variables)",
-        &[],
-    )
-    .await
-    .expect("pragma table_info");
+    let cols = db::query_raw(&ctx, "PRAGMA table_info(suppers_ai__admin__variables)", &[])
+        .await
+        .expect("pragma table_info");
     let col_names: Vec<String> = cols
         .iter()
-        .filter_map(|r| r.data.get("name").and_then(|v| v.as_str()).map(str::to_owned))
+        .filter_map(|r| {
+            r.data
+                .get("name")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+        })
         .collect();
     assert!(
         col_names.contains(&"block".to_string()),
@@ -136,10 +135,7 @@ async fn migration_002_backfills_block_column_from_key_prefix() {
         None,
     );
     // No `__` at all → NULL.
-    assert_eq!(
-        read_block_column(&ctx, "NO_DOUBLE_UNDERSCORE").await,
-        None,
-    );
+    assert_eq!(read_block_column(&ctx, "NO_DOUBLE_UNDERSCORE").await, None,);
 }
 
 #[tokio::test]

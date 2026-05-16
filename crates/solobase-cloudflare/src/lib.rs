@@ -221,10 +221,7 @@ where
 
     // 6c. Seal the runtime (composite/uses/capability/snapshot, no bind, no
     //     Start dispatch — same semantics as the former start_without_bind).
-    wafer
-        .seal()
-        .await
-        .map_err(|e| format!("wafer.seal: {e}"))?;
+    wafer.seal().await.map_err(|e| format!("wafer.seal: {e}"))?;
     solobase_core::builder::post_start(&wafer, &storage_block);
 
     // 7. Convert request → message; preserve auth header in meta.

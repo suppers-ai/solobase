@@ -12,15 +12,12 @@
 //!
 //! Spec: docs/superpowers/specs/2026-05-15-lazy-block-init-design.md §2, §6
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use solobase_core::blocks::admin::VARIABLES_TABLE;
 use wafer_block::ConfigVar;
-use wafer_core::interfaces::database::service::{
-    DatabaseService, Filter, FilterOp, ListOptions,
-};
+use wafer_core::interfaces::database::service::{DatabaseService, Filter, FilterOp, ListOptions};
 use wafer_run::{ConfigError, ConfigSource, EnvBlockConfig};
 
 /// Reads block-declared config keys from a D1-backed
@@ -164,13 +161,13 @@ impl ConfigSource for D1ConfigSource {
         declared_keys: &[ConfigVar],
     ) -> Result<EnvBlockConfig, ConfigError> {
         let screaming = Self::screaming_block(block);
-        let rows = self
-            .fetch_block_variables(&screaming)
-            .await
-            .map_err(|e| ConfigError::Transient {
-                block: block.to_string(),
-                source: e,
-            })?;
+        let rows =
+            self.fetch_block_variables(&screaming)
+                .await
+                .map_err(|e| ConfigError::Transient {
+                    block: block.to_string(),
+                    source: e,
+                })?;
         Self::resolve(block, &rows, &self.overlay, declared_keys)
     }
 }
@@ -193,10 +190,7 @@ mod tests {
 
     #[test]
     fn screaming_block_handles_org_only() {
-        assert_eq!(
-            D1ConfigSource::screaming_block("suppers-ai"),
-            "SUPPERS_AI"
-        );
+        assert_eq!(D1ConfigSource::screaming_block("suppers-ai"), "SUPPERS_AI");
     }
 
     #[test]
