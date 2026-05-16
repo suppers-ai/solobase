@@ -8,8 +8,8 @@
 //!
 //! This crate is wasm-only; building for native targets is not supported.
 
-mod config_cache;
 pub mod config_service;
+pub mod config_source;
 pub mod convert;
 pub mod crypto_service;
 pub mod database;
@@ -148,47 +148,56 @@ where
     let db = make_d1_database_service(&env, runner::D1_BINDING)
         .map_err(|e| format!("D1 binding {:?}: {e}", runner::D1_BINDING))?;
 
-    // 2. Load env vars + block settings via per-isolate cache.
-    //    First request after isolate cold-start hits D1 twice; subsequent
-    //    requests serve from RAM. Merge protected worker::Env bindings on
-    //    top freshly each request — they're CF env bindings, not D1 vars.
-    let snapshot = config_cache::get_or_load(|| async {
-        let env_vars = runner::load_env_vars(&db).await;
-        let block_settings = runner::load_block_settings(&db).await;
-        (env_vars, block_settings)
-    })
-    .await;
-    let mut env_vars = snapshot.0.clone();
+    // 2. Load block settings (enablement + migration state) eagerly —
+    //    this is the only D1 read at cold start now. The per-block
+    //    env-config pre-load is gone; D1ConfigSource resolves declared
+    //    config keys lazily on first block init via an indexed lookup
+    //    on `variables.block`. block_settings still needs an eager load
+    //    because the SolobaseRouter consumes the enablement map up front
+    //    when wiring routes (it can't defer to a per-block init event).
+    let block_settings = runner::load_block_settings(&db).await;
+
+    // 3. Build the ConfigService map. After dropping the D1 env_vars
+    //    pre-load, this map only carries:
+    //    - PROTECTED_ENV_KEYS pulled from worker::Env bindings (e.g.
+    //      JWT secret managed via `wrangler secret put`). These never
+    //      live in D1.
+    //    - The synthetic BLOCK_SETTINGS_CONFIG_KEY → JSON entry so
+    //      consumer blocks (userportal, migration_helper) can read
+    //      block enablement / migration state via `ctx.config_get`
+    //      without a separate D1 query per request.
+    let mut cfg_svc_map: HashMap<String, String> = HashMap::new();
+    let mut overlay: HashMap<String, String> = HashMap::new();
     for key in PROTECTED_ENV_KEYS {
         if let Ok(secret) = env.secret(key) {
-            env_vars.insert(key.to_string(), secret.to_string());
+            let v = secret.to_string();
+            cfg_svc_map.insert((*key).to_string(), v.clone());
+            overlay.insert((*key).to_string(), v);
         }
     }
-    // Fan-out block_settings into the config snapshot so consumer blocks
-    // (e.g. userportal) can read enablement state via `ctx.config_get`
-    // without re-querying the `block_settings` D1 table per request.
-    env_vars.insert(
+    cfg_svc_map.insert(
         solobase_core::features::BLOCK_SETTINGS_CONFIG_KEY.to_string(),
-        snapshot.1.to_config_json(),
+        block_settings.to_config_json(),
     );
 
-    // 3. Construct remaining 5 services.
+    // 4. Construct remaining services.
     let bucket: Arc<dyn StorageService> = make_r2_storage_service(&env, runner::R2_BINDING)
         .map_err(|e| format!("R2 binding {:?}: {e}", runner::R2_BINDING))?;
-    let jwt_secret = env_vars
+    let jwt_secret = cfg_svc_map
         .get(solobase_core::blocks::auth::JWT_SECRET_KEY)
         .cloned()
         .unwrap_or_default();
     let crypto = make_jwt_crypto_service(jwt_secret);
     let network = make_fetch_network_service();
     let logger = make_console_logger();
-    let cfg_svc = make_config_service(env_vars);
+    let cfg_svc = make_config_service(cfg_svc_map);
 
-    // 4. Build SolobaseBuilder, attach services + block settings. Clone the
-    //    bucket Arc — `.storage()` consumes one and the post-build hook
-    //    receives the other so it can register blocks that need direct R2
-    //    access (e.g. a static-asset content block).
-    let block_settings = snapshot.1.clone();
+    // 5. ConfigSource: D1-backed lazy per-block fetch. The overlay layers
+    //    worker::Env secrets (PROTECTED_ENV_KEYS) on top of D1 rows so
+    //    secrets never need to be mirrored into the variables table.
+    let cfg_source: Arc<dyn wafer_run::ConfigSource> = Arc::new(
+        config_source::D1ConfigSource::with_overlay(db.clone(), overlay),
+    );
     let builder = SolobaseBuilder::new()
         .database(db)
         .storage(bucket.clone())
@@ -196,7 +205,8 @@ where
         .crypto(crypto)
         .network(network)
         .logger(logger)
-        .block_settings(block_settings);
+        .block_settings(block_settings)
+        .config_source(cfg_source);
 
     // 5. Consumer registers its blocks.
     let builder = register_blocks(builder)?;
@@ -209,11 +219,9 @@ where
     //     blocks that need direct un-namespaced bucket access.
     register_post_build(&mut wafer, bucket).map_err(|e| format!("register_post_build: {e}"))?;
 
-    // 6c. Start the runtime.
-    wafer
-        .start_without_bind()
-        .await
-        .map_err(|e| format!("wafer.start: {e}"))?;
+    // 6c. Seal the runtime (composite/uses/capability/snapshot, no bind, no
+    //     Start dispatch — same semantics as the former start_without_bind).
+    wafer.seal().await.map_err(|e| format!("wafer.seal: {e}"))?;
     solobase_core::builder::post_start(&wafer, &storage_block);
 
     // 7. Convert request → message; preserve auth header in meta.

@@ -16,6 +16,8 @@ use wafer_run::context::Context;
 
 const SQL_001_SQLITE: &str = include_str!("001_admin_schema.sqlite.sql");
 const SQL_001_POSTGRES: &str = include_str!("001_admin_schema.postgres.sql");
+const SQL_002_SQLITE: &str = include_str!("002_variables_block_column.sqlite.sql");
+const SQL_002_POSTGRES: &str = include_str!("002_variables_block_column.postgres.sql");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Backend {
@@ -32,18 +34,24 @@ async fn backend(ctx: &dyn Context) -> Backend {
 }
 
 /// Apply all admin migrations in order. Idempotent: every `CREATE TABLE` /
-/// `CREATE INDEX` uses `IF NOT EXISTS`.
+/// `CREATE INDEX` uses `IF NOT EXISTS`. Migration 002 is *not* fully
+/// idempotent — `ALTER TABLE … ADD COLUMN` errors if the column already
+/// exists (SQLite) — but the column-existence check happens before the
+/// migration runner picks the script up. The runner guards against
+/// re-application via the migration-state hash (see
+/// `solobase-cloud-target` runbook + `SOLOBASE_RUN_MIGRATIONS` flag).
 pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
     let b = backend(ctx).await;
-    apply_script(
-        ctx,
-        match b {
-            Backend::Sqlite => SQL_001_SQLITE,
-            Backend::Postgres => SQL_001_POSTGRES,
-        },
-    )
-    .await
-    .map_err(|e| format!("migration 001: {e}"))?;
+    let (sql_001, sql_002) = match b {
+        Backend::Sqlite => (SQL_001_SQLITE, SQL_002_SQLITE),
+        Backend::Postgres => (SQL_001_POSTGRES, SQL_002_POSTGRES),
+    };
+    apply_script(ctx, sql_001)
+        .await
+        .map_err(|e| format!("migration 001: {e}"))?;
+    apply_script(ctx, sql_002)
+        .await
+        .map_err(|e| format!("migration 002: {e}"))?;
     Ok(())
 }
 
@@ -98,7 +106,7 @@ fn has_executable_content(stmt: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{has_executable_content, split_statements, SQL_001_SQLITE};
+    use super::{has_executable_content, split_statements, SQL_001_SQLITE, SQL_002_SQLITE};
 
     #[test]
     fn embedded_sqlite_script_parses_into_statements() {
@@ -118,6 +126,26 @@ mod tests {
         assert!(parts
             .iter()
             .any(|s| s.contains("suppers_ai__admin__variables_key_uniq")));
+    }
+
+    #[test]
+    fn embedded_sqlite_002_parses_into_three_statements() {
+        // ALTER TABLE + UPDATE … SET block = CASE … END + CREATE INDEX.
+        let parts: Vec<_> = split_statements(SQL_002_SQLITE)
+            .into_iter()
+            .filter(|s| has_executable_content(s))
+            .collect();
+        assert_eq!(
+            parts.len(),
+            3,
+            "expected 3 statements (ALTER + UPDATE + CREATE INDEX), got {}: {:?}",
+            parts.len(),
+            parts
+        );
+        assert!(parts.iter().any(|s| s.contains("ADD COLUMN block")));
+        assert!(parts
+            .iter()
+            .any(|s| s.contains("suppers_ai__admin__variables_block_idx")));
     }
 
     #[test]
