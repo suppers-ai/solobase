@@ -12,7 +12,7 @@ use crate::cli::{
 
 pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     // 1. Discover and build user blocks (if any).
-    blocks::build_all(repo_root)?;
+    blocks::build_all(repo_root).await?;
 
     // 2. Prepare dist directory.
     let dist = repo_root.join("dist");

@@ -13,7 +13,7 @@ const RUNTIME_SITE_REL: &str = "data/storage/wafer-run/web/site";
 
 pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     // 1. wafer build per block.
-    blocks::build_all(repo_root)?;
+    blocks::build_all(repo_root).await?;
 
     // 2. Frontend copy (if any).
     if let Some(fe) = frontend::find_frontend_dir(repo_root) {
@@ -22,7 +22,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     }
 
     // 3. cargo build the user's bin crate.
-    let mut cargo = std::process::Command::new("cargo");
+    let mut cargo = tokio::process::Command::new("cargo");
     cargo.arg("build");
     if release {
         cargo.arg("--release");
@@ -33,7 +33,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
         }
     }
     cargo.current_dir(repo_root);
-    cmd::run("cargo build", cargo)?;
+    cmd::run("cargo build", cargo).await?;
 
     let profile = if release { "release" } else { "debug" };
     println!("built embed × native ({profile})");

@@ -27,16 +27,17 @@ pub fn discover_blocks(repo_root: &Path) -> Result<Vec<PathBuf>> {
 /// Failures are wrapped with the block directory (relative to `repo_root`
 /// when possible) so the operator can tell which block of N broke without
 /// having to scroll the streamed `wafer build` output.
-pub fn build_all(repo_root: &Path) -> Result<()> {
-    use std::process::Command;
-
+pub async fn build_all(repo_root: &Path) -> Result<()> {
     use anyhow::Context;
+    use tokio::process::Command;
     for block in discover_blocks(repo_root)? {
         let short = block.strip_prefix(repo_root).unwrap_or(&block).display();
         let step = format!("wafer build {short}");
         let mut cmd = Command::new("wafer");
         cmd.arg("build").current_dir(&block);
-        crate::cli::cmd::run(&step, cmd).with_context(|| format!("build block {short}"))?;
+        crate::cli::cmd::run(&step, cmd)
+            .await
+            .with_context(|| format!("build block {short}"))?;
     }
     Ok(())
 }
