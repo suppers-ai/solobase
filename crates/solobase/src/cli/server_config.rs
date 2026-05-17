@@ -30,97 +30,52 @@ pub fn filter_to_declared_keys(env_vars: HashMap<String, String>) -> Vec<(String
 /// Reads the `suppers_ai__admin__block_settings` table (if it exists) and returns a
 /// `BlockSettings` with the enabled/disabled state of each block.
 /// Also seeds from `SOLOBASE_BLOCK_ENABLED` / `SOLOBASE_BLOCK_DISABLED` env vars.
-/// Default enablement for a known solobase block.
+/// Read the `suppers_ai__admin__block_settings` table tolerantly and apply
+/// any `SOLOBASE_BLOCK_ENABLED` / `SOLOBASE_BLOCK_DISABLED` env-var
+/// overrides to the resulting in-memory map.
 ///
-/// Tuple shape: `(full_name, default_enabled)`. Used by [`BLOCK_DEFAULTS`]
-/// to seed the `suppers_ai__admin__block_settings` table on first run so
-/// the admin UI shows the canonical solobase block roster even before any
-/// `SOLOBASE_BLOCK_ENABLED` / `SOLOBASE_BLOCK_DISABLED` env override.
-pub type BlockDefault = (&'static str, bool);
-
-/// Known solobase blocks with their default enabled state.
-/// Blocks not listed here default to enabled.
-pub const BLOCK_DEFAULTS: &[BlockDefault] = &[
-    ("suppers-ai/auth", true),
-    ("suppers-ai/admin", true),
-    ("suppers-ai/files", true),
-    ("suppers-ai/products", true),
-    ("suppers-ai/legalpages", false),
-    ("suppers-ai/userportal", false),
-    ("suppers-ai/system", true),
-];
-
+/// The table is **not** created here — admin block's migration
+/// (`001_admin_schema.{sqlite,postgres}.sql`) is the single source of
+/// schema truth. On a fresh boot the table doesn't exist yet; we return
+/// whatever the env vars say (or an empty map, which `BlockSettings`
+/// interprets as "all blocks enabled by default"). The first request
+/// triggers admin block's lazy Init, which runs the migration and creates
+/// the table with the canonical schema.
+///
+/// Env-var overrides affect only the in-memory snapshot fed into the
+/// runtime — they aren't persisted to the DB. Operators who want a
+/// persistent disable should set it via the admin UI; `SOLOBASE_BLOCK_*`
+/// remains a boot-time override only.
 pub fn load_block_settings(db_path: &str) -> BlockSettings {
-    let conn = match rusqlite::Connection::open(db_path) {
-        Ok(c) => c,
-        Err(_) => return BlockSettings::from_map(HashMap::new()),
-    };
+    let mut map = HashMap::new();
 
-    // Ensure suppers_ai__admin__block_settings table exists
-    let _ = conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS suppers_ai__admin__block_settings (
-            block_name TEXT PRIMARY KEY,
-            enabled INTEGER DEFAULT 1,
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now'))
-        );",
-    );
-
-    // Seed defaults for known blocks (INSERT OR IGNORE — existing DB values take priority).
-    // Match the tolerant style of the rest of this function: if the prepare
-    // fails (e.g. table schema mismatch from an older deploy), log and skip
-    // seeding rather than panicking — `read all settings` below still works
-    // off whatever rows already exist.
-    match conn.prepare("INSERT OR IGNORE INTO suppers_ai__admin__block_settings (block_name, enabled) VALUES (?1, ?2)") {
-        Ok(mut stmt) => {
-            for &(name, default) in BLOCK_DEFAULTS {
-                let _ = stmt.execute(rusqlite::params![name, i32::from(default)]);
+    if let Ok(conn) = rusqlite::Connection::open(db_path) {
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT block_name, enabled FROM suppers_ai__admin__block_settings")
+        {
+            if let Ok(rows) = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)? != 0))
+            }) {
+                for row in rows.flatten() {
+                    map.insert(row.0, row.1);
+                }
             }
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "skipped seeding block_settings defaults");
         }
     }
 
-    // Seed from SOLOBASE_BLOCK_ENABLED env var (force-enable specific blocks)
     if let Ok(enabled) = std::env::var("SOLOBASE_BLOCK_ENABLED") {
         for name in enabled.split(',') {
             let name = name.trim();
             if !name.is_empty() {
-                let _ = conn.execute(
-                    "INSERT INTO suppers_ai__admin__block_settings (block_name, enabled) VALUES (?1, 1) \
-                     ON CONFLICT (block_name) DO UPDATE SET enabled = 1",
-                    rusqlite::params![name],
-                );
+                map.insert(name.to_string(), true);
             }
         }
     }
-
-    // Seed from SOLOBASE_BLOCK_DISABLED env var (force-disable specific blocks)
     if let Ok(disabled) = std::env::var("SOLOBASE_BLOCK_DISABLED") {
         for name in disabled.split(',') {
             let name = name.trim();
             if !name.is_empty() {
-                let _ = conn.execute(
-                    "INSERT INTO suppers_ai__admin__block_settings (block_name, enabled) VALUES (?1, 0) \
-                     ON CONFLICT (block_name) DO UPDATE SET enabled = 0",
-                    rusqlite::params![name],
-                );
-            }
-        }
-    }
-
-    // Read all settings
-    let mut map = HashMap::new();
-    if let Ok(mut stmt) =
-        conn.prepare("SELECT block_name, enabled FROM suppers_ai__admin__block_settings")
-    {
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)? != 0))
-        });
-        if let Ok(rows) = rows {
-            for row in rows.flatten() {
-                map.insert(row.0, row.1);
+                map.insert(name.to_string(), false);
             }
         }
     }

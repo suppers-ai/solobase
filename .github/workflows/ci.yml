@@ -244,13 +244,6 @@ jobs:
           TEST_PORT: 8093
         run: npx playwright test --config=tests/playwright.visual-baseline.config.ts tests/e2e/visual-baseline.spec.ts
 
-      - name: Dump native solobase log on failure
-        if: failure()
-        run: |
-          echo "::group::tail -200 /tmp/solobase-baseline.log"
-          tail -200 /tmp/solobase-baseline.log || echo "(log missing)"
-          echo "::endgroup::"
-
       - name: Stop servers
         if: always()
         run: |
