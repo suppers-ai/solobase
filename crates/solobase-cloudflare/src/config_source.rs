@@ -81,6 +81,12 @@ impl D1ConfigSource {
     /// `screaming_block`. Uses [`DatabaseService::list`] with a single
     /// [`FilterOp::Equal`] filter; the new index on `(block)` (migration
     /// 002) makes this an indexed lookup, not a scan.
+    ///
+    /// Tolerates `no such column: block` on pre-migration-002 D1s (fresh
+    /// CF deploys before the admin block's Init has run its migrations):
+    /// returns an empty map so blocks fall back to their `ConfigVar`
+    /// defaults. The next request — after admin's Init has added the
+    /// column — uses the proper indexed path.
     pub(crate) async fn fetch_block_variables(
         &self,
         screaming_block: &str,
@@ -96,7 +102,13 @@ impl D1ConfigSource {
             skip_count: true,
             ..Default::default()
         };
-        let rows = self.db.list(VARIABLES_TABLE, &opts).await?;
+        let rows = match self.db.list(VARIABLES_TABLE, &opts).await {
+            Ok(rows) => rows,
+            Err(e) if e.to_string().contains("no such column: block") => {
+                return Ok(HashMap::new());
+            }
+            Err(e) => return Err(Box::new(e)),
+        };
         Ok(rows
             .records
             .into_iter()

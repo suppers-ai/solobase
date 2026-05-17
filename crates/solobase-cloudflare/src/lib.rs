@@ -222,6 +222,16 @@ where
     // 6c. Seal the runtime (composite/uses/capability/snapshot, no bind, no
     //     Start dispatch — same semantics as the former start_without_bind).
     wafer.seal().await.map_err(|e| format!("wafer.seal: {e}"))?;
+
+    // 6d. Eager Init pass: fire `lifecycle(Init)` on every registered
+    //     block before the first request lands. Native callers get this
+    //     from `Wafer::start()`; the CF worker boot path doesn't call
+    //     `start()` (no `bind()` step), so without this admin block's
+    //     migrations would only run after a request happens to touch
+    //     admin transitively — leaving fresh deploys stuck pre-migration.
+    //     Init failures are logged-and-tolerated inside `init_all_blocks`.
+    wafer.init_all_blocks().await;
+
     solobase_core::builder::post_start(&wafer, &storage_block);
 
     // 7. Convert request → message; preserve auth header in meta.
