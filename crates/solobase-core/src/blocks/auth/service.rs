@@ -10,7 +10,6 @@
 
 use std::sync::{Arc, OnceLock};
 
-use sha2::{Digest, Sha256};
 use wafer_core::interfaces::auth::service::{
     AuthError, AuthService, Role, TokenScope, UserId, UserProfile,
 };
@@ -102,9 +101,11 @@ impl AuthServiceImpl {
 }
 
 /// sha256 of a raw token string. Exposed so tests and the (future) session
-/// issuance helper in Plan A2 agree on the hash format.
+/// issuance helper in Plan A2 agree on the hash format. Thin wrapper over
+/// [`crate::blocks::helpers::sha256`] — there is one canonical sha256
+/// implementation in `blocks::helpers`.
 pub fn hash_token(raw: &str) -> Vec<u8> {
-    Sha256::digest(raw.as_bytes()).to_vec()
+    crate::blocks::helpers::sha256(raw.as_bytes()).to_vec()
 }
 
 /// Extract a Bearer token from the `Authorization` header.

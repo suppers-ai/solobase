@@ -52,6 +52,7 @@ pub struct Route {
 /// behavioural change, so the two systems coexist: built-ins as booleans,
 /// extras as declarative tiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RouteAccess {
     /// No auth check. Anyone can hit this route.
     Public,

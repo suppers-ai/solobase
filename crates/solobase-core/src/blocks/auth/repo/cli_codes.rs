@@ -12,6 +12,7 @@ use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
 use super::RepoError;
+use crate::blocks::helpers::hex_encode;
 
 pub const TABLE: &str = "suppers_ai__auth__cli_exchange_codes";
 
@@ -36,18 +37,6 @@ fn now_iso() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
-fn decode_bytes(v: &Value) -> Option<Vec<u8>> {
-    match v {
-        Value::Array(arr) => Some(
-            arr.iter()
-                .filter_map(|x| x.as_u64().map(|n| n as u8))
-                .collect(),
-        ),
-        Value::String(s) => Some(s.as_bytes().to_vec()),
-        _ => None,
-    }
-}
-
 fn row_from_map(m: &HashMap<String, Value>) -> Result<CliCodeRow, RepoError> {
     let s = |k: &str| m.get(k).and_then(Value::as_str).map(str::to_owned);
     Ok(CliCodeRow {
@@ -62,7 +51,7 @@ fn row_from_map(m: &HashMap<String, Value>) -> Result<CliCodeRow, RepoError> {
 pub async fn insert(ctx: &dyn Context, new: NewCode<'_>) -> Result<(), RepoError> {
     let now = now_iso();
     let mut data: HashMap<String, Value> = HashMap::new();
-    data.insert("code_hash".into(), json!(new.code_hash));
+    data.insert("code_hash".into(), json!(hex_encode(new.code_hash)));
     data.insert("user_id".into(), json!(new.user_id));
     data.insert("created_at".into(), json!(now));
     data.insert("expires_at".into(), json!(new.expires_at));
@@ -87,7 +76,7 @@ pub async fn take(ctx: &dyn Context, code_hash: &[u8]) -> Result<Option<CliCodeR
         vec![db::Filter {
             field: "code_hash".into(),
             operator: db::FilterOp::Equal,
-            value: json!(code_hash),
+            value: json!(hex_encode(code_hash)),
         }],
     )
     .await
@@ -120,12 +109,4 @@ pub async fn delete_expired(ctx: &dyn Context, cutoff: &str) -> Result<u64, Repo
     .await
     .map_err(|e| RepoError::Db(format!("cli_codes delete_expired: {e}")))?;
     Ok(n.max(0) as u64)
-}
-
-// Re-expose the unused `decode_bytes` helper so future inspection of the
-// binary `code_hash` column (e.g. test assertions) can reuse the same
-// tolerant decoder as the sessions repo.
-#[allow(dead_code)]
-pub(crate) fn decode_code_hash(v: &Value) -> Option<Vec<u8>> {
-    decode_bytes(v)
 }

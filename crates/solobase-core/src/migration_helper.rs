@@ -79,6 +79,14 @@ pub async fn apply_if_blessed(
         let trimmed = stmt.trim();
         db::ddl(ctx, trimmed)
             .await
+            .inspect_err(|e| {
+                tracing::warn!(
+                    block = %block_name,
+                    stmt = %trimmed,
+                    err = %e,
+                    "ddl failed",
+                )
+            })
             .map_err(|e| format!("ddl failed on `{trimmed}`: {e}"))?;
     }
 
@@ -134,6 +142,13 @@ async fn write_state(
     // hasn't fired). Any error here would have blocked the entire block-
     // init chain — see the SW self-destruct regression that surfaced when
     // we previously propagated. Log and continue; the next request retries.
+    //
+    // The 2026-05-14 review flagged this as "downgraded to warn — should
+    // propagate real DB errors and only swallow 'table missing'". Doing that
+    // correctly needs a typed `ErrorCode::TableNotFound` in wafer-run; today
+    // sqlite maps "no such table" into `ErrorCode::Internal` with message text,
+    // and matching on the string is fragile. Revisit once wafer-run grows the
+    // typed variant.
     match db::list(ctx, BLOCK_SETTINGS_TABLE, &opts).await {
         Ok(result) if !result.records.is_empty() => {
             let id = result.records[0].id.clone();

@@ -1,4 +1,4 @@
-use std::process::Command;
+use tokio::process::Command;
 
 /// Error message shape when a child process exits non-zero.
 ///
@@ -17,7 +17,7 @@ pub fn format_child_error(
 ) -> String {
     use std::fmt::Write;
 
-    let program = cmd.get_program().to_string_lossy();
+    let program = cmd.as_std().get_program().to_string_lossy();
     let code = exit_code
         .map(|c| c.to_string())
         .unwrap_or_else(|| "<signal>".to_string());
@@ -27,7 +27,7 @@ pub fn format_child_error(
     // are only ever read once, so there's no reason to allocate twice.
     let mut out = String::with_capacity(128 + stderr.len());
     let _ = write!(&mut out, "error: {step} failed\n  command: {program}");
-    for arg in cmd.get_args() {
+    for arg in cmd.as_std().get_args() {
         let _ = write!(&mut out, " {}", arg.to_string_lossy());
     }
     let _ = write!(
@@ -47,10 +47,11 @@ pub fn format_child_error(
 /// `DRY_RUN step="..." cmd=<prog> args=[...]` is printed to stdout and
 /// the call returns Ok. Used by golden tests in
 /// `tests/dry_run_goldens.rs` to assert flow command construction.
-pub fn run(step: &str, mut cmd: Command) -> anyhow::Result<()> {
+pub async fn run(step: &str, mut cmd: Command) -> anyhow::Result<()> {
     if std::env::var("SOLOBASE_CLI_DRY_RUN").as_deref() == Ok("1") {
-        let prog = cmd.get_program().to_string_lossy().into_owned();
-        let args: Vec<String> = cmd
+        let std_cmd = cmd.as_std();
+        let prog = std_cmd.get_program().to_string_lossy().into_owned();
+        let args: Vec<String> = std_cmd
             .get_args()
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
@@ -59,6 +60,7 @@ pub fn run(step: &str, mut cmd: Command) -> anyhow::Result<()> {
     }
     let status = cmd
         .status()
+        .await
         .map_err(|e| anyhow::anyhow!("spawn {step}: {e}"))?;
     if status.success() {
         return Ok(());
@@ -94,3 +96,7 @@ mod tests {
         assert!(msg.contains("exit code: <signal>"));
     }
 }
+
+/// Re-export to keep call-site imports terse; the rest of the CLI builds
+/// `tokio::process::Command` and passes it to [`run`].
+pub use tokio::process::Command as TokioCommand;

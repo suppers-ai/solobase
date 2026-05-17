@@ -1,9 +1,10 @@
 //! Embed × web: today's solobase-cli flow, with export-assets as a direct
 //! library call instead of a cargo subprocess.
 
-use std::{path::Path, process::Command};
+use std::path::Path;
 
 use anyhow::Result;
+use tokio::process::Command;
 
 use crate::cli::{
     cmd, config,
@@ -14,7 +15,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     let (cfg, _) = config::find_and_load(repo_root)?;
 
     // 1. wafer build per block.
-    blocks::build_all(repo_root)?;
+    blocks::build_all(repo_root).await?;
 
     // 2. wasm-pack the user's cdylib.
     let mut wp = Command::new("wasm-pack");
@@ -27,7 +28,7 @@ pub async fn build(repo_root: &Path, release: bool) -> Result<()> {
     args.push("--out-dir".into());
     args.push(cfg.wasm.out_dir.clone());
     wp.args(&args).current_dir(repo_root);
-    cmd::run("wasm-pack build", wp)?;
+    cmd::run("wasm-pack build", wp).await?;
 
     // 3. Bundle: write static assets + content-hash + render templates.
     let dist_dir = repo_root.join(&cfg.wasm.out_dir);

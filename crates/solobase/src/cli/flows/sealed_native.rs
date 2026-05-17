@@ -16,7 +16,7 @@ const RUNTIME_SITE_REL: &str = "data/storage/wafer-run/web/site";
 
 pub async fn build(repo_root: &Path, _release: bool) -> Result<()> {
     // 1. wafer build per block.
-    blocks::build_all(repo_root)?;
+    blocks::build_all(repo_root).await?;
 
     // 2. Frontend copy.
     if let Some(fe) = frontend::find_frontend_dir(repo_root) {

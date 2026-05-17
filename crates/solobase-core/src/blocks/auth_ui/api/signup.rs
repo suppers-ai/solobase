@@ -5,13 +5,13 @@ use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::{build_auth_cookie, generate_tokens, sha256_hex, store_refresh_token},
+        helpers::{build_auth_cookie, generate_tokens, store_refresh_token},
         repo::{local_credentials, sessions, users},
         service::hash_token,
         USERS_TABLE,
     },
     errors::{error_response, ErrorCode},
-    helpers::{err_bad_request, err_internal, hex_encode, json_map, ResponseBuilder},
+    helpers::{err_bad_request, err_internal, hex_encode, json_map, sha256_hex, ResponseBuilder},
 };
 
 /// Returns `Ok(true)` when a user with `email_lower` already exists, `Ok(false)`
@@ -199,7 +199,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
         let stored_verification = if verification_token.is_empty() {
             String::new()
         } else {
-            sha256_hex(&verification_token)
+            sha256_hex(verification_token.as_bytes())
         };
         let mut upd = json_map(serde_json::json!({
             "email_verified": !require_verification,
