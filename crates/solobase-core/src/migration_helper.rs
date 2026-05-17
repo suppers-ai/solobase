@@ -135,55 +135,39 @@ async fn write_state(
         skip_count: true,
     };
 
-    // State persistence is best-effort. The migration itself already
-    // applied (IF NOT EXISTS guards make re-runs idempotent), and in
-    // browser-WASM cold boot the `block_settings` table or its surrounding
-    // infra may not yet be reachable through WRAP (admin block's Init
-    // hasn't fired). Any error here would have blocked the entire block-
-    // init chain — see the SW self-destruct regression that surfaced when
-    // we previously propagated. Log and continue; the next request retries.
-    //
-    // The 2026-05-14 review flagged this as "downgraded to warn — should
-    // propagate real DB errors and only swallow 'table missing'". Doing that
-    // correctly needs a typed `ErrorCode::TableNotFound` in wafer-run; today
-    // sqlite maps "no such table" into `ErrorCode::Internal` with message text,
-    // and matching on the string is fragile. Revisit once wafer-run grows the
-    // typed variant.
-    match db::list(ctx, BLOCK_SETTINGS_TABLE, &opts).await {
-        Ok(result) if !result.records.is_empty() => {
-            let id = result.records[0].id.clone();
-            let mut patch = std::collections::HashMap::new();
-            patch.insert(
-                "current_hash".to_string(),
-                serde_json::json!(state.current_hash),
-            );
-            patch.insert(
-                "blessed_hash".to_string(),
-                serde_json::json!(state.blessed_hash),
-            );
-            if let Err(e) = db::update(ctx, BLOCK_SETTINGS_TABLE, &id, patch).await {
-                tracing::warn!(block = %block_name, err = %e, "migration state update skipped");
-            }
-        }
-        Ok(_) => {
-            let mut data = std::collections::HashMap::new();
-            data.insert("block_name".to_string(), serde_json::json!(block_name));
-            data.insert("enabled".to_string(), serde_json::json!(true));
-            data.insert(
-                "current_hash".to_string(),
-                serde_json::json!(state.current_hash),
-            );
-            data.insert(
-                "blessed_hash".to_string(),
-                serde_json::json!(state.blessed_hash),
-            );
-            if let Err(e) = db::create(ctx, BLOCK_SETTINGS_TABLE, data).await {
-                tracing::warn!(block = %block_name, err = %e, "migration state create skipped");
-            }
-        }
-        Err(e) => {
-            tracing::warn!(block = %block_name, err = %e, "migration state lookup skipped");
-        }
+    let existing = db::list(ctx, BLOCK_SETTINGS_TABLE, &opts)
+        .await
+        .map_err(|e| format!("migration state lookup: {e}"))?;
+
+    if !existing.records.is_empty() {
+        let id = existing.records[0].id.clone();
+        let mut patch = std::collections::HashMap::new();
+        patch.insert(
+            "current_hash".to_string(),
+            serde_json::json!(state.current_hash),
+        );
+        patch.insert(
+            "blessed_hash".to_string(),
+            serde_json::json!(state.blessed_hash),
+        );
+        db::update(ctx, BLOCK_SETTINGS_TABLE, &id, patch)
+            .await
+            .map_err(|e| format!("migration state update: {e}"))?;
+    } else {
+        let mut data = std::collections::HashMap::new();
+        data.insert("block_name".to_string(), serde_json::json!(block_name));
+        data.insert("enabled".to_string(), serde_json::json!(true));
+        data.insert(
+            "current_hash".to_string(),
+            serde_json::json!(state.current_hash),
+        );
+        data.insert(
+            "blessed_hash".to_string(),
+            serde_json::json!(state.blessed_hash),
+        );
+        db::create(ctx, BLOCK_SETTINGS_TABLE, data)
+            .await
+            .map_err(|e| format!("migration state create: {e}"))?;
     }
     Ok(())
 }
