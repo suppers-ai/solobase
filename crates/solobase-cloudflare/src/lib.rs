@@ -199,7 +199,7 @@ where
         config_source::D1ConfigSource::with_overlay(db.clone(), overlay),
     );
     let builder = SolobaseBuilder::new()
-        .database(db)
+        .database(db.clone())
         .storage(bucket.clone())
         .config(cfg_svc)
         .crypto(crypto)
@@ -223,13 +223,30 @@ where
     //     Start dispatch — same semantics as the former start_without_bind).
     wafer.seal().await.map_err(|e| format!("wafer.seal: {e}"))?;
 
-    // 6d. Eager Init pass: fire `lifecycle(Init)` on every registered
-    //     block before the first request lands. Native callers get this
-    //     from `Wafer::start()`; the CF worker boot path doesn't call
-    //     `start()` (no `bind()` step), so without this admin block's
-    //     migrations would only run after a request happens to touch
-    //     admin transitively — leaving fresh deploys stuck pre-migration.
-    //     Init failures are logged-and-tolerated inside `init_all_blocks`.
+    // 6d. Init the admin block first so its migrations (incl. variables.block
+    //     in migration 002) have applied before we seed auto-generated
+    //     secrets. `init_all_blocks` iterates `HashMap::keys()` in unspecified
+    //     order, so without this explicit step a block that depends on a
+    //     seeded `auto_generate` key (e.g. `suppers-ai/products` and
+    //     `SUPPERS_AI__PRODUCTS__WEBHOOK_SECRET`) could be the first one
+    //     initialised, permanent-fail on the missing key, and remain broken
+    //     for the slot's lifetime even after seeding completes.
+    if let Err(e) = wafer
+        .init_block(solobase_core::blocks::admin::ADMIN_BLOCK_ID)
+        .await
+    {
+        worker::console_log!("warn: admin block Init failed before seed_auto_generated: {e}",);
+    }
+
+    // 6e. Seed `auto_generate` ConfigVars (mirror of native CLI's
+    //     `seed_auto_generated`). Inserts random 32-byte hex values for keys
+    //     missing from the admin variables table — idempotent on repeat
+    //     cold-starts. Per-key failures are logged but tolerated.
+    runner::seed_auto_generated(&db).await;
+
+    // 6f. Eager Init pass for the remaining blocks. Slot caching makes admin
+    //     a no-op here. Init failures are logged-and-tolerated inside
+    //     `init_all_blocks`.
     wafer.init_all_blocks().await;
 
     solobase_core::builder::post_start(&wafer, &storage_block);
