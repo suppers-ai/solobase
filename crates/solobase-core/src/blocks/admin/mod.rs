@@ -12,6 +12,14 @@ pub(crate) use iam::{PERMISSIONS_TABLE, ROLES_TABLE, USER_ROLES_TABLE};
 pub(crate) use logs::{AUDIT_LOGS_TABLE, REQUEST_LOGS_TABLE, STORAGE_ACCESS_LOGS_TABLE};
 pub use settings::{BLOCK_SETTINGS_TABLE, VARIABLES_TABLE};
 
+/// Registered name of the admin block.
+///
+/// Mirror of [`crate::blocks::auth::AUTH_BLOCK_ID`] for callers that need to
+/// reference the admin block by name without hardcoding the string (e.g.
+/// `solobase-cloudflare` initialises the admin block first so its migrations
+/// have run before the runner seeds `auto_generate` secrets).
+pub const ADMIN_BLOCK_ID: &str = "suppers-ai/admin";
+
 /// Storage-permission rule rows (bucket/key pattern → ACL).
 pub(crate) const STORAGE_RULES_TABLE: &str = "suppers_ai__admin__storage_rules";
 /// Network-permission rule rows (egress allow/deny by URL pattern).
