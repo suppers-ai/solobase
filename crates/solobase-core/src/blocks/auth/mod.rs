@@ -357,7 +357,6 @@ pub(crate) mod helpers {
         // shares an audited path with the rest of the workspace.
         url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
     }
-
 }
 
 /// Authenticate a request using an API key.

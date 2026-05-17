@@ -102,10 +102,7 @@ pub async fn insert(ctx: &dyn Context, new: NewPat) -> Result<(), RepoError> {
     let scopes_json = serde_json::to_string(&new.scopes)
         .map_err(|e| RepoError::Db(format!("scopes ser: {e}")))?;
     let mut data: HashMap<String, Value> = HashMap::new();
-    data.insert(
-        "token_hash".into(),
-        json!(hex_encode(&new.token_hash)),
-    );
+    data.insert("token_hash".into(), json!(hex_encode(&new.token_hash)));
     data.insert("user_id".into(), json!(new.user_id));
     data.insert("name".into(), json!(new.name));
     data.insert("scopes".into(), json!(scopes_json));
