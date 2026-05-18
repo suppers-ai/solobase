@@ -1,5 +1,5 @@
 pub mod ingestion;
-mod migrations;
+pub(crate) mod migrations;
 pub mod pages;
 pub mod pages_ui;
 pub mod service;

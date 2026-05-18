@@ -1288,7 +1288,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn bucket_list_page_renders_user_buckets() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         let owner = "admin_1"; // admin_msg's default user_id
         seed_two_buckets(&ctx, owner).await;
 
@@ -1311,7 +1311,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn bucket_list_page_empty_state_for_fresh_user() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
 
         let msg = admin_msg("retrieve", "/b/storage/");
         let resp = bucket_list_page(&ctx, &msg).await;
@@ -1323,7 +1323,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn bucket_list_page_hides_other_users_buckets() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         // Seed admin_1's buckets.
         seed_two_buckets(&ctx, "admin_1").await;
         // Seed one bucket for a different user.
@@ -1344,7 +1344,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn bucket_list_page_renders_new_bucket_button() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         let msg = admin_msg("retrieve", "/b/storage/");
         let body = output_html(bucket_list_page(&ctx, &msg).await).await;
 
@@ -1366,7 +1366,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn bucket_list_page_renders_new_bucket_modal() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         let msg = admin_msg("retrieve", "/b/storage/");
         let body = output_html(bucket_list_page(&ctx, &msg).await).await;
 
@@ -1412,7 +1412,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn object_list_page_root_renders_files_and_folders() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         seed_two_buckets(&ctx, "admin_1").await;
 
         let msg = admin_msg("retrieve", "/b/storage/photos/");
@@ -1433,7 +1433,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn object_list_page_with_prefix_strips_filename() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         seed_two_buckets(&ctx, "admin_1").await;
 
         let msg = admin_msg("retrieve", "/b/storage/photos/nested/");
@@ -1447,7 +1447,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn object_list_page_404_for_unknown_bucket() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         let mut msg = admin_msg("retrieve", "/b/storage/missing/");
         msg.set_meta("http.header.accept", "text/html");
         let resp = object_list_page(&ctx, &msg, "missing", "").await;
@@ -1462,7 +1462,7 @@ mod integration_tests {
     async fn object_list_page_404_for_other_users_bucket() {
         // Cross-user isolation: a bucket owned by another user must 404,
         // not render its contents.
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         let mut row: HashMap<String, serde_json::Value> = HashMap::new();
         row.insert("name".into(), json!("secrets"));
         row.insert("created_by".into(), json!("other_user"));
@@ -1480,7 +1480,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn object_list_page_renders_empty_state_for_empty_bucket() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         // seed_two_buckets seeds `docs` with no objects.
         seed_two_buckets(&ctx, "admin_1").await;
 
@@ -1496,7 +1496,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn cloudstorage_page_renders_shares_and_quota() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
 
         // Seed a share + a quota row owned by admin_1.
         let mut share: HashMap<String, serde_json::Value> = HashMap::new();
@@ -1529,7 +1529,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn cloudstorage_page_hides_other_users_shares() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         // Seed admin_1's share.
         let mut mine: HashMap<String, serde_json::Value> = HashMap::new();
         mine.insert("token".into(), json!("mine"));
@@ -1557,7 +1557,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn object_list_page_includes_files_browser_js() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         seed_two_buckets(&ctx, "admin_1").await;
 
         let msg = admin_msg("retrieve", "/b/storage/photos/");
@@ -1584,7 +1584,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn cloudstorage_page_includes_files_browser_js() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
 
         let msg = admin_msg("retrieve", "/b/cloudstorage/");
         let resp = cloudstorage_page(&ctx, &msg).await;
@@ -1604,7 +1604,7 @@ mod integration_tests {
     async fn object_list_page_shows_actual_size_from_text_columns() {
         // SQLite TEXT columns store integers as strings (see MEMORY.md
         // wafer-wrap-table-naming). The renderer must coerce both shapes.
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         let mut bucket: HashMap<String, serde_json::Value> = HashMap::new();
         bucket.insert("name".into(), json!("photos"));
         bucket.insert("created_by".into(), json!("admin_1"));
@@ -1638,7 +1638,7 @@ mod integration_tests {
         // A bucket name containing `</script>` would prematurely close the
         // <script type="application/json"> bootstrap carrier. The render
         // path must escape `<` so that no `</script>` appears in the JSON.
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_files().await;
         let mut bucket: HashMap<String, serde_json::Value> = HashMap::new();
         bucket.insert("name".into(), json!("foo</script>bar"));
         bucket.insert("created_by".into(), json!("admin_1"));

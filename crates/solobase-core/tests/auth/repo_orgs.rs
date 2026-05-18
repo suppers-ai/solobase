@@ -28,7 +28,7 @@ async fn mk_user(ctx: &MigrationTestCtx, email: &str) -> String {
 
 #[tokio::test]
 async fn find_by_name_returns_none_for_unknown() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
     let row = orgs::find_by_name(&ctx, "does-not-exist").await.unwrap();
     assert!(row.is_none());
@@ -36,7 +36,7 @@ async fn find_by_name_returns_none_for_unknown() {
 
 #[tokio::test]
 async fn upsert_claimed_inserts_then_finds() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
     let uid = mk_user(&ctx, "u@x.com").await;
     let row = orgs::upsert_claimed(
@@ -65,7 +65,7 @@ async fn upsert_claimed_inserts_then_finds() {
 
 #[tokio::test]
 async fn upsert_claimed_conflict_on_name() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
     let a = mk_user(&ctx, "a@x.com").await;
     let b = mk_user(&ctx, "b@x.com").await;
@@ -96,7 +96,7 @@ async fn upsert_claimed_conflict_on_name() {
 
 #[tokio::test]
 async fn upsert_claimed_conflict_on_verified_ref() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
     let a = mk_user(&ctx, "a@x.com").await;
     let b = mk_user(&ctx, "b@x.com").await;
@@ -130,7 +130,7 @@ async fn reserved_orgs_do_not_block_claiming_same_provider_ref() {
     // Reserved orgs don't participate in the verified_via/verified_ref
     // conflict — the partial unique index has `WHERE is_reserved = 0`. A
     // reserved row with no provider ref shouldn't block a real claim.
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
     // Migration 002 seeded 'wafer-run' as reserved with NULL verified_ref.
     let uid = mk_user(&ctx, "u@x.com").await;

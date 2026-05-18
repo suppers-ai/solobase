@@ -37,7 +37,7 @@ fn iso_plus_secs(secs: i64) -> String {
 
 #[tokio::test]
 async fn insert_then_take_returns_row_and_deletes() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
     let uid = mk_user(&ctx, "a@x.com").await;
 
@@ -66,7 +66,7 @@ async fn insert_then_take_returns_row_and_deletes() {
 
 #[tokio::test]
 async fn take_unknown_returns_none() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
     let row = cli_codes::take(&ctx, &hash(99)).await.expect("take");
     assert!(row.is_none());
@@ -74,7 +74,7 @@ async fn take_unknown_returns_none() {
 
 #[tokio::test]
 async fn take_expired_returns_none_and_deletes() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
     let uid = mk_user(&ctx, "a@x.com").await;
 
@@ -101,7 +101,7 @@ async fn take_expired_returns_none_and_deletes() {
 
 #[tokio::test]
 async fn delete_expired_drops_only_expired_rows() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
     let uid = mk_user(&ctx, "a@x.com").await;
     cli_codes::insert(

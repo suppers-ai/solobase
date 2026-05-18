@@ -25,7 +25,7 @@ async fn mk_user(ctx: &MigrationTestCtx, email: &str) -> String {
 
 #[tokio::test]
 async fn upsert_insert_then_update_same_provider_ref() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
     let uid1 = mk_user(&ctx, "a@example.com").await;
     let uid2 = mk_user(&ctx, "b@example.com").await;
@@ -108,7 +108,7 @@ async fn upsert_insert_then_update_same_provider_ref() {
 
 #[tokio::test]
 async fn find_missing_is_none() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
     assert!(provider_links::find_by_provider_ref(&ctx, "github", "nope")
         .await
@@ -118,7 +118,7 @@ async fn find_missing_is_none() {
 
 #[tokio::test]
 async fn provider_axis_is_independent() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
     let uid_gh = mk_user(&ctx, "gh@example.com").await;
     let uid_goog = mk_user(&ctx, "goog@example.com").await;

@@ -429,10 +429,11 @@ mod tests {
 
     #[tokio::test]
     async fn init_applies_migrations_and_runs_bootstrap_on_fresh_ctx() {
-        // Fresh TestContext — no auth tables, no config block. Calling
-        // `service.init` must run migrations (creating the users table) and
-        // then run bootstrap (which is a no-op without admin env vars set).
-        let ctx = Arc::new(TestContext::new().await);
+        // Admin migrations are pre-applied so the `block_settings` tracking
+        // table exists — `apply_if_blessed` requires it to upsert the
+        // `current_hash` row. In production `register_all_static_blocks`
+        // registers admin first, so its Init runs before auth's.
+        let ctx = Arc::new(TestContext::with_admin().await);
         let service = AuthServiceImpl::new(BlockState::for_test(ctx.clone()));
 
         service
@@ -452,7 +453,8 @@ mod tests {
     async fn init_is_idempotent() {
         // Running init twice must be safe — migrations track applied
         // versions and bootstrap short-circuits when users already exist.
-        let ctx = Arc::new(TestContext::new().await);
+        // Admin pre-applied for the same reason as above.
+        let ctx = Arc::new(TestContext::with_admin().await);
         let service = AuthServiceImpl::new(BlockState::for_test(ctx.clone()));
 
         service.init(&*ctx).await.expect("first init");

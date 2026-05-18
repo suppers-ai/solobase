@@ -10,7 +10,7 @@ use crate::common::MigrationTestCtx;
 
 #[tokio::test]
 async fn insert_find_touch_delete_expired() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
 
     let u = users::insert(
@@ -87,7 +87,7 @@ async fn insert_find_touch_delete_expired() {
 
 #[tokio::test]
 async fn find_by_token_hash_missing_returns_none() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
 
     let none_hash = [0u8; 32];

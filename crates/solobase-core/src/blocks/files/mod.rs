@@ -1,5 +1,5 @@
 mod cloud;
-mod migrations;
+pub(crate) mod migrations;
 pub(crate) mod models;
 mod pages_admin;
 pub(crate) mod pages_user;

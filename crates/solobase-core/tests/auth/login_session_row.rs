@@ -124,7 +124,7 @@ async fn invoke_login_drain(ctx: &MigrationTestCtx, email: &str, password: &str)
 
 #[tokio::test]
 async fn login_creates_one_session_row_keyed_by_access_token_hash() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     let user_id = seed_password_user(&ctx, "alice@example.com", "hunter2hunter2").await;
 
     let resp_body = invoke_login(&ctx, "alice@example.com", "hunter2hunter2").await;
@@ -162,7 +162,7 @@ async fn login_creates_one_session_row_keyed_by_access_token_hash() {
 
 #[tokio::test]
 async fn invalid_credentials_do_not_create_a_session_row() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     let user_id = seed_password_user(&ctx, "bob@example.com", "correct-horse").await;
 
     invoke_login_drain(&ctx, "bob@example.com", "WRONG-password").await;
@@ -178,7 +178,7 @@ async fn invalid_credentials_do_not_create_a_session_row() {
 
 #[tokio::test]
 async fn two_logins_produce_two_distinct_session_rows() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     let user_id = seed_password_user(&ctx, "carol@example.com", "passw0rd-passw0rd").await;
 
     let _ = invoke_login(&ctx, "carol@example.com", "passw0rd-passw0rd").await;
@@ -208,7 +208,7 @@ async fn two_logins_produce_two_distinct_session_rows() {
 /// This is what the user sees in their browser at `/b/userportal/sessions`.
 #[tokio::test]
 async fn userportal_sessions_page_renders_row_after_login() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     let user_id = seed_password_user(&ctx, "diana@example.com", "diana-password").await;
 
     let _ = invoke_login(&ctx, "diana@example.com", "diana-password").await;

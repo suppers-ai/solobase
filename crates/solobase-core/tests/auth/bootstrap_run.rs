@@ -28,7 +28,7 @@ fn cfg_empty() -> AuthConfig {
 
 #[tokio::test]
 async fn email_password_path_creates_admin_with_local_credentials() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migrations");
 
     bootstrap::run(&ctx, &cfg_email_pw("root@x.io", "pw"))
@@ -58,7 +58,7 @@ async fn email_password_path_creates_admin_with_local_credentials() {
 
 #[tokio::test]
 async fn token_path_inserts_bootstrap_token_row() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migrations");
 
     bootstrap::run(&ctx, &cfg_token("secret-token"))
@@ -82,7 +82,7 @@ async fn token_path_inserts_bootstrap_token_row() {
 
 #[tokio::test]
 async fn no_config_is_noop() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migrations");
 
     bootstrap::run(&ctx, &cfg_empty())
@@ -94,7 +94,7 @@ async fn no_config_is_noop() {
 
 #[tokio::test]
 async fn skipped_when_users_already_exist() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migrations");
 
     users::insert(

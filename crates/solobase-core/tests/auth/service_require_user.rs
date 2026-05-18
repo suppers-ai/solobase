@@ -28,7 +28,7 @@ fn msg_with_bearer(token: &str) -> Message {
 
 #[tokio::test]
 async fn require_user_accepts_session_cookie_and_pat_and_rejects_missing() {
-    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new());
+    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new().await);
     migrations::apply(ctx.as_ref()).await.expect("migrations");
 
     let u = users::insert(
@@ -113,7 +113,7 @@ async fn require_user_accepts_session_cookie_and_pat_and_rejects_missing() {
 
 #[tokio::test]
 async fn require_user_rejects_expired_session_and_pat() {
-    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new());
+    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new().await);
     migrations::apply(ctx.as_ref()).await.expect("migrations");
 
     let u = users::insert(

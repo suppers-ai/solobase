@@ -36,7 +36,7 @@ struct Harness {
 }
 
 async fn boot() -> Harness {
-    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new());
+    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new().await);
     migrations::apply(ctx.as_ref()).await.expect("migrations");
     let state = BlockState::for_test(ctx.clone()).with_org_admin_cache(OrgAdminCache::default());
     Harness {
