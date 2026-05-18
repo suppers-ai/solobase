@@ -21,6 +21,7 @@ use crate::{
     },
 };
 
+mod migrations;
 mod pages;
 
 const TABLE: &str = "suppers_ai__userportal__buttons";
@@ -142,9 +143,17 @@ impl Block for UserPortalBlock {
 
     async fn lifecycle(
         &self,
-        _ctx: &dyn Context,
-        _event: LifecycleEvent,
+        ctx: &dyn Context,
+        event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
+        if matches!(event.event_type, LifecycleType::Init) {
+            migrations::apply(ctx).await.map_err(|e| {
+                WaferError::new(
+                    wafer_run::ErrorCode::Internal,
+                    format!("userportal migrations: {e}"),
+                )
+            })?;
+        }
         Ok(())
     }
 }
