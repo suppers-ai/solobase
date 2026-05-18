@@ -46,7 +46,7 @@ use wafer_core::{
     interfaces::vector::{get_model, DEFAULT_MODEL},
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
-use wafer_sql_utils::{ddl, introspect, query, upsert, value::sea_values_to_json, Backend};
+use wafer_sql_utils::{introspect, query, upsert, value::sea_values_to_json, Backend};
 
 use super::{
     ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO},
@@ -63,22 +63,11 @@ use crate::blocks::helpers::{
 /// model to re-embed text with, and whether keyword search was enabled —
 /// without spelunking through DDL on every query.
 ///
-/// Schema: `suppers_ai__vector__registry(prefixed_name TEXT PK, model TEXT,
-/// dimensions INTEGER, keyword_search INTEGER)`.
+/// Schema lives in `migrations/001_vector_schema.{sqlite,postgres}.sql` and
+/// is applied at block Init via `apply_if_blessed`. The column layout is:
+/// `(prefixed_name TEXT PK, model TEXT, dimensions INTEGER,
+/// keyword_search INTEGER)`.
 const REGISTRY_TABLE: &str = "suppers_ai__vector__registry";
-
-/// `Table` builder for the registry — fed through `ddl::build_create_table`
-/// so the DDL is dialect-portable even though the rest of the vector block
-/// is SQLite-only (sqlite-vec extension).
-fn registry_schema() -> wafer_core::interfaces::database::service::Table {
-    use wafer_core::interfaces::database::service::{col_int, col_text, pk, Table};
-    let mut table = Table::new(REGISTRY_TABLE);
-    table.columns.push(pk("prefixed_name"));
-    table.columns.push(col_text("model"));
-    table.columns.push(col_int("dimensions"));
-    table.columns.push(col_int("keyword_search"));
-    table
-}
 
 /// Route dispatcher for the `suppers-ai/vector` block.
 ///
@@ -209,9 +198,10 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
     // an internal error rather than silently swallowing it; the operator
     // can retry create (idempotent at the registry level via OR REPLACE
     // and harmless at vclient level because the index already exists).
-    if let Err(e) = ensure_registry(ctx).await {
-        return err_internal("registry init failed", e);
-    }
+    //
+    // The registry table itself is owned by the block's
+    // `migrations/001_vector_schema.*.sql` script (run at block Init via
+    // `apply_if_blessed`), so no inline CREATE TABLE is required here.
     let (sql, vals) = upsert::build_upsert(
         REGISTRY_TABLE,
         &[
@@ -254,17 +244,6 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
         "metric": cfg.metric,
         "keyword_search": cfg.keyword_search,
     }))
-}
-
-/// Idempotently create the registry table.
-async fn ensure_registry(ctx: &dyn Context) -> Result<(), WaferError> {
-    let sql = ddl::build_create_table(&registry_schema(), Backend::Sqlite).map_err(|e| {
-        WaferError::new(
-            wafer_block::ErrorCode::INTERNAL,
-            format!("Failed to build registry CREATE TABLE: {e}"),
-        )
-    })?;
-    db::exec_raw(ctx, &sql, &[]).await.map(|_| ())
 }
 
 // ---------------------------------------------------------------------------

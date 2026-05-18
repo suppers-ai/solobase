@@ -1,4 +1,5 @@
 pub mod ingestion;
+mod migrations;
 pub mod pages;
 pub mod pages_ui;
 pub mod service;
@@ -129,9 +130,17 @@ impl Block for VectorBlock {
 
     async fn lifecycle(
         &self,
-        _ctx: &dyn Context,
-        _event: LifecycleEvent,
+        ctx: &dyn Context,
+        event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
+        if matches!(event.event_type, LifecycleType::Init) {
+            migrations::apply(ctx).await.map_err(|e| {
+                WaferError::new(
+                    wafer_run::ErrorCode::Internal,
+                    format!("vector migrations: {e}"),
+                )
+            })?;
+        }
         Ok(())
     }
 }
