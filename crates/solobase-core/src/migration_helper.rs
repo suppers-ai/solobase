@@ -77,17 +77,35 @@ pub async fn apply_if_blessed(
             continue;
         }
         let trimmed = stmt.trim();
-        db::ddl(ctx, trimmed)
-            .await
-            .inspect_err(|e| {
-                tracing::warn!(
+        if let Err(e) = db::ddl(ctx, trimmed).await {
+            // ALTER TABLE ADD COLUMN is non-idempotent on SQLite/D1 — there's
+            // no `IF NOT EXISTS` syntax for columns. When a previous run
+            // already added the column, re-running raises "duplicate column
+            // name". Treat that as a benign no-op so the rest of the
+            // migration batch (and the final `write_state` stamp) can
+            // still run. Every other DDL failure propagates.
+            //
+            // This is the same tolerance pattern the per-write column-add
+            // path uses in `solobase-cloudflare::D1DatabaseService::
+            // add_missing_columns`.
+            let msg = e.to_string();
+            if is_alter_add_column(trimmed) && is_duplicate_column_error(&msg) {
+                tracing::debug!(
                     block = %block_name,
                     stmt = %trimmed,
-                    err = %e,
-                    "ddl failed",
-                )
-            })
-            .map_err(|e| format!("ddl failed on `{trimmed}`: {e}"))?;
+                    err = %msg,
+                    "ddl: duplicate column, treating as idempotent no-op",
+                );
+                continue;
+            }
+            tracing::warn!(
+                block = %block_name,
+                stmt = %trimmed,
+                err = %msg,
+                "ddl failed",
+            );
+            return Err(format!("ddl failed on `{trimmed}`: {e}"));
+        }
     }
 
     let new_state = MigrationState {
@@ -236,6 +254,37 @@ fn has_executable_content(stmt: &str) -> bool {
     })
 }
 
+/// `true` when `stmt`'s first executable token sequence is
+/// `ALTER TABLE … ADD COLUMN`. Case-insensitive, comment-tolerant.
+///
+/// Used to gate the duplicate-column-error tolerance in
+/// `apply_if_blessed` — we only swallow the benign duplicate on this
+/// specific statement shape, not on every DDL.
+fn is_alter_add_column(stmt: &str) -> bool {
+    let upper: String = stmt
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with("--"))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_uppercase();
+    let collapsed = upper.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.starts_with("ALTER TABLE ") && collapsed.contains(" ADD COLUMN ")
+}
+
+/// `true` when an error message looks like a "column already exists"
+/// failure from any backend we target.
+///
+/// - SQLite / D1: `duplicate column name`
+/// - PostgreSQL: `column "<name>" of relation "<table>" already exists`
+///
+/// Substring match is intentional — backends wrap these strings in their
+/// own error envelopes and we only care that the canonical phrase appears.
+fn is_duplicate_column_error(msg: &str) -> bool {
+    let lower = msg.to_ascii_lowercase();
+    lower.contains("duplicate column name") || lower.contains("already exists")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,6 +302,41 @@ mod tests {
         let a = sha256_hex("CREATE TABLE foo (id TEXT);");
         let b = sha256_hex("CREATE TABLE bar (id TEXT);");
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn detects_alter_table_add_column_in_all_shapes() {
+        assert!(is_alter_add_column("ALTER TABLE foo ADD COLUMN bar TEXT"));
+        assert!(is_alter_add_column(
+            "alter table foo add column bar text"
+        ));
+        // Tolerates leading line comments + extra whitespace.
+        assert!(is_alter_add_column(
+            "-- header\n\nALTER TABLE foo\n  ADD COLUMN bar TEXT"
+        ));
+        // Excludes other ALTER variants and unrelated DDL.
+        assert!(!is_alter_add_column(
+            "ALTER TABLE foo DROP COLUMN bar"
+        ));
+        assert!(!is_alter_add_column("CREATE TABLE foo (id TEXT)"));
+        assert!(!is_alter_add_column("CREATE INDEX bar ON foo (id)"));
+    }
+
+    #[test]
+    fn detects_duplicate_column_errors_from_each_backend() {
+        // SQLite / D1 wording.
+        assert!(is_duplicate_column_error(
+            "Internal: internal database error: duplicate column name: block"
+        ));
+        // Mixed case is fine.
+        assert!(is_duplicate_column_error("Duplicate Column Name: foo"));
+        // PostgreSQL wording.
+        assert!(is_duplicate_column_error(
+            r#"column "block" of relation "suppers_ai__admin__variables" already exists"#
+        ));
+        // Non-matching errors stay non-matching.
+        assert!(!is_duplicate_column_error("no such table: foo"));
+        assert!(!is_duplicate_column_error("syntax error near 'ALTER'"));
     }
 
     #[test]
@@ -365,6 +449,65 @@ mod tests {
         assert_eq!(
             postgres_count, 19,
             "products postgres migration: expected 19 statements, got {postgres_count}"
+        );
+    }
+
+    /// Reproduces the prod failure mode this commit fixes: a block's
+    /// migration SQL runs once, the column gets added. A later cold start
+    /// loses the `block_settings` row (e.g. fresh D1, or schema drift that
+    /// dropped the row), the snapshot has no entry, so `apply_if_blessed`
+    /// can't early-return — it re-runs every statement, and `ALTER TABLE …
+    /// ADD COLUMN` blows up with "duplicate column name".
+    ///
+    /// Before this fix, the entire migration batch aborted and
+    /// `write_state` never stamped the row, leaving the block stuck in
+    /// the same broken state on every subsequent cold start.
+    #[tokio::test]
+    async fn apply_if_blessed_tolerates_duplicate_add_column_re_run() {
+        let ctx = crate::test_support::TestContext::with_admin().await;
+
+        // Pre-create the target table and the column the migration "wants"
+        // to add — mimicking the prod schema after a previous successful
+        // apply, with the tracking row since gone.
+        wafer_core::clients::database::ddl(
+            &ctx,
+            "CREATE TABLE IF NOT EXISTS dup_col_test (id TEXT PRIMARY KEY)",
+        )
+        .await
+        .expect("setup: create table");
+        wafer_core::clients::database::ddl(
+            &ctx,
+            "ALTER TABLE dup_col_test ADD COLUMN name TEXT",
+        )
+        .await
+        .expect("setup: add column");
+
+        // Migration SQL re-asserts the same column. Without the fix this
+        // statement returns "duplicate column name" and the batch aborts.
+        let migration_sql = "\
+            CREATE TABLE IF NOT EXISTS dup_col_test (id TEXT PRIMARY KEY);\n\
+            ALTER TABLE dup_col_test ADD COLUMN name TEXT;\n\
+        ";
+
+        apply_if_blessed(&ctx, "test/dup-add-column", migration_sql)
+            .await
+            .expect("benign duplicate ALTER must not abort the batch");
+    }
+
+    /// Regression guard: only ALTER TABLE ADD COLUMN gets the duplicate
+    /// tolerance. A real DDL failure (e.g. syntax error) still propagates.
+    #[tokio::test]
+    async fn apply_if_blessed_still_fails_on_non_duplicate_ddl_error() {
+        let ctx = crate::test_support::TestContext::with_admin().await;
+
+        // Garbled DDL — sqlite reports "syntax error". Must NOT be swallowed.
+        let bad_sql = "CREATE NONSENSE foo (id TEXT);";
+        let err = apply_if_blessed(&ctx, "test/bad-ddl", bad_sql)
+            .await
+            .expect_err("syntax error must propagate");
+        assert!(
+            err.contains("ddl failed"),
+            "expected `ddl failed` in error string, got: {err}"
         );
     }
 }
