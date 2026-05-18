@@ -449,40 +449,80 @@ fn render_legal_page(inputs: LegalPageInputs<'_>) -> Markup {
 
 /// Render admin-authored Markdown to HTML.
 ///
-/// Uses `pulldown-cmark` to parse Markdown and filter out raw-HTML blocks,
-/// escaping them instead. This means `<script>`, inline event handlers, and
-/// any other arbitrary HTML in the source are escaped as text rather than
-/// parsed — XSS-safe by construction, replacing the previous ammonia sanitizer.
+/// Uses `pulldown-cmark` with raw-HTML passthrough disabled (the default).
+/// `<script>`, inline event handlers, and any other arbitrary HTML in the
+/// source are emitted as escaped text rather than parsed — XSS-safe by
+/// construction, replacing the previous ammonia sanitizer.
 ///
-/// `javascript:` URLs in link destinations are not filtered by
-/// pulldown-cmark itself; we strip them post-render via a simple text
-/// replace. The single-pass approach is acceptable because the link
-/// renderer only emits `href="..."` with the literal destination —
-/// no ambiguity to worry about.
+/// Link and image URLs are filtered at the event-stream level (before
+/// HTML generation) so dangerous schemes like `javascript:` /
+/// `JavaScript:` (case-insensitive), `data:`, and `vbscript:` are
+/// rewritten to `#`. Matches ammonia's default behaviour of allowing
+/// only `http`, `https`, `mailto`, `tel`, `ftp`, and `magnet`.
 fn markdown_to_html(input: &str) -> String {
-    use pulldown_cmark::{html, Event, Options, Parser};
+    use pulldown_cmark::{html, Event, Options, Parser, Tag};
 
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_TABLES);
     opts.insert(Options::ENABLE_STRIKETHROUGH);
 
-    let parser = Parser::new_ext(input, opts);
-    // Filter out raw HTML events. The parser emits Event::Html when it
-    // encounters raw HTML; we discard them so they don't get written to
-    // the output.
-    let filtered = parser.filter(|event| {
-        !matches!(event, Event::Html(_))
-    });
+    // Filter raw HTML events (emitted as Event::Html or Event::InlineHtml)
+    // so that `<script>` and other HTML in the source is not passed through,
+    // then remap Link/Image dest_url through the scheme allow-list.
+    let parser = Parser::new_ext(input, opts)
+        .filter(|event| !matches!(event, Event::Html(_) | Event::InlineHtml(_)))
+        .map(|event| match event {
+            Event::Start(Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                id,
+            }) => Event::Start(Tag::Link {
+                link_type,
+                dest_url: safe_url(dest_url),
+                title,
+                id,
+            }),
+            Event::Start(Tag::Image {
+                link_type,
+                dest_url,
+                title,
+                id,
+            }) => Event::Start(Tag::Image {
+                link_type,
+                dest_url: safe_url(dest_url),
+                title,
+                id,
+            }),
+            other => other,
+        });
 
     let mut out = String::with_capacity(input.len() + input.len() / 4);
-    html::push_html(&mut out, filtered);
+    html::push_html(&mut out, parser);
+    out
+}
 
-    // pulldown-cmark renders `[label](javascript:...)` as
-    // `<a href="javascript:...">label</a>` — strip those after the fact.
-    // We replace the URL with `#` so the link visibly still exists but
-    // does nothing dangerous.
-    out.replace("href=\"javascript:", "href=\"#")
-        .replace("href='javascript:", "href='#")
+/// Allow-list URL schemes that ammonia's default config permitted.
+/// Anything else (`javascript:`, `data:`, `vbscript:`, custom schemes)
+/// becomes `#`. Scheme detection is case-insensitive per RFC 3986.
+fn safe_url(url: pulldown_cmark::CowStr<'_>) -> pulldown_cmark::CowStr<'_> {
+    const ALLOWED: &[&str] = &["http", "https", "mailto", "tel", "ftp", "magnet"];
+    // Relative URLs (no scheme) are always safe.
+    let scheme = match url.find(':') {
+        Some(i) => &url[..i],
+        None => return url,
+    };
+    // Fragment-only / query-only / path-only links never contain ':' at all
+    // and were caught above. A leading `//` (protocol-relative URL) or `/`
+    // (absolute path) starts with a non-alpha char, so won't match here.
+    if !scheme.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+        return url;
+    }
+    if ALLOWED.iter().any(|s| scheme.eq_ignore_ascii_case(s)) {
+        url
+    } else {
+        pulldown_cmark::CowStr::Borrowed("#")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -720,5 +760,32 @@ mod tests {
         // pulldown-cmark does not filter javascript: URLs on its own —
         // we filter in markdown_to_html. Verify the filter holds.
         assert!(!html.contains("javascript:"));
+    }
+
+    #[test]
+    fn markdown_to_html_filters_uppercase_javascript_scheme() {
+        let md = "[BAD](JAVASCRIPT:alert(1))\n\n[BAD](JavaScript:alert(1))\n";
+        let html = markdown_to_html(md);
+        assert!(!html.to_ascii_lowercase().contains("javascript:"));
+    }
+
+    #[test]
+    fn markdown_to_html_filters_data_and_vbscript_schemes() {
+        let md = "[X](data:text/html,<script>alert(1)</script>)\n\n[Y](vbscript:msgbox)\n";
+        let html = markdown_to_html(md);
+        assert!(!html.contains("data:"));
+        assert!(!html.contains("vbscript:"));
+    }
+
+    #[test]
+    fn markdown_to_html_allows_safe_schemes_and_relative_urls() {
+        let md = "[a](https://x.test) [b](http://y.test) [c](mailto:z@x.test) [d](tel:+1234) [e](/local/path) [f](#anchor)\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains(r#"href="https://x.test""#));
+        assert!(html.contains(r#"href="http://y.test""#));
+        assert!(html.contains(r#"href="mailto:z@x.test""#));
+        assert!(html.contains(r#"href="tel:+1234""#));
+        assert!(html.contains(r#"href="/local/path""#));
+        assert!(html.contains("href=\"#anchor\""));
     }
 }
