@@ -307,17 +307,13 @@ mod tests {
     #[test]
     fn detects_alter_table_add_column_in_all_shapes() {
         assert!(is_alter_add_column("ALTER TABLE foo ADD COLUMN bar TEXT"));
-        assert!(is_alter_add_column(
-            "alter table foo add column bar text"
-        ));
+        assert!(is_alter_add_column("alter table foo add column bar text"));
         // Tolerates leading line comments + extra whitespace.
         assert!(is_alter_add_column(
             "-- header\n\nALTER TABLE foo\n  ADD COLUMN bar TEXT"
         ));
         // Excludes other ALTER variants and unrelated DDL.
-        assert!(!is_alter_add_column(
-            "ALTER TABLE foo DROP COLUMN bar"
-        ));
+        assert!(!is_alter_add_column("ALTER TABLE foo DROP COLUMN bar"));
         assert!(!is_alter_add_column("CREATE TABLE foo (id TEXT)"));
         assert!(!is_alter_add_column("CREATE INDEX bar ON foo (id)"));
     }
@@ -475,12 +471,9 @@ mod tests {
         )
         .await
         .expect("setup: create table");
-        wafer_core::clients::database::ddl(
-            &ctx,
-            "ALTER TABLE dup_col_test ADD COLUMN name TEXT",
-        )
-        .await
-        .expect("setup: add column");
+        wafer_core::clients::database::ddl(&ctx, "ALTER TABLE dup_col_test ADD COLUMN name TEXT")
+            .await
+            .expect("setup: add column");
 
         // Migration SQL re-asserts the same column. Without the fix this
         // statement returns "duplicate column name" and the batch aborts.
