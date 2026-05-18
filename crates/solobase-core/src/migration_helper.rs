@@ -276,6 +276,31 @@ mod tests {
     }
 
     #[test]
+    fn legalpages_sql_splits_into_expected_chunks() {
+        let sql_sqlite =
+            include_str!("blocks/legalpages/migrations/001_legalpages_schema.sqlite.sql");
+        let sqlite_count = split_statements(sql_sqlite)
+            .into_iter()
+            .filter(|s| has_executable_content(s))
+            .count();
+        assert_eq!(
+            sqlite_count, 2,
+            "legalpages sqlite migration: expected 2 statements, got {sqlite_count}"
+        );
+
+        let sql_postgres =
+            include_str!("blocks/legalpages/migrations/001_legalpages_schema.postgres.sql");
+        let postgres_count = split_statements(sql_postgres)
+            .into_iter()
+            .filter(|s| has_executable_content(s))
+            .count();
+        assert_eq!(
+            postgres_count, 2,
+            "legalpages postgres migration: expected 2 statements, got {postgres_count}"
+        );
+    }
+
+    #[test]
     fn files_sql_splits_into_expected_chunks() {
         // Counts the executable statements in the files block SQL files.
         // Fails if the SQL file is edited and the helper's splitter is broken

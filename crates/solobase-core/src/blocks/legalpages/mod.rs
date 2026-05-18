@@ -1,3 +1,4 @@
+mod migrations;
 mod pages;
 
 use std::collections::HashMap;
@@ -477,22 +478,11 @@ fn sanitize_html(input: &str) -> String {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for LegalPagesBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::{types::CollectionSchema, AuthLevel};
+        use wafer_run::AuthLevel;
 
         BlockInfo::new("suppers-ai/legalpages", "0.0.1", "http-handler@v1", "Legal pages management with versioning and publishing")
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into()])
-            .collections(vec![
-                CollectionSchema::new(COLLECTION)
-                    .field("doc_type", "string")
-                    .field("title", "string")
-                    .field_default("content", "text", "")
-                    .field_default("status", "string", "draft")
-                    .field_default("version", "int", "1")
-                    .field_default("created_by", "string", "")
-                    .field_optional("published_at", "datetime")
-                    .index(&["doc_type", "status"]),
-            ])
             .category(wafer_run::BlockCategory::Feature)
             .description("Legal document management with versioning and publishing. Create and manage terms of service, privacy policies, and other legal documents. Supports draft/published workflow with version tracking.")
             .endpoints(vec![
@@ -579,6 +569,12 @@ impl Block for LegalPagesBlock {
         event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
+            migrations::apply(ctx).await.map_err(|e| {
+                WaferError::new(
+                    wafer_run::ErrorCode::Internal,
+                    format!("legalpages migrations: {e}"),
+                )
+            })?;
             self.seed_defaults(ctx).await;
         }
         Ok(())
