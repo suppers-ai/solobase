@@ -5,14 +5,18 @@
 //! `SOLOBASE_SHARED__DATABASE__BACKEND` config key (`sqlite` | `postgres`).
 //! Falls back to `sqlite` when the config block is not registered.
 //!
-//! Statements are executed one-by-one through `wafer-run/database`'s typed
-//! `db::ddl` message contract — the WRAP-aware path that lets any
-//! attributable caller run `CREATE TABLE` / `CREATE INDEX` against its own
-//! (`{org}__{block}__*`) tables without an admin grant. The parser splits
-//! on bare `;` outside of `--` line comments.
+//! Application is gated by [`crate::migration_helper::apply_if_blessed`]:
+//! the helper handles statement splitting + the `current_hash` /
+//! `blessed_hash` / `SOLOBASE_RUN_MIGRATIONS` gate, and stamps a row in
+//! `suppers_ai__admin__block_settings` once applied. Earlier versions of
+//! this module called `db::ddl` directly in a loop, bypassing the gate
+//! and re-running every DDL on every cold isolate (~2,800 D1 queries/day
+//! on wafer.run — see the 2026-05-14 config-snapshot spec).
 
-use wafer_core::clients::{config, database as db};
+use wafer_core::clients::config;
 use wafer_run::context::Context;
+
+const ADMIN_BLOCK_NAME: &str = "suppers-ai/admin";
 
 const SQL_001_SQLITE: &str = include_str!("001_admin_schema.sqlite.sql");
 const SQL_001_POSTGRES: &str = include_str!("001_admin_schema.postgres.sql");
@@ -33,128 +37,66 @@ async fn backend(ctx: &dyn Context) -> Backend {
     }
 }
 
-/// Apply all admin migrations in order. Idempotent: every `CREATE TABLE` /
-/// `CREATE INDEX` uses `IF NOT EXISTS`. Migration 002 is *not* fully
-/// idempotent — `ALTER TABLE … ADD COLUMN` errors if the column already
-/// exists (SQLite) — but the column-existence check happens before the
-/// migration runner picks the script up. The runner guards against
-/// re-application via the migration-state hash (see
-/// `solobase-cloud-target` runbook + `SOLOBASE_RUN_MIGRATIONS` flag).
+/// Concatenate the per-backend migration scripts into a single blob so
+/// `apply_if_blessed` records one `current_hash` covering both. Mirrors the
+/// auth block's concatenation pattern; `apply_if_blessed`'s splitter handles
+/// the `;\n…` boundary between files.
+fn concatenated_sql(b: Backend) -> String {
+    match b {
+        Backend::Sqlite => format!("{SQL_001_SQLITE}\n{SQL_002_SQLITE}"),
+        Backend::Postgres => format!("{SQL_001_POSTGRES}\n{SQL_002_POSTGRES}"),
+    }
+}
+
+/// Apply all admin migrations through the shared migration-state gate.
+/// Idempotent across cold starts: once the gate stamps a `current_hash` row
+/// in `block_settings`, subsequent boots short-circuit before issuing any
+/// DDL. Schema changes require a `--run-migrations` redeploy (see
+/// `migration-state-workflow` in user memory).
 pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
     let b = backend(ctx).await;
-    let (sql_001, sql_002) = match b {
-        Backend::Sqlite => (SQL_001_SQLITE, SQL_002_SQLITE),
-        Backend::Postgres => (SQL_001_POSTGRES, SQL_002_POSTGRES),
-    };
-    apply_script(ctx, sql_001)
-        .await
-        .map_err(|e| format!("migration 001: {e}"))?;
-    apply_script(ctx, sql_002)
-        .await
-        .map_err(|e| format!("migration 002: {e}"))?;
-    Ok(())
-}
-
-async fn apply_script(ctx: &dyn Context, sql: &str) -> Result<(), String> {
-    for stmt in split_statements(sql) {
-        if !has_executable_content(&stmt) {
-            continue;
-        }
-        let trimmed = stmt.trim();
-        db::ddl(ctx, trimmed)
-            .await
-            .map_err(|e| format!("ddl failed on `{trimmed}`: {e}"))?;
-    }
-    Ok(())
-}
-
-fn split_statements(sql: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut current = String::new();
-    let mut in_line_comment = false;
-    for ch in sql.chars() {
-        if in_line_comment {
-            current.push(ch);
-            if ch == '\n' {
-                in_line_comment = false;
-            }
-            continue;
-        }
-        if ch == '-' && current.ends_with('-') {
-            in_line_comment = true;
-            current.push(ch);
-            continue;
-        }
-        if ch == ';' {
-            out.push(std::mem::take(&mut current));
-            continue;
-        }
-        current.push(ch);
-    }
-    if !current.is_empty() {
-        out.push(current);
-    }
-    out
-}
-
-fn has_executable_content(stmt: &str) -> bool {
-    stmt.lines().any(|line| {
-        let l = line.trim();
-        !l.is_empty() && !l.starts_with("--")
-    })
+    let sql = concatenated_sql(b);
+    crate::migration_helper::apply_if_blessed(ctx, ADMIN_BLOCK_NAME, &sql).await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{has_executable_content, split_statements, SQL_001_SQLITE, SQL_002_SQLITE};
+    use super::{concatenated_sql, Backend};
 
     #[test]
-    fn embedded_sqlite_script_parses_into_statements() {
-        let parts: Vec<_> = split_statements(SQL_001_SQLITE)
-            .into_iter()
-            .filter(|s| has_executable_content(s))
-            .collect();
-        // 9 tables + their CREATE INDEX statements (some tables have 1 index,
-        // user_roles/audit_logs/request_logs/storage_access_logs/wrap_grants).
+    fn concatenated_sqlite_contains_both_migrations() {
+        let sql = concatenated_sql(Backend::Sqlite);
+        // Spot-check the 001 schema (the variables UNIQUE INDEX) and the
+        // 002 follow-up (ALTER TABLE ADD COLUMN block) are both present.
         assert!(
-            parts.len() >= 10,
-            "expected at least 10 statements, got {}: {:?}",
-            parts.len(),
-            parts
+            sql.contains("suppers_ai__admin__variables_key_uniq"),
+            "missing 001 marker; got len={}",
+            sql.len()
         );
-        // Spot-check that the variables UNIQUE INDEX is present.
-        assert!(parts
-            .iter()
-            .any(|s| s.contains("suppers_ai__admin__variables_key_uniq")));
+        assert!(
+            sql.contains("ADD COLUMN block"),
+            "missing 002 ALTER COLUMN; got len={}",
+            sql.len()
+        );
+        assert!(
+            sql.contains("suppers_ai__admin__variables_block_idx"),
+            "missing 002 index; got len={}",
+            sql.len()
+        );
     }
 
     #[test]
-    fn embedded_sqlite_002_parses_into_three_statements() {
-        // ALTER TABLE + UPDATE … SET block = CASE … END + CREATE INDEX.
-        let parts: Vec<_> = split_statements(SQL_002_SQLITE)
-            .into_iter()
-            .filter(|s| has_executable_content(s))
-            .collect();
-        assert_eq!(
-            parts.len(),
-            3,
-            "expected 3 statements (ALTER + UPDATE + CREATE INDEX), got {}: {:?}",
-            parts.len(),
-            parts
+    fn concatenated_postgres_contains_both_migrations() {
+        let sql = concatenated_sql(Backend::Postgres);
+        assert!(
+            sql.contains("suppers_ai__admin__variables_key_uniq"),
+            "missing 001 marker; got len={}",
+            sql.len()
         );
-        assert!(parts.iter().any(|s| s.contains("ADD COLUMN block")));
-        assert!(parts
-            .iter()
-            .any(|s| s.contains("suppers_ai__admin__variables_block_idx")));
-    }
-
-    #[test]
-    fn split_handles_line_comments_and_semicolons() {
-        let sql = "-- header\nCREATE TABLE foo (id TEXT);\n-- ; in comment\nCREATE INDEX bar ON foo (id);";
-        let parts: Vec<_> = split_statements(sql)
-            .into_iter()
-            .filter(|s| has_executable_content(s))
-            .collect();
-        assert_eq!(parts.len(), 2);
+        assert!(
+            sql.contains("ADD COLUMN"),
+            "missing 002 ALTER COLUMN; got len={}",
+            sql.len()
+        );
     }
 }

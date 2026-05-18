@@ -92,6 +92,25 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
         config_service.set(solobase_core::migration_helper::RUN_MIGRATIONS_KEY, "1");
     }
 
+    // Build the parallel snapshot map fed to `Wafer::set_config_snapshot`.
+    // `EnvConfigService` is the async (`wafer-run/config`) read surface;
+    // the snapshot is the synchronous `ctx.config_get` surface. Both must
+    // carry the same data so `migration_helper::apply_if_blessed` (which
+    // reads `BLOCK_SETTINGS_CONFIG_KEY` + `SOLOBASE_RUN_MIGRATIONS` via
+    // `config_get`) sees the boot values without a per-call D1 hop. See
+    // `docs/superpowers/specs/2026-05-14-config-snapshot-and-migration-gate-design.md`.
+    let mut snapshot: HashMap<String, String> = vars.clone();
+    snapshot.insert(
+        solobase_core::features::BLOCK_SETTINGS_CONFIG_KEY.to_string(),
+        features.to_config_json(),
+    );
+    if run_migrations {
+        snapshot.insert(
+            solobase_core::migration_helper::RUN_MIGRATIONS_KEY.to_string(),
+            "1".to_string(),
+        );
+    }
+
     let (mut wafer, storage_block) = SolobaseBuilder::new()
         .database(solobase_native::make_sqlite_database_service(
             &infra.db_path,
@@ -110,6 +129,12 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
         .sqlite_db_path(&infra.db_path)
         .build()
         .context("build solobase runtime")?;
+
+    // 7b. Wire the env-var snapshot into `RuntimeContext.config` so blocks
+    //     can read embedder-provided keys via `ctx.config_get` synchronously.
+    //     Mirrors the cloudflare embedder; both surfaces carry identical
+    //     data (see snapshot construction above).
+    wafer.set_config_snapshot(snapshot);
 
     // 8. Native-only: register http-listener.
     //    solobase dispatches all HTTP traffic through the `site-main` flow
