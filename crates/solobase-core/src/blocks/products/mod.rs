@@ -1,4 +1,5 @@
 mod handlers;
+mod migrations;
 pub(crate) mod models;
 mod pages;
 mod pricing;
@@ -271,6 +272,15 @@ impl Block for ProductsBlock {
         event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         if event.event_type == LifecycleType::Init {
+            // Apply block-owned schema migrations before any seeding so the
+            // default-template inserts below land on a known column set.
+            migrations::apply(ctx).await.map_err(|e| {
+                WaferError::new(
+                    wafer_run::ErrorCode::Internal,
+                    format!("products migrations: {e}"),
+                )
+            })?;
+
             // Seed default templates if they don't exist — these are required by FK constraints
             // on the groups and products tables.
             use wafer_core::clients::database as db;
