@@ -14,23 +14,10 @@
 use std::collections::HashMap;
 
 use wafer_core::clients::database::Record;
-use wafer_run::types::CollectionSchema;
 
 use super::providers::config::{ProviderConfig, ProviderProtocol};
 
 pub const TABLE: &str = "suppers_ai__llm__providers";
-
-/// Table declaration for `suppers_ai__llm__providers`.
-pub fn providers_schema() -> CollectionSchema {
-    CollectionSchema::new(TABLE)
-        .field_unique("name", "string")
-        .field("protocol", "string")
-        .field("endpoint", "string")
-        .field_optional("key_var", "string")
-        .field_default("models", "json", "[]")
-        .field_default("enabled", "int", "1")
-        .index(&["enabled"])
-}
 
 /// Encode a [`ProviderConfig`] as a row payload for insert/update.
 ///
@@ -148,60 +135,6 @@ mod tests {
     use wafer_core::clients::database::Record;
 
     use super::*;
-
-    #[test]
-    fn schema_declares_collection_name() {
-        let s = providers_schema();
-        assert_eq!(s.name, TABLE);
-    }
-
-    #[test]
-    fn schema_declares_all_expected_fields() {
-        let s = providers_schema();
-        let by_name: HashMap<&str, &wafer_run::types::FieldSchema> =
-            s.fields.iter().map(|f| (f.name.as_str(), f)).collect();
-
-        let name = by_name.get("name").expect("name field");
-        assert_eq!(name.field_type, "string");
-        assert!(name.unique, "`name` must be unique");
-
-        let protocol = by_name.get("protocol").expect("protocol field");
-        assert_eq!(protocol.field_type, "string");
-
-        let endpoint = by_name.get("endpoint").expect("endpoint field");
-        assert_eq!(endpoint.field_type, "string");
-
-        assert!(
-            !by_name.contains_key("api_key_encrypted"),
-            "api_key_encrypted must not exist — secrets live in suppers_ai__admin__variables"
-        );
-        assert!(
-            !by_name.contains_key("api_key"),
-            "api_key must not exist — providers reference secrets via key_var only"
-        );
-
-        let key_var = by_name.get("key_var").expect("key_var field");
-        assert_eq!(key_var.field_type, "string");
-        assert!(key_var.optional, "`key_var` must be optional");
-
-        let models = by_name.get("models").expect("models field");
-        assert_eq!(models.field_type, "json");
-        assert_eq!(models.default_value, "[]");
-
-        let enabled = by_name.get("enabled").expect("enabled field");
-        assert_eq!(enabled.field_type, "int");
-        assert_eq!(enabled.default_value, "1");
-    }
-
-    #[test]
-    fn schema_has_enabled_index() {
-        let s = providers_schema();
-        assert!(
-            s.indexes.iter().any(|ix| ix.fields == vec!["enabled"]),
-            "expected an index on [enabled]; got {:?}",
-            s.indexes
-        );
-    }
 
     #[test]
     fn config_to_row_encodes_minimal_config() {
