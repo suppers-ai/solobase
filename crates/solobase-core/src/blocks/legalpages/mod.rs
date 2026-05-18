@@ -342,8 +342,16 @@ impl LegalPagesBlock {
 
         let now = helpers::now_rfc3339();
         for (doc_type, title, content) in &[
-            ("terms", "Terms of Service", "<p>These are the default terms of service. Please update them in the admin panel.</p>"),
-            ("privacy", "Privacy Policy", "<p>This is the default privacy policy. Please update it in the admin panel.</p>"),
+            (
+                "terms",
+                "Terms of Service",
+                "These are the default terms of service. Please update them in the admin panel.\n",
+            ),
+            (
+                "privacy",
+                "Privacy Policy",
+                "This is the default privacy policy. Please update it in the admin panel.\n",
+            ),
         ] {
             let data = json_map(serde_json::json!({
                 "doc_type": doc_type,
