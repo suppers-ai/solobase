@@ -22,14 +22,22 @@ pub trait FeatureConfig: wafer_run::MaybeSend + wafer_run::MaybeSync {
 }
 
 /// Per-block runtime state stored in `suppers_ai__admin__block_settings`.
-/// Both `enabled` and `migration` live on the same row, loaded together by
-/// the per-isolate cache.
+/// Both `enabled`, `migration`, and `seed_defaults_hash` live on the same
+/// row, loaded together by the per-isolate cache.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct BlockState {
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
     pub migration: MigrationState,
+    /// SHA-256 hex of the deterministic seed payload last applied by
+    /// `admin::settings::seed_defaults`. Empty = never seeded (or pre-PR3
+    /// row). When this matches the current hash of `shared_config_vars()`,
+    /// `seed_defaults` short-circuits before issuing any D1 query. Only the
+    /// `suppers-ai/admin` row uses this field today — other blocks leave
+    /// it empty.
+    #[serde(default)]
+    pub seed_defaults_hash: String,
 }
 
 /// Hashes that gate `migration_helper::apply_if_blessed`.
@@ -70,6 +78,7 @@ impl BlockSettings {
                     BlockState {
                         enabled,
                         migration: MigrationState::default(),
+                        seed_defaults_hash: String::new(),
                     },
                 )
             })
@@ -87,6 +96,7 @@ impl BlockSettings {
             .unwrap_or_else(|| BlockState {
                 enabled: true,
                 migration: MigrationState::default(),
+                seed_defaults_hash: String::new(),
             })
     }
 
@@ -126,6 +136,7 @@ impl BlockSettings {
         let missing = || BlockState {
             enabled: true,
             migration: MigrationState::default(),
+            seed_defaults_hash: String::new(),
         };
         let value: serde_json::Value = match serde_json::from_str(json) {
             Ok(v) => v,

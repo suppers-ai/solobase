@@ -336,8 +336,62 @@ async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }
 }
 
+/// Full block name of the admin block — the `block_settings` row whose
+/// `seed_defaults_hash` column gates this function.
+const ADMIN_BLOCK_NAME: &str = "suppers-ai/admin";
+
+/// Compute a deterministic SHA-256 hex digest over the declared shared
+/// config vars. Anything that affects the seed outcome (key, name,
+/// description, default, warning, sensitive flag) feeds the hash; sort by
+/// key so map ordering can't make two equivalent inputs hash differently.
+///
+/// `var.auto_generate` / `var.optional` don't affect what `seed_defaults`
+/// writes — they're consumed by `seed_auto_generated` (CF runner) and the
+/// startup validator respectively — so they're intentionally omitted.
+fn seed_payload_hash(vars: &[types::ConfigVar]) -> String {
+    use std::fmt::Write as _;
+    let mut keys: Vec<&types::ConfigVar> = vars.iter().collect();
+    keys.sort_by(|a, b| a.key.cmp(&b.key));
+    let mut buf = String::with_capacity(vars.len() * 128);
+    for v in keys {
+        let sensitive = if v.input_type == types::InputType::Password {
+            1
+        } else {
+            0
+        };
+        // Fixed shape per var: `key\x1fname\x1fdescription\x1fdefault\x1fwarning\x1fsensitive\x1e`.
+        // ASCII unit-separator (0x1f) + record-separator (0x1e) bracket
+        // each field so embedded newlines / colons in description text
+        // can't collide field boundaries across different var shapes.
+        let _ = write!(
+            &mut buf,
+            "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1e}",
+            v.key, v.name, v.description, v.default, v.warning, sensitive,
+        );
+    }
+    crate::migration_helper::sha256_hex_bytes(buf.as_bytes())
+}
+
 pub async fn seed_defaults(ctx: &dyn Context) {
     let vars = crate::config_vars::shared_config_vars();
+
+    // Hash-gate: if the cached `block_settings.seed_defaults_hash` row for
+    // the admin block already matches the current declared-vars hash, every
+    // shared var was seeded against the same metadata last time — there is
+    // no outcome change possible and we can skip the entire seed (zero D1
+    // queries). Mirrors `migration_helper::apply_if_blessed`'s gate; reads
+    // the same in-memory snapshot the migration helper does, so warm cold
+    // starts cost zero round-trips. See 2026-05-14 config-snapshot spec
+    // § "Hash-gate seed_defaults like migrations" (PR 3).
+    let code_hash = seed_payload_hash(&vars);
+    let json = ctx
+        .config_get(crate::features::BLOCK_SETTINGS_CONFIG_KEY)
+        .unwrap_or("{}");
+    let cached_hash =
+        crate::features::BlockSettings::state_for(json, ADMIN_BLOCK_NAME).seed_defaults_hash;
+    if cached_hash == code_hash && !code_hash.is_empty() {
+        return;
+    }
 
     // Single bulk fetch of every existing variable, then in-memory diff
     // per declared shared var. Replaces the per-var `get_by_field` loop
@@ -416,5 +470,184 @@ pub async fn seed_defaults(ctx: &dyn Context) {
                 }
             }
         }
+    }
+
+    // Stamp the new hash on the admin block_settings row so the next cold
+    // start short-circuits before issuing `list_all`. Failures here are
+    // logged but non-fatal — the seed itself succeeded, and the worst case
+    // is that the next isolate re-runs the bulk `list_all` (the same cost
+    // we paid this run). Matches the "silent on error" stance of the
+    // per-var upsert/create calls above; the `block_settings` row may not
+    // exist yet (admin migrations create it on the same `Init` pass),
+    // which is why we use `upsert_block_settings_fields` rather than
+    // assuming a row.
+    let mut patch = std::collections::HashMap::new();
+    patch.insert(
+        "seed_defaults_hash".to_string(),
+        serde_json::Value::String(code_hash),
+    );
+    if let Err(e) =
+        crate::migration_helper::upsert_block_settings_fields(ctx, ADMIN_BLOCK_NAME, patch).await
+    {
+        tracing::warn!(
+            err = %e,
+            "seed_defaults: failed to stamp seed_defaults_hash; next cold start will re-run the bulk list_all"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use wafer_core::clients::database::{Filter, FilterOp};
+
+    use super::*;
+    use crate::test_support::TestContext;
+
+    /// `seed_payload_hash` is independent of input order (sorts by `key`).
+    #[test]
+    fn payload_hash_independent_of_input_order() {
+        let a = types::ConfigVar::new("AAA", "first", "1");
+        let b = types::ConfigVar::new("BBB", "second", "2");
+        let h1 = seed_payload_hash(&[a.clone(), b.clone()]);
+        let h2 = seed_payload_hash(&[b, a]);
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 64);
+    }
+
+    /// Hash changes whenever any seed-relevant field changes.
+    #[test]
+    fn payload_hash_sensitive_to_each_field() {
+        let base = vec![types::ConfigVar::new("KEY", "desc", "def")];
+        let h_base = seed_payload_hash(&base);
+
+        let mut name_changed = base.clone();
+        name_changed[0].name = "label".into();
+        assert_ne!(h_base, seed_payload_hash(&name_changed));
+
+        let mut desc_changed = base.clone();
+        desc_changed[0].description = "different".into();
+        assert_ne!(h_base, seed_payload_hash(&desc_changed));
+
+        let mut default_changed = base.clone();
+        default_changed[0].default = "other".into();
+        assert_ne!(h_base, seed_payload_hash(&default_changed));
+
+        let mut warning_changed = base.clone();
+        warning_changed[0].warning = "careful".into();
+        assert_ne!(h_base, seed_payload_hash(&warning_changed));
+
+        let mut sensitive_changed = base.clone();
+        sensitive_changed[0].input_type = types::InputType::Password;
+        assert_ne!(h_base, seed_payload_hash(&sensitive_changed));
+    }
+
+    /// End-to-end: after `seed_defaults` runs once, the admin
+    /// `block_settings` row carries the current hash. Wiring that hash into
+    /// the next cold-start's config snapshot short-circuits `seed_defaults`
+    /// before it can touch the `variables` table — even if every row was
+    /// deleted between starts.
+    #[tokio::test]
+    async fn second_call_with_matching_snapshot_hash_short_circuits() {
+        let ctx = TestContext::new().await;
+
+        // 1. Run admin migrations so the block_settings + variables tables
+        //    exist (with the new seed_defaults_hash column).
+        crate::blocks::admin::migrations::apply(&ctx)
+            .await
+            .expect("apply admin migrations");
+
+        // 2. First seed run — populates variables + stamps the hash row.
+        seed_defaults(&ctx).await;
+        let var_count_after_first = db::list_all(&ctx, VARIABLES_TABLE, vec![])
+            .await
+            .expect("list variables")
+            .len();
+        assert!(
+            var_count_after_first > 0,
+            "first seed_defaults should populate at least one variable"
+        );
+
+        // 3. Read the stamped hash from the block_settings row directly.
+        let admin_rows = db::list_all(
+            &ctx,
+            crate::blocks::admin::settings::BLOCK_SETTINGS_TABLE,
+            vec![Filter {
+                field: "block_name".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(ADMIN_BLOCK_NAME.to_string()),
+            }],
+        )
+        .await
+        .expect("list block_settings");
+        assert_eq!(
+            admin_rows.len(),
+            1,
+            "admin block_settings row should be present after first seed_defaults"
+        );
+        let stamped_hash = admin_rows[0].str_field("seed_defaults_hash").to_string();
+        let code_hash = seed_payload_hash(&crate::config_vars::shared_config_vars());
+        assert_eq!(
+            stamped_hash, code_hash,
+            "stamped seed_defaults_hash should match current declared vars",
+        );
+
+        // 4. Simulate a fresh cold start: build a new TestContext (fresh
+        //    in-memory DB — no variables, no block_settings row), but
+        //    pre-populate the config snapshot with the stamped hash. This
+        //    mirrors what the production loader does on the next boot.
+        let mut next_ctx = TestContext::new().await;
+        crate::blocks::admin::migrations::apply(&next_ctx)
+            .await
+            .expect("apply admin migrations on next ctx");
+        let snapshot = serde_json::json!({
+            ADMIN_BLOCK_NAME: { "enabled": true, "seed_defaults_hash": stamped_hash }
+        })
+        .to_string();
+        next_ctx.set_config(crate::features::BLOCK_SETTINGS_CONFIG_KEY, &snapshot);
+
+        // 5. seed_defaults should short-circuit before any list_all on
+        //    variables — leaving the (empty) variables table untouched.
+        seed_defaults(&next_ctx).await;
+        let var_count_after_second = db::list_all(&next_ctx, VARIABLES_TABLE, vec![])
+            .await
+            .expect("list variables on next ctx")
+            .len();
+        assert_eq!(
+            var_count_after_second, 0,
+            "seed_defaults should short-circuit when snapshot hash matches; \
+             expected 0 rows in fresh variables table, got {}",
+            var_count_after_second
+        );
+    }
+
+    /// When the snapshot's cached hash differs from the current code hash
+    /// (e.g. a new shared var was declared), `seed_defaults` runs again
+    /// and re-stamps the row.
+    #[tokio::test]
+    async fn mismatched_snapshot_hash_re_runs_seed() {
+        let mut ctx = TestContext::new().await;
+        crate::blocks::admin::migrations::apply(&ctx)
+            .await
+            .expect("apply admin migrations");
+
+        // Pre-populate the snapshot with a deliberately-wrong hash.
+        let snapshot = serde_json::json!({
+            ADMIN_BLOCK_NAME: {
+                "enabled": true,
+                "seed_defaults_hash": "deadbeef".to_string(),
+            }
+        })
+        .to_string();
+        ctx.set_config(crate::features::BLOCK_SETTINGS_CONFIG_KEY, &snapshot);
+
+        seed_defaults(&ctx).await;
+        let count = db::list_all(&ctx, VARIABLES_TABLE, vec![])
+            .await
+            .expect("list variables")
+            .len();
+        assert!(
+            count > 0,
+            "mismatched snapshot hash should still run the seed; got 0 rows"
+        );
     }
 }

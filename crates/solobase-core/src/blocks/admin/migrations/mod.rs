@@ -22,6 +22,8 @@ const SQL_001_SQLITE: &str = include_str!("001_admin_schema.sqlite.sql");
 const SQL_001_POSTGRES: &str = include_str!("001_admin_schema.postgres.sql");
 const SQL_002_SQLITE: &str = include_str!("002_variables_block_column.sqlite.sql");
 const SQL_002_POSTGRES: &str = include_str!("002_variables_block_column.postgres.sql");
+const SQL_003_SQLITE: &str = include_str!("003_block_settings_seed_hash.sqlite.sql");
+const SQL_003_POSTGRES: &str = include_str!("003_block_settings_seed_hash.postgres.sql");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Backend {
@@ -43,8 +45,8 @@ async fn backend(ctx: &dyn Context) -> Backend {
 /// the `;\n…` boundary between files.
 fn concatenated_sql(b: Backend) -> String {
     match b {
-        Backend::Sqlite => format!("{SQL_001_SQLITE}\n{SQL_002_SQLITE}"),
-        Backend::Postgres => format!("{SQL_001_POSTGRES}\n{SQL_002_POSTGRES}"),
+        Backend::Sqlite => format!("{SQL_001_SQLITE}\n{SQL_002_SQLITE}\n{SQL_003_SQLITE}"),
+        Backend::Postgres => format!("{SQL_001_POSTGRES}\n{SQL_002_POSTGRES}\n{SQL_003_POSTGRES}"),
     }
 }
 
@@ -64,10 +66,11 @@ mod tests {
     use super::{concatenated_sql, Backend};
 
     #[test]
-    fn concatenated_sqlite_contains_both_migrations() {
+    fn concatenated_sqlite_contains_all_migrations() {
         let sql = concatenated_sql(Backend::Sqlite);
-        // Spot-check the 001 schema (the variables UNIQUE INDEX) and the
-        // 002 follow-up (ALTER TABLE ADD COLUMN block) are both present.
+        // Spot-check the 001 schema (the variables UNIQUE INDEX), the
+        // 002 follow-up (ALTER TABLE ADD COLUMN block), and the 003
+        // follow-up (ADD COLUMN seed_defaults_hash) are all present.
         assert!(
             sql.contains("suppers_ai__admin__variables_key_uniq"),
             "missing 001 marker; got len={}",
@@ -83,10 +86,15 @@ mod tests {
             "missing 002 index; got len={}",
             sql.len()
         );
+        assert!(
+            sql.contains("ADD COLUMN seed_defaults_hash"),
+            "missing 003 ADD COLUMN seed_defaults_hash; got len={}",
+            sql.len()
+        );
     }
 
     #[test]
-    fn concatenated_postgres_contains_both_migrations() {
+    fn concatenated_postgres_contains_all_migrations() {
         let sql = concatenated_sql(Backend::Postgres);
         assert!(
             sql.contains("suppers_ai__admin__variables_key_uniq"),
@@ -95,7 +103,12 @@ mod tests {
         );
         assert!(
             sql.contains("ADD COLUMN"),
-            "missing 002 ALTER COLUMN; got len={}",
+            "missing 002/003 ALTER COLUMN; got len={}",
+            sql.len()
+        );
+        assert!(
+            sql.contains("seed_defaults_hash"),
+            "missing 003 seed_defaults_hash column; got len={}",
             sql.len()
         );
     }
