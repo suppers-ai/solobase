@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use wafer_core::clients::database::{self as db, Record};
 use wafer_run::{context::Context, types::ErrorCode};
 
-use super::{
+use super::super::{
     providers::{
         config::{ProviderConfig, ProviderProtocol},
         ProviderLlmService,
@@ -35,7 +35,7 @@ use super::{
 
 /// The legacy providers collection. Owned by the provider-llm block (still
 /// present on-disk on upgrade paths) — we read once, migrate, and drop.
-pub(super) const LEGACY_TABLE: &str = "suppers_ai__provider_llm__providers";
+pub(in crate::blocks::llm) const LEGACY_TABLE: &str = "suppers_ai__provider_llm__providers";
 
 const LEGACY_OPENAI_KEY_VAR: &str = "SUPPERS_AI__PROVIDER_LLM__OPENAI_KEY";
 const LEGACY_ANTHROPIC_KEY_VAR: &str = "SUPPERS_AI__PROVIDER_LLM__ANTHROPIC_KEY";
@@ -43,7 +43,9 @@ const LEGACY_ANTHROPIC_KEY_VAR: &str = "SUPPERS_AI__PROVIDER_LLM__ANTHROPIC_KEY"
 /// Map a legacy provider row's `data` HashMap into a new-schema
 /// [`ProviderConfig`]. Pure function — no DB access — so it's testable
 /// without any runtime scaffolding.
-pub(super) fn map_legacy_row(data: &HashMap<String, serde_json::Value>) -> Option<ProviderConfig> {
+pub(in crate::blocks::llm) fn map_legacy_row(
+    data: &HashMap<String, serde_json::Value>,
+) -> Option<ProviderConfig> {
     let name = data.get("name").and_then(|v| v.as_str())?.to_string();
     if name.is_empty() {
         return None;
@@ -117,7 +119,7 @@ pub(super) fn map_legacy_row(data: &HashMap<String, serde_json::Value>) -> Optio
 /// fatal). The legacy table is only dropped after every row was attempted.
 /// After a successful migration, the `ProviderLlmService` is refreshed from
 /// the new table so chat works immediately without a restart.
-pub(super) async fn migrate_legacy_providers(
+pub(in crate::blocks::llm) async fn migrate_legacy_providers(
     ctx: &dyn Context,
     provider_svc: &ProviderLlmService,
 ) -> Result<(), String> {
@@ -191,6 +193,7 @@ async fn migrate_one(ctx: &dyn Context, record: &Record) -> MigrateOutcome {
     };
 
     let row = config_to_row(&cfg);
+    // audit-allow: aliased-table-constant — PROVIDERS_TABLE aliases schema::TABLE ("suppers_ai__llm__providers"); llm writing to its own table, no grant needed
     match db::create(ctx, PROVIDERS_TABLE, row).await {
         Ok(_) => MigrateOutcome::Inserted,
         Err(e) if e.code == ErrorCode::AlreadyExists => {
@@ -237,7 +240,7 @@ async fn reload_service(ctx: &dyn Context, provider_svc: &ProviderLlmService) {
     };
     let mut configs = Vec::with_capacity(records.len());
     for rec in &records {
-        match super::schema::row_to_config(rec) {
+        match super::super::schema::row_to_config(rec) {
             Ok(cfg) if cfg.enabled => configs.push(cfg),
             Ok(_) => {}
             Err(e) => {

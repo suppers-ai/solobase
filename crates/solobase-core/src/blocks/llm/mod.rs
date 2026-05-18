@@ -15,7 +15,7 @@ use wafer_run::{
     InputStream, OutputStream,
 };
 
-use self::{providers::ProviderLlmService, schema::providers_schema};
+use self::providers::ProviderLlmService;
 use crate::blocks::helpers::{
     self, err_bad_request, err_internal, err_internal_no_cause, err_not_found, json_map, ok_json,
 };
@@ -341,7 +341,7 @@ impl LlmBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for LlmBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_run::{types::CollectionSchema, AuthLevel};
+        use wafer_run::AuthLevel;
 
         BlockInfo::new(
             "suppers-ai/llm",
@@ -356,14 +356,11 @@ impl Block for LlmBlock {
             "wafer-run/database".into(),
             "wafer-run/config".into(),
         ])
-        .collections(vec![
-            CollectionSchema::new(SETTINGS_TABLE)
-                .field("thread_id", "string")
-                .field_default("provider_block", "string", "")
-                .field_default("model", "string", "")
-                .index(&["thread_id"]),
-            providers_schema(),
-        ])
+        // Tables (`suppers_ai__llm__settings`, `suppers_ai__llm__providers`)
+        // are owned by `migrations/001_llm_schema.{sqlite,postgres}.sql` and
+        // applied via `migrations::apply` in `lifecycle(Init)` below. No
+        // `.collections(...)` declaration — schema is no longer materialised
+        // implicitly via `ensure_table` on first insert.
         .category(wafer_run::BlockCategory::Feature)
         .description(
             "LLM orchestrator. Routes chat requests to provider-llm or local-llm backends, \
@@ -547,11 +544,23 @@ impl Block for LlmBlock {
         event: LifecycleEvent,
     ) -> std::result::Result<(), WaferError> {
         if matches!(event.event_type, LifecycleType::Init) {
-            // One-shot migration from `suppers_ai__provider_llm__providers`.
+            // Schema migrations first — must run before any row-level work
+            // below, otherwise the legacy-row copy + reload would hit
+            // ensure_table fallback paths instead of the indexed table.
+            migrations::apply(ctx).await.map_err(|e| {
+                WaferError::new(
+                    wafer_run::ErrorCode::Internal,
+                    format!("llm migrations: {e}"),
+                )
+            })?;
+            // One-shot row copy from `suppers_ai__provider_llm__providers`.
             // Idempotent: if the legacy table is gone, returns immediately.
             // Any per-row failure is logged, not fatal — admins can inspect
             // the log and fix individual rows.
-            if let Err(e) = migrations::migrate_legacy_providers(ctx, &self.provider_svc).await {
+            if let Err(e) =
+                migrations::legacy_providers::migrate_legacy_providers(ctx, &self.provider_svc)
+                    .await
+            {
                 tracing::warn!("legacy provider migration reported error: {e}");
             }
             // Always load enabled providers into the in-memory service on
