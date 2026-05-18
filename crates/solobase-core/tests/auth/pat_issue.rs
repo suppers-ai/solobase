@@ -12,7 +12,7 @@ use crate::common::MigrationTestCtx;
 
 #[tokio::test]
 async fn issue_inserts_row_and_token_is_prefixed() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migrations");
 
     let user = users::insert(
@@ -50,7 +50,7 @@ async fn issue_inserts_row_and_token_is_prefixed() {
 
 #[tokio::test]
 async fn issue_with_expiry_stores_expires_at() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migrations");
 
     let user = users::insert(
@@ -80,7 +80,7 @@ async fn issue_with_expiry_stores_expires_at() {
 
 #[tokio::test]
 async fn two_issues_produce_distinct_tokens() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migrations");
 
     let user = users::insert(

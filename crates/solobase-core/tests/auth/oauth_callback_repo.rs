@@ -21,7 +21,7 @@ use crate::common::MigrationTestCtx;
 /// no prior link, no prior email → insert user, upsert link.
 #[tokio::test]
 async fn first_oauth_login_creates_user_and_link() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
 
     // No prior link.
@@ -85,7 +85,7 @@ async fn first_oauth_login_creates_user_and_link() {
 /// the existing link is found → user_id reused → no new user row.
 #[tokio::test]
 async fn re_login_same_provider_ref_no_duplicate_user() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
 
     // Seed the user + initial link (first login).
@@ -155,7 +155,7 @@ async fn re_login_same_provider_ref_no_duplicate_user() {
 /// bound to the SAME user_id.
 #[tokio::test]
 async fn same_email_different_provider_merges_to_same_user() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
 
     // Carol first logged in via GitHub.

@@ -10,7 +10,7 @@ const EXPECTED_RESERVED: &[&str] = &["solobase", "suppers-ai", "wafer", "wafer-r
 
 #[tokio::test]
 async fn migration_002_seeds_four_reserved_orgs_idempotently() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("first apply");
     migrations::apply(&ctx)
         .await

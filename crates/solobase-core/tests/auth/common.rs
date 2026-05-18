@@ -26,7 +26,23 @@ pub struct MigrationTestCtx {
 }
 
 impl MigrationTestCtx {
-    pub fn new() -> Self {
+    /// Construct a test context with admin migrations pre-applied.
+    ///
+    /// Admin's migrations create `suppers_ai__admin__block_settings`, the
+    /// tracking table every other block's `apply_if_blessed` upserts into.
+    /// In production this is guaranteed by registration order
+    /// (`register_all_static_blocks` puts admin first); here we enforce it
+    /// in the fixture so auth tests can call `migrations::apply` without
+    /// the call failing on a missing tracking table.
+    pub async fn new() -> Self {
+        let ctx = Self::raw();
+        solobase_core::blocks::admin::migrations::apply(&ctx)
+            .await
+            .expect("apply admin migrations (bootstraps block_settings)");
+        ctx
+    }
+
+    fn raw() -> Self {
         let svc = Arc::new(
             wafer_block_sqlite::service::SQLiteDatabaseService::open_in_memory()
                 .expect("open in-memory sqlite"),

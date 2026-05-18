@@ -7,7 +7,7 @@ use crate::common::MigrationTestCtx;
 
 #[tokio::test]
 async fn insert_then_find_by_email_and_id() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
 
     let inserted = users::insert(
@@ -52,7 +52,7 @@ async fn insert_then_find_by_email_and_id() {
 
 #[tokio::test]
 async fn insert_with_avatar_roundtrips() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
 
     let inserted = users::insert(

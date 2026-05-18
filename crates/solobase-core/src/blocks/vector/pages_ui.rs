@@ -419,8 +419,7 @@ mod integration_tests {
     /// Seed one row in the vector registry plus the matching `_meta` table
     /// so the listing has both a registry entry and a vector count to show.
     async fn seed_docs_index(ctx: &TestContext) {
-        // Registry row. The SQLite service auto-creates the table on first
-        // insert (`ensure_table`) so we don't need DDL here.
+        // Registry row.
         let mut registry_row: HashMap<String, serde_json::Value> = HashMap::new();
         registry_row.insert("prefixed_name".into(), json!("suppers_ai__vector__docs"));
         registry_row.insert("model".into(), json!("fastembed"));
@@ -430,9 +429,18 @@ mod integration_tests {
             .await
             .expect("seed registry row");
 
-        // Vectors live in `{prefixed}_meta` (see `pages.rs::ingest`), so the
-        // count loader queries that table — not the bare `prefixed_name`.
-        // Seed there to exercise the production code path.
+        // Per-index `_meta` table — created on demand in production by the
+        // upstream `wafer-run/vector` runtime block via `vclient::create_index`
+        // (see vector/migrations/mod.rs header). The runtime no longer
+        // auto-creates tables on first insert, so the test materialises it
+        // explicitly with the columns the count loader expects.
+        db::exec_raw(
+            ctx,
+            "CREATE TABLE IF NOT EXISTS suppers_ai__vector__docs_meta (id TEXT PRIMARY KEY, vector_id TEXT, created_at TEXT, updated_at TEXT)",
+            &[],
+        )
+        .await
+        .expect("create _meta table");
         let mut meta_row: HashMap<String, serde_json::Value> = HashMap::new();
         meta_row.insert("vector_id".into(), json!("v1"));
         db::create(ctx, "suppers_ai__vector__docs_meta", meta_row)
@@ -442,7 +450,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn index_list_page_renders_admin_view() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_vector().await;
         seed_docs_index(&ctx).await;
 
         let msg = admin_msg("retrieve", "/b/vector/");
@@ -469,7 +477,7 @@ mod integration_tests {
     async fn index_list_page_renders_empty_state_on_fresh_db() {
         // No registry table at all: handler must fall through cleanly to
         // the "No vector indexes yet" empty state, not error out.
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_vector().await;
 
         let msg = admin_msg("retrieve", "/b/vector/");
         let resp = index_list_page(&ctx, &msg).await;
@@ -487,7 +495,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn index_detail_page_404_for_missing() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_vector().await;
         let mut msg = admin_msg("retrieve", "/b/vector/missing/");
         // Browser-style request → not_found_response returns the styled
         // 404 page; without text/html it returns the JSON err path which
@@ -505,7 +513,7 @@ mod integration_tests {
     async fn index_detail_page_404_for_invalid_name() {
         // Names with disallowed characters never reach the database —
         // they're rejected at the route boundary by validate_index_name.
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_vector().await;
         let mut msg = admin_msg("retrieve", "/b/vector/bad-name/");
         msg.set_meta("http.header.accept", "text/html");
         let out = index_detail_page(&ctx, &msg, "bad-name").await;
@@ -518,7 +526,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn index_detail_page_happy_path() {
-        let ctx = TestContext::with_auth().await;
+        let ctx = TestContext::with_vector().await;
         seed_docs_index(&ctx).await;
 
         let msg = admin_msg("retrieve", "/b/vector/docs/");

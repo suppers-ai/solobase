@@ -15,7 +15,7 @@ use crate::common::MigrationTestCtx;
 
 #[tokio::test]
 async fn user_profile_returns_row_with_empty_orgs() {
-    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new());
+    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new().await);
     migrations::apply(ctx.as_ref()).await.expect("migrations");
 
     let u = users::insert(
@@ -45,7 +45,7 @@ async fn user_profile_returns_row_with_empty_orgs() {
 
 #[tokio::test]
 async fn user_profile_missing_user_is_not_found() {
-    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new());
+    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new().await);
     migrations::apply(ctx.as_ref()).await.expect("migrations");
 
     let svc = AuthServiceImpl::new(BlockState::for_test(ctx.clone()));
@@ -61,7 +61,7 @@ async fn user_profile_missing_user_is_not_found() {
 
 #[tokio::test]
 async fn user_profile_maps_non_admin_role_to_user() {
-    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new());
+    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new().await);
     migrations::apply(ctx.as_ref()).await.expect("migrations");
 
     let u = users::insert(

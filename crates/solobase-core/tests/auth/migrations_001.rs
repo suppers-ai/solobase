@@ -27,7 +27,7 @@ const EXPECTED_TABLES: &[&str] = &[
 
 #[tokio::test]
 async fn migration_001_creates_all_tables() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration 001 apply");
 
     let rows = db::query_raw(
@@ -58,7 +58,7 @@ async fn migration_001_creates_all_tables() {
 
 #[tokio::test]
 async fn migration_001_is_idempotent() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("first apply");
     migrations::apply(&ctx)
         .await

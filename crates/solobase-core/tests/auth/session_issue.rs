@@ -12,7 +12,7 @@ use crate::common::MigrationTestCtx;
 
 #[tokio::test]
 async fn issue_for_inserts_row_and_returns_prefixed_token() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migrations");
 
     let user = users::insert(
@@ -56,7 +56,7 @@ async fn issue_for_inserts_row_and_returns_prefixed_token() {
 
 #[tokio::test]
 async fn two_issues_produce_distinct_tokens() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migrations");
 
     let user = users::insert(

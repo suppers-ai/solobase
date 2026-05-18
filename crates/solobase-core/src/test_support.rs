@@ -106,16 +106,66 @@ impl TestContext {
         self
     }
 
-    /// Build a `TestContext` with the auth-block migrations applied.
+    /// Build a `TestContext` with admin + auth block migrations applied.
     ///
     /// Convenience constructor for tests that need the
     /// `suppers_ai__auth__{users,orgs,sessions,provider_links,...}` schema
     /// in place — most repo and handler tests do.
+    ///
+    /// Admin migrations run first so that the
+    /// `suppers_ai__admin__block_settings` tracking table exists before
+    /// auth's `apply_if_blessed` upserts its `current_hash` row. In
+    /// production this ordering is guaranteed by `register_all_static_blocks`
+    /// (admin is registered first); here we enforce it explicitly.
     pub async fn with_auth() -> Self {
         let ctx = Self::new().await;
+        crate::blocks::admin::migrations::apply(&ctx)
+            .await
+            .expect("apply admin migrations in test fixture");
         crate::blocks::auth::migrations::apply(&ctx)
             .await
             .expect("apply auth migrations in test fixture");
+        ctx
+    }
+
+    /// Build a `TestContext` with admin migrations applied (only).
+    ///
+    /// Use this for tests that exercise a block's own `init()` / migration
+    /// application directly — the prerequisite is that
+    /// `suppers_ai__admin__block_settings` exists so `apply_if_blessed` can
+    /// upsert its tracking row.
+    pub async fn with_admin() -> Self {
+        let ctx = Self::new().await;
+        crate::blocks::admin::migrations::apply(&ctx)
+            .await
+            .expect("apply admin migrations in test fixture");
+        ctx
+    }
+
+    /// Build a `TestContext` with admin + auth + files migrations applied.
+    pub async fn with_files() -> Self {
+        let ctx = Self::with_auth().await;
+        crate::blocks::files::migrations::apply(&ctx)
+            .await
+            .expect("apply files migrations in test fixture");
+        ctx
+    }
+
+    /// Build a `TestContext` with admin + auth + userportal migrations applied.
+    pub async fn with_userportal() -> Self {
+        let ctx = Self::with_auth().await;
+        crate::blocks::userportal::migrations::apply(&ctx)
+            .await
+            .expect("apply userportal migrations in test fixture");
+        ctx
+    }
+
+    /// Build a `TestContext` with admin + auth + vector migrations applied.
+    pub async fn with_vector() -> Self {
+        let ctx = Self::with_auth().await;
+        crate::blocks::vector::migrations::apply(&ctx)
+            .await
+            .expect("apply vector migrations in test fixture");
         ctx
     }
 

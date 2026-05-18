@@ -10,7 +10,7 @@ use crate::common::MigrationTestCtx;
 
 #[tokio::test]
 async fn pat_insert_find_with_scopes() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
 
     let u = users::insert(
@@ -60,7 +60,7 @@ async fn pat_insert_find_with_scopes() {
 
 #[tokio::test]
 async fn pat_insert_with_multi_scope_and_expiry() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
 
     let u = users::insert(
@@ -102,7 +102,7 @@ async fn pat_insert_with_multi_scope_and_expiry() {
 
 #[tokio::test]
 async fn pat_find_missing_returns_none() {
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
 
     let none_hash = [0u8; 32];
@@ -121,7 +121,7 @@ async fn pat_token_hash_is_stored_as_hex_string_not_json_byte_array() {
     // `decode_bytes` now expects from string-shaped rows.
     use wafer_core::clients::database as db;
 
-    let ctx = MigrationTestCtx::new();
+    let ctx = MigrationTestCtx::new().await;
     migrations::apply(&ctx).await.expect("migration apply");
 
     let u = users::insert(

@@ -21,7 +21,7 @@ use crate::{
     },
 };
 
-mod migrations;
+pub(crate) mod migrations;
 mod pages;
 
 const TABLE: &str = "suppers_ai__userportal__buttons";
@@ -793,9 +793,9 @@ mod cross_block_tests {
 
     #[tokio::test]
     async fn list_buttons_action_returns_json_array_in_sort_order() {
-        let ctx = TestContext::new().await;
+        let ctx = TestContext::with_userportal().await;
 
-        // Seed two buttons via db::create (lazy table creation).
+        // Seed two buttons through the userportal-owned `buttons` table.
         db::create(
             &ctx,
             TABLE,

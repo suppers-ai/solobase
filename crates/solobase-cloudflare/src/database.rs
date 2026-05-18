@@ -3,19 +3,21 @@
 //! Implements the shared `DatabaseService` trait from wafer-core so D1Block
 //! can reuse the shared message handler.
 //!
-//! ## Lazy schema (cached)
+//! ## Lazy column-add (cached)
 //!
-//! Mirrors `wafer-block-sqlite`'s lazy-schema semantics: reads against a
-//! missing table return empty/NotFound (instead of erroring), and the
-//! first `create()` against a collection runs `CREATE TABLE IF NOT EXISTS`
-//! + `PRAGMA table_info` to materialize the table from the data keys.
+//! Tables themselves must exist before any `create()` — every block ships
+//! explicit `migrations/*.sql` applied from the `Init` lifecycle. Reads
+//! against a missing table still return empty/NotFound (mirrors
+//! `wafer-block-sqlite`), but writes against a missing table now surface
+//! D1's `no such table` instead of silently materializing it.
 //!
-//! Schema checks are cached per-isolate via `SCHEMA_CACHE`. After a table
-//! is verified once, subsequent inserts to the same columns skip the
-//! schema work entirely. Blocks that own their schema (e.g. `auth`,
-//! `admin`) materialize tables via per-block `migrations/*.sql` applied
-//! from `Init` lifecycle — `ensure_schema` is the fallback for blocks
-//! that don't declare a schema.
+//! What survives: on `create()` we run `PRAGMA table_info` + the necessary
+//! `ALTER TABLE ADD COLUMN` for any data key not yet on the table, matching
+//! the `update` / `update_where` paths in sqlite + postgres.
+//!
+//! Schema checks are cached per-isolate via `SCHEMA_CACHE`. After a column
+//! set is verified once, subsequent inserts to the same columns skip both
+//! the PRAGMA and any ALTERs entirely.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -99,11 +101,12 @@ impl D1DatabaseService {
             .collect())
     }
 
-    /// Ensure `table` exists and has columns for every key in `data`.
-    /// First call per (isolate, table) runs CREATE TABLE + PRAGMA + ALTER
-    /// as needed; subsequent calls hit the in-memory cache and skip the
-    /// schema work entirely.
-    async fn ensure_schema(
+    /// Ensure every key in `data` is a column on `table`.
+    /// First call per (isolate, table) runs PRAGMA + the needed ALTERs;
+    /// subsequent calls hit the in-memory cache and skip the schema work
+    /// entirely. The table itself must already exist — block migrations
+    /// run at `Init` are responsible for that.
+    async fn ensure_columns(
         &self,
         table: &str,
         data: &HashMap<String, serde_json::Value>,
@@ -123,13 +126,7 @@ impl D1DatabaseService {
             }
         }
 
-        // Slow path: ensure the table exists with the needed columns.
-        let ddl = ensure_table_sql(table, data.keys().map(|k| k.as_str()));
-        self.db
-            .prepare(&ddl)
-            .run()
-            .await
-            .map_err(|e| db_err(format!("ensure_table {}: {e}", table)))?;
+        // Slow path: ALTER in any missing columns.
         self.add_missing_columns(table, data).await?;
 
         // Re-read the column set and update the cache so subsequent
@@ -297,12 +294,12 @@ impl DatabaseService for D1DatabaseService {
         data.entry("updated_at".to_string())
             .or_insert_with(|| serde_json::Value::String(now));
 
-        // Lazy schema: materialize the table on first insert. Cached per
-        // isolate — first call per (isolate, table) runs CREATE TABLE IF
-        // NOT EXISTS + PRAGMA table_info + any ALTER TABLE ADD COLUMN
-        // needed; subsequent calls hit the in-memory cache and skip all
-        // schema work.
-        self.ensure_schema(&table, &data).await?;
+        // Lazy column-add: matches the sqlite/postgres `create` paths.
+        // The table itself must already exist via the block's migration
+        // files. Cached per isolate — first call per (isolate, table) runs
+        // PRAGMA table_info + any ALTER TABLE ADD COLUMN needed; subsequent
+        // calls hit the in-memory cache and skip all schema work.
+        self.ensure_columns(&table, &data).await?;
 
         let mut columns = vec!["id".to_string()];
         let mut placeholders = vec!["?".to_string()];
@@ -632,37 +629,6 @@ fn db_err(e: impl std::fmt::Display) -> DatabaseError {
     DatabaseError::Internal(e.to_string())
 }
 
-/// Build the `CREATE TABLE IF NOT EXISTS` DDL for lazy schema
-/// materialization. Mirrors `wafer-block-sqlite::ensure_table`: TEXT for
-/// every column; `id` is PRIMARY KEY (added if not in the data keys).
-///
-/// Pure function so it can be unit-tested without a D1 instance.
-pub(crate) fn ensure_table_sql<'a>(
-    table: &str,
-    data_keys: impl IntoIterator<Item = &'a str>,
-) -> String {
-    let safe_table = sanitize_ident(table);
-    let mut col_defs: Vec<String> = Vec::new();
-    let mut has_id = false;
-    for key in data_keys {
-        let safe_key = sanitize_ident(key);
-        if key == "id" {
-            col_defs.insert(0, "id TEXT PRIMARY KEY".to_string());
-            has_id = true;
-        } else {
-            col_defs.push(format!("{safe_key} TEXT"));
-        }
-    }
-    if !has_id {
-        col_defs.insert(0, "id TEXT PRIMARY KEY".to_string());
-    }
-    format!(
-        "CREATE TABLE IF NOT EXISTS {} ({})",
-        safe_table,
-        col_defs.join(", ")
-    )
-}
-
 /// Whether a D1 error message indicates the target table doesn't exist.
 /// D1 surfaces SQLite's `no such table: X` verbatim through the JsValue
 /// error; we string-match because the `worker::Error` type doesn't expose
@@ -701,10 +667,8 @@ fn json_to_record(val: serde_json::Value) -> Record {
     }
 }
 
-// Note: unit tests for `ensure_table_sql` and `is_no_such_table` are
+// Note: unit tests for `is_no_such_table` and `is_duplicate_column` are
 // omitted because `solobase-cloudflare` only compiles on
 // `wasm32-unknown-unknown` (the R2/D1 services hold `!Send` JsFutures).
 // `cargo test -p solobase-cloudflare` errors before reaching the test
-// module. End-to-end validation comes from a real CF deploy against an
-// empty D1: registry-block init must seed the reserved orgs without
-// erroring on "no such table".
+// module. End-to-end validation comes from a real CF deploy.

@@ -27,7 +27,7 @@ fn cookie(tok: &str) -> Message {
 
 #[tokio::test]
 async fn require_token_enforces_scope_and_rejects_session_cookies() {
-    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new());
+    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new().await);
     migrations::apply(ctx.as_ref()).await.expect("migrations");
 
     let u = users::insert(

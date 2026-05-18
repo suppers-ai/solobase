@@ -27,7 +27,7 @@ fn bearer(tok: &str) -> Message {
 
 #[tokio::test]
 async fn require_role_user_admin_and_bootstrap_token() {
-    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new());
+    let ctx: Arc<dyn Context> = Arc::new(MigrationTestCtx::new().await);
     migrations::apply(ctx.as_ref()).await.expect("migrations");
 
     let admin = users::insert(
