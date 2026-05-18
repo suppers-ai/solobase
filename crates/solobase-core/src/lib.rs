@@ -12,6 +12,7 @@ pub mod config_vars;
 pub mod crypto;
 pub mod features;
 pub mod flows;
+pub mod messages_schema;
 pub mod migration_helper;
 pub mod migrations;
 pub mod pipeline;
