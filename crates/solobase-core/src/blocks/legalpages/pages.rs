@@ -13,7 +13,7 @@ use wafer_core::clients::{
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::{
-    blocks::helpers::{self, err_bad_request, err_internal, json_map, ok_json, RecordExt},
+    blocks::helpers::{self, err_bad_request, err_internal, json_map, ok_json, RecordExt, ResponseBuilder},
     ui::{
         components, icons, nav_groups,
         shell::{Crumb, Topbar},
@@ -934,4 +934,34 @@ async fn archive_published(ctx: &dyn Context, doc_type: &str, except_id: &str) {
             let _ = db::update(ctx, COLLECTION, &r.id, upd).await;
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Preview rendering (used by editor's Preview tab via htmx)
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct PreviewRequest {
+    content: String,
+}
+
+/// Render Markdown into the same `<div class="public-page__content">`
+/// wrapper used by the live `/b/legalpages/{terms,privacy}` pages, so
+/// the Preview tab in the editor matches production typography exactly.
+pub(super) fn render_preview_fragment(markdown: &str) -> String {
+    let rendered = super::markdown_to_html(markdown);
+    format!(r#"<div class="public-page__content">{}</div>"#, rendered)
+}
+
+/// `POST /b/legalpages/admin/render-preview` — body: `{"content": "<markdown>"}`.
+/// Returns the rendered HTML fragment for direct htmx swap into the
+/// preview pane.
+pub async fn handle_render_preview(_ctx: &dyn Context, input: InputStream) -> OutputStream {
+    let raw = input.collect_to_bytes().await;
+    let body: PreviewRequest = match serde_json::from_slice(&raw) {
+        Ok(b) => b,
+        Err(e) => return err_bad_request(&format!("Invalid request: {e}")),
+    };
+    let fragment = render_preview_fragment(&body.content);
+    ResponseBuilder::new().body(fragment.into_bytes(), "text/html; charset=utf-8")
 }

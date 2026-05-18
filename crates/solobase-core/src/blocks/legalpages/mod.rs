@@ -467,7 +467,7 @@ fn render_legal_page(inputs: LegalPageInputs<'_>) -> Markup {
 /// `JavaScript:` (case-insensitive), `data:`, and `vbscript:` are
 /// rewritten to `#`. Matches ammonia's default behaviour of allowing
 /// only `http`, `https`, `mailto`, `tel`, `ftp`, and `magnet`.
-fn markdown_to_html(input: &str) -> String {
+pub(super) fn markdown_to_html(input: &str) -> String {
     use pulldown_cmark::{html, Event, Options, Parser, Tag};
 
     let mut opts = Options::empty();
@@ -595,6 +595,9 @@ impl Block for LegalPagesBlock {
 
             // Admin UI mutations (from editor save/publish)
             ("create", "/b/legalpages/admin/save") => pages::handle_save(ctx, &msg, input).await,
+            ("create", "/b/legalpages/admin/render-preview") => {
+                pages::handle_render_preview(ctx, input).await
+            }
             ("create", "/b/legalpages/admin/publish") => {
                 pages::handle_publish(ctx, &msg, input).await
             }
@@ -795,5 +798,16 @@ mod tests {
         assert!(html.contains(r#"href="tel:+1234""#));
         assert!(html.contains(r#"href="/local/path""#));
         assert!(html.contains("href=\"#anchor\""));
+    }
+
+    #[test]
+    fn render_preview_fragment_returns_rendered_html() {
+        let md = "## Section\n\nHello **world**.";
+        let html = super::pages::render_preview_fragment(md);
+        assert!(html.contains("<h2>Section</h2>"));
+        assert!(html.contains("<strong>world</strong>"));
+        // Wrapped in the public-page__content div so it picks up the same
+        // typography as the live page.
+        assert!(html.starts_with(r#"<div class="public-page__content">"#));
     }
 }
