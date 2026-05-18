@@ -148,6 +148,37 @@ pub async fn editor_page(ctx: &dyn Context, msg: &Message, doc_type: &str) -> Ou
         None => ("", default_title, "", "none", "", 1),
     };
 
+    let page_content = editor_markup_for_test(
+        doc_type, doc_id, title, content, status, updated_at, version,
+    );
+
+    legalpages_page(
+        default_title,
+        &config,
+        &format!("/b/legalpages/admin/{doc_type}"),
+        user.as_ref(),
+        default_title,
+        page_content,
+        msg,
+    )
+}
+
+/// Build the editor markup. Split out from `editor_page` so it can be
+/// unit-tested without a `Context`.
+pub(super) fn editor_markup_for_test(
+    doc_type: &str,
+    doc_id: &str,
+    title: &str,
+    content: &str,
+    status: &str,
+    updated_at: &str,
+    version: i64,
+) -> Markup {
+    let default_title = if doc_type == "privacy" {
+        "Privacy Policy"
+    } else {
+        "Terms of Service"
+    };
     let badge_class = match status {
         "published" => "badge-success",
         "draft" => "badge-warning",
@@ -160,7 +191,7 @@ pub async fn editor_page(ctx: &dyn Context, msg: &Message, doc_type: &str) -> Ou
         _ => "No document",
     };
 
-    let page_content = html! {
+    html! {
         // Status bar (compact, top of page)
         div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem" {
             div style="display:flex;align-items:center;gap:0.5rem" {
@@ -181,7 +212,7 @@ pub async fn editor_page(ctx: &dyn Context, msg: &Message, doc_type: &str) -> Ou
                     href={"/b/legalpages/" (doc_type)}
                     target="_blank"
                 {
-                    (icons::eye()) " Preview"
+                    "Open public page"
                 }
                 button #btn-save .btn .btn-sm .btn-secondary onclick="saveDocument(false)" {
                     "Save Draft"
@@ -192,7 +223,7 @@ pub async fn editor_page(ctx: &dyn Context, msg: &Message, doc_type: &str) -> Ou
             }
         }
 
-        // Title input (streamlined)
+        // Title input
         input #title-input .form-input
             type="text"
             name="title"
@@ -200,152 +231,109 @@ pub async fn editor_page(ctx: &dyn Context, msg: &Message, doc_type: &str) -> Ou
             placeholder="Document title"
             style="font-size:1.1rem;font-weight:600;margin-bottom:0.5rem";
 
-        // Hidden fields
+        // Hidden fields used by save handler JS
         input #doc-type type="hidden" value=(doc_type);
         input #doc-id type="hidden" value=(doc_id);
         input #doc-version type="hidden" value=(version);
 
-        // Editor with built-in toolbar
+        // Tab strip
         style { (PreEscaped(EDITOR_CSS)) }
-        div .card .editor-card {
-            // Toolbar
-            div .editor-toolbar {
-                // Block format
-                select #format-block .toolbar-select title="Paragraph format"
-                    onchange="editorCmd('formatBlock', this.value); this.value=''"
-                {
-                    option value="" disabled selected { "Format" }
-                    option value="p" { "Paragraph" }
-                    option value="h1" { "Heading 1" }
-                    option value="h2" { "Heading 2" }
-                    option value="h3" { "Heading 3" }
-                    option value="blockquote" { "Quote" }
-                    option value="pre" { "Code" }
-                }
-                span .toolbar-sep {}
+        div .editor-tabs {
+            button .editor-tab .editor-tab--active type="button"
+                data-tab="edit"
+                onclick="setEditorTab('edit')"
+            { "Edit" }
+            button .editor-tab type="button"
+                data-tab="preview"
+                onclick="setEditorTab('preview')"
+            { "Preview" }
+        }
 
-                // Inline formatting
-                button .toolbar-btn title="Bold (Ctrl+B)" onclick="editorCmd('bold')" { "B" }
-                button .toolbar-btn title="Italic (Ctrl+I)" onclick="editorCmd('italic')" style="font-style:italic" { "I" }
-                button .toolbar-btn title="Underline (Ctrl+U)" onclick="editorCmd('underline')" style="text-decoration:underline" { "U" }
-                button .toolbar-btn title="Strikethrough" onclick="editorCmd('strikeThrough')" style="text-decoration:line-through" { "S" }
-                span .toolbar-sep {}
+        // Edit pane (textarea)
+        div #editor-edit-pane .editor-pane {
+            textarea #editor .form-input .editor-textarea
+                name="content"
+                placeholder="Write your legal document in Markdown..."
+            { (content) }
+        }
 
-                // Lists
-                button .toolbar-btn title="Ordered list" onclick="editorCmd('insertOrderedList')" { "1." }
-                button .toolbar-btn title="Bullet list" onclick="editorCmd('insertUnorderedList')" { "\u{2022}" }
-                button .toolbar-btn title="Indent" onclick="editorCmd('indent')" { "\u{2192}" }
-                button .toolbar-btn title="Outdent" onclick="editorCmd('outdent')" { "\u{2190}" }
-                span .toolbar-sep {}
-
-                // Insert
-                button .toolbar-btn title="Insert link" onclick="insertLink()" { "\u{1f517}" }
-                button .toolbar-btn title="Horizontal rule" onclick="editorCmd('insertHorizontalRule')" { "\u{2015}" }
-                span .toolbar-sep {}
-
-                // Undo/redo
-                button .toolbar-btn title="Undo (Ctrl+Z)" onclick="editorCmd('undo')" { "\u{21a9}" }
-                button .toolbar-btn title="Redo (Ctrl+Y)" onclick="editorCmd('redo')" { "\u{21aa}" }
-                button .toolbar-btn title="Clear formatting" onclick="editorCmd('removeFormat')" { "\u{2718}" }
+        // Preview pane (vanilla JS fetch target)
+        div #editor-preview-pane .editor-pane style="display:none" {
+            div #editor-preview .preview-content {
+                p .text-muted { "Click Preview above to render." }
             }
-
-            // Editable content area
-            div #editor .editor-content contenteditable="true" { (PreEscaped(content)) }
         }
 
         script { (PreEscaped(EDITOR_JS)) }
-    };
-
-    legalpages_page(
-        default_title,
-        &config,
-        &format!("/b/legalpages/admin/{doc_type}"),
-        user.as_ref(),
-        default_title,
-        page_content,
-        msg,
-    )
+    }
 }
 
 const EDITOR_CSS: &str = r#"
-.editor-card { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
-.editor-toolbar {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 2px;
-    padding: 6px 8px; border-bottom: 1px solid var(--border-color, #e2e8f0);
-    background: var(--bg-secondary, #f8fafc); position: sticky; top: 0; z-index: 5;
+.editor-tabs {
+    display: flex; gap: 4px; margin-bottom: -1px; border-bottom: 1px solid #e2e8f0;
 }
-.toolbar-btn {
-    background: none; border: 1px solid transparent; border-radius: 4px;
-    padding: 4px 8px; cursor: pointer; font-size: 14px; font-weight: 600;
-    color: #475569; min-width: 30px; text-align: center; line-height: 1.2;
+.editor-tab {
+    background: none; border: 1px solid transparent; border-bottom: none;
+    border-radius: 6px 6px 0 0; padding: 6px 14px; cursor: pointer;
+    font-size: 0.875rem; color: #64748b;
 }
-.toolbar-btn:hover { background: #e2e8f0; border-color: #cbd5e1; }
-.toolbar-select {
-    background: none; border: 1px solid transparent; border-radius: 4px;
-    padding: 4px 6px; cursor: pointer; font-size: 13px; color: #475569;
-    appearance: auto;
+.editor-tab:hover { background: #f1f5f9; color: #1e293b; }
+.editor-tab--active {
+    background: white; border-color: #e2e8f0; color: #1e293b; font-weight: 600;
 }
-.toolbar-select:hover { background: #e2e8f0; border-color: #cbd5e1; }
-.toolbar-sep { width: 1px; height: 20px; background: #e2e8f0; margin: 0 4px; }
-.editor-content {
-    min-height: 500px; padding: 1.5rem; font-size: 1rem; line-height: 1.8;
-    outline: none; font-family: Georgia, 'Times New Roman', serif;
-    overflow-y: auto; flex: 1;
+.editor-pane {
+    background: white; border: 1px solid #e2e8f0; border-radius: 0 6px 6px 6px;
+    min-height: 500px;
 }
-.editor-content:focus { box-shadow: inset 0 0 0 2px rgba(99, 102, 241, 0.15); }
-.editor-content h1 { font-size: 1.75rem; margin: 0 0 0.5rem; font-weight: 700; }
-.editor-content h2 { font-size: 1.4rem; margin: 1.5rem 0 0.5rem; font-weight: 600; }
-.editor-content h3 { font-size: 1.15rem; margin: 1rem 0 0.5rem; font-weight: 600; }
-.editor-content p { margin-bottom: 0.75rem; }
-.editor-content blockquote { border-left: 3px solid #e2e8f0; padding-left: 1rem; color: #64748b; margin: 1rem 0; }
-.editor-content pre { background: #f1f5f9; padding: 1rem; border-radius: 6px; font-family: monospace; font-size: 0.9rem; overflow-x: auto; margin: 1rem 0; }
-.editor-content ul, .editor-content ol { margin: 0.5rem 0 1rem 1.5rem; }
-.editor-content li { margin-bottom: 0.25rem; }
-.editor-content a { color: #6366f1; }
-.editor-content hr { border: none; border-top: 1px solid #e2e8f0; margin: 1.5rem 0; }
-.editor-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
-.editor-content th, .editor-content td { padding: 0.5rem; text-align: left; border: 1px solid #e2e8f0; }
-.editor-content [data-placeholder]:empty::before {
-    content: attr(data-placeholder); color: #94a3b8; pointer-events: none;
+.editor-textarea {
+    width: 100%; min-height: 500px; padding: 1rem;
+    border: none; outline: none; resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9rem; line-height: 1.6; background: transparent;
+}
+.preview-content {
+    padding: 1.5rem; min-height: 500px; font-family: Georgia, 'Times New Roman', serif;
+    line-height: 1.8;
+}
+.preview-content h1 { font-size: 1.75rem; margin: 0 0 0.5rem; font-weight: 700; }
+.preview-content h2 { font-size: 1.4rem; margin: 1.5rem 0 0.5rem; font-weight: 600; }
+.preview-content h3 { font-size: 1.15rem; margin: 1rem 0 0.5rem; font-weight: 600; }
+.preview-content p { margin-bottom: 0.75rem; }
+.preview-content ul, .preview-content ol { margin: 0.5rem 0 1rem 1.5rem; }
+.preview-content blockquote {
+    border-left: 3px solid #e2e8f0; padding-left: 1rem; color: #64748b; margin: 1rem 0;
+}
+.preview-content pre {
+    background: #f1f5f9; padding: 1rem; border-radius: 6px;
+    font-family: monospace; font-size: 0.9rem; overflow-x: auto; margin: 1rem 0;
+}
+.preview-content code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; }
+.preview-content a { color: #6366f1; }
+.preview-content hr { border: none; border-top: 1px solid #e2e8f0; margin: 1.5rem 0; }
+.preview-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+.preview-content th, .preview-content td {
+    padding: 0.5rem; text-align: left; border: 1px solid #e2e8f0;
 }
 "#;
 
 const EDITOR_JS: &str = r#"
 (function() {
-    var editor = document.getElementById('editor');
-
-    // Placeholder support
-    if (!editor.innerHTML.trim()) {
-        editor.setAttribute('data-placeholder', 'Start writing your legal document...');
-    }
-    editor.addEventListener('input', function() {
-        if (editor.innerHTML.trim()) editor.removeAttribute('data-placeholder');
-        else editor.setAttribute('data-placeholder', 'Start writing your legal document...');
-    });
-
-    // Ensure default paragraph on Enter (not <div>)
-    document.execCommand('defaultParagraphSeparator', false, 'p');
-
-    // Editor commands
-    window.editorCmd = function(cmd, val) {
-        editor.focus();
-        if (cmd === 'formatBlock') {
-            document.execCommand('formatBlock', false, '<' + val + '>');
-        } else {
-            document.execCommand(cmd, false, val || null);
-        }
-    };
-
-    window.insertLink = function() {
-        var sel = window.getSelection();
-        var text = sel.toString();
-        var url = prompt('Enter URL:', 'https://');
-        if (url) {
-            if (!text) {
-                document.execCommand('insertHTML', false, '<a href="' + url + '">' + url + '</a>');
-            } else {
-                document.execCommand('createLink', false, url);
-            }
+    // Preview wiring: vanilla JS fetch (no json-enc htmx extension loaded)
+    window.setEditorTab = function(name) {
+        document.querySelectorAll('.editor-tab').forEach(function(t) {
+            t.classList.toggle('editor-tab--active', t.dataset.tab === name);
+        });
+        document.getElementById('editor-edit-pane').style.display = (name === 'edit') ? '' : 'none';
+        document.getElementById('editor-preview-pane').style.display = (name === 'preview') ? '' : 'none';
+        if (name === 'preview') {
+            var content = document.getElementById('editor').value;
+            fetch('/b/legalpages/admin/render-preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: content })
+            })
+            .then(function(r) { return r.text(); })
+            .then(function(html) { document.getElementById('editor-preview').innerHTML = html; });
         }
     };
 
@@ -361,19 +349,18 @@ const EDITOR_JS: &str = r#"
         }
     };
 
-    // Keyboard shortcuts
-    editor.addEventListener('keydown', function(e) {
-        if (e.ctrlKey || e.metaKey) {
-            switch (e.key) {
-                case 's': e.preventDefault(); saveDocument(false); break;
-            }
+    // Ctrl+S / Cmd+S → save draft
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            saveDocument(false);
         }
     });
 
-    // Save handler
+    // Save handler (reads textarea .value)
     window.saveDocument = function(publish) {
         var title = document.getElementById('title-input').value;
-        var content = editor.innerHTML;
+        var content = document.getElementById('editor').value;
         var docType = document.getElementById('doc-type').value;
         var docId = document.getElementById('doc-id').value;
         var version = parseInt(document.getElementById('doc-version').value, 10) || 0;

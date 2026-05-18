@@ -810,4 +810,24 @@ mod tests {
         // typography as the live page.
         assert!(html.starts_with(r#"<div class="public-page__content">"#));
     }
+
+    #[test]
+    fn editor_page_uses_textarea_not_contenteditable() {
+        let markup = super::pages::editor_markup_for_test(
+            "terms",
+            "doc-123",
+            "Terms of Service",
+            "# heading\n\nbody",
+            "draft",
+            "2026-05-19T00:00:00Z",
+            1,
+        );
+        let s = markup.into_string();
+        assert!(s.contains("<textarea"), "editor must use <textarea>");
+        assert!(!s.contains("contenteditable"), "no contenteditable allowed");
+        assert!(s.contains(r#"data-tab="edit""#));
+        assert!(s.contains(r#"data-tab="preview""#));
+        // Vanilla JS fetch path — URL lives in EDITOR_JS / onclick handler
+        assert!(s.contains("/b/legalpages/admin/render-preview"));
+    }
 }
