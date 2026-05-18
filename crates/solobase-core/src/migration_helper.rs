@@ -305,8 +305,7 @@ mod tests {
     fn products_sql_splits_into_expected_chunks() {
         // Counts the executable statements in the products block SQL files.
         // 10 CREATE TABLE + 9 CREATE INDEX = 19 statements per backend.
-        let sql_sqlite =
-            include_str!("blocks/products/migrations/001_products_schema.sqlite.sql");
+        let sql_sqlite = include_str!("blocks/products/migrations/001_products_schema.sqlite.sql");
         let sqlite_count = split_statements(sql_sqlite)
             .into_iter()
             .filter(|s| has_executable_content(s))
