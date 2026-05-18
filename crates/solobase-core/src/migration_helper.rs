@@ -118,6 +118,30 @@ async fn write_state(
     block_name: &str,
     state: &MigrationState,
 ) -> Result<(), String> {
+    let mut patch = std::collections::HashMap::new();
+    patch.insert(
+        "current_hash".to_string(),
+        serde_json::json!(state.current_hash),
+    );
+    patch.insert(
+        "blessed_hash".to_string(),
+        serde_json::json!(state.blessed_hash),
+    );
+    upsert_block_settings_fields(ctx, block_name, patch).await
+}
+
+/// Upsert a subset of columns on the `suppers_ai__admin__block_settings` row
+/// keyed by `block_name`. Creates the row with `enabled=true` if absent,
+/// preserves every column not present in `patch` otherwise.
+///
+/// Shared by `migration_helper::write_state` (migration hash columns) and
+/// `admin::settings::seed_defaults` (seed_defaults_hash column) so both
+/// hash-gates write through the same single-row-per-block primitive.
+pub(crate) async fn upsert_block_settings_fields(
+    ctx: &dyn Context,
+    block_name: &str,
+    patch: std::collections::HashMap<String, serde_json::Value>,
+) -> Result<(), String> {
     use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
 
     let opts = ListOptions {
@@ -137,45 +161,37 @@ async fn write_state(
 
     let existing = db::list(ctx, BLOCK_SETTINGS_TABLE, &opts)
         .await
-        .map_err(|e| format!("migration state lookup: {e}"))?;
+        .map_err(|e| format!("block_settings lookup: {e}"))?;
 
     if !existing.records.is_empty() {
         let id = existing.records[0].id.clone();
-        let mut patch = std::collections::HashMap::new();
-        patch.insert(
-            "current_hash".to_string(),
-            serde_json::json!(state.current_hash),
-        );
-        patch.insert(
-            "blessed_hash".to_string(),
-            serde_json::json!(state.blessed_hash),
-        );
         db::update(ctx, BLOCK_SETTINGS_TABLE, &id, patch)
             .await
-            .map_err(|e| format!("migration state update: {e}"))?;
+            .map_err(|e| format!("block_settings update: {e}"))?;
     } else {
-        let mut data = std::collections::HashMap::new();
+        let mut data = patch;
         data.insert("block_name".to_string(), serde_json::json!(block_name));
-        data.insert("enabled".to_string(), serde_json::json!(true));
-        data.insert(
-            "current_hash".to_string(),
-            serde_json::json!(state.current_hash),
-        );
-        data.insert(
-            "blessed_hash".to_string(),
-            serde_json::json!(state.blessed_hash),
-        );
+        data.entry("enabled".to_string())
+            .or_insert(serde_json::json!(true));
         db::create(ctx, BLOCK_SETTINGS_TABLE, data)
             .await
-            .map_err(|e| format!("migration state create: {e}"))?;
+            .map_err(|e| format!("block_settings create: {e}"))?;
     }
     Ok(())
 }
 
-fn sha256_hex(sql: &str) -> String {
+/// Compute a SHA-256 hex digest. Re-exported for callers (e.g.
+/// `admin::settings::seed_defaults`) that hash-gate against a payload other
+/// than SQL bytes but want to share the same digest algorithm with
+/// `apply_if_blessed`.
+pub(crate) fn sha256_hex_bytes(payload: &[u8]) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(sql.as_bytes());
+    hasher.update(payload);
     hex::encode(hasher.finalize())
+}
+
+fn sha256_hex(sql: &str) -> String {
+    sha256_hex_bytes(sql.as_bytes())
 }
 
 /// Split `sql` on `;` outside `--` line comments. Returns byte-range slices

@@ -50,6 +50,12 @@ pub(crate) async fn load_block_settings(db: &Arc<dyn DatabaseService>) -> BlockS
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
+                    let seed_defaults_hash = r
+                        .data
+                        .get("seed_defaults_hash")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     Some((
                         name,
                         BlockState {
@@ -58,6 +64,7 @@ pub(crate) async fn load_block_settings(db: &Arc<dyn DatabaseService>) -> BlockS
                                 current_hash,
                                 blessed_hash,
                             },
+                            seed_defaults_hash,
                         },
                     ))
                 })
