@@ -193,7 +193,6 @@ async fn migrate_one(ctx: &dyn Context, record: &Record) -> MigrateOutcome {
     };
 
     let row = config_to_row(&cfg);
-    // audit-allow: aliased-table-constant — PROVIDERS_TABLE aliases schema::TABLE ("suppers_ai__llm__providers"); llm writing to its own table, no grant needed
     match db::create(ctx, PROVIDERS_TABLE, row).await {
         Ok(_) => MigrateOutcome::Inserted,
         Err(e) if e.code == ErrorCode::AlreadyExists => {

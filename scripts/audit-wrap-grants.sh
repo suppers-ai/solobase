@@ -252,8 +252,23 @@ resolve_module_path() {
     # crate:: outside blocks/ is uncommon for the names we care about; bail.
     echo ""; return
   fi
+  # `super` walks one module level up. For a regular `foo.rs`, the file's
+  # module is `foo` inside `dir`, so `super` = `dir` = the file's own
+  # directory — no `dirname` needed. For `mod.rs`, the file's module IS
+  # `dir`, so `super` = parent of `dir` — one `dirname` needed. The script's
+  # `start_dir` is `dirname(start_file)` (= `dir` in both cases), so:
+  #   * regular file: skip dirname on the FIRST `super::` only
+  #   * mod.rs: dirname on every `super::`
+  local skip_first_dirname=0
+  if [[ "$(basename "$start_file")" != "mod.rs" ]]; then
+    skip_first_dirname=1
+  fi
   while [[ "$path" == super::* ]]; do
-    start_dir="$(dirname "$start_dir")"
+    if [ "$skip_first_dirname" -eq 1 ]; then
+      skip_first_dirname=0
+    else
+      start_dir="$(dirname "$start_dir")"
+    fi
     path="${path#super::}"
   done
   if [[ "$path" == self::* ]]; then
