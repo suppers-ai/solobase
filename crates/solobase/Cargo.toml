@@ -14,7 +14,23 @@ name = "solobase"
 path = "src/main.rs"
 
 [features]
-default = ["sqlite", "storage-local", "llm"]
+# Defaults pull every solobase-core feature block that was unconditionally
+# compiled before the Phase 0b feature split (block-fastembed stays opt-in
+# via `native-embedding`, matching its pre-split behaviour). `solobase-core`
+# is depended on with `default-features = false`, so each `block-*` feature
+# we want must be passed through explicitly below.
+default = [
+    "sqlite",
+    "storage-local",
+    "llm",
+    "block-files",
+    "block-messages",
+    "block-vector",
+    "block-llm",
+    "block-legalpages",
+    "block-userportal",
+    "block-products",
+]
 sqlite = ["solobase-core/sqlite"]
 storage-local = ["solobase-core/storage-local"]
 otel = ["solobase-native/otel"]
@@ -26,8 +42,20 @@ llm = ["solobase-core/llm"]
 # Native ONNX-backed embedding + SQLite vector service. Propagates to the
 # solobase library so `SolobaseBuilder::build()` will register the
 # `wafer-run/vector` runtime block and the `suppers-ai/vector` feature
-# block at startup.
+# block at startup. Pulls block-fastembed + block-vector via solobase-core's
+# own `native-embedding` -> block-fastembed/block-vector chain.
 native-embedding = ["solobase-core/native-embedding"]
+# Per-block passthroughs. `solobase-core` declares the actual `#[cfg]`s;
+# these features forward the toggle so the native binary picks up matching
+# block-* features when its own `[features].default` enables them.
+block-files = ["solobase-core/block-files"]
+block-messages = ["solobase-core/block-messages"]
+block-vector = ["solobase-core/block-vector"]
+block-llm = ["solobase-core/block-llm"]
+block-legalpages = ["solobase-core/block-legalpages"]
+block-userportal = ["solobase-core/block-userportal"]
+block-products = ["solobase-core/block-products"]
+block-fastembed = ["solobase-core/block-fastembed"]
 
 [dependencies]
 # Solobase shared core (platform-agnostic builder + flows + router +
