@@ -11,8 +11,11 @@ use wafer_run::{context::Context, WaferError};
 
 use crate::blocks::helpers::{self, json_map};
 
-pub const CONTEXTS_TABLE: &str = "suppers_ai__messages__contexts";
-pub const ENTRIES_TABLE: &str = "suppers_ai__messages__entries";
+// Table-name constants live in `crate::messages_schema` so consumers
+// (e.g. the LLM chat UI) can reference them without compiling this module.
+// Re-exported here so existing `messages::service::{CONTEXTS_TABLE,
+// ENTRIES_TABLE}` references inside the messages block continue to resolve.
+pub use crate::messages_schema::{CONTEXTS_TABLE, ENTRIES_TABLE};
 
 /// Build an `Equal` filter for `field` when `value` is present. Mirrors the
 /// per-field `if let Some(...) { filters.push(...) }` pattern used across
