@@ -295,25 +295,6 @@ const EDITOR_CSS: &str = r#"
     padding: 1.5rem; min-height: 500px; font-family: Georgia, 'Times New Roman', serif;
     line-height: 1.8;
 }
-.preview-content h1 { font-size: 1.75rem; margin: 0 0 0.5rem; font-weight: 700; }
-.preview-content h2 { font-size: 1.4rem; margin: 1.5rem 0 0.5rem; font-weight: 600; }
-.preview-content h3 { font-size: 1.15rem; margin: 1rem 0 0.5rem; font-weight: 600; }
-.preview-content p { margin-bottom: 0.75rem; }
-.preview-content ul, .preview-content ol { margin: 0.5rem 0 1rem 1.5rem; }
-.preview-content blockquote {
-    border-left: 3px solid #e2e8f0; padding-left: 1rem; color: #64748b; margin: 1rem 0;
-}
-.preview-content pre {
-    background: #f1f5f9; padding: 1rem; border-radius: 6px;
-    font-family: monospace; font-size: 0.9rem; overflow-x: auto; margin: 1rem 0;
-}
-.preview-content code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; }
-.preview-content a { color: #6366f1; }
-.preview-content hr { border: none; border-top: 1px solid #e2e8f0; margin: 1.5rem 0; }
-.preview-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
-.preview-content th, .preview-content td {
-    padding: 0.5rem; text-align: left; border: 1px solid #e2e8f0;
-}
 "#;
 
 const EDITOR_JS: &str = r#"
@@ -332,8 +313,15 @@ const EDITOR_JS: &str = r#"
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content: content })
             })
-            .then(function(r) { return r.text(); })
-            .then(function(html) { document.getElementById('editor-preview').innerHTML = html; });
+            .then(function(r) {
+                if (!r.ok) { throw new Error('HTTP ' + r.status); }
+                return r.text();
+            })
+            .then(function(html) { document.getElementById('editor-preview').innerHTML = html; })
+            .catch(function(err) {
+                document.getElementById('editor-preview').innerHTML =
+                    '<p style="color:#ef4444">Preview failed: ' + err.message + '</p>';
+            });
         }
     };
 
