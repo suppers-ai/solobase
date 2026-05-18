@@ -339,6 +339,20 @@ async fn handle_delete(ctx: &dyn Context, msg: &Message) -> OutputStream {
 pub async fn seed_defaults(ctx: &dyn Context) {
     let vars = crate::config_vars::shared_config_vars();
 
+    // Single bulk fetch of every existing variable, then in-memory diff
+    // per declared shared var. Replaces the per-var `get_by_field` loop
+    // that issued 2× D1 queries per shared var × cold isolate (~5k D1
+    // reads/day in prod — see 2026-05-14 config-snapshot spec). On a
+    // bulk failure we treat every key as missing, which falls into the
+    // create-with-INSERT-OR-IGNORE-equivalent path; consistent with the
+    // prior code's silent-on-error stance.
+    let existing: HashMap<String, _> = db::list_all(ctx, VARIABLES_TABLE, vec![])
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|record| (record.str_field("key").to_string(), record))
+        .collect();
+
     for var in &vars {
         let sensitive: i32 = if var.input_type == types::InputType::Password {
             1
@@ -351,19 +365,12 @@ pub async fn seed_defaults(ctx: &dyn Context) {
             &var.name
         };
 
-        // Check if key exists already and only refresh metadata when at
-        // least one declared field actually differs. Without this guard
-        // every isolate cold-start re-writes every shared config var
-        // (~80 vars × cold-starts/day ≈ ~900 useless UPDATEs/day in prod).
-        match db::get_by_field(
-            ctx,
-            VARIABLES_TABLE,
-            "key",
-            serde_json::Value::String(var.key.clone()),
-        )
-        .await
-        {
-            Ok(record) => {
+        match existing.get(&var.key) {
+            Some(record) => {
+                // Only refresh metadata when at least one declared field
+                // actually differs. Without this guard every isolate cold-start
+                // re-writes every shared config var (~80 vars × cold-starts/day
+                // ≈ ~900 useless UPDATEs/day in prod).
                 let same_name = record.str_field("name") == name.as_str();
                 let same_desc = record.str_field("description") == var.description;
                 let same_warn = record.str_field("warning") == var.warning;
@@ -386,7 +393,7 @@ pub async fn seed_defaults(ctx: &dyn Context) {
                 )
                 .await;
             }
-            Err(_) => {
+            None => {
                 // Seed from process env when set (lets `.env` bootstrap a
                 // fresh deployment), otherwise fall back to the declared
                 // default. Empty env values are treated as unset so that

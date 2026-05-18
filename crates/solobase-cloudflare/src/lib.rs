@@ -190,6 +190,10 @@ where
     let crypto = make_jwt_crypto_service(jwt_secret);
     let network = make_fetch_network_service();
     let logger = make_console_logger();
+    // Clone the map for the snapshot below before `make_config_service`
+    // consumes it — the snapshot and the async ConfigService must carry
+    // identical data (see comment at the `set_config_snapshot` call site).
+    let snapshot = cfg_svc_map.clone();
     let cfg_svc = make_config_service(cfg_svc_map);
 
     // 5. ConfigSource: D1-backed lazy per-block fetch. The overlay layers
@@ -213,6 +217,16 @@ where
 
     // 6. Build runtime.
     let (mut wafer, storage_block) = builder.build().map_err(|e| format!("builder.build: {e}"))?;
+
+    // 6a. Wire the env-var snapshot into `RuntimeContext.config` so blocks
+    //     can read embedder-provided keys via `ctx.config_get` synchronously
+    //     (no D1 round-trip per lookup). This is the missing wiring that
+    //     left `migration_helper::apply_if_blessed` reading "{}" for
+    //     `BLOCK_SETTINGS_CONFIG_KEY` on every cold isolate — see the
+    //     2026-05-14 config-snapshot spec. Same data as `make_config_service`;
+    //     the snapshot is the synchronous read path, the config block is
+    //     the async write surface.
+    wafer.set_config_snapshot(snapshot);
 
     // 6b. Consumer post-build hook (override flows / configs before start).
     //     Receives the R2-backed StorageService so consumers can register
