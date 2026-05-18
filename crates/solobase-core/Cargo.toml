@@ -50,16 +50,16 @@ wasm = ["wafer-run/wasm"]
 # `suppers-ai/llm` block dispatch; turning off `block-llm` while leaving
 # `llm` on would still drag the block module in.
 #
-# Also implies `block-messages` because `blocks::llm::pages` reads from
-# the messages contexts/entries tables via their constants. Future work
-# could move those constants to a shared crate to decouple, but for now
-# the llm UI cannot compile without the messages module.
+# `block-messages` is intentionally NOT implied: PR #191 hoisted the
+# messages table/column constants used by `blocks::llm::pages` into
+# `solobase-core::messages_schema`, so the llm UI no longer depends on
+# the messages block module being compiled in. Enabling `llm` without
+# `block-messages` now compiles cleanly.
 llm = [
     "dep:tokio",
     "dep:tokio-stream",
     "reqwest/stream",
     "block-llm",
-    "block-messages",
 ]
 # Native ONNX-backed embedding block (suppers-ai/fastembed) + SQLite
 # vector service. Pulls in wafer-block-fastembed (ONNX Runtime) and
