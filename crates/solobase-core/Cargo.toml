@@ -182,9 +182,6 @@ reqwest = { workspace = true }
 # URL parsing/building for OAuth authorize_url assembly.
 url = "2"
 
-# HTML sanitization
-ammonia = "4"
-
 # Markdown → HTML renderer for the legalpages block. Replaces the
 # ammonia HTML-sanitizer pipeline. Optional + gated under
 # `block-legalpages` so consumers that disable that block (wafer-site)

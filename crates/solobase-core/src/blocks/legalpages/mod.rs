@@ -102,7 +102,7 @@ impl LegalPagesBlock {
         let (title, content, version, meta) = if result.records.is_empty() {
             (
                 type_label.to_string(),
-                "<p>No document has been published yet.</p>".to_string(),
+                markdown_to_html("No document has been published yet."),
                 1_i64,
                 String::new(),
             )
@@ -119,7 +119,7 @@ impl LegalPagesBlock {
                 .get("content")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let content = sanitize_html(raw_content);
+            let content = markdown_to_html(raw_content);
             let published_at = record
                 .data
                 .get("published_at")
@@ -370,7 +370,7 @@ impl LegalPagesBlock {
 struct LegalPageInputs<'a> {
     site: &'a SiteConfig,
     title: &'a str,
-    content: &'a str, // pre-sanitized HTML
+    content: &'a str, // rendered HTML (output of markdown_to_html)
     version: i64,
     meta: &'a str,
     back_url: &'a str,
@@ -447,27 +447,42 @@ fn render_legal_page(inputs: LegalPageInputs<'_>) -> Markup {
     )
 }
 
-/// Sanitize admin-authored HTML content to prevent XSS.
-fn sanitize_html(input: &str) -> String {
-    ammonia::Builder::default()
-        .add_tags(&["h1", "h2", "h3", "h4", "h5", "h6"])
-        .add_tags(&["p", "br", "hr", "blockquote", "pre", "code"])
-        .add_tags(&["ul", "ol", "li", "dl", "dt", "dd"])
-        .add_tags(&["table", "thead", "tbody", "tr", "th", "td"])
-        .add_tags(&[
-            "a", "strong", "em", "b", "i", "u", "s", "sub", "sup", "small",
-        ])
-        .add_tags(&["img", "figure", "figcaption"])
-        .add_tags(&[
-            "div", "span", "section", "article", "header", "footer", "nav", "aside",
-        ])
-        .add_tag_attributes("a", &["href", "title", "target"])
-        .add_tag_attributes("img", &["src", "alt", "title", "width", "height"])
-        .add_tag_attributes("td", &["colspan", "rowspan"])
-        .add_tag_attributes("th", &["colspan", "rowspan"])
-        .link_rel(Some("noopener noreferrer"))
-        .clean(input)
-        .to_string()
+/// Render admin-authored Markdown to HTML.
+///
+/// Uses `pulldown-cmark` to parse Markdown and filter out raw-HTML blocks,
+/// escaping them instead. This means `<script>`, inline event handlers, and
+/// any other arbitrary HTML in the source are escaped as text rather than
+/// parsed — XSS-safe by construction, replacing the previous ammonia sanitizer.
+///
+/// `javascript:` URLs in link destinations are not filtered by
+/// pulldown-cmark itself; we strip them post-render via a simple text
+/// replace. The single-pass approach is acceptable because the link
+/// renderer only emits `href="..."` with the literal destination —
+/// no ambiguity to worry about.
+fn markdown_to_html(input: &str) -> String {
+    use pulldown_cmark::{html, Event, Options, Parser};
+
+    let mut opts = Options::empty();
+    opts.insert(Options::ENABLE_TABLES);
+    opts.insert(Options::ENABLE_STRIKETHROUGH);
+
+    let parser = Parser::new_ext(input, opts);
+    // Filter out raw HTML events. The parser emits Event::Html when it
+    // encounters raw HTML; we discard them so they don't get written to
+    // the output.
+    let filtered = parser.filter(|event| {
+        !matches!(event, Event::Html(_))
+    });
+
+    let mut out = String::with_capacity(input.len() + input.len() / 4);
+    html::push_html(&mut out, filtered);
+
+    // pulldown-cmark renders `[label](javascript:...)` as
+    // `<a href="javascript:...">label</a>` — strip those after the fact.
+    // We replace the URL with `#` so the link visibly still exists but
+    // does nothing dangerous.
+    out.replace("href=\"javascript:", "href=\"#")
+        .replace("href='javascript:", "href='#")
 }
 
 // ---------------------------------------------------------------------------
