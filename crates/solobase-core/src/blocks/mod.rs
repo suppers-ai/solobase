@@ -4,15 +4,30 @@ pub mod auth_ui;
 pub mod crud;
 pub mod email;
 pub mod errors;
-#[cfg(feature = "native-embedding")]
+// `native-embedding` always implies `block-fastembed` (see Cargo.toml), so
+// the native build still gets this module. wafer-site / wasm32 builds with
+// neither feature drop the ONNX-runtime dep entirely.
+#[cfg(feature = "block-fastembed")]
 pub mod fastembed;
+#[cfg(feature = "block-files")]
 pub mod files;
 pub mod helpers;
+#[cfg(feature = "block-legalpages")]
 pub mod legalpages;
+// `feature = "llm"` is the existing flag that pulls in the `ProviderLlmService`
+// (reqwest/stream + tokio). It implies `block-llm` so turning `llm` on alone
+// still registers the block. Turning `block-llm` on without `llm` is allowed
+// for callers that supply their own LLM backend via `SolobaseBuilder::llm_service`
+// (e.g. `BrowserLlmService` in solobase-web) — but currently the block module
+// itself only compiles when `llm` is on because `LlmBlock::new` takes
+// `Arc<ProviderLlmService>`. Future work could split the provider service out
+// to let `block-llm` stand alone; for now they travel together.
 #[cfg(feature = "llm")]
 pub mod llm;
+#[cfg(feature = "block-messages")]
 pub mod messages;
 pub mod network;
+#[cfg(feature = "block-products")]
 pub mod products;
 pub mod rate_limit;
 pub mod router;
@@ -20,7 +35,9 @@ pub mod storage;
 pub mod system;
 #[cfg(target_arch = "wasm32")]
 pub mod transformers_embed;
+#[cfg(feature = "block-userportal")]
 pub mod userportal;
+#[cfg(feature = "block-vector")]
 pub mod vector;
 
 /// Return `BlockInfo` for every solobase block.
@@ -60,7 +77,9 @@ pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
 pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
     use wafer_run::block::Block as _;
 
-    #[cfg_attr(not(feature = "llm"), allow(unused_mut))]
+    // `unused_mut` fires when every optional feature is off, because no later
+    // `.push(...)` exists to mutate the vec.
+    #[allow(unused_mut)]
     let mut infos: Vec<wafer_run::block::BlockInfo> = vec![
         admin::AdminBlock::new().info(),
         // Framework AuthBlock wrapping AuthServiceImpl — not self-registered
@@ -75,16 +94,23 @@ pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
         },
         auth_ui::AuthUiBlock::default().info(),
         email::EmailBlock::new().info(),
-        files::FilesBlock::new().info(),
-        legalpages::LegalPagesBlock::new().info(),
-        messages::MessagesBlock::new().info(),
-        products::ProductsBlock::new().info(),
         system::SystemBlock::new().info(),
-        userportal::UserPortalBlock::new().info(),
-        vector::VectorBlock::new().info(),
     ];
 
-    #[cfg(feature = "native-embedding")]
+    #[cfg(feature = "block-files")]
+    infos.push(files::FilesBlock::new().info());
+    #[cfg(feature = "block-legalpages")]
+    infos.push(legalpages::LegalPagesBlock::new().info());
+    #[cfg(feature = "block-messages")]
+    infos.push(messages::MessagesBlock::new().info());
+    #[cfg(feature = "block-products")]
+    infos.push(products::ProductsBlock::new().info());
+    #[cfg(feature = "block-userportal")]
+    infos.push(userportal::UserPortalBlock::new().info());
+    #[cfg(feature = "block-vector")]
+    infos.push(vector::VectorBlock::new().info());
+
+    #[cfg(feature = "block-fastembed")]
     infos.push(fastembed::FastembedBlock::new().info());
 
     #[cfg(feature = "llm")]
@@ -165,24 +191,31 @@ pub fn register_all_static_blocks(
         Arc::new(auth_ui::AuthUiBlock::default()),
     )?;
     wafer.register_block("suppers-ai/email", Arc::new(email::EmailBlock::new()))?;
+    wafer.register_block("suppers-ai/system", Arc::new(system::SystemBlock::new()))?;
+
+    #[cfg(feature = "block-files")]
     wafer.register_block("suppers-ai/files", Arc::new(files::FilesBlock::new()))?;
+    #[cfg(feature = "block-legalpages")]
     wafer.register_block(
         "suppers-ai/legalpages",
         Arc::new(legalpages::LegalPagesBlock::new()),
     )?;
+    #[cfg(feature = "block-messages")]
     wafer.register_block(
         "suppers-ai/messages",
         Arc::new(messages::MessagesBlock::new()),
     )?;
+    #[cfg(feature = "block-products")]
     wafer.register_block(
         "suppers-ai/products",
         Arc::new(products::ProductsBlock::new()),
     )?;
-    wafer.register_block("suppers-ai/system", Arc::new(system::SystemBlock::new()))?;
+    #[cfg(feature = "block-userportal")]
     wafer.register_block(
         "suppers-ai/userportal",
         Arc::new(userportal::UserPortalBlock::new()),
     )?;
+    #[cfg(feature = "block-vector")]
     wafer.register_block("suppers-ai/vector", Arc::new(vector::VectorBlock::new()))?;
 
     Ok(())

@@ -10,7 +10,25 @@ name = "solobase_core"
 path = "src/lib.rs"
 
 [features]
-default = ["sqlite", "storage-local", "llm"]
+# Per-block features default to enabled so the native binary + in-tree
+# integration tests see every block that was previously unconditionally
+# compiled. `block-fastembed` is deliberately OFF here — previously
+# `mod fastembed` was only compiled under `native-embedding`, so adding
+# it to defaults would expand the default block set and shift baseline
+# screenshots / block listings. Native binaries that want fastembed opt
+# in via `native-embedding` (which implies `block-fastembed`).
+default = [
+    "sqlite",
+    "storage-local",
+    "llm",
+    "block-files",
+    "block-messages",
+    "block-vector",
+    "block-llm",
+    "block-legalpages",
+    "block-userportal",
+    "block-products",
+]
 sqlite = []
 postgres = []
 storage-local = []
@@ -27,16 +45,63 @@ wasm = ["wafer-run/wasm"]
 # on wasm32, which conflicts with `worker`'s `wasm-streams 0.5` — see
 # the FFI symbol clash in `worker-build`. OAuth providers don't need
 # streaming bodies; only the SSE LLM provider does.
-llm = ["dep:tokio", "dep:tokio-stream", "reqwest/stream"]
+#
+# Implies `block-llm` because the provider service backs the
+# `suppers-ai/llm` block dispatch; turning off `block-llm` while leaving
+# `llm` on would still drag the block module in.
+#
+# Also implies `block-messages` because `blocks::llm::pages` reads from
+# the messages contexts/entries tables via their constants. Future work
+# could move those constants to a shared crate to decouple, but for now
+# the llm UI cannot compile without the messages module.
+llm = [
+    "dep:tokio",
+    "dep:tokio-stream",
+    "reqwest/stream",
+    "block-llm",
+    "block-messages",
+]
 # Native ONNX-backed embedding block (suppers-ai/fastembed) + SQLite
 # vector service. Pulls in wafer-block-fastembed (ONNX Runtime) and
 # enables the `vectors` feature of wafer-block-sqlite (sqlite-vec).
 # Required to register the `suppers-ai/vector` feature block.
+#
+# Implies `block-fastembed` and `block-vector` — the native-embedding
+# path registers both blocks; leaving them off while turning this on
+# would compile-fail.
 native-embedding = [
     "dep:wafer-block-fastembed",
     "dep:wafer-block-sqlite",
     "dep:rusqlite",
+    "block-fastembed",
+    "block-vector",
 ]
+
+# Per-block opt-in features. Enabled by default so the native binary +
+# in-tree integration tests see every block; consumers that want to
+# trim the WASM bundle (specifically wafer-site on
+# wasm32-unknown-unknown via the cloudflare adapter) take the crate
+# with `default-features = false` and pick the subset they actually
+# register at boot.
+#
+# `block-vector` implies `block-llm` because (post the PR #187 untangle)
+# vector reaches llm via `ctx.call_block("suppers-ai/llm", …)` at
+# ingestion time. Calls fail with a runtime 404 if the llm block is
+# absent — so a build that has vector enabled but llm absent compiles
+# but cannot finish an ingestion. Implying the dep at the Cargo level
+# keeps that pairing honest.
+block-files = []
+block-messages = []
+block-vector = ["block-llm"]
+block-llm = []
+block-legalpages = []
+block-userportal = []
+block-products = []
+# `block-fastembed` pulls in `wafer-block-fastembed` (ONNX Runtime, ~100 MB
+# of native deps). The `native-embedding` feature implies this — leaving
+# this on without `native-embedding` is fine and just installs the block
+# without the SqliteVecService that pairs with it.
+block-fastembed = ["dep:wafer-block-fastembed"]
 
 [dependencies]
 # WAFER types. The wasmi interpreter is no longer pulled in unconditionally:
