@@ -127,6 +127,20 @@ impl Block for FilesBlock {
         let mut msg = msg;
         let path = msg.path().to_string();
 
+        // Admin-block delegation: when the Admin block routes a request for
+        // `/admin/storage/...` or `/admin/b/cloudstorage/...` through
+        // `ctx.call_block("suppers-ai/files", ...)`, the messages already
+        // carry the normalized admin path. Authorization (admin role check)
+        // is enforced by the Admin block before delegation; we accept the
+        // calls here without re-checking so the admin path stays a thin
+        // pass-through to the sub-module handlers that own the SQL.
+        if path.starts_with("/admin/storage") {
+            return storage::handle_admin(ctx, msg, input).await;
+        }
+        if path.starts_with("/admin/b/cloudstorage") {
+            return cloud::handle(ctx, msg, input).await;
+        }
+
         // Admin SSR pages at /b/storage/admin/...
         if path.starts_with("/b/storage/admin") && msg.action() == "retrieve" {
             let is_admin = helpers::is_admin(&msg);
@@ -265,26 +279,6 @@ impl Block for FilesBlock {
         }
         Ok(())
     }
-}
-
-/// Admin storage delegation — called from the Admin block's API section.
-/// Expects msg path already normalized to `/admin/storage/...`.
-pub async fn handle_admin_storage(
-    ctx: &dyn Context,
-    msg: Message,
-    input: InputStream,
-) -> OutputStream {
-    storage::handle_admin(ctx, msg, input).await
-}
-
-/// Admin cloud storage delegation — called from the Admin block's API section.
-/// Expects msg path already normalized to `/admin/b/cloudstorage/...`.
-pub async fn handle_admin_cloud(
-    ctx: &dyn Context,
-    msg: Message,
-    input: InputStream,
-) -> OutputStream {
-    cloud::handle(ctx, msg, input).await
 }
 
 #[cfg(not(target_arch = "wasm32"))]
