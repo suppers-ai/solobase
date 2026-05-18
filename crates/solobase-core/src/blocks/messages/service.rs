@@ -10,7 +10,6 @@ use wafer_core::clients::{
 use wafer_run::{context::Context, WaferError};
 
 use crate::blocks::helpers::{self, json_map};
-
 // Table-name constants live in `crate::messages_schema` so consumers
 // (e.g. the LLM chat UI) can reference them without compiling this module.
 // Re-exported here so existing `messages::service::{CONTEXTS_TABLE,
