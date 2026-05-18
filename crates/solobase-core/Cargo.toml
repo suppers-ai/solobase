@@ -10,6 +10,13 @@ name = "solobase_core"
 path = "src/lib.rs"
 
 [features]
+# Per-block features default to enabled so the native binary + in-tree
+# integration tests see every block that was previously unconditionally
+# compiled. `block-fastembed` is deliberately OFF here — previously
+# `mod fastembed` was only compiled under `native-embedding`, so adding
+# it to defaults would expand the default block set and shift baseline
+# screenshots / block listings. Native binaries that want fastembed opt
+# in via `native-embedding` (which implies `block-fastembed`).
 default = [
     "sqlite",
     "storage-local",
@@ -21,7 +28,6 @@ default = [
     "block-legalpages",
     "block-userportal",
     "block-products",
-    "block-fastembed",
 ]
 sqlite = []
 postgres = []
