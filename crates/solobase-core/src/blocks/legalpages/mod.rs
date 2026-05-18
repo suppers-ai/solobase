@@ -675,4 +675,35 @@ mod tests {
         .into_string();
         assert!(!html.contains("public-page__meta"));
     }
+
+    #[test]
+    fn markdown_to_html_renders_basic_commonmark() {
+        let md = "# Heading\n\nParagraph with **bold** and *italic*.\n\n- one\n- two\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains("<h1>Heading</h1>"));
+        assert!(html.contains("<strong>bold</strong>"));
+        assert!(html.contains("<em>italic</em>"));
+        assert!(html.contains("<ul>"));
+        assert!(html.contains("<li>one</li>"));
+    }
+
+    #[test]
+    fn markdown_to_html_drops_raw_script_tags() {
+        // pulldown-cmark default config does NOT pass raw HTML through —
+        // the `html` writer treats `<script>` as plain text. Verify that
+        // assumption holds (it's the whole reason we ditched ammonia).
+        let md = "Hello\n\n<script>alert('xss')</script>\n";
+        let html = markdown_to_html(md);
+        assert!(!html.contains("<script>"));
+    }
+
+    #[test]
+    fn markdown_to_html_renders_links_safely() {
+        let md = "[OK](https://example.com)\n\n[BAD](javascript:alert(1))\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains(r#"href="https://example.com""#));
+        // pulldown-cmark does not filter javascript: URLs on its own —
+        // we filter in markdown_to_html. Verify the filter holds.
+        assert!(!html.contains("javascript:"));
+    }
 }

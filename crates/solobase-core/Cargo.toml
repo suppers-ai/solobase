@@ -94,7 +94,7 @@ block-files = []
 block-messages = []
 block-vector = ["block-llm"]
 block-llm = []
-block-legalpages = []
+block-legalpages = ["dep:pulldown-cmark"]
 block-userportal = []
 block-products = []
 # `block-fastembed` pulls in `wafer-block-fastembed` (ONNX Runtime, ~100 MB
@@ -184,6 +184,12 @@ url = "2"
 
 # HTML sanitization
 ammonia = "4"
+
+# Markdown → HTML renderer for the legalpages block. Replaces the
+# ammonia HTML-sanitizer pipeline. Optional + gated under
+# `block-legalpages` so consumers that disable that block (wafer-site)
+# drop pulldown-cmark + the html5ever transitive subtree entirely.
+pulldown-cmark = { version = "0.12", default-features = false, features = ["html"], optional = true }
 
 # SSR templating
 maud = "0.26"
