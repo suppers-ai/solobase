@@ -45,24 +45,14 @@ const DEFAULT_PROVIDER_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_PROVIDER";
 const DEFAULT_MODEL_VAR: &str = "SUPPERS_AI__LLM__DEFAULT_MODEL";
 pub(super) const DEFAULT_PROVIDER: &str = "suppers-ai/provider-llm";
 
-/// Read the cross-block default LLM target — the `(provider_block, model)`
-/// pair other blocks (e.g. vector contextual retrieval) should use when they
-/// have no caller-supplied preference.
-///
-/// Returns `None` when no model is configured. The provider falls back to
-/// [`DEFAULT_PROVIDER`] if its env var is unset, but the model has no built-in
-/// default — operators must set `SUPPERS_AI__LLM__DEFAULT_MODEL` for a target
-/// to be available. Callers should treat `None` as "no LLM configured" and
-/// take a degraded path (skip the LLM step, return an error, etc.).
-pub(crate) async fn default_target(ctx: &dyn Context) -> Option<(String, String)> {
-    let provider = config::get_default(ctx, DEFAULT_PROVIDER_VAR, DEFAULT_PROVIDER).await;
-    let model = config::get_default(ctx, DEFAULT_MODEL_VAR, "").await;
-    if model.is_empty() || provider.is_empty() {
-        None
-    } else {
-        Some((provider, model))
-    }
-}
+// The previous in-process `default_target()` helper has moved to a
+// `GET /b/llm/api/internal/default-target` route — see
+// `handle_default_target` below. Other blocks (e.g. vector contextual
+// retrieval) now fetch the target via `ctx.call_block("suppers-ai/llm", ...)`
+// rather than importing this module directly. That keeps the cross-block
+// dependency at the wire level (call_block) instead of the link level
+// (Rust use-path), which is what unblocks per-block Cargo features in
+// Phase 0b PR-2.
 
 // ---------------------------------------------------------------------------
 // Inter-block call helpers
@@ -229,6 +219,29 @@ impl LlmBlock {
     }
 
     // --- Config ---
+
+    /// Inter-block discovery: returns the default `(provider, model)` target
+    /// other blocks should use when they have no caller-supplied preference.
+    ///
+    /// Wire format:
+    /// * `200 {"provider": "...", "model": "..."}` when configured
+    /// * `200 {"provider": null, "model": null}` when no model is configured
+    ///   (callers should take a degraded path — same contract as the previous
+    ///   in-process `default_target()` returning `None`).
+    async fn handle_default_target(&self, ctx: &dyn Context) -> OutputStream {
+        let provider = config::get_default(ctx, DEFAULT_PROVIDER_VAR, DEFAULT_PROVIDER).await;
+        let model = config::get_default(ctx, DEFAULT_MODEL_VAR, "").await;
+        if model.is_empty() || provider.is_empty() {
+            return ok_json(&serde_json::json!({
+                "provider": serde_json::Value::Null,
+                "model": serde_json::Value::Null,
+            }));
+        }
+        ok_json(&serde_json::json!({
+            "provider": provider,
+            "model": model,
+        }))
+    }
 
     async fn handle_get_config(&self, ctx: &dyn Context) -> OutputStream {
         let default_provider =
@@ -442,6 +455,17 @@ impl Block for LlmBlock {
         let path = msg.path();
         let is_api = path.contains("/api/");
         let user_id = msg.user_id().to_string();
+
+        // Inter-block discovery endpoint: returns the configured default
+        // `(provider, model)` target. Only accessible from another block (the
+        // caller_id is set by `ctx.call_block`); never reachable from external
+        // HTTP because the shared pipeline strips the caller id.
+        if action == "retrieve" && path == "/b/llm/api/internal/default-target" {
+            if ctx.caller_id().is_none() {
+                return crate::blocks::helpers::err_not_found("not found");
+            }
+            return self.handle_default_target(ctx).await;
+        }
 
         // All endpoints require authentication
         if user_id.is_empty() {

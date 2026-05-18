@@ -235,12 +235,16 @@ impl Block for AdminBlock {
             if api_rest.starts_with("/custom-tables") {
                 return custom_tables::handle(ctx, &msg, input).await;
             }
-            // Delegate admin storage to Files block
+            // Delegate admin storage to Files block via call_block so WRAP
+            // sees the call as cross-block (admin → files) instead of an
+            // in-process direct function call. The Files block recognizes
+            // the `/admin/storage/...` path and routes it to its admin
+            // sub-handler.
             if api_rest.starts_with("/storage") {
                 msg.set_meta("req.resource", format!("/admin{}", api_rest));
-                return crate::blocks::files::handle_admin_storage(ctx, msg, input).await;
+                return ctx.call_block("suppers-ai/files", msg, input).await;
             }
-            // Delegate admin cloud storage to Files block
+            // Delegate admin cloud storage to Files block via call_block.
             if api_rest.starts_with("/cloudstorage") {
                 msg.set_meta(
                     "req.resource",
@@ -249,7 +253,7 @@ impl Block for AdminBlock {
                         api_rest.strip_prefix("/cloudstorage").unwrap_or("")
                     ),
                 );
-                return crate::blocks::files::handle_admin_cloud(ctx, msg, input).await;
+                return ctx.call_block("suppers-ai/files", msg, input).await;
             }
             return err_not_found("not found");
         }

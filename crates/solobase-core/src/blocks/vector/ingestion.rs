@@ -24,10 +24,9 @@
 use wafer_block::wire::llm::{ChatContent, ChatMessage, ChatRequest, ChatRole, ChunkDelta};
 #[cfg(feature = "llm")]
 use wafer_core::clients::llm;
-use wafer_run::{context::Context, types::WaferError};
-
 #[cfg(feature = "llm")]
-use crate::blocks::llm as llm_block;
+use wafer_run::{types::Message, InputStream};
+use wafer_run::{context::Context, types::WaferError};
 
 /// Approximate max tokens per chunk. We use whitespace-split as a proxy
 /// for tokenization — close enough for bge-m3 / MiniLM at this
@@ -113,7 +112,7 @@ pub async fn add_context(
     if chunks.is_empty() {
         return Ok(chunks);
     }
-    let Some((provider, model)) = llm_block::default_target(ctx).await else {
+    let Some((provider, model)) = default_llm_target(ctx).await else {
         tracing::debug!("contextual retrieval skipped: no default LLM model configured");
         return Ok(chunks);
     };
@@ -163,6 +162,37 @@ pub async fn add_context(
         .into_iter()
         .map(|c| format!("{context}\n\n{c}"))
         .collect())
+}
+
+/// Fetch the default `(provider, model)` LLM target via the llm block's
+/// internal discovery route. Returns `None` when no model is configured or
+/// when the llm block isn't registered — both cases trigger the same
+/// "degrade silently" fallback in `add_context`.
+///
+/// Going through `ctx.call_block(...)` rather than a direct in-process
+/// function call is what keeps the vector block independent of the llm
+/// block at the type/dep level — that's the dependency edge Phase 0b PR-2
+/// will turn into a Cargo feature gate.
+#[cfg(feature = "llm")]
+async fn default_llm_target(ctx: &dyn Context) -> Option<(String, String)> {
+    let resource = "/b/llm/api/internal/default-target";
+    let mut msg = Message::new(format!("retrieve:{resource}"));
+    msg.set_meta("req.action", "retrieve");
+    msg.set_meta("req.resource", resource);
+    msg.set_meta("http.method", "GET");
+    msg.set_meta("http.path", resource);
+
+    let out = ctx
+        .call_block("suppers-ai/llm", msg, InputStream::empty())
+        .await;
+    let buf = out.collect_buffered().await.ok()?;
+    let body: serde_json::Value = serde_json::from_slice(&buf.body).ok()?;
+    let provider = body.get("provider")?.as_str()?.to_string();
+    let model = body.get("model")?.as_str()?.to_string();
+    if provider.is_empty() || model.is_empty() {
+        return None;
+    }
+    Some((provider, model))
 }
 
 #[cfg(feature = "llm")]

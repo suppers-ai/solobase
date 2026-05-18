@@ -1,4 +1,4 @@
-pub mod a2a;
+pub(crate) mod a2a;
 pub mod pages;
 pub mod rest;
 pub mod service;
@@ -197,6 +197,12 @@ impl Block for MessagesBlock {
                 .summary("Delete entry")
                 .auth(AuthLevel::Authenticated)
                 .tags(&["entries"]),
+            // A2A JSON-RPC endpoint — routed from the shared pipeline. Auth
+            // is enforced by the JSON-RPC method handlers themselves.
+            BlockEndpoint::post("/a2a")
+                .summary("A2A JSON-RPC endpoint")
+                .description("JSON-RPC dispatch for SendMessage, GetTask, ListTasks, CancelTask")
+                .tags(&["a2a"]),
         ])
         .can_disable(true)
         .default_enabled(true)
@@ -212,7 +218,14 @@ impl Block for MessagesBlock {
         let is_api = path.contains("/api/");
         let user_id = msg.user_id().to_string();
 
-        // All endpoints require authentication
+        // A2A JSON-RPC endpoint — protocol-public (auth handled by the
+        // JSON-RPC method handlers themselves). Routed from the shared
+        // pipeline via `ctx.call_block("suppers-ai/messages", ...)`.
+        if path == "/a2a" {
+            return a2a::handle_a2a(ctx, msg, input).await;
+        }
+
+        // All other endpoints require authentication
         if user_id.is_empty() {
             return ui::forbidden_response(&msg);
         }
