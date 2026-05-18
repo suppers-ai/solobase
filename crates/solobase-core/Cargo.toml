@@ -213,3 +213,10 @@ wiremock = "0.6"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
 js-sys = "0.3"
+# `uuid` on wasm32 needs a JS-backed RNG source (uuid 1.21+ compile-errors
+# without one of `js`, `rng-getrandom`, or `rng-rand`). Consumers like
+# solobase-cloudflare and solobase-web already enable `uuid/js` explicitly
+# in their own manifests; this stanza makes a bare
+# `cargo check -p solobase-core --target wasm32-unknown-unknown` build
+# clean too, without affecting native builds.
+uuid = { workspace = true, features = ["js"] }
