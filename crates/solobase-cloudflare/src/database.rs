@@ -537,6 +537,42 @@ impl DatabaseService for D1DatabaseService {
         Ok(())
     }
 
+    async fn increment_field_where(
+        &self,
+        collection: &str,
+        col: &str,
+        delta: i64,
+        filters: &[Filter],
+    ) -> Result<i64, DatabaseError> {
+        let table = sanitize_ident(collection);
+        let safe_col = sanitize_ident(col);
+
+        let (where_sql, mut params) = build_where_clause(filters);
+        // SET clause binds delta first, then the filter params.
+        params.insert(0, JsValue::from_f64(delta as f64));
+
+        let sql = format!("UPDATE {table} SET {safe_col} = {safe_col} + ? WHERE {where_sql}");
+
+        let result = self
+            .db
+            .prepare(&sql)
+            .bind(&params)
+            .map_err(db_err)?
+            .run()
+            .await
+            .map_err(db_err)?;
+
+        // worker-rs 0.7 exposes D1Result::meta().changes (Option<usize>) for
+        // mutations — use it so callers get a real rows_affected, unlike the
+        // older exec_raw path which always returned 0.
+        let changes = result
+            .meta()
+            .map_err(db_err)?
+            .and_then(|m| m.changes)
+            .unwrap_or(0);
+        Ok(changes as i64)
+    }
+
     async fn ensure_schema_table(&self, table: &Table) -> Result<(), DatabaseError> {
         // D1 schema is managed externally via Wrangler migrations
         let _ = table;

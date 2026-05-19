@@ -196,7 +196,6 @@ async fn increment_access_count_atomic(
     max: i64,
 ) -> Result<bool, wafer_run::WaferError> {
     use wafer_core::interfaces::database::service::{Filter, FilterOp};
-    use wafer_sql_utils::{value::sea_values_to_json, Backend};
 
     let mut filters: Vec<Filter> = vec![Filter {
         field: "id".into(),
@@ -210,14 +209,6 @@ async fn increment_access_count_atomic(
             value: serde_json::json!(max),
         });
     }
-    let (sql, vals) = wafer_sql_utils::query::build_increment_field_where(
-        SHARES_TABLE,
-        "access_count",
-        1,
-        &filters,
-        Backend::Sqlite,
-    );
-    let args = sea_values_to_json(vals);
-    let rows = db::exec_raw(ctx, &sql, &args).await?;
+    let rows = db::increment_field_where(ctx, SHARES_TABLE, "access_count", 1, &filters).await?;
     Ok(rows > 0)
 }
