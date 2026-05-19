@@ -34,15 +34,38 @@ async function loadTransformers() {
     return _transformers;
 }
 
-let _fp16Supported = null;
-async function detectFp16() {
-    if (_fp16Supported !== null) return _fp16Supported;
-    try {
-        const adapter = await navigator.gpu?.requestAdapter();
-        _fp16Supported = !!adapter?.features?.has('shader-f16');
-    } catch (_e) {
-        _fp16Supported = false;
+// Recognizable marker callers (e.g. gizza-ai/imagine) can match on to
+// surface a friendly "WebGPU is missing" message. Keep stable; if you
+// rename it, update the consumer in gizza-ai/blocks/imagine/src/lib.rs.
+const WEBGPU_UNAVAILABLE_MARKER = 'webgpu-unavailable';
+
+// Throws an Error whose message starts with WEBGPU_UNAVAILABLE_MARKER when
+// the browser exposes no WebGPU adapter at all. The model layers all run
+// on device `webgpu`, so without an adapter loading would fail later
+// inside transformers.js with an opaque message. Failing upfront with a
+// stable marker lets consumers render a clear bubble.
+async function requireWebGpuAdapter() {
+    if (!navigator.gpu) {
+        throw new Error(`${WEBGPU_UNAVAILABLE_MARKER}: navigator.gpu is undefined`);
     }
+    let adapter;
+    try {
+        adapter = await navigator.gpu.requestAdapter();
+    } catch (e) {
+        throw new Error(`${WEBGPU_UNAVAILABLE_MARKER}: requestAdapter threw: ${e?.message ?? e}`);
+    }
+    if (!adapter) {
+        throw new Error(`${WEBGPU_UNAVAILABLE_MARKER}: no WebGPU adapter available`);
+    }
+    return adapter;
+}
+
+// shader-f16 is preferred (smaller / faster) but not required — the dtype
+// table below has an fp32 fallback for adapters without it.
+let _fp16Supported = null;
+async function detectFp16(adapter) {
+    if (_fp16Supported !== null) return _fp16Supported;
+    _fp16Supported = !!adapter?.features?.has('shader-f16');
     return _fp16Supported;
 }
 
@@ -68,8 +91,9 @@ async function ensureLoaded(modelId, onProgress) {
         _processor = null;
         _modelId = null;
     }
+    const adapter = await requireWebGpuAdapter();
     const { AutoProcessor, MultiModalityCausalLM } = await loadTransformers();
-    const fp16 = await detectFp16();
+    const fp16 = await detectFp16(adapter);
     const dtype = fp16
         ? {
               prepare_inputs_embeds: 'q4',
