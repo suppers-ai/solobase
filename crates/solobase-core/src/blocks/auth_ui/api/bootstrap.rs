@@ -58,10 +58,7 @@ pub async fn handle(ctx: &dyn Context, input: InputStream) -> OutputStream {
     //    Reusing this keeps the legacy companion columns (`name`, `disabled`,
     //    `deleted_at`) and the local_credentials row consistent with the
     //    env-var path.
-    // Token-redemption path: never pin the user-id — this flow is
-    // operator-supplied at redeem time, and a stable UUID has no value
-    // here (no test fixture, no blue/green replay).
-    if let Err(e) = bootstrap::bootstrap_with_email_password(ctx, &email, &password, None).await {
+    if let Err(e) = bootstrap::bootstrap_with_email_password(ctx, &email, &password).await {
         return err_internal("create admin", e);
     }
 

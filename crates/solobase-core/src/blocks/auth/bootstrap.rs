@@ -41,8 +41,7 @@ pub async fn run(ctx: &dyn Context, cfg: &AuthConfig) -> Result<(), WaferError> 
         cfg.bootstrap_admin_token.as_deref(),
     ) {
         (Some(email), Some(password), _) => {
-            bootstrap_with_email_password(ctx, email, password, cfg.bootstrap_admin_id.as_deref())
-                .await?;
+            bootstrap_with_email_password(ctx, email, password).await?;
             tracing::info!("auth: bootstrapped admin user: {email}");
         }
         (_, _, Some(token)) => {
@@ -60,15 +59,9 @@ pub(crate) async fn bootstrap_with_email_password(
     ctx: &dyn Context,
     email: &str,
     password: &str,
-    pinned_id: Option<&str>,
 ) -> Result<(), WaferError> {
     let hash = crypto::hash(ctx, password).await?;
-    // Honor `SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_ID` when set so tests +
-    // blue/green deploys get a stable admin row across boots. Falls back to
-    // UUIDv7 (millisecond-ordered, random suffix) when unset.
-    let id = pinned_id
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+    let id = uuid::Uuid::now_v7().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     // Write the admin user row directly with the union of Plan A2 columns

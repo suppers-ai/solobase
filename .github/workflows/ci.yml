@@ -219,13 +219,6 @@ jobs:
           SOLOBASE_DB_PATH="/tmp/solobase-visual-baseline.db" \
           SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL="admin@example.com" \
           SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_PASSWORD="admin123" \
-          # Pin the admin user-id to a known UUID so visual-baseline
-          # screenshots that surface `created_by` (truncated to 8 chars in
-          # the storage admin tables — see pages_admin.rs:289) are stable
-          # across CI runs. Without this every boot generates a fresh v7
-          # UUID and the storage-admin baselines drift by ~0.02-0.05 pixel
-          # ratio per run.
-          SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_ID="00000000-0000-7000-8000-000000000001" \
           SOLOBASE_BLOCK_ENABLED="suppers-ai/userportal,suppers-ai/vector" \
             solobase > /tmp/solobase-baseline.log 2>&1 &
           echo $! > /tmp/solobase-pid
