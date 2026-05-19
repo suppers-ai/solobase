@@ -37,6 +37,14 @@ pub const BOOTSTRAP_ADMIN_PASSWORD_KEY: &str = "SOLOBASE_SHARED__AUTH__BOOTSTRAP
 /// the holder redeems it to create the first admin.
 pub const BOOTSTRAP_ADMIN_TOKEN_KEY: &str = "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_TOKEN";
 
+/// `SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_ID` — when set, pins the
+/// bootstrap admin user's row `id` to this value instead of a freshly
+/// generated UUIDv7. Useful when downstream consumers (visual-baseline
+/// tests, deterministic seed fixtures, blue/green deploys against a
+/// fresh DB) need a stable admin UUID across boots. No-op when the
+/// users table already has a row, like the rest of the bootstrap path.
+pub const BOOTSTRAP_ADMIN_ID_KEY: &str = "SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_ID";
+
 /// `SOLOBASE_SHARED__AUTH__SIGNUP_ENABLED` — gates the signup page and
 /// POST /auth/signup handler. When false the signup link is suppressed on
 /// the login page and the endpoints return 404.
@@ -103,6 +111,13 @@ pub fn auth_config_vars() -> Vec<ConfigVar> {
         .input_type(InputType::Password)
         .optional(),
         ConfigVar::new(
+            BOOTSTRAP_ADMIN_ID_KEY,
+            "When set, pins the bootstrap admin's user-id to this value instead of a fresh UUIDv7. Useful for deterministic seeding (visual-baseline tests, blue/green deploys against a fresh DB).",
+            "",
+        )
+        .name("Bootstrap Admin ID")
+        .optional(),
+        ConfigVar::new(
             SIGNUP_ENABLED_KEY,
             "If true, GET /auth/signup and POST /auth/signup are enabled and a 'create account' link appears on the login page.",
             "false",
@@ -135,6 +150,7 @@ pub struct AuthConfig {
     pub bootstrap_admin_email: Option<String>,
     pub bootstrap_admin_password: Option<String>,
     pub bootstrap_admin_token: Option<String>,
+    pub bootstrap_admin_id: Option<String>,
     pub signup_enabled: bool,
     pub password_min_length: u32,
 }
@@ -162,6 +178,7 @@ impl AuthConfig {
             bootstrap_admin_email: non_empty(env.get(BOOTSTRAP_ADMIN_EMAIL_KEY)),
             bootstrap_admin_password: non_empty(env.get(BOOTSTRAP_ADMIN_PASSWORD_KEY)),
             bootstrap_admin_token: non_empty(env.get(BOOTSTRAP_ADMIN_TOKEN_KEY)),
+            bootstrap_admin_id: non_empty(env.get(BOOTSTRAP_ADMIN_ID_KEY)),
             signup_enabled,
             password_min_length,
         }
@@ -179,6 +196,7 @@ impl AuthConfig {
             BOOTSTRAP_ADMIN_EMAIL_KEY,
             BOOTSTRAP_ADMIN_PASSWORD_KEY,
             BOOTSTRAP_ADMIN_TOKEN_KEY,
+            BOOTSTRAP_ADMIN_ID_KEY,
             SIGNUP_ENABLED_KEY,
             PASSWORD_MIN_LENGTH_KEY,
         ] {
@@ -246,10 +264,30 @@ mod tests {
             (BOOTSTRAP_ADMIN_EMAIL_KEY, ""),
             (BOOTSTRAP_ADMIN_PASSWORD_KEY, ""),
             (BOOTSTRAP_ADMIN_TOKEN_KEY, ""),
+            (BOOTSTRAP_ADMIN_ID_KEY, ""),
         ]);
         assert!(cfg.bootstrap_admin_email.is_none());
         assert!(cfg.bootstrap_admin_password.is_none());
         assert!(cfg.bootstrap_admin_token.is_none());
+        assert!(cfg.bootstrap_admin_id.is_none());
+    }
+
+    #[test]
+    fn bootstrap_admin_id_is_captured_when_set() {
+        let cfg = AuthConfig::from_env_for_test(&[(
+            BOOTSTRAP_ADMIN_ID_KEY,
+            "00000000-0000-7000-8000-000000000001",
+        )]);
+        assert_eq!(
+            cfg.bootstrap_admin_id.as_deref(),
+            Some("00000000-0000-7000-8000-000000000001")
+        );
+    }
+
+    #[test]
+    fn bootstrap_admin_id_defaults_to_none() {
+        let cfg = AuthConfig::from_env_for_test(&[]);
+        assert!(cfg.bootstrap_admin_id.is_none());
     }
 
     #[test]

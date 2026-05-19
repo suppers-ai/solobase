@@ -83,6 +83,9 @@ jobs:
           SOLOBASE_DB_PATH="/tmp/solobase-visual-baseline.db" \
           SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_EMAIL="admin@example.com" \
           SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_PASSWORD="admin123" \
+          # Must match the same pin in ci.yml so regen + verify capture
+          # storage-admin pages with identical `owner_short` cell values.
+          SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_ID="00000000-0000-7000-8000-000000000001" \
           SOLOBASE_BLOCK_ENABLED="suppers-ai/userportal,suppers-ai/vector" \
             solobase > /tmp/solobase-baseline.log 2>&1 &
           echo $! > /tmp/solobase-pid
