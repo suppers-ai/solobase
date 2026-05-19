@@ -154,8 +154,23 @@ pub async fn run(repo_root: &Path, run_migrations: bool) -> anyhow::Result<()> {
         wafer.add_wrap_grants(db_grants);
     }
 
-    // 11. Start runtime
-    let wafer = wafer.start().await.context("start WAFER runtime")?;
+    // 11. Start runtime. We init the admin block first so its migrations
+    //     (which create suppers_ai__admin__block_settings + the variables
+    //     table) finish before any other block's Init tries to write to
+    //     block_settings via migration_helper. Without this, HashMap key-
+    //     iteration order could put another block first, hit a hard
+    //     'no such table' error (since solobase #182 made write_state
+    //     propagate strictly), and the cascade would skip auth's bootstrap
+    //     — manifesting as a login 401 on the freshly-booted server in
+    //     CI E2E.
+    //
+    //     Mirrors the CF runner's seal → init_block(admin) → init_all_blocks
+    //     sequence (solobase #186); the runtime API for this ordering hook
+    //     landed in wafer-run #143.
+    let wafer = wafer
+        .start_with_priority(&[solobase_core::blocks::admin::ADMIN_BLOCK_ID])
+        .await
+        .context("start WAFER runtime")?;
 
     // 12. Inject WRAP grants into storage block
     builder::post_start(&wafer, &storage_block);
