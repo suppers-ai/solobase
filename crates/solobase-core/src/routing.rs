@@ -143,6 +143,21 @@ pub const ROUTES: &[Route] = &[
         requires_admin: false,
         block_id: BlockId::Products,
     },
+    // Legalpages — public reads + admin writes/UI.
+    // Admin and API prefixes must come BEFORE the bare `/b/legalpages` entry
+    // because `route_to_block` matches on first-prefix-hit. Admin handlers
+    // inside the block do not re-check `is_admin`, so this gate is the only
+    // thing keeping random callers off `/admin/publish` and friends.
+    Route {
+        prefix: "/b/legalpages/admin",
+        requires_admin: true,
+        block_id: BlockId::LegalPages,
+    },
+    Route {
+        prefix: "/b/legalpages/api",
+        requires_admin: true,
+        block_id: BlockId::LegalPages,
+    },
     Route {
         prefix: "/b/legalpages",
         requires_admin: false,
@@ -440,13 +455,16 @@ mod tests {
 
     #[test]
     fn non_admin_routes_dont_require_admin() {
+        // Note: `/b/legalpages` is intentionally omitted here because it has
+        // sub-routes (`/b/legalpages/admin`, `/b/legalpages/api`) that DO
+        // require admin. Those sub-routes are verified by
+        // `legalpages_admin_routes_require_admin`.
         let non_admin_prefixes = vec![
             "/health",
             "/static/",
             "/b/auth/",
             "/b/storage/",
             "/b/products",
-            "/b/legalpages",
             "/b/userportal",
             "/b/cloudstorage/",
         ];
@@ -531,6 +549,50 @@ mod tests {
         assert!(!is_block_enabled(BlockId::Products, &none));
         assert!(!is_block_enabled(BlockId::LegalPages, &none));
         assert!(!is_block_enabled(BlockId::UserPortal, &none));
+    }
+
+    #[test]
+    fn legalpages_admin_routes_require_admin() {
+        let admin_route = ROUTES
+            .iter()
+            .find(|r| r.prefix == "/b/legalpages/admin")
+            .expect("legalpages admin route not declared");
+        assert!(
+            admin_route.requires_admin,
+            "/b/legalpages/admin must require admin"
+        );
+        assert!(matches!(admin_route.block_id, BlockId::LegalPages));
+
+        let api_route = ROUTES
+            .iter()
+            .find(|r| r.prefix == "/b/legalpages/api")
+            .expect("legalpages api route not declared");
+        assert!(
+            api_route.requires_admin,
+            "/b/legalpages/api must require admin"
+        );
+
+        let public_route = ROUTES
+            .iter()
+            .find(|r| r.prefix == "/b/legalpages")
+            .expect("public legalpages route not declared");
+        assert!(
+            !public_route.requires_admin,
+            "/b/legalpages must remain public"
+        );
+
+        // Most-specific-first ordering matters for the `starts_with` matcher.
+        let positions: Vec<_> = ROUTES
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| matches!(r.block_id, BlockId::LegalPages))
+            .map(|(i, r)| (i, r.prefix))
+            .collect();
+        assert_eq!(
+            positions.iter().map(|(_, p)| *p).collect::<Vec<_>>(),
+            vec!["/b/legalpages/admin", "/b/legalpages/api", "/b/legalpages"],
+            "legalpages routes must be ordered most-specific-first",
+        );
     }
 
     #[test]

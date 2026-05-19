@@ -102,7 +102,7 @@ impl LegalPagesBlock {
         let (title, content, version, meta) = if result.records.is_empty() {
             (
                 type_label.to_string(),
-                "<p>No document has been published yet.</p>".to_string(),
+                markdown_to_html("No document has been published yet."),
                 1_i64,
                 String::new(),
             )
@@ -119,7 +119,7 @@ impl LegalPagesBlock {
                 .get("content")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let content = sanitize_html(raw_content);
+            let content = markdown_to_html(raw_content);
             let published_at = record
                 .data
                 .get("published_at")
@@ -342,8 +342,16 @@ impl LegalPagesBlock {
 
         let now = helpers::now_rfc3339();
         for (doc_type, title, content) in &[
-            ("terms", "Terms of Service", "<p>These are the default terms of service. Please update them in the admin panel.</p>"),
-            ("privacy", "Privacy Policy", "<p>This is the default privacy policy. Please update it in the admin panel.</p>"),
+            (
+                "terms",
+                "Terms of Service",
+                "These are the default terms of service. Please update them in the admin panel.\n",
+            ),
+            (
+                "privacy",
+                "Privacy Policy",
+                "This is the default privacy policy. Please update it in the admin panel.\n",
+            ),
         ] {
             let data = json_map(serde_json::json!({
                 "doc_type": doc_type,
@@ -370,7 +378,7 @@ impl LegalPagesBlock {
 struct LegalPageInputs<'a> {
     site: &'a SiteConfig,
     title: &'a str,
-    content: &'a str, // pre-sanitized HTML
+    content: &'a str, // rendered HTML (output of markdown_to_html)
     version: i64,
     meta: &'a str,
     back_url: &'a str,
@@ -447,27 +455,86 @@ fn render_legal_page(inputs: LegalPageInputs<'_>) -> Markup {
     )
 }
 
-/// Sanitize admin-authored HTML content to prevent XSS.
-fn sanitize_html(input: &str) -> String {
-    ammonia::Builder::default()
-        .add_tags(&["h1", "h2", "h3", "h4", "h5", "h6"])
-        .add_tags(&["p", "br", "hr", "blockquote", "pre", "code"])
-        .add_tags(&["ul", "ol", "li", "dl", "dt", "dd"])
-        .add_tags(&["table", "thead", "tbody", "tr", "th", "td"])
-        .add_tags(&[
-            "a", "strong", "em", "b", "i", "u", "s", "sub", "sup", "small",
-        ])
-        .add_tags(&["img", "figure", "figcaption"])
-        .add_tags(&[
-            "div", "span", "section", "article", "header", "footer", "nav", "aside",
-        ])
-        .add_tag_attributes("a", &["href", "title", "target"])
-        .add_tag_attributes("img", &["src", "alt", "title", "width", "height"])
-        .add_tag_attributes("td", &["colspan", "rowspan"])
-        .add_tag_attributes("th", &["colspan", "rowspan"])
-        .link_rel(Some("noopener noreferrer"))
-        .clean(input)
-        .to_string()
+/// Render admin-authored Markdown to HTML.
+///
+/// Uses `pulldown-cmark` with raw-HTML passthrough disabled (the default).
+/// `<script>`, inline event handlers, and any other arbitrary HTML in the
+/// source are emitted as escaped text rather than parsed — XSS-safe by
+/// construction, replacing the previous ammonia sanitizer.
+///
+/// Link and image URLs are filtered at the event-stream level (before
+/// HTML generation) so dangerous schemes like `javascript:` /
+/// `JavaScript:` (case-insensitive), `data:`, and `vbscript:` are
+/// rewritten to `#`. Matches ammonia's default behaviour of allowing
+/// only `http`, `https`, `mailto`, `tel`, `ftp`, and `magnet`.
+pub(super) fn markdown_to_html(input: &str) -> String {
+    use pulldown_cmark::{html, Event, Options, Parser, Tag};
+
+    let mut opts = Options::empty();
+    opts.insert(Options::ENABLE_TABLES);
+    opts.insert(Options::ENABLE_STRIKETHROUGH);
+
+    // Filter raw HTML events (emitted as Event::Html or Event::InlineHtml)
+    // so that `<script>` and other HTML in the source is not passed through,
+    // then remap Link/Image dest_url through the scheme allow-list.
+    let parser = Parser::new_ext(input, opts)
+        .filter(|event| !matches!(event, Event::Html(_) | Event::InlineHtml(_)))
+        .map(|event| match event {
+            Event::Start(Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                id,
+            }) => Event::Start(Tag::Link {
+                link_type,
+                dest_url: safe_url(dest_url),
+                title,
+                id,
+            }),
+            Event::Start(Tag::Image {
+                link_type,
+                dest_url,
+                title,
+                id,
+            }) => Event::Start(Tag::Image {
+                link_type,
+                dest_url: safe_url(dest_url),
+                title,
+                id,
+            }),
+            other => other,
+        });
+
+    let mut out = String::with_capacity(input.len() + input.len() / 4);
+    html::push_html(&mut out, parser);
+    out
+}
+
+/// Allow-list URL schemes that ammonia's default config permitted.
+/// Anything else (`javascript:`, `data:`, `vbscript:`, custom schemes)
+/// becomes `#`. Scheme detection is case-insensitive per RFC 3986.
+fn safe_url(url: pulldown_cmark::CowStr<'_>) -> pulldown_cmark::CowStr<'_> {
+    const ALLOWED: &[&str] = &["http", "https", "mailto", "tel", "ftp", "magnet"];
+    // Relative URLs (no scheme) are always safe.
+    let scheme = match url.find(':') {
+        Some(i) => &url[..i],
+        None => return url,
+    };
+    // Fragment-only / query-only / path-only links never contain ':' at all
+    // and were caught above. A leading `//` (protocol-relative URL) or `/`
+    // (absolute path) starts with a non-alpha char, so won't match here.
+    if !scheme
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic())
+    {
+        return url;
+    }
+    if ALLOWED.iter().any(|s| scheme.eq_ignore_ascii_case(s)) {
+        url
+    } else {
+        pulldown_cmark::CowStr::Borrowed("#")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -532,6 +599,9 @@ impl Block for LegalPagesBlock {
 
             // Admin UI mutations (from editor save/publish)
             ("create", "/b/legalpages/admin/save") => pages::handle_save(ctx, &msg, input).await,
+            ("create", "/b/legalpages/admin/render-preview") => {
+                pages::handle_render_preview(ctx, input).await
+            }
             ("create", "/b/legalpages/admin/publish") => {
                 pages::handle_publish(ctx, &msg, input).await
             }
@@ -674,5 +744,94 @@ mod tests {
         })
         .into_string();
         assert!(!html.contains("public-page__meta"));
+    }
+
+    #[test]
+    fn markdown_to_html_renders_basic_commonmark() {
+        let md = "# Heading\n\nParagraph with **bold** and *italic*.\n\n- one\n- two\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains("<h1>Heading</h1>"));
+        assert!(html.contains("<strong>bold</strong>"));
+        assert!(html.contains("<em>italic</em>"));
+        assert!(html.contains("<ul>"));
+        assert!(html.contains("<li>one</li>"));
+    }
+
+    #[test]
+    fn markdown_to_html_drops_raw_script_tags() {
+        // pulldown-cmark default config does NOT pass raw HTML through —
+        // the `html` writer treats `<script>` as plain text. Verify that
+        // assumption holds (it's the whole reason we ditched ammonia).
+        let md = "Hello\n\n<script>alert('xss')</script>\n";
+        let html = markdown_to_html(md);
+        assert!(!html.contains("<script>"));
+    }
+
+    #[test]
+    fn markdown_to_html_renders_links_safely() {
+        let md = "[OK](https://example.com)\n\n[BAD](javascript:alert(1))\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains(r#"href="https://example.com""#));
+        // pulldown-cmark does not filter javascript: URLs on its own —
+        // we filter in markdown_to_html. Verify the filter holds.
+        assert!(!html.contains("javascript:"));
+    }
+
+    #[test]
+    fn markdown_to_html_filters_uppercase_javascript_scheme() {
+        let md = "[BAD](JAVASCRIPT:alert(1))\n\n[BAD](JavaScript:alert(1))\n";
+        let html = markdown_to_html(md);
+        assert!(!html.to_ascii_lowercase().contains("javascript:"));
+    }
+
+    #[test]
+    fn markdown_to_html_filters_data_and_vbscript_schemes() {
+        let md = "[X](data:text/html,<script>alert(1)</script>)\n\n[Y](vbscript:msgbox)\n";
+        let html = markdown_to_html(md);
+        assert!(!html.contains("data:"));
+        assert!(!html.contains("vbscript:"));
+    }
+
+    #[test]
+    fn markdown_to_html_allows_safe_schemes_and_relative_urls() {
+        let md = "[a](https://x.test) [b](http://y.test) [c](mailto:z@x.test) [d](tel:+1234) [e](/local/path) [f](#anchor)\n";
+        let html = markdown_to_html(md);
+        assert!(html.contains(r#"href="https://x.test""#));
+        assert!(html.contains(r#"href="http://y.test""#));
+        assert!(html.contains(r#"href="mailto:z@x.test""#));
+        assert!(html.contains(r#"href="tel:+1234""#));
+        assert!(html.contains(r#"href="/local/path""#));
+        assert!(html.contains("href=\"#anchor\""));
+    }
+
+    #[test]
+    fn render_preview_fragment_returns_rendered_html() {
+        let md = "## Section\n\nHello **world**.";
+        let html = super::pages::render_preview_fragment(md);
+        assert!(html.contains("<h2>Section</h2>"));
+        assert!(html.contains("<strong>world</strong>"));
+        // Wrapped in the public-page__content div so it picks up the same
+        // typography as the live page.
+        assert!(html.starts_with(r#"<div class="public-page__content">"#));
+    }
+
+    #[test]
+    fn editor_page_uses_textarea_not_contenteditable() {
+        let markup = super::pages::editor_markup_for_test(
+            "terms",
+            "doc-123",
+            "Terms of Service",
+            "# heading\n\nbody",
+            "draft",
+            "2026-05-19T00:00:00Z",
+            1,
+        );
+        let s = markup.into_string();
+        assert!(s.contains("<textarea"), "editor must use <textarea>");
+        assert!(!s.contains("contenteditable"), "no contenteditable allowed");
+        assert!(s.contains(r#"data-tab="edit""#));
+        assert!(s.contains(r#"data-tab="preview""#));
+        // Vanilla JS fetch path — URL lives in EDITOR_JS / onclick handler
+        assert!(s.contains("/b/legalpages/admin/render-preview"));
     }
 }
