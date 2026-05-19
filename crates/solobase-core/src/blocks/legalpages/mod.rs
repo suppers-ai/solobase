@@ -523,7 +523,11 @@ fn safe_url(url: pulldown_cmark::CowStr<'_>) -> pulldown_cmark::CowStr<'_> {
     // Fragment-only / query-only / path-only links never contain ':' at all
     // and were caught above. A leading `//` (protocol-relative URL) or `/`
     // (absolute path) starts with a non-alpha char, so won't match here.
-    if !scheme.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+    if !scheme
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic())
+    {
         return url;
     }
     if ALLOWED.iter().any(|s| scheme.eq_ignore_ascii_case(s)) {

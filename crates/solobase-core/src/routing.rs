@@ -557,20 +557,29 @@ mod tests {
             .iter()
             .find(|r| r.prefix == "/b/legalpages/admin")
             .expect("legalpages admin route not declared");
-        assert!(admin_route.requires_admin, "/b/legalpages/admin must require admin");
+        assert!(
+            admin_route.requires_admin,
+            "/b/legalpages/admin must require admin"
+        );
         assert!(matches!(admin_route.block_id, BlockId::LegalPages));
 
         let api_route = ROUTES
             .iter()
             .find(|r| r.prefix == "/b/legalpages/api")
             .expect("legalpages api route not declared");
-        assert!(api_route.requires_admin, "/b/legalpages/api must require admin");
+        assert!(
+            api_route.requires_admin,
+            "/b/legalpages/api must require admin"
+        );
 
         let public_route = ROUTES
             .iter()
             .find(|r| r.prefix == "/b/legalpages")
             .expect("public legalpages route not declared");
-        assert!(!public_route.requires_admin, "/b/legalpages must remain public");
+        assert!(
+            !public_route.requires_admin,
+            "/b/legalpages must remain public"
+        );
 
         // Most-specific-first ordering matters for the `starts_with` matcher.
         let positions: Vec<_> = ROUTES

@@ -13,7 +13,9 @@ use wafer_core::clients::{
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::{
-    blocks::helpers::{self, err_bad_request, err_internal, json_map, ok_json, RecordExt, ResponseBuilder},
+    blocks::helpers::{
+        self, err_bad_request, err_internal, json_map, ok_json, RecordExt, ResponseBuilder,
+    },
     ui::{
         components, icons, nav_groups,
         shell::{Crumb, Topbar},
