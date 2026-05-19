@@ -81,8 +81,16 @@ test.describe('visual baseline — admin', () => {
       await page.goto(r.path, { waitUntil: 'networkidle' });
       await expect(page).toHaveScreenshot(`admin-${r.name}.png`, {
         ...COMMON_OPTS,
-        // Mask relative timestamps anywhere they appear.
-        mask: [page.locator('[data-relative-time], .relative-time, time')],
+        // Mask relative timestamps + per-run-variable cells (storage-admin
+        // tables display `owner_short` = first 8 chars of the bootstrap
+        // admin's freshly-generated UUIDv7, plus `created_at_short` for
+        // the bucket). See pages_admin.rs:254-259 for the tagged `td`
+        // cells. Without these masks the storage-admin screenshots drift
+        // ~0.02-0.05 pixel ratio between captures.
+        mask: [
+          page.locator('[data-relative-time], .relative-time, time'),
+          page.locator('td[data-label="Owner"], td[data-label="Created"], td[data-label="Created By"]'),
+        ],
       });
     });
   }
@@ -141,7 +149,10 @@ test.describe('visual baseline — admin vector', () => {
     await page.goto('/b/vector/', { waitUntil: 'networkidle' });
     await expect(page).toHaveScreenshot('admin-vector-list-desktop.png', {
       ...COMMON_OPTS,
-      mask: [page.locator('[data-relative-time], .relative-time, time')],
+      mask: [
+        page.locator('[data-relative-time], .relative-time, time'),
+        page.locator('td[data-label="Owner"], td[data-label="Created"], td[data-label="Created By"]'),
+      ],
     });
   });
 });
@@ -168,7 +179,10 @@ test.describe('visual baseline mobile — admin (375px)', () => {
       await page.goto(r.path, { waitUntil: 'networkidle' });
       await expect(page).toHaveScreenshot(`admin-${r.name}-mobile.png`, {
         ...COMMON_OPTS,
-        mask: [page.locator('[data-relative-time], .relative-time, time')],
+        mask: [
+          page.locator('[data-relative-time], .relative-time, time'),
+          page.locator('td[data-label="Owner"], td[data-label="Created"], td[data-label="Created By"]'),
+        ],
       });
     });
   }
