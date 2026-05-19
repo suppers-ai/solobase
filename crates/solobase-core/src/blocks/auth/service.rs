@@ -183,10 +183,7 @@ pub fn auth_grants() -> Vec<wafer_block::types::ResourceGrant> {
         // router needs read access. Without it WRAP denies and the
         // contains() fail-closed path treats every JWT as blocklisted,
         // 403-ing every signed-in admin request.
-        wafer_run::ResourceGrant::read(
-            "suppers-ai/router",
-            "suppers_ai__auth__jwt_blocklist",
-        ),
+        wafer_run::ResourceGrant::read("suppers-ai/router", "suppers_ai__auth__jwt_blocklist"),
         // Admin block reads auth tables for the admin dashboards. The
         // wildcard mirrors the legacy AuthBlock grant — admin/pages/users
         // reads users, sessions, AND api_keys (the API-key tab) so the

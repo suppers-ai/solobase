@@ -222,13 +222,11 @@ pub async fn extract_auth_meta(
     // refactor silently reverted it; the unit tests didn't catch the
     // regression because they sign with the master secret directly and so
     // exercise only the fallback branch.
-    let derived_secret = match derive_block_jwt_key(
-        jwt_secret,
-        crate::blocks::auth_ui::AUTH_UI_BLOCK_ID,
-    ) {
-        Ok(s) => s,
-        Err(_) => return,
-    };
+    let derived_secret =
+        match derive_block_jwt_key(jwt_secret, crate::blocks::auth_ui::AUTH_UI_BLOCK_ID) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
     let claims = match jwt_verify(token, &derived_secret) {
         Ok(c) => c,
         Err(_) => match jwt_verify(token, jwt_secret) {
@@ -490,7 +488,8 @@ mod tests {
         claims.insert("sub".to_string(), serde_json::json!("user-prod"));
         claims.insert("type".to_string(), serde_json::json!("access"));
         claims.insert("jti".to_string(), serde_json::json!("jti-prod"));
-        let token = jwt_sign(claims, Duration::from_secs(3600), &derived).expect("sign with derived");
+        let token =
+            jwt_sign(claims, Duration::from_secs(3600), &derived).expect("sign with derived");
 
         let mut msg = Message::new("http.request");
         extract_auth_meta(&ctx, &format!("Bearer {token}"), master, "", &mut msg).await;
