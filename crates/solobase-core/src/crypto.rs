@@ -206,16 +206,27 @@ pub async fn extract_auth_meta(
         None => return,
     };
 
-    // The auth block signs JWTs with a per-block derived key (HKDF from the
-    // master secret + block ID). Try the derived key first, fall back to
-    // the master secret for tokens signed without block derivation. An HKDF
-    // error here means the master secret is malformed; treat that the same
-    // as a verification failure — the request continues unauthenticated.
-    let derived_secret = match derive_block_jwt_key(jwt_secret, crate::blocks::auth::AUTH_BLOCK_ID)
-    {
-        Ok(s) => s,
-        Err(_) => return,
-    };
+    // Session tokens (access + refresh) are minted by the `suppers-ai/auth-ui`
+    // block — login, signup, bootstrap, refresh, and the oauth callback all
+    // hit handlers dispatched in that block's context, and the crypto handler
+    // at wafer-core/src/interfaces/crypto/handler.rs routes CRYPTO_SIGN
+    // through `sign_for(caller_id, ...)`. So the verify key is HKDF-derived
+    // from `AUTH_UI_BLOCK_ID`, not `AUTH_BLOCK_ID`. Try the derived key
+    // first, then fall back to the master secret for tokens signed without
+    // block derivation (e.g. unit-test fixtures). An HKDF error here means
+    // the master secret is malformed — treat that the same as a verification
+    // failure (request continues unauthenticated).
+    //
+    // History note: PR #155 (bcf96ce) originally swapped this from
+    // AUTH_BLOCK_ID to AUTH_UI_BLOCK_ID. PR #170 (d7107c4)'s Result-wrap
+    // refactor silently reverted it; the unit tests didn't catch the
+    // regression because they sign with the master secret directly and so
+    // exercise only the fallback branch.
+    let derived_secret =
+        match derive_block_jwt_key(jwt_secret, crate::blocks::auth_ui::AUTH_UI_BLOCK_ID) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
     let claims = match jwt_verify(token, &derived_secret) {
         Ok(c) => c,
         Err(_) => match jwt_verify(token, jwt_secret) {
@@ -455,6 +466,41 @@ mod tests {
         assert_eq!(msg.get_meta(wafer_run::meta::META_AUTH_USER_ID), "user-a");
         assert_eq!(msg.get_meta(META_AUTH_JTI), "jti-1");
         assert!(!msg.get_meta(META_AUTH_EXP).is_empty());
+    }
+
+    /// Regression test for the bcf96ce → d7107c4 regression: production user
+    /// JWTs are signed by the `suppers-ai/auth-ui` block via the crypto
+    /// service's `sign_for(caller_id, ...)`, which derives the signing key
+    /// via `HKDF(master, AUTH_UI_BLOCK_ID)`. `extract_auth_meta` must derive
+    /// the verify key from the SAME block id, not `suppers-ai/auth`. The
+    /// other `extract_auth_meta_*` tests sign with the master secret
+    /// directly and hit the master-fallback branch — they don't exercise
+    /// the per-block-derived-key path that production actually uses.
+    #[tokio::test]
+    async fn extract_auth_meta_verifies_token_signed_with_auth_ui_derived_key() {
+        use wafer_run::types::Message;
+        let ctx = crate::test_support::TestContext::with_auth().await;
+        let master = "test-master-secret";
+        let derived = derive_block_jwt_key(master, crate::blocks::auth_ui::AUTH_UI_BLOCK_ID)
+            .expect("derive auth-ui key");
+
+        let mut claims = HashMap::new();
+        claims.insert("sub".to_string(), serde_json::json!("user-prod"));
+        claims.insert("type".to_string(), serde_json::json!("access"));
+        claims.insert("jti".to_string(), serde_json::json!("jti-prod"));
+        let token =
+            jwt_sign(claims, Duration::from_secs(3600), &derived).expect("sign with derived");
+
+        let mut msg = Message::new("http.request");
+        extract_auth_meta(&ctx, &format!("Bearer {token}"), master, "", &mut msg).await;
+
+        assert_eq!(
+            msg.get_meta(wafer_run::meta::META_AUTH_USER_ID),
+            "user-prod",
+            "extract_auth_meta must verify JWTs signed with the auth-ui-derived key — \
+             the production sign path goes through sign_for(AUTH_UI_BLOCK_ID, ...)"
+        );
+        assert_eq!(msg.get_meta(META_AUTH_JTI), "jti-prod");
     }
 
     #[tokio::test]

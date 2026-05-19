@@ -176,6 +176,14 @@ pub fn auth_grants() -> Vec<wafer_block::types::ResourceGrant> {
         // wildcard covers users / sessions / pats / provider_links /
         // bootstrap_tokens / orgs / api_keys without enumerating each.
         wafer_run::ResourceGrant::read_write("suppers-ai/auth-ui", "suppers_ai__auth__*"),
+        // The pipeline router (SolobaseRouterBlock, id `suppers-ai/router`)
+        // calls `jwt_blocklist::contains()` from `crate::crypto::extract_auth_meta`
+        // during request preprocessing — SEC-042 logout invalidates JWTs
+        // via this table. The call runs in the router's context, so the
+        // router needs read access. Without it WRAP denies and the
+        // contains() fail-closed path treats every JWT as blocklisted,
+        // 403-ing every signed-in admin request.
+        wafer_run::ResourceGrant::read("suppers-ai/router", "suppers_ai__auth__jwt_blocklist"),
         // Admin block reads auth tables for the admin dashboards. The
         // wildcard mirrors the legacy AuthBlock grant — admin/pages/users
         // reads users, sessions, AND api_keys (the API-key tab) so the
@@ -489,10 +497,19 @@ mod tests {
             consumers.contains(&"suppers-ai/products"),
             "grants must include products: {consumers:?}"
         );
+        // The pipeline router (suppers-ai/router) calls
+        // jwt_blocklist::contains() during extract_auth_meta to honour
+        // SEC-042 (logout invalidates JWT). Without a grant, WRAP denies
+        // the read, jwt_blocklist::contains fails closed → true, and
+        // every signed-in request is treated as anonymous.
+        assert!(
+            consumers.contains(&"suppers-ai/router"),
+            "grants must include router (SEC-042 blocklist read): {consumers:?}"
+        );
         // Sanity: at least one grant exists per consumer (non-empty list).
         assert!(
-            grants.len() >= 4,
-            "expected ≥4 grants, got {}",
+            grants.len() >= 5,
+            "expected ≥5 grants, got {}",
             grants.len()
         );
     }
