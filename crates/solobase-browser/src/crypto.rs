@@ -29,10 +29,17 @@ const PBKDF2_HASH_LEN: usize = 32;
 const PBKDF2_SALT_LEN: usize = 16;
 
 pub struct BrowserCryptoService {
-    jwt_secret: String,
+    // Stored behind a lock so the secret can be rotated post-construction.
+    // `solobase-web` builds the crypto service before it has loaded the
+    // persisted `SUPPERS_AI__AUTH__JWT_SECRET` value (the variables table
+    // doesn't exist until admin's Init has run), so it constructs with an
+    // empty secret and calls [`Self::set_jwt_secret`] in the post-admin-Init
+    // phase. Native consumers that have the secret up-front can pass it to
+    // [`Self::new`] and never touch the setter.
+    jwt_secret: std::sync::RwLock<String>,
 }
 
-// SAFETY: `BrowserCryptoService` only holds owned data (`String`).
+// SAFETY: `BrowserCryptoService` only holds owned data behind a `RwLock`.
 // wasm32-unknown-unknown has no threads, so the `Send`/`Sync` bounds
 // required by `Arc<dyn CryptoService>` are satisfied trivially — no
 // cross-thread aliasing or data races are possible.
@@ -41,14 +48,34 @@ unsafe impl Sync for BrowserCryptoService {}
 
 impl BrowserCryptoService {
     pub fn new(jwt_secret: String) -> Self {
-        Self { jwt_secret }
+        Self {
+            jwt_secret: std::sync::RwLock::new(jwt_secret),
+        }
+    }
+
+    /// Rotate the JWT secret. Used by `solobase-web`'s init flow to install
+    /// the persisted/auto-generated secret AFTER admin's Init has created
+    /// the variables table; see the doc on [`Self::jwt_secret`].
+    pub fn set_jwt_secret(&self, new_secret: String) {
+        *self
+            .jwt_secret
+            .write()
+            .expect("BrowserCryptoService jwt_secret RwLock poisoned") = new_secret;
+    }
+
+    fn jwt_secret(&self) -> String {
+        self.jwt_secret
+            .read()
+            .expect("BrowserCryptoService jwt_secret RwLock poisoned")
+            .clone()
     }
 
     fn derive_block_key(&self, block_id: &str) -> Result<String, CryptoError> {
         use hkdf::Hkdf;
         use sha2::Sha256;
 
-        let hk = Hkdf::<Sha256>::new(None, self.jwt_secret.as_bytes());
+        let secret = self.jwt_secret();
+        let hk = Hkdf::<Sha256>::new(None, secret.as_bytes());
         let info = format!("wafer-jwt|{block_id}");
         let mut okm = [0u8; 32];
         hk.expand(info.as_bytes(), &mut okm)
@@ -129,13 +156,12 @@ impl CryptoService for BrowserCryptoService {
         // service. `new` now enforces the 32-byte minimum JWT secret length;
         // a too-short secret here is a deployment misconfig and the error
         // bubbles up to the caller.
-        wafer_block_crypto::service::Argon2JwtCryptoService::new(self.jwt_secret.clone())?
+        wafer_block_crypto::service::Argon2JwtCryptoService::new(self.jwt_secret())?
             .sign(claims, expiry)
     }
 
     fn verify(&self, token: &str) -> Result<HashMap<String, serde_json::Value>, CryptoError> {
-        wafer_block_crypto::service::Argon2JwtCryptoService::new(self.jwt_secret.clone())?
-            .verify(token)
+        wafer_block_crypto::service::Argon2JwtCryptoService::new(self.jwt_secret())?.verify(token)
     }
 
     fn sign_for(

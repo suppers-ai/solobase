@@ -37,7 +37,7 @@ pub struct SolobaseBuilder {
     crypto: Option<Arc<dyn CryptoService>>,
     network: Option<Arc<dyn NetworkService>>,
     logger: Option<Arc<dyn LoggerService>>,
-    block_settings: BlockSettings,
+    block_settings: Arc<std::sync::RwLock<BlockSettings>>,
     block_configs: Vec<(String, serde_json::Value)>,
     extra_blocks: Vec<(String, Arc<dyn Block>)>,
     /// Additional LLM backends to register on the `MultiBackendLlmService`
@@ -96,7 +96,9 @@ impl SolobaseBuilder {
             crypto: None,
             network: None,
             logger: None,
-            block_settings: BlockSettings::from_map(HashMap::new()),
+            block_settings: Arc::new(std::sync::RwLock::new(BlockSettings::from_map(
+                HashMap::new(),
+            ))),
             block_configs: Vec::new(),
             extra_blocks: Vec::new(),
             extra_llm_services: Vec::new(),
@@ -139,9 +141,32 @@ impl SolobaseBuilder {
         self
     }
 
-    pub fn block_settings(mut self, settings: BlockSettings) -> Self {
-        self.block_settings = settings;
+    /// Set the initial [`BlockSettings`] for the runtime.
+    ///
+    /// The settings are stored behind an `Arc<RwLock<…>>` so that consumers
+    /// who can't fully populate them at `build()` time can update the snapshot
+    /// later via [`Self::block_settings_handle`] (e.g. the browser/OPFS build
+    /// reads block_settings rows from the DB only AFTER `init_block(admin)`
+    /// has created the table). Builds that have the final settings up-front
+    /// can just call this once and ignore the handle.
+    pub fn block_settings(self, settings: BlockSettings) -> Self {
+        *self
+            .block_settings
+            .write()
+            .expect("BlockSettings RwLock poisoned during build configuration") = settings;
         self
+    }
+
+    /// Return a shared handle to the runtime's [`BlockSettings`] snapshot.
+    ///
+    /// Use this when block_settings can only be loaded *after* the wafer is
+    /// built and `init_block(admin)` has created the backing table. Writes
+    /// through the handle are visible to the router's `FeatureConfig`
+    /// (which holds the same `Arc<RwLock<BlockSettings>>`), so a follow-up
+    /// `init_all_blocks()` sees enablement state that matches the loaded
+    /// rows. The handle remains valid for the lifetime of the wafer.
+    pub fn block_settings_handle(&self) -> Arc<std::sync::RwLock<BlockSettings>> {
+        self.block_settings.clone()
     }
 
     pub fn extra_block(mut self, name: impl Into<String>, block: Arc<dyn Block>) -> Self {
@@ -482,7 +507,10 @@ impl SolobaseBuilder {
         //     so that the discovery endpoints (/openapi.json, /.well-known/agent.json)
         //     see the full set. Wafer is the single source of truth — no parallel
         //     HashMap needed.
-        let feature_config: Arc<dyn FeatureConfig> = Arc::new(self.block_settings);
+        // Pass the shared lock directly — the router's Arc<dyn FeatureConfig>
+        // sees post-build mutations via the same RwLock. See the doc comment
+        // on `block_settings_handle()` for why this matters.
+        let feature_config: Arc<dyn FeatureConfig> = self.block_settings.clone();
         let block_infos = wafer.block_infos();
         let router = SolobaseRouterBlock::with_extra_routes(
             jwt_secret,

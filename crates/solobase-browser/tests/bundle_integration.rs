@@ -12,6 +12,7 @@ fn default_app() -> AppConfig {
         app_title: None,
         boot_redirect: None,
         extra_bypass_prefix: Vec::new(),
+        opfs_wipe_on_recovery: false,
     }
 }
 
