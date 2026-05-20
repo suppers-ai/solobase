@@ -208,10 +208,7 @@ pub fn auth_grants() -> Vec<wafer_block::types::ResourceGrant> {
             "suppers-ai/products",
             "suppers_ai__auth__rate_limits",
         ),
-        wafer_run::ResourceGrant::read_write(
-            "suppers-ai/files",
-            "suppers_ai__auth__rate_limits",
-        ),
+        wafer_run::ResourceGrant::read_write("suppers-ai/files", "suppers_ai__auth__rate_limits"),
     ]
 }
 

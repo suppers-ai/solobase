@@ -866,15 +866,14 @@ async fn user_owns_product(ctx: &dyn Context, user_id: &str, product_id: &str) -
         None,
         Backend::Sqlite,
     );
-    let purchase_ids: Vec<serde_json::Value> =
-        match db::query(ctx, &purchase_stmt).await {
-            Ok(rows) => rows
-                .into_iter()
-                .filter_map(|r| r.data.get("id").and_then(|v| v.as_str()).map(String::from))
-                .map(serde_json::Value::String)
-                .collect(),
-            Err(_) => return false,
-        };
+    let purchase_ids: Vec<serde_json::Value> = match db::query(ctx, &purchase_stmt).await {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|r| r.data.get("id").and_then(|v| v.as_str()).map(String::from))
+            .map(serde_json::Value::String)
+            .collect(),
+        Err(_) => return false,
+    };
     if purchase_ids.is_empty() {
         return false;
     }

@@ -105,9 +105,7 @@ async fn storage_logs_tab(ctx: &dyn Context, _msg: &Message) -> Markup {
         None,
         Backend::Sqlite,
     );
-    let logs = db::query(ctx, &stmt)
-        .await
-        .unwrap_or_default();
+    let logs = db::query(ctx, &stmt).await.unwrap_or_default();
 
     html! {
         p .text-muted style="margin-bottom:16px" {

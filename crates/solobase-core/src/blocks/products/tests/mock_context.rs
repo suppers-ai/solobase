@@ -400,15 +400,17 @@ impl MockContext {
             query: req.sql,
             args: req.args,
         };
-        let raw_data = codec::encode(&raw_req)
-            .map_err(|e| WaferError::new("internal", e.message))?;
+        let raw_data =
+            codec::encode(&raw_req).map_err(|e| WaferError::new("internal", e.message))?;
         // db_exec_raw returns ExecRawResponse; convert to ExecuteResponse
         // (same shape: `rows_affected: i64`)
         let raw_resp_data = self.db_exec_raw(&raw_data)?;
-        let raw_resp: db_wire::ExecRawResponse = codec::decode(&raw_resp_data)
-            .map_err(|e| WaferError::new("internal", e.message))?;
-        codec::encode(&db_wire::ExecuteResponse { rows_affected: raw_resp.rows_affected })
-            .map_err(|e| WaferError::new("internal", e.message))
+        let raw_resp: db_wire::ExecRawResponse =
+            codec::decode(&raw_resp_data).map_err(|e| WaferError::new("internal", e.message))?;
+        codec::encode(&db_wire::ExecuteResponse {
+            rows_affected: raw_resp.rows_affected,
+        })
+        .map_err(|e| WaferError::new("internal", e.message))
     }
 
     /// `database.query` — Wave 2 typed read primitive.

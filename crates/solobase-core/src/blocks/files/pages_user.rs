@@ -177,21 +177,20 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
         limit: None,
     };
     let stmt = build_grouped_query(counts_cfg, Backend::Sqlite);
-    let counts_by_bucket: HashMap<String, i64> =
-        match db::query(ctx, &stmt).await {
-            Ok(rows) => rows
-                .into_iter()
-                .filter_map(|r| {
-                    let bucket = r.data.get("bucket").and_then(|v| v.as_str())?.to_string();
-                    let cnt = r.data.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
-                    Some((bucket, cnt))
-                })
-                .collect(),
-            Err(e) => {
-                tracing::warn!(error = %e, "files bucket object counts failed");
-                HashMap::new()
-            }
-        };
+    let counts_by_bucket: HashMap<String, i64> = match db::query(ctx, &stmt).await {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|r| {
+                let bucket = r.data.get("bucket").and_then(|v| v.as_str())?.to_string();
+                let cnt = r.data.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+                Some((bucket, cnt))
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!(error = %e, "files bucket object counts failed");
+            HashMap::new()
+        }
+    };
 
     let mut rows: Vec<BucketRow> = Vec::with_capacity(recs.len());
     for r in recs {

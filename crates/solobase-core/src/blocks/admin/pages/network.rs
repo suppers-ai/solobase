@@ -117,9 +117,7 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
         },
         Backend::Sqlite,
     );
-    let summary = db::query(ctx, &stmt)
-        .await
-        .unwrap_or_default();
+    let summary = db::query(ctx, &stmt).await.unwrap_or_default();
 
     html! {
         div .filter-bar {
@@ -241,9 +239,7 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
         None,
         Backend::Sqlite,
     );
-    let rows = db::query(ctx, &stmt)
-        .await
-        .unwrap_or_default();
+    let rows = db::query(ctx, &stmt).await.unwrap_or_default();
 
     let has_more = rows.len() as i64 > limit;
     let display_rows = if has_more {

@@ -24,9 +24,9 @@ use std::{
     sync::OnceLock,
 };
 
+use wafer_block::db::{Filter, FilterOp, ListOptions};
 use wafer_core::interfaces::database::service::{
-    Column, DatabaseError, DatabaseService, Filter, FilterOp, ListOptions, Record, RecordList,
-    Table,
+    Column, DatabaseError, DatabaseService, Record, RecordList, Table,
 };
 use wasm_bindgen::JsValue;
 use worker::*;

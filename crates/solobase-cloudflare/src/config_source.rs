@@ -16,8 +16,11 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use solobase_core::blocks::admin::VARIABLES_TABLE;
-use wafer_block::ConfigVar;
-use wafer_core::interfaces::database::service::{DatabaseService, Filter, FilterOp, ListOptions};
+use wafer_block::{
+    db::{Filter, FilterOp, ListOptions},
+    ConfigVar,
+};
+use wafer_core::interfaces::database::service::DatabaseService;
 use wafer_run::{ConfigError, ConfigSource, EnvBlockConfig};
 
 /// Reads block-declared config keys from a D1-backed

@@ -86,9 +86,7 @@ async fn daily_counts_30d(
     filters.extend(extra_filters);
 
     let stmt = aggregate::build_daily_count(table, "created_at", &filters, Backend::Sqlite);
-    let rows = db::query(ctx, &stmt)
-        .await
-        .unwrap_or_default();
+    let rows = db::query(ctx, &stmt).await.unwrap_or_default();
 
     let counts: HashMap<String, i64> = rows
         .iter()
