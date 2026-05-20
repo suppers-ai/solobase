@@ -11,9 +11,17 @@ async function boot() {
     }
 
     // Recovery path: a previous boot's SW self-destructed and signalled the
-    // page to set the breaker. Wipe all SW + cache state, force a fresh
-    // document fetch via a cache-busting query string, and let the next
-    // load proceed normally.
+    // page to set the breaker. Wipe all SW + cache state AND clear OPFS,
+    // force a fresh document fetch via a cache-busting query string, and let
+    // the next load proceed normally.
+    //
+    // OPFS wipe is the critical step for any schema-drift class of bug: if
+    // the OPFS DB was written by a prior build with an incompatible schema,
+    // re-registering the SW against the same OPFS will keep failing
+    // `initialize()` and re-entering recovery forever (caches + SW are
+    // already innocent in that scenario). For a browser-local demo this
+    // costs the user's local rows but breaks the loop; that trade-off is
+    // why self-destruct fires in the first place.
     if (sessionStorage.getItem(SW_RECOVER_KEY)) {
         sessionStorage.removeItem(SW_RECOVER_KEY);
         status.textContent = 'Recovering from stale cache...';
@@ -24,6 +32,16 @@ async function boot() {
             for (const k of keys) await caches.delete(k);
         } catch (e) {
             console.error('[__APP_NAME__] cache wipe failed:', e);
+        }
+        try {
+            if (navigator.storage && navigator.storage.getDirectory) {
+                const root = await navigator.storage.getDirectory();
+                for await (const [name] of root.entries()) {
+                    await root.removeEntry(name, { recursive: true });
+                }
+            }
+        } catch (e) {
+            console.error('[__APP_NAME__] OPFS wipe failed:', e);
         }
         const url = new URL(window.location.href);
         url.searchParams.set('_freshen', String(Date.now()));

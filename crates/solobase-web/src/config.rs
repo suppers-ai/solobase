@@ -165,6 +165,35 @@ fn seed_auto_generated() -> Result<(), JsValue> {
 /// Reads the `suppers_ai__admin__block_settings` table (creating it if needed)
 /// and returns a `BlockSettings` with the enabled/disabled state of each block.
 pub fn load_block_settings() -> Result<solobase_core::features::BlockSettings, JsValue> {
+    // First-time migration: users who visited a build before solobase #210
+    // have a stale 4-column `suppers_ai__admin__block_settings` table
+    // (block_name PK, enabled, created_at, updated_at). `CREATE TABLE IF
+    // NOT EXISTS` below would no-op against it and the seed `INSERT` would
+    // then fail with `no such column: id` — propagating up as an
+    // `initialize()` error, which makes sw.js self-destruct, but loader.js's
+    // recovery only wipes SW + Cache Storage, never OPFS, so the next page
+    // load lands on the same stale schema and the loop repeats forever.
+    //
+    // Detect the stale schema via `pragma_table_info` and drop the table so
+    // the strict CREATE below installs the canonical schema. Block_settings
+    // is runtime state (enabled flags + per-block migration hashes), not
+    // user data — losing the pre-seeded rows on this one-shot migration is
+    // acceptable; they get re-seeded below from `defaults`.
+    let table_info = bridge::db_query_raw(
+        "SELECT name FROM pragma_table_info('suppers_ai__admin__block_settings')",
+        "[]",
+    )
+    .unwrap_or_else(|_| "[]".to_string());
+    let table_exists = table_info != "[]" && !table_info.is_empty();
+    let has_id_column = table_info.contains("\"id\"");
+    if table_exists && !has_id_column {
+        bridge::db_exec_raw(
+            "DROP TABLE IF EXISTS suppers_ai__admin__block_settings",
+            "[]",
+        )
+        .map_err(|e| bridge_err("drop stale block_settings table", e))?;
+    }
+
     // Ensure the table exists with the **canonical** strict schema from admin
     // migration `001_admin_schema.sqlite.sql`. Previously this function pre-
     // created a stale 4-column schema (block_name PK, enabled, timestamps) and
