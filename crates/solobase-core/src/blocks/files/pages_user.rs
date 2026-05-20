@@ -118,10 +118,9 @@ use crate::ui::{
 pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<BucketRow> {
     use std::collections::HashMap;
 
-    use wafer_core::clients::database::{Filter, FilterOp, SortField};
+    use wafer_block::db::{Filter, FilterOp, SortField};
     use wafer_sql_utils::{
         aggregate::{build_grouped_query, AggFunc, AggregateColumn, GroupedQueryConfig},
-        value::sea_values_to_json,
         Backend,
     };
 
@@ -177,9 +176,9 @@ pub async fn list_buckets_for_user(ctx: &dyn Context, user_id: &str) -> Vec<Buck
         order_by: vec![],
         limit: None,
     };
-    let (sql, vals) = build_grouped_query(counts_cfg, Backend::Sqlite);
+    let stmt = build_grouped_query(counts_cfg, Backend::Sqlite);
     let counts_by_bucket: HashMap<String, i64> =
-        match db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await {
+        match db::query(ctx, &stmt).await {
             Ok(rows) => rows
                 .into_iter()
                 .filter_map(|r| {
@@ -466,7 +465,7 @@ pub fn render_breadcrumbs(bucket: &str, current_prefix: &str) -> Markup {
 }
 
 async fn user_owns_bucket(ctx: &dyn Context, user_id: &str, bucket: &str) -> bool {
-    use wafer_core::clients::database::{Filter, FilterOp};
+    use wafer_block::db::{Filter, FilterOp};
 
     use super::BUCKETS_TABLE;
 
@@ -492,7 +491,7 @@ async fn user_owns_bucket(ctx: &dyn Context, user_id: &str, bucket: &str) -> boo
 }
 
 async fn list_objects_in_bucket(ctx: &dyn Context, bucket: &str) -> Vec<ObjectRow> {
-    use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+    use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 
     use super::OBJECTS_TABLE;
 
@@ -729,7 +728,7 @@ pub fn render_shares_table(rows: &[ShareRow]) -> Markup {
 }
 
 async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow> {
-    use wafer_core::clients::database::{Filter, FilterOp, SortField};
+    use wafer_block::db::{Filter, FilterOp, SortField};
 
     use super::SHARES_TABLE;
     match db::list_sorted(
@@ -797,7 +796,7 @@ async fn list_shares_for_user(ctx: &dyn Context, user_id: &str) -> Vec<ShareRow>
 }
 
 async fn load_quota_info(ctx: &dyn Context, user_id: &str) -> QuotaInfo {
-    use wafer_core::clients::database::{Filter, FilterOp};
+    use wafer_block::db::{Filter, FilterOp};
     use wafer_run::types::ErrorCode;
 
     use super::{OBJECTS_TABLE, QUOTAS_TABLE};
