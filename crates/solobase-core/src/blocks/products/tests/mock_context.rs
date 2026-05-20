@@ -60,6 +60,10 @@ impl MockContext {
             "database.count" => self.db_count(data),
             "database.sum" => self.db_sum(data),
             "database.exec_raw" => self.db_exec_raw(data),
+            // Wave 2 typed primitives — delegate to the same exec_raw / query_raw
+            // implementations since the mock doesn't enforce WRAP.
+            "database.execute" => self.db_execute(data),
+            "database.query" => self.db_query(data),
             _ => Err(WaferError::new(
                 "not_implemented",
                 format!("unhandled db op: {kind}"),
@@ -383,6 +387,50 @@ impl MockContext {
         }
 
         codec::encode(&db_wire::ExecRawResponse { rows_affected })
+            .map_err(|e| WaferError::new("internal", e.message))
+    }
+
+    /// `database.execute` — Wave 2 typed write primitive.
+    /// Delegates to the same SQL-parsing logic as `db_exec_raw`, translating
+    /// the `ExecuteRequest` wire format into an `ExecRawRequest` in-place.
+    fn db_execute(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
+        let req: db_wire::ExecuteRequest =
+            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+        let raw_req = db_wire::ExecRawRequest {
+            query: req.sql,
+            args: req.args,
+        };
+        let raw_data = codec::encode(&raw_req)
+            .map_err(|e| WaferError::new("internal", e.message))?;
+        // db_exec_raw returns ExecRawResponse; convert to ExecuteResponse
+        // (same shape: `rows_affected: i64`)
+        let raw_resp_data = self.db_exec_raw(&raw_data)?;
+        let raw_resp: db_wire::ExecRawResponse = codec::decode(&raw_resp_data)
+            .map_err(|e| WaferError::new("internal", e.message))?;
+        codec::encode(&db_wire::ExecuteResponse { rows_affected: raw_resp.rows_affected })
+            .map_err(|e| WaferError::new("internal", e.message))
+    }
+
+    /// `database.query` — Wave 2 typed read primitive.
+    /// Returns all rows from the target collection as a `QueryResponse`.
+    /// The mock doesn't attempt to parse the SQL filter — all rows are
+    /// returned and callers filter in Rust if needed. This is sufficient
+    /// for the existing stripe/purchase tests which verify that specific
+    /// fields are written by checking a single-row collection.
+    fn db_query(&self, data: &[u8]) -> Result<Vec<u8>, WaferError> {
+        let req: db_wire::QueryRequest =
+            codec::decode(data).map_err(|e| WaferError::new("internal", e.message))?;
+        let db = self.db.lock().unwrap();
+        let empty = Vec::new();
+        let records = db.get(&req.collection).unwrap_or(&empty);
+        let rows: Vec<db_wire::Record> = records
+            .iter()
+            .map(|r| db_wire::Record {
+                id: r.id.clone(),
+                data: r.data.clone(),
+            })
+            .collect();
+        codec::encode(&db_wire::QueryResponse { rows })
             .map_err(|e| WaferError::new("internal", e.message))
     }
 }
