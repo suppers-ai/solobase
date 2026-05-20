@@ -15,10 +15,12 @@ use crate::blocks::helpers::{
 /// [`BLOCK_SETTINGS_TABLE`]. Use these instead of inlining the select/upsert
 /// query in every callsite.
 pub mod block_settings {
-    use wafer_core::clients::database as db;
+    use wafer_core::clients::{
+        database as db,
+        database::{Filter, FilterOp, ListOptions},
+    };
     use wafer_run::context::Context;
     use wafer_sql_utils::{query, upsert, value::sea_values_to_json, Backend};
-    use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
 
     use super::BLOCK_SETTINGS_TABLE as TABLE;
 

@@ -244,8 +244,7 @@ pub async fn handle_toggle_feature(
     block_name: &str,
 ) -> OutputStream {
     // Read current state and toggle via shared helper (audit finding #12).
-    let current_enabled =
-        super::super::settings::block_settings::is_enabled(ctx, block_name).await;
+    let current_enabled = super::super::settings::block_settings::is_enabled(ctx, block_name).await;
     let new_enabled = !current_enabled;
     let _ = super::super::settings::block_settings::set_enabled(ctx, block_name, new_enabled).await;
 
@@ -273,8 +272,7 @@ pub async fn handle_block_detail(
     let block_opt = blocks.iter().find(|b| b.name == block_name);
 
     // Check block enabled state via shared helper (audit finding #12).
-    let is_enabled =
-        super::super::settings::block_settings::is_enabled(ctx, block_name).await;
+    let is_enabled = super::super::settings::block_settings::is_enabled(ctx, block_name).await;
 
     let encoded = encode_block_name(block_name);
 
