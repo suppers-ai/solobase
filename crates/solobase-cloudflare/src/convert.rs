@@ -4,6 +4,7 @@
 //! `OutputStream` → `worker::Response`. Mirrors the native axum adapter
 //! in `wafer-block-http-listener` and the browser adapter in `solobase-web`.
 
+use solobase_core::blocks::helpers::urlencoding_decode;
 use wafer_run::{meta::*, types::*, InputStream, OutputStream, TerminalNotResponse};
 use worker::{Request, Response, Result};
 
@@ -254,23 +255,4 @@ fn apply_meta_headers(headers: &mut worker::Headers, meta: &[MetaEntry]) -> Resu
         }
     }
     Ok(())
-}
-
-fn urlencoding_decode(s: &str) -> String {
-    let mut bytes = Vec::with_capacity(s.len());
-    let mut chars = s.bytes();
-    while let Some(b) = chars.next() {
-        if b == b'+' {
-            bytes.push(b' ');
-        } else if b == b'%' {
-            let h1 = chars.next().and_then(|c| (c as char).to_digit(16));
-            let h2 = chars.next().and_then(|c| (c as char).to_digit(16));
-            if let (Some(h1), Some(h2)) = (h1, h2) {
-                bytes.push((h1 * 16 + h2) as u8);
-            }
-        } else {
-            bytes.push(b);
-        }
-    }
-    String::from_utf8(bytes).unwrap_or_else(|_| s.to_string())
 }

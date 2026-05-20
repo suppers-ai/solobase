@@ -17,6 +17,8 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, ResponseInit};
 
+use crate::helpers::urlencoding_decode;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -29,25 +31,6 @@ fn http_method_to_action(method: &str) -> &'static str {
         "DELETE" => "delete",
         _ => "execute",
     }
-}
-
-fn urlencoding_decode(s: &str) -> String {
-    let mut bytes = Vec::with_capacity(s.len());
-    let mut chars = s.bytes();
-    while let Some(b) = chars.next() {
-        if b == b'+' {
-            bytes.push(b' ');
-        } else if b == b'%' {
-            let h1 = chars.next().and_then(|c| (c as char).to_digit(16));
-            let h2 = chars.next().and_then(|c| (c as char).to_digit(16));
-            if let (Some(h1), Some(h2)) = (h1, h2) {
-                bytes.push((h1 * 16 + h2) as u8);
-            }
-        } else {
-            bytes.push(b);
-        }
-    }
-    String::from_utf8(bytes).unwrap_or_else(|_| s.to_string())
 }
 
 fn error_code_to_http_status(code: &ErrorCode) -> u16 {

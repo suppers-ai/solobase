@@ -130,6 +130,14 @@ pub fn url_path_encode(s: &str) -> String {
         .collect()
 }
 
+/// Percent-encode a string for use as an OAuth / `application/x-www-form-urlencoded`
+/// query parameter. Delegates to [`url::form_urlencoded::byte_serialize`] which
+/// encodes spaces as `+` and everything outside the unreserved set as `%XX`.
+/// Prefer this over hand-rolling percent-encoding in OAuth / form-body contexts.
+pub fn urlencode(s: &str) -> String {
+    url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
+}
+
 /// Percent-encode a string for use as an `application/x-www-form-urlencoded`
 /// value. Same alphabet as [`url_path_encode`] but spaces become `+` (per the
 /// form-encoding convention) rather than `%20`. Use this for HTTP form bodies
@@ -424,6 +432,36 @@ impl Default for ResponseBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn urlencoding_decode_plus_to_space() {
+        assert_eq!(urlencoding_decode("a+b"), "a b");
+    }
+
+    #[test]
+    fn urlencoding_decode_percent() {
+        assert_eq!(urlencoding_decode("a%2Fb"), "a/b");
+    }
+
+    #[test]
+    fn now_rfc3339_parses() {
+        let s = now_rfc3339();
+        let _: chrono::DateTime<chrono::Utc> = s.parse().expect("rfc3339 round-trip");
+    }
+
+    #[test]
+    fn urlencode_space_becomes_plus() {
+        assert_eq!(urlencode("a b"), "a+b");
+    }
+
+    #[test]
+    fn urlencode_special_chars() {
+        // Slash and ampersand must be percent-encoded in form values.
+        let encoded = urlencode("a/b&c=d");
+        assert!(!encoded.contains('/'));
+        assert!(!encoded.contains('&'));
+        assert!(!encoded.contains('='));
+    }
 
     #[test]
     fn url_path_encode_basic() {

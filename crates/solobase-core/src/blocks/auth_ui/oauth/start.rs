@@ -5,11 +5,8 @@ use wafer_core::clients::config;
 use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::blocks::{
-    auth::{
-        helpers::urlencode,
-        repo::oauth_pkce::{self, NewPkceState},
-    },
-    helpers::{err_bad_request, err_forbidden, err_internal, ok_json},
+    auth::repo::oauth_pkce::{self, NewPkceState},
+    helpers::{err_bad_request, err_forbidden, err_internal, ok_json, urlencode},
 };
 
 /// PKCE state TTL: 10 minutes. OAuth round-trips complete in seconds; this

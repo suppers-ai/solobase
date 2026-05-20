@@ -8,15 +8,13 @@ use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::blocks::{
     auth::{
-        helpers::{
-            build_auth_cookie, ensure_admin_role, generate_tokens, store_refresh_token, urlencode,
-        },
+        helpers::{build_auth_cookie, ensure_admin_role, generate_tokens, store_refresh_token},
         repo::{oauth_pkce, provider_links, users},
         USERS_TABLE,
     },
     auth_ui::redirect::is_safe_local_redirect,
     helpers::{
-        err_bad_request, err_forbidden, err_internal, err_internal_no_cause, json_map,
+        err_bad_request, err_forbidden, err_internal, err_internal_no_cause, json_map, urlencode,
         ResponseBuilder,
     },
 };
