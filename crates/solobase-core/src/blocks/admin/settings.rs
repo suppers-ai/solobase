@@ -15,12 +15,10 @@ use crate::blocks::helpers::{
 /// [`BLOCK_SETTINGS_TABLE`]. Use these instead of inlining the select/upsert
 /// query in every callsite.
 pub mod block_settings {
-    use wafer_core::clients::{
-        database as db,
-        database::{Filter, FilterOp, ListOptions},
-    };
+    use wafer_block::db::{Filter, FilterOp, ListOptions};
+    use wafer_core::clients::database as db;
     use wafer_run::context::Context;
-    use wafer_sql_utils::{query, upsert, value::sea_values_to_json, Backend};
+    use wafer_sql_utils::{query, upsert, Backend};
 
     use super::BLOCK_SETTINGS_TABLE as TABLE;
 
@@ -29,7 +27,7 @@ pub mod block_settings {
     /// Reads the `enabled` column from [`BLOCK_SETTINGS_TABLE`]. Defaults to
     /// `true` when no row exists (all blocks are enabled by default).
     pub async fn is_enabled(ctx: &dyn Context, block_name: &str) -> bool {
-        let (sql, vals) = query::build_select_columns(
+        let stmt = query::build_select_columns(
             TABLE,
             &["enabled"],
             &ListOptions {
@@ -43,7 +41,7 @@ pub mod block_settings {
             None,
             Backend::Sqlite,
         );
-        db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+        db::query(ctx, &stmt)
             .await
             .ok()
             .and_then(|rows| {
@@ -65,7 +63,7 @@ pub mod block_settings {
     ) -> Result<(), String> {
         let enabled_int: i64 = if enabled { 1 } else { 0 };
         let now = super::helpers::now_rfc3339();
-        let (sql, vals) = upsert::build_upsert(
+        let stmt = upsert::build_upsert(
             TABLE,
             &[
                 ("block_name".to_string(), serde_json::json!(block_name)),
@@ -77,7 +75,7 @@ pub mod block_settings {
             &["enabled", "updated_at"],
             Backend::Sqlite,
         );
-        db::exec_raw(ctx, &sql, &sea_values_to_json(vals))
+        db::execute(ctx, &stmt)
             .await
             .map(|_| ())
             .map_err(|e| format!("block_settings::set_enabled failed: {e}"))
@@ -571,7 +569,7 @@ pub async fn seed_defaults(ctx: &dyn Context) {
 
 #[cfg(test)]
 mod tests {
-    use wafer_core::clients::database::{Filter, FilterOp};
+    use wafer_block::db::{Filter, FilterOp};
 
     use super::*;
     use crate::test_support::TestContext;

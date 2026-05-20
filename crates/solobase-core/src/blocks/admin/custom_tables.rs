@@ -6,10 +6,8 @@
 
 use std::collections::HashMap;
 
-use wafer_core::clients::{
-    database as db,
-    database::{ListOptions, SortField},
-};
+use wafer_block::db::{ListOptions, SortField};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 use wafer_sql_utils::{ddl, introspect, Backend};
 
@@ -82,7 +80,7 @@ async fn handle_list_tables(ctx: &dyn Context) -> OutputStream {
 }
 
 async fn handle_create_table(ctx: &dyn Context, input: InputStream) -> OutputStream {
-    use wafer_core::interfaces::database::service::{
+    use wafer_core::clients::database::{
         col_blob, col_datetime, col_float, col_int, col_text, default_now, pk, Column, Table,
     };
 
@@ -139,12 +137,12 @@ async fn handle_create_table(ctx: &dyn Context, input: InputStream) -> OutputStr
         .columns
         .push(col_datetime("updated_at").def(default_now()));
 
-    let sql = match ddl::build_create_table(&table, Backend::Sqlite) {
+    let stmt = match ddl::build_create_table(&table, Backend::Sqlite) {
         Ok(s) => s,
         Err(e) => return err_internal("Failed to build CREATE TABLE SQL", e),
     };
 
-    match db::exec_raw(ctx, &sql, &[]).await {
+    match db::ddl(ctx, &stmt.sql).await {
         Ok(_) => ok_json(&serde_json::json!({"table": table_name, "created": true})),
         Err(e) => err_internal("Failed to create table", e),
     }
@@ -160,8 +158,8 @@ async fn handle_drop_table(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let full_name = full_table_name(table_name);
     let safe_name = sanitize_ident(&full_name);
 
-    let drop_sql = ddl::build_drop_table(&safe_name, Backend::Sqlite);
-    match db::exec_raw(ctx, &drop_sql, &[]).await {
+    let drop_stmt = ddl::build_drop_table(&safe_name, Backend::Sqlite);
+    match db::ddl(ctx, &drop_stmt.sql).await {
         Ok(_) => ok_json(&serde_json::json!({"deleted": true})),
         Err(e) => err_internal("Failed to drop table", e),
     }

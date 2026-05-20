@@ -1,7 +1,8 @@
 use maud::{html, Markup};
-use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
+use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, OutputStream};
-use wafer_sql_utils::{query, value::sea_values_to_json, Backend};
+use wafer_sql_utils::{query, Backend};
 
 use crate::{
     blocks::admin::{NETWORK_RULES_TABLE as NETWORK_RULES, REQUEST_LOGS_TABLE as REQUEST_LOGS},
@@ -78,7 +79,7 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
     // before the comparison; mirrors the previous hand-written SQL.
     let status_code_int = Expr::col(DynCol("status_code".into())).cast_as(Alias::new("INTEGER"));
 
-    let (sql, vals) = aggregate::build_grouped_query(
+    let stmt = aggregate::build_grouped_query(
         GroupedQueryConfig {
             table: REQUEST_LOGS.to_string(),
             select_columns: vec!["method".into(), "path".into()],
@@ -116,7 +117,7 @@ async fn network_inbound_tab(ctx: &dyn Context, msg: &Message) -> Markup {
         },
         Backend::Sqlite,
     );
-    let summary = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+    let summary = db::query(ctx, &stmt)
         .await
         .unwrap_or_default();
 
@@ -207,7 +208,7 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
     let offset: i64 = msg.query("offset").parse().unwrap_or(0);
     let limit: i64 = 20;
 
-    let (sql, vals) = query::build_select_columns(
+    let stmt = query::build_select_columns(
         REQUEST_LOGS,
         &[
             "status_code",
@@ -240,7 +241,7 @@ pub async fn network_inbound_detail(ctx: &dyn Context, msg: &Message) -> OutputS
         None,
         Backend::Sqlite,
     );
-    let rows = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+    let rows = db::query(ctx, &stmt)
         .await
         .unwrap_or_default();
 
