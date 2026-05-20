@@ -28,6 +28,15 @@ pub struct AppConfig {
     /// `url.pathname.startsWith(<prefix>)` clause via the `__EXTRA_BYPASS__`
     /// placeholder.
     pub extra_bypass_prefix: Vec<String>,
+    /// Whether loader.js's recovery path should wipe OPFS when the Service
+    /// Worker self-destructs. **Default: false** — for production apps that
+    /// store user data in OPFS (chat history, generated assets, settings),
+    /// wiping on a self-destruct loop is silent data loss. The demo opts in
+    /// via `solobase build --target web --opfs-wipe-on-recovery` so the
+    /// stale-schema migration scenario self-resolves without manual user
+    /// action; other apps surface the error to the user instead and let
+    /// them choose whether to clear data.
+    pub opfs_wipe_on_recovery: bool,
 }
 
 /// Discover the wasm-pack output pair (`{base}.js` + `{base}_bg.wasm`) in
@@ -295,6 +304,14 @@ fn build_template_vars(
     vars.insert("APP_TITLE".to_string(), app_title);
     vars.insert("BOOT_REDIRECT".to_string(), boot_redirect);
     vars.insert("EXTRA_BYPASS".to_string(), extra_bypass);
+    vars.insert(
+        "OPFS_WIPE_ON_RECOVERY".to_string(),
+        if app.opfs_wipe_on_recovery {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
     vars
 }
 

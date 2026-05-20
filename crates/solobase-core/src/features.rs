@@ -161,6 +161,29 @@ impl FeatureConfig for BlockSettings {
     }
 }
 
+/// `FeatureConfig` for the shared+mutable form `Arc<RwLock<BlockSettings>>`.
+///
+/// `SolobaseBuilder` stores its block_settings as `Arc<RwLock<BlockSettings>>`
+/// so consumers can mutate the live snapshot post-build (the OPFS-backed
+/// `solobase-web` flow needs this — it can't load block_settings until after
+/// `init_block(admin)` has created the `suppers_ai__admin__block_settings`
+/// table, but the runtime's `FeatureConfig` Arc has to exist at build time).
+/// The router holds an `Arc<dyn FeatureConfig>` cloned off the same lock, so
+/// post-`build()` writes are visible on subsequent route checks without any
+/// SolobaseBuilder API gymnastics.
+///
+/// `read()` panics only if a previous holder panicked while holding the
+/// write lock, which would leave the snapshot in an indeterminate state —
+/// surfacing that immediately is preferable to handing the router a stale
+/// "all-enabled" fallback.
+impl FeatureConfig for std::sync::RwLock<BlockSettings> {
+    fn is_block_enabled(&self, full_name: &str) -> bool {
+        self.read()
+            .expect("BlockSettings RwLock poisoned")
+            .is_block_enabled(full_name)
+    }
+}
+
 /// All features enabled (for testing).
 pub struct AllEnabled;
 

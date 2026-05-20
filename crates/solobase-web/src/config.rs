@@ -26,35 +26,14 @@ fn bridge_err(ctx: &str, e: JsValue) -> JsValue {
 /// There are no env vars to seed from in the browser — only auto-generated
 /// secrets and previously-stored values.
 pub fn seed_and_load_variables() -> Result<HashMap<String, String>, JsValue> {
-    // 1. Create the admin variables table if it does not exist.
-    //    Schema mirrors admin migration `001_admin_schema.sqlite.sql` *exactly*
-    //    (NOT NULL on every column the migration declares NOT NULL). Earlier
-    //    revisions used a looser pre-create here, which made the admin
-    //    migration's CREATE TABLE IF NOT EXISTS a no-op while still leaving
-    //    the table in place — exactly the schema-drift hazard that caused
-    //    the block_settings 401 bug. Keep this schema in lockstep with
-    //    `crates/solobase-core/src/blocks/admin/migrations/001_admin_schema.sqlite.sql`.
-    bridge::db_exec_raw(
-        "CREATE TABLE IF NOT EXISTS suppers_ai__admin__variables (
-            id          TEXT PRIMARY KEY,
-            key         TEXT NOT NULL UNIQUE,
-            name        TEXT NOT NULL DEFAULT '',
-            description TEXT NOT NULL DEFAULT '',
-            value       TEXT NOT NULL DEFAULT '',
-            warning     TEXT NOT NULL DEFAULT '',
-            sensitive   INTEGER NOT NULL DEFAULT 0,
-            updated_by  TEXT NOT NULL DEFAULT '',
-            created_at  TEXT NOT NULL,
-            updated_at  TEXT NOT NULL
-        )",
-        "[]",
-    )
-    .map_err(|e| bridge_err("create variables table", e))?;
-    bridge::db_exec_raw(
-        "CREATE UNIQUE INDEX IF NOT EXISTS suppers_ai__admin__variables_key_uniq ON suppers_ai__admin__variables (key)",
-        "[]",
-    )
-    .map_err(|e| bridge_err("create variables key index", e))?;
+    // PRECONDITION: `wafer.init_block(suppers-ai/admin)` must have already
+    // run before this function is called — admin's migration is the single
+    // source of schema truth for `suppers_ai__admin__variables`, and we no
+    // longer pre-create the table here. See `initialize()` in `lib.rs` for
+    // the ordering. Removing the pre-create eliminates the schema-drift
+    // class of bug that took down the demo in #210/#211: any future change
+    // to `001_admin_schema.sqlite.sql` now propagates without needing a
+    // mirrored CREATE in this crate.
 
     // 2. Seed default admin account for browser build.
     //    Email: admin@example.com / Password: admin123
@@ -165,67 +144,58 @@ fn seed_auto_generated() -> Result<(), JsValue> {
 /// Reads the `suppers_ai__admin__block_settings` table (creating it if needed)
 /// and returns a `BlockSettings` with the enabled/disabled state of each block.
 pub fn load_block_settings() -> Result<solobase_core::features::BlockSettings, JsValue> {
-    // First-time migration: users who visited a build before solobase #210
-    // have a stale 4-column `suppers_ai__admin__block_settings` table
-    // (block_name PK, enabled, created_at, updated_at). `CREATE TABLE IF
-    // NOT EXISTS` below would no-op against it and the seed `INSERT` would
-    // then fail with `no such column: id` — propagating up as an
-    // `initialize()` error, which makes sw.js self-destruct, but loader.js's
-    // recovery only wipes SW + Cache Storage, never OPFS, so the next page
-    // load lands on the same stale schema and the loop repeats forever.
+    // PRECONDITION: `wafer.init_block(suppers-ai/admin)` must have already
+    // run before this function is called — admin's migration is the single
+    // source of schema truth for `suppers_ai__admin__block_settings`. We no
+    // longer pre-create the table here.
     //
-    // Detect the stale schema via `pragma_table_info` and drop the table so
-    // the strict CREATE below installs the canonical schema. Block_settings
-    // is runtime state (enabled flags + per-block migration hashes), not
-    // user data — losing the pre-seeded rows on this one-shot migration is
-    // acceptable; they get re-seeded below from `defaults`.
+    // One-shot migration for legacy OPFS state: users who visited a build
+    // before this restructure (and before #210/#211) have a stale 4-column
+    // `block_settings` table that admin's `CREATE TABLE IF NOT EXISTS` would
+    // no-op against. Detect that case via `pragma_table_info` and drop the
+    // table BEFORE admin runs — but at this point in initialize() admin has
+    // already run, so any stale schema would already have tripped its
+    // migration. We still keep a defensive drop here for the narrow window
+    // where a user upgraded directly from a pre-#210 build through this
+    // restructure (admin migration tolerated the stale schema enough to
+    // succeed but write_state still failed downstream). Future-builds-only
+    // could remove this drop after a deprecation window.
     let table_info = bridge::db_query_raw(
         "SELECT name FROM pragma_table_info('suppers_ai__admin__block_settings')",
         "[]",
     )
     .unwrap_or_else(|_| "[]".to_string());
-    let table_exists = table_info != "[]" && !table_info.is_empty();
     let has_id_column = table_info.contains("\"id\"");
+    let table_exists = table_info != "[]" && !table_info.is_empty();
     if table_exists && !has_id_column {
+        // Stale schema detected. Drop and rely on admin migration to recreate
+        // — except we already passed admin's Init, so admin won't re-run.
+        // Re-create the canonical schema inline as a one-shot recovery.
         bridge::db_exec_raw(
             "DROP TABLE IF EXISTS suppers_ai__admin__block_settings",
             "[]",
         )
         .map_err(|e| bridge_err("drop stale block_settings table", e))?;
+        bridge::db_exec_raw(
+            "CREATE TABLE suppers_ai__admin__block_settings (
+                id            TEXT PRIMARY KEY,
+                block_name    TEXT NOT NULL UNIQUE,
+                enabled       INTEGER NOT NULL DEFAULT 1,
+                current_hash  TEXT NOT NULL DEFAULT '',
+                blessed_hash  TEXT NOT NULL DEFAULT '',
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
+            )",
+            "[]",
+        )
+        .map_err(|e| bridge_err("recreate block_settings table", e))?;
+        bridge::db_exec_raw(
+            "CREATE UNIQUE INDEX IF NOT EXISTS suppers_ai__admin__block_settings_block_name_uniq \
+             ON suppers_ai__admin__block_settings (block_name)",
+            "[]",
+        )
+        .map_err(|e| bridge_err("recreate block_settings block_name index", e))?;
     }
-
-    // Ensure the table exists with the **canonical** strict schema from admin
-    // migration `001_admin_schema.sqlite.sql`. Previously this function pre-
-    // created a stale 4-column schema (block_name PK, enabled, timestamps) and
-    // seeded default rows; admin migration 001's CREATE TABLE IF NOT EXISTS
-    // then no-op'd against the existing table, so the migration columns
-    // (`id`, `current_hash`, `blessed_hash`) never landed. The first block to
-    // run `migration_helper::write_state` then found its pre-seeded row,
-    // entered the UPDATE branch, and failed with `no such column:
-    // blessed_hash` — surfacing as `auth migrations: block_settings update:
-    // Internal: internal database error`, which aborted auth's `lifecycle(Init)`
-    // permanently. With auth Init aborted, `auth::bootstrap::run` never ran
-    // and every demo login returned 401. Mirror of the native fix in
-    // solobase #182 (`server_config::load_block_settings`).
-    bridge::db_exec_raw(
-        "CREATE TABLE IF NOT EXISTS suppers_ai__admin__block_settings (
-            id            TEXT PRIMARY KEY,
-            block_name    TEXT NOT NULL UNIQUE,
-            enabled       INTEGER NOT NULL DEFAULT 1,
-            current_hash  TEXT NOT NULL DEFAULT '',
-            blessed_hash  TEXT NOT NULL DEFAULT '',
-            created_at    TEXT NOT NULL,
-            updated_at    TEXT NOT NULL
-        )",
-        "[]",
-    )
-    .map_err(|e| bridge_err("create block_settings table", e))?;
-    bridge::db_exec_raw(
-        "CREATE UNIQUE INDEX IF NOT EXISTS suppers_ai__admin__block_settings_block_name_uniq \
-         ON suppers_ai__admin__block_settings (block_name)",
-        "[]",
-    )
-    .map_err(|e| bridge_err("create block_settings block_name index", e))?;
 
     // Seed defaults for known blocks. The strict schema demands `id`,
     // `created_at`, `updated_at` — generate them inline via SQLite builtins

@@ -45,6 +45,16 @@ pub struct AssetsConfig {
     pub extra_bypass_prefix: Vec<String>,
     #[serde(default)]
     pub overlay: Vec<OverlayEntry>,
+    /// Whether `loader.js`'s recovery path wipes OPFS when the SW
+    /// self-destructs. Defaults to **false** — apps that store user data
+    /// in OPFS shouldn't lose it on a transient init failure. Set to
+    /// `true` for throwaway-data deployments like `demo.solobase.dev`
+    /// where a stale-schema loop should self-resolve without manual
+    /// `chrome://settings/siteData` cleanup. See
+    /// `crates/solobase-browser/assets/loader.js.tmpl` for the runtime
+    /// behavior this controls.
+    #[serde(default)]
+    pub opfs_wipe_on_recovery: bool,
 }
 
 #[derive(Debug, Deserialize)]
