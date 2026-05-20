@@ -108,6 +108,28 @@ pub async fn initialize() -> Result<(), JsValue> {
         .await
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
+    // Eager init pass — mirror of the native CLI (`solobase server`) and
+    // Cloudflare runner. With lazy block init (wafer-run #106-#108), blocks
+    // only run `lifecycle(Init)` on first dispatch. The auth block's
+    // `Init` is what triggers `auth::bootstrap::run` (create the admin user
+    // from `SOLOBASE_SHARED__AUTH__BOOTSTRAP_ADMIN_{EMAIL,PASSWORD}`), but
+    // the demo login flow routes through `auth_ui` repos+crypto directly
+    // and never dispatches to `suppers-ai/auth` — so without an explicit
+    // eager init the bootstrap never runs and every login returns 401.
+    //
+    // Admin first (its migrations create the variables/block_settings
+    // tables other inits read), then everyone else. Slot caching makes the
+    // second `init_block(admin)` inside `init_all_blocks` a no-op.
+    if let Err(e) = wafer
+        .init_block(solobase_core::blocks::admin::ADMIN_BLOCK_ID)
+        .await
+    {
+        web_sys::console::warn_1(
+            &format!("solobase: admin block Init failed before init_all_blocks: {e}").into(),
+        );
+    }
+    wafer.init_all_blocks().await;
+
     builder::post_start(&wafer, &storage_block);
 
     web_sys::console::log_1(&"solobase: WAFER runtime started".into());
