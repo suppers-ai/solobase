@@ -11,6 +11,77 @@ use crate::blocks::helpers::{
     self, err_bad_request, err_internal, err_not_found, json_map, ok_json, RecordExt,
 };
 
+/// Helpers for reading and writing the per-block `enabled` flag in
+/// [`BLOCK_SETTINGS_TABLE`]. Use these instead of inlining the select/upsert
+/// query in every callsite.
+pub mod block_settings {
+    use wafer_core::clients::database as db;
+    use wafer_run::context::Context;
+    use wafer_sql_utils::{query, upsert, value::sea_values_to_json, Backend};
+    use wafer_core::clients::database::{Filter, FilterOp, ListOptions};
+
+    use super::BLOCK_SETTINGS_TABLE as TABLE;
+
+    /// Return whether `block_name` is enabled.
+    ///
+    /// Reads the `enabled` column from [`BLOCK_SETTINGS_TABLE`]. Defaults to
+    /// `true` when no row exists (all blocks are enabled by default).
+    pub async fn is_enabled(ctx: &dyn Context, block_name: &str) -> bool {
+        let (sql, vals) = query::build_select_columns(
+            TABLE,
+            &["enabled"],
+            &ListOptions {
+                filters: vec![Filter {
+                    field: "block_name".into(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::json!(block_name),
+                }],
+                ..Default::default()
+            },
+            None,
+            Backend::Sqlite,
+        );
+        db::query_raw(ctx, &sql, &sea_values_to_json(vals))
+            .await
+            .ok()
+            .and_then(|rows| {
+                rows.first()
+                    .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
+            })
+            .map(|v| v != 0)
+            .unwrap_or(true)
+    }
+
+    /// Persist the `enabled` flag for `block_name` in [`BLOCK_SETTINGS_TABLE`].
+    ///
+    /// Uses an upsert keyed on `block_name`, so it works whether or not a row
+    /// already exists.
+    pub async fn set_enabled(
+        ctx: &dyn Context,
+        block_name: &str,
+        enabled: bool,
+    ) -> Result<(), String> {
+        let enabled_int: i64 = if enabled { 1 } else { 0 };
+        let now = super::helpers::now_rfc3339();
+        let (sql, vals) = upsert::build_upsert(
+            TABLE,
+            &[
+                ("block_name".to_string(), serde_json::json!(block_name)),
+                ("enabled".to_string(), serde_json::json!(enabled_int)),
+                ("created_at".to_string(), serde_json::json!(&now)),
+                ("updated_at".to_string(), serde_json::json!(&now)),
+            ],
+            &["block_name"],
+            &["enabled", "updated_at"],
+            Backend::Sqlite,
+        );
+        db::exec_raw(ctx, &sql, &sea_values_to_json(vals))
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("block_settings::set_enabled failed: {e}"))
+    }
+}
+
 /// Per-block enable/config settings (one row per block).
 ///
 /// `pub` (not `pub(crate)`) because consumers outside `solobase-core`
@@ -648,6 +719,51 @@ mod tests {
         assert!(
             count > 0,
             "mismatched snapshot hash should still run the seed; got 0 rows"
+        );
+    }
+
+    /// `block_settings::is_enabled` defaults to `true` when no row exists.
+    #[tokio::test]
+    async fn block_settings_is_enabled_defaults_to_true_when_no_row() {
+        let ctx = TestContext::new().await;
+        crate::blocks::admin::migrations::apply(&ctx)
+            .await
+            .expect("apply admin migrations");
+
+        let enabled = block_settings::is_enabled(&ctx, "suppers-ai/nonexistent").await;
+        assert!(
+            enabled,
+            "is_enabled should return true when no block_settings row exists"
+        );
+    }
+
+    /// `block_settings::set_enabled` / `is_enabled` round-trip: write false,
+    /// read back false; write true, read back true.
+    #[tokio::test]
+    async fn block_settings_set_enabled_round_trip() {
+        let ctx = TestContext::new().await;
+        crate::blocks::admin::migrations::apply(&ctx)
+            .await
+            .expect("apply admin migrations");
+
+        let name = "suppers-ai/some-block";
+
+        // Disable then read back.
+        block_settings::set_enabled(&ctx, name, false)
+            .await
+            .expect("set_enabled false");
+        assert!(
+            !block_settings::is_enabled(&ctx, name).await,
+            "is_enabled should return false after set_enabled(false)"
+        );
+
+        // Re-enable then read back.
+        block_settings::set_enabled(&ctx, name, true)
+            .await
+            .expect("set_enabled true");
+        assert!(
+            block_settings::is_enabled(&ctx, name).await,
+            "is_enabled should return true after set_enabled(true)"
         );
     }
 }

@@ -42,56 +42,28 @@ pub mod vector;
 
 /// Return `BlockInfo` for every solobase block.
 ///
-/// Sources:
-/// - Auto-registered (zero-arg) blocks via `linkme` — same instances
-///   Wafer::new() will register at runtime.
-/// - LlmBlock — constructed with a throwaway ProviderLlmService since its
-///   info() is declarative and doesn't depend on the real service. Can't
-///   auto-register because its constructor takes Arc<ProviderLlmService>.
+/// This is the single canonical source of truth for both native and wasm32.
+/// Previously, native used `linkme`/`STATIC_BLOCK_REGISTRATIONS` iteration
+/// and wasm32 had a separate manual list — see audit finding #13.
+///
+/// The two lists had diverged: the native linkme sweep also picked up
+/// `wafer-run/*` framework blocks (cors, inspector, etc.) that were never
+/// relevant to `collect_all_config_vars`, and the wasm32 list included the
+/// framework `AuthBlock` whose config vars are declared via
+/// `shared_config_vars()` → `auth_config_vars()` rather than
+/// `BlockInfo::config_keys`, making it redundant there too. This function
+/// enumerates only the solobase feature blocks, consistently on both targets.
 ///
 /// Used by `collect_all_config_vars()` to discover declared config
 /// variables before block registration runs.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
-    #[cfg_attr(not(feature = "llm"), allow(unused_mut))]
-    let mut infos: Vec<_> = wafer_run::STATIC_BLOCK_REGISTRATIONS
-        .iter()
-        .map(|reg| (reg.factory)().info())
-        .collect();
-
-    #[cfg(feature = "llm")]
-    {
-        use wafer_run::block::Block as _;
-        let throwaway = std::sync::Arc::new(llm::providers::ProviderLlmService::new());
-        infos.push(llm::LlmBlock::new(throwaway).info());
-    }
-
-    infos
-}
-
-/// wasm32 fallback: linkme is not supported on wasm32 (wafer-run gates
-/// `StaticBlockRegistration` behind `cfg(not(target_arch = "wasm32"))`), so
-/// enumerate blocks manually. Same content the linkme iteration would
-/// produce on native, plus LlmBlock under `feature = "llm"`.
-#[cfg(target_arch = "wasm32")]
 pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
     use wafer_run::block::Block as _;
 
-    // `unused_mut` fires when every optional feature is off, because no later
+    // `unused_mut` fires when every optional feature is off and no later
     // `.push(...)` exists to mutate the vec.
     #[allow(unused_mut)]
     let mut infos: Vec<wafer_run::block::BlockInfo> = vec![
         admin::AdminBlock::new().info(),
-        // Framework AuthBlock wrapping AuthServiceImpl — not self-registered
-        // because the constructor takes `Arc<dyn AuthService>`. Mirrors the
-        // `register_auth` helper below so wasm config-var collection sees
-        // the same block info native gets.
-        {
-            use std::sync::Arc;
-            let state = auth::service::BlockState::new();
-            let svc = Arc::new(auth::service::AuthServiceImpl::new(state));
-            wafer_core::service_blocks::auth::AuthBlock::new(svc).info()
-        },
         auth_ui::AuthUiBlock::default().info(),
         email::EmailBlock::new().info(),
         system::SystemBlock::new().info(),
@@ -110,9 +82,14 @@ pub fn all_block_infos() -> Vec<wafer_run::block::BlockInfo> {
     #[cfg(feature = "block-vector")]
     infos.push(vector::VectorBlock::new().info());
 
+    // fastembed is native-only: it requires ONNX Runtime which is not
+    // available on wasm32.
     #[cfg(feature = "block-fastembed")]
     infos.push(fastembed::FastembedBlock::new().info());
 
+    // LlmBlock cannot self-register because its constructor takes
+    // Arc<ProviderLlmService>. A throwaway service is enough here since
+    // info() is declarative and doesn't invoke the real provider.
     #[cfg(feature = "llm")]
     {
         use std::sync::Arc;
