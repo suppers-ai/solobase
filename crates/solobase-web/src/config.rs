@@ -27,27 +27,31 @@ fn bridge_err(ctx: &str, e: JsValue) -> JsValue {
 /// secrets and previously-stored values.
 pub fn seed_and_load_variables() -> Result<HashMap<String, String>, JsValue> {
     // 1. Create the admin variables table if it does not exist.
-    //    Name matches `crate::blocks::admin::VARIABLES_COLLECTION` so the admin
-    //    block's CollectionSchema (run via wafer.start() migrations) finds the
-    //    same table and no-ops its CREATE TABLE IF NOT EXISTS.
+    //    Schema mirrors admin migration `001_admin_schema.sqlite.sql` *exactly*
+    //    (NOT NULL on every column the migration declares NOT NULL). Earlier
+    //    revisions used a looser pre-create here, which made the admin
+    //    migration's CREATE TABLE IF NOT EXISTS a no-op while still leaving
+    //    the table in place — exactly the schema-drift hazard that caused
+    //    the block_settings 401 bug. Keep this schema in lockstep with
+    //    `crates/solobase-core/src/blocks/admin/migrations/001_admin_schema.sqlite.sql`.
     bridge::db_exec_raw(
         "CREATE TABLE IF NOT EXISTS suppers_ai__admin__variables (
-            id TEXT PRIMARY KEY,
-            key TEXT NOT NULL UNIQUE,
-            name TEXT DEFAULT '',
-            description TEXT DEFAULT '',
-            value TEXT DEFAULT '',
-            warning TEXT DEFAULT '',
-            sensitive INTEGER DEFAULT 0,
-            updated_by TEXT DEFAULT '',
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now'))
+            id          TEXT PRIMARY KEY,
+            key         TEXT NOT NULL UNIQUE,
+            name        TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            value       TEXT NOT NULL DEFAULT '',
+            warning     TEXT NOT NULL DEFAULT '',
+            sensitive   INTEGER NOT NULL DEFAULT 0,
+            updated_by  TEXT NOT NULL DEFAULT '',
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
         )",
         "[]",
     )
     .map_err(|e| bridge_err("create variables table", e))?;
     bridge::db_exec_raw(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_suppers_ai__admin__variables_key ON suppers_ai__admin__variables (key)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS suppers_ai__admin__variables_key_uniq ON suppers_ai__admin__variables (key)",
         "[]",
     )
     .map_err(|e| bridge_err("create variables key index", e))?;
@@ -161,19 +165,42 @@ fn seed_auto_generated() -> Result<(), JsValue> {
 /// Reads the `suppers_ai__admin__block_settings` table (creating it if needed)
 /// and returns a `BlockSettings` with the enabled/disabled state of each block.
 pub fn load_block_settings() -> Result<solobase_core::features::BlockSettings, JsValue> {
-    // Ensure table exists
+    // Ensure the table exists with the **canonical** strict schema from admin
+    // migration `001_admin_schema.sqlite.sql`. Previously this function pre-
+    // created a stale 4-column schema (block_name PK, enabled, timestamps) and
+    // seeded default rows; admin migration 001's CREATE TABLE IF NOT EXISTS
+    // then no-op'd against the existing table, so the migration columns
+    // (`id`, `current_hash`, `blessed_hash`) never landed. The first block to
+    // run `migration_helper::write_state` then found its pre-seeded row,
+    // entered the UPDATE branch, and failed with `no such column:
+    // blessed_hash` — surfacing as `auth migrations: block_settings update:
+    // Internal: internal database error`, which aborted auth's `lifecycle(Init)`
+    // permanently. With auth Init aborted, `auth::bootstrap::run` never ran
+    // and every demo login returned 401. Mirror of the native fix in
+    // solobase #182 (`server_config::load_block_settings`).
     bridge::db_exec_raw(
         "CREATE TABLE IF NOT EXISTS suppers_ai__admin__block_settings (
-            block_name TEXT PRIMARY KEY,
-            enabled INTEGER DEFAULT 1,
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now'))
+            id            TEXT PRIMARY KEY,
+            block_name    TEXT NOT NULL UNIQUE,
+            enabled       INTEGER NOT NULL DEFAULT 1,
+            current_hash  TEXT NOT NULL DEFAULT '',
+            blessed_hash  TEXT NOT NULL DEFAULT '',
+            created_at    TEXT NOT NULL,
+            updated_at    TEXT NOT NULL
         )",
         "[]",
     )
     .map_err(|e| bridge_err("create block_settings table", e))?;
+    bridge::db_exec_raw(
+        "CREATE UNIQUE INDEX IF NOT EXISTS suppers_ai__admin__block_settings_block_name_uniq \
+         ON suppers_ai__admin__block_settings (block_name)",
+        "[]",
+    )
+    .map_err(|e| bridge_err("create block_settings block_name index", e))?;
 
-    // Seed defaults for known blocks
+    // Seed defaults for known blocks. The strict schema demands `id`,
+    // `created_at`, `updated_at` — generate them inline via SQLite builtins
+    // so the seed remains a one-shot SQL statement per block.
     let defaults: &[(&str, bool)] = &[
         ("suppers-ai/auth", true),
         ("suppers-ai/admin", true),
@@ -187,7 +214,9 @@ pub fn load_block_settings() -> Result<solobase_core::features::BlockSettings, J
     for &(name, default) in defaults {
         let params = serde_json::json!([name, default as i32]);
         bridge::db_exec_raw(
-            "INSERT OR IGNORE INTO suppers_ai__admin__block_settings (block_name, enabled) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO suppers_ai__admin__block_settings \
+             (id, block_name, enabled, created_at, updated_at) \
+             VALUES (lower(hex(randomblob(16))), ?, ?, datetime('now'), datetime('now'))",
             &params.to_string(),
         )
         .map_err(|e| bridge_err(&format!("seed block_setting {name}"), e))?;
