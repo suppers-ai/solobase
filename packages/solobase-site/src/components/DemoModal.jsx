@@ -27,8 +27,8 @@ export default function DemoModal({ open, onClose }) {
           <div class="bg-white px-6 pt-6 pb-5">
             <div class="text-center mb-5">
               <div class="flex items-center justify-center mb-3">
-                <div class="flex items-center justify-center h-12 w-12 rounded-full bg-blue-100">
-                  <svg class="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div class="flex items-center justify-center h-12 w-12 rounded-full bg-primary-100">
+                  <svg class="h-6 w-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
@@ -75,7 +75,7 @@ export default function DemoModal({ open, onClose }) {
               href={siteConfig.demoUrl}
               target="_blank"
               rel="noopener noreferrer"
-              class="inline-flex justify-center items-center rounded-lg px-5 py-2.5 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+              class="inline-flex justify-center items-center rounded-lg px-5 py-2.5 bg-primary-600 text-sm font-medium text-white hover:bg-primary-700 transition-colors"
             >
               Continue to Demo
             </a>
