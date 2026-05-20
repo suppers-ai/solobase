@@ -1,8 +1,6 @@
 use maud::{html, PreEscaped};
-use wafer_core::clients::{
-    config, database as db,
-    database::{ListOptions, SortField},
-};
+use wafer_block::db::{ListOptions, SortField};
+use wafer_core::clients::{config, database as db};
 use wafer_run::{
     block::{Block, BlockInfo},
     context::Context,

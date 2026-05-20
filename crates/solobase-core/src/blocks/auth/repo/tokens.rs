@@ -18,7 +18,8 @@
 use std::collections::HashMap;
 
 use serde_json::{json, Value};
-use wafer_core::clients::database::{self as db, Filter, FilterOp};
+use wafer_block::db::{Filter, FilterOp};
+use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
 use super::RepoError;

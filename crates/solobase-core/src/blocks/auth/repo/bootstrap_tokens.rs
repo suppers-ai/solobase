@@ -5,6 +5,7 @@
 //! single-use semantics) lands in Plan A2.
 
 use serde_json::json;
+use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
@@ -51,14 +52,14 @@ pub async fn is_valid(ctx: &dyn Context, token_hash: &[u8]) -> Result<bool, Repo
     let now = now_iso();
     let hex = hex_encode(token_hash);
     let filters = vec![
-        db::Filter {
+        Filter {
             field: "token_hash".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(hex),
         },
-        db::Filter {
+        Filter {
             field: "expires_at".into(),
-            operator: db::FilterOp::GreaterEqual,
+            operator: FilterOp::GreaterEqual,
             value: json!(now),
         },
     ];
@@ -77,9 +78,9 @@ pub async fn is_valid(ctx: &dyn Context, token_hash: &[u8]) -> Result<bool, Repo
 /// removes all of them so subsequent `is_valid` calls return false.
 pub async fn delete_by_hash(ctx: &dyn Context, token_hash: &[u8]) -> Result<(), RepoError> {
     let hex = hex_encode(token_hash);
-    let filters = vec![db::Filter {
+    let filters = vec![Filter {
         field: "token_hash".into(),
-        operator: db::FilterOp::Equal,
+        operator: FilterOp::Equal,
         value: json!(hex),
     }];
     let records = db::list_all(ctx, TABLE, filters)

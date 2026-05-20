@@ -1,10 +1,8 @@
 //! SSR admin pages for the files block.
 
 use maud::{html, Markup};
-use wafer_core::clients::{
-    database as db,
-    database::{Filter, FilterOp, ListOptions, SortField},
-};
+use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, OutputStream};
 
 use super::{BUCKETS_TABLE, OBJECTS_TABLE, QUOTAS_TABLE, SHARES_TABLE};

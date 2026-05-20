@@ -25,6 +25,7 @@
 use std::collections::HashMap;
 
 use serde_json::{json, Value};
+use wafer_block::db::{Filter, FilterOp, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
@@ -198,9 +199,9 @@ pub async fn delete_by_token_hash(ctx: &dyn Context, hash: &[u8]) -> Result<u64,
 /// `cutoff` is compared as an ISO-8601 string; rows store timestamps in the
 /// same text format (see [`now_iso`]).
 pub async fn delete_expired(ctx: &dyn Context, cutoff: &str) -> Result<u64, RepoError> {
-    let filters = vec![db::Filter {
+    let filters = vec![Filter {
         field: "expires_at".into(),
-        operator: db::FilterOp::LessThan,
+        operator: FilterOp::LessThan,
         value: json!(cutoff),
     }];
     let records = db::list_all(ctx, TABLE, filters)
@@ -221,12 +222,12 @@ pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<Sessi
     let records = db::list_sorted(
         ctx,
         TABLE,
-        vec![db::Filter {
+        vec![Filter {
             field: "user_id".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(user_id),
         }],
-        vec![db::SortField {
+        vec![SortField {
             field: "last_used_at".into(),
             desc: true,
         }],

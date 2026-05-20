@@ -1,10 +1,8 @@
 //! SSR pages for the products block (admin + user views).
 
 use maud::{html, Markup, PreEscaped};
-use wafer_core::clients::{
-    config, database as db,
-    database::{Filter, FilterOp, ListOptions, SortField},
-};
+use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::{config, database as db};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::{GROUPS_TABLE, PRICING_TABLE, PRODUCTS_TABLE, PURCHASES_TABLE};

@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
-use wafer_core::clients::{
-    database as db,
-    database::{Filter, FilterOp, ListOptions, SortField},
-};
+use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use crate::blocks::helpers::{

@@ -5,7 +5,8 @@
 //! prefixed storage name (e.g. `"suppers_ai__vector__docs"`) at the block
 //! boundary — no magic mapping elsewhere in the stack.
 
-use wafer_core::clients::database::{self as db, SortField};
+use wafer_block::db::SortField;
+use wafer_core::clients::database as db;
 use wafer_run::{
     context::Context,
     types::{ErrorCode, WaferError},

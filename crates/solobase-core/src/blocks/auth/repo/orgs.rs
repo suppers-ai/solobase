@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 use serde_json::{json, Value};
 use uuid::Uuid;
+use wafer_block::db::{Filter, FilterOp, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
@@ -68,9 +69,9 @@ pub async fn find_by_name(ctx: &dyn Context, name: &str) -> Result<Option<OrgRow
     let rows = db::list_all(
         ctx,
         TABLE,
-        vec![db::Filter {
+        vec![Filter {
             field: "name".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(name),
         }],
     )
@@ -88,12 +89,12 @@ pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<OrgRo
     let records = db::list_sorted(
         ctx,
         TABLE,
-        vec![db::Filter {
+        vec![Filter {
             field: "owner_user_id".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(user_id),
         }],
-        vec![db::SortField {
+        vec![SortField {
             field: "created_at".into(),
             desc: false,
         }],
@@ -128,19 +129,19 @@ pub async fn upsert_claimed(
         ctx,
         TABLE,
         &[
-            db::Filter {
+            Filter {
                 field: "verified_via".into(),
-                operator: db::FilterOp::Equal,
+                operator: FilterOp::Equal,
                 value: json!(claim.verified_via),
             },
-            db::Filter {
+            Filter {
                 field: "verified_ref".into(),
-                operator: db::FilterOp::Equal,
+                operator: FilterOp::Equal,
                 value: json!(claim.verified_ref),
             },
-            db::Filter {
+            Filter {
                 field: "is_reserved".into(),
-                operator: db::FilterOp::Equal,
+                operator: FilterOp::Equal,
                 value: json!(false),
             },
         ],

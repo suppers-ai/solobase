@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
-use wafer_core::clients::{
-    database as db,
-    database::{Filter, FilterOp, SortField},
-};
+use wafer_block::db::{Filter, FilterOp, SortField};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::USER_ROLES_TABLE;

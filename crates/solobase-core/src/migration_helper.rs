@@ -160,7 +160,7 @@ pub(crate) async fn upsert_block_settings_fields(
     block_name: &str,
     patch: std::collections::HashMap<String, serde_json::Value>,
 ) -> Result<(), String> {
-    use wafer_core::clients::database::{Filter, FilterOp, ListOptions, SortField};
+    use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
 
     let opts = ListOptions {
         filters: vec![Filter {
