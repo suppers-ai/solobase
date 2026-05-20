@@ -161,8 +161,7 @@ impl CryptoService for BrowserCryptoService {
     }
 
     fn verify(&self, token: &str) -> Result<HashMap<String, serde_json::Value>, CryptoError> {
-        wafer_block_crypto::service::Argon2JwtCryptoService::new(self.jwt_secret())?
-            .verify(token)
+        wafer_block_crypto::service::Argon2JwtCryptoService::new(self.jwt_secret())?.verify(token)
     }
 
     fn sign_for(

@@ -56,9 +56,8 @@ pub async fn initialize() -> Result<(), JsValue> {
         Arc::new(wafer_block_config::service::EnvConfigService::new());
     // Empty initial BlockSettings — every block defaults to enabled. We rewrite
     // this via the handle below in Phase 3 once the real settings are loaded.
-    let initial_block_settings = solobase_core::features::BlockSettings::from_map(
-        std::collections::HashMap::new(),
-    );
+    let initial_block_settings =
+        solobase_core::features::BlockSettings::from_map(std::collections::HashMap::new());
     // Empty StaticConfigSource: blocks that look up their declared keys via
     // the runtime's ConfigSource at lifecycle(Init) payload-build time will
     // see nothing. That's fine because solobase blocks read their keys via
@@ -134,9 +133,7 @@ pub async fn initialize() -> Result<(), JsValue> {
         .init_block(solobase_core::blocks::admin::ADMIN_BLOCK_ID)
         .await
     {
-        web_sys::console::error_1(
-            &format!("solobase: admin block Init failed: {e}").into(),
-        );
+        web_sys::console::error_1(&format!("solobase: admin block Init failed: {e}").into());
         return Err(JsValue::from_str(&format!("admin init failed: {e}")));
     }
 
