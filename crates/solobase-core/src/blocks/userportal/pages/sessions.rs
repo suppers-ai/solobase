@@ -6,7 +6,7 @@ use wafer_run::{context::Context, types::Message, OutputStream};
 use crate::{
     blocks::{
         auth::{repo::sessions, service::hash_token},
-        helpers::ResponseBuilder,
+        helpers::{hex_encode, ResponseBuilder},
     },
     ui::{
         self,
@@ -57,10 +57,6 @@ pub async fn sessions_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
         ),
     );
     ui::html_response(markup)
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn decode_hex(s: &str) -> Option<Vec<u8>> {

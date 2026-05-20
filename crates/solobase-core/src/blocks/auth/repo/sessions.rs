@@ -29,6 +29,7 @@ use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
 use super::RepoError;
+use crate::blocks::helpers::hex_encode;
 
 pub const TABLE: &str = "suppers_ai__auth__sessions";
 
@@ -50,10 +51,6 @@ pub struct NewSession {
 
 fn now_iso() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn decode_hex(s: &str) -> Option<Vec<u8>> {

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wafer_core::interfaces::database::service::*;
 
-use crate::bridge;
+use crate::{bridge, helpers::now_rfc3339};
 
 /// Browser-side DatabaseService backed by sql.js via the JS bridge.
 ///
@@ -155,11 +155,6 @@ fn parse_rows(json: &str) -> Result<Vec<Record>, DatabaseError> {
 /// Parse the rows-modified count string returned by `db_exec_raw`.
 fn parse_rows_modified(json: &str) -> i64 {
     json.trim().parse::<i64>().unwrap_or(0)
-}
-
-/// Return current UTC timestamp as an RFC 3339 string.
-fn now_rfc3339() -> String {
-    chrono::Utc::now().to_rfc3339()
 }
 
 /// Generate a random hex ID using `getrandom`.

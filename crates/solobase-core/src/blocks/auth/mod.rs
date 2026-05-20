@@ -349,14 +349,6 @@ pub(crate) mod helpers {
             if secure { "; Secure" } else { "" }
         )
     }
-
-    pub(crate) fn urlencode(s: &str) -> String {
-        // `byte_serialize` percent-encodes everything that isn't the
-        // application/x-www-form-urlencoded "safe set" (unreserved chars).
-        // Equivalent to the previous hand-rolled implementation but
-        // shares an audited path with the rest of the workspace.
-        url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
-    }
 }
 
 /// Authenticate a request using an API key.

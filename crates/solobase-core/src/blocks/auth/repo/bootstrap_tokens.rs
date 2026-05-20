@@ -9,6 +9,7 @@ use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
 use super::RepoError;
+use crate::blocks::helpers::hex_encode;
 
 pub const TABLE: &str = "suppers_ai__auth__bootstrap_tokens";
 
@@ -40,15 +41,6 @@ pub async fn insert(
         .await
         .map_err(|e| RepoError::Db(format!("bootstrap_tokens insert: {e}")))?;
     Ok(())
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        let _ = write!(s, "{b:02x}");
-    }
-    s
 }
 
 /// Returns true iff an unexpired row exists with the given hash.
