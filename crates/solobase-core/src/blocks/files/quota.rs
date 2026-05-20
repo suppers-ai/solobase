@@ -1,7 +1,5 @@
-use wafer_core::clients::{
-    database as db,
-    database::{Filter, FilterOp},
-};
+use wafer_block::db::{Filter, FilterOp};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, OutputStream};
 
 use super::{models::QuotaConfig, OBJECTS_TABLE};

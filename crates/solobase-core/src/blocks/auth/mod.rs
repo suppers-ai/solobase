@@ -31,10 +31,8 @@ pub mod session;
 
 use std::{collections::HashMap, time::Duration};
 
-use wafer_core::clients::{
-    config as config_client, crypto,
-    database::{self as db, Filter, FilterOp},
-};
+use wafer_block::db::{Filter, FilterOp};
+use wafer_core::clients::{config as config_client, crypto, database as db};
 
 use super::helpers::{hex_encode, json_map};
 

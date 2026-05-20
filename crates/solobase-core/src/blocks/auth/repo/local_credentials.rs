@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use serde_json::{json, Value};
+use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
@@ -79,9 +80,9 @@ pub async fn update_password(
     new_hash: &str,
 ) -> Result<(), RepoError> {
     use wafer_block::ErrorCode;
-    let filters = vec![db::Filter {
+    let filters = vec![Filter {
         field: "user_id".into(),
-        operator: db::FilterOp::Equal,
+        operator: FilterOp::Equal,
         value: serde_json::json!(user_id),
     }];
     match db::get_by_field(ctx, TABLE, "user_id", json!(user_id)).await {

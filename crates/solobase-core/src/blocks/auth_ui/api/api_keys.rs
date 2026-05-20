@@ -6,10 +6,8 @@
 
 use std::collections::HashMap;
 
-use wafer_core::clients::{
-    crypto, database as db,
-    database::{Filter, FilterOp, ListOptions, SortField},
-};
+use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::{crypto, database as db};
 use wafer_run::{context::Context, types::Message, InputStream, OutputStream};
 
 use crate::blocks::{

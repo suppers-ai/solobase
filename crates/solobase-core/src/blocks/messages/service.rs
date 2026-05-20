@@ -3,10 +3,8 @@
 //! Plain async functions — no HTTP awareness. Both REST and A2A handlers
 //! call these. All database interactions live here.
 
-use wafer_core::clients::{
-    database as db,
-    database::{Filter, FilterOp, ListOptions, SortField},
-};
+use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, WaferError};
 
 use crate::blocks::helpers::{self, json_map};

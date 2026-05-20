@@ -15,7 +15,8 @@ use std::{collections::HashMap, sync::Arc};
 
 pub(crate) use solobase_core::blocks::admin::BLOCK_SETTINGS_TABLE;
 use solobase_core::{blocks::admin::VARIABLES_TABLE, features::BlockSettings};
-use wafer_core::interfaces::database::service::{DatabaseService, Filter, FilterOp, ListOptions};
+use wafer_block::db::{Filter, FilterOp, ListOptions};
+use wafer_core::interfaces::database::service::DatabaseService;
 
 /// Read the admin block-settings collection and convert to `BlockSettings`.
 ///

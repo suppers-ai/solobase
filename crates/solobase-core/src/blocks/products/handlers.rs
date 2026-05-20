@@ -8,10 +8,8 @@
 
 use std::collections::HashMap;
 
-use wafer_core::clients::{
-    config, database as db,
-    database::{Filter, FilterOp, ListOptions, SortField},
-};
+use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::{config, database as db};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::{PRICING_TABLE, PURCHASES_TABLE};
@@ -895,7 +893,6 @@ async fn handle_subscription(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     use wafer_sql_utils::{
         aggregate::{build_grouped_query, AggFunc, AggregateColumn, GroupedQueryConfig},
-        value::sea_values_to_json,
         Backend,
     };
 
@@ -935,8 +932,8 @@ async fn handle_subscription(ctx: &dyn Context, msg: &Message) -> OutputStream {
         order_by: vec![],
         limit: Some(1),
     };
-    let (sql, vals) = build_grouped_query(cfg, Backend::Sqlite);
-    let rows = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await;
+    let stmt = build_grouped_query(cfg, Backend::Sqlite);
+    let rows = db::query(ctx, &stmt).await;
 
     let sub = match rows {
         Ok(records) if !records.is_empty() => Some(records[0].data.clone()),

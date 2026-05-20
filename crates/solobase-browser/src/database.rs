@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use wafer_block::db::{Filter, FilterOp, ListOptions};
 use wafer_core::interfaces::database::service::*;
 
 use crate::{bridge, helpers::now_rfc3339};

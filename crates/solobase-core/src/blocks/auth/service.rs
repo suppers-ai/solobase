@@ -200,6 +200,15 @@ pub fn auth_grants() -> Vec<wafer_block::types::ResourceGrant> {
         wafer_run::ResourceGrant::read("suppers-ai/userportal", "suppers_ai__auth__provider_links"),
         wafer_run::ResourceGrant::read_write("suppers-ai/userportal", "suppers_ai__auth__users"),
         wafer_run::ResourceGrant::read("suppers-ai/products", "suppers_ai__auth__users"),
+        // Wave 3: rate_limit.rs (called from products + files blocks) writes to
+        // suppers_ai__auth__rate_limits on the wasm32 (Cloudflare Workers) path.
+        // Native uses an in-memory Mutex<HashMap> counter and never touches the DB.
+        // auth-ui is already covered by the wildcard grant above.
+        wafer_run::ResourceGrant::read_write(
+            "suppers-ai/products",
+            "suppers_ai__auth__rate_limits",
+        ),
+        wafer_run::ResourceGrant::read_write("suppers-ai/files", "suppers_ai__auth__rate_limits"),
     ]
 }
 

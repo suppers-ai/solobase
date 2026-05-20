@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use serde_json::{json, Value};
+use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
@@ -73,9 +74,9 @@ pub async fn take(ctx: &dyn Context, code_hash: &[u8]) -> Result<Option<CliCodeR
     let rows = db::take_by_filters(
         ctx,
         TABLE,
-        vec![db::Filter {
+        vec![Filter {
             field: "code_hash".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(hex_encode(code_hash)),
         }],
     )
@@ -100,9 +101,9 @@ pub async fn delete_expired(ctx: &dyn Context, cutoff: &str) -> Result<u64, Repo
     let n = db::delete_by_filters_count(
         ctx,
         TABLE,
-        vec![db::Filter {
+        vec![Filter {
             field: "expires_at".into(),
-            operator: db::FilterOp::LessThan,
+            operator: FilterOp::LessThan,
             value: json!(cutoff),
         }],
     )

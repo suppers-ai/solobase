@@ -34,10 +34,10 @@
 //! route wins; only after that do we fall through to the generic
 //! `{index}/{id}` handler.
 
+use wafer_block::db::{Filter, FilterOp, ListOptions};
 use wafer_core::{
     clients::{
         database as db,
-        database::{Filter, FilterOp, ListOptions},
         vector::{
             self as vclient, DistanceMetric, MetadataFilter, SearchMode, VectorEntry,
             VectorIndexConfig,
@@ -46,7 +46,7 @@ use wafer_core::{
     interfaces::vector::{get_model, DEFAULT_MODEL},
 };
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
-use wafer_sql_utils::{introspect, query, upsert, value::sea_values_to_json, Backend};
+use wafer_sql_utils::{introspect, query, upsert, Backend};
 
 use super::{
     ingestion::{self, DEFAULT_CHUNK_TOKENS, DEFAULT_OVERLAP_RATIO},
@@ -202,7 +202,7 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
     // The registry table itself is owned by the block's
     // `migrations/001_vector_schema.*.sql` script (run at block Init via
     // `apply_if_blessed`), so no inline CREATE TABLE is required here.
-    let (sql, vals) = upsert::build_upsert(
+    let stmt = upsert::build_upsert(
         REGISTRY_TABLE,
         &[
             ("prefixed_name".to_string(), serde_json::json!(cfg.name)),
@@ -217,7 +217,7 @@ async fn create_index(ctx: &dyn Context, msg: &Message, input: InputStream) -> O
         &["model", "dimensions", "keyword_search"],
         Backend::Sqlite,
     );
-    if let Err(e) = db::exec_raw(ctx, &sql, &sea_values_to_json(vals)).await {
+    if let Err(e) = db::execute(ctx, &stmt).await {
         return err_internal("registry write failed", e);
     }
 
@@ -306,7 +306,7 @@ async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
             // (pre-registry deployment) is not a failure, so we only surface
             // errors that aren't about the table itself. The row-level
             // `OR REPLACE` in create_index makes this robustly idempotent.
-            let (sql, vals) = query::build_delete_where(
+            let stmt = query::build_delete_where(
                 REGISTRY_TABLE,
                 &[Filter {
                     field: "prefixed_name".into(),
@@ -315,7 +315,7 @@ async fn delete_index(ctx: &dyn Context, msg: &Message) -> OutputStream {
                 }],
                 Backend::Sqlite,
             );
-            let _ = db::exec_raw(ctx, &sql, &sea_values_to_json(vals)).await;
+            let _ = db::execute(ctx, &stmt).await;
             ok_json(&serde_json::json!({ "ok": true }))
         }
         Err(e) if e.code == ErrorCode::NotFound => {
@@ -569,7 +569,7 @@ async fn load_index_metadata(
 ) -> Result<(String, bool), WaferError> {
     // First try the registry. An error here (e.g. the table doesn't exist)
     // is treated as "no row", not fatal — we fall through to the scan.
-    let (sql, vals) = query::build_select_columns(
+    let stmt = query::build_select_columns(
         REGISTRY_TABLE,
         &["model", "keyword_search"],
         &ListOptions {
@@ -584,7 +584,7 @@ async fn load_index_metadata(
         None,
         Backend::Sqlite,
     );
-    let rows = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await;
+    let rows = db::query(ctx, &stmt).await;
 
     if let Ok(rows) = rows {
         if let Some(row) = rows.into_iter().next() {

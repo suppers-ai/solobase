@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use serde_json::{json, Value};
+use wafer_block::db::{Filter, FilterOp, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
@@ -62,14 +63,14 @@ fn row_from_map(m: &HashMap<String, Value>) -> Result<ProviderLink, RepoError> {
 pub async fn upsert(ctx: &dyn Context, new: NewLink<'_>) -> Result<(), RepoError> {
     let now = now_iso();
     let filters = vec![
-        db::Filter {
+        Filter {
             field: "provider".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(new.provider),
         },
-        db::Filter {
+        Filter {
             field: "provider_ref".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(new.provider_ref),
         },
     ];
@@ -109,14 +110,14 @@ pub async fn find_by_provider_ref(
     provider_ref: &str,
 ) -> Result<Option<ProviderLink>, RepoError> {
     let filters = vec![
-        db::Filter {
+        Filter {
             field: "provider".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(provider),
         },
-        db::Filter {
+        Filter {
             field: "provider_ref".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(provider_ref),
         },
     ];
@@ -146,12 +147,12 @@ pub async fn list_for_user(
     let records = db::list_sorted(
         ctx,
         TABLE,
-        vec![db::Filter {
+        vec![Filter {
             field: "user_id".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(user_id),
         }],
-        vec![db::SortField {
+        vec![SortField {
             field: "linked_at".into(),
             desc: false,
         }],

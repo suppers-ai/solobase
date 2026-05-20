@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 
-use wafer_core::{
-    clients::{config, database as db, network},
-    interfaces::database::service::{Filter, FilterOp, ListOptions},
-};
+use wafer_block::db::{Filter, FilterOp, ListOptions};
+use wafer_core::clients::{config, database as db, network};
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
-use wafer_sql_utils::{value::sea_values_to_json, Backend};
+use wafer_sql_utils::Backend;
 
 use super::{LINE_ITEMS_TABLE, PRODUCTS_TABLE, PURCHASES_TABLE, SUBSCRIPTIONS_TABLE};
 use crate::blocks::helpers::{
@@ -64,15 +62,14 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
         limit: 1,
         ..Default::default()
     };
-    let (line_items_sql, line_items_vals) = wafer_sql_utils::query::build_select_columns(
+    let line_items_stmt = wafer_sql_utils::query::build_select_columns(
         LINE_ITEMS_TABLE,
         &["product_id"],
         &line_items_opts,
         None,
         Backend::Sqlite,
     );
-    let line_items_args = sea_values_to_json(line_items_vals);
-    let line_items = db::query_raw(ctx, &line_items_sql, &line_items_args).await;
+    let line_items = db::query(ctx, &line_items_stmt).await;
 
     if let Ok(items) = &line_items {
         for item in items {
@@ -103,7 +100,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
     }
 
     // Atomic status transition: pending -> checkout_started (prevents double-checkout race)
-    let (sql, vals) = wafer_sql_utils::query::build_update_where(
+    let stmt = wafer_sql_utils::query::build_update_where(
         PURCHASES_TABLE,
         &[
             ("status".to_string(), serde_json::json!("checkout_started")),
@@ -126,8 +123,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
         ],
         Backend::Sqlite,
     );
-    let args = sea_values_to_json(vals);
-    let rows = match db::exec_raw(ctx, &sql, &args).await {
+    let rows = match db::execute(ctx, &stmt).await {
         Ok(n) => n,
         Err(e) => return err_internal("Failed to claim purchase for checkout", e),
     };
@@ -215,7 +211,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
 
     if resp.status_code >= 400 {
         // Revert status back to pending so user can retry
-        let (revert_sql, revert_vals) = wafer_sql_utils::query::build_update_where(
+        let revert_stmt = wafer_sql_utils::query::build_update_where(
             PURCHASES_TABLE,
             &[
                 ("status".to_string(), serde_json::json!("pending")),
@@ -238,8 +234,7 @@ pub async fn handle_checkout(ctx: &dyn Context, msg: &Message, input: InputStrea
             ],
             Backend::Sqlite,
         );
-        let revert_args = sea_values_to_json(revert_vals);
-        let _ = db::exec_raw(ctx, &revert_sql, &revert_args).await;
+        let _ = db::execute(ctx, &revert_stmt).await;
         // SEC-054: log full Stripe response server-side for diagnostics,
         // but never forward Stripe's response body to the client — it can
         // leak account configuration, API keys in error messages, internal
@@ -338,7 +333,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
 
                 // Atomic: only complete if still in checkout_started (or pending for backwards compat)
                 let now = chrono::Utc::now().to_rfc3339();
-                let (sql, vals) = wafer_sql_utils::query::build_update_where(
+                let stmt = wafer_sql_utils::query::build_update_where(
                     PURCHASES_TABLE,
                     &[
                         ("status".to_string(), serde_json::json!("completed")),
@@ -363,8 +358,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                     ],
                     Backend::Sqlite,
                 );
-                let args = sea_values_to_json(vals);
-                let rows = match db::exec_raw(ctx, &sql, &args).await {
+                let rows = match db::execute(ctx, &stmt).await {
                     Ok(n) => n,
                     // Returning a 500 here makes Stripe retry the webhook —
                     // a transient DB blip mustn't quietly drop the
@@ -405,7 +399,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                 // A timestamp-suffixed id would let them both insert.
                 let sub_id = format!("sub_{user_id}");
 
-                let (sql, vals) = wafer_sql_utils::upsert::build_upsert(
+                let stmt = wafer_sql_utils::upsert::build_upsert(
                     SUBSCRIPTIONS_TABLE,
                     &[
                         ("id".to_string(), serde_json::json!(sub_id)),
@@ -433,8 +427,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                     ],
                     Backend::Sqlite,
                 );
-                let args = sea_values_to_json(vals);
-                if let Err(e) = db::exec_raw(ctx, &sql, &args).await {
+                if let Err(e) = db::execute(ctx, &stmt).await {
                     tracing::error!(error = %e, user_id = %user_id, "subscription upsert failed");
                 }
 
@@ -474,14 +467,13 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                 if let Some(plan) = plan {
                     data.push(("plan".to_string(), serde_json::json!(plan)));
                 }
-                let (sql, vals) = wafer_sql_utils::query::build_update_where(
+                let stmt = wafer_sql_utils::query::build_update_where(
                     SUBSCRIPTIONS_TABLE,
                     &data,
                     &sub_filter,
                     Backend::Sqlite,
                 );
-                let args = sea_values_to_json(vals);
-                if let Err(e) = db::exec_raw(ctx, &sql, &args).await {
+                if let Err(e) = db::execute(ctx, &stmt).await {
                     tracing::error!(
                         error = %e,
                         stripe_sub_id = %stripe_sub_id,
@@ -522,7 +514,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
             if !stripe_sub_id.is_empty() {
                 let now = chrono::Utc::now().to_rfc3339();
                 let grace_end = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
-                let (sql, vals) = wafer_sql_utils::query::build_update_where(
+                let stmt = wafer_sql_utils::query::build_update_where(
                     SUBSCRIPTIONS_TABLE,
                     &[
                         ("status".to_string(), serde_json::json!("past_due")),
@@ -539,9 +531,8 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                     }],
                     Backend::Sqlite,
                 );
-                let args = sea_values_to_json(vals);
                 // Billing-critical: surface DB failures so Stripe retries.
-                if let Err(e) = db::exec_raw(ctx, &sql, &args).await {
+                if let Err(e) = db::execute(ctx, &stmt).await {
                     tracing::error!(
                         error = %e,
                         stripe_sub_id = %stripe_sub_id,
@@ -559,7 +550,7 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
             let user_id = get_user_for_stripe_sub(ctx, stripe_sub_id).await;
 
             // Cancel subscription and reset all addon columns to 0
-            let (sql, vals) = wafer_sql_utils::query::build_update_where(
+            let stmt = wafer_sql_utils::query::build_update_where(
                 SUBSCRIPTIONS_TABLE,
                 &[
                     ("status".to_string(), serde_json::json!("cancelled")),
@@ -576,11 +567,10 @@ pub async fn handle_webhook(ctx: &dyn Context, msg: &Message, input: InputStream
                 }],
                 Backend::Sqlite,
             );
-            let args = sea_values_to_json(vals);
             // Cancellation is billing-critical — make Stripe retry on DB failure
             // so we don't leave a "cancelled in Stripe but still active here"
             // gap that grants free access to a paid user.
-            if let Err(e) = db::exec_raw(ctx, &sql, &args).await {
+            if let Err(e) = db::execute(ctx, &stmt).await {
                 tracing::error!(
                     error = %e,
                     stripe_sub_id = %stripe_sub_id,
@@ -656,15 +646,14 @@ async fn get_user_for_stripe_sub(ctx: &dyn Context, stripe_sub_id: &str) -> Opti
         limit: 1,
         ..Default::default()
     };
-    let (sql, vals) = wafer_sql_utils::query::build_select_columns(
+    let stmt = wafer_sql_utils::query::build_select_columns(
         SUBSCRIPTIONS_TABLE,
         &["user_id"],
         &opts,
         None,
         Backend::Sqlite,
     );
-    let args = sea_values_to_json(vals);
-    let rows = db::query_raw(ctx, &sql, &args).await.ok()?;
+    let rows = db::query(ctx, &stmt).await.ok()?;
     rows.first()?
         .data
         .get("user_id")
@@ -837,15 +826,14 @@ async fn user_owns_product(ctx: &dyn Context, user_id: &str, product_id: &str) -
         limit: 1,
         ..Default::default()
     };
-    let (sub_sql, sub_vals) = wafer_sql_utils::query::build_select_columns(
+    let sub_stmt = wafer_sql_utils::query::build_select_columns(
         SUBSCRIPTIONS_TABLE,
         &["id"],
         &sub_opts,
         None,
         Backend::Sqlite,
     );
-    let sub_args = sea_values_to_json(sub_vals);
-    if let Ok(rows) = db::query_raw(ctx, &sub_sql, &sub_args).await {
+    if let Ok(rows) = db::query(ctx, &sub_stmt).await {
         if !rows.is_empty() {
             return true;
         }
@@ -871,23 +859,21 @@ async fn user_owns_product(ctx: &dyn Context, user_id: &str, product_id: &str) -
         ],
         ..Default::default()
     };
-    let (purchase_sql, purchase_vals) = wafer_sql_utils::query::build_select_columns(
+    let purchase_stmt = wafer_sql_utils::query::build_select_columns(
         PURCHASES_TABLE,
         &["id"],
         &purchase_opts,
         None,
         Backend::Sqlite,
     );
-    let purchase_args = sea_values_to_json(purchase_vals);
-    let purchase_ids: Vec<serde_json::Value> =
-        match db::query_raw(ctx, &purchase_sql, &purchase_args).await {
-            Ok(rows) => rows
-                .into_iter()
-                .filter_map(|r| r.data.get("id").and_then(|v| v.as_str()).map(String::from))
-                .map(serde_json::Value::String)
-                .collect(),
-            Err(_) => return false,
-        };
+    let purchase_ids: Vec<serde_json::Value> = match db::query(ctx, &purchase_stmt).await {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|r| r.data.get("id").and_then(|v| v.as_str()).map(String::from))
+            .map(serde_json::Value::String)
+            .collect(),
+        Err(_) => return false,
+    };
     if purchase_ids.is_empty() {
         return false;
     }
@@ -908,15 +894,14 @@ async fn user_owns_product(ctx: &dyn Context, user_id: &str, product_id: &str) -
         limit: 1,
         ..Default::default()
     };
-    let (li_sql, li_vals) = wafer_sql_utils::query::build_select_columns(
+    let li_stmt = wafer_sql_utils::query::build_select_columns(
         LINE_ITEMS_TABLE,
         &["id"],
         &line_item_opts,
         None,
         Backend::Sqlite,
     );
-    let li_args = sea_values_to_json(li_vals);
-    matches!(db::query_raw(ctx, &li_sql, &li_args).await, Ok(rows) if !rows.is_empty())
+    matches!(db::query(ctx, &li_stmt).await, Ok(rows) if !rows.is_empty())
 }
 
 /// Sync addon column totals from Stripe subscription items.
@@ -963,7 +948,7 @@ async fn sync_addon_totals_from_items(ctx: &dyn Context, user_id: &str, items: &
     }
 
     let now = chrono::Utc::now().to_rfc3339();
-    let (sql, vals) = wafer_sql_utils::query::build_update_where(
+    let stmt = wafer_sql_utils::query::build_update_where(
         SUBSCRIPTIONS_TABLE,
         &[
             (
@@ -992,8 +977,7 @@ async fn sync_addon_totals_from_items(ctx: &dyn Context, user_id: &str, items: &
         ],
         Backend::Sqlite,
     );
-    let args = sea_values_to_json(vals);
-    if let Err(e) = db::exec_raw(ctx, &sql, &args).await {
+    if let Err(e) = db::execute(ctx, &stmt).await {
         tracing::error!(
             error = %e,
             user_id = %user_id,

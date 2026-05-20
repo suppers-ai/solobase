@@ -8,7 +8,8 @@ use std::collections::HashMap;
 
 use serde_json::json;
 use solobase_core::blocks::admin::{migrations, VARIABLES_TABLE};
-use wafer_core::{clients::database as db, interfaces::database::service::ListOptions};
+use wafer_block::db::ListOptions;
+use wafer_core::clients::database as db;
 
 use crate::common::MigrationTestCtx;
 

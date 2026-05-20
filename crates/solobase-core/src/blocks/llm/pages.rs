@@ -6,10 +6,8 @@
 //! - Settings page (`GET /b/llm/settings`) — default provider/model config
 
 use maud::{html, Markup};
-use wafer_core::clients::{
-    config, database as db,
-    database::{Filter, FilterOp, ListOptions, SortField},
-};
+use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::{config, database as db};
 use wafer_run::{context::Context, types::*, OutputStream};
 
 use super::SETTINGS_TABLE;

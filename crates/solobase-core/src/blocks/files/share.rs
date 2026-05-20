@@ -195,7 +195,7 @@ async fn increment_access_count_atomic(
     share_id: &str,
     max: i64,
 ) -> Result<bool, wafer_run::WaferError> {
-    use wafer_core::interfaces::database::service::{Filter, FilterOp};
+    use wafer_block::db::{Filter, FilterOp};
 
     let mut filters: Vec<Filter> = vec![Filter {
         field: "id".into(),

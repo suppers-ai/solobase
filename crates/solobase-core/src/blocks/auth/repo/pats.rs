@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use serde_json::{json, Value};
+use wafer_block::db::{Filter, FilterOp, SortField};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
@@ -125,12 +126,12 @@ pub async fn list_for_user(ctx: &dyn Context, user_id: &str) -> Result<Vec<PatRo
     let records = db::list_sorted(
         ctx,
         TABLE,
-        vec![db::Filter {
+        vec![Filter {
             field: "user_id".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(user_id),
         }],
-        vec![db::SortField {
+        vec![SortField {
             field: "created_at".into(),
             desc: true,
         }],
@@ -147,9 +148,9 @@ pub async fn find_by_token_hash(
     let rows = db::list_all(
         ctx,
         TABLE,
-        vec![db::Filter {
+        vec![Filter {
             field: "token_hash".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(hex_encode(hash)),
         }],
     )
@@ -177,14 +178,14 @@ pub async fn delete_by_id(
         ctx,
         TABLE,
         vec![
-            db::Filter {
+            Filter {
                 field: "token_hash".into(),
-                operator: db::FilterOp::Equal,
+                operator: FilterOp::Equal,
                 value: json!(hex_encode(token_hash)),
             },
-            db::Filter {
+            Filter {
                 field: "user_id".into(),
-                operator: db::FilterOp::Equal,
+                operator: FilterOp::Equal,
                 value: json!(user_id),
             },
         ],
@@ -203,9 +204,9 @@ pub async fn touch_last_used(ctx: &dyn Context, hash: &[u8]) -> Result<(), RepoE
     db::update_by_filters(
         ctx,
         TABLE,
-        vec![db::Filter {
+        vec![Filter {
             field: "token_hash".into(),
-            operator: db::FilterOp::Equal,
+            operator: FilterOp::Equal,
             value: json!(hex_encode(hash)),
         }],
         data,

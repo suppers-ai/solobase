@@ -337,6 +337,7 @@ pub async fn output_is_error(out: OutputStream, code: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use wafer_block::db::ListOptions;
     use wafer_core::clients::database as db;
 
     use super::*;
@@ -548,7 +549,7 @@ mod tests {
             "suppers-ai/admin",
         );
 
-        let result = db::list(&ctx, "suppers_ai__auth__users", &db::ListOptions::default()).await;
+        let result = db::list(&ctx, "suppers_ai__auth__users", &ListOptions::default()).await;
 
         let err = result.expect_err("WRAP must deny call without grant");
         assert!(
@@ -569,7 +570,7 @@ mod tests {
                 .with_wrap("test/block-x", grants, "suppers-ai/admin");
 
         // Empty users table — listing must succeed (zero rows is success).
-        let res = db::list(&ctx, "suppers_ai__auth__users", &db::ListOptions::default())
+        let res = db::list(&ctx, "suppers_ai__auth__users", &ListOptions::default())
             .await
             .expect("WRAP must allow listing with matching grant");
         assert_eq!(res.records.len(), 0);
@@ -580,7 +581,7 @@ mod tests {
         // Default TestContext (no `with_wrap`) keeps WRAP-bypassing legacy
         // behaviour so existing tests aren't disturbed.
         let ctx = TestContext::with_auth().await;
-        let res = db::list(&ctx, "suppers_ai__auth__users", &db::ListOptions::default())
+        let res = db::list(&ctx, "suppers_ai__auth__users", &ListOptions::default())
             .await
             .expect("call must succeed without with_wrap");
         assert_eq!(res.records.len(), 0);

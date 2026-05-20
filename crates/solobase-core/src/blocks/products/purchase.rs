@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 
-use wafer_core::clients::{
-    database as db,
-    database::{Filter, FilterOp, SortField},
-};
+use wafer_block::db::{Filter, FilterOp, SortField};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
-use wafer_sql_utils::{value::sea_values_to_json, Backend};
+use wafer_sql_utils::Backend;
 
 use super::{PRICING_TABLE, PRODUCTS_TABLE};
 use crate::blocks::helpers::{
@@ -414,7 +412,7 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream)
     let refunded_by = msg.user_id().to_string();
     let reason_val = body.reason.unwrap_or_default();
 
-    let (sql, vals) = wafer_sql_utils::query::build_update_where(
+    let stmt = wafer_sql_utils::query::build_update_where(
         PURCHASES_TABLE,
         &[
             ("status".to_string(), serde_json::json!("refunded")),
@@ -437,8 +435,7 @@ pub async fn handle_refund(ctx: &dyn Context, msg: &Message, input: InputStream)
         ],
         Backend::Sqlite,
     );
-    let args = sea_values_to_json(vals);
-    let rows = db::exec_raw(ctx, &sql, &args).await.unwrap_or(0);
+    let rows = db::execute(ctx, &stmt).await.unwrap_or(0);
 
     if rows == 0 {
         return err_bad_request(

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use maud::html;
-use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
+use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, OutputStream};
-use wafer_sql_utils::{aggregate, query, value::sea_values_to_json, Backend};
+use wafer_sql_utils::{aggregate, query, Backend};
 
 use super::{admin_page, crumb};
 use crate::{
@@ -84,10 +85,8 @@ async fn daily_counts_30d(
     }];
     filters.extend(extra_filters);
 
-    let (sql, vals) = aggregate::build_daily_count(table, "created_at", &filters, Backend::Sqlite);
-    let rows = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
-        .await
-        .unwrap_or_default();
+    let stmt = aggregate::build_daily_count(table, "created_at", &filters, Backend::Sqlite);
+    let rows = db::query(ctx, &stmt).await.unwrap_or_default();
 
     let counts: HashMap<String, i64> = rows
         .iter()
@@ -127,7 +126,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
     }];
     let user_count_fut = db::count(ctx, USERS, &user_count_filters);
 
-    let (sql_nu, vals_nu) = aggregate::build_count(
+    let stmt_nu = aggregate::build_count(
         USERS,
         &[
             Filter {
@@ -143,10 +142,9 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         ],
         Backend::Sqlite,
     );
-    let args_nu = sea_values_to_json(vals_nu);
-    let new_users_fut = db::query_raw(ctx, &sql_nu, &args_nu);
+    let new_users_fut = db::query(ctx, &stmt_nu);
 
-    let (sql_rq, vals_rq) = aggregate::build_count(
+    let stmt_rq = aggregate::build_count(
         REQUEST_LOGS,
         &[Filter {
             field: "created_at".into(),
@@ -155,10 +153,9 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }],
         Backend::Sqlite,
     );
-    let args_rq = sea_values_to_json(vals_rq);
-    let requests_fut = db::query_raw(ctx, &sql_rq, &args_rq);
+    let requests_fut = db::query(ctx, &stmt_rq);
 
-    let (sql_er, vals_er) = aggregate::build_count(
+    let stmt_er = aggregate::build_count(
         REQUEST_LOGS,
         &[
             Filter {
@@ -174,10 +171,9 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         ],
         Backend::Sqlite,
     );
-    let args_er = sea_values_to_json(vals_er);
-    let errors_fut = db::query_raw(ctx, &sql_er, &args_er);
+    let errors_fut = db::query(ctx, &stmt_er);
 
-    let (sql_av, vals_av) = aggregate::build_avg(
+    let stmt_av = aggregate::build_avg(
         REQUEST_LOGS,
         "duration_ms",
         &[Filter {
@@ -187,10 +183,9 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         }],
         Backend::Sqlite,
     );
-    let args_av = sea_values_to_json(vals_av);
-    let avg_ms_fut = db::query_raw(ctx, &sql_av, &args_av);
+    let avg_ms_fut = db::query(ctx, &stmt_av);
 
-    let (sql_ru, vals_ru) = query::build_select_columns(
+    let stmt_ru = query::build_select_columns(
         USERS,
         &["id", "email", "created_at"],
         &ListOptions {
@@ -209,13 +204,12 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         None,
         Backend::Sqlite,
     );
-    let args_ru = sea_values_to_json(vals_ru);
-    let recent_users_fut = db::query_raw(ctx, &sql_ru, &args_ru);
+    let recent_users_fut = db::query(ctx, &stmt_ru);
 
     let or_cond = sea_query::Cond::any()
         .add(sea_query::Expr::col(wafer_sql_utils::ident::DynCol("status".into())).eq("ERROR"))
         .add(sea_query::Expr::col(wafer_sql_utils::ident::DynCol("status_code".into())).gte(400));
-    let (sql_re, vals_re) = query::build_select_columns(
+    let stmt_re = query::build_select_columns(
         REQUEST_LOGS,
         &["status_code", "method", "path", "duration_ms", "created_at"],
         &ListOptions {
@@ -229,8 +223,7 @@ pub async fn dashboard(ctx: &dyn Context, msg: &Message) -> OutputStream {
         Some(or_cond),
         Backend::Sqlite,
     );
-    let args_re = sea_values_to_json(vals_re);
-    let recent_errors_fut = db::query_raw(ctx, &sql_re, &args_re);
+    let recent_errors_fut = db::query(ctx, &stmt_re);
 
     let (
         user_count_r,

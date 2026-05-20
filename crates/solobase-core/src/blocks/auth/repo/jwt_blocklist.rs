@@ -14,6 +14,7 @@
 use std::collections::HashMap;
 
 use serde_json::{json, Value};
+use wafer_block::db::{Filter, FilterOp};
 use wafer_core::clients::database as db;
 use wafer_run::context::Context;
 
@@ -85,9 +86,9 @@ pub async fn delete_expired(ctx: &dyn Context, cutoff: &str) -> Result<u64, Repo
     let n = db::delete_by_filters_count(
         ctx,
         TABLE,
-        vec![db::Filter {
+        vec![Filter {
             field: "expires_at".into(),
-            operator: db::FilterOp::LessThan,
+            operator: FilterOp::LessThan,
             value: json!(cutoff),
         }],
     )

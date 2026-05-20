@@ -1,5 +1,6 @@
 use maud::{html, Markup};
-use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions, SortField};
+use wafer_block::db::{Filter, FilterOp, ListOptions, SortField};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
 
 use super::{admin_page, crumb};
@@ -110,7 +111,7 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
         // `build_select_with_condition` rather than the flat-filters
         // `db::paginated_list` typed client.
         use sea_query::{Cond, Expr};
-        use wafer_sql_utils::{ident::DynCol, query, value::sea_values_to_json, Backend};
+        use wafer_sql_utils::{ident::DynCol, query, Backend};
 
         let like = format!("%{search}%");
         let offset = ((page - 1) * page_size) as i64;
@@ -118,7 +119,7 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
             .add(Expr::col(DynCol("email".into())).like(like.clone()))
             .add(Expr::col(DynCol("id".into())).like(like.clone()));
 
-        let (sql, vals) = query::build_select_with_condition(
+        let stmt = query::build_select_with_condition(
             USERS,
             &ListOptions {
                 filters: vec![Filter {
@@ -137,7 +138,7 @@ async fn users_tab(ctx: &dyn Context, msg: &Message, current_user_id: &str) -> M
             Some(or_group),
             Backend::Sqlite,
         );
-        let records = db::query_raw(ctx, &sql, &sea_values_to_json(vals)).await;
+        let records = db::query(ctx, &stmt).await;
         // Wrap in RecordList format. total_count is the in-page count here;
         // the search UI doesn't paginate beyond what fits in one page.
         match records {
