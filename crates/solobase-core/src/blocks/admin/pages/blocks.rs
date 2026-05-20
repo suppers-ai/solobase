@@ -1,7 +1,6 @@
 use maud::html;
-use wafer_core::clients::database::{self as db, Filter, FilterOp, ListOptions};
+use wafer_core::clients::database as db;
 use wafer_run::{context::Context, types::*, InputStream, OutputStream};
-use wafer_sql_utils::{query, upsert, value::sea_values_to_json, Backend};
 
 use super::{admin_page, crumb};
 use crate::{
@@ -244,49 +243,10 @@ pub async fn handle_toggle_feature(
     msg: &Message,
     block_name: &str,
 ) -> OutputStream {
-    // Read current state from block_settings
-    let (sql, vals) = query::build_select_columns(
-        BLOCK_SETTINGS,
-        &["enabled"],
-        &ListOptions {
-            filters: vec![Filter {
-                field: "block_name".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(block_name),
-            }],
-            ..Default::default()
-        },
-        None,
-        Backend::Sqlite,
-    );
-    let current_enabled = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
-        .await
-        .ok()
-        .and_then(|rows| {
-            rows.first()
-                .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
-        })
-        .map(|v| v != 0)
-        .unwrap_or(true);
-
+    // Read current state and toggle via shared helper (audit finding #12).
+    let current_enabled = super::super::settings::block_settings::is_enabled(ctx, block_name).await;
     let new_enabled = !current_enabled;
-    let new_enabled_int = if new_enabled { 1 } else { 0 };
-
-    // Upsert into block_settings
-    let now = chrono::Utc::now().to_rfc3339();
-    let (sql, vals) = upsert::build_upsert(
-        BLOCK_SETTINGS,
-        &[
-            ("block_name".to_string(), serde_json::json!(block_name)),
-            ("enabled".to_string(), serde_json::json!(new_enabled_int)),
-            ("created_at".to_string(), serde_json::json!(&now)),
-            ("updated_at".to_string(), serde_json::json!(&now)),
-        ],
-        &["block_name"],
-        &["enabled", "updated_at"],
-        Backend::Sqlite,
-    );
-    let _ = db::exec_raw(ctx, &sql, &sea_values_to_json(vals)).await;
+    let _ = super::super::settings::block_settings::set_enabled(ctx, block_name, new_enabled).await;
 
     let admin_id = msg.user_id().to_string();
     let ip = msg.remote_addr().to_string();
@@ -311,30 +271,8 @@ pub async fn handle_block_detail(
     let blocks: Vec<wafer_run::BlockInfo> = ctx.registered_blocks();
     let block_opt = blocks.iter().find(|b| b.name == block_name);
 
-    // Check block enabled state from block_settings
-    let (sql, vals) = query::build_select_columns(
-        BLOCK_SETTINGS,
-        &["enabled"],
-        &ListOptions {
-            filters: vec![Filter {
-                field: "block_name".into(),
-                operator: FilterOp::Equal,
-                value: serde_json::json!(block_name),
-            }],
-            ..Default::default()
-        },
-        None,
-        Backend::Sqlite,
-    );
-    let is_enabled = db::query_raw(ctx, &sql, &sea_values_to_json(vals))
-        .await
-        .ok()
-        .and_then(|rows| {
-            rows.first()
-                .and_then(|r| r.data.get("enabled").and_then(|v| v.as_i64()))
-        })
-        .map(|v| v != 0)
-        .unwrap_or(true);
+    // Check block enabled state via shared helper (audit finding #12).
+    let is_enabled = super::super::settings::block_settings::is_enabled(ctx, block_name).await;
 
     let encoded = encode_block_name(block_name);
 
