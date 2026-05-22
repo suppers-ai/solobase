@@ -67,6 +67,22 @@ fn format_key(table: CachedTable, value: &str) -> String {
     format!("cfg:v1:{tag}:{value}")
 }
 
+use std::collections::HashMap;
+
+/// Pulls the cache-key column from a row payload. Returns Some(kv_key)
+/// when the column is present and string-typed.
+pub fn write_key(
+    table: CachedTable,
+    row: &HashMap<String, serde_json::Value>,
+) -> Option<String> {
+    let col = match table {
+        CachedTable::Variables => "block",
+        CachedTable::BlockSettings => "block_name",
+    };
+    let value_str = row.get(col)?.as_str()?;
+    Some(format_key(table, value_str))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +204,49 @@ mod tests {
         let mut opts = canonical_opts("block", "SUPPERS_AI__AUTH");
         opts.filters[0].value = serde_json::Value::Number(42.into());
         assert_eq!(read_key(CachedTable::Variables, &opts), None);
+    }
+
+    use std::collections::HashMap;
+
+    fn row(field: &str, value: serde_json::Value) -> HashMap<String, serde_json::Value> {
+        let mut m = HashMap::new();
+        m.insert(field.into(), value);
+        m
+    }
+
+    #[test]
+    fn write_key_variables_extracts_block() {
+        let r = row("block", serde_json::Value::String("SUPPERS_AI__AUTH".into()));
+        assert_eq!(
+            write_key(CachedTable::Variables, &r),
+            Some("cfg:v1:variables:SUPPERS_AI__AUTH".to_string())
+        );
+    }
+
+    #[test]
+    fn write_key_block_settings_extracts_block_name() {
+        let r = row("block_name", serde_json::Value::String("wafer-run/registry".into()));
+        assert_eq!(
+            write_key(CachedTable::BlockSettings, &r),
+            Some("cfg:v1:block_settings:wafer-run/registry".to_string())
+        );
+    }
+
+    #[test]
+    fn write_key_missing_column_returns_none() {
+        let r = row("key", serde_json::Value::String("JWT_SECRET".into()));
+        assert_eq!(write_key(CachedTable::Variables, &r), None);
+    }
+
+    #[test]
+    fn write_key_non_string_value_returns_none() {
+        let r = row("block", serde_json::Value::Number(42.into()));
+        assert_eq!(write_key(CachedTable::Variables, &r), None);
+    }
+
+    #[test]
+    fn write_key_empty_row_returns_none() {
+        let r: HashMap<String, serde_json::Value> = HashMap::new();
+        assert_eq!(write_key(CachedTable::Variables, &r), None);
     }
 }
