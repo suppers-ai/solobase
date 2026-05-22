@@ -251,7 +251,30 @@ impl DatabaseService for KvCachedD1DatabaseService {
         collection: &str,
         data: HashMap<String, serde_json::Value>,
     ) -> Result<Record, DatabaseError> {
-        self.inner.create(collection, data).await
+        let cached = cache_key::classify_table(collection);
+        let invalidate_key = cached.and_then(|t| cache_key::write_key(t, &data));
+
+        let record = self.inner.create(collection, data).await?;
+
+        if let Some(key) = invalidate_key {
+            if let Err(e) = self.kv.delete(&key).await {
+                tracing::warn!(
+                    table = %collection,
+                    key = %key,
+                    error = %e,
+                    "kv invalidate after create failed; relying on TTL"
+                );
+            } else {
+                tracing::debug!(table = %collection, key = %key, "cache_invalidate_after_create");
+            }
+        } else if cached.is_some() {
+            tracing::warn!(
+                table = %collection,
+                "cached table write with no extractable cache-key column; relying on TTL"
+            );
+        }
+
+        Ok(record)
     }
 
     async fn update(
