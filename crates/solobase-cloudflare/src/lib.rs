@@ -47,6 +47,30 @@ pub fn make_d1_database_service(
     Ok(Arc::new(database::D1DatabaseService::new(db)))
 }
 
+/// Construct a [`DatabaseService`] backed by D1 with a Cloudflare KV cache
+/// layered on top of the per-block read paths (`variables WHERE block=?`
+/// and `block_settings WHERE block_name=?`).
+///
+/// The KV binding name must match a `[[kv_namespaces]]` entry in the
+/// consumer's `wrangler.toml` (canonical name: `"CONFIG_CACHE"`).
+///
+/// Fails fast if the KV binding is missing — silent degradation would
+/// mask a config-drift outage.
+///
+/// Spec: `docs/superpowers/specs/2026-05-22-kv-cached-d1-config-source-design.md`.
+pub fn make_kv_cached_database_service(
+    env: &worker::Env,
+    d1_binding: &str,
+    kv_binding: &str,
+) -> Result<Arc<dyn DatabaseService>, worker::Error> {
+    let inner = make_d1_database_service(env, d1_binding)?;
+    let kv_store = env.kv(kv_binding)?;
+    let backend = Arc::new(kv_cached_db::WorkerKvBackend(kv_store));
+    Ok(Arc::new(kv_cached_db::KvCachedD1DatabaseService::new(
+        inner, backend,
+    )))
+}
+
 /// Construct an R2-backed [`StorageService`] from a worker `Env` and the R2
 /// bucket binding name.
 ///
@@ -145,9 +169,9 @@ where
         Arc<dyn StorageService>,
     ) -> Result<(), Box<dyn std::error::Error>>,
 {
-    // 1. Construct D1 service first — env vars live in D1.
-    let db = make_d1_database_service(&env, runner::D1_BINDING)
-        .map_err(|e| format!("D1 binding {:?}: {e}", runner::D1_BINDING))?;
+    // 1. Construct D1 service (with KV cache) first — env vars live in D1.
+    let db = make_kv_cached_database_service(&env, runner::D1_BINDING, runner::KV_BINDING)
+        .map_err(|e| format!("DB/KV bindings (D1={:?}, KV={:?}): {e}", runner::D1_BINDING, runner::KV_BINDING))?;
 
     // 2. Load block settings (enablement + migration state) eagerly —
     //    this is the only D1 read at cold start now. The per-block
