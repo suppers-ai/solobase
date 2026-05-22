@@ -14,6 +14,7 @@ pub mod convert;
 pub mod crypto_service;
 pub mod database;
 pub mod helpers;
+pub mod kv_cached_db;
 pub mod logger_service;
 pub mod network_service;
 mod runner;
