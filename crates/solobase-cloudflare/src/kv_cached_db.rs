@@ -57,8 +57,7 @@ impl KvBackend for WorkerKvBackend {
 // KvCachedD1DatabaseService
 // ---------------------------------------------------------------------------
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use solobase_core::cache_key;
 use wafer_block::db::{Filter, ListOptions};
@@ -183,8 +182,8 @@ impl DatabaseService for KvCachedD1DatabaseService {
         collection: &str,
         opts: &ListOptions,
     ) -> Result<RecordList, DatabaseError> {
-        let cache_key_opt = cache_key::classify_table(collection)
-            .and_then(|t| cache_key::read_key(t, opts));
+        let cache_key_opt =
+            cache_key::classify_table(collection).and_then(|t| cache_key::read_key(t, opts));
 
         let Some(key) = cache_key_opt else {
             return self.inner.list(collection, opts).await;

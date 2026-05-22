@@ -171,7 +171,13 @@ where
 {
     // 1. Construct D1 service (with KV cache) first — env vars live in D1.
     let db = make_kv_cached_database_service(&env, runner::D1_BINDING, runner::KV_BINDING)
-        .map_err(|e| format!("DB/KV bindings (D1={:?}, KV={:?}): {e}", runner::D1_BINDING, runner::KV_BINDING))?;
+        .map_err(|e| {
+            format!(
+                "DB/KV bindings (D1={:?}, KV={:?}): {e}",
+                runner::D1_BINDING,
+                runner::KV_BINDING
+            )
+        })?;
 
     // 2. Load block settings (enablement + migration state) eagerly —
     //    this is the only D1 read at cold start now. The per-block

@@ -71,10 +71,7 @@ use std::collections::HashMap;
 
 /// Pulls the cache-key column from a row payload. Returns Some(kv_key)
 /// when the column is present and string-typed.
-pub fn write_key(
-    table: CachedTable,
-    row: &HashMap<String, serde_json::Value>,
-) -> Option<String> {
+pub fn write_key(table: CachedTable, row: &HashMap<String, serde_json::Value>) -> Option<String> {
     let col = match table {
         CachedTable::Variables => "block",
         CachedTable::BlockSettings => "block_name",
@@ -210,7 +207,10 @@ mod tests {
     fn read_key_sort_set_returns_none() {
         use wafer_block::db::SortField;
         let mut opts = canonical_opts("block", "SUPPERS_AI__AUTH");
-        opts.sort.push(SortField { field: "key".into(), desc: false });
+        opts.sort.push(SortField {
+            field: "key".into(),
+            desc: false,
+        });
         assert_eq!(read_key(CachedTable::Variables, &opts), None);
     }
 
@@ -224,7 +224,10 @@ mod tests {
 
     #[test]
     fn write_key_variables_extracts_block() {
-        let r = row("block", serde_json::Value::String("SUPPERS_AI__AUTH".into()));
+        let r = row(
+            "block",
+            serde_json::Value::String("SUPPERS_AI__AUTH".into()),
+        );
         assert_eq!(
             write_key(CachedTable::Variables, &r),
             Some("cfg:v1:variables:SUPPERS_AI__AUTH".to_string())
@@ -233,7 +236,10 @@ mod tests {
 
     #[test]
     fn write_key_block_settings_extracts_block_name() {
-        let r = row("block_name", serde_json::Value::String("wafer-run/registry".into()));
+        let r = row(
+            "block_name",
+            serde_json::Value::String("wafer-run/registry".into()),
+        );
         assert_eq!(
             write_key(CachedTable::BlockSettings, &r),
             Some("cfg:v1:block_settings:wafer-run/registry".to_string())
