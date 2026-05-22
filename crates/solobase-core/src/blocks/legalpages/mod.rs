@@ -650,7 +650,7 @@ impl Block for LegalPagesBlock {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::register_static_block!("suppers-ai/legalpages", LegalPagesBlock);
+::wafer_block::register_static_block!("suppers-ai/legalpages", LegalPagesBlock);
 
 #[cfg(test)]
 mod tests {

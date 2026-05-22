@@ -113,4 +113,4 @@ impl Block for FastembedBlock {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::register_static_block!("suppers-ai/fastembed", FastembedBlock);
+::wafer_block::register_static_block!("suppers-ai/fastembed", FastembedBlock);

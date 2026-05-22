@@ -146,4 +146,4 @@ impl Block for VectorBlock {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::register_static_block!("suppers-ai/vector", VectorBlock);
+::wafer_block::register_static_block!("suppers-ai/vector", VectorBlock);

@@ -524,7 +524,7 @@ async fn handle_delete_wrap_grant(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::register_static_block!("suppers-ai/admin", AdminBlock);
+::wafer_block::register_static_block!("suppers-ai/admin", AdminBlock);
 
 // ---------------------------------------------------------------------------
 // Tests

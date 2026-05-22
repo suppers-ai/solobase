@@ -505,7 +505,7 @@ async fn check_caller_rate_limit(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::register_static_block!("suppers-ai/email", EmailBlock);
+::wafer_block::register_static_block!("suppers-ai/email", EmailBlock);
 
 // ---------------------------------------------------------------------------
 // Tests — SEC-051 rate limit + recipient allow-list + validation.

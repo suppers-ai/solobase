@@ -282,4 +282,4 @@ impl Block for FilesBlock {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::register_static_block!("suppers-ai/files", FilesBlock);
+::wafer_block::register_static_block!("suppers-ai/files", FilesBlock);
