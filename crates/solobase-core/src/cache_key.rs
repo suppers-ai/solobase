@@ -206,6 +206,14 @@ mod tests {
         assert_eq!(read_key(CachedTable::Variables, &opts), None);
     }
 
+    #[test]
+    fn read_key_sort_set_returns_none() {
+        use wafer_block::db::SortField;
+        let mut opts = canonical_opts("block", "SUPPERS_AI__AUTH");
+        opts.sort.push(SortField { field: "key".into(), desc: false });
+        assert_eq!(read_key(CachedTable::Variables, &opts), None);
+    }
+
     use std::collections::HashMap;
 
     fn row(field: &str, value: serde_json::Value) -> HashMap<String, serde_json::Value> {
