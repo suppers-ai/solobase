@@ -10,6 +10,7 @@
 
 pub(crate) const D1_BINDING: &str = "DB";
 pub(crate) const R2_BINDING: &str = "STORAGE";
+pub(crate) const KV_BINDING: &str = "CONFIG_CACHE";
 
 use std::{collections::HashMap, sync::Arc};
 
