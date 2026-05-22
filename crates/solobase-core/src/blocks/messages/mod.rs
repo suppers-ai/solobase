@@ -312,4 +312,4 @@ impl Block for MessagesBlock {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::register_static_block!("suppers-ai/messages", MessagesBlock);
+::wafer_block::register_static_block!("suppers-ai/messages", MessagesBlock);

@@ -382,4 +382,4 @@ impl Block for AuthUiBlock {
 // PR 5 Task 7: framework AuthBlock now owns `suppers-ai/auth` (the auth
 // service primitive); auth-ui owns the `/b/auth/*` HTTP surface.
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::register_static_block!("suppers-ai/auth-ui", AuthUiBlock);
+::wafer_block::register_static_block!("suppers-ai/auth-ui", AuthUiBlock);

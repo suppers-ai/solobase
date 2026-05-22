@@ -839,4 +839,4 @@ mod cross_block_tests {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::register_static_block!("suppers-ai/userportal", UserPortalBlock);
+::wafer_block::register_static_block!("suppers-ai/userportal", UserPortalBlock);

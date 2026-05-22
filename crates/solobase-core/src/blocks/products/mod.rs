@@ -332,4 +332,4 @@ impl Block for ProductsBlock {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::register_static_block!("suppers-ai/products", ProductsBlock);
+::wafer_block::register_static_block!("suppers-ai/products", ProductsBlock);

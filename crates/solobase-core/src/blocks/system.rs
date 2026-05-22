@@ -110,7 +110,7 @@ impl Block for SystemBlock {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-::wafer_run::register_static_block!("suppers-ai/system", SystemBlock);
+::wafer_block::register_static_block!("suppers-ai/system", SystemBlock);
 
 #[cfg(test)]
 mod tests {
