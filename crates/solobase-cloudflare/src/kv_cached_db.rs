@@ -320,6 +320,39 @@ impl DatabaseService for KvCachedD1DatabaseService {
     }
 
     async fn delete(&self, collection: &str, id: &str) -> Result<(), DatabaseError> {
-        self.inner.delete(collection, id).await
+        let cached = cache_key::classify_table(collection);
+        let invalidate_key = if let Some(t) = cached {
+            match self.inner.get(collection, id).await {
+                Ok(row) => cache_key::write_key(t, &row.data),
+                Err(e) => {
+                    tracing::warn!(
+                        table = %collection,
+                        id = %id,
+                        error = %e,
+                        "pre-read for cache-key failed; skipping invalidation"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        self.inner.delete(collection, id).await?;
+
+        if let Some(key) = invalidate_key {
+            if let Err(e) = self.kv.delete(&key).await {
+                tracing::warn!(
+                    table = %collection,
+                    key = %key,
+                    error = %e,
+                    "kv invalidate after delete failed; relying on TTL"
+                );
+            } else {
+                tracing::debug!(table = %collection, key = %key, "cache_invalidate_after_delete");
+            }
+        }
+
+        Ok(())
     }
 }
