@@ -49,6 +49,9 @@ chrono = { workspace = true }
 # Async
 async-trait = { workspace = true }
 
+# Observability
+tracing = { workspace = true }
+
 # Templating
 maud = { workspace = true }
 

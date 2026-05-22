@@ -178,13 +178,72 @@ impl DatabaseService for KvCachedD1DatabaseService {
         self.inner.update_where(collection, filters, data).await
     }
 
-    // Cache-aware methods filled in by subsequent commits — placeholder pass-through for now.
     async fn list(
         &self,
         collection: &str,
         opts: &ListOptions,
     ) -> Result<RecordList, DatabaseError> {
-        self.inner.list(collection, opts).await
+        let cache_key_opt = cache_key::classify_table(collection)
+            .and_then(|t| cache_key::read_key(t, opts));
+
+        let Some(key) = cache_key_opt else {
+            return self.inner.list(collection, opts).await;
+        };
+
+        // Try cache hit.
+        match self.kv.get(&key).await {
+            Ok(Some(body)) => match serde_json::from_str::<Vec<Record>>(&body) {
+                Ok(records) => {
+                    let page_size = opts.limit;
+                    let total_count = records.len() as i64;
+                    tracing::debug!(table = %collection, key = %key, "cache_hit");
+                    return Ok(RecordList {
+                        records,
+                        total_count,
+                        page: 1,
+                        page_size,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        table = %collection,
+                        key = %key,
+                        error = %e,
+                        "cache value deserialize failed; falling through"
+                    );
+                }
+            },
+            Ok(None) => {
+                tracing::debug!(table = %collection, key = %key, "cache_miss");
+            }
+            Err(e) => {
+                tracing::warn!(
+                    table = %collection,
+                    key = %key,
+                    error = %e,
+                    "kv get failed; falling through"
+                );
+            }
+        }
+
+        // Fall through to D1 and populate cache.
+        let result = self.inner.list(collection, opts).await?;
+        let payload = match serde_json::to_string(&result.records) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "cache payload serialize failed; skipping put");
+                return Ok(result);
+            }
+        };
+        if let Err(e) = self.kv.put_with_ttl(&key, &payload, CACHE_TTL_SECS).await {
+            tracing::warn!(
+                table = %collection,
+                key = %key,
+                error = %e,
+                "kv put failed; cache stays cold"
+            );
+        }
+        Ok(result)
     }
 
     async fn create(
