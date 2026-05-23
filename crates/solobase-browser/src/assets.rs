@@ -106,8 +106,9 @@ mod tests {
     // wiring is present.
     #[test]
     fn loader_template_renders_with_recovery_loop_guard() {
-        use crate::tools::bundle::template;
         use std::collections::BTreeMap;
+
+        use crate::tools::bundle::template;
         let tmp = tempfile::tempdir().unwrap();
         let src = tmp.path().join("loader.js.tmpl");
         let out = tmp.path().join("loader.js");
