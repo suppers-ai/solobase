@@ -97,4 +97,38 @@ mod tests {
             assert_eq!(got, asset.bytes, "mismatched bytes for {:?}", asset.path);
         }
     }
+
+    // Regression: the loader's recovery path must include a loop-guard that
+    // stops the `self-destruct → wipe → ?_freshen reload → self-destruct`
+    // cycle that traps production builds (OPFS_WIPE_ON_RECOVERY=false) when
+    // initialize() keeps failing after a wipe — and must surface a manual
+    // reset UI instead. Render the actual template and assert the loop-guard
+    // wiring is present.
+    #[test]
+    fn loader_template_renders_with_recovery_loop_guard() {
+        use crate::tools::bundle::template;
+        use std::collections::BTreeMap;
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("loader.js.tmpl");
+        let out = tmp.path().join("loader.js");
+        std::fs::write(&src, include_bytes!("../assets/loader.js.tmpl")).unwrap();
+        let mut vars = BTreeMap::new();
+        vars.insert("APP_NAME".into(), "demo-app".into());
+        vars.insert("BOOT_REDIRECT".into(), "/".into());
+        vars.insert("OPFS_WIPE_ON_RECOVERY".into(), "false".into());
+
+        template::render_to_file(&src, &out, &vars).unwrap();
+        let body = std::fs::read_to_string(&out).unwrap();
+
+        assert!(body.contains("RECOVERY_DONE_KEY"), "missing loop-guard key");
+        assert!(
+            body.contains("renderRecoveryStuckUI"),
+            "missing stuck-UI fallback fn"
+        );
+        assert!(
+            body.contains("Reset local data and reload"),
+            "missing manual reset button label"
+        );
+        assert!(body.contains("const OPFS_WIPE_ON_RECOVERY = false;"));
+    }
 }
