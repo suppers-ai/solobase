@@ -37,13 +37,13 @@ impl SiteConfig {
             logo_url: config::get_default(
                 ctx,
                 "SOLOBASE_SHARED__LOGO_URL",
-                "https://solobase.dev/images/logo_long.png",
+                assets::logo_long_url(),
             )
             .await,
             logo_icon_url: config::get_default(
                 ctx,
                 "SOLOBASE_SHARED__LOGO_ICON_URL",
-                "https://solobase.dev/images/logo.png",
+                assets::logo_icon_url(),
             )
             .await,
             favicon_url: config::get_default(ctx, "SOLOBASE_SHARED__FAVICON_URL", "").await,

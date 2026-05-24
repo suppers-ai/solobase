@@ -28,7 +28,7 @@ pub(super) fn site_config(ctx: &dyn Context) -> SiteConfig {
         .unwrap_or("");
     let logo_url = if auth_logo.is_empty() {
         ctx.config_get("SOLOBASE_SHARED__LOGO_URL")
-            .unwrap_or("https://solobase.dev/images/logo_long.png")
+            .unwrap_or_else(|| ui::assets::logo_long_url())
     } else {
         auth_logo
     };
@@ -50,7 +50,7 @@ pub(super) fn site_config(ctx: &dyn Context) -> SiteConfig {
         logo_url: logo_url.to_string(),
         logo_icon_url: ctx
             .config_get("SOLOBASE_SHARED__LOGO_ICON_URL")
-            .unwrap_or("https://solobase.dev/images/logo.png")
+            .unwrap_or_else(|| ui::assets::logo_icon_url())
             .to_string(),
         favicon_url: ctx
             .config_get("SOLOBASE_SHARED__FAVICON_URL")

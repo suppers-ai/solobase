@@ -12,7 +12,7 @@ use wafer_run::{context::Context, types::Message, OutputStream};
 
 use crate::{
     blocks::helpers::{RecordExt, ResponseBuilder},
-    ui::{self, icons, sidebar::nav_icon, SiteConfig},
+    ui::{self, icons, sidebar::nav_icon, SiteConfig, UserInfo},
 };
 
 struct DashboardButton {
@@ -33,8 +33,15 @@ pub async fn dashboard_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let buttons = load_buttons(ctx).await;
     let config = SiteConfig::load(ctx).await;
+    let is_admin = UserInfo::from_message(msg).is_some_and(|u| u.is_admin());
 
     let body = html! {
+        @if is_admin {
+            a .account-admin-link href="/b/admin/" {
+                (icons::layout_dashboard())
+                span { "Open admin panel" }
+            }
+        }
         ul .account-nav {
             (nav_link("/b/userportal/profile", icons::user(), "Profile"))
             (nav_link("/b/userportal/security", icons::lock(), "Security"))

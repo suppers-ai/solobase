@@ -429,8 +429,19 @@
 .page--chat { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 0; height: calc(100vh - 2rem); }
 .page--chat:has(.chat-rail) { grid-template-columns: 280px minmax(0,1fr) 320px; }
 @media (max-width: 720px) {
-	.page--chat, .page--chat:has(.chat-rail) { grid-template-columns: 1fr; }
-	.chat-threads, .chat-rail { display: none; }
+	/* Mobile: stack threads above chat so the "+ new thread" control stays
+	   reachable. Previously both side panels were `display:none`, leaving
+	   the user with no way to start a conversation. The model rail is still
+	   hidden because the chat itself ships a model selector inline. */
+	.page--chat, .page--chat:has(.chat-rail) {
+		grid-template-columns: 1fr;
+		grid-template-rows: minmax(120px, 30vh) 1fr;
+	}
+	.chat-threads {
+		border-right: none;
+		border-bottom: 1px solid var(--border-light);
+	}
+	.chat-rail { display: none; }
 }
 .chat-threads { background: var(--surface-3); border-right: 1px solid var(--border-light); overflow-y: auto; }
 .chat-main { display: flex; flex-direction: column; min-height: 0; }
@@ -519,13 +530,15 @@
 .sidebar__user-role { color: var(--text-muted); font-size: var(--text-xs); }
 
 .sidebar__collapse-toggle {
-	position: absolute; bottom: 0.5rem; right: 0.5rem;
+	/* Pin to the panel header so it sits next to the brand instead of
+	   floating in the sidebar's empty space (which read as broken UI). */
+	position: absolute; top: 0.5rem; right: 0.5rem;
 	width: 28px; height: 28px;
 	display: flex; align-items: center; justify-content: center;
-	background: var(--surface-1); color: var(--text-secondary);
-	border: 1px solid var(--border-color); border-radius: var(--radius-md);
+	background: transparent; color: var(--text-muted);
+	border: 1px solid transparent; border-radius: var(--radius-md);
 	cursor: pointer; padding: 0;
-	transition: background-color 0.15s, color 0.15s;
+	transition: background-color 0.15s, color 0.15s, border-color 0.15s;
 	z-index: 1;
 }
 .sidebar__collapse-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
