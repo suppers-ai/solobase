@@ -569,9 +569,9 @@ mod tests {
 
 #[cfg(test)]
 mod grant_tests {
+    use wafer_run::{block::Block, types::ResourceType};
+
     use super::AdminBlock;
-    use wafer_run::block::Block;
-    use wafer_run::types::ResourceType;
 
     #[test]
     fn admin_block_declares_typed_storage_grant_for_files() {
