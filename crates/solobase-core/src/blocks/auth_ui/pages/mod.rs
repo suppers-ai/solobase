@@ -240,8 +240,8 @@ mod tests {
         let cfg = site_config(&ctx);
 
         assert_eq!(cfg.app_name, "Solobase");
-        assert_eq!(cfg.logo_url, "https://solobase.dev/images/logo_long.png");
-        assert_eq!(cfg.logo_icon_url, "https://solobase.dev/images/logo.png");
+        assert_eq!(cfg.logo_url, crate::ui::assets::logo_long_url());
+        assert_eq!(cfg.logo_icon_url, crate::ui::assets::logo_icon_url());
         assert!(cfg.favicon_url.is_empty());
         assert!(cfg.embedded_scripts.is_empty());
     }
