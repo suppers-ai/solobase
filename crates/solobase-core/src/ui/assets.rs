@@ -17,6 +17,40 @@ const CHARTS_CSS: &str = include_str!("assets/charts.css");
 const ITIM_LATIN_WOFF2: &[u8] = include_bytes!("assets/fonts/itim-latin.woff2");
 const ITIM_LATIN_EXT_WOFF2: &[u8] = include_bytes!("assets/fonts/itim-latin-ext.woff2");
 
+/// Square Solobase mark used as the sidebar/login icon. Bundled locally so
+/// the admin renders correctly without internet (the previous default pointed
+/// at `https://solobase.dev/images/logo.png` which 404s offline).
+const LOGO_ICON_PNG: &[u8] = include_bytes!("assets/solobase-logo.png");
+/// Solobase wordmark/long logo — used in the sidebar brand and login splash.
+const LOGO_LONG_PNG: &[u8] = include_bytes!("assets/solobase-logo-long.png");
+
+/// Solobase square logo bytes.
+pub fn logo_icon_png() -> &'static [u8] {
+    LOGO_ICON_PNG
+}
+
+/// Solobase long/wordmark logo bytes.
+pub fn logo_long_png() -> &'static [u8] {
+    LOGO_LONG_PNG
+}
+
+/// Square logo URL with content hash, e.g. `/b/static/solobase-logo-a1b2c3d4.png`.
+pub fn logo_icon_url() -> &'static str {
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| format!("/b/static/solobase-logo-{}.png", short_hash(LOGO_ICON_PNG)))
+}
+
+/// Long/wordmark logo URL with content hash, e.g. `/b/static/solobase-logo-long-a1b2c3d4.png`.
+pub fn logo_long_url() -> &'static str {
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| {
+        format!(
+            "/b/static/solobase-logo-long-{}.png",
+            short_hash(LOGO_LONG_PNG)
+        )
+    })
+}
+
 /// Itim latin (basic) woff2 bytes.
 pub fn itim_latin_woff2() -> &'static [u8] {
     ITIM_LATIN_WOFF2

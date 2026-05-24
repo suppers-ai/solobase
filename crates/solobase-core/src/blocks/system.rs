@@ -40,6 +40,8 @@ impl Block for SystemBlock {
                 BlockEndpoint::get("/b/static/files-browser-{hash}.js").summary("Embedded files-browser JS"),
                 BlockEndpoint::get("/b/static/itim-latin-{hash}.woff2").summary("Embedded Itim font (latin)"),
                 BlockEndpoint::get("/b/static/itim-latin-ext-{hash}.woff2").summary("Embedded Itim font (latin-ext)"),
+                BlockEndpoint::get("/b/static/solobase-logo-{hash}.png").summary("Embedded Solobase square logo"),
+                BlockEndpoint::get("/b/static/solobase-logo-long-{hash}.png").summary("Embedded Solobase wordmark logo"),
             ])
     }
 
@@ -86,6 +88,14 @@ impl Block for SystemBlock {
             }),
             ("/b/static/itim-latin-", ".woff2", "font/woff2", || {
                 Bytes::Owned(ui::assets::itim_latin_woff2().to_vec())
+            }),
+            // `solobase-logo-long-` must come before `solobase-logo-` so the
+            // longer prefix wins (same pattern as `itim-latin-ext-` above).
+            ("/b/static/solobase-logo-long-", ".png", "image/png", || {
+                Bytes::Owned(ui::assets::logo_long_png().to_vec())
+            }),
+            ("/b/static/solobase-logo-", ".png", "image/png", || {
+                Bytes::Owned(ui::assets::logo_icon_png().to_vec())
             }),
         ];
 

@@ -66,14 +66,14 @@ pub fn shared_config_vars() -> Vec<ConfigVar> {
         ConfigVar::new(
             "SOLOBASE_SHARED__LOGO_URL",
             "Logo shown in header and emails",
-            "https://solobase.dev/images/logo_long.png",
+            crate::ui::assets::logo_long_url(),
         )
         .name("Logo URL")
         .input_type(InputType::Url),
         ConfigVar::new(
             "SOLOBASE_SHARED__LOGO_ICON_URL",
             "Small icon logo (used when sidebar is collapsed)",
-            "https://solobase.dev/images/logo.png",
+            crate::ui::assets::logo_icon_url(),
         )
         .name("Logo Icon URL")
         .input_type(InputType::Url),

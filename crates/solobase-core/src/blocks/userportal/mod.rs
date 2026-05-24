@@ -188,7 +188,7 @@ impl UserPortalBlock {
         };
 
         let config_val = serde_json::json!({
-            "logo_url": config::get_default(ctx, "SOLOBASE_SHARED__LOGO_URL", "https://solobase.dev/images/logo_long.png").await,
+            "logo_url": config::get_default(ctx, "SOLOBASE_SHARED__LOGO_URL", crate::ui::assets::logo_long_url()).await,
             "app_name": config::get_default(ctx, "SOLOBASE_SHARED__APP_NAME", "Solobase").await,
             "primary_color": config::get_default(ctx, "SOLOBASE_SHARED__PRIMARY_COLOR", "#6366f1").await,
             "enable_oauth": config::get_default(ctx, "SOLOBASE_SHARED__ENABLE_OAUTH", "false").await,
@@ -636,57 +636,65 @@ async fn handle_delete_button(ctx: &dyn Context, id: &str) -> OutputStream {
 // Admin: Branding Settings
 // ---------------------------------------------------------------------------
 
-const PORTAL_SETTINGS_KEYS: &[(&str, &str, &str, &str, &str)] = &[
-    (
-        "SOLOBASE_SHARED__APP_NAME",
-        "Application Name",
-        "Display name shown in headers, emails, and login pages.",
-        "Solobase",
-        "text",
-    ),
-    (
-        "SOLOBASE_SHARED__LOGO_URL",
-        "Logo URL",
-        "URL of the logo image shown in the header and login pages.",
-        "https://solobase.dev/images/logo_long.png",
-        "text",
-    ),
-    (
-        "SOLOBASE_SHARED__LOGO_ICON_URL",
-        "Logo Icon URL",
-        "Small icon version of the logo (used in favicons and compact views).",
-        "https://solobase.dev/images/logo.png",
-        "text",
-    ),
-    (
-        "SOLOBASE_SHARED__AUTH_LOGO_URL",
-        "Auth Logo URL",
-        "Override logo for login/signup pages. Falls back to Logo URL if empty.",
-        "",
-        "text",
-    ),
-    (
-        "SOLOBASE_SHARED__FAVICON_URL",
-        "Favicon URL",
-        "URL of the favicon for browser tabs.",
-        "",
-        "text",
-    ),
-    (
-        "SOLOBASE_SHARED__PRIMARY_COLOR",
-        "Primary Color",
-        "Primary brand color used for buttons, links, and accents.",
-        "#6366f1",
-        "color",
-    ),
-];
+fn portal_settings_keys() -> [(
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+); 6] {
+    [
+        (
+            "SOLOBASE_SHARED__APP_NAME",
+            "Application Name",
+            "Display name shown in headers, emails, and login pages.",
+            "Solobase",
+            "text",
+        ),
+        (
+            "SOLOBASE_SHARED__LOGO_URL",
+            "Logo URL",
+            "URL of the logo image shown in the header and login pages.",
+            crate::ui::assets::logo_long_url(),
+            "text",
+        ),
+        (
+            "SOLOBASE_SHARED__LOGO_ICON_URL",
+            "Logo Icon URL",
+            "Small icon version of the logo (used in favicons and compact views).",
+            crate::ui::assets::logo_icon_url(),
+            "text",
+        ),
+        (
+            "SOLOBASE_SHARED__AUTH_LOGO_URL",
+            "Auth Logo URL",
+            "Override logo for login/signup pages. Falls back to Logo URL if empty.",
+            "",
+            "text",
+        ),
+        (
+            "SOLOBASE_SHARED__FAVICON_URL",
+            "Favicon URL",
+            "URL of the favicon for browser tabs.",
+            "",
+            "text",
+        ),
+        (
+            "SOLOBASE_SHARED__PRIMARY_COLOR",
+            "Primary Color",
+            "Primary brand color used for buttons, links, and accents.",
+            "#6366f1",
+            "color",
+        ),
+    ]
+}
 
 async fn admin_settings_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
     let site_config = SiteConfig::load(ctx).await;
     let user = UserInfo::from_message(msg);
 
     let mut values = Vec::new();
-    for &(key, label, help, default, input_type) in PORTAL_SETTINGS_KEYS {
+    for &(key, label, help, default, input_type) in portal_settings_keys().iter() {
         let value = config::get_default(ctx, key, default).await;
         values.push((key, label, help, default, value, input_type));
     }
@@ -756,7 +764,7 @@ async fn handle_save_settings(ctx: &dyn Context, input: InputStream) -> OutputSt
             return ok_json(&serde_json::json!({"error": format!("Invalid request: {e}")}));
         }
     };
-    for &(key, _, _, _, _) in PORTAL_SETTINGS_KEYS {
+    for &(key, _, _, _, _) in portal_settings_keys().iter() {
         if let Some(value) = body.get(key) {
             let _ = config::set(ctx, key, value).await;
         }

@@ -82,8 +82,6 @@ pub async fn settings_body(ctx: &dyn Context, _msg: &Message) -> Markup {
             }
         }
 
-        button .btn .btn-primary type="submit" style="margin-top:1rem" { "Save Settings" }
-
         script { (PreEscaped(r#"
 function submitEmailSettings(e) {
     e.preventDefault();
@@ -96,7 +94,7 @@ function submitEmailSettings(e) {
     .then(function(r) { return r.json(); })
     .then(function(d) { document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: d.message || 'Saved', type: d.error ? 'error' : 'success' } })); })
     .catch(function(err) { document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Error: ' + err.message, type: 'error' } })); })
-    .finally(function() { btn.disabled = false; btn.textContent = 'Save Settings'; });
+    .finally(function() { btn.disabled = false; btn.textContent = 'Save'; });
     return false;
 }
 "#)) }

@@ -85,12 +85,12 @@ pub async fn blocks_page(ctx: &dyn Context, msg: &Message) -> OutputStream {
 
     let page_action = html! {
         div style="display:flex;gap:8px" {
-            a .btn .btn-sm href="https://wafer.run/registry" target="_blank"
-                style="display:inline-flex;align-items:center;gap:4px;background:#8b5cf6;color:#fff;border:none"
+            a .btn .btn-sm .btn-secondary href="https://wafer.run/registry" target="_blank"
+                style="display:inline-flex;align-items:center;gap:4px;background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe"
             {
                 (icons::arrow_up_right()) " Explore WASM blocks"
             }
-            a .btn .btn-primary .btn-sm href="/b/inspector/ui" target="_blank" {
+            a .btn .btn-secondary .btn-sm href="/b/inspector/ui" target="_blank" {
                 (icons::globe()) " Open Inspector"
             }
         }
