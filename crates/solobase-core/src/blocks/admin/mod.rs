@@ -143,6 +143,17 @@ impl Block for AdminBlock {
                 // wants per-op control.
                 wafer_run::ResourceGrant::read_write("*", "*")
                     .typed(wafer_run::types::ResourceType::Crypto),
+                // Typed Storage grant for the files block. The wafer-run
+                // validator rejects typed Storage grants from non-admin blocks
+                // (runtime/lifecycle.rs:36-101), so only admin may declare them.
+                // Scoped to suppers-ai/files specifically (rather than `*/*`
+                // like Network/Crypto above) so other blocks remain Storage
+                // default-deny — preserves least-privilege for the resource
+                // type whose actual production use is concentrated in one
+                // feature block. See spec
+                // docs/superpowers/specs/2026-05-24-wave-12-cors-options-and-files-grant-design.md.
+                wafer_run::ResourceGrant::read_write("suppers-ai/files", "*")
+                    .typed(wafer_run::types::ResourceType::Storage),
             ])
             .category(wafer_run::BlockCategory::Feature)
             .description("Administration panel for managing users, roles, variables, blocks, and logs. Provides SSR dashboard with stats, user management with role assignment, IAM (roles and API keys), environment variables editor, block management with feature toggles, and system/audit log viewer.")
@@ -552,5 +563,31 @@ mod tests {
             .unwrap_or("");
         assert_eq!(status, "308");
         assert_eq!(location, "/b/admin/settings/email");
+    }
+}
+
+#[cfg(test)]
+mod grant_tests {
+    use super::AdminBlock;
+    use wafer_block::types::ResourceType;
+    use wafer_run::block::Block;
+
+    #[test]
+    fn admin_block_declares_typed_storage_grant_for_files() {
+        let admin = AdminBlock::new();
+        let grants = admin.info().grants;
+
+        let storage_grant = grants.iter().find(|g| {
+            g.resource_type == Some(ResourceType::Storage) && g.grantee == "suppers-ai/files"
+        });
+
+        let g = storage_grant.expect(
+            "admin block must declare a typed Storage grant for suppers-ai/files \
+             (validator rejects typed Storage grants from non-admin blocks, so the \
+             files block's own declaration is silently dropped — see \
+             wafer-run/runtime/lifecycle.rs:36-101)",
+        );
+        assert_eq!(g.resource, "*", "files Storage grant must cover all paths");
+        assert!(g.write, "files Storage grant must allow writes");
     }
 }

@@ -48,21 +48,16 @@ impl FilesBlock {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Block for FilesBlock {
     fn info(&self) -> BlockInfo {
-        use wafer_block::types::{ResourceGrant, ResourceType};
         use wafer_run::{types::CollectionSchema, AuthLevel};
 
         BlockInfo::new("suppers-ai/files", "0.0.1", "http-handler@v1", "File storage, sharing, quotas, and access logging")
             .instance_mode(InstanceMode::Singleton)
             .requires(vec!["wafer-run/database".into(), "wafer-run/storage".into(), "wafer-run/config".into()])
-            // Storage WRAP grant: this block manages user-created buckets at
-            // arbitrary names ({bucket}/{key}). Without an explicit grant,
-            // `wafer-run/local-storage` denies all storage ops with caller
-            // `suppers-ai/files`. Owned by this block — no other block writes
-            // through these paths. (Network/Storage grants skip the owner
-            // check at startup; see `runtime/lifecycle.rs::collect_wrap_grants`.)
-            .grants(vec![
-                ResourceGrant::read_write("suppers-ai/files", "*").typed(ResourceType::Storage),
-            ])
+            // Storage WRAP grant for this block is declared by the admin block
+            // (solobase-core/src/blocks/admin/mod.rs). The wafer-run validator
+            // rejects typed Storage grants from non-admin blocks; only admin
+            // may declare them. See spec
+            // docs/superpowers/specs/2026-05-24-wave-12-cors-options-and-files-grant-design.md.
             .collections(vec![
                 CollectionSchema::new(BUCKETS_TABLE)
                     .field("name", "string")
@@ -283,3 +278,27 @@ impl Block for FilesBlock {
 
 #[cfg(not(target_arch = "wasm32"))]
 ::wafer_block::register_static_block!("suppers-ai/files", FilesBlock);
+
+#[cfg(test)]
+mod grant_tests {
+    use super::FilesBlock;
+    use wafer_block::types::ResourceType;
+    use wafer_run::block::Block;
+
+    #[test]
+    fn files_block_does_not_declare_typed_storage() {
+        let files = FilesBlock::new();
+        let grants = files.info().grants;
+
+        let typed_storage = grants
+            .iter()
+            .find(|g| g.resource_type == Some(ResourceType::Storage));
+
+        assert!(
+            typed_storage.is_none(),
+            "files block must not declare a typed Storage grant — the wafer-run \
+             validator rejects typed Storage grants from non-admin blocks. The \
+             grant belongs in admin/mod.rs's grants list. (got: {typed_storage:?})",
+        );
+    }
+}
