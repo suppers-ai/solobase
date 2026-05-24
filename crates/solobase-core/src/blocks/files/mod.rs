@@ -282,8 +282,8 @@ impl Block for FilesBlock {
 #[cfg(test)]
 mod grant_tests {
     use super::FilesBlock;
-    use wafer_block::types::ResourceType;
     use wafer_run::block::Block;
+    use wafer_run::types::ResourceType;
 
     #[test]
     fn files_block_does_not_declare_typed_storage() {

@@ -145,7 +145,8 @@ impl Block for AdminBlock {
                     .typed(wafer_run::types::ResourceType::Crypto),
                 // Typed Storage grant for the files block. The wafer-run
                 // validator rejects typed Storage grants from non-admin blocks
-                // (runtime/lifecycle.rs:36-101), so only admin may declare them.
+                // (runtime/lifecycle.rs::validate_and_collect_grants_for_block),
+                // so only admin may declare them.
                 // Scoped to suppers-ai/files specifically (rather than `*/*`
                 // like Network/Crypto above) so other blocks remain Storage
                 // default-deny — preserves least-privilege for the resource
@@ -569,8 +570,8 @@ mod tests {
 #[cfg(test)]
 mod grant_tests {
     use super::AdminBlock;
-    use wafer_block::types::ResourceType;
     use wafer_run::block::Block;
+    use wafer_run::types::ResourceType;
 
     #[test]
     fn admin_block_declares_typed_storage_grant_for_files() {
@@ -585,7 +586,7 @@ mod grant_tests {
             "admin block must declare a typed Storage grant for suppers-ai/files \
              (validator rejects typed Storage grants from non-admin blocks, so the \
              files block's own declaration is silently dropped — see \
-             wafer-run/runtime/lifecycle.rs:36-101)",
+             wafer-run/runtime/lifecycle.rs validate_and_collect_grants_for_block)",
         );
         assert_eq!(g.resource, "*", "files Storage grant must cover all paths");
         assert!(g.write, "files Storage grant must allow writes");
