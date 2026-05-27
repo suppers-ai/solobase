@@ -198,9 +198,16 @@ impl FeatureConfig for std::sync::RwLock<BlockSettings> {
 /// block module is gated on `feature = "llm"` (wasm32-incompatible) so
 /// the router would dispatch into a void on wasm32 if either was enabled
 /// here. Restored when the LlmService trait refactor lands.
+///
+/// Also excluded: `suppers-ai/admin`. The admin row's `seed_defaults_hash`
+/// column is owned by [`crate::blocks::admin::settings::seed_defaults`]
+/// for the shared-vars-list payload hash (raw hex, no prefix). Two
+/// writers on the same column with different formats would cause an
+/// infinite re-seed loop on every cold start. The admin block is always
+/// enabled by design (FeatureConfig falls back to `true` when the row is
+/// absent), so omitting it from the seed has no behavioural effect.
 pub const ENABLED_DEFAULTS: &[(&str, bool)] = &[
     ("suppers-ai/auth", true),
-    ("suppers-ai/admin", true),
     ("suppers-ai/files", true),
     ("suppers-ai/legalpages", true),
     ("suppers-ai/messages", true),
@@ -432,5 +439,79 @@ mod seed_plan_tests {
         assert_eq!(h_true, seed_hash_for(true));
         assert!(h_true.starts_with("seed:"));
         assert!(h_false.starts_with("seed:"));
+    }
+
+    #[test]
+    fn plan_seed_decisions_handles_mixed_row_states() {
+        // Realistic boot: some rows absent (new blocks), some at the current
+        // seed hash (no-op), some at a stale seed hash (re-seed), some
+        // user-edited (preserve), some legacy empty hash (preserve). The
+        // planner must produce exactly the right decisions, no extras and
+        // no skips.
+        let mut existing = HashMap::new();
+
+        // Pick five blocks from ENABLED_DEFAULTS to stage in different states.
+        // ENABLED_DEFAULTS has 7 entries; assign one to each lane and let the
+        // remaining 2 fall into the "absent → Insert" lane.
+        let names: Vec<&&'static str> = ENABLED_DEFAULTS.iter().map(|(n, _)| n).collect();
+        assert!(names.len() >= 5, "test assumes at least 5 entries in ENABLED_DEFAULTS");
+
+        // Lane A: at-current → skip.
+        let (lane_a_name, lane_a_default) = ENABLED_DEFAULTS[0];
+        existing.insert(
+            lane_a_name.to_string(),
+            ExistingRow { enabled: lane_a_default, hash: seed_hash_for(lane_a_default) },
+        );
+
+        // Lane B: stale seed hash → Update.
+        let (lane_b_name, lane_b_default) = ENABLED_DEFAULTS[1];
+        let lane_b_old = !lane_b_default;
+        existing.insert(
+            lane_b_name.to_string(),
+            ExistingRow { enabled: lane_b_old, hash: seed_hash_for(lane_b_old) },
+        );
+
+        // Lane C: user-edited → skip even if value drifts.
+        let (lane_c_name, lane_c_default) = ENABLED_DEFAULTS[2];
+        existing.insert(
+            lane_c_name.to_string(),
+            ExistingRow { enabled: !lane_c_default, hash: USER_EDITED_SENTINEL.to_string() },
+        );
+
+        // Lane D: legacy empty hash → skip (preserve).
+        let (lane_d_name, lane_d_default) = ENABLED_DEFAULTS[3];
+        existing.insert(
+            lane_d_name.to_string(),
+            ExistingRow { enabled: !lane_d_default, hash: String::new() },
+        );
+
+        // Lanes E and beyond: absent → Insert. ENABLED_DEFAULTS[4..] are all absent.
+
+        let decisions = plan_seed_decisions(&existing);
+
+        // Expected: 1 Update (lane B) + (ENABLED_DEFAULTS.len() - 4) Inserts
+        // (lanes E onward). Lanes A, C, D produce no decisions.
+        let expected_inserts = ENABLED_DEFAULTS.len() - 4;
+        let inserts: Vec<&SeedDecision> =
+            decisions.iter().filter(|d| d.op == SeedOp::Insert).collect();
+        let updates: Vec<&SeedDecision> =
+            decisions.iter().filter(|d| d.op == SeedOp::Update).collect();
+        assert_eq!(
+            inserts.len(),
+            expected_inserts,
+            "expected {expected_inserts} Inserts, got: {inserts:?}",
+        );
+        assert_eq!(updates.len(), 1, "expected 1 Update (lane B), got: {updates:?}");
+        assert_eq!(updates[0].block_name, lane_b_name);
+        assert_eq!(updates[0].enabled, lane_b_default);
+        assert_eq!(updates[0].hash, seed_hash_for(lane_b_default));
+
+        // Confirm none of the skipped lanes (A, C, D) appear in any decision.
+        for skipped in &[lane_a_name, lane_c_name, lane_d_name] {
+            assert!(
+                decisions.iter().all(|d| d.block_name != *skipped),
+                "{skipped} should not be in decisions: {decisions:?}",
+            );
+        }
     }
 }
