@@ -70,9 +70,15 @@ pub mod block_settings {
                 ("enabled".to_string(), serde_json::json!(enabled_int)),
                 ("created_at".to_string(), serde_json::json!(&now)),
                 ("updated_at".to_string(), serde_json::json!(&now)),
+                // Admin-UI write — mark this row as user-owned so the
+                // boot-time seed never overwrites it.
+                (
+                    "seed_defaults_hash".to_string(),
+                    serde_json::json!(crate::features::USER_EDITED_SENTINEL),
+                ),
             ],
             &["block_name"],
-            &["enabled", "updated_at"],
+            &["enabled", "updated_at", "seed_defaults_hash"],
             Backend::Sqlite,
         );
         db::execute(ctx, &stmt)
@@ -734,6 +740,40 @@ mod tests {
         assert!(
             enabled,
             "is_enabled should return true when no block_settings row exists"
+        );
+    }
+
+    /// `block_settings::set_enabled` stamps `seed_defaults_hash` with the
+    /// [`USER_EDITED_SENTINEL`] so the boot-time seed will never clobber an
+    /// admin-UI toggle. See `plan_seed_decisions` in `features.rs`.
+    #[tokio::test]
+    async fn block_settings_set_enabled_marks_row_user_edited() {
+        let ctx = TestContext::new().await;
+        crate::blocks::admin::migrations::apply(&ctx)
+            .await
+            .expect("apply admin migrations");
+
+        let name = "suppers-ai/some-block";
+        block_settings::set_enabled(&ctx, name, false)
+            .await
+            .expect("set_enabled false");
+
+        let rows = db::list_all(
+            &ctx,
+            BLOCK_SETTINGS_TABLE,
+            vec![Filter {
+                field: "block_name".into(),
+                operator: FilterOp::Equal,
+                value: serde_json::Value::String(name.to_string()),
+            }],
+        )
+        .await
+        .expect("list block_settings");
+        assert_eq!(rows.len(), 1, "exactly one block_settings row for {name}");
+        assert_eq!(
+            rows[0].str_field("seed_defaults_hash"),
+            crate::features::USER_EDITED_SENTINEL,
+            "set_enabled must stamp seed_defaults_hash with the user-edited sentinel",
         );
     }
 
