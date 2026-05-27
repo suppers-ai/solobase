@@ -24,7 +24,7 @@ use wafer_core::interfaces::database::service::DatabaseService;
 /// Returns `BlockSettings::default()` on missing collection or query
 /// failure — matches the existing solobase-cloud worker's error tolerance.
 pub(crate) async fn load_block_settings(db: &Arc<dyn DatabaseService>) -> BlockSettings {
-    use solobase_core::features::{BlockState, MigrationState};
+    use solobase_core::features::{BlockState, ExistingRow, MigrationState, SeedOp};
 
     let opts = ListOptions {
         offset: 0,
@@ -32,52 +32,128 @@ pub(crate) async fn load_block_settings(db: &Arc<dyn DatabaseService>) -> BlockS
         skip_count: true,
         ..Default::default()
     };
-    match db.list(BLOCK_SETTINGS_TABLE, &opts).await {
-        Ok(record_list) => {
-            let blocks: HashMap<String, BlockState> = record_list
-                .records
-                .into_iter()
-                .filter_map(|r| {
-                    let name = r.data.get("block_name")?.as_str()?.to_string();
-                    let enabled = r.data.get("enabled")?.as_i64()? != 0;
-                    let current_hash = r
-                        .data
-                        .get("current_hash")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let blessed_hash = r
-                        .data
-                        .get("blessed_hash")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let seed_defaults_hash = r
-                        .data
-                        .get("seed_defaults_hash")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    Some((
-                        name,
-                        BlockState {
-                            enabled,
-                            migration: MigrationState {
-                                current_hash,
-                                blessed_hash,
-                            },
-                            seed_defaults_hash,
-                        },
-                    ))
-                })
-                .collect();
-            BlockSettings::from_blocks(blocks)
-        }
+    let record_list = match db.list(BLOCK_SETTINGS_TABLE, &opts).await {
+        Ok(rl) => rl,
         Err(e) => {
             worker::console_log!("warn: load_block_settings failed: {e}");
-            BlockSettings::default()
+            return BlockSettings::default();
+        }
+    };
+
+    // Build the existing-row map for the hash-gate planner.
+    let existing: HashMap<String, ExistingRow> = record_list
+        .records
+        .iter()
+        .filter_map(|r| {
+            let name = r.data.get("block_name")?.as_str()?.to_string();
+            let enabled = r.data.get("enabled")?.as_i64()? != 0;
+            let hash = r
+                .data
+                .get("seed_defaults_hash")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some((name, ExistingRow { enabled, hash }))
+        })
+        .collect();
+
+    // Plan + apply. Steady state: empty decisions → zero D1 writes.
+    let decisions = solobase_core::features::plan_seed_decisions(&existing);
+    let any_writes = !decisions.is_empty();
+    for d in &decisions {
+        let enabled_val = serde_json::Value::Number(serde_json::Number::from(if d.enabled {
+            1i64
+        } else {
+            0i64
+        }));
+        let hash_val = serde_json::Value::String(d.hash.clone());
+        let now = chrono::Utc::now().to_rfc3339();
+        match d.op {
+            SeedOp::Insert => {
+                let id = format!("bs_{}", uuid::Uuid::new_v4());
+                let mut data: HashMap<String, serde_json::Value> = HashMap::new();
+                data.insert("id".into(), serde_json::Value::String(id));
+                data.insert(
+                    "block_name".into(),
+                    serde_json::Value::String(d.block_name.to_string()),
+                );
+                data.insert("enabled".into(), enabled_val);
+                data.insert("seed_defaults_hash".into(), hash_val);
+                data.insert("created_at".into(), serde_json::Value::String(now.clone()));
+                data.insert("updated_at".into(), serde_json::Value::String(now));
+                if let Err(e) = db.create(BLOCK_SETTINGS_TABLE, data).await {
+                    worker::console_log!("warn: seed insert {} failed: {e}", d.block_name);
+                }
+            }
+            SeedOp::Update => {
+                let filters = vec![Filter {
+                    field: "block_name".to_string(),
+                    operator: FilterOp::Equal,
+                    value: serde_json::Value::String(d.block_name.to_string()),
+                }];
+                let mut data: HashMap<String, serde_json::Value> = HashMap::new();
+                data.insert("enabled".into(), enabled_val);
+                data.insert("seed_defaults_hash".into(), hash_val);
+                data.insert("updated_at".into(), serde_json::Value::String(now));
+                if let Err(e) = db.update_where(BLOCK_SETTINGS_TABLE, &filters, data).await {
+                    worker::console_log!("warn: seed update {} failed: {e}", d.block_name);
+                }
+            }
         }
     }
+
+    // If we wrote anything, re-read for the post-seed view. Costs 1 extra
+    // D1 read only when a default actually changed (rare).
+    let final_records = if any_writes {
+        match db.list(BLOCK_SETTINGS_TABLE, &opts).await {
+            Ok(rl) => rl.records,
+            Err(e) => {
+                worker::console_log!("warn: post-seed re-read failed: {e}");
+                record_list.records
+            }
+        }
+    } else {
+        record_list.records
+    };
+
+    let blocks: HashMap<String, BlockState> = final_records
+        .into_iter()
+        .filter_map(|r| {
+            let name = r.data.get("block_name")?.as_str()?.to_string();
+            let enabled = r.data.get("enabled")?.as_i64()? != 0;
+            let current_hash = r
+                .data
+                .get("current_hash")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let blessed_hash = r
+                .data
+                .get("blessed_hash")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let seed_defaults_hash = r
+                .data
+                .get("seed_defaults_hash")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some((
+                name,
+                BlockState {
+                    enabled,
+                    migration: MigrationState {
+                        current_hash,
+                        blessed_hash,
+                    },
+                    seed_defaults_hash,
+                },
+            ))
+        })
+        .collect();
+
+    BlockSettings::from_blocks(blocks)
 }
 
 /// Auto-generate random secrets for every `ConfigVar` declared with

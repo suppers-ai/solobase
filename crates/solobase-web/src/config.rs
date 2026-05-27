@@ -178,13 +178,14 @@ pub fn load_block_settings() -> Result<solobase_core::features::BlockSettings, J
         .map_err(|e| bridge_err("drop stale block_settings table", e))?;
         bridge::db_exec_raw(
             "CREATE TABLE suppers_ai__admin__block_settings (
-                id            TEXT PRIMARY KEY,
-                block_name    TEXT NOT NULL UNIQUE,
-                enabled       INTEGER NOT NULL DEFAULT 1,
-                current_hash  TEXT NOT NULL DEFAULT '',
-                blessed_hash  TEXT NOT NULL DEFAULT '',
-                created_at    TEXT NOT NULL,
-                updated_at    TEXT NOT NULL
+                id                 TEXT PRIMARY KEY,
+                block_name         TEXT NOT NULL UNIQUE,
+                enabled            INTEGER NOT NULL DEFAULT 1,
+                current_hash       TEXT NOT NULL DEFAULT '',
+                blessed_hash       TEXT NOT NULL DEFAULT '',
+                seed_defaults_hash TEXT NOT NULL DEFAULT '',
+                created_at         TEXT NOT NULL,
+                updated_at         TEXT NOT NULL
             )",
             "[]",
         )
@@ -197,31 +198,67 @@ pub fn load_block_settings() -> Result<solobase_core::features::BlockSettings, J
         .map_err(|e| bridge_err("recreate block_settings block_name index", e))?;
     }
 
-    // Seed defaults for known blocks. The strict schema demands `id`,
-    // `created_at`, `updated_at` — generate them inline via SQLite builtins
-    // so the seed remains a one-shot SQL statement per block.
-    let defaults: &[(&str, bool)] = &[
-        ("suppers-ai/auth", true),
-        ("suppers-ai/admin", true),
-        ("suppers-ai/files", true),
-        ("suppers-ai/products", true),
-        ("suppers-ai/legalpages", false),
-        ("suppers-ai/userportal", false),
-        ("suppers-ai/system", true),
-    ];
+    // Hash-gated seed: read existing rows including their stored
+    // `seed_defaults_hash`, then ask the planner what (if anything) needs
+    // to change. Steady state is an empty plan → zero writes.
+    let read_json = bridge::db_query_raw(
+        "SELECT block_name, enabled, seed_defaults_hash FROM suppers_ai__admin__block_settings",
+        "[]",
+    )
+    .map_err(|e| bridge_err("read block_settings for hash-gate", e))?;
+    let existing_rows: Vec<serde_json::Value> = serde_json::from_str(&read_json).map_err(|e| {
+        JsValue::from_str(&format!(
+            "solobase-web config: parse block_settings (pre-seed): {e}"
+        ))
+    })?;
 
-    for &(name, default) in defaults {
-        let params = serde_json::json!([name, default as i32]);
-        bridge::db_exec_raw(
-            "INSERT OR IGNORE INTO suppers_ai__admin__block_settings \
-             (id, block_name, enabled, created_at, updated_at) \
-             VALUES (lower(hex(randomblob(16))), ?, ?, datetime('now'), datetime('now'))",
-            &params.to_string(),
-        )
-        .map_err(|e| bridge_err(&format!("seed block_setting {name}"), e))?;
+    let mut existing = HashMap::new();
+    for row in existing_rows {
+        let name = row
+            .get("block_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let enabled = row.get("enabled").and_then(|v| v.as_i64()).unwrap_or(1) != 0;
+        let hash = row
+            .get("seed_defaults_hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        existing.insert(name, solobase_core::features::ExistingRow { enabled, hash });
     }
 
-    // Read all settings
+    let decisions = solobase_core::features::plan_seed_decisions(&existing);
+    for d in &decisions {
+        let enabled_int: i64 = if d.enabled { 1 } else { 0 };
+        match d.op {
+            solobase_core::features::SeedOp::Insert => {
+                let params = serde_json::json!([d.block_name, enabled_int, d.hash]);
+                bridge::db_exec_raw(
+                    "INSERT INTO suppers_ai__admin__block_settings \
+                     (id, block_name, enabled, seed_defaults_hash, created_at, updated_at) \
+                     VALUES (lower(hex(randomblob(16))), ?, ?, ?, datetime('now'), datetime('now'))",
+                    &params.to_string(),
+                )
+                .map_err(|e| bridge_err(&format!("seed insert {}", d.block_name), e))?;
+            }
+            solobase_core::features::SeedOp::Update => {
+                let params = serde_json::json!([enabled_int, d.hash, d.block_name]);
+                bridge::db_exec_raw(
+                    "UPDATE suppers_ai__admin__block_settings \
+                     SET enabled = ?, seed_defaults_hash = ?, updated_at = datetime('now') \
+                     WHERE block_name = ?",
+                    &params.to_string(),
+                )
+                .map_err(|e| bridge_err(&format!("seed update {}", d.block_name), e))?;
+            }
+        }
+    }
+
+    // Read post-seed state.
     let json = bridge::db_query_raw(
         "SELECT block_name, enabled FROM suppers_ai__admin__block_settings",
         "[]",
