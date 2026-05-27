@@ -170,6 +170,20 @@ pub async fn handle_request(
                 meta: vec![],
             }),
         ),
+        Err(TerminalNotResponse::Halt(buf)) => {
+            let code = buf
+                .meta
+                .iter()
+                .find(|m| m.key == META_RESP_STATUS || m.key == "http.status")
+                .and_then(|m| m.value.parse::<i64>().ok())
+                .unwrap_or(200);
+            (
+                "OK",
+                code,
+                String::new(),
+                OutputStream::from_buffered_response(buf),
+            )
+        }
     };
 
     // 4. Log the request (best-effort, don't block the response).
@@ -277,6 +291,10 @@ fn rebuild_streaming(
                 let _ = sink.continue_with(m).await;
                 return;
             }
+            Some(StreamEvent::Halt { body, meta }) => {
+                let _ = sink.halt(body, meta).await;
+                return;
+            }
             None => {
                 let _ = sink.complete(vec![]).await;
                 return;
@@ -309,6 +327,10 @@ fn rebuild_streaming(
                 }
                 StreamEvent::Continue(m) => {
                     let _ = sink.continue_with(m).await;
+                    return;
+                }
+                StreamEvent::Halt { body, meta } => {
+                    let _ = sink.halt(body, meta).await;
                     return;
                 }
             }
@@ -351,6 +373,14 @@ async fn collect_buffered_with_prelude(
             Some(StreamEvent::Error(err)) => return Err(TerminalNotResponse::Error(*err)),
             Some(StreamEvent::Drop) => return Err(TerminalNotResponse::Drop),
             Some(StreamEvent::Continue(m)) => return Err(TerminalNotResponse::Continue(m)),
+            Some(StreamEvent::Halt {
+                body: halt_body,
+                meta: halt_meta,
+            }) => {
+                body.extend(halt_body);
+                meta.extend(halt_meta);
+                return Err(TerminalNotResponse::Halt(BufferedResponse { body, meta }));
+            }
             None => return Err(TerminalNotResponse::Malformed),
         }
     }

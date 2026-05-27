@@ -318,7 +318,14 @@ fn make_streaming_body(
                     );
                     return;
                 }
-                StreamEvent::Complete { .. } | StreamEvent::Drop | StreamEvent::Continue(_) => {
+                StreamEvent::Complete { .. }
+                | StreamEvent::Drop
+                | StreamEvent::Continue(_)
+                | StreamEvent::Halt { .. } => {
+                    // Mid-body Halt cannot change the HTTP status (headers
+                    // already flushed); treat it as another terminal that
+                    // closes the body cleanly. The browser sees a normal
+                    // end-of-stream.
                     return;
                 }
             }
@@ -385,6 +392,18 @@ pub async fn output_to_response(mut output: OutputStream) -> Result<web_sys::Res
             return finalise_buffered(Err(TerminalNotResponse::Continue(msg)));
         }
         Some(StreamEvent::Meta(_)) => unreachable!("drain_leading_meta consumes Meta events"),
+        Some(StreamEvent::Halt { body, meta }) => {
+            // Halt before any chunk — short-circuit terminal carrying its
+            // own body+meta. Combine the prelude meta we drained with the
+            // Halt's meta and finalise as a buffered Halt terminal.
+            use wafer_run::streams::output::BufferedResponse;
+            let mut all_meta = leading_meta;
+            all_meta.extend(meta);
+            return finalise_buffered(Err(TerminalNotResponse::Halt(BufferedResponse {
+                body,
+                meta: all_meta,
+            })));
+        }
         None => {
             // Stream ended after meta-only with no terminal — malformed.
             return finalise_buffered(Err(TerminalNotResponse::Malformed));
@@ -471,6 +490,22 @@ fn finalise_buffered(
                 500,
                 headers,
             )
+        }
+
+        Err(TerminalNotResponse::Halt(buf)) => {
+            // Halt is a successful short-circuit terminal — the body+meta
+            // ARE the response. Same wire shape as the Ok arm.
+            let status = get_status_code(&buf.meta, 200);
+            let headers = Headers::new()?;
+            apply_response_meta(&headers, &buf.meta)?;
+
+            let has_ct = MetaAccess::contains_key(&buf.meta, META_RESP_CONTENT_TYPE)
+                || MetaAccess::contains_key(&buf.meta, "Content-Type");
+            if !has_ct {
+                headers.set("Content-Type", "application/json")?;
+            }
+
+            make_response(buf.body, status, headers)
         }
     }
 }

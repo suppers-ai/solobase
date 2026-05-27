@@ -270,13 +270,18 @@ pub fn admin_msg(action: &str, path: &str) -> Message {
 }
 
 /// Drain an `OutputStream` to a `BufferedResponse`. Panics if the stream
-/// terminates with anything other than `Complete`.
+/// terminates with anything other than `Complete` or `Halt`.
+///
+/// `Halt` is a legitimate success-shaped terminal (used e.g. by CORS
+/// preflight to short-circuit with a 204 + headers), so tests treat it
+/// the same as `Complete` — the body+meta are returned for assertion.
 ///
 /// Tests should not see errors from handlers under test unless they're
 /// explicitly asserting on error paths — use `output_is_error` for that.
 pub async fn collect_or_panic(out: OutputStream) -> BufferedResponse {
     match out.collect_buffered().await {
         Ok(buf) => buf,
+        Err(TerminalNotResponse::Halt(buf)) => buf,
         Err(TerminalNotResponse::Error(e)) => {
             panic!("handler returned error: {} ({:?})", e.message, e.code)
         }

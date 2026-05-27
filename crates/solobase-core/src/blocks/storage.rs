@@ -347,6 +347,22 @@ impl Block for SolobaseStorageBlock {
                         let _ = sink.continue_with(m).await;
                         return;
                     }
+                    StreamEvent::Halt { body, meta } => {
+                        let duration_ms = (now_millis() - start) as i64;
+                        let status = error_status
+                            .clone()
+                            .unwrap_or_else(|| format!("OK ({duration_ms}ms)"));
+                        let _ = log_storage_access(
+                            ctx_arc.as_ref(),
+                            &caller_log,
+                            &kind_log,
+                            &path_log,
+                            &status,
+                        )
+                        .await;
+                        let _ = sink.halt(body, meta).await;
+                        return;
+                    }
                 }
             }
             // Stream ended without a terminal event — best-effort log.

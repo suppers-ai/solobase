@@ -170,6 +170,25 @@ pub async fn output_to_response(output: OutputStream) -> Result<Response> {
             resp.headers_mut().set("Content-Type", "application/json")?;
             Ok(resp)
         }
+
+        Err(TerminalNotResponse::Halt(buf)) => {
+            // Halt is a successful short-circuit terminal — body+meta ARE
+            // the response. Same wire shape as the Ok arm.
+            let status = get_status(&buf.meta, 200);
+
+            let resp = Response::from_bytes(buf.body)?;
+            let mut resp = resp.with_status(status);
+            let headers = resp.headers_mut();
+
+            apply_meta_headers(headers, &buf.meta)?;
+
+            let has_ct = meta_contains_ct(&buf.meta);
+            if !has_ct {
+                headers.set("Content-Type", "application/json")?;
+            }
+
+            Ok(resp)
+        }
     }
 }
 
