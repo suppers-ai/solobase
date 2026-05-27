@@ -81,6 +81,10 @@ impl Block for SolobaseNetworkBlock {
                         let _ = sink.continue_with(m).await;
                         return;
                     }
+                    StreamEvent::Halt { body, meta } => {
+                        let _ = sink.halt(body, meta).await;
+                        return;
+                    }
                 }
             }
         })

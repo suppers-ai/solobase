@@ -29,6 +29,7 @@ use crate::common::MigrationTestCtx;
 async fn collect_or_panic(out: OutputStream) -> BufferedResponse {
     match out.collect_buffered().await {
         Ok(buf) => buf,
+        Err(TerminalNotResponse::Halt(buf)) => buf,
         Err(TerminalNotResponse::Error(e)) => {
             panic!("handler returned error: {} ({:?})", e.message, e.code)
         }
