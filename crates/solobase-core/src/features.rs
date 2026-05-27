@@ -254,11 +254,183 @@ pub enum SeedOp {
     Update,
 }
 
+/// Compute the set of writes needed to bring `block_settings.enabled`
+/// rows in sync with [`ENABLED_DEFAULTS`].
+///
+/// Pure function — no DB access. The caller supplies the already-loaded
+/// `existing` map (keyed by block_name → `ExistingRow`) and applies the
+/// returned decisions in whatever shape its persistence layer prefers
+/// (one upsert per decision, batched, etc.).
+///
+/// Steady-state cost: empty `Vec` returned → caller issues zero writes.
+///
+/// Per-row branching:
+/// - Row absent → `SeedOp::Insert` at the current default.
+/// - Row present with `hash == USER_EDITED_SENTINEL` → skip (admin owns it).
+/// - Row present with empty `hash` → skip (legacy state, preserve).
+/// - Row present with `hash == seed_hash_for(current_default)` → skip
+///   (already at the current seeded default).
+/// - Row present with any other `"seed:..."` hash → `SeedOp::Update`
+///   (stale seed hash; default changed since the row was last seeded).
+pub fn plan_seed_decisions(
+    existing: &HashMap<String, ExistingRow>,
+) -> Vec<SeedDecision> {
+    let mut out = Vec::new();
+    for &(name, default) in ENABLED_DEFAULTS {
+        let want_hash = seed_hash_for(default);
+        match existing.get(name) {
+            None => out.push(SeedDecision {
+                block_name: name,
+                enabled: default,
+                hash: want_hash,
+                op: SeedOp::Insert,
+            }),
+            Some(row) => {
+                if row.hash == USER_EDITED_SENTINEL || row.hash.is_empty() {
+                    continue;
+                }
+                if row.hash == want_hash {
+                    continue;
+                }
+                out.push(SeedDecision {
+                    block_name: name,
+                    enabled: default,
+                    hash: want_hash,
+                    op: SeedOp::Update,
+                });
+            }
+        }
+    }
+    out
+}
+
 /// All features enabled (for testing).
 pub struct AllEnabled;
 
 impl FeatureConfig for AllEnabled {
     fn is_block_enabled(&self, _: &str) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+mod seed_plan_tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    fn defaults_count() -> usize {
+        ENABLED_DEFAULTS.len()
+    }
+
+    #[test]
+    fn plan_seed_decisions_inserts_when_row_absent() {
+        let existing: HashMap<String, ExistingRow> = HashMap::new();
+        let decisions = plan_seed_decisions(&existing);
+        assert_eq!(decisions.len(), defaults_count());
+        for d in &decisions {
+            assert_eq!(d.op, SeedOp::Insert);
+            let expected_default = ENABLED_DEFAULTS
+                .iter()
+                .find(|(name, _)| *name == d.block_name)
+                .map(|(_, v)| *v)
+                .expect("decision block name must be in ENABLED_DEFAULTS");
+            assert_eq!(d.enabled, expected_default);
+            assert_eq!(d.hash, seed_hash_for(expected_default));
+        }
+    }
+
+    #[test]
+    fn plan_seed_decisions_skips_when_hash_matches_current() {
+        let mut existing = HashMap::new();
+        for (name, default) in ENABLED_DEFAULTS {
+            existing.insert(
+                (*name).to_string(),
+                ExistingRow {
+                    enabled: *default,
+                    hash: seed_hash_for(*default),
+                },
+            );
+        }
+        let decisions = plan_seed_decisions(&existing);
+        assert!(
+            decisions.is_empty(),
+            "no decisions expected at steady state, got: {decisions:?}",
+        );
+    }
+
+    #[test]
+    fn plan_seed_decisions_updates_when_hash_stale() {
+        let mut existing = HashMap::new();
+        for (name, default) in ENABLED_DEFAULTS {
+            let opposite = !*default;
+            existing.insert(
+                (*name).to_string(),
+                ExistingRow {
+                    enabled: opposite,
+                    hash: seed_hash_for(opposite),
+                },
+            );
+        }
+        let decisions = plan_seed_decisions(&existing);
+        assert_eq!(decisions.len(), defaults_count());
+        for d in &decisions {
+            assert_eq!(d.op, SeedOp::Update);
+            let expected_default = ENABLED_DEFAULTS
+                .iter()
+                .find(|(name, _)| *name == d.block_name)
+                .map(|(_, v)| *v)
+                .expect("decision block name must be in ENABLED_DEFAULTS");
+            assert_eq!(d.enabled, expected_default);
+            assert_eq!(d.hash, seed_hash_for(expected_default));
+        }
+    }
+
+    #[test]
+    fn plan_seed_decisions_skips_user_edited() {
+        let mut existing = HashMap::new();
+        for (name, default) in ENABLED_DEFAULTS {
+            existing.insert(
+                (*name).to_string(),
+                ExistingRow {
+                    enabled: !*default,
+                    hash: USER_EDITED_SENTINEL.to_string(),
+                },
+            );
+        }
+        let decisions = plan_seed_decisions(&existing);
+        assert!(
+            decisions.is_empty(),
+            "user-edited rows must be preserved even when value drifts: {decisions:?}",
+        );
+    }
+
+    #[test]
+    fn plan_seed_decisions_skips_empty_hash_legacy() {
+        let mut existing = HashMap::new();
+        for (name, default) in ENABLED_DEFAULTS {
+            existing.insert(
+                (*name).to_string(),
+                ExistingRow {
+                    enabled: !*default,
+                    hash: String::new(),
+                },
+            );
+        }
+        let decisions = plan_seed_decisions(&existing);
+        assert!(
+            decisions.is_empty(),
+            "legacy empty-hash rows must be preserved: {decisions:?}",
+        );
+    }
+
+    #[test]
+    fn seed_hash_for_is_stable_and_distinct() {
+        let h_true = seed_hash_for(true);
+        let h_false = seed_hash_for(false);
+        assert_ne!(h_true, h_false);
+        assert_eq!(h_true, seed_hash_for(true));
+        assert!(h_true.starts_with("seed:"));
+        assert!(h_false.starts_with("seed:"));
     }
 }
