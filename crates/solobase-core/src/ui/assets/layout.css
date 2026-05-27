@@ -555,7 +555,21 @@
 .sidebar.collapsed .sidebar__nav-label,
 .sidebar.collapsed .sidebar__user-text { display: none; }
 .sidebar.collapsed .sidebar__brand-icon { display: block; }
-.sidebar.collapsed .sidebar__brand { justify-content: center; padding: 0; }
+.sidebar.collapsed .sidebar__brand {
+	justify-content: center; padding: 0;
+	/* Merge with the panel card below so the brand icon doesn't read as a
+	   disconnected element floating above the dashboard. */
+	background: var(--surface-1);
+	border: 1px solid var(--border-color);
+	border-bottom: none;
+	border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+	margin-bottom: calc(-1 * var(--spacing-md));
+}
+.sidebar.collapsed .sidebar__panel {
+	border-top: none;
+	border-top-left-radius: 0;
+	border-top-right-radius: 0;
+}
 .sidebar.collapsed .sidebar__nav-item { justify-content: center; padding: 0.4rem 0; }
 .sidebar.collapsed .sidebar__user { justify-content: center; }
 .sidebar.collapsed .sidebar__collapse-toggle { left: 50%; right: auto; transform: translateX(-50%); }
