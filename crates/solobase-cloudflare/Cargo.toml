@@ -24,8 +24,26 @@ wafer-run = { workspace = true }
 wafer-block = { workspace = true }
 wafer-core = { workspace = true }
 
-# Solobase shared core
-solobase-core = { path = "../solobase-core", default-features = false }
+# Solobase shared core. `default-features = false` strips the native
+# block set (sqlite/storage-local/llm/etc.); the explicit `features`
+# list pulls back in the wasm32-clean feature blocks so
+# `register_all_static_blocks` actually registers them. Without this
+# list every `suppers-ai/<name>` route returns "block not found" — the
+# linkme `register_static_block!` path doesn't emit on wasm32, so the
+# manual register helper is the only registration site, and every
+# entry in it is `#[cfg(feature = "block-X")]`-gated. Keep in sync
+# with `solobase-web/Cargo.toml`.
+#
+# `block-llm` / `block-vector` are excluded for now — the LlmBlock
+# module is gated on `feature = "llm"`, which pulls in tokio/reqwest
+# and is wasm32-incompatible. Closes via the LlmService trait refactor.
+solobase-core = { path = "../solobase-core", default-features = false, features = [
+    "block-files",
+    "block-legalpages",
+    "block-messages",
+    "block-products",
+    "block-userportal",
+] }
 
 # Cloudflare Workers SDK
 worker = { workspace = true }

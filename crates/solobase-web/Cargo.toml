@@ -33,8 +33,26 @@ wafer-core = { workspace = true }
 wafer-block = { workspace = true }
 
 # Solobase shared core (builder + flows + router + feature blocks).
-# Absorbed today's solobase (lib) crate.
-solobase-core = { path = "../solobase-core", default-features = false }
+# Absorbed today's solobase (lib) crate. `default-features = false`
+# strips the native block set; the explicit `features` list pulls back
+# in the wasm32-clean feature blocks so `register_all_static_blocks`
+# actually registers them. Without this list every `suppers-ai/<name>`
+# route returns "block not found" — linkme `register_static_block!`
+# doesn't emit on wasm32, so the manual register helper is the only
+# registration site, and every entry in it is
+# `#[cfg(feature = "block-X")]`-gated. Keep in sync with
+# `solobase-cloudflare/Cargo.toml`.
+#
+# `block-llm` / `block-vector` are excluded for now — the LlmBlock
+# module is gated on `feature = "llm"`, which pulls in tokio/reqwest
+# and is wasm32-incompatible. Closes via the LlmService trait refactor.
+solobase-core = { path = "../solobase-core", default-features = false, features = [
+    "block-files",
+    "block-legalpages",
+    "block-messages",
+    "block-products",
+    "block-userportal",
+] }
 
 # Config service (needed for EnvConfigService::new() and ConfigService::set())
 wafer-block-config = { workspace = true }
