@@ -184,6 +184,76 @@ impl FeatureConfig for std::sync::RwLock<BlockSettings> {
     }
 }
 
+/// Canonical defaults for `suppers_ai__admin__block_settings.enabled`.
+/// Consumed by [`plan_seed_decisions`] on every cold start.
+///
+/// Adding a block here: bump the list, ship — every existing row gets the
+/// INSERT path (no row yet → write the new default at the current hash).
+///
+/// Changing an existing default: just edit the bool — the hash gate detects
+/// the change and re-seeds rows still at the old default. Admin-UI edits
+/// (marked [`USER_EDITED_SENTINEL`]) are preserved.
+///
+/// Excluded for now: `suppers-ai/llm` and `suppers-ai/vector`. The LLM
+/// block module is gated on `feature = "llm"` (wasm32-incompatible) so
+/// the router would dispatch into a void on wasm32 if either was enabled
+/// here. Restored when the LlmService trait refactor lands.
+pub const ENABLED_DEFAULTS: &[(&str, bool)] = &[
+    ("suppers-ai/auth", true),
+    ("suppers-ai/admin", true),
+    ("suppers-ai/files", true),
+    ("suppers-ai/legalpages", true),
+    ("suppers-ai/messages", true),
+    ("suppers-ai/products", true),
+    ("suppers-ai/system", true),
+    ("suppers-ai/userportal", true),
+];
+
+/// Stored in `seed_defaults_hash` to mark a row that was last written by
+/// the admin UI's toggle. Such rows are never overwritten by the seed.
+pub const USER_EDITED_SENTINEL: &str = "user-edited";
+
+/// Compute the canonical `"seed:<sha256_hex>"` marker for a default value.
+///
+/// The body of the hash is `sha256_hex(b"true")` or `sha256_hex(b"false")`
+/// — short, deterministic, and stable across builds. The `"seed:"` prefix
+/// distinguishes seed-managed rows from admin-managed rows
+/// ([`USER_EDITED_SENTINEL`]) and from legacy empty-string state.
+pub fn seed_hash_for(default: bool) -> String {
+    let hex = crate::migration_helper::sha256_hex_bytes(default.to_string().as_bytes());
+    format!("seed:{hex}")
+}
+
+/// One row of `suppers_ai__admin__block_settings` as seen by the seed
+/// planner. Decoupled from `BlockState` so the planner stays pure (no
+/// migration-helper dependency, no FeatureConfig trait conversion).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExistingRow {
+    pub enabled: bool,
+    pub hash: String,
+}
+
+/// What the planner decided about a given block name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeedDecision {
+    /// Static block name from [`ENABLED_DEFAULTS`].
+    pub block_name: &'static str,
+    /// Value to write.
+    pub enabled: bool,
+    /// `seed_defaults_hash` value to write (always `"seed:<hex>"`).
+    pub hash: String,
+    pub op: SeedOp,
+}
+
+/// INSERT vs UPDATE. Lets the caller pick the right SQL shape (some
+/// callers can collapse both into a single UPSERT statement; others
+/// prefer two distinct paths for logging clarity).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeedOp {
+    Insert,
+    Update,
+}
+
 /// All features enabled (for testing).
 pub struct AllEnabled;
 
