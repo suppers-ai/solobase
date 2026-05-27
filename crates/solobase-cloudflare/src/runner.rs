@@ -61,9 +61,11 @@ pub(crate) async fn load_block_settings(db: &Arc<dyn DatabaseService>) -> BlockS
     let decisions = solobase_core::features::plan_seed_decisions(&existing);
     let any_writes = !decisions.is_empty();
     for d in &decisions {
-        let enabled_val = serde_json::Value::Number(serde_json::Number::from(
-            if d.enabled { 1i64 } else { 0i64 },
-        ));
+        let enabled_val = serde_json::Value::Number(serde_json::Number::from(if d.enabled {
+            1i64
+        } else {
+            0i64
+        }));
         let hash_val = serde_json::Value::String(d.hash.clone());
         let now = chrono::Utc::now().to_rfc3339();
         match d.op {

@@ -279,9 +279,7 @@ pub enum SeedOp {
 ///   (already at the current seeded default).
 /// - Row present with any other `"seed:..."` hash → `SeedOp::Update`
 ///   (stale seed hash; default changed since the row was last seeded).
-pub fn plan_seed_decisions(
-    existing: &HashMap<String, ExistingRow>,
-) -> Vec<SeedDecision> {
+pub fn plan_seed_decisions(existing: &HashMap<String, ExistingRow>) -> Vec<SeedDecision> {
     let mut out = Vec::new();
     for &(name, default) in ENABLED_DEFAULTS {
         let want_hash = seed_hash_for(default);
@@ -454,13 +452,19 @@ mod seed_plan_tests {
         // ENABLED_DEFAULTS has 7 entries; assign one to each lane and let the
         // remaining 2 fall into the "absent → Insert" lane.
         let names: Vec<&&'static str> = ENABLED_DEFAULTS.iter().map(|(n, _)| n).collect();
-        assert!(names.len() >= 5, "test assumes at least 5 entries in ENABLED_DEFAULTS");
+        assert!(
+            names.len() >= 5,
+            "test assumes at least 5 entries in ENABLED_DEFAULTS"
+        );
 
         // Lane A: at-current → skip.
         let (lane_a_name, lane_a_default) = ENABLED_DEFAULTS[0];
         existing.insert(
             lane_a_name.to_string(),
-            ExistingRow { enabled: lane_a_default, hash: seed_hash_for(lane_a_default) },
+            ExistingRow {
+                enabled: lane_a_default,
+                hash: seed_hash_for(lane_a_default),
+            },
         );
 
         // Lane B: stale seed hash → Update.
@@ -468,21 +472,30 @@ mod seed_plan_tests {
         let lane_b_old = !lane_b_default;
         existing.insert(
             lane_b_name.to_string(),
-            ExistingRow { enabled: lane_b_old, hash: seed_hash_for(lane_b_old) },
+            ExistingRow {
+                enabled: lane_b_old,
+                hash: seed_hash_for(lane_b_old),
+            },
         );
 
         // Lane C: user-edited → skip even if value drifts.
         let (lane_c_name, lane_c_default) = ENABLED_DEFAULTS[2];
         existing.insert(
             lane_c_name.to_string(),
-            ExistingRow { enabled: !lane_c_default, hash: USER_EDITED_SENTINEL.to_string() },
+            ExistingRow {
+                enabled: !lane_c_default,
+                hash: USER_EDITED_SENTINEL.to_string(),
+            },
         );
 
         // Lane D: legacy empty hash → skip (preserve).
         let (lane_d_name, lane_d_default) = ENABLED_DEFAULTS[3];
         existing.insert(
             lane_d_name.to_string(),
-            ExistingRow { enabled: !lane_d_default, hash: String::new() },
+            ExistingRow {
+                enabled: !lane_d_default,
+                hash: String::new(),
+            },
         );
 
         // Lanes E and beyond: absent → Insert. ENABLED_DEFAULTS[4..] are all absent.
@@ -492,16 +505,24 @@ mod seed_plan_tests {
         // Expected: 1 Update (lane B) + (ENABLED_DEFAULTS.len() - 4) Inserts
         // (lanes E onward). Lanes A, C, D produce no decisions.
         let expected_inserts = ENABLED_DEFAULTS.len() - 4;
-        let inserts: Vec<&SeedDecision> =
-            decisions.iter().filter(|d| d.op == SeedOp::Insert).collect();
-        let updates: Vec<&SeedDecision> =
-            decisions.iter().filter(|d| d.op == SeedOp::Update).collect();
+        let inserts: Vec<&SeedDecision> = decisions
+            .iter()
+            .filter(|d| d.op == SeedOp::Insert)
+            .collect();
+        let updates: Vec<&SeedDecision> = decisions
+            .iter()
+            .filter(|d| d.op == SeedOp::Update)
+            .collect();
         assert_eq!(
             inserts.len(),
             expected_inserts,
             "expected {expected_inserts} Inserts, got: {inserts:?}",
         );
-        assert_eq!(updates.len(), 1, "expected 1 Update (lane B), got: {updates:?}");
+        assert_eq!(
+            updates.len(),
+            1,
+            "expected 1 Update (lane B), got: {updates:?}"
+        );
         assert_eq!(updates[0].block_name, lane_b_name);
         assert_eq!(updates[0].enabled, lane_b_default);
         assert_eq!(updates[0].hash, seed_hash_for(lane_b_default));
