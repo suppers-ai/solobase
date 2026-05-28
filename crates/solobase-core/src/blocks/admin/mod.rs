@@ -222,26 +222,28 @@ impl Block for AdminBlock {
         }
         match route::route(&path_owned, &action_owned) {
             // --- /b/admin/api/... ---
-            AdminRoute::UsersApi        => users::handle(ctx, &msg, input).await,
-            AdminRoute::DatabaseApi     => database::handle(ctx, &msg, input).await,
-            AdminRoute::IamApi          => iam::handle(ctx, &msg, input).await,
-            AdminRoute::LogsApi         => logs::handle(ctx, &msg).await,
-            AdminRoute::SettingsApi     => settings::handle(ctx, &msg, input).await,
-            AdminRoute::ExtensionsApi   => {
+            AdminRoute::UsersApi => users::handle(ctx, &msg, input).await,
+            AdminRoute::DatabaseApi => database::handle(ctx, &msg, input).await,
+            AdminRoute::IamApi => iam::handle(ctx, &msg, input).await,
+            AdminRoute::LogsApi => logs::handle(ctx, &msg).await,
+            AdminRoute::SettingsApi => settings::handle(ctx, &msg, input).await,
+            AdminRoute::ExtensionsApi => {
                 let blocks: Vec<_> = ctx
                     .registered_blocks()
                     .into_iter()
-                    .map(|b| serde_json::json!({
-                        "name": b.name,
-                        "version": b.version,
-                        "interface": b.interface,
-                        "summary": b.summary,
-                        "enabled": true,
-                    }))
+                    .map(|b| {
+                        serde_json::json!({
+                            "name": b.name,
+                            "version": b.version,
+                            "interface": b.interface,
+                            "summary": b.summary,
+                            "enabled": true,
+                        })
+                    })
                     .collect();
                 ok_json(&blocks)
             }
-            AdminRoute::WaferApi        => wafer_info::handle(ctx, &msg),
+            AdminRoute::WaferApi => wafer_info::handle(ctx, &msg),
             AdminRoute::CustomTablesApi => custom_tables::handle(ctx, &msg, input).await,
             AdminRoute::StorageDelegate => {
                 // The original handler re-set req.resource INSIDE the if branch
@@ -259,39 +261,65 @@ impl Block for AdminBlock {
             AdminRoute::ApiNotFound => err_not_found("not found"),
 
             // --- /b/admin/settings/... ---
-            AdminRoute::SettingsRedirect    => redirect_308("/b/admin/settings/email"),
+            AdminRoute::SettingsRedirect => redirect_308("/b/admin/settings/email"),
             AdminRoute::SettingsPage { tab } => pages::settings_page(ctx, &msg, tab).await,
 
             // --- /b/admin/... htmx mutations ---
-            AdminRoute::UserDisable { user_id }     => pages::handle_user_disable(ctx, &msg, user_id).await,
-            AdminRoute::UserEnable  { user_id }     => pages::handle_user_enable(ctx, &msg, user_id).await,
-            AdminRoute::UserDelete  { user_id }     => pages::handle_user_delete(ctx, &msg, user_id).await,
-            AdminRoute::CreateRole                  => pages::handle_create_role(ctx, &msg, input).await,
-            AdminRoute::DeleteRole  { role_id }     => pages::handle_delete_role(ctx, &msg, role_id).await,
-            AdminRoute::BlockDetail { block_name }  => pages::handle_block_detail(ctx, &msg, &block_name).await,
-            AdminRoute::BlockToggle { block_name }  => pages::handle_toggle_feature(ctx, &msg, &block_name).await,
-            AdminRoute::CreateVariable              => pages::handle_create_variable(ctx, &msg, input).await,
-            AdminRoute::EditVariableForm { var_key } => pages::handle_edit_variable_form(ctx, &msg, var_key).await,
-            AdminRoute::UpdateVariable   { var_key } => pages::handle_update_variable(ctx, &msg, input, var_key).await,
-            AdminRoute::NetworkInboundDetail        => pages::network_inbound_detail(ctx, &msg).await,
-            AdminRoute::CreateWrapGrant             => handle_create_wrap_grant(ctx, msg, input).await,
-            AdminRoute::DeleteWrapGrant  { rule_id } => handle_delete_wrap_grant(ctx, msg, rule_id).await,
-            AdminRoute::SaveEmailSettings           => pages::handle_save_email_settings(ctx, &msg, input).await,
-            AdminRoute::DatabaseQuery               => pages::handle_database_query(ctx, &msg, input).await,
-            AdminRoute::CustomBlockInstall          => pages::handle_custom_block_install(ctx, &msg, input).await,
-            AdminRoute::CustomBlockUpload           => pages::handle_custom_block_upload(ctx, &msg, input).await,
-            AdminRoute::CustomBlockDelete { block_name } => pages::handle_custom_block_delete(ctx, &msg, &block_name).await,
+            AdminRoute::UserDisable { user_id } => {
+                pages::handle_user_disable(ctx, &msg, user_id).await
+            }
+            AdminRoute::UserEnable { user_id } => {
+                pages::handle_user_enable(ctx, &msg, user_id).await
+            }
+            AdminRoute::UserDelete { user_id } => {
+                pages::handle_user_delete(ctx, &msg, user_id).await
+            }
+            AdminRoute::CreateRole => pages::handle_create_role(ctx, &msg, input).await,
+            AdminRoute::DeleteRole { role_id } => {
+                pages::handle_delete_role(ctx, &msg, role_id).await
+            }
+            AdminRoute::BlockDetail { block_name } => {
+                pages::handle_block_detail(ctx, &msg, &block_name).await
+            }
+            AdminRoute::BlockToggle { block_name } => {
+                pages::handle_toggle_feature(ctx, &msg, &block_name).await
+            }
+            AdminRoute::CreateVariable => pages::handle_create_variable(ctx, &msg, input).await,
+            AdminRoute::EditVariableForm { var_key } => {
+                pages::handle_edit_variable_form(ctx, &msg, var_key).await
+            }
+            AdminRoute::UpdateVariable { var_key } => {
+                pages::handle_update_variable(ctx, &msg, input, var_key).await
+            }
+            AdminRoute::NetworkInboundDetail => pages::network_inbound_detail(ctx, &msg).await,
+            AdminRoute::CreateWrapGrant => handle_create_wrap_grant(ctx, msg, input).await,
+            AdminRoute::DeleteWrapGrant { rule_id } => {
+                handle_delete_wrap_grant(ctx, msg, rule_id).await
+            }
+            AdminRoute::SaveEmailSettings => {
+                pages::handle_save_email_settings(ctx, &msg, input).await
+            }
+            AdminRoute::DatabaseQuery => pages::handle_database_query(ctx, &msg, input).await,
+            AdminRoute::CustomBlockInstall => {
+                pages::handle_custom_block_install(ctx, &msg, input).await
+            }
+            AdminRoute::CustomBlockUpload => {
+                pages::handle_custom_block_upload(ctx, &msg, input).await
+            }
+            AdminRoute::CustomBlockDelete { block_name } => {
+                pages::handle_custom_block_delete(ctx, &msg, &block_name).await
+            }
 
             // --- /b/admin/... SSR pages ---
-            AdminRoute::Dashboard      => pages::dashboard(ctx, &msg).await,
-            AdminRoute::UsersPage      => pages::users_page(ctx, &msg).await,
-            AdminRoute::StoragePage    => pages::storage_page(ctx, &msg).await,
-            AdminRoute::BlocksPage     => pages::blocks_page(ctx, &msg).await,
-            AdminRoute::DatabasePage   => pages::database_page(ctx, &msg).await,
-            AdminRoute::LogsPage       => pages::logs_page(ctx, &msg).await,
-            AdminRoute::EmailRedirect      => redirect_308("/b/admin/settings/email"),
-            AdminRoute::NetworkRedirect    => redirect_308("/b/admin/settings/network"),
-            AdminRoute::VariablesRedirect  => redirect_308("/b/admin/settings/variables"),
+            AdminRoute::Dashboard => pages::dashboard(ctx, &msg).await,
+            AdminRoute::UsersPage => pages::users_page(ctx, &msg).await,
+            AdminRoute::StoragePage => pages::storage_page(ctx, &msg).await,
+            AdminRoute::BlocksPage => pages::blocks_page(ctx, &msg).await,
+            AdminRoute::DatabasePage => pages::database_page(ctx, &msg).await,
+            AdminRoute::LogsPage => pages::logs_page(ctx, &msg).await,
+            AdminRoute::EmailRedirect => redirect_308("/b/admin/settings/email"),
+            AdminRoute::NetworkRedirect => redirect_308("/b/admin/settings/network"),
+            AdminRoute::VariablesRedirect => redirect_308("/b/admin/settings/variables"),
             AdminRoute::PermissionsRedirect => {
                 // Carry ?tab= as ?subtab= to preserve deep-links.
                 let old_tab = msg.query("tab");
@@ -301,7 +329,7 @@ impl Block for AdminBlock {
                     redirect_308(&format!("/b/admin/settings/permissions?subtab={}", old_tab))
                 }
             }
-            AdminRoute::GrantsPage   => pages::grants_page(ctx, &msg).await,
+            AdminRoute::GrantsPage => pages::grants_page(ctx, &msg).await,
 
             AdminRoute::NotFound => err_not_found("not found"),
         }
