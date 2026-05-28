@@ -4,6 +4,7 @@ mod iam;
 mod logs;
 pub mod migrations;
 mod pages;
+mod route;
 mod settings;
 mod users;
 mod wafer_info;
@@ -203,29 +204,30 @@ impl Block for AdminBlock {
         mut msg: Message,
         input: InputStream,
     ) -> OutputStream {
-        let path = msg.path().to_string();
+        use route::AdminRoute;
 
-        // JSON API at /b/admin/api/... — normalize to /admin/... for sub-module compatibility
-        if let Some(api_rest) = path.strip_prefix("/b/admin/api") {
-            let normalized = format!("/admin{}", api_rest);
-            msg.set_meta("req.resource", &normalized);
+        // Capture path + action BEFORE any meta mutation. msg.path() reads from
+        // get_meta("req.resource") which the API normalization below mutates;
+        // without these captures the routing classifier would see the normalized
+        // path and miss the /b/admin/api prefix.
+        let path_owned = msg.path().to_string();
+        let action_owned = msg.action().to_string();
 
-            if api_rest.starts_with("/users") {
-                return users::handle(ctx, &msg, input).await;
-            }
-            if api_rest.starts_with("/database") {
-                return database::handle(ctx, &msg, input).await;
-            }
-            if api_rest.starts_with("/iam") {
-                return iam::handle(ctx, &msg, input).await;
-            }
-            if api_rest.starts_with("/logs") {
-                return logs::handle(ctx, &msg).await;
-            }
-            if api_rest.starts_with("/settings") {
-                return settings::handle(ctx, &msg, input).await;
-            }
-            if api_rest.starts_with("/extensions") {
+        // API path normalization: downstream sub-handlers (users::handle,
+        // database::handle, etc.) expect req.resource as /admin/... instead
+        // of /b/admin/api/... — preserve that contract exactly as the
+        // pre-refactor handler did.
+        if let Some(api_rest) = path_owned.strip_prefix("/b/admin/api") {
+            msg.set_meta("req.resource", &format!("/admin{}", api_rest));
+        }
+        match route::route(&path_owned, &action_owned) {
+            // --- /b/admin/api/... ---
+            AdminRoute::UsersApi => users::handle(ctx, &msg, input).await,
+            AdminRoute::DatabaseApi => database::handle(ctx, &msg, input).await,
+            AdminRoute::IamApi => iam::handle(ctx, &msg, input).await,
+            AdminRoute::LogsApi => logs::handle(ctx, &msg).await,
+            AdminRoute::SettingsApi => settings::handle(ctx, &msg, input).await,
+            AdminRoute::ExtensionsApi => {
                 let blocks: Vec<_> = ctx
                     .registered_blocks()
                     .into_iter()
@@ -239,218 +241,98 @@ impl Block for AdminBlock {
                         })
                     })
                     .collect();
-                return ok_json(&blocks);
+                ok_json(&blocks)
             }
-            if api_rest.starts_with("/wafer") {
-                return wafer_info::handle(ctx, &msg);
+            AdminRoute::WaferApi => wafer_info::handle(ctx, &msg),
+            AdminRoute::CustomTablesApi => custom_tables::handle(ctx, &msg, input).await,
+            AdminRoute::StorageDelegate => {
+                // The original handler re-set req.resource INSIDE the if branch
+                // (to /admin/<api_rest>). The top-of-function normalization already
+                // did this, but the original re-applied; we mirror by deriving
+                // from path_owned (NOT msg.path() which is now normalized).
+                let api_rest = path_owned.strip_prefix("/b/admin/api").unwrap_or("");
+                msg.set_meta("req.resource", &format!("/admin{}", api_rest));
+                ctx.call_block("suppers-ai/files", msg, input).await
             }
-            if api_rest.starts_with("/custom-tables") {
-                return custom_tables::handle(ctx, &msg, input).await;
+            AdminRoute::CloudStorageDelegate { rest } => {
+                msg.set_meta("req.resource", &format!("/admin/b/cloudstorage{}", rest));
+                ctx.call_block("suppers-ai/files", msg, input).await
             }
-            // Delegate admin storage to Files block via call_block so WRAP
-            // sees the call as cross-block (admin → files) instead of an
-            // in-process direct function call. The Files block recognizes
-            // the `/admin/storage/...` path and routes it to its admin
-            // sub-handler.
-            if api_rest.starts_with("/storage") {
-                msg.set_meta("req.resource", format!("/admin{}", api_rest));
-                return ctx.call_block("suppers-ai/files", msg, input).await;
+            AdminRoute::ApiNotFound => err_not_found("not found"),
+
+            // --- /b/admin/settings/... ---
+            AdminRoute::SettingsRedirect => redirect_308("/b/admin/settings/email"),
+            AdminRoute::SettingsPage { tab } => pages::settings_page(ctx, &msg, tab).await,
+
+            // --- /b/admin/... htmx mutations ---
+            AdminRoute::UserDisable { user_id } => {
+                pages::handle_user_disable(ctx, &msg, user_id).await
             }
-            // Delegate admin cloud storage to Files block via call_block.
-            if api_rest.starts_with("/cloudstorage") {
-                msg.set_meta(
-                    "req.resource",
-                    format!(
-                        "/admin/b/cloudstorage{}",
-                        api_rest.strip_prefix("/cloudstorage").unwrap_or("")
-                    ),
-                );
-                return ctx.call_block("suppers-ai/files", msg, input).await;
+            AdminRoute::UserEnable { user_id } => {
+                pages::handle_user_enable(ctx, &msg, user_id).await
             }
-            return err_not_found("not found");
+            AdminRoute::UserDelete { user_id } => {
+                pages::handle_user_delete(ctx, &msg, user_id).await
+            }
+            AdminRoute::CreateRole => pages::handle_create_role(ctx, &msg, input).await,
+            AdminRoute::DeleteRole { role_id } => {
+                pages::handle_delete_role(ctx, &msg, role_id).await
+            }
+            AdminRoute::BlockDetail { block_name } => {
+                pages::handle_block_detail(ctx, &msg, &block_name).await
+            }
+            AdminRoute::BlockToggle { block_name } => {
+                pages::handle_toggle_feature(ctx, &msg, &block_name).await
+            }
+            AdminRoute::CreateVariable => pages::handle_create_variable(ctx, &msg, input).await,
+            AdminRoute::EditVariableForm { var_key } => {
+                pages::handle_edit_variable_form(ctx, &msg, var_key).await
+            }
+            AdminRoute::UpdateVariable { var_key } => {
+                pages::handle_update_variable(ctx, &msg, input, var_key).await
+            }
+            AdminRoute::NetworkInboundDetail => pages::network_inbound_detail(ctx, &msg).await,
+            AdminRoute::CreateWrapGrant => handle_create_wrap_grant(ctx, msg, input).await,
+            AdminRoute::DeleteWrapGrant { rule_id } => {
+                handle_delete_wrap_grant(ctx, msg, rule_id).await
+            }
+            AdminRoute::SaveEmailSettings => {
+                pages::handle_save_email_settings(ctx, &msg, input).await
+            }
+            AdminRoute::DatabaseQuery => pages::handle_database_query(ctx, &msg, input).await,
+            AdminRoute::CustomBlockInstall => {
+                pages::handle_custom_block_install(ctx, &msg, input).await
+            }
+            AdminRoute::CustomBlockUpload => {
+                pages::handle_custom_block_upload(ctx, &msg, input).await
+            }
+            AdminRoute::CustomBlockDelete { block_name } => {
+                pages::handle_custom_block_delete(ctx, &msg, &block_name).await
+            }
+
+            // --- /b/admin/... SSR pages ---
+            AdminRoute::Dashboard => pages::dashboard(ctx, &msg).await,
+            AdminRoute::UsersPage => pages::users_page(ctx, &msg).await,
+            AdminRoute::StoragePage => pages::storage_page(ctx, &msg).await,
+            AdminRoute::BlocksPage => pages::blocks_page(ctx, &msg).await,
+            AdminRoute::DatabasePage => pages::database_page(ctx, &msg).await,
+            AdminRoute::LogsPage => pages::logs_page(ctx, &msg).await,
+            AdminRoute::EmailRedirect => redirect_308("/b/admin/settings/email"),
+            AdminRoute::NetworkRedirect => redirect_308("/b/admin/settings/network"),
+            AdminRoute::VariablesRedirect => redirect_308("/b/admin/settings/variables"),
+            AdminRoute::PermissionsRedirect => {
+                // Carry ?tab= as ?subtab= to preserve deep-links.
+                let old_tab = msg.query("tab");
+                if old_tab.is_empty() {
+                    redirect_308("/b/admin/settings/permissions")
+                } else {
+                    redirect_308(&format!("/b/admin/settings/permissions?subtab={}", old_tab))
+                }
+            }
+            AdminRoute::GrantsPage => pages::grants_page(ctx, &msg).await,
+
+            AdminRoute::NotFound => err_not_found("not found"),
         }
-
-        // Settings consolidation: /b/admin/settings/{tab}
-        // Must be checked BEFORE the generic /b/admin handler to avoid the catch-all.
-        if path == "/b/admin/settings" || path == "/b/admin/settings/" {
-            return redirect_308("/b/admin/settings/email");
-        }
-        if path.starts_with("/b/admin/settings/") {
-            let tab = path
-                .strip_prefix("/b/admin/settings/")
-                .unwrap_or("")
-                .split('/')
-                .next()
-                .unwrap_or("");
-            // Whitelist tabs at the dispatch layer so /b/admin/settings/foobar
-            // 404s instead of silently rendering email — easier to catch
-            // typos and broken internal links during the Phase 3-5 ports.
-            match tab {
-                "email" | "network" | "variables" | "permissions" => {
-                    return pages::settings_page(ctx, &msg, tab).await;
-                }
-                _ => return err_not_found("not found"),
-            }
-        }
-
-        // SSR pages + htmx mutations at /b/admin/...
-        if path.starts_with("/b/admin") {
-            let action = msg.action().to_string();
-            let sub = path.strip_prefix("/b/admin").unwrap_or("/").to_string();
-
-            // htmx mutation handlers
-            if action == "create" && sub.ends_with("/disable") {
-                let user_id = sub
-                    .strip_prefix("/users/")
-                    .and_then(|s| s.strip_suffix("/disable"))
-                    .unwrap_or("")
-                    .to_string();
-                if !user_id.is_empty() {
-                    return pages::handle_user_disable(ctx, &msg, &user_id).await;
-                }
-            }
-            if action == "create" && sub.ends_with("/enable") {
-                let user_id = sub
-                    .strip_prefix("/users/")
-                    .and_then(|s| s.strip_suffix("/enable"))
-                    .unwrap_or("")
-                    .to_string();
-                if !user_id.is_empty() {
-                    return pages::handle_user_enable(ctx, &msg, &user_id).await;
-                }
-            }
-            if action == "delete" && sub.starts_with("/users/") {
-                let user_id = sub.strip_prefix("/users/").unwrap_or("").to_string();
-                if !user_id.is_empty() {
-                    return pages::handle_user_delete(ctx, &msg, &user_id).await;
-                }
-            }
-            if action == "create" && sub == "/iam/roles" {
-                return pages::handle_create_role(ctx, &msg, input).await;
-            }
-            if action == "delete" && sub.starts_with("/iam/roles/") {
-                let role_id = sub.strip_prefix("/iam/roles/").unwrap_or("").to_string();
-                if !role_id.is_empty() {
-                    return pages::handle_delete_role(ctx, &msg, &role_id).await;
-                }
-            }
-            // Block detail modal
-            if action == "retrieve" && sub.starts_with("/blocks/") && sub.ends_with("/detail") {
-                let encoded = sub
-                    .strip_prefix("/blocks/")
-                    .and_then(|s| s.strip_suffix("/detail"))
-                    .unwrap_or("")
-                    .to_string();
-                let block_name = encoded.replace("--", "/");
-                if !block_name.is_empty() {
-                    return pages::handle_block_detail(ctx, &msg, &block_name).await;
-                }
-            }
-            // Block feature toggle
-            if action == "create" && sub.starts_with("/blocks/") && sub.ends_with("/toggle") {
-                let encoded = sub
-                    .strip_prefix("/blocks/")
-                    .and_then(|s| s.strip_suffix("/toggle"))
-                    .unwrap_or("")
-                    .to_string();
-                let block_name = encoded.replace("--", "/");
-                if !block_name.is_empty() {
-                    return pages::handle_toggle_feature(ctx, &msg, &block_name).await;
-                }
-            }
-            // Variable mutations
-            if action == "create" && sub == "/variables" {
-                return pages::handle_create_variable(ctx, &msg, input).await;
-            }
-            if action == "retrieve" && sub.ends_with("/edit") && sub.starts_with("/variables/") {
-                let var_key = sub
-                    .strip_prefix("/variables/")
-                    .and_then(|s| s.strip_suffix("/edit"))
-                    .unwrap_or("")
-                    .to_string();
-                if !var_key.is_empty() {
-                    return pages::handle_edit_variable_form(ctx, &msg, &var_key).await;
-                }
-            }
-            if action == "update" && sub.starts_with("/variables/") {
-                let var_key = sub.strip_prefix("/variables/").unwrap_or("").to_string();
-                if !var_key.is_empty() {
-                    return pages::handle_update_variable(ctx, &msg, input, &var_key).await;
-                }
-            }
-
-            // Network detail fragments (htmx)
-            if action == "retrieve" && sub == "/network/detail/inbound" {
-                return pages::network_inbound_detail(ctx, &msg).await;
-            }
-
-            // WRAP grants CRUD (htmx)
-            if action == "create" && sub == "/grants/rules" {
-                return handle_create_wrap_grant(ctx, msg, input).await;
-            }
-            if action == "delete" && sub.starts_with("/grants/rules/") {
-                let rule_id = sub.strip_prefix("/grants/rules/").unwrap_or("").to_string();
-                if !rule_id.is_empty() {
-                    return handle_delete_wrap_grant(ctx, msg, &rule_id).await;
-                }
-            }
-
-            // Email settings save (POST)
-            if action == "create" && sub == "/email" {
-                return pages::handle_save_email_settings(ctx, &msg, input).await;
-            }
-
-            // Database SQL editor (htmx)
-            if action == "create" && sub == "/database/query" {
-                return pages::handle_database_query(ctx, &msg, input).await;
-            }
-
-            // Custom block management
-            if action == "create" && sub == "/custom-blocks/install" {
-                return pages::handle_custom_block_install(ctx, &msg, input).await;
-            }
-            if action == "create" && sub == "/custom-blocks/upload" {
-                return pages::handle_custom_block_upload(ctx, &msg, input).await;
-            }
-            if action == "delete" && sub.starts_with("/custom-blocks/") {
-                let encoded = sub
-                    .strip_prefix("/custom-blocks/")
-                    .unwrap_or("")
-                    .to_string();
-                if !encoded.is_empty() {
-                    let block_name = encoded.replace("--", "/");
-                    return pages::handle_custom_block_delete(ctx, &msg, &block_name).await;
-                }
-            }
-
-            // SSR page handlers (GET)
-            // Note: /email, /network, /variables, /permissions redirect 308 to
-            // /b/admin/settings/{tab} so bookmarks and old links keep working.
-            return match sub.as_str() {
-                "" | "/" => pages::dashboard(ctx, &msg).await,
-                "/users" => pages::users_page(ctx, &msg).await,
-                "/storage" => pages::storage_page(ctx, &msg).await,
-                "/blocks" => pages::blocks_page(ctx, &msg).await,
-                "/database" => pages::database_page(ctx, &msg).await,
-                "/logs" => pages::logs_page(ctx, &msg).await,
-                "/email" => redirect_308("/b/admin/settings/email"),
-                "/network" => redirect_308("/b/admin/settings/network"),
-                "/variables" => redirect_308("/b/admin/settings/variables"),
-                "/permissions" => {
-                    // Preserve ?tab= query string as ?subtab= in the new location.
-                    let old_tab = msg.query("tab");
-                    if old_tab.is_empty() {
-                        redirect_308("/b/admin/settings/permissions")
-                    } else {
-                        redirect_308(&format!("/b/admin/settings/permissions?subtab={}", old_tab))
-                    }
-                }
-                "/grants" => pages::grants_page(ctx, &msg).await,
-                _ => err_not_found("not found"),
-            };
-        }
-
-        err_not_found("not found")
     }
 
     async fn lifecycle(
