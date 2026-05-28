@@ -204,7 +204,7 @@ fn minimal_config() -> SiteConfig {
         app_name: "Solobase".to_string(),
         logo_url: String::new(),
         logo_icon_url: String::new(),
-        favicon_url: String::new(),
+        favicon_url: assets::favicon_url().to_string(),
         embedded_scripts: Vec::new(),
     }
 }

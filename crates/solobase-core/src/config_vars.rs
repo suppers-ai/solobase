@@ -84,9 +84,13 @@ pub fn shared_config_vars() -> Vec<ConfigVar> {
         )
         .name("Auth Logo URL")
         .input_type(InputType::Url),
-        ConfigVar::new("SOLOBASE_SHARED__FAVICON_URL", "Browser tab icon", "")
-            .name("Favicon URL")
-            .input_type(InputType::Url),
+        ConfigVar::new(
+            "SOLOBASE_SHARED__FAVICON_URL",
+            "Browser tab icon",
+            crate::ui::assets::favicon_url(),
+        )
+        .name("Favicon URL")
+        .input_type(InputType::Url),
         ConfigVar::new(
             "SOLOBASE_SHARED__ALLOW_USER_PRODUCTS",
             "Allow users to create their own products",
