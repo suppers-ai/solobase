@@ -42,6 +42,7 @@ impl Block for SystemBlock {
                 BlockEndpoint::get("/b/static/itim-latin-ext-{hash}.woff2").summary("Embedded Itim font (latin-ext)"),
                 BlockEndpoint::get("/b/static/solobase-logo-{hash}.png").summary("Embedded Solobase square logo"),
                 BlockEndpoint::get("/b/static/solobase-logo-long-{hash}.png").summary("Embedded Solobase wordmark logo"),
+                BlockEndpoint::get("/b/static/favicon-{hash}.ico").summary("Embedded Solobase favicon"),
             ])
     }
 
@@ -96,6 +97,9 @@ impl Block for SystemBlock {
             }),
             ("/b/static/solobase-logo-", ".png", "image/png", || {
                 Bytes::Owned(ui::assets::logo_icon_png().to_vec())
+            }),
+            ("/b/static/favicon-", ".ico", "image/x-icon", || {
+                Bytes::Owned(ui::assets::favicon_ico().to_vec())
             }),
         ];
 
