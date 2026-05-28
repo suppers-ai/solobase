@@ -1,8 +1,9 @@
 //! Server-side rendered UI components for solobase blocks.
 //!
 //! Uses maud for compile-time HTML generation and htmx for interactivity.
-//! CSS and htmx JS are embedded in the binary. Images (logo, favicon) are
-//! configurable via environment variables.
+//! CSS, htmx JS, logos, and the favicon are embedded in the binary; their
+//! URLs can be overridden via environment variables (`SOLOBASE_SHARED__LOGO_URL`,
+//! `SOLOBASE_SHARED__LOGO_ICON_URL`, `SOLOBASE_SHARED__FAVICON_URL`).
 
 pub mod assets;
 pub mod components;
@@ -46,7 +47,12 @@ impl SiteConfig {
                 assets::logo_icon_url(),
             )
             .await,
-            favicon_url: config::get_default(ctx, "SOLOBASE_SHARED__FAVICON_URL", "").await,
+            favicon_url: config::get_default(
+                ctx,
+                "SOLOBASE_SHARED__FAVICON_URL",
+                assets::favicon_url(),
+            )
+            .await,
             embedded_scripts: scripts_raw
                 .split(',')
                 .map(str::trim)
@@ -198,7 +204,7 @@ fn minimal_config() -> SiteConfig {
         app_name: "Solobase".to_string(),
         logo_url: String::new(),
         logo_icon_url: String::new(),
-        favicon_url: String::new(),
+        favicon_url: assets::favicon_url().to_string(),
         embedded_scripts: Vec::new(),
     }
 }

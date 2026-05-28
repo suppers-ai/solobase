@@ -171,7 +171,7 @@ fn html_respond(title: &str, message: &str, success: bool, logo_url: &str) -> Ou
         app_name: "Solobase".into(),
         logo_url: logo_url.to_string(),
         logo_icon_url: String::new(),
-        favicon_url: String::new(),
+        favicon_url: crate::ui::assets::favicon_url().to_string(),
         embedded_scripts: Vec::new(),
     };
     let markup = ui::layout::page(

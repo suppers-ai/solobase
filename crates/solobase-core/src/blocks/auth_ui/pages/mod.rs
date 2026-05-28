@@ -54,7 +54,7 @@ pub(super) fn site_config(ctx: &dyn Context) -> SiteConfig {
             .to_string(),
         favicon_url: ctx
             .config_get("SOLOBASE_SHARED__FAVICON_URL")
-            .unwrap_or("")
+            .unwrap_or_else(|| ui::assets::favicon_url())
             .to_string(),
         embedded_scripts,
     }
@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(cfg.app_name, "Solobase");
         assert_eq!(cfg.logo_url, crate::ui::assets::logo_long_url());
         assert_eq!(cfg.logo_icon_url, crate::ui::assets::logo_icon_url());
-        assert!(cfg.favicon_url.is_empty());
+        assert_eq!(cfg.favicon_url, crate::ui::assets::favicon_url());
         assert!(cfg.embedded_scripts.is_empty());
     }
 

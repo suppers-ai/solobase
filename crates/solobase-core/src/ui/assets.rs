@@ -23,6 +23,10 @@ const ITIM_LATIN_EXT_WOFF2: &[u8] = include_bytes!("assets/fonts/itim-latin-ext.
 const LOGO_ICON_PNG: &[u8] = include_bytes!("assets/solobase-logo.png");
 /// Solobase wordmark/long logo — used in the sidebar brand and login splash.
 const LOGO_LONG_PNG: &[u8] = include_bytes!("assets/solobase-logo-long.png");
+/// Solobase favicon — bundled so every deployment ships its own `<link rel="icon">`
+/// target without depending on a per-deployment external URL or the implicit
+/// browser fallback to `/favicon.ico` (which 404s by default).
+const FAVICON_ICO: &[u8] = include_bytes!("assets/favicon.ico");
 
 /// Solobase square logo bytes.
 pub fn logo_icon_png() -> &'static [u8] {
@@ -49,6 +53,17 @@ pub fn logo_long_url() -> &'static str {
             short_hash(LOGO_LONG_PNG)
         )
     })
+}
+
+/// Solobase favicon bytes.
+pub fn favicon_ico() -> &'static [u8] {
+    FAVICON_ICO
+}
+
+/// Favicon URL with content hash, e.g. `/b/static/favicon-a1b2c3d4.ico`.
+pub fn favicon_url() -> &'static str {
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| format!("/b/static/favicon-{}.ico", short_hash(FAVICON_ICO)))
 }
 
 /// Itim latin (basic) woff2 bytes.
@@ -397,6 +412,18 @@ mod tests {
             assert!(url.starts_with("/b/static/itim-latin"));
             assert!(url.ends_with(".woff2"));
         }
+    }
+
+    #[test]
+    fn favicon_url_has_content_hash() {
+        let url = super::favicon_url();
+        assert!(url.starts_with("/b/static/favicon-"));
+        assert!(url.ends_with(".ico"));
+        let hash = url
+            .trim_start_matches("/b/static/favicon-")
+            .trim_end_matches(".ico");
+        assert_eq!(hash.len(), 8, "expected 8-char short hash, got: {hash}");
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]
