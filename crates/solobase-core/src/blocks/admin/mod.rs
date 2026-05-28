@@ -4,6 +4,7 @@ mod iam;
 mod logs;
 pub mod migrations;
 mod pages;
+mod route;
 mod settings;
 mod users;
 mod wafer_info;
