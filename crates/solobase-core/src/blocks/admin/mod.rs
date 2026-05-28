@@ -206,19 +206,20 @@ impl Block for AdminBlock {
     ) -> OutputStream {
         use route::AdminRoute;
 
-        // For API routes, the existing handler normalizes the meta resource
-        // to `/admin/<api_rest>` so downstream sub-handlers see the legacy
-        // path shape. Mirror exactly.
-        if let Some(api_rest) = msg.path().strip_prefix("/b/admin/api") {
-            let normalized = format!("/admin{}", api_rest);
-            msg.set_meta("req.resource", &normalized);
-        }
-
-        // Capture path + action as owned strings so the borrow of `msg`
-        // ends before the match arms that move `msg` (StorageDelegate,
-        // CloudStorageDelegate, CreateWrapGrant, DeleteWrapGrant).
+        // Capture path + action BEFORE any meta mutation. msg.path() reads from
+        // get_meta("req.resource") which the API normalization below mutates;
+        // without these captures the routing classifier would see the normalized
+        // path and miss the /b/admin/api prefix.
         let path_owned = msg.path().to_string();
         let action_owned = msg.action().to_string();
+
+        // API path normalization: downstream sub-handlers (users::handle,
+        // database::handle, etc.) expect req.resource as /admin/... instead
+        // of /b/admin/api/... — preserve that contract exactly as the
+        // pre-refactor handler did.
+        if let Some(api_rest) = path_owned.strip_prefix("/b/admin/api") {
+            msg.set_meta("req.resource", &format!("/admin{}", api_rest));
+        }
         match route::route(&path_owned, &action_owned) {
             // --- /b/admin/api/... ---
             AdminRoute::UsersApi        => users::handle(ctx, &msg, input).await,
@@ -243,9 +244,11 @@ impl Block for AdminBlock {
             AdminRoute::WaferApi        => wafer_info::handle(ctx, &msg),
             AdminRoute::CustomTablesApi => custom_tables::handle(ctx, &msg, input).await,
             AdminRoute::StorageDelegate => {
-                // Re-set meta to /admin/<api_rest> (already done above; this branch
-                // matches the original which re-set inside the if). Keep parity.
-                let api_rest = msg.path().strip_prefix("/b/admin/api").unwrap_or("");
+                // The original handler re-set req.resource INSIDE the if branch
+                // (to /admin/<api_rest>). The top-of-function normalization already
+                // did this, but the original re-applied; we mirror by deriving
+                // from path_owned (NOT msg.path() which is now normalized).
+                let api_rest = path_owned.strip_prefix("/b/admin/api").unwrap_or("");
                 msg.set_meta("req.resource", &format!("/admin{}", api_rest));
                 ctx.call_block("suppers-ai/files", msg, input).await
             }

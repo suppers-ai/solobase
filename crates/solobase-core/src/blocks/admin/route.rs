@@ -274,6 +274,12 @@ pub(super) fn route<'a>(path: &'a str, action: &str) -> AdminRoute<'a> {
 mod tests {
     use super::*;
 
+    // NOTE: this module routes purely on the input strings. The real handle() in
+    // mod.rs must capture msg.path() and msg.action() into owned Strings
+    // BEFORE any msg.set_meta("req.resource", ...) call — set_meta mutates
+    // what msg.path() returns. See the API-meta-normalization comment in
+    // handle() for details. Bug surfaced in code review 2026-05-28.
+
     // Helper: each case is (description, path, action, expected_variant).
     fn cases() -> Vec<(&'static str, &'static str, &'static str, AdminRoute<'static>)> {
         vec![
