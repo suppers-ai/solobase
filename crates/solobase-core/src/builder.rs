@@ -310,14 +310,18 @@ impl SolobaseBuilder {
 
         // 4. Register service blocks
         wafer_core::service_blocks::database::register_with(&mut wafer, database)?;
-        wafer.add_alias("db", "wafer-run/database");
+        wafer
+            .add_alias("db", "wafer-run/database")
+            .map_err(|e| format!("add_alias db: {e}"))?;
 
         // `Arc::from(&'static str)` allocates the inline buffer once; no
         // `String::to_string` round-trip needed for a literal identifier.
         let admin_block_id: Arc<str> = Arc::from("suppers-ai/admin");
         let storage_block = crate::blocks::storage::create(storage, admin_block_id);
         wafer.register_block("wafer-run/storage", storage_block.clone())?;
-        wafer.add_alias("storage", "wafer-run/storage");
+        wafer
+            .add_alias("storage", "wafer-run/storage")
+            .map_err(|e| format!("add_alias storage: {e}"))?;
 
         let config_ref = config.clone();
         wafer_core::service_blocks::config::register_with(&mut wafer, config)?;
