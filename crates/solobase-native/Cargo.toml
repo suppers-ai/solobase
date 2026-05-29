@@ -22,6 +22,9 @@ anyhow = "1"
 wafer-run = { workspace = true, features = ["full"] }
 wafer-core = { workspace = true }
 
+# wafer-block hosts the `use_static_blocks!` macro used in serve.rs.
+wafer-block = { workspace = true }
+
 wafer-block-sqlite = { workspace = true }
 wafer-block-local-storage = { workspace = true }
 wafer-block-network = { workspace = true }

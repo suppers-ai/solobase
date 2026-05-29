@@ -12,7 +12,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 // Force linker inclusion of wafer-block-http-listener so its
 // register_static_block! entry lands in STATIC_BLOCK_REGISTRATIONS.
-use wafer_block_http_listener as _;
+wafer_block::use_static_blocks!(http_listener);
 use wafer_run::Wafer;
 
 /// Register the `wafer-run/http-listener` block on `wafer` and configure
