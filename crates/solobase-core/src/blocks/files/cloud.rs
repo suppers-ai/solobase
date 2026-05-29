@@ -88,6 +88,7 @@ async fn handle_create_share(ctx: &dyn Context, msg: &Message, input: InputStrea
     }
 
     // Verify the file actually exists before creating a share
+    // audit-allow: bucket arg is &body.bucket (request-supplied); the storage block @-rewrites cross-block paths and the runtime grant check at solobase-core/src/blocks/storage.rs:256 enforces the actual access against typed Storage grants
     if wafer_core::clients::storage::get(ctx, &body.bucket, &body.key)
         .await
         .is_err()
