@@ -13,7 +13,6 @@
 //! and so cannot be expressed as a static SQL migration. See the SQL file
 //! header for the long-form rationale.
 
-use wafer_core::clients::config;
 use wafer_run::context::Context;
 
 use crate::migration_helper;
@@ -22,15 +21,13 @@ const SQL_001_SQLITE: &str = include_str!("001_vector_schema.sqlite.sql");
 const SQL_001_POSTGRES: &str = include_str!("001_vector_schema.postgres.sql");
 
 pub async fn apply(ctx: &dyn Context) -> Result<(), String> {
-    let backend = config::get_default(ctx, "SOLOBASE_SHARED__DATABASE__BACKEND", "sqlite")
-        .await
-        .to_ascii_lowercase();
-    let sql = if backend == "postgres" {
-        SQL_001_POSTGRES
-    } else {
-        SQL_001_SQLITE
-    };
-    migration_helper::apply_if_blessed(ctx, "suppers-ai/vector", sql).await
+    migration_helper::apply_migrations(
+        ctx,
+        "suppers-ai/vector",
+        &[SQL_001_SQLITE],
+        &[SQL_001_POSTGRES],
+    )
+    .await
 }
 
 #[cfg(test)]
